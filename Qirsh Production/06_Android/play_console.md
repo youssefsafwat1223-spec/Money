@@ -30,17 +30,21 @@ Declare honestly:
 - data is **encrypted in transit** and at rest locally
 - users can **request deletion** (the app has an account-deletion path)
 
-## The notification-listener declaration
+## ⚠️ SUPERSEDED — automatic SMS capture is REQUIRED for V1
 
-This is the single most common rejection reason for this app category. Qirsh
-reads bank notifications, which Play treats as sensitive.
+This section previously described a share-only build and a notification-listener
+declaration. Both were wrong:
 
-Explain plainly:
+- there has never been a `NotificationListenerService` in the Android app;
+- `RECEIVE_SMS` was commented out, so the build shipped no SMS access at all.
 
-> Qirsh reads bank transaction notifications **on the device** to build the
-> user's own private spending record. Message content is not transmitted
-> anywhere without explicit user consent, which is off by default. The
-> permission is core to the app's only purpose — automatic expense tracking.
+Owner decision 2026-08-31 makes **automatic financial-SMS capture a required V1
+feature**, published under the Play exception **SMS-based money management**.
+
+**Publication is gated on an approved Play Permissions Declaration.**
+See [`../18_Android_SMS_Capture/`](../18_Android_SMS_Capture/) for the
+implementation, the declaration draft, the Data Safety draft and the device QA
+matrix.
 
 Permissions actually declared — minimal and defensible:
 
@@ -50,7 +54,7 @@ Permissions actually declared — minimal and defensible:
 | `POST_NOTIFICATIONS` | budget alerts, capture confirmations |
 | `USE_BIOMETRIC` | app lock |
 | `RECEIVE_BOOT_COMPLETED` | restore scheduled reminders after reboot |
-| `RECEIVE_SMS` | bank SMS capture |
+| `RECEIVE_SMS` | automatic bank-SMS capture — **restricted, needs Play approval** |
 
 Note `RECEIVE_SMS` **not** `READ_SMS` — Qirsh receives new messages, it does not
 read the user's message history. Say that; it is a meaningfully weaker ask.

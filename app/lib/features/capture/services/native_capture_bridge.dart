@@ -153,6 +153,64 @@ class CaptureCapabilities {
   }
 }
 
+/// Outcome of the Android runtime RECEIVE_SMS request.
+///
+/// `denied` and `permanentlyDenied` are separated deliberately: only the first
+/// can be retried with a dialog. The second needs the Settings route, and
+/// showing a button that silently does nothing is worse than showing none.
+enum SmsPermissionStatus {
+  /// Build does not declare RECEIVE_SMS — the automatic path is not in this build.
+  unavailable,
+  granted,
+  /// Denied, but the system will still show the dialog if asked again.
+  denied,
+  /// "Don't ask again", or the OS blocks the prompt. Only Settings can change it.
+  permanentlyDenied,
+  /// A request is already in flight; never queue a second dialog.
+  inProgress,
+}
+
+/// The full answer to a permission request: the outcome plus the resulting
+/// capability state, so callers never infer consent from the outcome alone.
+///
+/// `granted` and `enabled` are separate on purpose — a granted permission is
+/// NOT consent to read. The user opt-in is its own stored key.
+class SmsPermissionResult {
+  const SmsPermissionResult({
+    required this.status,
+    required this.declared,
+    required this.granted,
+    required this.enabled,
+  });
+
+  final SmsPermissionStatus status;
+  final bool declared;
+  final bool granted;
+  final bool enabled;
+
+  static const SmsPermissionResult unsupported = SmsPermissionResult(
+    status: SmsPermissionStatus.unavailable,
+    declared: false,
+    granted: false,
+    enabled: false,
+  );
+
+  factory SmsPermissionResult.fromJson(Map<String, dynamic> json) {
+    return SmsPermissionResult(
+      status: switch (json['status'] as String?) {
+        'granted' => SmsPermissionStatus.granted,
+        'denied' => SmsPermissionStatus.denied,
+        'permanently_denied' => SmsPermissionStatus.permanentlyDenied,
+        'in_progress' => SmsPermissionStatus.inProgress,
+        _ => SmsPermissionStatus.unavailable,
+      },
+      declared: json['declared'] as bool? ?? false,
+      granted: json['granted'] as bool? ?? false,
+      enabled: json['enabled'] as bool? ?? false,
+    );
+  }
+}
+
 class NativeCaptureBridge {
   NativeCaptureBridge._();
 
@@ -256,6 +314,30 @@ class NativeCaptureBridge {
           {'enabled': enabled},
         ) ??
         false;
+  }
+
+  /// Ask Android for RECEIVE_SMS.
+  ///
+  /// The caller MUST have shown the prominent disclosure immediately before
+  /// this — Play requires it, and the native side deliberately shows no UI of
+  /// its own so the disclosure cannot be skipped by calling straight through.
+  ///
+  /// Never throws: a platform error resolves to `unsupported` so a failure here
+  /// can only ever leave automatic capture off, never on.
+  static Future<SmsPermissionResult> requestReceiveSmsPermission() async {
+    if (!Platform.isAndroid) return SmsPermissionResult.unsupported;
+    try {
+      final raw =
+          await _channel.invokeMethod<String>('requestReceiveSmsPermission');
+      if (raw == null) return SmsPermissionResult.unsupported;
+      return SmsPermissionResult.fromJson(
+        jsonDecode(raw) as Map<String, dynamic>,
+      );
+    } on PlatformException {
+      return SmsPermissionResult.unsupported;
+    } on MissingPluginException {
+      return SmsPermissionResult.unsupported;
+    }
   }
 
   static Future<void> openAppSettings() async {

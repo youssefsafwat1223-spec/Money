@@ -153,11 +153,50 @@ party receives your text. In Qirsh it does not: the model is on your device.
 
 ## 8. Permissions
 
-- **Notification access** — to read bank notifications for capture. This is the
-  core function; messages are processed on-device.
+### Android — SMS access
+
+Qirsh can read **incoming SMS** on Android to detect financial transactions
+automatically. This is the app's core function: turning bank messages into your
+spending record without you typing them in.
+
+- The permission is **requested only after a disclosure screen** explaining what
+  is accessed and why, and only when you explicitly agree.
+- Granting the permission is **not** enough on its own. Automatic capture stays
+  **off** until you separately turn it on in Settings.
+- Messages are filtered **on your device before anything is stored**. Only
+  messages that look financial are kept; personal messages and one-time codes
+  are discarded and never written down.
+- Qirsh requests `RECEIVE_SMS` only. It does **not** request permission to read
+  your existing inbox, send messages, or read MMS.
+- You can turn automatic capture off in Qirsh, or revoke the permission in
+  Android settings, at any time. Either stops it immediately.
+- SMS content is never used for advertising, marketing, or profiling, and is
+  never sold.
+
+**Manual capture always works without this permission.** You can share a message
+to Qirsh instead, and nothing about that path requires SMS access.
+
+### iOS
+
+There is no SMS permission on iOS. Capture happens when you share a message to
+Qirsh.
+
+### Other permissions
+
+- **Notifications** — to show you alerts Qirsh generates, such as budget
+  warnings and reminders.
 - **Biometrics** — to lock the app, if you enable it.
 
 Qirsh does not request location, contacts, photos, or the microphone.
+
+### Where captured messages are processed
+
+Captured message text is parsed **on your device**. It is not sent to any AI
+provider.
+
+If — and only if — you turn on cloud sync, the resulting transaction data is
+synced to your account, as described in section 3. That is a separate choice
+from this permission, and it is off by default.
 
 ---
 

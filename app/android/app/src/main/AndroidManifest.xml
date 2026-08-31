@@ -17,27 +17,31 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
     <!-- ═══════════════════════════════════════════════════════════════════════
-         MALI-013 — OPTIONAL automatic bank-SMS capture.
+         MALI-013 — automatic financial-SMS capture. CORE Qirsh V1 feature.
 
-         RECEIVE_SMS is a Google Play RESTRICTED permission. This build is
-         Play-safe by DEFAULT: the permission and the SmsCaptureReceiver below
-         are COMMENTED OUT, so the shipping manifest declares no SMS access and
-         capture works entirely through "Share to Mali" (durable, no permission).
+         RECEIVE_SMS is a Google Play RESTRICTED permission. It is declared here
+         because automatic expense tracking from bank SMS is the app's core
+         purpose, which is the basis of the permitted exception:
 
-         Automatic capture is fully implemented (SmsCaptureReceiver +
-         DurableCaptureQueue + CaptureSettings, opt-in and OFF by default). To
-         ship it you MUST, at the BUILD/MANIFEST level (not a runtime flag):
-           1. Obtain a Google Play Console Permissions Declaration approval for
-              "SMS-based money management" AND add the required prominent
-              in-app disclosure before the runtime permission request.
-           2. Uncomment the RECEIVE_SMS permission and the receiver block below
-              (or move them into a dedicated `smsCapture` product flavor so the
-              default/Play-safe build never declares them).
-         Do NOT uncomment without (1) — a declared RECEIVE_SMS without approval
-         gets the app rejected/removed.
+             Play policy exception: "SMS-based money management"
 
-    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+         PUBLICATION IS GATED on an approved Play Permissions Declaration. Until
+         that approval lands the app must not be published to production. See
+         Qirsh Production/18_Android_SMS_Capture/.
+
+         Deliberately NOT declared, because the implementation does not use them:
+           • READ_SMS          — the receiver reads broadcast intents only, never
+                                 content://sms. Asking for inbox history we never
+                                 read would enlarge the declaration for nothing.
+           • SEND_SMS / WRITE_SMS / RECEIVE_MMS / RECEIVE_WAP_PUSH — no feature
+                                 requires them.
+
+         Runtime behaviour is a TWO-KEY LOCK: the permission being granted is not
+         consent. CaptureSettings.autoCaptureEnabled must also be ON, set by the
+         user after a prominent disclosure. Revoking the OS permission fails the
+         capture closed on the next check.
          ═══════════════════════════════════════════════════════════════════════ -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
 
     <!-- MALI-033 — Android Auto Backup / device-transfer policy.
          The entire local dataset is Keystore-bound and would restore INCOHERENT
@@ -124,9 +128,14 @@
             android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />
 
-        <!-- MALI-013 automatic-SMS receiver — enable ONLY with Play approval
-             (see the RECEIVE_SMS note above). Commented out for the Play-safe
-             default build; the implementation (SmsCaptureReceiver) is ready.
+        <!-- MALI-013 automatic-SMS receiver.
+
+             Manifest-declared, not runtime-registered: the system must be able
+             to start it when the app's process is not running, which is the
+             whole point of automatic capture.
+
+             android:permission="android.permission.BROADCAST_SMS" means only the
+             OS can deliver here — no other app can inject a fake bank SMS. -->
         <receiver
             android:name=".SmsCaptureReceiver"
             android:exported="true"
@@ -135,7 +144,6 @@
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
             </intent-filter>
         </receiver>
-        -->
 
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

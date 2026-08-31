@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.WindowManager
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -17,6 +18,18 @@ import org.json.JSONObject
 class MainActivity : FlutterFragmentActivity() {
     // MALI-013: shared/received messages are persisted in DurableCaptureQueue
     // (survives process death) — no process-memory-only list any more.
+
+    companion object {
+        /** Arbitrary but stable; must not collide with a plugin's request code. */
+        private const val REQUEST_RECEIVE_SMS = 4713
+    }
+
+    /**
+     * Held across the runtime-permission round trip. The Android dialog is
+     * asynchronous and can outlive a configuration change, so the Dart caller is
+     * answered from onRequestPermissionsResult rather than inline.
+     */
+    private var pendingSmsPermissionResult: MethodChannel.Result? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -61,6 +74,40 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(CaptureSettings.isAutoCaptureEnabled(this))
                 }
 
+                // MALI-013 — the runtime RECEIVE_SMS request.
+                //
+                // Dart is responsible for showing the prominent disclosure BEFORE
+                // calling this; Play requires disclosure immediately before the
+                // system dialog. This method deliberately does not show any UI of
+                // its own, so the disclosure cannot be bypassed by calling it.
+                //
+                // Returns a JSON status rather than a bare bool so Dart can tell
+                // "denied, ask again" apart from "denied permanently" — those need
+                // different UX (retry vs. send the user to Settings).
+                "requestReceiveSmsPermission" -> {
+                    when {
+                        !CaptureSettings.receiveSmsDeclared(this) ->
+                            // Build does not ship the permission at all.
+                            result.success(smsPermissionStatus("unavailable"))
+
+                        CaptureSettings.hasReceiveSmsPermission(this) ->
+                            result.success(smsPermissionStatus("granted"))
+
+                        pendingSmsPermissionResult != null ->
+                            // A dialog is already up; never queue two.
+                            result.success(smsPermissionStatus("in_progress"))
+
+                        else -> {
+                            pendingSmsPermissionResult = result
+                            ActivityCompat.requestPermissions(
+                                this,
+                                arrayOf(Manifest.permission.RECEIVE_SMS),
+                                REQUEST_RECEIVE_SMS,
+                            )
+                        }
+                    }
+                }
+
                 "openAppSettings" -> {
                     openAppSettings()
                     result.success(null)
@@ -100,6 +147,56 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    /**
+     * MALI-013 — deliver the runtime permission outcome to the waiting Dart call.
+     *
+     * `shouldShowRequestPermissionRationale` is false AFTER a denial only when the
+     * user chose "don't ask again" (or the OS blocks the prompt), which is the
+     * only reliable signal for that state on Android. Reported as
+     * `permanently_denied` so Dart can offer the Settings route instead of a
+     * retry that would never show a dialog.
+     *
+     * Denial never disables share capture: it needs no permission and keeps
+     * working. Auto-capture simply stays OFF.
+     */
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != REQUEST_RECEIVE_SMS) return
+
+        val pending = pendingSmsPermissionResult ?: return
+        pendingSmsPermissionResult = null
+
+        val granted = grantResults.isNotEmpty() &&
+            grantResults[0] == PackageManager.PERMISSION_GRANTED
+        val status = when {
+            granted -> "granted"
+            ActivityCompat.shouldShowRequestPermissionRationale(
+                this,
+                Manifest.permission.RECEIVE_SMS,
+            ) -> "denied"
+            else -> "permanently_denied"
+        }
+        pending.success(smsPermissionStatus(status))
+    }
+
+    /**
+     * One shape for every permission answer, so Dart never has to infer state
+     * from a bare boolean. `enabled` is included because a granted permission is
+     * NOT consent — the user opt-in is a separate key (CaptureSettings).
+     */
+    private fun smsPermissionStatus(status: String): String {
+        val json = JSONObject()
+        json.put("status", status)
+        json.put("declared", CaptureSettings.receiveSmsDeclared(this))
+        json.put("granted", CaptureSettings.hasReceiveSmsPermission(this))
+        json.put("enabled", CaptureSettings.isAutoCaptureEnabled(this))
+        return json.toString()
     }
 
     // Honest: this is the NOTIFICATION permission, never reported as SMS.

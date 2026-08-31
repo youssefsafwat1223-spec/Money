@@ -12,6 +12,12 @@ blocks the critical path.
 | 3 | Apple Developer configuration | Youssef | $99/yr membership |
 | 4 | Android production keystore | Youssef | local `keytool`, two backup locations |
 
+## Play publication gate — NEW, 2026-08-31
+
+| Item | Owner | Status |
+|---|---|---|
+| **Google Play restricted-permission approval** (`RECEIVE_SMS`, SMS-based money management) | Youssef | **PENDING** — implementation and declaration draft complete; Play publication cannot proceed without approval. [`../18_Android_SMS_Capture/`](../18_Android_SMS_Capture/) |
+
 ## Future — does NOT block this release
 
 | Item | Owner | Status |

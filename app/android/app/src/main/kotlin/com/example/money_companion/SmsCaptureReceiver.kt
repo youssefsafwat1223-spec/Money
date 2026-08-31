@@ -36,7 +36,8 @@ class SmsCaptureReceiver : BroadcastReceiver() {
             if (sender == null) sender = part.originatingAddress
         }
         val text = body.toString().trim()
-        if (text.isEmpty() || !looksFinancial(text)) return // drop unrelated SMS
+        // Privacy prefilter — unrelated SMS are dropped here and never stored.
+        if (text.isEmpty() || !shouldRetain(text, sender)) return
 
         // MALI-068n §11 — the SMS's own receipt epoch is authoritative, not the
         // (possibly later) time this receiver runs. Fall back to now only if the
@@ -57,22 +58,85 @@ class SmsCaptureReceiver : BroadcastReceiver() {
     }
 
     /**
-     * Conservative local pre-filter so only plausibly-financial messages are
-     * stored. The authoritative parse still runs in the Dart engine; this only
-     * prevents unrelated SMS from ever entering the queue. Intentionally broad
-     * (amount-like token OR a bank/transaction keyword) to avoid dropping real
-     * bank messages, while excluding chit-chat/OTP-only texts.
+     * Privacy prefilter: should this message be retained at all?
+     *
+     * This is NOT a parser. It decides only whether a message may enter the
+     * durable queue; the authoritative parse still happens in the Dart engine.
+     * Keeping it dumb is deliberate — a second parser here would drift from the
+     * real one and would be invisible when it did.
+     *
+     * The gate is sender-aware, because sender shape is the strongest signal
+     * available at this layer without importing catalogue data:
+     *
+     *   • Alphanumeric sender ("AlRajhiBank", "SABB", "stc pay") — banks and
+     *     businesses send from sender IDs, which ordinary people cannot use.
+     *     A single strong financial signal is enough.
+     *
+     *   • Numeric sender (+9665…, a real phone number) — this is where personal
+     *     messages come from. Require an amount AND a transaction keyword, so a
+     *     friend writing "bring your card" is not retained on the word "card"
+     *     alone. That was a real false-positive in the previous `amount OR
+     *     keyword` rule.
+     *
+     * Erring toward retention for sender IDs is intentional: a missed bank SMS
+     * is a silently absent transaction, which users do not notice and cannot
+     * correct. A retained personal SMS is a privacy cost, which is why the
+     * numeric-sender path is strict.
      */
-    private fun looksFinancial(text: String): Boolean {
+    private fun shouldRetain(text: String, sender: String?): Boolean {
         val lower = text.lowercase()
-        val hasAmount = Regex("""\d[\d,]*\.?\d*\s?(sar|aed|egp|usd|eur|gbp|ر\.س|ريال|درهم|جنيه|\$|€|£)""")
-            .containsMatchIn(lower)
+        val hasAmount = hasAmountLike(lower)
+        val hasKeyword = hasTransactionKeyword(lower)
+
+        // OTP / verification codes are never financial records, whatever the
+        // sender. Banks send these from the same sender ID as real alerts, so
+        // this has to be checked before the sender split.
+        if (isLikelyOtp(lower) && !hasAmount) return false
+
+        return if (isAlphanumericSender(sender)) hasAmount || hasKeyword
+        else hasAmount && hasKeyword
+    }
+
+    /**
+     * True when the sender is a sender ID rather than a phone number.
+     *
+     * Unknown/absent senders are treated as numeric (the strict path): absent
+     * evidence must not buy the loose rule.
+     */
+    private fun isAlphanumericSender(sender: String?): Boolean {
+        val s = sender?.trim().orEmpty()
+        if (s.isEmpty()) return false
+        // Any letter — Latin or Arabic — means it cannot be a dialable number.
+        return s.any { it.isLetter() }
+    }
+
+    private fun hasAmountLike(lower: String): Boolean =
+        Regex("""\d[\d,]*\.?\d*\s?(sar|aed|egp|kwd|bhd|omr|qar|jod|usd|eur|gbp|ر\.س|ريال|درهم|جنيه|دينار|\$|€|£)""")
+            .containsMatchIn(lower) ||
+            Regex("""(sar|aed|egp|kwd|bhd|omr|qar|jod|usd|eur|gbp|ر\.س|ريال|درهم|جنيه|دينار)\s?\d""")
+                .containsMatchIn(lower)
+
+    private fun hasTransactionKeyword(lower: String): Boolean {
         val keywords = listOf(
             "purchase", "payment", "transaction", "withdraw", "deposit", "transfer",
-            "debited", "credited", "balance", "pos", "card",
-            "شراء", "دفع", "عملية", "سحب", "إيداع", "تحويل", "خصم", "رصيد", "بطاقة",
+            "debited", "credited", "balance", "pos", "refund", "atm", "invoice",
+            "شراء", "دفع", "عملية", "سحب", "إيداع", "تحويل", "خصم", "رصيد",
+            "مشتريات", "فاتورة", "استرداد", "بطاقة",
         )
-        val hasKeyword = keywords.any { lower.contains(it) }
-        return hasAmount || hasKeyword
+        return keywords.any { lower.contains(it) }
+    }
+
+    /**
+     * One-time codes are the highest-volume non-financial traffic on a bank
+     * sender ID. Dropping them keeps the queue — and anything downstream — free
+     * of credentials the app has no reason to hold.
+     */
+    private fun isLikelyOtp(lower: String): Boolean {
+        val markers = listOf(
+            "otp", "one-time", "one time password", "verification code",
+            "security code", "login code", "رمز التحقق", "كلمة المرور المؤقتة",
+            "رمز الدخول", "لا تشارك",
+        )
+        return markers.any { lower.contains(it) }
     }
 }
