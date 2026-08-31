@@ -197,8 +197,19 @@ to Qirsh instead, and nothing about that path requires SMS access.
 
 ### iOS
 
-There is no SMS permission on iOS. Capture happens when you share a message to
-Qirsh.
+**iOS gives no app permission to read your Messages, and Qirsh does not have
+one.** It cannot open, search or browse your Messages history. It only ever sees
+a message that you hand to it, in one of two ways:
+
+- **Share to Qirsh** — you select a message and share its text to Qirsh.
+- **A Shortcuts automation you set up yourself** — Qirsh provides a Shortcuts
+  action ("Process Bank SMS"). If you build an automation that runs it, the
+  Shortcut passes that message's text, sender and time to Qirsh. Qirsh receives
+  only what your automation passes in, and the automation only runs on the
+  messages you configured it for.
+
+In both cases the content comes to Qirsh because you sent it. Qirsh has no way to
+reach anything you did not.
 
 ### Other permissions
 

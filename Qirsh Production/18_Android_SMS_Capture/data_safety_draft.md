@@ -153,6 +153,28 @@ for their own purposes — model training, analytics, advertising — the answer
 that recipient would become **Shared: YES**, and the money-management exception
 would be at risk.
 
+### ⛔ PRE-PRODUCTION GATE — provider verification
+
+**Shared: NO depends entirely on the service-provider exception holding.** Before
+enabling **any** production AI provider or diagnostics provider, verify against
+that provider's current terms — not a memory of them — that it:
+
+1. **processes data only on Qirsh's behalf**, under our instructions;
+2. has **no independent-purpose use** of the submitted content — no resale, no
+   advertising, no product improvement for its own benefit;
+3. **does not train on submitted Qirsh user content**, unless that is separately
+   disclosed in the privacy policy and reflected as **Shared: YES** in Data
+   Safety.
+
+If any of the three fails, the exception does not apply and that recipient's row
+becomes **Shared: YES**. Declaring **NO** while a provider trains on user
+financial messages would be a false attestation on a form Google audits — and
+for a money-management app relying on a restricted-permission exception, that is
+the kind of finding that costs the exception itself.
+
+Applies to: the AI provider (Gemini) and Sentry. Record the date and the terms
+version checked, next to the row.
+
 ⚠️ The AI provider is the one to watch. `process-ios-sms`, `bank-discovery` and
 `parse-sms` all reference Gemini, gated server-side on `allowAi`, which the
 client forwards from `aiConsentGranted`. **`GEMINI_API_KEY` is not currently set
