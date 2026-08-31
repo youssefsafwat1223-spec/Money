@@ -10,8 +10,11 @@ revoked.
 | Permission declared | **`RECEIVE_SMS` only** |
 | Implementation | **complete** |
 | Prominent disclosure | **implemented** |
+| Legal disclosure (privacy policy §8) | **LIVE** — deployed to `https://qirsh.site/privacy` and `/en/privacy`, 2026-08-31 |
+| Data Safety draft | **READY — NOT submitted** |
 | Play Permissions Declaration | **draft ready — NOT submitted** |
 | **Google Play approval** | **PENDING — do not publish to production without it** |
+| Physical-device SMS QA | **PENDING** — matrix below |
 
 ---
 

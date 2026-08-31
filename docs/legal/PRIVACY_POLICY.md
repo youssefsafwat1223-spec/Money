@@ -208,8 +208,9 @@ a message that you hand to it, in one of two ways:
   only what your automation passes in, and the automation only runs on the
   messages you configured it for.
 
-In both cases the content comes to Qirsh because you sent it. Qirsh has no way to
-reach anything you did not.
+In both cases, Qirsh receives content only because you either shared it or
+configured a Shortcut to pass it. Qirsh cannot independently open, search, or
+browse your Messages history.
 
 ### Other permissions
 

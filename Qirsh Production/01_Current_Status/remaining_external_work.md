@@ -17,8 +17,22 @@ blocks the critical path.
 | Gate | Why |
 |---|---|
 | **Re-run dedup/idempotency tests** after the parser session lands | the duplicate outcome comes from `add_transaction_usecase.dart`, under active refactor; a change there breaks idempotency silently — the capture still imports, just twice. Command in [`../18_Android_SMS_Capture/`](../18_Android_SMS_Capture/) |
-| **Deploy the updated privacy page** to `qirsh.site` | the live page describes behaviour the app no longer has; Play cross-checks the policy against declared permissions |
+| ~~**Deploy the updated privacy page** to `qirsh.site`~~ | **DONE 2026-08-31.** `/privacy` and `/en/privacy` live and byte-identical to the approved artifact; the other six routes untouched. [`../04_Legal/legal_release_checklist.md`](../04_Legal/legal_release_checklist.md) |
 | **Execute the Android device QA matrix** | the Kotlin prefilter has no automated test; this is its only execution evidence |
+| **Verify the AI / diagnostics provider's current terms** before enabling either in production | the Data Safety **Shared: NO** answers rest entirely on Play's service-provider exception, which is a claim about the provider's terms, not about our code. [`../18_Android_SMS_Capture/data_safety_draft.md`](../18_Android_SMS_Capture/data_safety_draft.md) |
+
+## Privacy / Data Safety state — 2026-08-31
+
+```
+PRIVACY POLICY SOURCE:      ALIGNED
+LIVE PRIVACY POLICY:        ALIGNED
+AUTO-SMS LEGAL DISCLOSURE:  LIVE
+DATA SAFETY DRAFT:          READY
+GOOGLE PLAY APPROVAL:       PENDING
+PHYSICAL DEVICE SMS QA:     PENDING
+```
+
+Source and live page are the same text: `docs/legal/PRIVACY_POLICY.md` → `tools/build_site.py` → the VPS, verified by hash after deployment. If the policy changes, both must move together — a live page that lags the source is the failure mode Play cross-checks for.
 
 ## Play publication gate — NEW, 2026-08-31
 
