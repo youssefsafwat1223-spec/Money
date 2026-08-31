@@ -2,6 +2,31 @@
 
 **Audited 2026-08-31 from local evidence. No portal action taken.**
 
+## ⏸ APPLE PORTAL KEY RECONCILIATION: DEFERRED — awaiting owner/client 2FA access
+
+Portal sign-in needs a 2FA code sent to the client's device, and the client is
+unavailable. No further login is to be attempted and no additional verification
+codes requested.
+
+**Everything below derived from local files remains valid** — signed provisioning
+profiles are authoritative about what the portal contained when they were
+issued. But **portal state today is UNVERIFIED**: an identifier or capability
+could have been changed or removed since July 2026, and nothing here can detect
+that.
+
+Specifically UNVERIFIED until the owner is available:
+
+- whether both App IDs still exist with the recorded capabilities
+- whether the App Group is still assigned to both
+- **which of the four `AuthKey_*.p8` files is the APNs key** and which are App
+  Store Connect API keys — not determinable locally, the filename pattern is
+  identical for both
+- whether the distribution certificate is still valid and unrevoked
+- whether an App Store Connect record exists
+
+The four `.p8` and two `.p12` files in `~/Downloads` are **left exactly where
+they are** — not moved, not deleted, not opened.
+
 ## The headline: most of this already exists
 
 The earlier audit said "no certificates, no profiles, nothing configured". That
