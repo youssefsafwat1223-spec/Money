@@ -17,6 +17,31 @@ from memory.
 | Variable | Value | Group | Status |
 |---|---|---|---|
 | `LEGAL_BASE_URL` | `https://qirsh.site` | `supabase` | **PENDING** |
+| `ADMOB_APP_ID_ANDROID` | real AdMob app id | `supabase` | **PENDING** — see below |
+| `ADMOB_INTERSTITIAL_ANDROID` | real ad unit id | `supabase` | PENDING |
+| `ADMOB_APP_ID_IOS` | real AdMob app id | `supabase` | PENDING |
+| `ADMOB_INTERSTITIAL_IOS` | real ad unit id | `supabase` | PENDING |
+| `ANDROID_KEYSTORE_BASE64` | base64 of the upload keystore | `google_play` | **SECRET**, PENDING |
+| `ANDROID_KEYSTORE_PASSWORD` | — | `google_play` | **SECRET**, PENDING |
+| `ANDROID_KEY_ALIAS` | `qirsh-upload` | `google_play` | PENDING (not secret) |
+| `ANDROID_KEY_PASSWORD` | — | `google_play` | **SECRET**, PENDING |
+
+### `ADMOB_APP_ID_ANDROID` — raised by `signingReport`, 2026-08-31
+
+Gradle warns that a Release build with this unset carries **Google's sample
+AdMob application id**. The fallback is deliberate and safe — it keeps the
+manifest valid so the SDK cannot crash at process start, while Dart reports
+"not configured" so no ad is requested — but a signed release in that state
+serves no ads and declares a sample publisher. Resolve before signing.
+Detail: [`../13_AdMob/build_configuration.md`](../13_AdMob/build_configuration.md).
+
+### Android signing values
+
+The upload keystore exists and local signing is verified
+([`../16_Android_Signing/`](../16_Android_Signing/)). The four Gradle values
+currently come from `app/android/key.properties`, which is gitignored and local
+only. CI needs them as environment variables, with the keystore itself base64'd
+into `ANDROID_KEYSTORE_BASE64`. **The base64 blob is as secret as the file.**
 
 ### Why this one is not urgent, and not optional
 

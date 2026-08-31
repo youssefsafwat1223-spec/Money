@@ -1,6 +1,6 @@
 # Upload Keystore Record
 
-**Status: GENERATED and VERIFIED — 2026-08-31.**
+**Status: GENERATED, BACKED UP (partially), and LOCAL SIGNING VERIFIED — 2026-08-31.**
 
 ⛔ **No password, passphrase or base64 blob appears in this file.**
 Fingerprints, subject, alias, dates and validity are public properties of the
@@ -131,6 +131,29 @@ both the key and its password is one compromise, not two.
 Enrolment happens at app-record creation and is effectively irreversible. Enrol:
 it turns a lost upload key from fatal into a reset request.
 
+## LOCAL SIGNING VERIFICATION — CLOSED
+
+`./gradlew signingReport` — **BUILD SUCCESSFUL**. The Release variant resolves
+to the production upload key:
+
+| | |
+|---|---|
+| Store | `/Users/youssef/qirsh-upload-keystore.jks` |
+| Alias | **`qirsh-upload`** |
+| SHA-1 | `82:C8:9D:D4:9C:98:D5:F0:05:56:E9:DF:7F:A5:63:C7:25:8D:BC:C0` ✓ matches |
+| SHA-256 | `87:7C:14:73:0D:29:B0:22:E5:86:44:DA:4A:E6:F5:FA:69:A1:09:8E:59:81:74:70:69:E0:37:77:93:85:87:11` ✓ matches |
+| Debug fallback | **NO** — Release uses the upload certificate, not the debug key |
+
+That last row is the point of the exercise. A release silently signed with the
+debug key is what got a real Play upload rejected once; the report proves the
+Release variant is on the intended certificate.
+
+`app/android/key.properties` — written, mode `600`, **gitignored** (confirmed by
+`git check-ignore`, absent from `git status`, untracked). All four keys present
+and non-empty. The two non-secret values are exactly
+`storeFile=/Users/youssef/qirsh-upload-keystore.jks` and `keyAlias=qirsh-upload`.
+The two passwords were never read, hashed, measured or logged.
+
 ## Verification status
 
 - [x] File exists, outside the repository
@@ -140,12 +163,46 @@ it turns a lost upload key from fatal into a reset request.
 - [x] SHA-1 and SHA-256 recorded
 - [x] `git check-ignore`: `key.properties`, `*.jks`, `*.keystore` all ignored
 - [x] 0 keystore-shaped files tracked; 0 `.jks` anywhere in the working tree
-- [ ] `app/android/key.properties` written — **owner action**, run
-      `bash tools/setup_android_key_properties.sh` (hidden password entry)
+- [x] **`app/android/key.properties` written**, mode `600`, gitignored
+- [x] **`./gradlew signingReport` resolves the release config to `qirsh-upload`**
 - [x] Backup #1 — iCloud Drive, checksum + fingerprint verified
-- [~] Backup #2 — `/Volumes/shared`, verified but **same machine**; an
-      off-machine destination is still required
-- [ ] `./gradlew signingReport` resolves the release config
+- [~] Backup #2 — `/Volumes/shared`, **supplemental only**; same machine
+- [ ] **Second genuinely off-machine backup — STILL PENDING**
+
+## ⚠️ OUTSTANDING before any signed release build
+
+### 1. `ADMOB_APP_ID_ANDROID` is not set
+
+`signingReport` warned that a Release build would carry **Google's sample AdMob
+application ID**. Confirmed: the variable is unset in the environment, and
+`admobAppIdFor(isRelease = true)` falls back to the sample id when nothing is
+supplied.
+
+That fallback is deliberate and safe — it keeps the manifest valid so the SDK
+does not crash at process start, while `ReportAdsBuildConfig` reports
+"not configured" so no ad is ever requested. **It is not a defect.** But a
+signed release shipped in that state serves no ads and declares a sample
+publisher, so it must be resolved first.
+
+**Not fixed here, by instruction.** Belongs to the final production
+configuration / Codemagic pass — [`../15_Codemagic/README.md`](../15_Codemagic/README.md),
+detail in [`../13_AdMob/build_configuration.md`](../13_AdMob/build_configuration.md).
+
+### 2. Java 17 must be resolved explicitly on this machine
+
+There is no system JDK, and `/usr/bin/keytool` is a non-functional stub. Gradle
+needs Java 17 named explicitly:
+
+```bash
+JAVA_HOME=/usr/local/Cellar/openjdk@17/17.0.20.1 \
+PATH="/usr/local/Cellar/openjdk@17/17.0.20.1/bin:$PATH" \
+./gradlew signingReport
+```
+
+`openjdk@17` is keg-only, so it is not on `PATH` by default. **Shell
+configuration has deliberately not been modified globally** — that needs
+separate approval. Until then, every Gradle invocation on this machine needs the
+prefix above.
 
 ## Note: JKS vs PKCS12
 
