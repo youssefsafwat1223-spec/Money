@@ -30,6 +30,23 @@ const _authBlue = AppBrandBlue.brand;
 /// hero melts seamlessly into the background.
 const _authDeepNavy = Color(0xFF031322);
 
+/// Whether this platform can complete Sign in with Apple.
+///
+/// V1 is iOS-only by decision (`Qirsh Production/17_Apple_Production/`). The
+/// implementation uses the NATIVE flow — `SignInWithApple.getAppleIDCredential`
+/// with no `webAuthenticationOptions`, exchanged via `signInWithIdToken` — which
+/// cannot complete on Android. Showing the button there offers a control that
+/// always fails.
+///
+/// Supporting Android would need a Services ID, the Supabase callback URL as a
+/// Return URL, and `webAuthenticationOptions` in the credential request. None of
+/// those exist, so the button is gated rather than half-supported.
+///
+/// Uses `defaultTargetPlatform` rather than `dart:io` so a test can drive it
+/// through `debugDefaultTargetPlatformOverride`.
+@visibleForTesting
+bool get appleSignInSupported => defaultTargetPlatform == TargetPlatform.iOS;
+
 /// Page 3 of the redesigned onboarding: mandatory sign-in.
 ///
 /// Same flat navy background and small fixed logo as the rest of the
@@ -201,8 +218,10 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              _appleButton(c),
-                              const SizedBox(height: 16),
+                              if (appleSignInSupported) ...[
+                                _appleButton(c),
+                                const SizedBox(height: 16),
+                              ],
                               _googleButton(c),
                               const SizedBox(height: 24),
                               Wrap(
