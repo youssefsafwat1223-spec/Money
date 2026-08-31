@@ -6,6 +6,12 @@ Complements [`../05_Apple/`](../05_Apple/), which holds the portal walkthroughs.
 **Audited 2026-08-31 against source, not against documentation.**
 Nothing was created, revoked or changed in any Apple portal.
 
+> ⚠️ **Superseded in part.** A later audit found that most of the portal setup
+> **already exists** — App IDs, App Group, capabilities, distribution profiles
+> valid to 2027-06-29, and a distribution `.p12`. The "what to create" list
+> below is therefore largely a "what to verify" list.
+> **Read [`portal_audit.md`](portal_audit.md) first.**
+
 ---
 
 ## What the source actually requires
@@ -105,13 +111,18 @@ Android is a UI defect worth fixing regardless.
 
 | Item | State |
 |---|---|
-| Team ID in project | `5TWARK8A23` |
-| Code sign style | **Automatic** |
-| Code sign identity | `Apple Development` — **development, not distribution** |
+| Team ID in project | `5TWARK8A23` (TeamName "Albaraa Alshehri") |
+| Code sign style | **Automatic** — fine for local debug; release signs in CI |
+| Code sign identity | `Apple Development` |
 | Provisioning profile specifier | empty |
-| Local distribution certificate | none installed |
-| Local provisioning profiles | `~/Library/MobileDevice/Provisioning Profiles` **absent** |
-| APNs auth key | none present locally |
+| Distribution certificate **installed** | **no** — 0 Apple Distribution identities in the keychain |
+| Distribution certificate **exists** | **yes** — `~/Downloads/mali_distribution.p12` |
+| Provisioning profiles **installed** | **no** — `~/Library/MobileDevice/Provisioning Profiles` absent |
+| Provisioning profiles **exist** | **yes** — App Store Main + Share, valid to 2027-06-29 |
+| APNs auth key | **four `AuthKey_*.p8` in `~/Downloads`**; which is APNs is not determinable locally |
+
+The portal is largely configured; **this machine is not**. Detail and evidence:
+[`portal_audit.md`](portal_audit.md).
 
 `APS_ENVIRONMENT` is already `production` on the Release configuration — correct
 and needs no change.
