@@ -7,7 +7,7 @@ blocks the critical path.
 
 | # | Item | Owner | Needs |
 |---|---|---|---|
-| 1 | Create the new Supabase production project | Youssef | Supabase account |
+| 1 | ~~Create the new Supabase production project~~ — **DONE**, `rjwphwsefnuotpbtuycf`, migrations `0001–0092` applied | — | — |
 | 2 | ~~Host the legal site~~ — **DONE**, canonical at `qirsh.site` over TLS on the Qirsh VPS | — | — |
 | 3 | Apple Developer configuration | Youssef | $99/yr membership |
 | 4 | Android production keystore | Youssef | local `keytool`, two backup locations |
@@ -22,9 +22,9 @@ blocks the critical path.
 
 | # | Item | Owner | Blocked by |
 |---|---|---|---|
-| 5 | Set Edge Function secrets | Claude `[AUTH]` | 1 |
-| 6 | Apply migrations 0001–0092 | Claude `[AUTH]` | 1, 5 |
-| 7 | Deploy 24 Edge Functions | Claude `[AUTH]` | 1, 5 |
+| 5 | ~~Set Edge Function secrets~~ — **DONE**, both worker secrets set and rotated | — | — |
+| 6 | ~~Apply migrations 0001–0092~~ — **DONE**, applied and verified live | — | — |
+| 7 | **Deploy 24 Edge Functions** — **BLOCKED**: Management API 403, raised with Supabase Support | Claude `[AUTH]` | Supabase Support |
 | 8 | Signed release builds | Youssef + Claude | 1, 2, 3, 4 |
 | 9 | Physical-device QA + UX-035 | Youssef `[DEVICE]` | 8 |
 | 10 | TestFlight / Play internal beta | Youssef | 9 |

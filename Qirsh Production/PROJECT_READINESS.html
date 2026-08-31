@@ -198,8 +198,8 @@
     </div>
     <div>
       <div class="stat-label">Release milestones</div>
-      <div class="stat-value">3 of 14 complete</div>
-      <div class="bar"><i style="width:21.4%"></i></div>
+      <div class="stat-value">4 of 14 complete</div>
+      <div class="bar"><i style="width:28.6%"></i></div>
       <div class="bar-note">
         Counted from the 14 milestones in the runbook — see
         <a href="#milestones">the list</a>. Not a guess.
@@ -316,7 +316,7 @@
     <h3>Release blockers <span class="b b-block">3</span></h3>
     <div class="ref">These genuinely stop production. Nothing else does.</div>
     <ul class="items">
-      <li><span class="b b-block">1</span><span class="t">No production Supabase project exists<span class="n">Blocks all backend work · Runbook §2.1</span></span></li>
+      <li><span class="b b-block">1</span><span class="t">Edge Functions cannot deploy — Management API <strong>403</strong><span class="n">Raised with Supabase Support. Migrations and secrets are already applied; only Functions are blocked.</span></span></li>
       <li><span class="b b-block">2</span><span class="t">No Android production keystore<span class="n">No signed AAB without it · irreplaceable once the app ships</span></span></li>
       <li><span class="b b-block">3</span><span class="t">Apple configuration incomplete<span class="n">App IDs, capabilities, APNs key, profiles · Runbook §5</span></span></li>
     </ul>
@@ -722,8 +722,8 @@
       <tr><td>1</td><td>Source / local work complete</td><td><span class="b b-done">COMPLETE</span></td></tr>
       <tr><td>2</td><td>Release baseline certified (strict gate green)</td><td><span class="b b-done">COMPLETE</span></td></tr>
       <tr><td>3</td><td>Legal site publicly hosted <span class="n">(approved temporary host)</span></td><td><span class="b b-done">COMPLETE</span></td></tr>
-      <tr><td>4</td><td>New Supabase production project created</td><td><span class="b b-wait">TODO</span></td></tr>
-      <tr><td>5</td><td>Backend provisioned (secrets, migrations, functions)</td><td><span class="b b-wait">TODO</span></td></tr>
+      <tr><td>4</td><td>New Supabase production project created</td><td><span class="b b-done">COMPLETE</span></td></tr>
+      <tr><td>5</td><td>Backend provisioned <span class="n">migrations + secrets done; Edge Functions blocked on a Supabase 403</span></td><td><span class="b b-block">PARTIAL</span></td></tr>
       <tr><td>6</td><td>Apple configuration complete</td><td><span class="b b-wait">TODO</span></td></tr>
       <tr><td>7</td><td>Android keystore created and backed up</td><td><span class="b b-wait">TODO</span></td></tr>
       <tr><td>8</td><td>Signed release builds produced</td><td><span class="b b-wait">TODO</span></td></tr>

@@ -32,25 +32,36 @@ separately throughout.
 | # | Phase | Status | Owner | Blocker | Next action |
 |---|---|---|---|---|---|
 | 0 | Source / local remediation | **[x] COMPLETE** | Claude | — | nothing — do not repeat |
-| 1 | Legal hosting | `[ ]` TODO | Youssef | needs any HTTPS static host | publish `build/legal/` |
-| 2 | New Supabase production project | `[ ]` TODO | Youssef | project does not exist yet | **create it — see §2.1** |
-| 3 | Backend provisioning (migrations, functions, secrets) | `[~]` WAITING | Claude `[AUTH]` | needs Phase 2 | — |
-| 4 | Apple developer configuration | `[ ]` TODO | Youssef | — | can start in parallel now |
-| 5 | Android keystore | `[ ]` TODO | Youssef | — | can start in parallel now |
-| 6 | Signed release builds | `[~]` WAITING | Youssef + Claude | needs 1, 2, 4, 5 | — |
-| 7 | Physical-device QA (incl. UX-035) | `[~]` WAITING | Youssef `[DEVICE]` | needs Phase 6 | — |
-| 8 | Internal beta (TestFlight / Play) | `[~]` WAITING | Youssef | needs Phase 7 | — |
-| 9 | Capability activation (PUSH → PULL) | `[~]` WAITING | Claude `[AUTH]` | needs Phase 8 | — |
-| 10 | Store submission | `[~]` WAITING | Youssef | needs Phase 9 | — |
-| 11 | Staged rollout + monitoring | `[~]` WAITING | Youssef | needs Phase 10 | — |
+| 1 | Public website + legal hosting | **[x] COMPLETE** | — | — | live at `qirsh.site`, TLS, canonical |
+| 2 | New Supabase production project | **[x] COMPLETE** | — | — | `rjwphwsefnuotpbtuycf`, provisioned |
+| 3a | Migrations 0001–0092 | **[x] COMPLETE** | Claude | — | applied and verified live |
+| 3b | Worker secrets | **[x] COMPLETE** | Claude | — | both set and rotated |
+| 3c | **24 Edge Functions** | `[~]` **BLOCKED** | Claude `[AUTH]` | **Management API 403 — Supabase Support** | wait for Support |
+| 3d | Auth providers / redirect URLs | `[ ]` TODO | Youssef | — | **can start now** |
+| 4 | Apple developer configuration | `[ ]` TODO | Youssef | — | **can start now, in parallel** |
+| 5 | Android production keystore | `[ ]` TODO | Youssef | — | **can start now, in parallel** |
+| 6 | Codemagic production configuration | `[~]` **DEFERRED** | Youssef | owner decision | one consolidated pass — §15 |
+| 7 | Signed release builds | `[~]` WAITING | Youssef + Claude | needs 4, 5, 6 | — |
+| 8 | Physical-device QA (incl. UX-035) | `[~]` WAITING | Youssef `[DEVICE]` | needs 7 | — |
+| 9 | Internal beta (TestFlight / Play) | `[~]` WAITING | Youssef | needs 8 | — |
+| 10 | Capability activation (PUSH → PULL) | `[~]` WAITING | Claude `[AUTH]` | needs 3c + 9 | — |
+| 11 | Store submission | `[~]` WAITING | Youssef | needs 10 | — |
+| 12 | Staged rollout + monitoring | `[~]` WAITING | Youssef | needs 11 | — |
+
+**Not yet done, and deliberately:** no release build has been created, the admin
+application is not deployed, and `admin.qirsh.site` has no DNS record. The admin
+vhost exists on the VPS and answers 503 — architecture ready, application
+intentionally unavailable rather than exposed without its auth configured.
 
 ### ► CURRENT NEXT STEP
 
-**[!] Youssef — create the new Supabase production project (§2.1),** and in
-parallel start Apple (§5) and Android keystore (§6). Those three have no
-dependencies on each other and are the critical path.
+**[!] Youssef — Apple developer configuration (§5) and the Android production
+keystore (§6).** They are independent of each other, independent of the Supabase
+Edge Function blocker, and together they are the only thing standing between the
+current state and a signed build.
 
-Everything Claude can do without you is already done.
+Edge Function deployment is blocked on a Supabase Management API 403 awaiting
+Support. Nothing else waits on it, so it should not stall the critical path.
 
 ---
 ---
@@ -125,16 +136,28 @@ Flutter **2840 bulk + 24 crypto**, analyze 0 issues, admin **113**, deno all fun
 
 Only these. Everything else is done.
 
-1. Host the legal site and get a public HTTPS URL.
-2. Create the **new** Supabase production project.
-3. Provision that backend: migrations 0001–0092, 24 Edge Functions, secrets, Auth.
+**Done since this list was written:** the legal site is live at `qirsh.site`
+over TLS and is the canonical legal host; the new Supabase production project
+exists and is provisioned with migrations `0001–0092` and both worker secrets.
+
+1. ~~Host the legal site~~ — **DONE**, `https://qirsh.site`.
+2. ~~Create the new Supabase production project~~ — **DONE**, `rjwphwsefnuotpbtuycf`.
+3. Provision the rest of that backend:
+   - ~~migrations `0001–0092`~~ — **DONE**, applied and verified live
+   - ~~worker secrets~~ — **DONE**, set and rotated
+   - **24 Edge Functions** — **BLOCKED**: the Management API returns 403 for
+     Functions operations. Raised with Supabase Support. Do not work around it.
+   - Auth providers + redirect URLs — **TODO**, can start now
 4. Apple: identifiers, capabilities, APNs key, certificates, profiles.
 5. Android: production keystore.
-6. Signed release builds carrying `LEGAL_BASE_URL`.
-7. Physical-device QA on real iPhone + Android, including UX-035.
-8. Internal beta on TestFlight and Play internal testing.
-9. Prove and activate exact PUSH, then exact PULL.
-10. Store submission, approval, staged rollout, monitoring.
+6. Codemagic production configuration — **DEFERRED** to one consolidated pass
+   by owner decision. See [§15](15_Codemagic/README.md). `LEGAL_BASE_URL` is
+   outstanding there and is not forgotten.
+7. Signed release builds.
+8. Physical-device QA on real iPhone + Android, including UX-035.
+9. Internal beta on TestFlight and Play internal testing.
+10. Prove and activate exact PUSH, then exact PULL.
+11. Store submission, approval, staged rollout, monitoring.
 
 ---
 ---
@@ -143,13 +166,17 @@ Only these. Everything else is done.
 
 ## 0.1 `[x]` The wrong-project hazard — read this once
 
-`supabase/.temp/project-ref` on this machine currently contains:
+`supabase/.temp/project-ref` on this machine now contains the **real production
+ref**:
 
 ```
-bdhqjijscwdzqwqanygv        # organisation iyfzfynifrmwcjbcyfwv, name "Nbjg"
+rjwphwsefnuotpbtuycf
 ```
 
-That is **not** production and **not** evidence staging. It is gitignored, so
+It previously held `bdhqjijscwdzqwqanygv` ("Nbjg"), which was neither production
+nor staging — and any remote command run then would have landed there while
+looking like it succeeded. That hazard is closed, but the discipline it produced
+stays:**not** evidence staging. It is gitignored, so
 it is local state rather than a repository leak — but **any `supabase db push`
 or `supabase functions deploy` run from this directory today lands there and
 looks like it succeeded.**
