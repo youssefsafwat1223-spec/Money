@@ -1560,6 +1560,60 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'حصل خطأ، حاول تاني.'**
   String get referralErrorGeneric;
+
+  /// Title of the Android prominent disclosure shown immediately before the RECEIVE_SMS system dialog.
+  ///
+  /// In ar, this message translates to:
+  /// **'قراءة رسائل البنك تلقائياً'**
+  String get smsDisclosureTitle;
+
+  /// Opening line of the SMS prominent disclosure.
+  ///
+  /// In ar, this message translates to:
+  /// **'عشان قِرش يسجّل مصاريفك تلقائياً، محتاج إذن قراءة الرسائل الواردة على جهازك.'**
+  String get smsDisclosureIntro;
+
+  /// Disclosure point: what Qirsh looks for in incoming messages.
+  ///
+  /// In ar, this message translates to:
+  /// **'قِرش يفحص الرسائل الواردة عشان يتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).'**
+  String get smsDisclosureDetect;
+
+  /// Disclosure point: non-financial messages are discarded, not stored.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرسائل غير المالية — الشخصية ورموز التحقق — بتتجاهَل ومابتتخزّنش.'**
+  String get smsDisclosureFilter;
+
+  /// Disclosure point: parsing happens on-device.
+  ///
+  /// In ar, this message translates to:
+  /// **'التحليل بيتم على جهازك افتراضياً. لو شغّلت المعالجة السحابية، بيتبعت نص منقّى (من غير أرقام البطاقات والحسابات والتليفونات) لسيرفرات قِرش.'**
+  String get smsDisclosureOnDevice;
+
+  /// Disclosure point: cloud sync is a separate, off-by-default consent.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزامنة السحابية مقفولة افتراضياً، ولو شغّلتها بتبقى بموافقة منفصلة عن الإذن ده.'**
+  String get smsDisclosureCloud;
+
+  /// Disclosure point: how to turn the feature off or revoke the permission.
+  ///
+  /// In ar, this message translates to:
+  /// **'تقدر توقف القراءة التلقائية من إعدادات قِرش، أو تسحب الإذن من إعدادات الجهاز، في أي وقت.'**
+  String get smsDisclosureControl;
+
+  /// Decline button on the SMS prominent disclosure.
+  ///
+  /// In ar, this message translates to:
+  /// **'مش دلوقتي'**
+  String get smsDisclosureDecline;
+
+  /// Affirmative button that proceeds to the system permission dialog.
+  ///
+  /// In ar, this message translates to:
+  /// **'موافق، اطلب الإذن'**
+  String get smsDisclosureAccept;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -826,4 +826,37 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get referralErrorGeneric => 'Something went wrong. Please try again.';
+
+  @override
+  String get smsDisclosureTitle => 'Reading bank messages automatically';
+
+  @override
+  String get smsDisclosureIntro =>
+      'To record your expenses automatically, Qirsh needs permission to read incoming messages on your device.';
+
+  @override
+  String get smsDisclosureDetect =>
+      'Qirsh scans incoming messages to identify financial transactions (purchase, transfer, withdrawal, deposit).';
+
+  @override
+  String get smsDisclosureFilter =>
+      'Non-financial messages — personal messages and verification codes — are ignored and not stored.';
+
+  @override
+  String get smsDisclosureOnDevice =>
+      'Parsing happens on your device by default. If you enable cloud processing, a sanitized copy — without card, account or phone numbers — is sent to Qirsh\'s servers.';
+
+  @override
+  String get smsDisclosureCloud =>
+      'Cloud sync is off by default; if you turn it on, that is a separate consent from this permission.';
+
+  @override
+  String get smsDisclosureControl =>
+      'You can turn automatic reading off in Qirsh settings, or revoke the permission in device settings, at any time.';
+
+  @override
+  String get smsDisclosureDecline => 'Not now';
+
+  @override
+  String get smsDisclosureAccept => 'Agree, request permission';
 }

@@ -812,4 +812,37 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get referralErrorGeneric => 'حصل خطأ، حاول تاني.';
+
+  @override
+  String get smsDisclosureTitle => 'قراءة رسائل البنك تلقائياً';
+
+  @override
+  String get smsDisclosureIntro =>
+      'عشان قِرش يسجّل مصاريفك تلقائياً، محتاج إذن قراءة الرسائل الواردة على جهازك.';
+
+  @override
+  String get smsDisclosureDetect =>
+      'قِرش يفحص الرسائل الواردة عشان يتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).';
+
+  @override
+  String get smsDisclosureFilter =>
+      'الرسائل غير المالية — الشخصية ورموز التحقق — بتتجاهَل ومابتتخزّنش.';
+
+  @override
+  String get smsDisclosureOnDevice =>
+      'التحليل بيتم على جهازك افتراضياً. لو شغّلت المعالجة السحابية، بيتبعت نص منقّى (من غير أرقام البطاقات والحسابات والتليفونات) لسيرفرات قِرش.';
+
+  @override
+  String get smsDisclosureCloud =>
+      'المزامنة السحابية مقفولة افتراضياً، ولو شغّلتها بتبقى بموافقة منفصلة عن الإذن ده.';
+
+  @override
+  String get smsDisclosureControl =>
+      'تقدر توقف القراءة التلقائية من إعدادات قِرش، أو تسحب الإذن من إعدادات الجهاز، في أي وقت.';
+
+  @override
+  String get smsDisclosureDecline => 'مش دلوقتي';
+
+  @override
+  String get smsDisclosureAccept => 'موافق، اطلب الإذن';
 }

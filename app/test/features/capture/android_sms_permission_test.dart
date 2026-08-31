@@ -237,10 +237,37 @@ void main() {
       expect(policy.toLowerCase(), contains('revoke the permission'));
     });
 
-    test('it does not overclaim that data can never leave the device', () {
-      // An optional consented cloud path exists; claiming otherwise would be a
-      // false privacy promise, which is worse than no promise.
-      expect(policy.toLowerCase(), contains('cloud sync'));
+    test('it does not overclaim that message text never leaves the device', () {
+      // capture_sync_service sends SmsSanitizer.sanitize(text) to the backend
+      // when cloudProcessingEnabled is on, and the server persists it. An
+      // earlier draft said "not sent to any AI provider" full stop — a false
+      // privacy promise, which is worse than no promise.
+      expect(policy.toLowerCase(), contains('sanitized'));
+      expect(policy.toLowerCase(), contains('does leave your device'));
+      expect(policy.toLowerCase(), contains('separate consent'));
+    });
+
+    test('sanitization is described accurately, not vaguely', () {
+      // The policy must name what is stripped, because the user cannot inspect
+      // the payload and "sanitized" alone means nothing to them.
+      for (final claim in const [
+        'full card numbers',
+        'phone numbers',
+        'account numbers',
+      ]) {
+        expect(policy.toLowerCase(), contains(claim));
+      }
+    });
+
+    test('the localized disclosure makes the same claim in both locales', () {
+      // A disclosure that overclaims in one language is still an overclaim.
+      for (final arb in const ['lib/l10n/app_ar.arb', 'lib/l10n/app_en.arb']) {
+        final content = File(arb).readAsStringSync();
+        expect(content, contains('smsDisclosureOnDevice'));
+        expect(content.contains('No message text is sent to any AI provider'),
+            isFalse,
+            reason: '\$arb still carries the corrected-away absolute claim');
+      }
     });
   });
 }

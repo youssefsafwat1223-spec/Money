@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/utils/l10n_ext.dart';
 
 /// MALI-013 — the prominent disclosure shown immediately before the Android
 /// RECEIVE_SMS runtime dialog.
@@ -14,6 +15,9 @@ import '../../../core/theme/app_colors.dart';
 /// Rules this deliberately follows:
 ///   • It asks for ONE thing. No cloud sync, no analytics, no marketing opt-in
 ///     is bundled here — bundling is exactly what makes a disclosure invalid.
+///   • Every string is localised. Qirsh ships an English UI as well as Arabic,
+///     and a disclosure the user cannot read is not a disclosure — Play requires
+///     it to be understandable, not merely present.
 ///   • Dismissing it (tap-outside / back) counts as DECLINE, not accept.
 ///   • It never claims more privacy than the app delivers. Cloud processing is
 ///     described as possible-but-separately-consented rather than impossible,
@@ -36,6 +40,7 @@ class _SmsCaptureDisclosureDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = Theme.of(context).extension<AppColors>() ?? AppColors.light;
     final text = Theme.of(context).textTheme;
+    final l10n = context.l10n;
 
     Widget point(IconData icon, String body) => Padding(
           padding: const EdgeInsets.only(bottom: 12),
@@ -58,7 +63,7 @@ class _SmsCaptureDisclosureDialog extends StatelessWidget {
       backgroundColor: c.surfaceCard,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: Text(
-        'قراءة رسائل البنك تلقائياً',
+        l10n.smsDisclosureTitle,
         style: text.titleLarge?.copyWith(fontWeight: FontWeight.w700),
       ),
       content: SingleChildScrollView(
@@ -67,34 +72,29 @@ class _SmsCaptureDisclosureDialog extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'عشان قِرش يسجّل مصاريفك تلقائياً، محتاج إذن قراءة الرسائل '
-              'الواردة على جهازك.',
+              l10n.smsDisclosureIntro,
               style: text.bodyMedium?.copyWith(color: c.textPrimary),
             ),
             const SizedBox(height: 16),
             point(
               Icons.search,
-              'قِرش يفحص الرسائل الواردة عشان يتعرّف على العمليات المالية '
-              '(شراء، تحويل، سحب، إيداع).',
+              l10n.smsDisclosureDetect,
             ),
             point(
               Icons.filter_alt_outlined,
-              'الرسائل غير المالية — الشخصية ورموز التحقق — بتتجاهَل ومابتتخزّنش.',
+              l10n.smsDisclosureFilter,
             ),
             point(
               Icons.phone_iphone,
-              'التحليل بيتم على جهازك. مفيش نص رسالة بيتبعت لأي مزوّد ذكاء '
-              'اصطناعي.',
+              l10n.smsDisclosureOnDevice,
             ),
             point(
               Icons.cloud_off_outlined,
-              'المزامنة السحابية مقفولة افتراضياً، ولو شغّلتها بتبقى بموافقة '
-              'منفصلة عن الإذن ده.',
+              l10n.smsDisclosureCloud,
             ),
             point(
               Icons.toggle_off_outlined,
-              'تقدر توقف القراءة التلقائية من إعدادات قِرش، أو تسحب الإذن من '
-              'إعدادات الجهاز، في أي وقت.',
+              l10n.smsDisclosureControl,
             ),
           ],
         ),
@@ -103,11 +103,12 @@ class _SmsCaptureDisclosureDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: Text('مش دلوقتي', style: TextStyle(color: c.textSecondary)),
+          child: Text(l10n.smsDisclosureDecline,
+              style: TextStyle(color: c.textSecondary)),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('موافق، اطلب الإذن'),
+          child: Text(l10n.smsDisclosureAccept),
         ),
       ],
     );

@@ -281,28 +281,48 @@
   "referralShareAction": "مشاركة",
   "referralShareMessage": "جرّب قرش! استخدم رمز الدعوة {code} وانت بتسجّل. حمّل التطبيق وابدأ.",
   "@referralShareMessage": {
-    "placeholders": { "code": { "type": "String" } }
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
   },
   "referralProgressLabel": "{progress} / {required} دعوات صالحة",
   "@referralProgressLabel": {
     "placeholders": {
-      "progress": { "type": "int" },
-      "required": { "type": "int" }
+      "progress": {
+        "type": "int"
+      },
+      "required": {
+        "type": "int"
+      }
     }
   },
   "referralCycleLabel": "الدورة {cycle}",
   "@referralCycleLabel": {
-    "placeholders": { "cycle": { "type": "int" } }
+    "placeholders": {
+      "cycle": {
+        "type": "int"
+      }
+    }
   },
   "referralRewardTitle": "المكافأة",
   "referralRewardDays": "تقارير بدون إعلانات لمدة {days} يومًا",
   "@referralRewardDays": {
-    "placeholders": { "days": { "type": "int" } }
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
   },
   "referralRewardScopeNote": "المكافأة بتشيل إعلانات تصدير التقارير فقط — مش اشتراك بدون إعلانات لكل التطبيق.",
   "referralRewardActiveUntil": "تقارير بدون إعلانات حتى {date}",
   "@referralRewardActiveUntil": {
-    "placeholders": { "date": { "type": "String" } }
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
   },
   "referralEntitlementInactive": "لا توجد مكافأة نشطة حاليًا.",
   "referralApplyTitle": "عندك رمز دعوة؟",
@@ -323,5 +343,41 @@
   "referralErrorAlreadyReferred": "لقد استخدمت رمز دعوة من قبل.",
   "referralErrorNoActiveRule": "الدعوات غير متاحة حاليًا.",
   "referralErrorIdentityUnverified": "أكمل تأكيد حسابك عشان تُحتسب دعوتك.",
-  "referralErrorGeneric": "حصل خطأ، حاول تاني."
+  "referralErrorGeneric": "حصل خطأ، حاول تاني.",
+  "smsDisclosureTitle": "قراءة رسائل البنك تلقائياً",
+  "@smsDisclosureTitle": {
+    "description": "Title of the Android prominent disclosure shown immediately before the RECEIVE_SMS system dialog."
+  },
+  "smsDisclosureIntro": "عشان قِرش يسجّل مصاريفك تلقائياً، محتاج إذن قراءة الرسائل الواردة على جهازك.",
+  "@smsDisclosureIntro": {
+    "description": "Opening line of the SMS prominent disclosure."
+  },
+  "smsDisclosureDetect": "قِرش يفحص الرسائل الواردة عشان يتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).",
+  "@smsDisclosureDetect": {
+    "description": "Disclosure point: what Qirsh looks for in incoming messages."
+  },
+  "smsDisclosureFilter": "الرسائل غير المالية — الشخصية ورموز التحقق — بتتجاهَل ومابتتخزّنش.",
+  "@smsDisclosureFilter": {
+    "description": "Disclosure point: non-financial messages are discarded, not stored."
+  },
+  "smsDisclosureOnDevice": "التحليل بيتم على جهازك افتراضياً. لو شغّلت المعالجة السحابية، بيتبعت نص منقّى (من غير أرقام البطاقات والحسابات والتليفونات) لسيرفرات قِرش.",
+  "@smsDisclosureOnDevice": {
+    "description": "Disclosure point: parsing happens on-device."
+  },
+  "smsDisclosureCloud": "المزامنة السحابية مقفولة افتراضياً، ولو شغّلتها بتبقى بموافقة منفصلة عن الإذن ده.",
+  "@smsDisclosureCloud": {
+    "description": "Disclosure point: cloud sync is a separate, off-by-default consent."
+  },
+  "smsDisclosureControl": "تقدر توقف القراءة التلقائية من إعدادات قِرش، أو تسحب الإذن من إعدادات الجهاز، في أي وقت.",
+  "@smsDisclosureControl": {
+    "description": "Disclosure point: how to turn the feature off or revoke the permission."
+  },
+  "smsDisclosureDecline": "مش دلوقتي",
+  "@smsDisclosureDecline": {
+    "description": "Decline button on the SMS prominent disclosure."
+  },
+  "smsDisclosureAccept": "موافق، اطلب الإذن",
+  "@smsDisclosureAccept": {
+    "description": "Affirmative button that proceeds to the system permission dialog."
+  }
 }

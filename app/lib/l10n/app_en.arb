@@ -260,5 +260,14 @@
   "referralErrorAlreadyReferred": "You've already used an invite code.",
   "referralErrorNoActiveRule": "Invites aren't available right now.",
   "referralErrorIdentityUnverified": "Finish verifying your account so your invite counts.",
-  "referralErrorGeneric": "Something went wrong. Please try again."
+  "referralErrorGeneric": "Something went wrong. Please try again.",
+  "smsDisclosureTitle": "Reading bank messages automatically",
+  "smsDisclosureIntro": "To record your expenses automatically, Qirsh needs permission to read incoming messages on your device.",
+  "smsDisclosureDetect": "Qirsh scans incoming messages to identify financial transactions (purchase, transfer, withdrawal, deposit).",
+  "smsDisclosureFilter": "Non-financial messages — personal messages and verification codes — are ignored and not stored.",
+  "smsDisclosureOnDevice": "Parsing happens on your device by default. If you enable cloud processing, a sanitized copy — without card, account or phone numbers — is sent to Qirsh's servers.",
+  "smsDisclosureCloud": "Cloud sync is off by default; if you turn it on, that is a separate consent from this permission.",
+  "smsDisclosureControl": "You can turn automatic reading off in Qirsh settings, or revoke the permission in device settings, at any time.",
+  "smsDisclosureDecline": "Not now",
+  "smsDisclosureAccept": "Agree, request permission"
 }

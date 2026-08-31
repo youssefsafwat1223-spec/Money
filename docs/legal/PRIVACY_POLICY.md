@@ -191,12 +191,28 @@ Qirsh does not request location, contacts, photos, or the microphone.
 
 ### Where captured messages are processed
 
-Captured message text is parsed **on your device**. It is not sent to any AI
-provider.
+**By default, captured message text is parsed entirely on your device and does
+not leave it.**
 
-If — and only if — you turn on cloud sync, the resulting transaction data is
-synced to your account, as described in section 3. That is a separate choice
-from this permission, and it is off by default.
+If you turn on **cloud processing** — a separate setting, off by default — a
+**sanitized** copy of the message is sent to Qirsh's servers to help parse it,
+and is stored there. Sanitizing happens on your device before anything is sent,
+and removes:
+
+- full card numbers,
+- phone numbers,
+- account numbers,
+- for transfers, the recipient's name.
+
+Merchant names on purchases and masked card endings (`*1234`) are kept, because
+they are needed to categorise the transaction.
+
+If you additionally turn on **AI processing**, that sanitized text may be
+processed by an AI provider. That is a third, separate consent.
+
+So: with the default settings, message text stays on your device. If you enable
+cloud processing, sanitized text does leave your device — we will not tell you
+otherwise.
 
 ---
 
