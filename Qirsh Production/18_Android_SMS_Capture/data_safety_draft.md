@@ -84,6 +84,17 @@ read messages that arrived before capture was enabled).
 
 ---
 
+## Final per-category answers
+
+| Play category | Collected | Optional | Shared | Purpose | Encrypted in transit | Deletion | Retention |
+|---|---|---|---|---|---|---|---|
+| **SMS or MMS** | **YES** | **Optional** — off by default | No | App functionality | Yes | In-app account deletion (cascade) | **30 days**, automatic |
+| **Purchase history** | YES | Required | No | App functionality | Yes | Account deletion | Until deletion |
+| **Other financial info** | YES | Required | No | App functionality | Yes | Account deletion | Until deletion |
+| **User IDs** | YES | Required | No | App functionality, account management | Yes | Account deletion | Until deletion |
+| **Device or other IDs** | YES | Required | No | App functionality, fraud prevention | Yes | Account deletion | Until deletion |
+| **Diagnostics** | YES | Optional (Sentry) | No | Analytics, app functionality | Yes | Account deletion | Until deletion |
+
 ## Security practices
 
 - **Encrypted in transit** — yes, HTTPS throughout.
@@ -104,11 +115,43 @@ read messages that arrived before capture was enabled).
 
 ---
 
-## PENDING — not provable without files owned by another session
+## Server retention — RESOLVED from migrations
 
-The exact **server-side retention window** for `processed_captures` was not
-traced: it runs through Edge Functions and migrations rather than client code.
-The client sends it; how long the backend keeps it is a separate question and
-must be confirmed before submitting, because Data Safety asks about retention.
+Traced through `0012_ios_capture_pipeline.sql`, `0033_capture_pipeline_hardening.sql`,
+`0072_backend_security_hardening.sql` and `0084_purge_user_data_restore.sql`.
 
-Everything above is client-side evidence and is safe to attest to as written.
+| Item | Table | Retention | Trigger | Automatic | Removed by account deletion |
+|---|---|---|---|---|---|
+| Sanitized SMS text | `processed_captures.sanitized_text` | **30 days** | `created_at < NOW() - INTERVAL '30 days'` | **yes** — daily cron `15 3 * * *` | **yes**, by cascade |
+| Sender + timestamp | `processed_captures.parsed` (JSONB) | **30 days** | same row | yes | yes, by cascade |
+| Processed capture row | `processed_captures` | **30 days** | same | yes | yes, by cascade |
+| Dedup fingerprint | `capture_fingerprints` | **7 days** | `seen_at < NOW() - INTERVAL '7 days'` | yes, same cron | yes, by cascade |
+| Parsed transactions | `user_transactions` | **no TTL — until account deletion** | — | no | **yes**, explicit delete |
+| Device / install identifiers | `capture_devices` | no TTL | — | no | **yes**, explicit delete |
+
+### Two findings worth stating precisely
+
+**Capture data expires on its own.** `run_prune_processed_captures()` deletes
+capture rows after 30 days and fingerprints after 7, on a daily cron verified
+active on production (`prune-processed-captures-daily`). Sanitized SMS text is
+therefore **not** retained indefinitely, which is the answer Data Safety needs.
+
+**Account deletion removes capture rows by cascade, not by direct delete.**
+`purge_user_data` (migration `0084`) never names `processed_captures`. It does
+not need to: both `processed_captures` and `capture_fingerprints` declare
+`install_id_hash … REFERENCES capture_devices(install_id_hash) ON DELETE CASCADE`,
+and the purge deletes `capture_devices` at line 137. `0084` documents the
+ordering dependency explicitly — satellites keyed by install hash must resolve
+*before* the device rows go.
+
+Worth flagging as fragile: the coverage is implicit. Someone auditing
+`purge_user_data` by reading its delete list would conclude capture data
+survives account deletion. It does not — but only because of a foreign key
+declared twelve migrations earlier. If that FK is ever changed to `ON DELETE SET
+NULL` or dropped, deletion coverage breaks **silently**.
+
+**Transaction data has no TTL** and is retained until the user deletes their
+account. That is correct for a finance app — a ledger that expires would be a
+defect — but it must be declared as such rather than implied.
+
+Everything above is source-derived and is safe to attest to.

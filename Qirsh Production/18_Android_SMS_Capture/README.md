@@ -98,11 +98,36 @@ source rather than by executing it. Those catch a revert to `amount OR keyword`
 but cannot prove behaviour on a real message. Closing this means adding JUnit
 and a Gradle test task.
 
-**Downstream dedup is unproven at this layer.** `DurableCaptureQueue` assigns a
-fresh `UUID` per receipt and has no content hash, so re-delivery of the same SMS
-would enqueue twice. Dedup is expected downstream in the Dart import path
-(`ingest_captured_message_usecase`), which is owned by another active session and
-was not inspected or modified. **Treated as a release risk until confirmed.**
+**Dedup: PROVEN ON CURRENT HEAD.** `DurableCaptureQueue` assigns a fresh `UUID`
+per receipt and has no content hash, so the guarantee comes from downstream, and
+it is proven by tests that are **not** owned by the active session:
+
+- `test/domain/duplicate_transaction_detector_test.dart` — 12 cases, including
+  same text + same transaction timestamp
+- `test/features/capture/closed_app_capture_durability_test.dart` — *"idempotent:
+  crash after commit before ack → replay creates no duplicate"* and *"duplicate
+  Shortcut execution of the same payload imports once"*
+
+**27 passed on this HEAD.**
+
+> ### ⛔ RELEASE GATE — re-run dedup after the parser session lands
+>
+> The outcome is produced by `AddTransactionUseCase`, and
+> `add_transaction_usecase.dart` is being refactored right now by another
+> session (extracting `capture_commit_decision.dart`). The proof above is
+> current, not permanent.
+>
+> **Before any signed release build**, re-run:
+>
+> ```bash
+> cd app && flutter test \
+>   test/domain/duplicate_transaction_detector_test.dart \
+>   test/features/capture/closed_app_capture_durability_test.dart \
+>   test/features/capture/ingest_captured_message_usecase_test.dart
+> ```
+>
+> A refactor that changes when `AddTransactionOutcome.duplicate` is returned
+> would break idempotency **silently** — the capture still imports, just twice.
 
 **Queue overflow is silent.** The cap is 200 with drop-oldest. If the Dart drain
 stalls, the oldest captures are discarded with no signal. Not redesigned here —

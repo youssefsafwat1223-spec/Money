@@ -12,6 +12,14 @@ blocks the critical path.
 | 3 | Apple Developer configuration | Youssef | $99/yr membership |
 | 4 | Android production keystore | Youssef | local `keytool`, two backup locations |
 
+## Pre-signing gates — must pass before any signed release build
+
+| Gate | Why |
+|---|---|
+| **Re-run dedup/idempotency tests** after the parser session lands | the duplicate outcome comes from `add_transaction_usecase.dart`, under active refactor; a change there breaks idempotency silently — the capture still imports, just twice. Command in [`../18_Android_SMS_Capture/`](../18_Android_SMS_Capture/) |
+| **Deploy the updated privacy page** to `qirsh.site` | the live page describes behaviour the app no longer has; Play cross-checks the policy against declared permissions |
+| **Execute the Android device QA matrix** | the Kotlin prefilter has no automated test; this is its only execution evidence |
+
 ## Play publication gate — NEW, 2026-08-31
 
 | Item | Owner | Status |
