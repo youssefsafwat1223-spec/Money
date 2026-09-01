@@ -417,6 +417,18 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # instead of a Supabase-issued JWT (see index.ts for why).
 verify_jwt = false
 
+[functions.affiliate-sync]
+# Not a user-facing endpoint — invoked only by the pg_cron dispatch
+# (run_affiliate_sync, migration 0096), which reads the shared secret from
+# Vault. Gated by its own AFFILIATE_WORKER_SECRET comparison instead of a
+# Supabase-issued JWT, because the caller is a cron job with no session. Same
+# pattern as purge-scheduled-deletions above.
+#
+# The check fails CLOSED: bearerSecretAuthorized returns false when the
+# configured secret is empty, so an unconfigured deployment refuses every
+# request rather than accepting every request.
+verify_jwt = false
+
 [functions.process-notification-retries]
 # Not a user-facing endpoint — invoked only by the pg_cron dispatch
 # (run_notification_retry_dispatch) or manually by an operator, gated by its
