@@ -25,6 +25,7 @@ import '../../features/cards/my_cards_screen.dart';
 import '../../features/capture/manual_paste_screen.dart';
 import '../../features/capture/sms_permission_screen.dart';
 import '../../features/coupons/coupons_screen.dart';
+import '../../features/coupons/merchant_offers_screen.dart';
 import '../../features/referrals/referrals_screen.dart';
 import '../../features/design_gallery/design_gallery_screen.dart';
 import '../../features/goals/goal_details_screen.dart';
@@ -163,6 +164,17 @@ final appRouter = GoRouter(
       path: '/subscriptions',
       name: 'subscriptions',
       builder: (context, state) => const SubscriptionsScreen(),
+    ),
+    // COUPONS Phase 1 — one merchant's live offers. The id is a CATALOG id, not
+    // the device-local merchants.id: local ids are normalization-derived and
+    // differ between users, so one could never survive a link or a
+    // notification. The screen fails soft on an unknown id.
+    GoRoute(
+      path: '/coupons/merchant/:merchantId',
+      name: 'coupon-merchant',
+      builder: (context, state) => MerchantOffersScreen(
+        merchantId: state.pathParameters['merchantId'] ?? '',
+      ),
     ),
     GoRoute(
       path: '/coupons',

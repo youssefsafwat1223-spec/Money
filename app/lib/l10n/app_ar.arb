@@ -379,5 +379,59 @@
   "smsDisclosureAccept": "موافق، اطلب الإذن",
   "@smsDisclosureAccept": {
     "description": "Affirmative button that proceeds to the system permission dialog."
-  }
+  },
+  "couponsForYouSection": "لأماكن تتسوق منها",
+  "couponsForYouSubtitle": "مطابقة تمت على هذا الجهاز من مصروفاتك. لا يُرسَل أي شيء منها لأي مكان.",
+  "couponsStoresSection": "المتاجر",
+  "couponsStoresSubtitle": "متاجر لديها عروض سارية.",
+  "couponsMerchantOffers": "عروض {merchant}",
+  "@couponsMerchantOffers": {
+    "placeholders": {
+      "merchant": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsMerchantEmptyTitle": "لا توجد عروض سارية هنا الآن",
+  "couponsMerchantEmptyBody": "لا عروض لهذا المتجر حاليًا. تابعنا لاحقًا.",
+  "couponsPersonalizationTitle": "رتّب العروض حسب أماكن تسوقك",
+  "couponsPersonalizationBody": "يطابق قِرش عملياتك مع المتاجر على هذا الجهاز ويعرض عروضها أولًا. مصروفاتك لا تغادر هاتفك من أجل هذا، ولا تُرسَل للمتاجر.",
+  "couponsPersonalizationOff": "مُعطّل — ترتيب العروض واحد للجميع.",
+  "couponsPersonalizationOn": "مُفعّل — عروض المتاجر التي تستخدمها تظهر أولًا.",
+  "couponsValuePercent": "خصم {percent}%",
+  "@couponsValuePercent": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsValueFixed": "خصم {amount}",
+  "@couponsValueFixed": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsValueFreeShipping": "توصيل مجاني",
+  "couponsValueMinSpend": "عند {amount} أو أكثر",
+  "@couponsValueMinSpend": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsValueUpTo": "حتى {amount}",
+  "@couponsValueUpTo": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsVerifiedByUs": "تحقّق منه قِرش",
+  "couponsVerifiedByProvider": "مؤكَّد من المزوّد",
+  "couponsUnverified": "غير مُتحقَّق منه"
 }

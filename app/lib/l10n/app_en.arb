@@ -269,5 +269,65 @@
   "smsDisclosureCloud": "Cloud sync is off by default; if you turn it on, that is a separate consent from this permission.",
   "smsDisclosureControl": "You can turn automatic reading off in Qirsh settings, or revoke the permission in device settings, at any time.",
   "smsDisclosureDecline": "Not now",
-  "smsDisclosureAccept": "Agree, request permission"
+  "smsDisclosureAccept": "Agree, request permission",
+  "couponsForYouSection": "For places you shop",
+  "@couponsForYouSection": {
+    "description": "Section heading for offers at merchants the user actually shops at. Deliberately not 'Recommended for you' — it says WHY these are here."
+  },
+  "couponsForYouSubtitle": "Matched on this device from your own spending. Nothing about it is sent anywhere.",
+  "couponsStoresSection": "Stores",
+  "couponsStoresSubtitle": "Merchants with live offers.",
+  "couponsMerchantOffers": "Offers at {merchant}",
+  "@couponsMerchantOffers": {
+    "placeholders": {
+      "merchant": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsMerchantEmptyTitle": "No live offers here right now",
+  "couponsMerchantEmptyBody": "This store has no offers at the moment. Check back later.",
+  "couponsPersonalizationTitle": "Order offers by where you shop",
+  "couponsPersonalizationBody": "Qirsh matches your transactions to stores on this device and puts their offers first. Your spending never leaves your phone for this, and it is not sent to the stores.",
+  "couponsPersonalizationOff": "Off — offers are ordered the same way for everyone.",
+  "couponsPersonalizationOn": "On — offers at stores you use appear first.",
+  "couponsValuePercent": "{percent}% off",
+  "@couponsValuePercent": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsValueFixed": "{amount} off",
+  "@couponsValueFixed": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsValueFreeShipping": "Free delivery",
+  "couponsValueMinSpend": "on {amount} or more",
+  "@couponsValueMinSpend": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsValueUpTo": "up to {amount}",
+  "@couponsValueUpTo": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "couponsVerifiedByUs": "Checked by Qirsh",
+  "couponsVerifiedByProvider": "Confirmed by the provider",
+  "couponsUnverified": "Not checked",
+  "@couponsUnverified": {
+    "description": "Shown when nobody has confirmed the offer works. Deliberately plain — an unchecked offer must not read like a checked one."
+  }
 }

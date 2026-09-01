@@ -845,4 +845,75 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smsDisclosureAccept => 'موافق، اطلب الإذن';
+
+  @override
+  String get couponsForYouSection => 'لأماكن تتسوق منها';
+
+  @override
+  String get couponsForYouSubtitle =>
+      'مطابقة تمت على هذا الجهاز من مصروفاتك. لا يُرسَل أي شيء منها لأي مكان.';
+
+  @override
+  String get couponsStoresSection => 'المتاجر';
+
+  @override
+  String get couponsStoresSubtitle => 'متاجر لديها عروض سارية.';
+
+  @override
+  String couponsMerchantOffers(String merchant) {
+    return 'عروض $merchant';
+  }
+
+  @override
+  String get couponsMerchantEmptyTitle => 'لا توجد عروض سارية هنا الآن';
+
+  @override
+  String get couponsMerchantEmptyBody =>
+      'لا عروض لهذا المتجر حاليًا. تابعنا لاحقًا.';
+
+  @override
+  String get couponsPersonalizationTitle => 'رتّب العروض حسب أماكن تسوقك';
+
+  @override
+  String get couponsPersonalizationBody =>
+      'يطابق قِرش عملياتك مع المتاجر على هذا الجهاز ويعرض عروضها أولًا. مصروفاتك لا تغادر هاتفك من أجل هذا، ولا تُرسَل للمتاجر.';
+
+  @override
+  String get couponsPersonalizationOff => 'مُعطّل — ترتيب العروض واحد للجميع.';
+
+  @override
+  String get couponsPersonalizationOn =>
+      'مُفعّل — عروض المتاجر التي تستخدمها تظهر أولًا.';
+
+  @override
+  String couponsValuePercent(String percent) {
+    return 'خصم $percent%';
+  }
+
+  @override
+  String couponsValueFixed(String amount) {
+    return 'خصم $amount';
+  }
+
+  @override
+  String get couponsValueFreeShipping => 'توصيل مجاني';
+
+  @override
+  String couponsValueMinSpend(String amount) {
+    return 'عند $amount أو أكثر';
+  }
+
+  @override
+  String couponsValueUpTo(String amount) {
+    return 'حتى $amount';
+  }
+
+  @override
+  String get couponsVerifiedByUs => 'تحقّق منه قِرش';
+
+  @override
+  String get couponsVerifiedByProvider => 'مؤكَّد من المزوّد';
+
+  @override
+  String get couponsUnverified => 'غير مُتحقَّق منه';
 }

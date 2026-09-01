@@ -1614,6 +1614,120 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'موافق، اطلب الإذن'**
   String get smsDisclosureAccept;
+
+  /// No description provided for @couponsForYouSection.
+  ///
+  /// In ar, this message translates to:
+  /// **'لأماكن تتسوق منها'**
+  String get couponsForYouSection;
+
+  /// No description provided for @couponsForYouSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'مطابقة تمت على هذا الجهاز من مصروفاتك. لا يُرسَل أي شيء منها لأي مكان.'**
+  String get couponsForYouSubtitle;
+
+  /// No description provided for @couponsStoresSection.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتاجر'**
+  String get couponsStoresSection;
+
+  /// No description provided for @couponsStoresSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'متاجر لديها عروض سارية.'**
+  String get couponsStoresSubtitle;
+
+  /// No description provided for @couponsMerchantOffers.
+  ///
+  /// In ar, this message translates to:
+  /// **'عروض {merchant}'**
+  String couponsMerchantOffers(String merchant);
+
+  /// No description provided for @couponsMerchantEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عروض سارية هنا الآن'**
+  String get couponsMerchantEmptyTitle;
+
+  /// No description provided for @couponsMerchantEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا عروض لهذا المتجر حاليًا. تابعنا لاحقًا.'**
+  String get couponsMerchantEmptyBody;
+
+  /// No description provided for @couponsPersonalizationTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'رتّب العروض حسب أماكن تسوقك'**
+  String get couponsPersonalizationTitle;
+
+  /// No description provided for @couponsPersonalizationBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'يطابق قِرش عملياتك مع المتاجر على هذا الجهاز ويعرض عروضها أولًا. مصروفاتك لا تغادر هاتفك من أجل هذا، ولا تُرسَل للمتاجر.'**
+  String get couponsPersonalizationBody;
+
+  /// No description provided for @couponsPersonalizationOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'مُعطّل — ترتيب العروض واحد للجميع.'**
+  String get couponsPersonalizationOff;
+
+  /// No description provided for @couponsPersonalizationOn.
+  ///
+  /// In ar, this message translates to:
+  /// **'مُفعّل — عروض المتاجر التي تستخدمها تظهر أولًا.'**
+  String get couponsPersonalizationOn;
+
+  /// No description provided for @couponsValuePercent.
+  ///
+  /// In ar, this message translates to:
+  /// **'خصم {percent}%'**
+  String couponsValuePercent(String percent);
+
+  /// No description provided for @couponsValueFixed.
+  ///
+  /// In ar, this message translates to:
+  /// **'خصم {amount}'**
+  String couponsValueFixed(String amount);
+
+  /// No description provided for @couponsValueFreeShipping.
+  ///
+  /// In ar, this message translates to:
+  /// **'توصيل مجاني'**
+  String get couponsValueFreeShipping;
+
+  /// No description provided for @couponsValueMinSpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'عند {amount} أو أكثر'**
+  String couponsValueMinSpend(String amount);
+
+  /// No description provided for @couponsValueUpTo.
+  ///
+  /// In ar, this message translates to:
+  /// **'حتى {amount}'**
+  String couponsValueUpTo(String amount);
+
+  /// No description provided for @couponsVerifiedByUs.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحقّق منه قِرش'**
+  String get couponsVerifiedByUs;
+
+  /// No description provided for @couponsVerifiedByProvider.
+  ///
+  /// In ar, this message translates to:
+  /// **'مؤكَّد من المزوّد'**
+  String get couponsVerifiedByProvider;
+
+  /// No description provided for @couponsUnverified.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مُتحقَّق منه'**
+  String get couponsUnverified;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -10,6 +10,8 @@ import '../../core/privacy/data_wipe_service.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../../core/utils/l10n_ext.dart';
+import '../coupons/coupons_providers.dart';
 import '../../core/theme/app_typography.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../core/config/legal_urls.dart';
@@ -31,6 +33,7 @@ class PrivacyScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
+    final l10n = context.l10n;
     return Scaffold(
       backgroundColor: c.bg,
       body: Column(
@@ -104,6 +107,32 @@ class PrivacyScreen extends ConsumerWidget {
                               ),
                             ),
                           ),
+                          // COUPONS Phase 1 — merchant personalization.
+                          //
+                          // Sits here, next to the cloud and AI consents,
+                          // because it is the same KIND of decision even though
+                          // it involves no server: it is the user choosing
+                          // whether their spending shapes what they are shown.
+                          // Burying it in the Offers screen would make it look
+                          // like a display preference rather than a data one.
+                          //
+                          // Only shown when the capability flag is on — asking
+                          // about a feature that cannot run would be noise.
+                          // Unlike the two above it never leaves the device, so
+                          // the copy says so plainly rather than describing an
+                          // upload that does not happen.
+                          if (ref.watch(merchantOffersEnabledProvider))
+                            _ConsentSwitchCard(
+                              icon: AppLucideIcons.store,
+                              title: l10n.couponsPersonalizationTitle,
+                              subtitle: l10n.couponsPersonalizationBody,
+                              value: settings.merchantPersonalizationEnabled,
+                              onChanged: (value) => _setConsent(
+                                ref,
+                                settings.copyWith(
+                                    merchantPersonalizationEnabled: value),
+                              ),
+                            ),
                         ],
                       ),
                       orElse: () => const SizedBox.shrink(),

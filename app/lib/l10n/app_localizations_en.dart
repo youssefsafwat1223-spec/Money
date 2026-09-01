@@ -859,4 +859,76 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smsDisclosureAccept => 'Agree, request permission';
+
+  @override
+  String get couponsForYouSection => 'For places you shop';
+
+  @override
+  String get couponsForYouSubtitle =>
+      'Matched on this device from your own spending. Nothing about it is sent anywhere.';
+
+  @override
+  String get couponsStoresSection => 'Stores';
+
+  @override
+  String get couponsStoresSubtitle => 'Merchants with live offers.';
+
+  @override
+  String couponsMerchantOffers(String merchant) {
+    return 'Offers at $merchant';
+  }
+
+  @override
+  String get couponsMerchantEmptyTitle => 'No live offers here right now';
+
+  @override
+  String get couponsMerchantEmptyBody =>
+      'This store has no offers at the moment. Check back later.';
+
+  @override
+  String get couponsPersonalizationTitle => 'Order offers by where you shop';
+
+  @override
+  String get couponsPersonalizationBody =>
+      'Qirsh matches your transactions to stores on this device and puts their offers first. Your spending never leaves your phone for this, and it is not sent to the stores.';
+
+  @override
+  String get couponsPersonalizationOff =>
+      'Off — offers are ordered the same way for everyone.';
+
+  @override
+  String get couponsPersonalizationOn =>
+      'On — offers at stores you use appear first.';
+
+  @override
+  String couponsValuePercent(String percent) {
+    return '$percent% off';
+  }
+
+  @override
+  String couponsValueFixed(String amount) {
+    return '$amount off';
+  }
+
+  @override
+  String get couponsValueFreeShipping => 'Free delivery';
+
+  @override
+  String couponsValueMinSpend(String amount) {
+    return 'on $amount or more';
+  }
+
+  @override
+  String couponsValueUpTo(String amount) {
+    return 'up to $amount';
+  }
+
+  @override
+  String get couponsVerifiedByUs => 'Checked by Qirsh';
+
+  @override
+  String get couponsVerifiedByProvider => 'Confirmed by the provider';
+
+  @override
+  String get couponsUnverified => 'Not checked';
 }

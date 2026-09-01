@@ -14,6 +14,7 @@ import '../../core/utils/l10n_ext.dart';
 import '../cards/brand_mark.dart';
 import '../common/top_banner.dart';
 import 'coupon_models.dart';
+import 'coupon_value.dart';
 import 'coupons_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
 
@@ -109,6 +110,73 @@ class _CouponVisibilityReporterState extends State<CouponVisibilityReporter> {
 }
 
 /// The offer card used by the Offers screen (and, compact, by the dashboard).
+/// The structured value, when there is one, plus how it was checked.
+///
+/// Renders nothing at all when the offer carries no computable value. That is
+/// the common case today and the right default: the prose already says what the
+/// offer is, and an invented summary would only add a claim nobody made.
+class _CouponValueRow extends StatelessWidget {
+  const _CouponValueRow({required this.offer});
+
+  final CouponOffer offer;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final l10n = context.l10n;
+    final headline = CouponValueLabel.headline(offer, l10n);
+    if (headline == null) return const SizedBox.shrink();
+
+    final qualifier = CouponValueLabel.qualifier(offer, l10n);
+    final verified = CouponValueLabel.isVerified(offer);
+
+    return Padding(
+      padding: const EdgeInsets.only(top: AppSpacing.s3),
+      child: Wrap(
+        spacing: AppSpacing.s2,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+            decoration: BoxDecoration(
+              color: c.cta.withValues(alpha: 0.10),
+              borderRadius: BorderRadius.circular(AppRadius.pill),
+            ),
+            child: Text(
+              headline,
+              style: AppTypography.caption(c.cta)
+                  .copyWith(fontWeight: FontWeight.w700),
+            ),
+          ),
+          // The qualifier sits NEXT TO the headline, never hidden behind a tap.
+          // "20% off" and "20% off over 200, up to 50" are different offers.
+          if (qualifier != null)
+            Text(qualifier, style: AppTypography.caption(c.textMuted)),
+          // Shown in both states. An unchecked offer must not read like a
+          // checked one merely because we said nothing.
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                verified ? AppLucideIcons.badgeCheck : AppLucideIcons.info,
+                size: 12,
+                color: verified ? c.success : c.textMuted,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                CouponValueLabel.verification(offer, l10n),
+                style: AppTypography.caption(
+                    verified ? c.success : c.textMuted),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class CouponCard extends ConsumerWidget {
   const CouponCard({
     super.key,
@@ -177,7 +245,12 @@ class CouponCard extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              offer.partnerName,
+                              // The merchant's catalog name when the offer is
+                              // linked, the partner string otherwise. Same
+                              // slot either way: a user should not have to
+                              // notice which offers happen to be linked.
+                              offer.merchantName(preferEnglish: english) ??
+                                  offer.partnerName,
                               style: AppTypography.caption(c.textMuted)
                                   .copyWith(fontWeight: FontWeight.w700),
                             ),
@@ -193,6 +266,11 @@ class CouponCard extends ConsumerWidget {
                       ),
                     ],
                   ),
+                  // The value chip. Absent for every offer whose worth lives
+                  // only in prose — which is the entire pre-Phase-1 catalog —
+                  // because a chip is the part people believe, and one that
+                  // says less than the terms do is worse than none.
+                  _CouponValueRow(offer: offer),
                   const SizedBox(height: AppSpacing.s3),
                   Text(
                     offer.description(preferEnglish: english),

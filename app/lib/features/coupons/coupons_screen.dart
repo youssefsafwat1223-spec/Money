@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -132,6 +133,19 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
               120,
             ),
             children: [
+              // COUPONS Phase 1 — merchant surfaces, ABOVE the filters.
+              //
+              // Both render nothing unless there is something real to show:
+              // For You is empty when personalization is off or no merchant
+              // clears the threshold, and Stores is empty when no live offer is
+              // linked to a merchant. So a user who never opts in sees exactly
+              // the screen they saw before.
+              //
+              // They also sit outside the category/tag filter deliberately —
+              // filtering "places you shop" by a tag would produce a section
+              // that is personal AND arbitrary, which reads as a bug.
+              const _ForYouSection(),
+              const _StoresSection(),
               _FilterRow(
                 label: l10n.couponsFilterAll,
                 selectedCategory: _categoryKey,
@@ -177,6 +191,106 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
           );
         },
       ),
+    );
+  }
+}
+
+/// Offers at merchants the user actually shops at.
+///
+/// The subtitle states WHERE the matching happened, because the honest answer
+/// is the reassuring one: a user seeing their own shops listed should be told
+/// immediately that this was worked out on their phone and sent nowhere.
+class _ForYouSection extends ConsumerWidget {
+  const _ForYouSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    final l10n = context.l10n;
+    final offers = ref.watch(forYouCouponsProvider).valueOrNull ?? const [];
+    if (offers.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.couponsForYouSection,
+          style: AppTypography.caption(c.textMuted)
+              .copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          l10n.couponsForYouSubtitle,
+          style: AppTypography.caption(c.textMuted).copyWith(fontSize: 11),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        SizedBox(
+          height: 196,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: offers.length,
+            separatorBuilder: (_, __) => const SizedBox(width: AppSpacing.s3),
+            itemBuilder: (context, i) =>
+                CouponCard(offer: offers[i], compact: true),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s4),
+      ],
+    );
+  }
+}
+
+/// Merchants that have at least one LIVE offer.
+///
+/// Derived from the offers themselves rather than from the merchant catalog, so
+/// the list can never advertise a shop with nothing to show — tapping through
+/// to an empty page is a worse experience than not offering the tap.
+class _StoresSection extends ConsumerWidget {
+  const _StoresSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.colors;
+    final l10n = context.l10n;
+    final english = Localizations.localeOf(context).languageCode == 'en';
+    final grouped = ref.watch(couponsByMerchantProvider).valueOrNull ?? const {};
+    final merchants = ref.watch(catalogMerchantsProvider).valueOrNull ?? const {};
+    if (grouped.isEmpty) return const SizedBox.shrink();
+
+    // Deterministic order, and only merchants the catalog can actually name —
+    // a chip labelled with a UUID would be worse than no chip.
+    final entries = grouped.keys
+        .where(merchants.containsKey)
+        .map((id) => MapEntry(id, merchants[id]!))
+        .toList()
+      ..sort((a, b) => a.value.slug.compareTo(b.value.slug));
+    if (entries.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          l10n.couponsStoresSection,
+          style: AppTypography.caption(c.textMuted)
+              .copyWith(fontWeight: FontWeight.w700),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        Wrap(
+          spacing: AppSpacing.s2,
+          runSpacing: AppSpacing.s2,
+          children: [
+            for (final e in entries)
+              _Chip(
+                label: english && (e.value.nameEn?.trim().isNotEmpty ?? false)
+                    ? e.value.nameEn!
+                    : e.value.nameAr,
+                selected: false,
+                onTap: () => context.push('/coupons/merchant/${e.key}'),
+              ),
+          ],
+        ),
+        const SizedBox(height: AppSpacing.s4),
+      ],
     );
   }
 }
