@@ -68,6 +68,27 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(caps.toString())
                 }
 
+                // COUPONS Phase 5 — hand over shared merchant links.
+                //
+                // A SEPARATE channel method from the capture drain, reading a
+                // SEPARATE store. One method returning a mixed list would put a
+                // shopping URL one missed switch case away from the SMS parser,
+                // which is the whole thing this split exists to prevent.
+                "drainOfferIntents" -> {
+                    val items = OfferIntentStore.drain(this)
+                    val array = org.json.JSONArray()
+                    for (item in items) {
+                        array.put(
+                            JSONObject()
+                                .put("id", item.id)
+                                .put("url", item.url)
+                                .put("host", item.host)
+                                .put("receivedAt", item.receivedAt),
+                        )
+                    }
+                    result.success(array.toString())
+                }
+
                 "setAutomaticSmsCaptureEnabled" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: false
                     CaptureSettings.setAutoCaptureEnabled(this, enabled)
