@@ -417,6 +417,16 @@ s3_secret_key = "env(S3_SECRET_KEY)"
 # instead of a Supabase-issued JWT (see index.ts for why).
 verify_jwt = false
 
+[functions.affiliate-postback]
+# Called by an affiliate NETWORK, which has no Supabase session, so verify_jwt
+# is off. The compensating control is a per-network signature check with NO
+# default-allow branch: an unknown or unconfigured network is rejected, so
+# wiring a real provider means ADDING a case rather than removing a bypass.
+#
+# Shipping a permissive default "until we know the scheme" is how an
+# unauthenticated endpoint reaches production.
+verify_jwt = false
+
 [functions.prepare-affiliate-click]
 # User-facing: a device asks for a tracking URL. verify_jwt stays at the project
 # default so the function's own resolveVerifiedIdentity is the authority —

@@ -26,6 +26,7 @@ import '../../features/capture/manual_paste_screen.dart';
 import '../../features/capture/sms_permission_screen.dart';
 import '../../features/coupons/coupons_screen.dart';
 import '../../features/coupons/merchant_offers_screen.dart';
+import '../../features/coupons/savings_screen.dart';
 import '../../features/referrals/referrals_screen.dart';
 import '../../features/design_gallery/design_gallery_screen.dart';
 import '../../features/goals/goal_details_screen.dart';
@@ -169,6 +170,13 @@ final appRouter = GoRouter(
     // the device-local merchants.id: local ids are normalization-derived and
     // differ between users, so one could never survive a link or a
     // notification. The screen fails soft on an unknown id.
+    // COUPONS Phase 4 — the savings ledger. Local-only data, so the route is
+    // always safe to open: with nothing recorded it shows a calm empty state.
+    GoRoute(
+      path: '/savings',
+      name: 'savings',
+      builder: (context, state) => const SavingsScreen(),
+    ),
     GoRoute(
       path: '/coupons/merchant/:merchantId',
       name: 'coupon-merchant',

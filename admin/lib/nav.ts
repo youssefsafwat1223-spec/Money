@@ -7,6 +7,7 @@ import {
   LayoutDashboard,
   ListTree,
   Megaphone,
+  Receipt,
   ScanText,
   SlidersHorizontal,
   Store,
@@ -70,6 +71,12 @@ export const NAV: NavGroup[] = [
         label: "عروض الشركاء الواردة",
         icon: Inbox,
         description: "مراجعة ونشر العروض القادمة من شبكات الأفلييت",
+      },
+      {
+        href: "/affiliate/conversions",
+        label: "التحويلات والعمولة",
+        icon: Receipt,
+        description: "ما أبلغت به الشبكات من مبيعات وعمولة — لوحة إدارية فقط",
       },
       {
         href: "/announcements",
