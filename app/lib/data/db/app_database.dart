@@ -18,7 +18,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 33;
+const int _targetSchemaVersion = 34;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -572,6 +572,20 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV33ReviewLabels,
       postcondition: _verifyV33ReviewLabels,
     ),
+    // v33 -> v34 (COUPONS PHASE 1) — the merchant catalog cache and the
+    // structured offer economics. ADDITIVE: two new catalog cache tables plus
+    // nullable columns on the existing coupon cache. No business table is read
+    // or converted.
+    //
+    // Same rollback rule as v32/v33: forward-only. A v33 binary cannot open a
+    // v34 database, so recovery is a flag, the kill switch, a hotfix or a
+    // forward migration — never shipping an older build.
+    _SchemaMigration(
+      from: 33,
+      to: 34,
+      apply: _applyV34MerchantCatalog,
+      postcondition: _verifyV34MerchantCatalog,
+    ),
   ];
 
   static Future<void> _applyV33ReviewLabels(AppDatabase db) =>
@@ -585,6 +599,31 @@ class AppDatabase extends GeneratedDatabase {
         )
         .get();
     return rows.isNotEmpty;
+  }
+
+  static Future<void> _applyV34MerchantCatalog(AppDatabase db) async {
+    await db._createRemoteCatalogMerchantsTable();
+    await db._createRemoteMerchantAliasesTable();
+    await db._ensureRemoteCouponEconomicsColumns();
+  }
+
+  /// A partial v34 is worse than no v34: the resolver would find an alias table
+  /// with no merchants, or coupons whose benefit columns are missing, and fail
+  /// at read time on a user's device instead of here.
+  static Future<bool> _verifyV34MerchantCatalog(AppDatabase db) async {
+    final tables = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type='table' "
+          "AND name IN ('remote_catalog_merchants','remote_merchant_aliases');",
+        )
+        .get();
+    if (tables.length != 2) return false;
+    final cols = await db.customSelect('PRAGMA table_info(remote_coupons);').get();
+    final names = cols.map((r) => r.read<String>('name')).toSet();
+    return names.containsAll(const {
+      'merchant_id', 'benefit_type', 'discount_bps', 'benefit_currency',
+      'verification_state',
+    });
   }
 
   static Future<void> _applyV32CaptureWorkItems(AppDatabase db) =>
@@ -1712,6 +1751,15 @@ class AppDatabase extends GeneratedDatabase {
     // v33 (PHASE 9A): real user labels for the Phase-11 precision gate.
     // ADDITIVE, and created unconditionally for the same reason as above.
     await _createCaptureReviewLabelsTable();
+
+    // v34 (COUPONS PHASE 1): the merchant catalog cache. Unconditional for the
+    // same reason as the two above — a version gate would skip these on a
+    // freshly created database, and the resolver would then query a table that
+    // does not exist. The coupon economics columns are added by the same
+    // idempotent helper the compatibility pass uses.
+    await _createRemoteCatalogMerchantsTable();
+    await _createRemoteMerchantAliasesTable();
+    await _ensureRemoteCouponEconomicsColumns();
     if (version < 5) {
       await _createDedupHashesTable();
     }
@@ -2529,6 +2577,93 @@ class AppDatabase extends GeneratedDatabase {
         synced_at TEXT NOT NULL
       );
     ''');
+  }
+
+  /// COUPONS Phase 1 — the canonical merchant catalog cache.
+  ///
+  /// A catalog cache, not user data: it is populated only by catalog-delta,
+  /// excluded from backup (it is reproducible from the server) and survives a
+  /// sign-out wipe (it contains nothing about the user).
+  Future<void> _createRemoteCatalogMerchantsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_catalog_merchants(
+        id TEXT PRIMARY KEY,
+        slug TEXT NOT NULL,
+        name_ar TEXT NOT NULL,
+        name_en TEXT NULL,
+        primary_domain TEXT NULL,
+        logo_url TEXT NULL,
+        default_display_category_key TEXT NULL,
+        country_codes_json TEXT NOT NULL DEFAULT '[]',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_version INTEGER NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_rcm_active '
+      'ON remote_catalog_merchants(is_active, is_deleted);',
+    );
+  }
+
+  /// Reviewed aliases only — catalog-delta never serves an unreviewed row, and
+  /// nothing on the device may add one.
+  ///
+  /// `alias_normalized` is the lookup key produced by `merchant_alias_key_v1`;
+  /// the index on it is what makes resolution a single indexed equality rather
+  /// than a scan over the whole alias set on every transaction.
+  Future<void> _createRemoteMerchantAliasesTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS remote_merchant_aliases(
+        id TEXT PRIMARY KEY,
+        merchant_id TEXT NOT NULL,
+        alias_normalized TEXT NOT NULL,
+        alias_kind TEXT NOT NULL,
+        country_code TEXT NULL,
+        priority INTEGER NOT NULL DEFAULT 0,
+        key_version INTEGER NOT NULL DEFAULT 1,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        updated_version INTEGER NOT NULL DEFAULT 0,
+        synced_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_rma_lookup '
+      'ON remote_merchant_aliases(alias_normalized, alias_kind);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_rma_merchant '
+      'ON remote_merchant_aliases(merchant_id);',
+    );
+  }
+
+  /// The structured half of an offer's value (server 0095), cached alongside the
+  /// prose the user actually sees.
+  ///
+  /// Every column is NULLABLE and added with `_ensureColumn`, so a cached
+  /// snapshot written by an older build stays readable and simply has no
+  /// structured value. The savings layer must abstain on a null rather than
+  /// infer one — an invented number is worse than no number in a finance app.
+  Future<void> _ensureRemoteCouponEconomicsColumns() async {
+    const columns = <String, String>{
+      'merchant_id': 'TEXT NULL',
+      'merchant_slug': 'TEXT NULL',
+      'merchant_name_ar': 'TEXT NULL',
+      'merchant_name_en': 'TEXT NULL',
+      'benefit_type': 'TEXT NULL',
+      'discount_bps': 'INTEGER NULL',
+      'fixed_amount_minor': 'INTEGER NULL',
+      'min_spend_minor': 'INTEGER NULL',
+      'max_saving_minor': 'INTEGER NULL',
+      'benefit_currency': 'TEXT NULL',
+      'source': "TEXT NOT NULL DEFAULT 'manual'",
+      'verification_state': "TEXT NOT NULL DEFAULT 'unverified'",
+    };
+    for (final entry in columns.entries) {
+      await _ensureColumn('remote_coupons', entry.key, entry.value);
+    }
   }
 
   Future<void> _createRemoteMerchantKeywordsTable() async {

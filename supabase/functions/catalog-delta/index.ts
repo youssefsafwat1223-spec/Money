@@ -19,6 +19,10 @@ const tableByCategory: Record<string, string> = {
   countries: 'countries',
   categories: 'categories',
   merchant_keywords: 'merchant_keywords',
+  // COUPONS Phase 1 — the canonical merchant catalog. Standard versioned delta;
+  // the alias table needs one extra serving filter, applied below.
+  catalog_merchants: 'catalog_merchants',
+  merchant_aliases: 'catalog_merchant_aliases',
 };
 
 const idColumnByCategory: Record<string, string> = {
@@ -28,6 +32,8 @@ const idColumnByCategory: Record<string, string> = {
   countries: 'code',
   categories: 'id',
   merchant_keywords: 'id',
+  catalog_merchants: 'id',
+  merchant_aliases: 'id',
 };
 
 Deno.serve(async (req) => {
@@ -106,6 +112,18 @@ Deno.serve(async (req) => {
         .eq('validation_status', 'passed')
         .not('validated_at', 'is', null)
         .gt('golden_test_count', 0);
+    }
+    // Merchant aliases: serve REVIEWED rows only.
+    //
+    // Provider-suggested aliases land as `observed_candidate`/`provider` with
+    // is_reviewed = false and sit in the admin queue. RLS already hides them
+    // from anon and authenticated, but this function runs with the service-role
+    // client, which bypasses RLS — so without this filter the delta would hand
+    // devices exactly the unreviewed guesses the review step exists to catch,
+    // and an unreviewed alias resolving a merchant is a wrong attribution of
+    // someone's spending.
+    if (category === 'merchant_aliases') {
+      baseItemQuery = (baseItemQuery as any).eq('is_reviewed', true);
     }
     const itemQuery = applyCountryFilter(
       applyActiveDeltaFilter(baseItemQuery, since),

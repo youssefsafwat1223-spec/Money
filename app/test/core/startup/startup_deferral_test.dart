@@ -65,7 +65,7 @@ void main() {
         final version = await db
             .customSelect('PRAGMA user_version;')
             .getSingle();
-        expect(version.read<int>('user_version'), 33,
+        expect(version.read<int>('user_version'), 34,
             reason: 'migrations ran offline');
         final rows = await db
             .customSelect('SELECT COUNT(*) AS n FROM transactions;')

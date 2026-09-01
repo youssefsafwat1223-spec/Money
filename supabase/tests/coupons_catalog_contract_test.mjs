@@ -240,6 +240,6 @@ test('the catalog migration exists and the client schema is untouched by it', ()
   // A literal pin here rots on every legitimate bump, so the load-bearing claim
   // is the SQL assertion below; this line only catches an UNAPPROVED bump.
   const db = read('app/lib/data/db/app_database.dart');
-  assert.match(db, /const int _targetSchemaVersion = 33;/);
+  assert.match(db, /const int _targetSchemaVersion = 34;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });

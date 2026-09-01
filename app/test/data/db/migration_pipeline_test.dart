@@ -86,7 +86,7 @@ void main() {
           .toList();
 
   Future<void> assertFullyMigrated(AppDatabase db) async {
-    expect(await userVersion(db), 33, reason: 'must reach target version');
+    expect(await userVersion(db), 34, reason: 'must reach target version');
     for (final t in const [
       'accounts',
       'transactions',
@@ -134,7 +134,7 @@ void main() {
     addTearDown(db.close);
     await db.debugReinitialize();
     await db.debugReinitialize();
-    expect(await userVersion(db), 33);
+    expect(await userVersion(db), 34);
     expect(await count(db, 'accounts'), greaterThan(0));
   });
 
@@ -201,7 +201,7 @@ void main() {
     expect(caught, isNot(isA<MigrationIntegrityException>()));
     expect((caught! as UnsupportedDatabaseVersionException).databaseVersion,
         999);
-    expect((caught as UnsupportedDatabaseVersionException).supportedVersion, 33);
+    expect((caught as UnsupportedDatabaseVersionException).supportedVersion, 34);
 
     // No schema/data change; user_version untouched; marker preserved.
     expect(await userVersion(db), 999);
@@ -237,7 +237,7 @@ void main() {
       // Recovery: removing the injected failure lets init complete cleanly.
       db.debugFailAtPhase = null;
       await db.debugReinitialize();
-      expect(await userVersion(db), 33);
+      expect(await userVersion(db), 34);
       expect(await markerPresent(db), isTrue);
     });
   }
@@ -251,7 +251,7 @@ void main() {
     final b = db.initialize();
     expect(identical(a, b), isTrue); // same in-flight future → single run
     await Future.wait([a, b]);
-    expect(await userVersion(db), 33);
+    expect(await userVersion(db), 34);
   });
 
   test('a successful init runs exactly once (later initialize() is a no-op)',
@@ -266,7 +266,7 @@ void main() {
     final again = db.initialize();
     await again;
     expect(runs, 1, reason: 'the pipeline must not re-run on a cached success');
-    expect(await userVersion(db), 33);
+    expect(await userVersion(db), 34);
   });
 
   test('concurrent callers during a FAILING init share one execution',
@@ -303,7 +303,7 @@ void main() {
     // than replaying the cached failed future) and completes successfully.
     db.debugFailAtPhase = null;
     await db.initialize();
-    expect(await userVersion(db), 33);
+    expect(await userVersion(db), 34);
     expect(await count(db, 'accounts'), greaterThan(0), reason: 'seeded on retry');
   });
 
@@ -428,7 +428,7 @@ void main() {
 
     await db.debugReinitialize();
 
-    expect(await userVersion(db), 33);
+    expect(await userVersion(db), 34);
     expect(await columnNotNull(db, 'cards', 'account_id'), isFalse,
         reason: 'account_id relaxed to NULLable');
     expect(await columnExists(db, 'cards', 'color_theme'), isTrue);
@@ -455,7 +455,7 @@ void main() {
 
     await db.debugReinitialize();
 
-    expect(await userVersion(db), 33);
+    expect(await userVersion(db), 34);
     expect(await markerPresent(db), isTrue);
     expect(await fkViolations(db), isEmpty);
   });

@@ -67,15 +67,15 @@ void main() {
 
     final dbFramework = openUninit(newDbFile(), enableMigrations: true);
     addTearDown(dbFramework.close);
-    expect(await userVersion(dbFramework), 33,
+    expect(await userVersion(dbFramework), 34,
         reason: 'framework stamps schemaVersion (33) — the behavior the fix disables');
   });
 
-  test('fresh database (production config) initializes forward to 33', () async {
+  test('fresh database (production config) initializes forward to 34', () async {
     final db = openUninit(newDbFile());
     addTearDown(db.close);
     await db.initialize();
-    expect(await userVersion(db), 33);
+    expect(await userVersion(db), 34);
     expect(await count(db, 'accounts'), greaterThan(0));
     expect(await count(db, 'categories'), greaterThan(0));
   });
@@ -119,14 +119,14 @@ void main() {
 
     await db.initialize();
 
-    expect(await userVersion(db), 33);
+    expect(await userVersion(db), 34);
     expect(await columnExists(db, 'transactions', 'foreign_amount'), isTrue,
         reason: 'version<9 gate fired — real on-disk version (8) was observed');
     expect(await count(db, "transactions WHERE id='legacy_tx'"), 1,
         reason: 'legacy data preserved');
   });
 
-  test('reopening the same file persists user_version 33 without re-migrating',
+  test('reopening the same file persists user_version 34 without re-migrating',
       () async {
     final f = newDbFile();
     final db1 = openUninit(f);
@@ -140,10 +140,11 @@ void main() {
 
     final db2 = openUninit(f);
     addTearDown(db2.close);
-    expect(await userVersion(db2), 33,
-        reason: 'the pipeline persisted 32 to disk; observed on reopen');
+    expect(await userVersion(db2), 34,
+        reason: 'the pipeline owns user_version and persisted the current '
+            'target to disk; reopening observes it before initialize runs');
     await db2.initialize(); // idempotent no-op
-    expect(await userVersion(db2), 33);
+    expect(await userVersion(db2), 34);
     expect(await count(db2, "accounts WHERE id='marker'"), 1);
   });
 

@@ -62,12 +62,13 @@ void main() {
     // was originally written as a global pin to v31, which over-reached once
     // another track legitimately bumped the version.
     //
-    // v32 is owned by PHASE 8 (the durable capture work item), an approved and
+    // v34 is owned by COUPONS Phase 1 (the merchant catalog cache); v32/v33 by
+    // PHASE 8/9A. Each is an approved and
     // separately gated change. So the version pin now tracks the current
     // approved value, and the R4-specific claim is asserted directly below,
     // where it belongs.
     final db = _read('lib/data/db/app_database.dart');
-    expect(RegExp(r'_targetSchemaVersion\s*=\s*33').hasMatch(db), isTrue,
+    expect(RegExp(r'_targetSchemaVersion\s*=\s*34').hasMatch(db), isTrue,
         reason: 'unexpected schema version — a bump must be an approved, '
             'separately gated change');
   });

@@ -387,6 +387,12 @@ class BackupSnapshotBuilder {
     'remote_categories',
     'remote_countries',
     'remote_coupons',
+    // COUPONS Phase 1 — catalog caches, like every other remote_* table here.
+    // Reproducible from catalog-delta on any device, and they contain nothing
+    // about the user, so backing them up would only make restores bigger and
+    // staler.
+    'remote_catalog_merchants',
+    'remote_merchant_aliases',
     'remote_currencies',
     'remote_feature_flags',
     'remote_growth_campaigns',

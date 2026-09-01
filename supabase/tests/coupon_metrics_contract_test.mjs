@@ -181,7 +181,7 @@ test('C2 touches no closed contract and bumps no client schema', () => {
   // v33 is owned by Proof-Carrying (capture_work_items, capture_review_labels).
   // A literal pin here rots on every legitimate bump, so the load-bearing claim
   // is the SQL assertion below; this line only catches an UNAPPROVED bump.
-  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 33;/);
+  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 34;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });
 

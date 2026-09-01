@@ -31,6 +31,13 @@ class CatalogCategories {
   static const categories = 'categories';
   static const merchantKeywords = 'merchant_keywords';
 
+  /// COUPONS Phase 1 — the canonical merchant catalog and its reviewed aliases.
+  /// Two categories rather than one because they version independently: adding
+  /// an alias is a frequent, small change and must not force every device to
+  /// re-download the merchant list.
+  static const catalogMerchants = 'catalog_merchants';
+  static const merchantAliases = 'merchant_aliases';
+
   static const phase0 = <String>[
     banks,
     parsers,
@@ -45,6 +52,8 @@ class CatalogCategories {
     countries,
     categories,
     merchantKeywords,
+    catalogMerchants,
+    merchantAliases,
   ];
 }
 
@@ -1079,6 +1088,306 @@ class RemoteMerchantKeywordsDao {
         .get();
     return rows.isEmpty;
   }
+}
+
+/// A canonical merchant, as published by the server.
+///
+/// This is the ONLY cross-user merchant identity in the app. The local
+/// `merchants` table is device-local and normalization-derived — two users who
+/// shop at the same place get different local ids — so it can never be used to
+/// tie a coupon to a merchant.
+class RemoteCatalogMerchant {
+  const RemoteCatalogMerchant({
+    required this.id,
+    required this.slug,
+    required this.nameAr,
+    required this.countryCodes,
+    required this.isActive,
+    required this.isDeleted,
+    required this.updatedVersion,
+    this.nameEn,
+    this.primaryDomain,
+    this.logoUrl,
+    this.defaultDisplayCategoryKey,
+  });
+
+  final String id;
+  final String slug;
+  final String nameAr;
+  final String? nameEn;
+  final String? primaryDomain;
+  final String? logoUrl;
+  final String? defaultDisplayCategoryKey;
+
+  /// Empty means global, matching `coupons.country_codes`.
+  final List<String> countryCodes;
+  final bool isActive;
+  final bool isDeleted;
+  final int updatedVersion;
+
+  static RemoteCatalogMerchant fromJson(Map<String, Object?> json) {
+    return RemoteCatalogMerchant(
+      id: json['id'] as String,
+      slug: json['slug'] as String,
+      nameAr: json['name_ar'] as String,
+      nameEn: json['name_en'] as String?,
+      primaryDomain: json['primary_domain'] as String?,
+      logoUrl: json['logo_url'] as String? ?? json['logo_path'] as String?,
+      defaultDisplayCategoryKey: json['default_display_category_key'] as String?,
+      countryCodes: _stringList(json['country_codes']),
+      isActive: _boolFromJson(json['is_active'], defaultValue: true),
+      isDeleted: _boolFromJson(json['is_deleted']),
+      updatedVersion: (json['updated_version'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class RemoteCatalogMerchantsDao {
+  const RemoteCatalogMerchantsDao(this._db);
+
+  final AppDatabase _db;
+
+  Future<void> upsertAll(List<RemoteCatalogMerchant> merchants) async {
+    final syncedAt = DateTime.now().toUtc().toIso8601String();
+    for (final m in merchants) {
+      await _db.customInsert(
+        '''
+          INSERT INTO remote_catalog_merchants(
+            id, slug, name_ar, name_en, primary_domain, logo_url,
+            default_display_category_key, country_codes_json,
+            is_active, is_deleted, updated_version, synced_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            slug = excluded.slug,
+            name_ar = excluded.name_ar,
+            name_en = excluded.name_en,
+            primary_domain = excluded.primary_domain,
+            logo_url = excluded.logo_url,
+            default_display_category_key = excluded.default_display_category_key,
+            country_codes_json = excluded.country_codes_json,
+            is_active = excluded.is_active,
+            is_deleted = excluded.is_deleted,
+            updated_version = excluded.updated_version,
+            synced_at = excluded.synced_at;
+        ''',
+        variables: [
+          Variable.withString(m.id),
+          Variable.withString(m.slug),
+          Variable.withString(m.nameAr),
+          if (m.nameEn == null) const Variable<String>(null) else Variable.withString(m.nameEn!),
+          if (m.primaryDomain == null) const Variable<String>(null) else Variable.withString(m.primaryDomain!),
+          if (m.logoUrl == null) const Variable<String>(null) else Variable.withString(m.logoUrl!),
+          if (m.defaultDisplayCategoryKey == null)
+            const Variable<String>(null)
+          else
+            Variable.withString(m.defaultDisplayCategoryKey!),
+          Variable.withString(jsonEncode(m.countryCodes)),
+          Variable.withInt(m.isActive ? 1 : 0),
+          Variable.withInt(m.isDeleted ? 1 : 0),
+          Variable.withInt(m.updatedVersion),
+          Variable.withString(syncedAt),
+        ],
+      );
+    }
+  }
+
+  /// Tombstones, never row removal: a device that only ever applies inserts
+  /// would keep a withdrawn merchant forever.
+  Future<void> markDeleted(List<String> ids) async {
+    for (final id in ids) {
+      await _db.customUpdate(
+        'UPDATE remote_catalog_merchants SET is_deleted = 1, is_active = 0 WHERE id = ?;',
+        variables: [Variable.withString(id)],
+      );
+    }
+  }
+
+  Future<List<RemoteCatalogMerchant>> getAll() async {
+    final rows = await _db.customSelect(
+      'SELECT * FROM remote_catalog_merchants '
+      'WHERE is_active = 1 AND is_deleted = 0 ORDER BY slug;',
+    ).get();
+    return rows.map(_fromRow).toList();
+  }
+
+  Future<RemoteCatalogMerchant?> byId(String id) async {
+    final rows = await _db.customSelect(
+      'SELECT * FROM remote_catalog_merchants WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(id)],
+    ).get();
+    return rows.isEmpty ? null : _fromRow(rows.first);
+  }
+
+  static RemoteCatalogMerchant _fromRow(QueryRow r) => RemoteCatalogMerchant(
+        id: r.read<String>('id'),
+        slug: r.read<String>('slug'),
+        nameAr: r.read<String>('name_ar'),
+        nameEn: r.readNullable<String>('name_en'),
+        primaryDomain: r.readNullable<String>('primary_domain'),
+        logoUrl: r.readNullable<String>('logo_url'),
+        defaultDisplayCategoryKey:
+            r.readNullable<String>('default_display_category_key'),
+        countryCodes: _jsonStringList(r.read<String>('country_codes_json')),
+        isActive: r.read<int>('is_active') != 0,
+        isDeleted: r.read<int>('is_deleted') != 0,
+        updatedVersion: r.read<int>('updated_version'),
+      );
+}
+
+/// A reviewed alias: one exact lookup key that resolves to one merchant.
+///
+/// `aliasNormalized` is produced by `merchant_alias_key_v1` — on the SERVER, as
+/// a generated column. The device never computes a key for storage, only for a
+/// lookup, so a client-side key bug can cause a miss but can never corrupt the
+/// catalog.
+class RemoteMerchantAlias {
+  const RemoteMerchantAlias({
+    required this.id,
+    required this.merchantId,
+    required this.aliasNormalized,
+    required this.aliasKind,
+    required this.priority,
+    required this.keyVersion,
+    required this.isActive,
+    required this.isDeleted,
+    required this.updatedVersion,
+    this.countryCode,
+  });
+
+  final String id;
+  final String merchantId;
+  final String aliasNormalized;
+
+  /// `name` or `domain` — two different key contracts, never interchangeable.
+  final String aliasKind;
+
+  /// NULL means global. A country-scoped row outranks a global one ONLY on
+  /// merchant-location evidence; see MerchantLookupPipeline.
+  final String? countryCode;
+  final int priority;
+  final int keyVersion;
+  final bool isActive;
+  final bool isDeleted;
+  final int updatedVersion;
+
+  static RemoteMerchantAlias fromJson(Map<String, Object?> json) {
+    return RemoteMerchantAlias(
+      id: json['id'] as String,
+      merchantId: json['merchant_id'] as String,
+      aliasNormalized: json['alias_normalized'] as String,
+      aliasKind: (json['alias_kind'] as String?) ?? 'name',
+      countryCode: json['country_code'] as String?,
+      priority: (json['priority'] as num?)?.toInt() ?? 0,
+      keyVersion: (json['key_version'] as num?)?.toInt() ?? 1,
+      isActive: _boolFromJson(json['is_active'], defaultValue: true),
+      isDeleted: _boolFromJson(json['is_deleted']),
+      updatedVersion: (json['updated_version'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+class RemoteMerchantAliasesDao {
+  const RemoteMerchantAliasesDao(this._db);
+
+  final AppDatabase _db;
+
+  Future<void> upsertAll(List<RemoteMerchantAlias> aliases) async {
+    final syncedAt = DateTime.now().toUtc().toIso8601String();
+    for (final a in aliases) {
+      // A key this build cannot interpret is not stored. The alternative is a
+      // row that looks resolvable and is not, which is worse than absent: the
+      // resolver would abstain either way, but a stored future-version key would
+      // also survive a downgrade and confuse the next investigation.
+      if (a.keyVersion != 1) continue;
+      await _db.customInsert(
+        '''
+          INSERT INTO remote_merchant_aliases(
+            id, merchant_id, alias_normalized, alias_kind, country_code,
+            priority, key_version, is_active, is_deleted, updated_version, synced_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            merchant_id = excluded.merchant_id,
+            alias_normalized = excluded.alias_normalized,
+            alias_kind = excluded.alias_kind,
+            country_code = excluded.country_code,
+            priority = excluded.priority,
+            key_version = excluded.key_version,
+            is_active = excluded.is_active,
+            is_deleted = excluded.is_deleted,
+            updated_version = excluded.updated_version,
+            synced_at = excluded.synced_at;
+        ''',
+        variables: [
+          Variable.withString(a.id),
+          Variable.withString(a.merchantId),
+          Variable.withString(a.aliasNormalized),
+          Variable.withString(a.aliasKind),
+          if (a.countryCode == null) const Variable<String>(null) else Variable.withString(a.countryCode!),
+          Variable.withInt(a.priority),
+          Variable.withInt(a.keyVersion),
+          Variable.withInt(a.isActive ? 1 : 0),
+          Variable.withInt(a.isDeleted ? 1 : 0),
+          Variable.withInt(a.updatedVersion),
+          Variable.withString(syncedAt),
+        ],
+      );
+    }
+  }
+
+  Future<void> markDeleted(List<String> ids) async {
+    for (final id in ids) {
+      await _db.customUpdate(
+        'UPDATE remote_merchant_aliases SET is_deleted = 1, is_active = 0 WHERE id = ?;',
+        variables: [Variable.withString(id)],
+      );
+    }
+  }
+
+  /// Every candidate for one exact key. More than one row is possible and
+  /// legitimate — a global row and a country row may point at different
+  /// merchants — so the caller decides, and abstains when it cannot.
+  Future<List<RemoteMerchantAlias>> candidatesFor(
+    String aliasNormalized,
+    String aliasKind,
+  ) async {
+    if (aliasNormalized.isEmpty) return const [];
+    final rows = await _db.customSelect(
+      '''
+        SELECT * FROM remote_merchant_aliases
+        WHERE alias_normalized = ? AND alias_kind = ?
+          AND is_active = 1 AND is_deleted = 0 AND key_version = 1
+        ORDER BY priority DESC;
+      ''',
+      variables: [
+        Variable.withString(aliasNormalized),
+        Variable.withString(aliasKind),
+      ],
+    ).get();
+    return rows.map(_fromRow).toList();
+  }
+
+  Future<int> count() async {
+    final rows = await _db
+        .customSelect('SELECT COUNT(*) AS c FROM remote_merchant_aliases '
+            'WHERE is_active = 1 AND is_deleted = 0;')
+        .get();
+    return rows.first.read<int>('c');
+  }
+
+  static RemoteMerchantAlias _fromRow(QueryRow r) => RemoteMerchantAlias(
+        id: r.read<String>('id'),
+        merchantId: r.read<String>('merchant_id'),
+        aliasNormalized: r.read<String>('alias_normalized'),
+        aliasKind: r.read<String>('alias_kind'),
+        countryCode: r.readNullable<String>('country_code'),
+        priority: r.read<int>('priority'),
+        keyVersion: r.read<int>('key_version'),
+        isActive: r.read<int>('is_active') != 0,
+        isDeleted: r.read<int>('is_deleted') != 0,
+        updatedVersion: r.read<int>('updated_version'),
+      );
 }
 
 class PendingMerchantFeedbackDao {
