@@ -433,5 +433,19 @@
   },
   "couponsVerifiedByUs": "تحقّق منه قِرش",
   "couponsVerifiedByProvider": "مؤكَّد من المزوّد",
-  "couponsUnverified": "غير مُتحقَّق منه"
+  "couponsUnverified": "غير مُتحقَّق منه",
+  "savingsTitle": "ما وفّرته",
+  "savingsEmptyTitle": "لا توجد مبالغ موفَّرة بعد",
+  "savingsEmptyBody": "عند استخدامك عرضًا وتأكيده، سيظهر هنا.",
+  "savingsVerifiedLabel": "مؤكَّد من المتجر",
+  "savingsEstimatedLabel": "تقديري",
+  "savingsSelfReportedLabel": "بتأكيدك أنت",
+  "savingsBreakdownNote": "نفصل هذه الأرقام لأنها ليست بنفس درجة التأكيد. المؤكَّد فقط هو ما أبلغنا به المتجر.",
+  "savingsCurrencyNote": "العملات لا تُجمع معًا.",
+  "savingsConfirmTitle": "هل استخدمت هذا العرض؟",
+  "savingsConfirmBody": "أدخل قيمة طلبك لنحسب ما وفّرته. الحساب يتم على جهازك ولا يُرسَل لأي مكان.",
+  "savingsConfirmAmountLabel": "قيمة الطلب",
+  "savingsConfirmAction": "احسب",
+  "savingsCannotCompute": "لا يمكننا حساب رقم دقيق لهذا العرض، فلن نعرض رقمًا.",
+  "savingsReversedNote": "أُلغي هذا المبلغ بعد أن تراجع المتجر عن العملية."
 }

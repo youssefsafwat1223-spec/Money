@@ -931,4 +931,51 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get couponsUnverified => 'Not checked';
+
+  @override
+  String get savingsTitle => 'What you saved';
+
+  @override
+  String get savingsEmptyTitle => 'Nothing saved yet';
+
+  @override
+  String get savingsEmptyBody =>
+      'When you use an offer and confirm it, it will show up here.';
+
+  @override
+  String get savingsVerifiedLabel => 'Confirmed by the store';
+
+  @override
+  String get savingsEstimatedLabel => 'Estimated';
+
+  @override
+  String get savingsSelfReportedLabel => 'You told us';
+
+  @override
+  String get savingsBreakdownNote =>
+      'These are kept apart because they are not equally certain. Only the confirmed figure is one the store reported to us.';
+
+  @override
+  String get savingsCurrencyNote => 'Currencies are never added together.';
+
+  @override
+  String get savingsConfirmTitle => 'Did you use this offer?';
+
+  @override
+  String get savingsConfirmBody =>
+      'Enter your order total and we will work out what you saved. It is calculated on your phone and sent nowhere.';
+
+  @override
+  String get savingsConfirmAmountLabel => 'Order total';
+
+  @override
+  String get savingsConfirmAction => 'Calculate';
+
+  @override
+  String get savingsCannotCompute =>
+      'We cannot work out an exact figure for this offer, so we will not show one.';
+
+  @override
+  String get savingsReversedNote =>
+      'This was reversed after the store cancelled the purchase.';
 }

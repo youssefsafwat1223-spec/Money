@@ -1728,6 +1728,90 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'غير مُتحقَّق منه'**
   String get couponsUnverified;
+
+  /// No description provided for @savingsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ما وفّرته'**
+  String get savingsTitle;
+
+  /// No description provided for @savingsEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد مبالغ موفَّرة بعد'**
+  String get savingsEmptyTitle;
+
+  /// No description provided for @savingsEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'عند استخدامك عرضًا وتأكيده، سيظهر هنا.'**
+  String get savingsEmptyBody;
+
+  /// No description provided for @savingsVerifiedLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'مؤكَّد من المتجر'**
+  String get savingsVerifiedLabel;
+
+  /// No description provided for @savingsEstimatedLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'تقديري'**
+  String get savingsEstimatedLabel;
+
+  /// No description provided for @savingsSelfReportedLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'بتأكيدك أنت'**
+  String get savingsSelfReportedLabel;
+
+  /// No description provided for @savingsBreakdownNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'نفصل هذه الأرقام لأنها ليست بنفس درجة التأكيد. المؤكَّد فقط هو ما أبلغنا به المتجر.'**
+  String get savingsBreakdownNote;
+
+  /// No description provided for @savingsCurrencyNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملات لا تُجمع معًا.'**
+  String get savingsCurrencyNote;
+
+  /// No description provided for @savingsConfirmTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'هل استخدمت هذا العرض؟'**
+  String get savingsConfirmTitle;
+
+  /// No description provided for @savingsConfirmBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدخل قيمة طلبك لنحسب ما وفّرته. الحساب يتم على جهازك ولا يُرسَل لأي مكان.'**
+  String get savingsConfirmBody;
+
+  /// No description provided for @savingsConfirmAmountLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيمة الطلب'**
+  String get savingsConfirmAmountLabel;
+
+  /// No description provided for @savingsConfirmAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'احسب'**
+  String get savingsConfirmAction;
+
+  /// No description provided for @savingsCannotCompute.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يمكننا حساب رقم دقيق لهذا العرض، فلن نعرض رقمًا.'**
+  String get savingsCannotCompute;
+
+  /// No description provided for @savingsReversedNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'أُلغي هذا المبلغ بعد أن تراجع المتجر عن العملية.'**
+  String get savingsReversedNote;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -185,15 +185,29 @@ test('C2 touches no closed contract and bumps no client schema', () => {
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });
 
-test('migration numbering: 0082 is the Coupon ceiling and stays unique', () => {
+test('migration numbering: the original Coupon pair is immutable and unique', () => {
   const files = readdirSync(new URL('supabase/migrations/', root)).filter((f) => f.endsWith('.sql'));
+  assert.ok(files.includes('0081_coupons.sql'));
   assert.ok(files.includes('0082_coupon_metrics.sql'));
-  // The durable invariant is that 0082 is the LAST Coupon migration and no
-  // number is ever reused — not that the project stops at 0082. (Later domains
-  // legitimately add higher numbers; R1 added 0083_referral_rewards.)
   assert.equal(files.filter((f) => f.startsWith('0082')).length, 1);
+
+  // This previously asserted that 0081/0082 were the ONLY coupon migrations —
+  // "0082 is the Coupon ceiling". That stopped being true when Phase 1
+  // legitimately extended the domain (0095 adds structured offer economics to
+  // the same table), and the assertion was failing on correct work.
+  //
+  // The durable invariant was never "the domain stops here". It is that the two
+  // SHIPPED migrations are never renumbered or repurposed, and that later coupon
+  // work arrives as NEW files numbered above them — because editing an applied
+  // migration changes what a fresh database gets without changing what an
+  // existing one has.
   const coupon = files.filter((f) => /coupon/i.test(f)).sort();
-  assert.deepEqual(coupon, ['0081_coupons.sql', '0082_coupon_metrics.sql']);
+  assert.deepEqual(coupon.slice(0, 2), ['0081_coupons.sql', '0082_coupon_metrics.sql']);
+  for (const later of coupon.slice(2)) {
+    assert.ok(Number(later.slice(0, 4)) > 82,
+      `a coupon migration must be numbered above the shipped pair: ${later}`);
+  }
+
   const numbers = files.map((f) => f.slice(0, 4));
   assert.equal(new Set(numbers).size, numbers.length, 'no duplicate migration number');
 });

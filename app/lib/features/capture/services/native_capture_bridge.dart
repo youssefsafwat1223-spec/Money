@@ -714,3 +714,68 @@ class NativeCaptureBridge {
     );
   }
 }
+
+/// COUPONS Phase 5 — a shared merchant link, staged natively.
+///
+/// Deliberately NOT a capture. It arrives through its own channel method from
+/// its own store, so a shopping URL is never one missed switch case away from
+/// the SMS parser.
+class OfferIntent {
+  const OfferIntent({
+    required this.id,
+    required this.url,
+    required this.host,
+    required this.receivedAt,
+  });
+
+  final String id;
+
+  /// Already sanitized natively: scheme, host and path only. The query and
+  /// fragment were destroyed before this was written to disk.
+  final String url;
+  final String host;
+  final String receivedAt;
+
+  static OfferIntent? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final url = raw['url'];
+    final host = raw['host'];
+    if (url is! String || host is! String || url.isEmpty || host.isEmpty) {
+      return null;
+    }
+    // Refuse anything still carrying a query or fragment even though the native
+    // side strips them. This is the last checkpoint before a URL enters the app,
+    // and the cost of the check is nothing.
+    if (url.contains('?') || url.contains('#') || !url.startsWith('https://')) {
+      return null;
+    }
+    return OfferIntent(
+      id: raw['id'] as String? ?? '',
+      url: url,
+      host: host,
+      receivedAt: raw['receivedAt'] as String? ?? '',
+    );
+  }
+}
+
+/// Drains merchant links the user shared into Qirsh.
+///
+/// Returns empty on any failure, including a platform without the method — an
+/// offer intent has no durability requirement. The worst case for losing one is
+/// that the user taps the link again, whereas a lost bank message is a missing
+/// transaction, which is why the two paths have different guarantees.
+Future<List<OfferIntent>> drainOfferIntents() async {
+  try {
+    final raw = await const MethodChannel('money_companion/native_capture')
+        .invokeMethod<String>('drainOfferIntents');
+    if (raw == null || raw.isEmpty) return const [];
+    final decoded = jsonDecode(raw);
+    if (decoded is! List) return const [];
+    return decoded
+        .map(OfferIntent.tryParse)
+        .whereType<OfferIntent>()
+        .toList(growable: false);
+  } catch (_) {
+    return const [];
+  }
+}

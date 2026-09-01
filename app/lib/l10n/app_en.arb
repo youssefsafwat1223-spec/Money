@@ -329,5 +329,19 @@
   "couponsUnverified": "Not checked",
   "@couponsUnverified": {
     "description": "Shown when nobody has confirmed the offer works. Deliberately plain — an unchecked offer must not read like a checked one."
-  }
+  },
+  "savingsTitle": "What you saved",
+  "savingsEmptyTitle": "Nothing saved yet",
+  "savingsEmptyBody": "When you use an offer and confirm it, it will show up here.",
+  "savingsVerifiedLabel": "Confirmed by the store",
+  "savingsEstimatedLabel": "Estimated",
+  "savingsSelfReportedLabel": "You told us",
+  "savingsBreakdownNote": "These are kept apart because they are not equally certain. Only the confirmed figure is one the store reported to us.",
+  "savingsCurrencyNote": "Currencies are never added together.",
+  "savingsConfirmTitle": "Did you use this offer?",
+  "savingsConfirmBody": "Enter your order total and we will work out what you saved. It is calculated on your phone and sent nowhere.",
+  "savingsConfirmAmountLabel": "Order total",
+  "savingsConfirmAction": "Calculate",
+  "savingsCannotCompute": "We cannot work out an exact figure for this offer, so we will not show one.",
+  "savingsReversedNote": "This was reversed after the store cancelled the purchase."
 }

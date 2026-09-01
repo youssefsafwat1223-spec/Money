@@ -107,6 +107,13 @@ import UserNotifications
         }
       case "hasPendingSharedMessages":
         result(SharedCaptureStore.hasPendingMessages())
+      // COUPONS Phase 5 — shared merchant links.
+      //
+      // A SEPARATE method reading a SEPARATE store. One method returning a
+      // mixed list would put a shopping URL one missed branch away from the SMS
+      // parser, which is precisely what the two-store split exists to prevent.
+      case "drainOfferIntents":
+        result(SharedOfferIntentStore.drain())
       case "setCaptureBackendConfig":
         guard let args = call.arguments as? [String: Any] else {
           result(FlutterError(

@@ -916,4 +916,50 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get couponsUnverified => 'غير مُتحقَّق منه';
+
+  @override
+  String get savingsTitle => 'ما وفّرته';
+
+  @override
+  String get savingsEmptyTitle => 'لا توجد مبالغ موفَّرة بعد';
+
+  @override
+  String get savingsEmptyBody => 'عند استخدامك عرضًا وتأكيده، سيظهر هنا.';
+
+  @override
+  String get savingsVerifiedLabel => 'مؤكَّد من المتجر';
+
+  @override
+  String get savingsEstimatedLabel => 'تقديري';
+
+  @override
+  String get savingsSelfReportedLabel => 'بتأكيدك أنت';
+
+  @override
+  String get savingsBreakdownNote =>
+      'نفصل هذه الأرقام لأنها ليست بنفس درجة التأكيد. المؤكَّد فقط هو ما أبلغنا به المتجر.';
+
+  @override
+  String get savingsCurrencyNote => 'العملات لا تُجمع معًا.';
+
+  @override
+  String get savingsConfirmTitle => 'هل استخدمت هذا العرض؟';
+
+  @override
+  String get savingsConfirmBody =>
+      'أدخل قيمة طلبك لنحسب ما وفّرته. الحساب يتم على جهازك ولا يُرسَل لأي مكان.';
+
+  @override
+  String get savingsConfirmAmountLabel => 'قيمة الطلب';
+
+  @override
+  String get savingsConfirmAction => 'احسب';
+
+  @override
+  String get savingsCannotCompute =>
+      'لا يمكننا حساب رقم دقيق لهذا العرض، فلن نعرض رقمًا.';
+
+  @override
+  String get savingsReversedNote =>
+      'أُلغي هذا المبلغ بعد أن تراجع المتجر عن العملية.';
 }

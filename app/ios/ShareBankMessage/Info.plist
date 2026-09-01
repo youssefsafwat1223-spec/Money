@@ -32,6 +32,13 @@
 			<dict>
 				<key>NSExtensionActivationSupportsText</key>
 				<true/>
+				<!-- COUPONS Phase 5. Safari shares a page as public.url, not as
+				     text, so a text-only rule meant Qirsh never appeared in the
+				     share sheet for a shop link and the whole Share-to-Qirsh
+				     journey had no iOS entry point. One URL at a time: a
+				     multi-select share is not a merchant intent. -->
+				<key>NSExtensionActivationSupportsWebURLWithMaxCount</key>
+				<integer>1</integer>
 			</dict>
 		</dict>
 		<key>NSExtensionPointIdentifier</key>

@@ -6,6 +6,7 @@ import '../common/category_catalog.dart';
 import 'coupon_analytics.dart';
 import 'coupon_models.dart';
 import 'coupon_ranking.dart';
+import '../capture/services/native_capture_bridge.dart';
 import 'merchant_interest.dart';
 import 'merchant_lookup_pipeline.dart';
 
@@ -135,6 +136,48 @@ final topMerchantIdsProvider = FutureProvider<List<String>>((ref) async {
       .map((i) => i.merchantId)
       .toList(growable: false);
 });
+
+/// COUPONS Phase 5 — merchant links the user shared into Qirsh.
+///
+/// Drained on demand and resolved against the cached alias table by DOMAIN, not
+/// by name: the two are different key contracts, and running a hostname through
+/// the name folder would turn `7eleven.com` into a different company.
+///
+/// A link we cannot resolve is NOT an error. The user shared a shop we do not
+/// have in the catalog yet — an alias-coverage gap, which is fixed by adding
+/// data. The caller shows a friendly "no offers for this shop" rather than a
+/// failure, because the user did nothing wrong.
+final sharedOfferIntentsProvider =
+    FutureProvider<List<ResolvedOfferIntent>>((ref) async {
+  if (!ref.watch(merchantOffersEnabledProvider)) return const [];
+  final intents = await drainOfferIntents();
+  if (intents.isEmpty) return const [];
+
+  final aliases = RemoteMerchantAliasesDao(ref.watch(appDatabaseProvider));
+  final out = <ResolvedOfferIntent>[];
+  for (final intent in intents) {
+    final candidates = await aliases.candidatesFor(intent.host, 'domain');
+    // Abstain on ambiguity, exactly as the name resolver does. Two merchants
+    // claiming one domain means the catalog is mid-update or wrong, and
+    // guessing would send someone to the wrong shop's offers.
+    final merchants = candidates.map((a) => a.merchantId).toSet();
+    out.add(ResolvedOfferIntent(
+      intent: intent,
+      merchantId: merchants.length == 1 ? merchants.first : null,
+    ));
+  }
+  return List.unmodifiable(out);
+});
+
+/// A shared link, with the merchant it resolved to — or null when we abstained.
+class ResolvedOfferIntent {
+  const ResolvedOfferIntent({required this.intent, this.merchantId});
+
+  final OfferIntent intent;
+  final String? merchantId;
+
+  bool get isResolved => merchantId != null;
+}
 
 /// Offers grouped by merchant — the "Stores" surface. Only merchants that
 /// actually have a live offer appear, so the list can never advertise a shop

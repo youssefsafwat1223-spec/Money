@@ -12,6 +12,12 @@ cd "$ROOT"
 # entitlements, the Xcode project, and the packaging/target-relevant native
 # Swift — including the FORBIDDEN extension source so its reintroduction flips
 # the hash. Fixed order → deterministic digest.
+#
+# COUPONS Phase 5 added SharedOfferIntentStore.swift in BOTH copies. It is
+# packaging-relevant for the same reason SharedCaptureStore is: it is App Group
+# state shared between the host app and the extension, it must stay
+# byte-identical across the two targets, and a divergence between them is
+# exactly the class of bug this digest exists to make visible.
 FILES="
 app/ios/Runner/Info.plist
 app/ios/Runner/PrivacyInfo.xcprivacy
@@ -20,11 +26,13 @@ app/ios/Runner.xcodeproj/project.pbxproj
 app/ios/Runner/AppDelegate.swift
 app/ios/Runner/SceneDelegate.swift
 app/ios/Runner/SharedCaptureStore.swift
+app/ios/Runner/SharedOfferIntentStore.swift
 app/ios/ShareBankMessage/Info.plist
 app/ios/ShareBankMessage/PrivacyInfo.xcprivacy
 app/ios/ShareBankMessage/ShareBankMessage.entitlements
 app/ios/ShareBankMessage/ShareViewController.swift
 app/ios/ShareBankMessage/SharedCaptureStore.swift
+app/ios/ShareBankMessage/SharedOfferIntentStore.swift
 app/ios/BankMessageShortcuts/BankMessageShortcuts.swift
 "
 
