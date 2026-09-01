@@ -22,7 +22,7 @@
 -- is extended (not rewritten) to cover the new tables. No financial, Coupon,
 -- Planning, CAS or capture object is touched.
 --
--- NOT DEPLOYED in this checkpoint. Runtime execution (migration apply, RLS and
+-- DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy). Runtime execution (migration apply, RLS and
 -- RPC behaviour) is deferred to the dedicated staging phase.
 
 -- pgcrypto is already installed by 0002; gen_random_bytes() is the CSPRNG used

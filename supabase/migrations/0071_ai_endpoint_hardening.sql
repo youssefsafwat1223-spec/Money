@@ -7,7 +7,7 @@
 -- Additive and backward-compatible. Touches only capture_devices (0012) and new
 -- objects, so it is safe to apply while migrations 0068–0070 remain undeployed
 -- (no dependency on their objects; migrations apply in order regardless).
--- NOT DEPLOYED in this batch.
+-- DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy).
 
 -- ── 1. Per-device consent + revocation ───────────────────────────────────────
 -- Consent defaults FALSE (fail-closed, MALI-059n): a freshly registered device

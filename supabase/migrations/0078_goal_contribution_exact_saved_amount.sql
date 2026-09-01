@@ -1,6 +1,11 @@
 -- 0078_goal_contribution_exact_saved_amount.sql — MALI-026 (Phase-9B forward-activation remediation).
 --
--- Additive, backward-compatible RPC contract fix. NOT DEPLOYED in this checkpoint.
+-- Additive, backward-compatible RPC contract fix.
+--
+-- DEPLOYMENT STATUS (corrected 2026-09-01): DEPLOYED. The original
+-- "DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy)" was true when written and was never
+-- revised; 0001-0092 are applied and ledger-verified on production
+-- `rjwphwsefnuotpbtuycf`.
 --
 -- WHY. The canonical goal-contribution PUSH branch in PlanningChildSyncService reads
 -- the parent goal's NEW saved amount as an EXACT decimal STRING

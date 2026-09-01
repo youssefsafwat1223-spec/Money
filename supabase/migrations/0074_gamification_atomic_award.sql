@@ -1,6 +1,6 @@
 -- 0074_gamification_atomic_award.sql — MALI-024 (Batch-5 closure).
 --
--- Additive, backward-compatible, NOT DEPLOYED. Runs strictly after 0073 (which
+-- Additive, backward-compatible, DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy). Runs strictly after 0073 (which
 -- created public.gamification_awarded_transactions), so the ledger table exists
 -- when this migration extends it.
 --

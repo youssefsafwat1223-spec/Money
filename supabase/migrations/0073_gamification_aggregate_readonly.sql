@@ -9,7 +9,7 @@
 -- met). Reading one's own aggregate stays allowed (0056 SELECT policies).
 --
 -- Additive and backward-compatible. Does NOT rewrite 0062 (which stays as
--- history); it drops those policies by name. NOT DEPLOYED in this batch.
+-- history); it drops those policies by name. DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy).
 --
 -- Old-client compatibility (honest): the CURRENT client never writes these
 -- tables — gamification_sync_service only .select()s them, treats a missing row

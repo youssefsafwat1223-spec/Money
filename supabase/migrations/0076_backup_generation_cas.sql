@@ -7,7 +7,7 @@
 -- rejecting a stale expected generation, and recording the operation for
 -- idempotent replay.
 --
--- Additive + backward-compatible; NOT DEPLOYED. Safe after 0068–0075.
+-- Additive + backward-compatible; DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy). Safe after 0068–0075.
 --
 -- This is a BACKUP-SPECIFIC generation CAS. It does NOT touch the general
 -- entity revision-CAS capability (`kServerRevisionCas` stays false).

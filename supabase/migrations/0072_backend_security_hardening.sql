@@ -2,7 +2,7 @@
 --
 -- Additive and backward-compatible. Safe on a clean install and on upgrade, and
 -- safe to apply after 0068–0071 (migrations run in order; nothing here depends
--- on their objects). NOT DEPLOYED in this batch.
+-- on their objects). DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy).
 --
 -- Forward-recovery: all objects are guard-created (IF EXISTS / OR REPLACE), so a
 -- partial apply can be re-run idempotently.

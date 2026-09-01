@@ -7,7 +7,7 @@
 --
 -- Additive and backward-compatible (new NULLABLE columns only; existing rows and
 -- the existing owner RLS "own backup all" are untouched). Safe to apply after
--- 0068–0074 (no dependency on their objects). NOT DEPLOYED in this batch.
+-- 0068–0074 (no dependency on their objects). DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy).
 --
 -- Ownership is already enforced: RLS `own backup all` binds the row to
 -- auth.uid(), and the storage-object RLS (0001/0010) binds every object to the

@@ -1,6 +1,6 @@
 -- 0080_record_engagement_event_execute_hardening.sql — MALI-026 (Phase-9B).
 --
--- Privilege-only. Additive/idempotent. NOT DEPLOYED in this checkpoint.
+-- Privilege-only. Additive/idempotent. DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy).
 --
 -- WHY. 0070 locked record_engagement_event with `REVOKE ALL ... FROM PUBLIC` +
 -- `GRANT EXECUTE ... TO authenticated`, intending (per its own comment) "not

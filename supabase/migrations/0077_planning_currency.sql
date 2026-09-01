@@ -1,4 +1,12 @@
--- 0077_planning_currency.sql — MALI-026 (Phase-8 B8-2.9, §17). NOT DEPLOYED.
+-- 0077_planning_currency.sql — MALI-026 (Phase-8 B8-2.9, §17).
+--
+-- DEPLOYMENT STATUS (corrected 2026-09-01): DEPLOYED. This header said
+-- "DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy)" from the day it was written and was never updated. The
+-- 0001-0092 chain was applied to production `rjwphwsefnuotpbtuycf` and
+-- verified against `supabase_migrations.schema_migrations`. The stale marker
+-- had already caused one downstream planning document to record deployed
+-- state as UNKNOWN; a status comment that cannot be trusted is worse than no
+-- comment. Re-confirm against the ledger before relying on this line.
 --
 -- Phase-8 fixed-precision money makes budgets/goals carry a PER-ROW currency
 -- (they historically had none — money_fields.dart CurrencyAuthority.baseCurrency),
@@ -9,7 +17,7 @@
 --
 -- Additive and backward-compatible (new NULLABLE columns only; existing rows,
 -- import RPCs, and RLS are untouched). Safe to apply after 0021..0076 (no
--- dependency on their objects). NOT DEPLOYED in this batch, and no client
+-- dependency on their objects). Applied to production, and no client
 -- behavior activates merely because this source exists — the client
 -- ExactTransportCapability/cutover gates external verification.
 --

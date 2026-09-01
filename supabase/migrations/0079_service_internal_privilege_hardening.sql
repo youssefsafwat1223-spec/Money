@@ -1,6 +1,11 @@
 -- 0079_service_internal_privilege_hardening.sql — MALI-026 (Phase-9B remediation).
 --
--- Additive, backward-compatible privilege cleanup. NOT DEPLOYED in this checkpoint.
+-- Additive, backward-compatible privilege cleanup.
+--
+-- DEPLOYMENT STATUS (corrected 2026-09-01): DEPLOYED. The original
+-- "DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified on production; this header was never revised after the deploy)" was true when written and was never
+-- revised; 0001-0092 are applied and ledger-verified on production
+-- `rjwphwsefnuotpbtuycf`.
 --
 -- WHY. Supabase grants anon/authenticated a broad DEFAULT DML set (SELECT, INSERT,
 -- UPDATE, DELETE, TRUNCATE, TRIGGER, REFERENCES) on every new public table. On
