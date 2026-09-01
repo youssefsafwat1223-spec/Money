@@ -3,6 +3,7 @@ import {
   Building2,
   FlaskConical,
   Gift,
+  Inbox,
   LayoutDashboard,
   ListTree,
   Megaphone,
@@ -63,6 +64,12 @@ export const NAV: NavGroup[] = [
         label: "المتاجر والأسماء البديلة",
         icon: Store,
         description: "هوية المتاجر المعتمدة والأسماء التي تُطابَق بها رسائل البنوك",
+      },
+      {
+        href: "/affiliate",
+        label: "عروض الشركاء الواردة",
+        icon: Inbox,
+        description: "مراجعة ونشر العروض القادمة من شبكات الأفلييت",
       },
       {
         href: "/announcements",
