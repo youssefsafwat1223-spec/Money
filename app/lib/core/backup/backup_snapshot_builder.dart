@@ -312,6 +312,27 @@ class BackupSnapshotBuilder {
       'created_at',
       'updated_at',
     ],
+    // COUPONS Phase 4 — the savings ledger IS user data. It records what the
+    // user decided they saved, and losing it on a new phone would be the same
+    // silent loss as losing a goal. It carries no credential (the claim token
+    // lives in `affiliate_click_receipts`, which is excluded) and it does not
+    // expire, so unlike a click receipt it is safe to move between installs.
+    //
+    // `coupon_id` / `merchant_id` are references into the catalog CACHE, not
+    // declared FKs — a restored row whose coupon has not synced yet still shows
+    // its own amount, currency and evidence kind, which is the whole entry.
+    'local_offer_savings': [
+      'id',
+      'coupon_id',
+      'merchant_id',
+      'click_id',
+      'evidence_kind',
+      'amount_minor',
+      'currency',
+      'state',
+      'occurred_at',
+      'created_at',
+    ],
   };
 
   // MALI-045n: parent tables that have FK children (subscriptions→bill_payments,
@@ -398,9 +419,8 @@ class BackupSnapshotBuilder {
     // possibly while that install is still polling it, and an attribution
     // window is days — a token in a year-old backup is expired credentials.
     //
-    // `local_offer_savings` is deliberately NOT here: a savings history is
-    // something a user would be upset to lose on a new phone, it carries no
-    // credential, and it does not expire.
+    // `local_offer_savings` is deliberately NOT here — it is BACKED UP, for the
+    // reasons given at its entry in `_tables` above.
     'affiliate_click_receipts',
     'remote_currencies',
     'remote_feature_flags',

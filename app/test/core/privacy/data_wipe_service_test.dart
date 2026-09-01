@@ -232,6 +232,12 @@ void main() {
       'remote_categories',
       'remote_countries',
       'remote_coupons',
+      // COUPONS Phase 1 — server catalog, like every remote_* row here. It
+      // holds merchant identity, never anything about this user: which
+      // merchants the user actually shops at lives in `merchants` and
+      // `merchant_category_map`, both of which ARE wiped.
+      'remote_catalog_merchants',
+      'remote_merchant_aliases',
       'remote_currencies',
       'remote_feature_flags',
       'remote_growth_campaigns',

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/auth/account_deletion_service.dart';
@@ -6,6 +7,7 @@ import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/privacy/data_wipe_service.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/settings/privacy_screen.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _FakeAccountDeletionService implements AccountDeletionService {
   _FakeAccountDeletionService({this.scheduledAt, this.throwOnRequest = false});
@@ -54,8 +56,19 @@ Widget _app(_FakeAccountDeletionService service, _NoopDataWipeService wipe) {
       accountDeletionStatusProvider.overrideWith((_) => service.getStatus()),
       dataWipeServiceProvider.overrideWithValue(wipe),
     ],
+    // PrivacyScreen reads `context.l10n` (the merchant-personalization choice
+    // added in COUPONS Phase 1), so the harness has to supply delegates. Arabic
+    // because that is the app's default locale and the screen is RTL there.
     child: MaterialApp(
       theme: AppTheme.light,
+      locale: const Locale('ar'),
+      supportedLocales: AppL10n.supportedLocales,
+      localizationsDelegates: const [
+        ...AppL10n.localizationsDelegates,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       home: const PrivacyScreen(),
     ),
   );

@@ -51,10 +51,14 @@ class RestoreBackupUseCase {
     'plans',
     'plan_transaction_links',
     'sender_bank_mappings',
+    // No declared FK, so ordering is free; last keeps it out of the way of the
+    // parent-before-child chain above.
+    'local_offer_savings',
   ];
 
   // Delete in reverse FK order — children before parents.
   static const _deleteOrder = [
+    'local_offer_savings',
     'sender_bank_mappings',
     'plan_transaction_links',
     'plans',

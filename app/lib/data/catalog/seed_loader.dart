@@ -93,6 +93,26 @@ class SeedLoader {
       debugPrint('Catalog seed: skipped merchant_keywords (already had data)');
     }
 
+    // COUPONS Phase 1 — the merchant catalog ships empty and arrives entirely
+    // by sync, exactly like merchant_keywords above. The metadata row is the
+    // load-bearing part: CatalogSyncService tracks a category by its version
+    // row, so a category with no row is a category that never asks the server
+    // for a delta. Seeding no data and no metadata would have left the merchant
+    // catalog permanently empty on every install, with nothing failing.
+    if (await db.count('remote_catalog_merchants') == 0) {
+      await metadataDao.upsertVersion(CatalogCategories.catalogMerchants, 0, 0);
+      debugPrint('Catalog seed: seeded catalog_merchants (0)');
+    } else {
+      debugPrint('Catalog seed: skipped catalog_merchants (already had data)');
+    }
+
+    if (await db.count('remote_merchant_aliases') == 0) {
+      await metadataDao.upsertVersion(CatalogCategories.merchantAliases, 0, 0);
+      debugPrint('Catalog seed: seeded merchant_aliases (0)');
+    } else {
+      debugPrint('Catalog seed: skipped merchant_aliases (already had data)');
+    }
+
     // Announcements seed is always empty — no hard-coded announcements.
     if (await db.count('remote_announcements') == 0) {
       final announcements = await _readJsonList(
