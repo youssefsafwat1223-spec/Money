@@ -1,0 +1,96 @@
+{
+  "seal": "ba3792f5f665049edcb8c2290f19ada0638325d6ef95c55f659b87e6917d18bc",
+  "deterministic_mask_sha256": "3162d6b19d161297ff7bec1e5dbc88d05251e4147589af79b25ffe394a176015",
+  "verdict": "PASS",
+  "failures": [],
+  "splits": {
+    "hard": {
+      "n": 37,
+      "overall_proven_coverage": 0.5405405405405406,
+      "overall_numerator": 20,
+      "eligible_auto_commit_coverage": 0.5405405405405406,
+      "eligible_numerator": 20,
+      "eligible_denominator": 37,
+      "deterministically_provable_model_coverage": 0.8333333333333334,
+      "provable_numerator": 20,
+      "provable_denominator": 24,
+      "provable_precision": 1.0,
+      "deterministic_ceiling": 0.6486486486486487,
+      "excluded_by_deterministic_policy": {
+        "direction_not_corroborated": 8,
+        "multiple_amount_candidates": 4,
+        "state_cue_contradiction": 1
+      },
+      "excluded_count": 0,
+      "excluded_by_family": {},
+      "excluded_reasons": {},
+      "critical_precision": 1.0,
+      "eligible_precision": 1.0,
+      "false_auto_commits": 0,
+      "fabricated": 0,
+      "protocol": 0
+    },
+    "holdout_real": {
+      "n": 36,
+      "overall_proven_coverage": 0.6944444444444444,
+      "overall_numerator": 25,
+      "eligible_auto_commit_coverage": 0.7352941176470589,
+      "eligible_numerator": 25,
+      "eligible_denominator": 34,
+      "deterministically_provable_model_coverage": 1.0,
+      "provable_numerator": 25,
+      "provable_denominator": 25,
+      "provable_precision": 1.0,
+      "deterministic_ceiling": 0.6944444444444444,
+      "excluded_by_deterministic_policy": {
+        "direction_not_corroborated": 3,
+        "multiple_amount_candidates": 5,
+        "no_amount_candidate": 1,
+        "review_only_family": 2
+      },
+      "excluded_count": 2,
+      "excluded_by_family": {
+        "creditCardPayment": 2
+      },
+      "excluded_reasons": {
+        "creditCardPayment": "kReviewOnlyFamilies — Phase 0-A approved the transfer accounting semantic, but production _mapType still collapses it to payment, so committing it as spend would double-count purchases the card already booked. It may never auto-commit, therefore it cannot be counted as missed auto-commit coverage."
+      },
+      "critical_precision": 1.0,
+      "eligible_precision": 1.0,
+      "false_auto_commits": 0,
+      "fabricated": 0,
+      "protocol": 0
+    },
+    "holdout_syn": {
+      "n": 239,
+      "overall_proven_coverage": 0.7154811715481172,
+      "overall_numerator": 171,
+      "eligible_auto_commit_coverage": 0.8181818181818182,
+      "eligible_numerator": 171,
+      "eligible_denominator": 209,
+      "deterministically_provable_model_coverage": 0.8724489795918368,
+      "provable_numerator": 171,
+      "provable_denominator": 196,
+      "provable_precision": 1.0,
+      "deterministic_ceiling": 0.8200836820083682,
+      "excluded_by_deterministic_policy": {
+        "no_amount_candidate": 2,
+        "no_currency_evidence": 11,
+        "review_only_family": 30
+      },
+      "excluded_count": 30,
+      "excluded_by_family": {
+        "creditCardPayment": 30
+      },
+      "excluded_reasons": {
+        "creditCardPayment": "kReviewOnlyFamilies — Phase 0-A approved the transfer accounting semantic, but production _mapType still collapses it to payment, so committing it as spend would double-count purchases the card already booked. It may never auto-commit, therefore it cannot be counted as missed auto-commit coverage."
+      },
+      "critical_precision": 1.0,
+      "eligible_precision": 1.0,
+      "false_auto_commits": 0,
+      "fabricated": 0,
+      "protocol": 0
+    }
+  },
+  "total_false_auto_commits": 0
+}

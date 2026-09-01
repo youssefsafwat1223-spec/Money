@@ -67,3 +67,19 @@ app/ios/Flutter/AdMob.xcconfig
 # docs/legal/, so the artifact is built at publish time rather than committed —
 # a stale committed copy of a privacy policy is a liability.
 /build/
+
+# ── Research lab and local demo stack — DELIBERATELY UNVERSIONED ─────────────
+# research/ is 2.0 GB (1.1 GB venv, 303 MB external/, 96 MB model weights) and
+# demo-docker/ is 804 MB. Neither is a build input: the only references to
+# research/ anywhere in app/ or supabase/ are prose in two test comments.
+#
+# research/sms_model_lab/data/ also holds holdout_real.jsonl — REAL bank SMS
+# contributed for evaluation. It must never become a repository fixture. Ignoring
+# the tree wholesale is the mechanism that guarantees that, rather than relying
+# on everyone remembering.
+#
+# The small artifacts genuinely needed to reproduce the Proof-Carrying result
+# are copied into docs/proof/evidence/ instead, where they are tracked and
+# reviewable. See that directory's README.
+/research/
+/demo-docker/
