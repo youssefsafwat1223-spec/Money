@@ -38,6 +38,8 @@ import '../subscriptions/bill_form_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../../domain/entities/suspected_duplicate_entity.dart';
 import '../../domain/entities/smart_inbox_item_entity.dart';
+import '../ads/ad_placement.dart';
+import '../ads/qirsh_ad_banner.dart';
 import '../capture/capture_entry_sheet.dart';
 import 'manual_transaction_sheet.dart';
 import 'transaction_details_screen.dart';
@@ -357,6 +359,31 @@ class TransactionsScreen extends ConsumerWidget {
                                         ],
                                       ),
                                     ),
+                                    // The app's ONLY banner placement.
+                                    //
+                                    // After the FIRST complete day, and only
+                                    // when another day follows, so the ad is
+                                    // always bracketed by real content and is
+                                    // never the last thing on the screen. It
+                                    // sits below a finished card rather than
+                                    // between two transaction rows: the rows
+                                    // are tappable (they open the detail
+                                    // sheet), and an ad flush against one is
+                                    // the accidental-click layout Google's own
+                                    // placement guidance calls out.
+                                    //
+                                    // Not shown on the pending-review filter.
+                                    // That list is a correction workflow — the
+                                    // user is fixing how their money was
+                                    // classified — and an advertisement does
+                                    // not belong in the middle of it.
+                                    if (itemIndex == 0 &&
+                                        !pendingOnly &&
+                                        sections.length > 1)
+                                      const QirshAdBanner(
+                                        placement:
+                                            AdPlacement.transactionsList,
+                                      ),
                                   ],
                                 ),
                               );

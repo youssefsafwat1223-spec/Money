@@ -978,4 +978,7 @@ class AppL10nEn extends AppL10n {
   @override
   String get savingsReversedNote =>
       'This was reversed after the store cancelled the purchase.';
+
+  @override
+  String get adLabel => 'Advertisement';
 }

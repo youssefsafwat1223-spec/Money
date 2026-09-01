@@ -962,4 +962,7 @@ class AppL10nAr extends AppL10n {
   @override
   String get savingsReversedNote =>
       'أُلغي هذا المبلغ بعد أن تراجع المتجر عن العملية.';
+
+  @override
+  String get adLabel => 'إعلان';
 }

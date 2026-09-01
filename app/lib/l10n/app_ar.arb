@@ -447,5 +447,9 @@
   "savingsConfirmAmountLabel": "قيمة الطلب",
   "savingsConfirmAction": "احسب",
   "savingsCannotCompute": "لا يمكننا حساب رقم دقيق لهذا العرض، فلن نعرض رقمًا.",
-  "savingsReversedNote": "أُلغي هذا المبلغ بعد أن تراجع المتجر عن العملية."
+  "savingsReversedNote": "أُلغي هذا المبلغ بعد أن تراجع المتجر عن العملية.",
+  "adLabel": "إعلان",
+  "@adLabel": {
+    "description": "Label above a third-party advertisement, distinguishing it from Qirsh's own offers."
+  }
 }

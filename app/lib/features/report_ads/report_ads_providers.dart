@@ -7,7 +7,7 @@ import '../../core/di/app_providers.dart'
 import '../referrals/referrals_providers.dart';
 import 'ad_consent_service.dart';
 import 'report_ads_analytics.dart';
-import 'report_ads_build_config.dart';
+import '../ads/admob_build_config.dart';
 import 'report_ads_debug_config.dart';
 import 'report_entitlement.dart';
 import 'report_export_ad_gateway.dart';
@@ -117,7 +117,7 @@ final reportExportCoordinatorProvider =
   return ReportExportCoordinator(
     reportAdsEnabled: () => ref.read(reportAdsEnabledProvider),
     adConfigAvailable: () =>
-        ReportAdsBuildConfig.isConfiguredFor(defaultTargetPlatform),
+        AdMobBuildConfig.isConfiguredFor(defaultTargetPlatform),
     entitlement: ref.watch(reportEntitlementResolverProvider),
     consent: ref.watch(adConsentServiceProvider),
     gateway: ref.watch(reportExportAdGatewayProvider),

@@ -1812,6 +1812,12 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'أُلغي هذا المبلغ بعد أن تراجع المتجر عن العملية.'**
   String get savingsReversedNote;
+
+  /// Label above a third-party advertisement, distinguishing it from Qirsh's own offers.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعلان'**
+  String get adLabel;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

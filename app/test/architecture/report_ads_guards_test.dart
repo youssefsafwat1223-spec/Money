@@ -8,15 +8,23 @@ import 'package:flutter_test/flutter_test.dart';
 
 String _read(String path) => File(path).readAsStringSync();
 
-List<String> _adsLayerSources() {
-  final dir = Directory('lib/features/report_ads');
-  return dir
-      .listSync(recursive: true)
-      .whereType<File>()
-      .where((f) => f.path.endsWith('.dart'))
-      .map((f) => f.readAsStringSync())
-      .toList();
-}
+/// BOTH ads directories. `features/ads` holds the shared layer (build config,
+/// SDK init, placements, banners); `features/report_ads` holds what is specific
+/// to the report-export interstitial. Every invariant below applies to both — a
+/// guard that only covered the old directory would have silently stopped
+/// guarding the moment the banner work moved the config out of it.
+const _adsLayerDirs = ['lib/features/ads', 'lib/features/report_ads'];
+
+List<File> _adsLayerFiles() => [
+      for (final d in _adsLayerDirs)
+        ...Directory(d)
+            .listSync(recursive: true)
+            .whereType<File>()
+            .where((f) => f.path.endsWith('.dart')),
+    ];
+
+List<String> _adsLayerSources() =>
+    _adsLayerFiles().map((f) => f.readAsStringSync()).toList();
 
 Iterable<File> _allLibDart() => Directory('lib')
     .listSync(recursive: true)
@@ -179,22 +187,119 @@ void main() {
   });
 
   test('the four canonical config names are the only ones used', () {
-    final cfg =
-        File('lib/features/report_ads/report_ads_build_config.dart')
-            .readAsStringSync();
+    const configPath = 'lib/features/ads/admob_build_config.dart';
+    final cfg = File(configPath).readAsStringSync();
     for (final name in const [
       'ADMOB_APP_ID_IOS',
       'ADMOB_APP_ID_ANDROID',
       'ADMOB_INTERSTITIAL_IOS',
       'ADMOB_INTERSTITIAL_ANDROID',
+      'ADMOB_BANNER_IOS',
+      'ADMOB_BANNER_ANDROID',
     ]) {
       expect(cfg, contains("String.fromEnvironment('$name')"), reason: name);
     }
-    // No alias/duplicate configuration system crept in.
+    // No alias/duplicate configuration system crept in. Six, not four: the
+    // banner work added two inputs, and editing THIS NUMBER is the deliberate
+    // act the guard exists to force. Adding an AdMob input must never be
+    // possible without touching this line.
     final names = RegExp(r"String\.fromEnvironment\('(ADMOB_[A-Z_]+)'\)")
         .allMatches(cfg)
         .map((m) => m.group(1)!)
         .toSet();
-    expect(names.length, 4, reason: 'exactly four AdMob inputs: $names');
+    expect(names.length, 6, reason: 'exactly six AdMob inputs: $names');
+
+    // ...and they live in exactly ONE file. A second config file would give
+    // each of them a weaker, per-file invariant instead of one strong one.
+    for (final f in _allLibDart()) {
+      if (f.path.replaceAll(r'\\', '/').endsWith(configPath)) continue;
+      expect(f.readAsStringSync().contains("fromEnvironment('ADMOB_"), isFalse,
+          reason: 'AdMob build input outside $configPath: ${f.path}');
+    }
+  });
+
+  // ── BANNER ADS ───────────────────────────────────────────────────────────
+
+  test('Google Mobile Ads types never escape the ads layer', () {
+    final adsPaths =
+        _adsLayerFiles().map((f) => f.path.replaceAll(r'\\', '/')).toSet();
+    for (final f in _allLibDart()) {
+      if (adsPaths.contains(f.path.replaceAll(r'\\', '/'))) continue;
+      final src = f.readAsStringSync();
+      expect(src.contains('package:google_mobile_ads/'), isFalse,
+          reason: 'the SDK must stay behind the ads layer: ${f.path}');
+      for (final symbol in const [
+        'BannerAd(',
+        'AdWidget(',
+        'AdSize.',
+        'InterstitialAd.',
+        'MobileAds.instance',
+      ]) {
+        expect(src.contains(symbol), isFalse,
+            reason: '$symbol leaked into ${f.path}');
+      }
+    }
+  });
+
+  test('the ads layer depends on nothing financial', () {
+    // Ads may render UI. Ads may not become part of financial state, and they
+    // must not be able to READ it either — no targeting can be built out of a
+    // user's bank messages if the types are unreachable from here.
+    for (final f in _adsLayerFiles()) {
+      final src = f.readAsStringSync();
+      for (final forbidden in const [
+        "import '../../domain/",
+        "import '../../engine/",
+        "import '../../data/repositories/",
+        'package:money_companion/domain/',
+        'package:money_companion/engine/',
+        'package:money_companion/data/repositories/',
+      ]) {
+        expect(src.contains(forbidden), isFalse,
+            reason: 'financial dependency in ${f.path}: $forbidden');
+      }
+    }
+  });
+
+  test('QirshAdBanner appears ONLY at approved placement call sites', () {
+    // A positive allowlist, not a list of forbidden filenames. Enumerating the
+    // screens an ad must never reach is unbounded and silently stops covering
+    // any screen added later; enumerating the ones it MAY reach is finite and
+    // fails closed — a new placement cannot ship without editing this list.
+    const approved = {
+      'lib/features/transactions/transactions_screen.dart',
+    };
+    final found = <String>{};
+    for (final f in _allLibDart()) {
+      final path = f.path.replaceAll(r'\\', '/');
+      if (path.startsWith('lib/features/ads/')) continue;
+      if (f.readAsStringSync().contains('QirshAdBanner')) found.add(path);
+    }
+    expect(found, approved,
+        reason: 'banner call sites changed — approve the new placement here, '
+            'and check it against the NEVER list in docs/BANNER_ADS_SYSTEM.md');
+  });
+
+  test('the banner flag keys exist in the flag defaults', () {
+    // `getBool` consults the remote cache first and falls back to `_defaults`.
+    // A key in neither is false by ACCIDENT — indistinguishable from "off"
+    // right up until someone flips it remotely and nothing happens.
+    final defaults =
+        File('lib/data/catalog/feature_flag_service.dart').readAsStringSync();
+    for (final key in const [
+      'enable_banner_ads',
+      'enable_banner_transactions_list',
+    ]) {
+      expect(defaults, contains("'$key': false"),
+          reason: '$key must be seeded OFF in _defaults');
+    }
+  });
+
+  test('no banner placement has a raw ad unit id', () {
+    // Placements name an enum; the enum maps to a unit in ONE function. A raw
+    // id in a feature file cannot be disabled independently or reported on.
+    final placement =
+        File('lib/features/ads/ad_placement.dart').readAsStringSync();
+    expect(placement.contains('ca-app-pub-'), isFalse);
   });
 }

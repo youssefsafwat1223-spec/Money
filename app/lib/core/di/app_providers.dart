@@ -80,6 +80,7 @@ import '../../domain/usecases/save_budget_usecase.dart';
 import '../../domain/usecases/save_goal_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/app/celebration_runtime.dart';
+import '../../features/ads/banner_ads_providers.dart';
 import '../../features/report_ads/report_ads_providers.dart';
 import '../../features/capture/services/local_notification_service.dart';
 import '../../features/capture/services/notification_journey_service.dart';
@@ -416,6 +417,10 @@ Future<void> syncCatalog(
   // re-evaluate after a live catalog sync (cold-start / resume) so it can act
   // as a production kill switch without an app restart.
   ref.invalidate(reportAdsEnabledProvider);
+  // Banner flags ride the same re-sync. Without this a remote flip of
+  // `enable_banner_ads` would need an app restart, which is not a kill switch.
+  ref.invalidate(bannerAdsEnabledProvider);
+  ref.invalidate(bannerPlacementEnabledProvider);
 }
 
 Future<bool> _catalogSyncIsStale(AppDatabase database) async {

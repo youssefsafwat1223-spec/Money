@@ -11,9 +11,12 @@ import '../../core/backend/metrics_client.dart';
 /// AdMob remains the authority for ad impressions/revenue. There is NO reward
 /// event (this is standard interstitial monetization, not rewarded).
 ///
-/// The sink is the generic consent-neutral `record_metric` RPC via MetricsClient;
-/// unrecognised keys are silent server-side no-ops until a future phase allowlists
-/// them — acceptable for best-effort telemetry and avoids a migration (§26).
+/// The sink is the generic consent-neutral `record_metric` RPC via MetricsClient.
+/// Unrecognised keys are silent server-side no-ops; these keys were dropped that
+/// way from R4 until migration `0098` finally allowlisted them, alongside the
+/// banner keys. Until 0098 is DEPLOYED they are still dropped — an events
+/// pipeline that looks wired and records nothing is worse than none, because
+/// nobody re-checks a feature they believe is working.
 class ReportAdsAnalytics {
   ReportAdsAnalytics({
     required Future<bool> Function() cloudProcessingEnabled,

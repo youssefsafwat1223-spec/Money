@@ -343,5 +343,6 @@
   "savingsConfirmAmountLabel": "Order total",
   "savingsConfirmAction": "Calculate",
   "savingsCannotCompute": "We cannot work out an exact figure for this offer, so we will not show one.",
-  "savingsReversedNote": "This was reversed after the store cancelled the purchase."
+  "savingsReversedNote": "This was reversed after the store cancelled the purchase.",
+  "adLabel": "Advertisement"
 }

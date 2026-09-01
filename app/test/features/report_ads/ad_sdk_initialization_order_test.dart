@@ -1,7 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_companion/features/report_ads/report_ads_build_config.dart';
+import 'package:money_companion/features/ads/admob_build_config.dart';
 import 'package:money_companion/features/report_ads/report_ads_debug_config.dart';
 
 /// Cross-model audit **H-7** — Google Mobile Ads initialization vs. UMP consent
@@ -47,31 +47,79 @@ void main() {
     final body = orchestration.substring(0, orchestration.indexOf('\n  }'));
 
     test('there is exactly ONE MobileAds.initialize call site', () {
-      var sites = 0;
+      // Still exactly one — it just moved. It used to be a private method with
+      // a private static latch inside the interstitial gateway, which the
+      // banner could not reach; a second format would have meant a second latch
+      // racing the first on cold start. It is now one shared initializer, which
+      // makes this invariant structural rather than a thing to remember.
+      final sites = <String>[];
       for (final file in Directory('lib')
           .listSync(recursive: true)
           .whereType<File>()
           .where((f) => f.path.endsWith('.dart'))) {
-        sites += RegExp(r'MobileAds\.instance\.initialize')
-            .allMatches(_read(file.path))
-            .length;
+        if (RegExp(r'MobileAds\.instance\.initialize')
+            .hasMatch(_read(file.path))) {
+          sites.add(file.path.replaceAll(r'\\', '/'));
+        }
       }
-      expect(sites, 1,
+      expect(sites, ['lib/features/ads/mobile_ads_initializer.dart'],
           reason: 'a second initialize call site would be a second ordering '
               'contract to keep correct');
     });
 
-    test('the only initialize is inside the gateway, behind full config', () {
+    test('the initializer is single-flight and never throws', () {
+      final init = _read('lib/features/ads/mobile_ads_initializer.dart');
+      expect(init, contains('_inFlight ??='),
+          reason: 'concurrent callers must await the SAME future, or two '
+              'formats can race initialize() on cold start');
+      expect(init, contains('} catch (_) {'),
+          reason: 'an SDK failure must leave ads unavailable, never propagate');
+      expect(init, contains('.timeout('),
+          reason: 'a hung platform channel must not block every future caller');
+    });
+
+    test('the gateway checks full config BEFORE it initializes', () {
       final gateway =
           _read('lib/features/report_ads/report_export_ad_gateway.dart');
-      final configAt = gateway.indexOf('isConfiguredFor');
-      final initAt = gateway.indexOf('MobileAds.instance.initialize');
+      final preloadAt = gateway.indexOf('Future<void> preload()');
+      final configAt = gateway.indexOf('isConfiguredFor', preloadAt);
+      final initAt =
+          gateway.indexOf('MobileAdsInitializer.ensureInitialized', preloadAt);
+      expect(preloadAt, greaterThan(-1));
       expect(configAt, greaterThan(-1));
       expect(initAt, greaterThan(-1));
-      // preload() checks configuration before it can reach _ensureMobileAds.
-      final preloadAt = gateway.indexOf('Future<void> preload()');
-      expect(preloadAt, lessThan(gateway.indexOf('isConfiguredFor', preloadAt)),
+      expect(configAt, lessThan(initAt),
           reason: 'preload must verify configuration before initializing');
+    });
+
+    test('the banner also checks config before it can reach the SDK', () {
+      // Same contract, other format: eligibility (which includes the banner
+      // configuration check) is resolved in a provider, and the widget refuses
+      // to build a controller until that provider answers true.
+      final providers =
+          _read('lib/features/ads/banner_ads_providers.dart');
+      expect(providers, contains('isBannerConfiguredFor'));
+      final widget = _read('lib/features/ads/qirsh_ad_banner.dart');
+      final eligibleAt = widget.indexOf('bannerEligibilityProvider');
+      final controllerAt = widget.indexOf('BannerAdController(');
+      expect(eligibleAt, greaterThan(-1));
+      expect(controllerAt, greaterThan(-1));
+    });
+
+    test('consent is gathered for ANY ads product, not just report ads', () {
+      // The latent bug both banner reviewers found independently. This gate
+      // used to read only `reportAdsEnabledProvider`, so a release with
+      // banners ON and report ads OFF would never gather UMP consent,
+      // `canRequestAds()` would stay false forever, and every banner would fail
+      // closed with nothing anywhere explaining why.
+      expect(body, contains('reportAdsEnabledProvider'));
+      expect(body, contains('bannerAdsEnabledProvider'),
+          reason: 'a new ad format must be added to this gate, or it silently '
+              'never gets consent');
+      final release = body.indexOf('kReleaseMode');
+      final gather = body.indexOf('ensureGathered()');
+      expect(release, lessThan(gather),
+          reason: 'a release with every ads flag off still shows no consent UI');
     });
 
     test('UMP is gathered BEFORE any preload can run', () {
@@ -169,17 +217,17 @@ void main() {
     });
 
     test('the Dart shape check matches the native SDK shape', () {
-      expect(ReportAdsBuildConfig.isValidAppId(
+      expect(AdMobBuildConfig.isValidAppId(
           'ca-app-pub-3940256099942544~1458002511'), isTrue);
       // Too few digits — accepted by the old looser regex, rejected by the SDK.
-      expect(ReportAdsBuildConfig.isValidAppId('ca-app-pub-1234567890~123456'),
+      expect(AdMobBuildConfig.isValidAppId('ca-app-pub-1234567890~123456'),
           isFalse,
           reason: 'the Dart gate must not be looser than the SDK, or a build '
               'passes here and crashes at launch');
-      expect(ReportAdsBuildConfig.isValidUnitId(
+      expect(AdMobBuildConfig.isValidUnitId(
           'ca-app-pub-3940256099942544/1033173712'), isTrue);
       // App id in a unit slot (the classic mix-up).
-      expect(ReportAdsBuildConfig.isValidUnitId(
+      expect(AdMobBuildConfig.isValidUnitId(
           'ca-app-pub-3940256099942544~1458002511'), isFalse);
     });
 
@@ -241,10 +289,10 @@ void main() {
     });
 
     test('debug builds still use Google TEST identifiers only', () {
-      expect(ReportAdsBuildConfig.testAppIdIos,
-          startsWith(ReportAdsBuildConfig.googleTestPublisher));
-      expect(ReportAdsBuildConfig.testInterstitialAndroid,
-          startsWith(ReportAdsBuildConfig.googleTestPublisher));
+      expect(AdMobBuildConfig.testAppIdIos,
+          startsWith(AdMobBuildConfig.googleTestPublisher));
+      expect(AdMobBuildConfig.testInterstitialAndroid,
+          startsWith(AdMobBuildConfig.googleTestPublisher));
     });
   });
 }

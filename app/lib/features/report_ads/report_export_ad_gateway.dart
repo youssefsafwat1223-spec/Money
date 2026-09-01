@@ -3,7 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-import 'report_ads_build_config.dart';
+import '../ads/admob_build_config.dart';
+import '../ads/mobile_ads_initializer.dart';
 
 /// Qirsh-owned terminal outcome of one report-export ad opportunity. The Google
 /// SDK types never leak past this file (§18). Every outcome is non-blocking for
@@ -55,7 +56,6 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
   bool _loading = false;
   int _loadGeneration = 0;
   void Function()? _cancelPresentation;
-  static bool _mobileAdsInitialized = false;
 
   // Bounds for every SDK await (audit H-5). Generous rather than tight: the
   // goal is to guarantee termination, not to police the network. An interstitial
@@ -64,15 +64,7 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
   static const Duration _loadTimeout = Duration(seconds: 30);
   static const Duration _showTimeout = Duration(minutes: 5);
 
-  String? get _unitId => ReportAdsBuildConfig.interstitialUnitId(_platform);
-
-  /// Initialize the Google Mobile Ads SDK once. Only reached after the caller
-  /// has confirmed UMP canRequestAds and a usable ad-unit id exists.
-  Future<void> _ensureMobileAds() async {
-    if (_mobileAdsInitialized) return;
-    await MobileAds.instance.initialize();
-    _mobileAdsInitialized = true;
-  }
+  String? get _unitId => AdMobBuildConfig.interstitialUnitId(_platform);
 
   @override
   bool get isAvailable => _ad != null;
@@ -85,7 +77,7 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
     // the SDK's invalid-initialization exception (on iOS an empty
     // GADApplicationIdentifier), so this precondition must match the
     // coordinator's rather than being weaker than it.
-    if (!ReportAdsBuildConfig.isConfiguredFor(_platform)) return;
+    if (!AdMobBuildConfig.isConfiguredFor(_platform)) return;
     final unitId = _unitId;
     if (unitId == null) return; // no ad configuration → nothing to preload
     _loading = true;
@@ -103,7 +95,8 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
     // ad could ever load again) and propagated into the export path, suppressing
     // the user's report entirely.
     try {
-      await _ensureMobileAds().timeout(_initTimeout);
+      // Shared with the banner layer: one SDK latch, not one per format.
+      await MobileAdsInitializer.ensureInitialized().timeout(_initTimeout);
       if (generation != _loadGeneration) return;
       final completer = Completer<void>();
       // The Future returned by load() is NOT the completion signal (the
@@ -114,7 +107,13 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
         InterstitialAd.load(
           adUnitId: unitId,
           // V1 is non-personalized (no ATT / IDFA): request NPA explicitly.
-          request: const AdRequest(extras: {'npa': '1'}),
+          // `nonPersonalizedAds` is the SDK's own typed property (9.0.0); the
+          // `npa` extra is the legacy spelling of the same thing and is kept
+          // alongside it because mediation adapters still read the extra.
+          request: const AdRequest(
+            nonPersonalizedAds: true,
+            extras: {'npa': '1'},
+          ),
           adLoadCallback: InterstitialAdLoadCallback(
             onAdLoaded: (ad) {
               if (generation != _loadGeneration) {

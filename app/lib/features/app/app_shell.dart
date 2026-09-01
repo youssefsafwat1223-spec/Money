@@ -12,6 +12,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
+import '../ads/banner_ads_providers.dart';
 import '../report_ads/report_ads_providers.dart';
 import 'sync_cadence.dart';
 import '../../data/db/financial_cache_reconcile_map.dart';
@@ -373,7 +374,14 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// gathers nothing (no consent UI for a disabled feature).
   Future<void> _orchestrateReportAdsConsent() async {
     if (!mounted) return;
-    final adsMayServe = ref.read(reportAdsEnabledProvider);
+    // ANY ads product, not just the report interstitial. Both reviewers of the
+    // banner plan found the same latent bug here independently: this used to
+    // read only `reportAdsEnabledProvider`, so a release with banners ON and
+    // report ads OFF would never gather UMP consent, `canRequestAds()` would
+    // stay false forever, and banners would fail closed with nothing anywhere
+    // saying why.
+    final adsMayServe = ref.read(reportAdsEnabledProvider) ||
+        ref.read(bannerAdsEnabledProvider);
     if (kReleaseMode && !adsMayServe) return;
     try {
       await ref.read(sessionAdConsentProvider).ensureGathered();

@@ -1,14 +1,22 @@
 import 'package:flutter/foundation.dart';
 
-/// Build-time AdMob configuration for the report-export interstitial (R4/R7).
+/// Build-time AdMob configuration — the SINGLE registry of every AdMob input
+/// this app has, for every format.
 ///
 /// AdMob identifiers are DEPLOYMENT/BUILD configuration — never Admin-editable
 /// DB rows, never business data, never a remote feature-config value (docs
-/// REFERRAL_ADS_ADMIN_SYSTEM.md §3). There are exactly four release inputs, all
+/// REFERRAL_ADS_ADMIN_SYSTEM.md §3). There are exactly six release inputs, all
 /// supplied at build time:
 ///
-///   ADMOB_APP_ID_IOS          ADMOB_INTERSTITIAL_IOS
-///   ADMOB_APP_ID_ANDROID      ADMOB_INTERSTITIAL_ANDROID
+///   ADMOB_APP_ID_IOS          ADMOB_INTERSTITIAL_IOS      ADMOB_BANNER_IOS
+///   ADMOB_APP_ID_ANDROID      ADMOB_INTERSTITIAL_ANDROID  ADMOB_BANNER_ANDROID
+///
+/// BANNERS were added here rather than in a sibling config file. Both reviewers
+/// of the banner plan reached that conclusion independently, for the same
+/// reason: the guard test's value is that a single canonical registry makes
+/// ADDING an AdMob input a visible, deliberate diff. Two config files would
+/// replace one strong invariant with two weaker per-file ones, and the app id
+/// is SDK-wide anyway — it is not the report placement's property.
 ///
 /// The App IDs additionally have to reach the native layer (iOS `Info.plist`
 /// `GADApplicationIdentifier`, Android manifest `…ads.APPLICATION_ID`), so a
@@ -25,8 +33,8 @@ import 'package:flutter/foundation.dart';
 ///    the coordinator treats as "no ad → the report still generates"
 ///    (fail-open). A shipping release NEVER silently falls back to the TEST
 ///    identifiers.
-class ReportAdsBuildConfig {
-  ReportAdsBuildConfig._();
+class AdMobBuildConfig {
+  AdMobBuildConfig._();
 
   /// Google's public TEST publisher. Every identifier below that begins with
   /// this prefix is a documented Google sample value and can never serve a real
@@ -39,6 +47,8 @@ class ReportAdsBuildConfig {
   static const String testInterstitialIos = '$googleTestPublisher/4411468910';
   static const String testInterstitialAndroid =
       '$googleTestPublisher/1033173712';
+  static const String testBannerIos = '$googleTestPublisher/2934735716';
+  static const String testBannerAndroid = '$googleTestPublisher/6300978111';
 
   // Production identifiers — supplied ONLY at build time, absent by default.
   static const String _prodAppIdIos = String.fromEnvironment('ADMOB_APP_ID_IOS');
@@ -48,6 +58,9 @@ class ReportAdsBuildConfig {
       String.fromEnvironment('ADMOB_INTERSTITIAL_IOS');
   static const String _prodInterstitialAndroid =
       String.fromEnvironment('ADMOB_INTERSTITIAL_ANDROID');
+  static const String _prodBannerIos = String.fromEnvironment('ADMOB_BANNER_IOS');
+  static const String _prodBannerAndroid =
+      String.fromEnvironment('ADMOB_BANNER_ANDROID');
 
   // Shape validation (§15). App IDs use `~`, ad units use `/` — mixing the two
   // up is the classic AdMob misconfiguration, and it must degrade to "no ads"
@@ -71,7 +84,10 @@ class ReportAdsBuildConfig {
   /// Pure resolution, exposed so release semantics are testable without
   /// producing a release build. Returns null when the value is absent or
   /// malformed — the caller treats null as "not configured".
-  @visibleForTesting
+  ///
+  /// NOT `@visibleForTesting` any more: every format's unit resolver in this
+  /// class routes through it, so the annotation would now be false — and the
+  /// analyzer would reject the banner resolver above.
   static String? resolve({
     required bool isTestBuild,
     required String testValue,
@@ -108,6 +124,29 @@ class ReportAdsBuildConfig {
       isValid: isValidUnitId,
     );
   }
+
+  /// The banner **ad unit** id for [platform], or null when unavailable.
+  ///
+  /// One unit serves every banner placement in V1 because V1 ships exactly one
+  /// placement. A second placement should get its own unit — per-placement
+  /// units are how AdMob reporting tells you which placement is actually worth
+  /// keeping, and a shared unit makes that question unanswerable.
+  static String? bannerUnitId(TargetPlatform platform) {
+    final isIos = platform == TargetPlatform.iOS;
+    return resolve(
+      isTestBuild: isTestMode,
+      testValue: isIos ? testBannerIos : testBannerAndroid,
+      prodValue: isIos ? _prodBannerIos : _prodBannerAndroid,
+      isValid: isValidUnitId,
+    );
+  }
+
+  /// Whether this build can serve a BANNER on [platform]. Both halves are
+  /// required, for the same reason as [isConfiguredFor]: a unit id without an
+  /// application id has the SDK initialise against whatever the native layer
+  /// carries.
+  static bool isBannerConfiguredFor(TargetPlatform platform) =>
+      appId(platform) != null && bannerUnitId(platform) != null;
 
   /// Whether this build has a COMPLETE, usable AdMob configuration for
   /// [platform]. Both halves are required: an ad unit without a matching

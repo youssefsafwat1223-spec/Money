@@ -19,6 +19,17 @@ const Map<String, Object> _defaults = {
   // OFF, fails closed. Product-placement rollout only — never a financial
   // capability authority; the entitlement decision is server-authoritative.
   'enable_report_ads': false,
+  // BANNER ads. Two flags, not one: the master turns the whole format off, and
+  // the per-placement flag turns ONE surface off without taking the format with
+  // it. Both seeded OFF and fail-closed.
+  //
+  // Every placement key referenced by `bannerPlacementEnabledProvider` must
+  // appear here. `getBool` consults the remote cache first and only falls back
+  // to this map, so a key present in neither is false by accident rather than
+  // by decision — and "false by accident" is indistinguishable from "off" right
+  // up until someone flips it remotely and nothing happens.
+  'enable_banner_ads': false,
+  'enable_banner_transactions_list': false,
   // COUPONS Phase 1+ — four INDEPENDENT kill switches, all seeded OFF and
   // fail-closed. Deliberately not one flag: `enable_coupons` remains the master
   // for the generic catalog, and if merchant awareness, tracked links or

@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/features/referrals/referral_models.dart';
 import 'package:money_companion/features/referrals/services/referral_service.dart';
-import 'package:money_companion/features/report_ads/report_ads_build_config.dart';
+import 'package:money_companion/features/ads/admob_build_config.dart';
 import 'package:money_companion/features/report_ads/report_entitlement.dart';
 
 class _FakeService implements ReferralService {
@@ -122,22 +122,22 @@ void main() {
 
   group('build-time config (§16/§17)', () {
     test('dev/test uses Google TEST units and is configured', () {
-      expect(ReportAdsBuildConfig.isTestMode, isTrue); // kDebugMode in tests
-      expect(ReportAdsBuildConfig.isConfiguredFor(TargetPlatform.iOS), isTrue);
-      expect(ReportAdsBuildConfig.isConfiguredFor(TargetPlatform.android), isTrue);
+      expect(AdMobBuildConfig.isTestMode, isTrue); // kDebugMode in tests
+      expect(AdMobBuildConfig.isConfiguredFor(TargetPlatform.iOS), isTrue);
+      expect(AdMobBuildConfig.isConfiguredFor(TargetPlatform.android), isTrue);
       expect(
-        ReportAdsBuildConfig.interstitialUnitId(TargetPlatform.iOS),
-        ReportAdsBuildConfig.testInterstitialIos,
+        AdMobBuildConfig.interstitialUnitId(TargetPlatform.iOS),
+        AdMobBuildConfig.testInterstitialIos,
       );
       expect(
-        ReportAdsBuildConfig.interstitialUnitId(TargetPlatform.android),
-        ReportAdsBuildConfig.testInterstitialAndroid,
+        AdMobBuildConfig.interstitialUnitId(TargetPlatform.android),
+        AdMobBuildConfig.testInterstitialAndroid,
       );
     });
 
     test('the test units belong to Google\'s test publisher (never a real unit)', () {
-      expect(ReportAdsBuildConfig.testInterstitialIos, contains('3940256099942544'));
-      expect(ReportAdsBuildConfig.testInterstitialAndroid, contains('3940256099942544'));
+      expect(AdMobBuildConfig.testInterstitialIos, contains('3940256099942544'));
+      expect(AdMobBuildConfig.testInterstitialAndroid, contains('3940256099942544'));
     });
   });
 }
