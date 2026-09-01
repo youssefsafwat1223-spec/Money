@@ -225,17 +225,45 @@ class MainActivity : FlutterFragmentActivity() {
         if (text.isNullOrEmpty()) {
             return
         }
-        val sender = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.trim()
-        // Durable enqueue — survives process death until Flutter acks the import.
-        DurableCaptureQueue.get(this).enqueue(
-            DurableCaptureQueue.Item(
-                id = java.util.UUID.randomUUID().toString(),
-                text = text,
-                sender = sender?.takeIf { it.isNotEmpty() },
-                source = "share",
-                receivedAt = DurableCaptureQueue.isoNow(),
-            ),
-        )
+
+        // COUPONS Phase 5 — route BEFORE enqueueing.
+        //
+        // Until now every shared text/plain landed in the financial capture
+        // queue, which was correct when a bank message was the only thing
+        // anyone shared. A merchant link reaching that queue would be read as a
+        // transaction by the SMS parser, persisted in the store built for bank
+        // messages, and drained under financial consent. Classifying here is
+        // what keeps the two paths from ever touching — by the time Dart sees
+        // it, it is already in whichever store it was put.
+        when (val routed = SharedContentRouter.classify(text)) {
+            is SharedContentRouter.Result.OfferUrl -> {
+                OfferIntentStore.enqueue(
+                    this,
+                    OfferIntentStore.Item(
+                        id = java.util.UUID.randomUUID().toString(),
+                        url = routed.sanitizedUrl,
+                        host = routed.host,
+                        receivedAt = OfferIntentStore.isoNow(),
+                    ),
+                )
+            }
+            is SharedContentRouter.Result.Capture -> {
+                val sender = intent.getStringExtra(Intent.EXTRA_SUBJECT)?.trim()
+                // Durable enqueue — survives process death until Flutter acks
+                // the import. Unchanged behaviour for the bank-message path.
+                DurableCaptureQueue.get(this).enqueue(
+                    DurableCaptureQueue.Item(
+                        id = java.util.UUID.randomUUID().toString(),
+                        text = routed.text,
+                        sender = sender?.takeIf { it.isNotEmpty() },
+                        source = "share",
+                        receivedAt = DurableCaptureQueue.isoNow(),
+                    ),
+                )
+            }
+            SharedContentRouter.Result.Ignored -> Unit
+        }
+
         intent.removeExtra(Intent.EXTRA_TEXT)
         intent.removeExtra(Intent.EXTRA_SUBJECT)
     }
