@@ -18,7 +18,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 34;
+const int _targetSchemaVersion = 35;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -586,6 +586,20 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV34MerchantCatalog,
       postcondition: _verifyV34MerchantCatalog,
     ),
+    // v34 -> v35 (COUPONS PHASE 3 + 4) — affiliate click receipts and the local
+    // savings ledger. ADDITIVE: two new tables, nothing existing read or
+    // converted.
+    //
+    // Both steps land in ONE version deliberately. Each schema bump forces a
+    // sweep of every version pin in the repository (fourteen files at v34), and
+    // doing that twice in a row for two tables that ship together is how the
+    // v32/v33 pin fallout happened. Same forward-only rollback rule.
+    _SchemaMigration(
+      from: 34,
+      to: 35,
+      apply: _applyV35AffiliateAndSavings,
+      postcondition: _verifyV35AffiliateAndSavings,
+    ),
   ];
 
   static Future<void> _applyV33ReviewLabels(AppDatabase db) =>
@@ -599,6 +613,21 @@ class AppDatabase extends GeneratedDatabase {
         )
         .get();
     return rows.isNotEmpty;
+  }
+
+  static Future<void> _applyV35AffiliateAndSavings(AppDatabase db) async {
+    await db._createAffiliateClickReceiptsTable();
+    await db._createLocalOfferSavingsTable();
+  }
+
+  static Future<bool> _verifyV35AffiliateAndSavings(AppDatabase db) async {
+    final rows = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type='table' "
+          "AND name IN ('affiliate_click_receipts','local_offer_savings');",
+        )
+        .get();
+    return rows.length == 2;
   }
 
   static Future<void> _applyV34MerchantCatalog(AppDatabase db) async {
@@ -1769,6 +1798,13 @@ class AppDatabase extends GeneratedDatabase {
     await _createRemoteMerchantAliasesTable();
     await _ensureRemoteCouponEconomicsColumns();
     await _ensureMerchantPersonalizationColumn();
+
+    // v35 (COUPONS PHASE 3 + 4): click receipts and the savings ledger.
+    // Unconditional for the same reason as every table above — a version gate
+    // skips them on a freshly created database and leaves the wipe and backup
+    // paths referencing tables that do not exist.
+    await _createAffiliateClickReceiptsTable();
+    await _createLocalOfferSavingsTable();
     if (version < 5) {
       await _createDedupHashesTable();
     }
@@ -2694,6 +2730,74 @@ class AppDatabase extends GeneratedDatabase {
       'user_settings',
       'merchant_personalization_enabled',
       'INTEGER NOT NULL DEFAULT 0',
+    );
+  }
+
+  /// COUPONS Phase 3 — the device's half of an affiliate click.
+  ///
+  /// Holds the plaintext `claim_token`. The SERVER holds only its SHA-256, so
+  /// this row is the only thing in existence that can prove a click was ours —
+  /// which is exactly why attribution can work without the server knowing whose
+  /// clicks are whose.
+  ///
+  /// USER-SCOPED, therefore WIPED on sign-out and EXCLUDED from backup. Excluded
+  /// because a restored token would claim a click made on a different install
+  /// while the original device might still be polling it, and because an
+  /// attribution window is days — a token in a year-old backup is expired
+  /// credentials.
+  Future<void> _createAffiliateClickReceiptsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS affiliate_click_receipts(
+        click_id TEXT PRIMARY KEY,
+        claim_token TEXT NOT NULL,
+        coupon_id TEXT NOT NULL,
+        merchant_id TEXT NULL,
+        launched_at TEXT NOT NULL,
+        last_status TEXT NOT NULL DEFAULT 'pending',
+        last_checked_at TEXT NULL,
+        expires_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_acr_pending '
+      'ON affiliate_click_receipts(last_status, expires_at);',
+    );
+  }
+
+  /// COUPONS Phase 4 — the savings ledger. LOCAL ONLY.
+  ///
+  /// What a user saved is computed here, from the offer's own discount and the
+  /// user's own confirmation. It is never uploaded: a server-side savings total
+  /// would be a spending profile, and there is no product reason for one to
+  /// exist off the device.
+  ///
+  /// INCLUDED in backup, unlike the click receipts. A savings history is
+  /// something a user would be upset to lose when they change phone, and unlike
+  /// a claim token it carries no credential and does not expire.
+  ///
+  /// `evidence_kind` is the honesty column. `user_confirmed` means the user said
+  /// they used the offer; `conversion_estimated` means a provider reported a
+  /// sale and we applied the offer's own discount; `conversion_verified` means
+  /// the provider told us the actual discount. They are NEVER summed into one
+  /// figure without saying which is which.
+  Future<void> _createLocalOfferSavingsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS local_offer_savings(
+        id TEXT PRIMARY KEY,
+        coupon_id TEXT NOT NULL,
+        merchant_id TEXT NULL,
+        click_id TEXT NULL,
+        evidence_kind TEXT NOT NULL,
+        amount_minor INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'active',
+        occurred_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_los_active '
+      'ON local_offer_savings(state, currency, occurred_at);',
     );
   }
 

@@ -54,6 +54,12 @@ class DataWipeService {
     // evidence about this person's corrections and must not survive a
     // sign-out/account change into the next owner's session.
     'capture_review_labels',
+    // COUPONS Phase 3 + 4 — both are user-scoped. A click receipt is a
+    // credential for one person's click and a savings entry is a statement
+    // about their spending; the next account on this device must inherit
+    // neither.
+    'affiliate_click_receipts',
+    'local_offer_savings',
     // MALI-014 Batch-5 — the durable restore-operation journal is per-session
     // recovery state; clear it on sign-out/account change so a previous owner's
     // restore operations never carry into the next session (MALI-011).

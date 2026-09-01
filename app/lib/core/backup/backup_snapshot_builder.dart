@@ -393,6 +393,15 @@ class BackupSnapshotBuilder {
     // staler.
     'remote_catalog_merchants',
     'remote_merchant_aliases',
+    // COUPONS Phase 3 — click receipts hold a plaintext claim token. Restoring
+    // one would present credentials for a click made on a DIFFERENT install,
+    // possibly while that install is still polling it, and an attribution
+    // window is days — a token in a year-old backup is expired credentials.
+    //
+    // `local_offer_savings` is deliberately NOT here: a savings history is
+    // something a user would be upset to lose on a new phone, it carries no
+    // credential, and it does not expire.
+    'affiliate_click_receipts',
     'remote_currencies',
     'remote_feature_flags',
     'remote_growth_campaigns',

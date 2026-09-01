@@ -662,7 +662,7 @@ test('the client Drift schema is untouched by this SERVER migration', () => {
   // v33 is owned by Proof-Carrying (capture_work_items, capture_review_labels).
   // A literal pin here rots on every legitimate bump, so the load-bearing claim
   // is the SQL assertion below; this line only catches an UNAPPROVED bump.
-  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 34;/);
+  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 35;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });
 
