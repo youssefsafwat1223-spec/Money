@@ -10,8 +10,11 @@ import {
   payloadHash,
   readJsonBody,
   resolveVerifiedIdentity,
+  safeLog,
   schemaError,
 } from '../_shared/ai_endpoint.ts';
+import { validateEvidenceSpans } from '../_shared/evidence_spans.ts';
+import { resolveGeminiRoute } from '../_shared/proof_contract.ts';
 import { amountFromText, withValidatedModelAmountText } from './money.ts';
 
 const MAX_BODY_BYTES = 8192;
@@ -31,6 +34,20 @@ function jsonResponse(obj: Record<string, unknown>): Response {
 // Track cutover dates at: https://ai.google.dev/gemini-api/docs/models/gemini
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
+
+// PHASE 7 — the DEDICATED shadow credential. Deliberately a separate variable
+// with NO fallback to GEMINI_API_KEY.
+//
+// The whole point of the shadow arm's isolation is that it must never consume
+// the capacity the production path needs. A `?? GEMINI_API_KEY` here would
+// silently undo that, and would do so exactly when someone is misconfiguring
+// under pressure — which is when the damage would be worst.
+//
+// Both keys are read here and then handed to `resolveGeminiRoute`, which is the
+// ONLY thing that decides which one serves a request. Neither is used directly
+// at the call site: an earlier version refused correctly on a missing shadow
+// key and then issued every request — shadow included — with GEMINI_API_KEY.
+const GEMINI_SHADOW_API_KEY = Deno.env.get('GEMINI_SHADOW_API_KEY') ?? '';
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const RATE_LIMIT_PER_DAY = 500;
 
@@ -58,6 +75,16 @@ function reSanitize(text: string): string {
   text = text.replace(/\b05\d{8}\b/g, '[PHONE]');
   text = text.replace(/\b01[0125]\d{8}\b/g, '[PHONE]');
   text = text.replace(/\+\d{7,15}\b/g, '[PHONE]');
+  // IBANs are alphanumeric, so the digits-only account rule below cannot catch
+  // them. Without this a full account identifier reaches the model.
+  text = text.replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, '[IBAN]');
+  // One-time passcodes, CUE-ANCHORED. A bare 4-6 digit run is far more often an
+  // amount than a passcode, so redacting by shape alone would destroy the value
+  // the proof layer exists to establish.
+  text = text.replace(
+    /((?:otp|one[- ]?time(?:\s+password)?|verification\s+code|رمز\s+التحقق|كود\s+التحقق|رمز\s+الدخول)(?:\s+(?:is|هو))?\s*:?\s*)\d{4,8}/gi,
+    '$1[OTP]',
+  );
   text = text.replace(/\b\d{10,20}\b/g, '[ACCOUNT]');
   text = text.replace(/(إلى|الى)\s*:?\s*.+/gi, '$1: [REDACTED]');
   text = text.replace(/\bTo\s*:\s*.+/gi, 'To: [REDACTED]');
@@ -268,10 +295,61 @@ Deno.serve(async (req) => {
   );
   if (limited) return apiError('rate_limited', { correlationId: cid, retryable: true });
 
+  // PHASE 7 — the additive proof-v1 contract.
+  //
+  // A request WITHOUT this marker is handled exactly as before: the v1 path is
+  // byte-identical, which is what makes deploying this function inert.
+  //
+  // A request WITH it is the shadow arm, and it is served ONLY from the
+  // dedicated shadow credential. When that credential is absent the request is
+  // refused outright — never quietly downgraded to the v1 path, because a
+  // "successful" shadow call funded by production quota is the precise failure
+  // this design exists to prevent.
+  //
+  // The decision lives in `_shared/proof_contract.ts` and RETURNS THE
+  // CREDENTIAL, so "which key" cannot drift away from "which contract". A
+  // previous version consulted a shared module for the accept/refuse decision
+  // only and then used GEMINI_API_KEY unconditionally at the call site, which
+  // is a defect no amount of gate testing can see.
+  const contract = readString(body, 'contract');
+  const route = resolveGeminiRoute(contract, {
+    productionKey: GEMINI_API_KEY,
+    shadowKey: GEMINI_SHADOW_API_KEY,
+  });
+  if (route.refused) {
+    if (contract === 'proof-v1') {
+      // The credential itself is never logged — only the fact of its absence.
+      safeLog({
+        event: 'proof_shadow_refused_no_credential',
+        fn: 'parse-sms',
+        correlation_id: cid,
+      });
+    }
+    return apiError(route.code, {
+      correlationId: cid,
+      retryable: route.retryable,
+    });
+  }
+
   // Re-sanitize server-side before sending to Gemini
   const reSanitized = reSanitize(body.sanitized_sms as string);
 
-  if (!GEMINI_API_KEY) {
+  // PHASE 6 — if the caller supplied evidence spans, they must describe THIS
+  // text, not the client's copy of it. Verified before any upstream call, so a
+  // stale-offset payload costs nothing and proves nothing.
+  const spans = validateEvidenceSpans((body as Record<string, unknown>).evidence, reSanitized);
+  if (!spans.ok) {
+    // The reason is logged, not returned: a caller probing which of its spans
+    // failed would be probing the sanitized text it is not entitled to see.
+    safeLog({ event: 'evidence_span_rejected', fn: 'parse-sms', correlation_id: cid, reason: spans.reason });
+    return apiError('invalid_payload', { correlationId: cid });
+  }
+
+  // The production route with no production key configured. Checked HERE rather
+  // than in the router so a malformed v1 request still receives the error it
+  // received before Phase 7 (span/sanitize failures are decided first). The
+  // shadow route can never reach this line with an empty key: it refused above.
+  if (!route.key) {
     return apiError('upstream_unavailable', { correlationId: cid, retryable: true });
   }
 
@@ -379,7 +457,10 @@ Return ONLY valid JSON. No markdown, no explanation.`;
 
   let parsed: Record<string, unknown> | null = null;
   try {
-    const geminiRes = await fetchWithTimeout(`${GEMINI_URL}?key=${GEMINI_API_KEY}`, {
+    // THE routing fix: the credential comes from the contract router, never
+    // from the module-level production constant. proof-v1 is billed to the
+    // shadow project or it does not happen at all.
+    const geminiRes = await fetchWithTimeout(`${GEMINI_URL}?key=${route.key}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
