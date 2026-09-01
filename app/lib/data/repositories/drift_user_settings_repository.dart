@@ -57,7 +57,7 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
             notifications_json = ?, db_encryption_key_ref = ?,
             privacy_mode_enabled = ?, ai_consent_granted = ?,
             cloud_processing_enabled = ?, ai_consent_state = ?,
-            cloud_consent_state = ?,
+            cloud_consent_state = ?, merchant_personalization_enabled = ?,
             updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
         WHERE id = ?;
       ''',
@@ -91,6 +91,10 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
           Variable.withInt(requiredSettings.cloudProcessingEnabled ? 1 : 0),
           _consentStateVariable(requiredSettings.aiConsentState),
           _consentStateVariable(requiredSettings.cloudConsentState),
+          // COUPONS Phase 1 — persisted locally and DELIBERATELY absent from
+          // the settings sync payload below. See UserSettingsEntity.
+          Variable.withInt(
+              requiredSettings.merchantPersonalizationEnabled ? 1 : 0),
           Variable.withString(requiredSettings.id),
         ],
       );

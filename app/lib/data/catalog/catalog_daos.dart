@@ -1977,9 +1977,12 @@ class RemoteCouponsDao {
             display_category_key, display_category_label_ar,
             display_category_label_en, tags_json, spend_hints_json,
             country_codes_json, accent_hex, image_url, featured, priority,
-            valid_from, valid_until, terms_ar, synced_at
+            valid_from, valid_until, terms_ar, synced_at,
+            merchant_id, merchant_slug, merchant_name_ar, merchant_name_en,
+            benefit_type, discount_bps, fixed_amount_minor, min_spend_minor,
+            max_saving_minor, benefit_currency, source, verification_state
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?);
+            ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
           ''',
           variables: [
             Variable.withString(offer.id),
@@ -2008,6 +2011,21 @@ class RemoteCouponsDao {
                 : dateTimeToSql(offer.validUntil!.toUtc())),
             Variable<String>(offer.termsAr),
             Variable.withString(now),
+            // Phase 1. Every one is nullable and a null round-trips as a null:
+            // an offer whose value is prose only must stay prose only, because
+            // the savings layer keys off exactly this absence to abstain.
+            Variable<String>(offer.merchantId),
+            Variable<String>(offer.merchantSlug),
+            Variable<String>(offer.merchantNameAr),
+            Variable<String>(offer.merchantNameEn),
+            Variable<String>(offer.benefitType),
+            Variable<int>(offer.discountBps),
+            Variable<int>(offer.fixedAmountMinor),
+            Variable<int>(offer.minSpendMinor),
+            Variable<int>(offer.maxSavingMinor),
+            Variable<String>(offer.benefitCurrency),
+            Variable.withString(offer.source),
+            Variable.withString(offer.verificationState),
           ],
         );
       }
@@ -2075,6 +2093,23 @@ class RemoteCouponsDao {
       validFrom: validFrom,
       validUntil: until == null ? null : DateTime.tryParse(until)?.toUtc(),
       termsAr: row.readNullable<String>('terms_ar'),
+      // Phase 1. Read defensively: a cache row written before v34 has these
+      // columns (the migration adds them) but they are NULL, and a row written
+      // by a build that predates this reader must still decode rather than
+      // drop the offer.
+      merchantId: row.readNullable<String>('merchant_id'),
+      merchantSlug: row.readNullable<String>('merchant_slug'),
+      merchantNameAr: row.readNullable<String>('merchant_name_ar'),
+      merchantNameEn: row.readNullable<String>('merchant_name_en'),
+      benefitType: row.readNullable<String>('benefit_type'),
+      discountBps: row.readNullable<int>('discount_bps'),
+      fixedAmountMinor: row.readNullable<int>('fixed_amount_minor'),
+      minSpendMinor: row.readNullable<int>('min_spend_minor'),
+      maxSavingMinor: row.readNullable<int>('max_saving_minor'),
+      benefitCurrency: row.readNullable<String>('benefit_currency'),
+      source: row.readNullable<String>('source') ?? 'manual',
+      verificationState:
+          row.readNullable<String>('verification_state') ?? 'unverified',
     );
   }
 }

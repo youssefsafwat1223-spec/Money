@@ -186,12 +186,18 @@ Deno.test('K: scoped countries stay uppercase ISO; malformed values drop the row
 // --- L: no admin/analytics/secret leakage --------------------------------------
 Deno.test('L: the snapshot exposes only the approved mobile fields', () => {
   const item = mapCouponRow(row(), BASE)!;
+  // Every field a device can see is listed here on purpose: widening the
+  // public DTO must be a deliberate edit, not a side effect of adding a column.
+  // COUPONS Phase 1 adds the merchant link and the structured offer value.
   assertEquals(Object.keys(item).sort(), [
-    'accent_hex', 'code', 'country_codes', 'description_ar', 'description_en',
-    'display_category', 'featured', 'id', 'image_url', 'partner_name',
-    'partner_url', 'priority', 'redemption_type', 'slug',
-    'spend_hint_category_keys', 'tags', 'terms_ar', 'title_ar', 'title_en',
-    'valid_from', 'valid_until',
+    'accent_hex', 'benefit_currency', 'benefit_type', 'code', 'country_codes',
+    'description_ar', 'description_en', 'discount_bps', 'display_category',
+    'featured', 'fixed_amount_minor', 'id', 'image_url', 'max_saving_minor',
+    'merchant_id', 'merchant_name_ar', 'merchant_name_en', 'merchant_slug',
+    'min_spend_minor', 'partner_name', 'partner_url', 'priority',
+    'redemption_type', 'slug', 'source', 'spend_hint_category_keys', 'tags',
+    'terms_ar', 'title_ar', 'title_en', 'valid_from', 'valid_until',
+    'verification_state',
   ]);
   // Admin/audit/analytics columns are not even selected.
   for (const leaked of ['created_at', 'updated_at', 'coupon_metrics']) {
@@ -199,8 +205,48 @@ Deno.test('L: the snapshot exposes only the approved mobile fields', () => {
   }
   // `count` as a standalone column (country_codes legitimately contains "count").
   assert(!/\bcount\b/.test(COUPON_SELECT), 'no analytics count column selected');
-  assert(!/\bis_active\b/.test(COUPON_SELECT.split('display_category')[0]),
+  assert(!/\bis_active\b/.test(COUPON_SELECT.split('merchant:')[0]),
     'the coupon is_active flag is not exposed to clients');
+});
+
+// --- L2: the merchant link is dropped when the merchant is not live ------------
+Deno.test('L2: a tombstoned or inactive merchant yields no merchant link', () => {
+  // A coupon outlives its merchant's deactivation — the offer row is untouched
+  // when a merchant is tombstoned. Serving the link anyway would let a device
+  // group offers under a merchant the catalog no longer publishes, and the
+  // merchant page would open onto nothing.
+  for (const merchant of [
+    null,
+    { slug: 'x', name_ar: 'x', is_active: false, is_deleted: false },
+    { slug: 'x', name_ar: 'x', is_active: true, is_deleted: true },
+  ]) {
+    const item = mapCouponRow(
+      row({ merchant_id: 'm-1', merchant }), BASE)!;
+    assertEquals(item.merchant_id, null);
+    assertEquals(item.merchant_slug, null);
+  }
+
+  const live = mapCouponRow(
+    row({
+      merchant_id: 'm-1',
+      merchant: { slug: 'noon', name_ar: 'نون', name_en: 'Noon', is_active: true, is_deleted: false },
+    }),
+    BASE,
+  )!;
+  assertEquals(live.merchant_id, 'm-1');
+  assertEquals(live.merchant_slug, 'noon');
+  assertEquals(live.merchant_name_ar, 'نون');
+});
+
+// --- L3: the offer keeps working with no merchant at all ----------------------
+Deno.test('L3: a pre-Phase-1 offer still maps, with nulls throughout', () => {
+  // The join is LEFT, not inner. An inner join would make the entire existing
+  // catalog vanish the moment this deploys.
+  const item = mapCouponRow(row(), BASE)!;
+  assertEquals(item.merchant_id, null);
+  assertEquals(item.benefit_type, null);
+  assertEquals(item.source, 'manual');
+  assertEquals(item.verification_state, 'unverified');
 });
 
 // --- M: deterministic ordering ---------------------------------------------------

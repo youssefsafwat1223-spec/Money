@@ -605,6 +605,7 @@ class AppDatabase extends GeneratedDatabase {
     await db._createRemoteCatalogMerchantsTable();
     await db._createRemoteMerchantAliasesTable();
     await db._ensureRemoteCouponEconomicsColumns();
+    await db._ensureMerchantPersonalizationColumn();
   }
 
   /// A partial v34 is worse than no v34: the resolver would find an alias table
@@ -620,10 +621,17 @@ class AppDatabase extends GeneratedDatabase {
     if (tables.length != 2) return false;
     final cols = await db.customSelect('PRAGMA table_info(remote_coupons);').get();
     final names = cols.map((r) => r.read<String>('name')).toSet();
-    return names.containsAll(const {
+    if (!names.containsAll(const {
       'merchant_id', 'benefit_type', 'discount_bps', 'benefit_currency',
       'verification_state',
-    });
+    })) {
+      return false;
+    }
+    final settings =
+        await db.customSelect('PRAGMA table_info(user_settings);').get();
+    return settings
+        .map((r) => r.read<String>('name'))
+        .contains('merchant_personalization_enabled');
   }
 
   static Future<void> _applyV32CaptureWorkItems(AppDatabase db) =>
@@ -1760,6 +1768,7 @@ class AppDatabase extends GeneratedDatabase {
     await _createRemoteCatalogMerchantsTable();
     await _createRemoteMerchantAliasesTable();
     await _ensureRemoteCouponEconomicsColumns();
+    await _ensureMerchantPersonalizationColumn();
     if (version < 5) {
       await _createDedupHashesTable();
     }
@@ -2664,6 +2673,28 @@ class AppDatabase extends GeneratedDatabase {
     for (final entry in columns.entries) {
       await _ensureColumn('remote_coupons', entry.key, entry.value);
     }
+  }
+
+  /// The merchant-personalization toggle — LOCAL ONLY, and off by default.
+  ///
+  /// It lives on `user_settings` because that is where user preferences live,
+  /// but it must never leave the device: the fact that someone enabled
+  /// spending-derived personalization is itself information about them, and the
+  /// server has no use for it because the server does no personalizing.
+  ///
+  /// `user_settings` IS synced — but through an EXPLICIT column map in
+  /// `planning_push_service.dart`, not `SELECT *`. Omitting this column from
+  /// that map is what keeps it local, and
+  /// `test/architecture/coupons_isolation_test.dart` asserts the omission so it
+  /// stays a contract rather than a habit.
+  ///
+  /// Default 0. A personalization feature that defaults on is not a choice.
+  Future<void> _ensureMerchantPersonalizationColumn() async {
+    await _ensureColumn(
+      'user_settings',
+      'merchant_personalization_enabled',
+      'INTEGER NOT NULL DEFAULT 0',
+    );
   }
 
   Future<void> _createRemoteMerchantKeywordsTable() async {

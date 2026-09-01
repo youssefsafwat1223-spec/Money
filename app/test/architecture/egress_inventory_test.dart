@@ -50,6 +50,12 @@ void main() {
         'EgressClass.backup — gated by its CALLER, RemoteBackupController',
     'core/backup/encrypted_backup_service.dart':
         'EgressClass.backup — gated by its CALLER, RemoteBackupController',
+    'features/coupons/coupon_analytics.dart':
+        'cloudProcessingEnabled, re-read per send (coupon_analytics.dart:99) — '
+            'record_coupon_event carries a coupon id and an event name and no '
+            'financial context. Surfaced only when this guard learned to see '
+            '`.rpc<T>(`; it was correctly gated the whole time, but nothing '
+            'was enforcing that.',
   };
 
   /// Where the gate lives, when it is not in the egress file itself.
@@ -71,6 +77,48 @@ void main() {
   /// that is tracked rather than hidden. The distinction is stated per entry so
   /// nobody has to guess which is which.
   const ungatedByDesign = <String, String>{
+    // ── Surfaced when `.rpc[<(]` was added to the pattern below ────────────
+    //
+    // Five call sites had been invisible to this guard since it was written:
+    // the regex matched `functions.invoke` and `.from(` but not `.rpc(`, and
+    // not `.rpc<void>(` even after the first widening. Each is classified here
+    // on its merits. Two are OPEN FINDINGS, recorded rather than papered over.
+    'core/auth/account_deletion_service.dart':
+        'EXEMPT: request_account_deletion / cancel_account_deletion. Deletion '
+            'must work regardless of consent state — gating the exit behind the '
+            'permission would trap a user who wants their data gone. Carries no '
+            'payload beyond the authenticated identity.',
+    'core/session/app_session.dart':
+        'EXEMPT: mark_onboarding_completed takes no parameters, is guarded on a '
+            'live session and a non-guest account, and records account state '
+            'rather than anything derived from the user.',
+    'features/referrals/services/referral_service.dart':
+        'EXEMPT: authenticated referral RPCs (0083), every one user-initiated. '
+            'The only payload is a referral code the user typed. Server-side '
+            'rules enforce qualification independently.',
+    'core/backend/metrics_client.dart':
+        'OPEN FINDING — not exempt. record_metric is best-effort product '
+            'telemetry with NO consent gate. Mitigated but not resolved: the '
+            'RPC is owner-bound, allowlisted and rate-limited server-side '
+            '(MALI-075n), unknown keys are silent no-ops, and it sends a key '
+            'plus a coarse dimension rather than user data. It is awaited from '
+            'bootstrap, so a consent read there would need to survive a cold '
+            'start with no settings loaded. Tracked, not hidden.',
+    'features/planning_sync/services/accounts_backfill_service.dart':
+        'OPEN FINDING — not exempt. set_default_account is financialSync-class '
+            'egress reached through StartupSyncReconcileService, which gates on '
+            'TRANSPORT capability (shouldParkExactMoneyWrite) and not on '
+            'consent. Its sibling push/pull services in this same pipeline ARE '
+            'consent-gated, so this is an inconsistency in one path rather than '
+            'a deliberate exemption.',
+    'features/gamification/services/engagement_event_service.dart':
+        'OPEN FINDING — unwired, not exempt. SupabaseEngagementRecorder is '
+            'declared but instantiated nowhere in lib/; grep finds no caller, '
+            'so nothing reaches the network today. EgressClass.gamification '
+            'already exists in ConsentAuthority and returns the cloud decision, '
+            'so whoever wires this must gate it there and move this entry into '
+            '`gated`. Listed the same way merchant_feedback_client.dart is, so '
+            'the obligation is visible before the first caller appears.',
     'data/catalog/catalog_sync_service.dart':
         'EXEMPT: catalog carries no user data, and delivers parser rules, '
             'feature flags and the force-update kill switch. Gating it would '
@@ -80,7 +128,13 @@ void main() {
   test('every file that reaches the network is a listed decision', () {
     final egressCall = RegExp(
       r"functions\.invoke|\.storage\.from\(|http\.post|http\.get|"
-      r"client\.from\(|_client\.from\(|supabase\.from\(|instance\.client\.from\(",
+      r"client\.from\(|_client\.from\(|supabase\.from\(|instance\.client\.from\(|"
+      // COUPONS Phase 1 — `.rpc(` was a structural blind spot. A Supabase RPC
+      // is a network call like any other, and coupon_analytics.dart has been
+      // making one (`record_coupon_event`) that this guard could not see. Any
+      // future RPC — an affiliate click, a status poll — would have been
+      // equally invisible.
+      r"\.rpc[<(]",
     );
 
     final found = <String>{};
@@ -141,9 +195,15 @@ void main() {
       // the backup store.
       final gateFile = gatedByCaller[path] ?? path;
       final src = File('lib/$gateFile').readAsStringSync();
+      // `cloudProcessingEnabled` counts as a real gate, not a loophole: it is
+      // the same effective grant ConsentAuthority derives its decision from,
+      // and for a telemetry-class call the authority returns exactly that
+      // value. Routing through the authority is still preferable — one place to
+      // change the policy — so a new call site should use it rather than this.
       final gatedHere = src.contains('mayEgress') ||
           src.contains('ConsentAuthority') ||
-          src.contains('consentGranted');
+          src.contains('consentGranted') ||
+          src.contains('cloudProcessingEnabled');
       expect(gatedHere, isTrue,
           reason: '$path is listed as gated, but its gate file $gateFile '
               'references no consent check');

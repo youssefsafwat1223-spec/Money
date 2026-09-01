@@ -53,6 +53,24 @@ export interface CouponSnapshotItem {
   valid_from: string;
   valid_until: string | null;
   terms_ar: string | null;
+
+  // COUPONS Phase 1. All nullable: an offer whose value is prose only is the
+  // entire pre-Phase-1 catalog, and the client abstains on null rather than
+  // inferring a number.
+  merchant_id: string | null;
+  merchant_slug: string | null;
+  merchant_name_ar: string | null;
+  merchant_name_en: string | null;
+  benefit_type: string | null;
+  /// Basis points: 1250 is 12.5%.
+  discount_bps: number | null;
+  fixed_amount_minor: number | null;
+  min_spend_minor: number | null;
+  max_saving_minor: number | null;
+  /// Required by the database whenever any minor amount is present.
+  benefit_currency: string | null;
+  source: string;
+  verification_state: string;
 }
 
 export interface CouponSnapshot {
@@ -72,6 +90,13 @@ export const COUPON_SELECT = [
   'redemption_type, code, partner_url',
   'spend_hint_category_keys, country_codes',
   'accent_hex, image_path, featured, priority, valid_from, valid_until, terms_ar',
+  // COUPONS Phase 1 — the merchant link and the structured value (0095).
+  // `merchant` is a LEFT join, deliberately not `!inner`: an offer with no
+  // merchant is the entire pre-Phase-1 catalog, and an inner join would make
+  // every one of them vanish the moment this deploys.
+  'merchant_id, benefit_type, discount_bps, fixed_amount_minor',
+  'min_spend_minor, max_saving_minor, benefit_currency, source, verification_state',
+  'merchant:catalog_merchants(slug, name_ar, name_en, is_active, is_deleted)',
   'display_category:coupon_categories!inner(key, label_ar, label_en, is_active)',
   'coupon_tag_links(tag:coupon_tags(key, label_ar, label_en, sort_order))',
 ].join(', ');
@@ -213,6 +238,57 @@ export function mapCouponRow(
     valid_from: row.valid_from as string,
     valid_until: (row.valid_until as string | null) ?? null,
     terms_ar: (row.terms_ar as string | null) ?? null,
+    ...merchantFields(row),
+    // Structured value. Passed through verbatim — the database CHECK
+    // constraints in 0095 already guarantee the shape (a percent offer has bps
+    // and no fixed amount, any minor amount carries a currency), so validating
+    // again here would be a second, drifting copy of the same rule. The CLIENT
+    // still decodes defensively, because a client cannot assume its server is
+    // the one that wrote the row.
+    benefit_type: (row.benefit_type as string | null) ?? null,
+    discount_bps: (row.discount_bps as number | null) ?? null,
+    fixed_amount_minor: (row.fixed_amount_minor as number | null) ?? null,
+    min_spend_minor: (row.min_spend_minor as number | null) ?? null,
+    max_saving_minor: (row.max_saving_minor as number | null) ?? null,
+    benefit_currency: (row.benefit_currency as string | null) ?? null,
+    source: (row.source as string | null) ?? 'manual',
+    verification_state: (row.verification_state as string | null) ?? 'unverified',
+  };
+}
+
+/**
+ * The merchant link, flattened, and only when the merchant is actually live.
+ *
+ * A coupon can outlive its merchant's deactivation — the offer row is untouched
+ * when a merchant is tombstoned — so serving the link unconditionally would let
+ * a device group offers under a merchant the catalog no longer publishes, and
+ * the merchant page would 404 into an empty state. Dropping the link degrades
+ * the offer to exactly what it was before Phase 1: still valid, still
+ * displayable through `partner_name`, just not merchant-aware.
+ */
+type MerchantFields = Pick<
+  CouponSnapshotItem,
+  'merchant_id' | 'merchant_slug' | 'merchant_name_ar' | 'merchant_name_en'
+>;
+
+function merchantFields(row: Record<string, unknown>): MerchantFields {
+  const merchant = row.merchant as Record<string, unknown> | null | undefined;
+  const live = merchant != null &&
+    merchant.is_active === true &&
+    merchant.is_deleted !== true;
+  if (!live) {
+    return {
+      merchant_id: null,
+      merchant_slug: null,
+      merchant_name_ar: null,
+      merchant_name_en: null,
+    };
+  }
+  return {
+    merchant_id: (row.merchant_id as string | null) ?? null,
+    merchant_slug: (merchant.slug as string | null) ?? null,
+    merchant_name_ar: (merchant.name_ar as string | null) ?? null,
+    merchant_name_en: (merchant.name_en as string | null) ?? null,
   };
 }
 

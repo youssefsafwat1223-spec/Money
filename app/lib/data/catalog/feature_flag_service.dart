@@ -19,6 +19,23 @@ const Map<String, Object> _defaults = {
   // OFF, fails closed. Product-placement rollout only — never a financial
   // capability authority; the entitlement decision is server-authoritative.
   'enable_report_ads': false,
+  // COUPONS Phase 1+ — four INDEPENDENT kill switches, all seeded OFF and
+  // fail-closed. Deliberately not one flag: `enable_coupons` remains the master
+  // for the generic catalog, and if merchant awareness, tracked links or
+  // savings has to be switched off, the catalog must keep working. A single
+  // flag that disables everything is an outage, not a kill switch.
+  //
+  // The merchant catalog, merchant pages and the For You section.
+  'enable_offers_merchants': false,
+  // Whether the local personalization TOGGLE is offered at all. The toggle
+  // itself is the user's choice and is stored locally; this only decides
+  // whether they are asked.
+  'enable_offers_personalization': false,
+  // The tracked affiliate CTA path (Phase 3). Off means every CTA is a plain
+  // untracked link, which still works.
+  'enable_affiliate_links': false,
+  // Savings claims and the savings surfaces (Phase 4).
+  'enable_savings_claims': false,
   'enable_announcements': true,
   'parser_engine_version': 'v1',
   'ledger_dual_write': false,

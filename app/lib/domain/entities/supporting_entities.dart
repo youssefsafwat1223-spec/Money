@@ -157,6 +157,7 @@ class UserSettingsEntity {
     this.dateOfBirth,
     this.cloudConsentState = ConsentState.unset,
     this.aiConsentState = ConsentState.unset,
+    this.merchantPersonalizationEnabled = false,
   });
 
   final String id;
@@ -184,6 +185,19 @@ class UserSettingsEntity {
   final ConsentState cloudConsentState;
   final ConsentState aiConsentState;
 
+  /// COUPONS Phase 1 — whether the user asked for offers to be ordered by the
+  /// merchants they actually shop at.
+  ///
+  /// LOCAL ONLY. It never appears in the settings sync payload
+  /// (`planning_push_service.dart` maps columns explicitly), because the fact
+  /// that someone enabled spending-derived personalization is itself
+  /// information about them, and the server does no personalizing and has no
+  /// use for it. `coupons_isolation_test.dart` asserts the omission.
+  ///
+  /// Defaults to false. A personalization feature that defaults on is not a
+  /// choice the user made.
+  final bool merchantPersonalizationEnabled;
+
   /// Effective grant = an explicit `accepted` choice. Every cloud/AI gate reads
   /// these getters, so an `unset`/`declined` state fails closed automatically.
   bool get cloudProcessingEnabled => cloudConsentState == ConsentState.accepted;
@@ -205,6 +219,7 @@ class UserSettingsEntity {
     DateTime? dateOfBirth,
     ConsentState? cloudConsentState,
     ConsentState? aiConsentState,
+    bool? merchantPersonalizationEnabled,
   }) {
     return UserSettingsEntity(
       id: id ?? this.id,
@@ -222,6 +237,8 @@ class UserSettingsEntity {
       privacyModeEnabled: privacyModeEnabled ?? this.privacyModeEnabled,
       cloudConsentState: cloudConsentState ?? this.cloudConsentState,
       aiConsentState: aiConsentState ?? this.aiConsentState,
+      merchantPersonalizationEnabled:
+          merchantPersonalizationEnabled ?? this.merchantPersonalizationEnabled,
     );
   }
 }

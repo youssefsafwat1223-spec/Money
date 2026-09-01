@@ -27,6 +27,11 @@ const _couponSources = <String>[
   'lib/features/coupons/coupons_providers.dart',
   'lib/features/coupons/coupon_widgets.dart',
   'lib/features/coupons/coupons_screen.dart',
+  // COUPONS Phase 1 — merchant awareness. Added to the SAME list rather than a
+  // new one, so every existing isolation rule automatically applies to them.
+  'lib/features/coupons/merchant_alias_key.dart',
+  'lib/features/coupons/merchant_lookup_pipeline.dart',
+  'lib/features/coupons/merchant_interest.dart',
 ];
 
 void main() {
@@ -251,6 +256,68 @@ void main() {
       for (final forbidden in ['data', 'items', 'response', 'json', 'stackTrace']) {
         expect(call.contains(forbidden), isFalse,
             reason: 'log call must not carry $forbidden: $call');
+      }
+    }
+  });
+
+  test('§P1 merchant interest can never be serialised', () {
+    // A merchant-interest score is a direct statement about someone's spending:
+    // this person shops at X, often, recently. It is the most sensitive thing
+    // this feature derives, and the entire on-device-personalization decision
+    // exists to keep it here. No codec means it cannot be dropped into a
+    // request body by a future refactor that "just adds toJson everywhere".
+    final interest = _code('lib/features/coupons/merchant_interest.dart');
+    for (final forbidden in [
+      'toJson', 'toMap', 'jsonEncode', 'encode(', 'Codec', 'Serializer',
+    ]) {
+      expect(interest.contains(forbidden), isFalse,
+          reason: 'merchant_interest.dart must carry no serialisation '
+              '($forbidden found)');
+    }
+  });
+
+  test('§P1 no merchant signal reaches the network', () {
+    // The feature's ONLY outbound call remains record_coupon_event(id, event).
+    // A merchant id or an interest score appearing next to a network call would
+    // mean the server had started to learn where the user shops.
+    for (final path in _couponSources) {
+      final code = _code(path);
+      final networkCalls = RegExp(r'\.(rpc|invoke)[<(][^;]*;')
+          .allMatches(code)
+          .map((m) => m.group(0)!);
+      for (final call in networkCalls) {
+        for (final forbidden in [
+          'merchantId', 'merchant_id', 'topMerchantIds', 'MerchantInterest',
+          'interest', 'aliasNormalized', 'merchantBreakdown',
+        ]) {
+          expect(call.contains(forbidden), isFalse,
+              reason: '$path sends $forbidden to the server: $call');
+        }
+      }
+    }
+  });
+
+  test('§P1 the personalization toggle is never synced', () {
+    // It lives on user_settings, which IS synced — but through an explicit
+    // column map, not SELECT *. That omission is the whole mechanism, so it has
+    // to be a contract rather than a habit: the fact that someone enabled
+    // spending-derived personalization is itself information about them.
+    final push = _code(
+        'lib/features/planning_sync/services/planning_push_service.dart');
+    expect(push.contains('merchant_personalization_enabled'), isFalse,
+        reason: 'the settings sync payload must not carry the local '
+            'personalization toggle');
+    expect(push.contains('merchantPersonalizationEnabled'), isFalse);
+  });
+
+  test('§P1 merchant resolution never runs on the server', () {
+    // Catalog matching is on-device only. A server-side resolver would need the
+    // user's merchant strings, which is exactly what never leaves.
+    for (final path in _couponSources) {
+      final code = _code(path);
+      for (final forbidden in ['resolve-merchant', 'match-merchant', 'merchant-resolve']) {
+        expect(code.contains(forbidden), isFalse,
+            reason: '$path references a server-side merchant resolver');
       }
     }
   });

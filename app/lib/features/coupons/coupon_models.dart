@@ -164,6 +164,18 @@ class CouponOffer {
     this.priority = 0,
     this.validUntil,
     this.termsAr,
+    this.merchantId,
+    this.merchantSlug,
+    this.merchantNameAr,
+    this.merchantNameEn,
+    this.benefitType,
+    this.discountBps,
+    this.fixedAmountMinor,
+    this.minSpendMinor,
+    this.maxSavingMinor,
+    this.benefitCurrency,
+    this.source = 'manual',
+    this.verificationState = 'unverified',
   });
 
   final String id;
@@ -201,6 +213,68 @@ class CouponOffer {
   final DateTime validFrom;
   final DateTime? validUntil;
   final String? termsAr;
+
+  // ── COUPONS Phase 1 — merchant link and structured value ────────────────
+  //
+  // ALL NULLABLE, and deliberately outside the all-or-nothing snapshot
+  // contract: a cache written by an older build, or a server that has not
+  // published these yet, must keep working rather than reject the snapshot.
+  // Absent simply means "no structured value", and every consumer must handle
+  // that by abstaining rather than by inferring one.
+
+  /// The canonical merchant this offer belongs to, when it has been linked.
+  /// `partnerName` remains the display fallback.
+  final String? merchantId;
+  final String? merchantSlug;
+  final String? merchantNameAr;
+  final String? merchantNameEn;
+
+  /// `percent` | `fixed_amount` | `free_shipping` | `other`. Null means the
+  /// offer's value is prose only — which is the entire pre-Phase-1 catalog.
+  final String? benefitType;
+
+  /// Basis points: 1250 is 12.5%. An integer so nothing rounds on the way to a
+  /// savings figure.
+  final int? discountBps;
+  final int? fixedAmountMinor;
+  final int? minSpendMinor;
+
+  /// The cap on a percentage offer. Without it an estimate is unbounded and
+  /// wrong on exactly the large baskets a user would notice.
+  final int? maxSavingMinor;
+
+  /// Required whenever any minor amount is present — a minor-unit integer with
+  /// no currency is not an amount.
+  final String? benefitCurrency;
+
+  final String source;
+
+  /// `unverified` | `admin_verified` | `provider_verified`. Surfaced to the
+  /// user: "we checked this" and "a feed said so" are different promises.
+  final String verificationState;
+
+  /// True only when the structured fields are complete enough to compute with.
+  /// The savings layer must consult this rather than testing fields ad hoc, so
+  /// there is one definition of "we can put a number on this".
+  bool get hasComputableBenefit {
+    switch (benefitType) {
+      case 'percent':
+        return discountBps != null && discountBps! > 0 && benefitCurrency != null;
+      case 'fixed_amount':
+        return fixedAmountMinor != null &&
+            fixedAmountMinor! > 0 &&
+            benefitCurrency != null;
+      default:
+        // free_shipping and other carry no computable amount, and a null type
+        // is a prose-only offer. Both must produce no number at all.
+        return false;
+    }
+  }
+
+  String? merchantName({bool preferEnglish = false}) =>
+      preferEnglish && (merchantNameEn?.trim().isNotEmpty ?? false)
+          ? merchantNameEn
+          : merchantNameAr;
 
   String title({bool preferEnglish = false}) =>
       preferEnglish && (titleEn?.trim().isNotEmpty ?? false) ? titleEn! : titleAr;
@@ -267,6 +341,37 @@ class CouponOffer {
   /// Decode and validate one snapshot row, or throw. Every check here is a
   /// contract the server also enforces (0081) — this is defence in depth, not a
   /// substitute for it.
+  /// Reads an integer that must be strictly positive to mean anything. A zero
+  /// or negative discount, cap or amount is data corruption, and treating it as
+  /// a real value would put "you saved 0" in front of a user.
+  static int? _positiveInt(Object? v) {
+    final n = v is num ? v.toInt() : (v is String ? int.tryParse(v) : null);
+    return (n != null && n > 0) ? n : null;
+  }
+
+  static int? _nonNegativeInt(Object? v) {
+    final n = v is num ? v.toInt() : (v is String ? int.tryParse(v) : null);
+    return (n != null && n >= 0) ? n : null;
+  }
+
+  /// Only a well-formed ISO code is accepted. Anything else becomes null, which
+  /// makes [CouponOffer.hasComputableBenefit] false and the savings layer
+  /// abstain — the correct outcome for an amount whose currency we cannot name.
+  static String? _currencyCode(Object? v) {
+    if (v is! String) return null;
+    final code = v.trim().toUpperCase();
+    return RegExp(r'^[A-Z]{3}$').hasMatch(code) ? code : null;
+  }
+
+  /// An unrecognised verification state degrades to `unverified` rather than
+  /// being shown verbatim: this string becomes a claim in the UI, and an
+  /// unknown claim must read as the weakest one, never the strongest.
+  static String _verificationState(Object? v) {
+    const known = {'unverified', 'admin_verified', 'provider_verified'};
+    final s = v is String ? v.trim() : '';
+    return known.contains(s) ? s : 'unverified';
+  }
+
   static CouponOffer _parseRow(Object? raw, int index) {
     if (raw is! Map) {
       throw CouponSnapshotException(
@@ -403,6 +508,28 @@ class CouponOffer {
           (json['spend_hint_category_keys'] as List?)?.whereType<String>().toList() ??
               const <String>[],
       countryCodes: countries,
+      // ── Phase 1 fields — TOLERANT, never a rejection reason ──────────────
+      //
+      // The snapshot contract is all-or-nothing on purpose: one malformed row
+      // must not silently drop an offer while the rest render. But that
+      // contract applies to the fields the catalog has always had. A server
+      // that has not published merchant links yet, or a nullable value that is
+      // simply absent, must not blank the entire catalog — so these decode to
+      // null and every consumer abstains on null.
+      merchantId: str(json['merchant_id']),
+      merchantSlug: str(json['merchant_slug']),
+      merchantNameAr: str(json['merchant_name_ar']),
+      merchantNameEn: str(json['merchant_name_en']),
+      benefitType: str(json['benefit_type']),
+      discountBps: _positiveInt(json['discount_bps']),
+      fixedAmountMinor: _positiveInt(json['fixed_amount_minor']),
+      // A minimum spend of zero is meaningful ("no minimum"), so it uses the
+      // non-negative reader rather than the positive one.
+      minSpendMinor: _nonNegativeInt(json['min_spend_minor']),
+      maxSavingMinor: _positiveInt(json['max_saving_minor']),
+      benefitCurrency: _currencyCode(json['benefit_currency']),
+      source: str(json['source']) ?? 'manual',
+      verificationState: _verificationState(json['verification_state']),
       accentHex: str(json['accent_hex']),
       imageUrl: str(json['image_url']),
       featured: json['featured'] == true,

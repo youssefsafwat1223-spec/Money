@@ -414,6 +414,11 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     // the entity always sees ''. The SQLCipher key comes only from secure storage.
     dbEncryptionKeyRef: '',
     privacyModeEnabled: sqlToBool(row.read<int>('privacy_mode_enabled')),
+    // Read defensively: a row written before v34 has no such column on an
+    // older database file, and a missing local preference must read as OFF
+    // rather than crash the settings load.
+    merchantPersonalizationEnabled:
+        sqlToBool(row.readNullable<int>('merchant_personalization_enabled') ?? 0),
     // MALI-059n: consent is the persisted, versioned choice — no runtime clamp.
     // An unset/declined state means the cloud/AI gates fail closed.
     cloudConsentState: _consentStateFromRow(row, 'cloud_consent_state'),
