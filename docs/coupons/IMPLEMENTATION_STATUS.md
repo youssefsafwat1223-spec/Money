@@ -10,6 +10,25 @@ things; this file only claims the first.
 
 ---
 
+## Verified gates at closure
+
+`flutter analyze` clean · `flutter test` **3477 passed / 1 skipped / 1 failed** ·
+`deno test --allow-all` 215 / 0 / 2 ignored · `deno lint _shared/` clean (39
+files) · admin `node --test tests/*.test.mjs` 140 / 140 · `node --test
+supabase/tests/*.mjs` 317 tests, 228 pass, 0 fail, 89 skipped (credential-gated)
+· `supabase/tools/check_migrations.sh` PASS (0001..0097, 0 missing rollbacks) ·
+admin `npm run build` compiles.
+
+The one Flutter failure is `android_release_signing_test.dart`, and it is not
+this track's: `app/android/key.properties` exists on disk from the Android
+signing work of 2026-08-31. It is gitignored and has never been committed — the
+guard's name says "committed" but its check is a filesystem scan, so it fires on
+a legitimately-local file. Left alone deliberately: weakening a key-material
+guard to make a suite green is the wrong trade, and the file is not this track's
+to move.
+
+---
+
 ## Phase status
 
 | Phase | State | Notes |
