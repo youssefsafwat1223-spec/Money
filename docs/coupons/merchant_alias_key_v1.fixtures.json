@@ -1,0 +1,320 @@
+{
+  "_spec": "docs/coupons/MERCHANT_ALIAS_KEY_V1.md",
+  "_why": "One corpus, run through BOTH the Dart implementation and the real PostgreSQL function. A JavaScript reimplementation would test nothing.",
+  "version": 1,
+  "name_cases": [
+    {
+      "input": "CARREFOUR",
+      "why": "plain latin",
+      "expected": "carrefour"
+    },
+    {
+      "input": "carrefour",
+      "why": "already lower",
+      "expected": "carrefour"
+    },
+    {
+      "input": "  Carrefour  ",
+      "why": "surrounding ascii space",
+      "expected": "carrefour"
+    },
+    {
+      "input": "Carrefour",
+      "why": "mixed case",
+      "expected": "carrefour"
+    },
+    {
+      "input": "7-ELEVEN",
+      "why": "digit-leading brand; must not become '-eleven'",
+      "expected": "7 eleven"
+    },
+    {
+      "input": "FOREVER 21",
+      "why": "brand ending in digits",
+      "expected": "forever 21"
+    },
+    {
+      "input": "CARREFOUR 24",
+      "why": "brand ending in digits",
+      "expected": "carrefour 24"
+    },
+    {
+      "input": "5 GUYS",
+      "why": "digit-leading brand",
+      "expected": "5 guys"
+    },
+    {
+      "input": "360 MALL",
+      "why": "digit-leading brand; must not collide with 'mall'",
+      "expected": "360 mall"
+    },
+    {
+      "input": "STC 5G",
+      "why": "sub-brand with digit",
+      "expected": "stc 5g"
+    },
+    {
+      "input": "123",
+      "why": "all digits: a real key, not empty",
+      "expected": "123"
+    },
+    {
+      "input": "",
+      "why": "empty input",
+      "expected": ""
+    },
+    {
+      "input": "!!!",
+      "why": "all punctuation",
+      "expected": ""
+    },
+    {
+      "input": "   ",
+      "why": "all space",
+      "expected": ""
+    },
+    {
+      "input": "ًٌٍ",
+      "why": "all diacritics",
+      "expected": ""
+    },
+    {
+      "input": "كارفور",
+      "why": "carrefour ar",
+      "expected": "كارفور"
+    },
+    {
+      "input": "كَارْفُور",
+      "why": "with harakat",
+      "expected": "كارفور"
+    },
+    {
+      "input": "كارفـــور",
+      "why": "with tatweel",
+      "expected": "كارفور"
+    },
+    {
+      "input": "شركة",
+      "why": "teh marbuta",
+      "expected": "شركه"
+    },
+    {
+      "input": "شركه",
+      "why": "heh; must equal teh marbuta form",
+      "expected": "شركه"
+    },
+    {
+      "input": "أمازون",
+      "why": "alef hamza above",
+      "expected": "امازون"
+    },
+    {
+      "input": "امازون",
+      "why": "bare alef; must equal previous",
+      "expected": "امازون"
+    },
+    {
+      "input": "إمارات",
+      "why": "alef hamza below",
+      "expected": "امارات"
+    },
+    {
+      "input": "آمال",
+      "why": "alef madda",
+      "expected": "امال"
+    },
+    {
+      "input": "مقهى",
+      "why": "alef maksura",
+      "expected": "مقهي"
+    },
+    {
+      "input": "مقهي",
+      "why": "yeh; must equal maksura form",
+      "expected": "مقهي"
+    },
+    {
+      "input": "مؤسسة",
+      "why": "waw hamza",
+      "expected": "موسسه"
+    },
+    {
+      "input": "مطعم البيك ٤٥",
+      "why": "arabic-indic digits fold to ascii",
+      "expected": "مطعم البيك 45"
+    },
+    {
+      "input": "مطعم البيك 45",
+      "why": "ascii digits; must equal previous",
+      "expected": "مطعم البيك 45"
+    },
+    {
+      "input": "پاندا",
+      "why": "peh must NOT be dropped",
+      "expected": "پاندا"
+    },
+    {
+      "input": "چيلي",
+      "why": "cheh must NOT be dropped",
+      "expected": "چيلي"
+    },
+    {
+      "input": "ژالة",
+      "why": "jeh must NOT be dropped",
+      "expected": "ژاله"
+    },
+    {
+      "input": "کلستان",
+      "why": "persian kaf FOLDS to arabic kaf",
+      "expected": "كلستان"
+    },
+    {
+      "input": "كلستان",
+      "why": "arabic kaf; must equal previous",
+      "expected": "كلستان"
+    },
+    {
+      "input": "گلستان",
+      "why": "GAF must NOT fold - stays distinct",
+      "expected": "گلستان"
+    },
+    {
+      "input": "یاسمين",
+      "why": "persian yeh FOLDS to arabic yeh",
+      "expected": "ياسمين"
+    },
+    {
+      "input": "H&M",
+      "why": "ampersand becomes a space",
+      "expected": "h m"
+    },
+    {
+      "input": "AT&T",
+      "why": "ampersand",
+      "expected": "at t"
+    },
+    {
+      "input": " CARREFOUR",
+      "why": "NBSP: dart trim() would strip it, pg btrim() would not",
+      "expected": "carrefour"
+    },
+    {
+      "input": "CARREFOUR​",
+      "why": "zero-width space",
+      "expected": "carrefour"
+    },
+    {
+      "input": "CAR﻿REFOUR",
+      "why": "BOM inside a word",
+      "expected": "car refour"
+    },
+    {
+      "input": "CAR‍REFOUR",
+      "why": "zero-width joiner",
+      "expected": "car refour"
+    },
+    {
+      "input": "؜CARREFOUR",
+      "why": "arabic letter mark",
+      "expected": "carrefour"
+    },
+    {
+      "input": "CARREFOUR　",
+      "why": "ideographic space",
+      "expected": "carrefour"
+    },
+    {
+      "input": "A B",
+      "why": "narrow no-break space",
+      "expected": "a b"
+    },
+    {
+      "input": "مطعم، البيك",
+      "why": "arabic comma",
+      "expected": "مطعم البيك"
+    },
+    {
+      "input": "CAFE 😀",
+      "why": "emoji becomes a separator, not two",
+      "expected": "cafe"
+    },
+    {
+      "input": "😀😀",
+      "why": "emoji only: empty key",
+      "expected": ""
+    },
+    {
+      "input": "أمازون",
+      "why": "decomposed hamza does NOT equal precomposed",
+      "expected": "امازون"
+    },
+    {
+      "input": "PANDA 123",
+      "why": "branch number survives the key",
+      "expected": "panda 123"
+    },
+    {
+      "input": "CAFE TRACE",
+      "why": "no marker stripping in the key",
+      "expected": "cafe trace"
+    },
+    {
+      "input": "POS PURCHASE CARREFOUR",
+      "why": "no boilerplate stripping in the key",
+      "expected": "pos purchase carrefour"
+    }
+  ],
+  "domain_cases": [
+    {
+      "input": "noon.com",
+      "why": "plain host",
+      "expected": "noon.com"
+    },
+    {
+      "input": "www.noon.com",
+      "why": "www stripped",
+      "expected": "noon.com"
+    },
+    {
+      "input": "NOON.COM",
+      "why": "ascii case fold",
+      "expected": "noon.com"
+    },
+    {
+      "input": "noon.com.",
+      "why": "trailing dot dropped",
+      "expected": "noon.com"
+    },
+    {
+      "input": "7eleven.com",
+      "why": "digits load-bearing; name folding would break this",
+      "expected": "7eleven.com"
+    },
+    {
+      "input": "xn--mgbaam7a8h.example",
+      "why": "punycode A-label preserved",
+      "expected": "xn--mgbaam7a8h.example"
+    },
+    {
+      "input": "not a host",
+      "why": "rejected: empty",
+      "expected": ""
+    },
+    {
+      "input": "noon",
+      "why": "single label rejected: empty",
+      "expected": ""
+    },
+    {
+      "input": "نون.com",
+      "why": "unicode host rejected, never converted",
+      "expected": ""
+    },
+    {
+      "input": "",
+      "why": "empty",
+      "expected": ""
+    }
+  ],
+  "_expected_provenance": "Computed by the REAL PostgreSQL merchant_alias_key_v1 / merchant_domain_key_v1 on a migrated database, then committed. Both the Dart test and the SQL contract test assert against these committed values, so neither implementation can drift without a visible fixture diff."
+}
