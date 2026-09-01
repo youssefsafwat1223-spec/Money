@@ -234,9 +234,12 @@ test('the catalog migration exists and the client schema is untouched by it', ()
   // Analytics live in their own migration (0082, Phase C2) — never folded into
   // the catalog one. The C2 contract test owns the next phase boundary.
   assert.doesNotMatch(sql, /coupon_metrics_daily|record_coupon_event/i);
-  // The client cache table is owned by the mobile phase (C4, Drift v31); the
-  // SERVER migration never bumps or references the client schema.
+  // The client schema is owned by the mobile phases; this SERVER migration never
+  // bumps or references it. The version pin tracks the current APPROVED value —
+  // v33 is owned by Proof-Carrying (capture_work_items, capture_review_labels).
+  // A literal pin here rots on every legitimate bump, so the load-bearing claim
+  // is the SQL assertion below; this line only catches an UNAPPROVED bump.
   const db = read('app/lib/data/db/app_database.dart');
-  assert.match(db, /const int _targetSchemaVersion = 31;/);
+  assert.match(db, /const int _targetSchemaVersion = 33;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });

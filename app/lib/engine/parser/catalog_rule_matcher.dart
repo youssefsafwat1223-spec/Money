@@ -1,3 +1,4 @@
+import '../models/transaction_type.dart';
 import 'normalizer.dart';
 
 /// F-016 — the catalog parser rule as the DEVICE runtime authority.
@@ -184,4 +185,29 @@ String? parseCatalogCurrency(String? token) {
     'دينار': 'KWD',
   };
   return aliases[normalized];
+}
+
+/// The rule's declared transaction type.
+///
+/// `extracted_fields.type` is a LITERAL (not a capture-group name) and wins
+/// over the coarser `transaction_type` column when both are present.
+///
+/// Lives here rather than inside `ParserEngine` because the direction
+/// corroboration layer must read the same mapping. Two copies of this switch
+/// would be free to drift, and a drift between "what the parser thinks this
+/// rule means" and "what direction we let it corroborate" is exactly the class
+/// of divergence that cost this programme three seals.
+TransactionType catalogRuleType(CatalogParserRule rule) {
+  final literal = rule.extractedFields['type'];
+  final key = (literal is String && literal.trim().isNotEmpty)
+      ? literal
+      : rule.transactionType;
+  return switch (key.toLowerCase().trim()) {
+    'debit' || 'payment' || 'purchase' => TransactionType.payment,
+    'credit' || 'income' || 'salary' || 'deposit' => TransactionType.income,
+    'withdrawal' || 'atm' => TransactionType.withdrawal,
+    'transfer' => TransactionType.transfer,
+    'refund' || 'reversal' => TransactionType.refund,
+    _ => TransactionType.unknown,
+  };
 }

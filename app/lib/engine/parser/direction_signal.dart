@@ -41,6 +41,33 @@ class DirectionSignal {
     'credited',
     'received',
     'incoming',
+    // ── refund / reversal ────────────────────────────────────────────────
+    // `TransactionType.refund` is declared direction-unambiguous (incoming) by
+    // the D2 polarity map, but this list could not recognise a single refund
+    // message, so all 31 refund rows in the rev-4 baseline resolved to
+    // `direction_ambiguous` and none could auto-commit. The architecture
+    // asserted a polarity the lexicon was unable to detect.
+    //
+    // Admitted forms are unambiguous refund/reversal language ONLY. Matching
+    // is substring-based, so a short token is a liability: bare `رد` is
+    // deliberately ABSENT because it occurs inside `وارد` (incoming), `ترد`
+    // and `يرد`, and bare `عكس` is ABSENT because it occurs inside `بالعكس`,
+    // `عكسية` and `انعكاس`. Both would manufacture false INCOMING polarity on
+    // ordinary text. The refund senses are reached through longer forms and
+    // phrases instead.
+    'استرداد',
+    'مسترد',
+    'مستردة',
+    'رد مبلغ',
+    'ردّ مبلغ',
+    'إعادة مبلغ',
+    'اعادة مبلغ',
+    'عكس قيد',
+    'عكس العملية',
+    'refund',
+    'refunded',
+    'reversal',
+    'reversed',
   ];
 
   // Words that clearly mean "money out".
@@ -68,6 +95,15 @@ class DirectionSignal {
 
   /// The direction strongly implied by the raw message text.
   /// Returns [TxnDirection.unknown] when both or neither family appears.
+  /// The credit/debit vocabularies, exposed READ-ONLY so the proof evidence
+  /// layer can reuse the SAME words this class matches on instead of keeping a
+  /// second copy. Two lists would be two definitions of "what means money in",
+  /// and they would drift.
+  ///
+  /// Additive only: `detect`/`ofType`/`contradicts` are unchanged.
+  static List<String> get creditWords => _creditWords;
+  static List<String> get debitWords => _debitWords;
+
   static TxnDirection detect(String text) {
     final lower = text.toLowerCase();
     final hasCredit = _creditWords.any(lower.contains);

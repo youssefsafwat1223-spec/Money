@@ -57,10 +57,37 @@ void main() {
     }
   });
 
-  test('Drift schema stays v31 (no v32 for R4)', () {
+  test('R4 contributes no schema change', () {
+    // The guard's intent is that the ADS track introduces no migration — it
+    // was originally written as a global pin to v31, which over-reached once
+    // another track legitimately bumped the version.
+    //
+    // v32 is owned by PHASE 8 (the durable capture work item), an approved and
+    // separately gated change. So the version pin now tracks the current
+    // approved value, and the R4-specific claim is asserted directly below,
+    // where it belongs.
     final db = _read('lib/data/db/app_database.dart');
-    expect(RegExp(r'_targetSchemaVersion\s*=\s*31').hasMatch(db), isTrue,
-        reason: 'schema version must remain 31');
+    expect(RegExp(r'_targetSchemaVersion\s*=\s*33').hasMatch(db), isTrue,
+        reason: 'unexpected schema version — a bump must be an approved, '
+            'separately gated change');
+  });
+
+  test('the ads layer contains no schema or migration code', () {
+    // This is what "no v32 for R4" actually meant, and it is stronger than a
+    // global version pin: it fails if the ads track ever adds a migration,
+    // whatever the version number happens to be.
+    for (final src in _adsLayerSources()) {
+      for (final forbidden in const [
+        'CREATE TABLE',
+        'ALTER TABLE',
+        '_targetSchemaVersion',
+        'MigrationStrategy',
+        'customStatement',
+      ]) {
+        expect(src.contains(forbidden), isFalse,
+            reason: 'the ads layer must not carry schema work ($forbidden)');
+      }
+    }
   });
 
   test('the ads layer never reads entitlement tables directly', () {

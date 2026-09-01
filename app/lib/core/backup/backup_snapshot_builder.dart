@@ -366,6 +366,17 @@ class BackupSnapshotBuilder {
     'suspected_duplicates',
     'pending_merchant_feedback',
     'financial_cache_health',
+    // PHASE 8 — durable capture work items are LOCAL RECOVERY STATE: a lease,
+    // an attempt count and a cached model result for a message this device is
+    // still processing. Restoring them onto another device would re-present
+    // work that device never captured, and the transaction they produce is
+    // already backed up on its own. Excluded like the other outbox/journal
+    // tables above.
+    'capture_work_items',
+    // PHASE 9A — labels are local evidence about captures made on THIS device.
+    // Restoring them elsewhere would attach correction history to captures that
+    // device never made.
+    'capture_review_labels',
     'financial_import_runs',
     'notification_log_events',
     'catalog_metadata',

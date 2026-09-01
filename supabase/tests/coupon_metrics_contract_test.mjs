@@ -176,9 +176,13 @@ test('C2 touches no closed contract and bumps no client schema', () => {
   }
   const alters = sql.match(/ALTER TABLE (\w+)/gi) || [];
   assert.deepEqual(alters, ['ALTER TABLE coupon_metrics_daily']);
-  // The client schema is owned by the mobile phase (C4, Drift v31); 0082 never
-  // bumps or references it.
-  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 31;/);
+  // The client schema is owned by the mobile phases; this SERVER migration never
+  // bumps or references it. The version pin tracks the current APPROVED value —
+  // v33 is owned by Proof-Carrying (capture_work_items, capture_review_labels).
+  // A literal pin here rots on every legitimate bump, so the load-bearing claim
+  // is the SQL assertion below; this line only catches an UNAPPROVED bump.
+  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 33;/);
+  assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });
 
 test('migration numbering: 0082 is the Coupon ceiling and stays unique', () => {

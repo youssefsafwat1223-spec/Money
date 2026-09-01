@@ -300,20 +300,8 @@ class ParserEngine {
   /// F-016: the matched rule's declared type. `extracted_fields.type` (a
   /// literal, not a group name) wins over the coarser `transaction_type`
   /// column when both are present.
-  TransactionType _catalogRuleType(CatalogParserRule rule) {
-    final literal = rule.extractedFields['type'];
-    final key = (literal is String && literal.trim().isNotEmpty)
-        ? literal
-        : rule.transactionType;
-    return switch (key.toLowerCase().trim()) {
-      'debit' || 'payment' || 'purchase' => TransactionType.payment,
-      'credit' || 'income' || 'salary' || 'deposit' => TransactionType.income,
-      'withdrawal' || 'atm' => TransactionType.withdrawal,
-      'transfer' => TransactionType.transfer,
-      'refund' || 'reversal' => TransactionType.refund,
-      _ => TransactionType.unknown,
-    };
-  }
+  TransactionType _catalogRuleType(CatalogParserRule rule) =>
+      catalogRuleType(rule);
 
   TransactionType _detectType(String lower, BankProfile? bank) {
     if (bank != null) {

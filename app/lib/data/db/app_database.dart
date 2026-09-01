@@ -18,7 +18,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 31;
+const int _targetSchemaVersion = 33;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -546,7 +546,60 @@ class AppDatabase extends GeneratedDatabase {
   // idempotently, and their presence is asserted by the postflight
   // _verifyMigrationIntegrity BEFORE the user_version bump commits. The registry
   // itself stays empty (no forward step can precede its own column dependency).
-  static const List<_SchemaMigration> _versionedMigrations = [];
+  static const List<_SchemaMigration> _versionedMigrations = [
+    // v31 -> v32 (PHASE 8) — the durable capture work item.
+    //
+    // ADDITIVE ONLY: one new table plus its indexes. No existing table is
+    // read, altered, backfilled or converted, which is what makes this step
+    // safe to apply inside the shared migration transaction.
+    //
+    // NOTE ON ROLLBACK: after v32 a v31 binary cannot open the database
+    // (user_version exceeds what it knows). Rollback is therefore flags,
+    // kill switch, forward hotfix or forward migration — NEVER a binary
+    // downgrade. See docs/proof/PHASE8_DURABILITY.md.
+    _SchemaMigration(
+      from: 31,
+      to: 32,
+      apply: _applyV32CaptureWorkItems,
+      postcondition: _verifyV32CaptureWorkItems,
+    ),
+    // v32 -> v33 (PHASE 9A) — real user labels. ADDITIVE: one table plus
+    // indexes, no existing table read or converted. Same rollback rule as
+    // v32: forward-only, never a binary downgrade.
+    _SchemaMigration(
+      from: 32,
+      to: 33,
+      apply: _applyV33ReviewLabels,
+      postcondition: _verifyV33ReviewLabels,
+    ),
+  ];
+
+  static Future<void> _applyV33ReviewLabels(AppDatabase db) =>
+      db._createCaptureReviewLabelsTable();
+
+  static Future<bool> _verifyV33ReviewLabels(AppDatabase db) async {
+    final rows = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type='table' "
+          "AND name='capture_review_labels';",
+        )
+        .get();
+    return rows.isNotEmpty;
+  }
+
+  static Future<void> _applyV32CaptureWorkItems(AppDatabase db) =>
+      db._createCaptureWorkItemsTable();
+
+  /// The step must not be able to report success without the table existing.
+  static Future<bool> _verifyV32CaptureWorkItems(AppDatabase db) async {
+    final rows = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type='table' "
+          "AND name='capture_work_items';",
+        )
+        .get();
+    return rows.isNotEmpty;
+  }
 
   Future<void> _applyVersionedMigrations(int fromVersion) async {
     for (final migration in _versionedMigrations) {
@@ -1644,6 +1697,21 @@ class AppDatabase extends GeneratedDatabase {
     if (version < 31) {
       await _createRemoteCouponsTable();
     }
+    // v32 (PHASE 8): the durable capture work item. ADDITIVE — no existing
+    // business table is read, written or converted.
+    //
+    // Created UNCONDITIONALLY, like `ledger_sync_outbox` above: the statement
+    // is CREATE ... IF NOT EXISTS, so correctness comes from idempotence rather
+    // than from a version gate. A gate here would skip the table on any
+    // database already reporting >= 32 — including a freshly created one —
+    // and leave the wipe/delete paths referencing a table that does not exist.
+    // The v31 -> v32 forward contract for EXISTING databases is carried by the
+    // versioned migration registry.
+    await _createCaptureWorkItemsTable();
+
+    // v33 (PHASE 9A): real user labels for the Phase-11 precision gate.
+    // ADDITIVE, and created unconditionally for the same reason as above.
+    await _createCaptureReviewLabelsTable();
     if (version < 5) {
       await _createDedupHashesTable();
     }
@@ -2315,6 +2383,123 @@ class AppDatabase extends GeneratedDatabase {
   /// Embedded collections arrive as deterministic JSON text (tags keep the
   /// server's order); ALL decoding happens at the repository boundary so no
   /// widget ever parses JSON.
+  /// PHASE 8 — the durable capture work item.
+  ///
+  /// ## Two identity layers, deliberately not one
+  ///
+  /// `capture_uuid` is the WORK-ITEM IDENTITY: it is minted once by the native
+  /// capture layer and is what a lease, a retry and an ACK all refer to. It is
+  /// the primary key, so re-presenting the same native item resolves the
+  /// existing row instead of creating a second one.
+  ///
+  /// `content_fingerprint` is a DUPLICATE SIGNAL ONLY. Two byte-identical bank
+  /// messages are genuinely ambiguous: a user really can buy the same coffee
+  /// for the same amount at the same shop twice in one minute. So the
+  /// fingerprint may raise a review, and it may never be treated as proof that
+  /// two messages are one transaction. It is therefore NOT unique, and nothing
+  /// keys off it.
+  ///
+  /// ## Ordering contract
+  ///
+  ///   1. the native item stays leased/unacked
+  ///   2. this row is created or resolved by `capture_uuid`
+  ///   3. Drift COMMITs
+  ///   4. only then is the native item ACKed
+  ///
+  /// A crash between 3 and 4 re-presents the item; step 2 finds the existing
+  /// row and no duplicate work or transaction is created. A crash before 3
+  /// loses the row but not the native item, which is re-presented. The
+  /// dangerous ordering — ACK before commit — is the one this exists to
+  /// prevent.
+  /// PHASE 9A — genuine user labels.
+  ///
+  /// Phase 11 needs an auto-commit PRECISION estimate, and shadow telemetry
+  /// cannot provide one: without labels, disagreement is not ground truth. This
+  /// table is where real accept/correct actions are recorded so that gate has
+  /// something to measure.
+  ///
+  /// ## What is deliberately absent
+  ///
+  /// There is NO column for the message. A label says "the user corrected the
+  /// direction on capture X at revision N" — which is the entire evidentiary
+  /// value — and storing the SMS alongside it would create a second, permanent
+  /// copy of bank text for a purpose that does not need it.
+  ///
+  /// ## Why (capture_uuid, work_item_revision) is UNIQUE
+  ///
+  /// It makes replay idempotent. A double-tap, a retried write or a duplicated
+  /// event records ONE label, and a label for a superseded revision cannot be
+  /// added after the fact — which is what stops stale UI actions from
+  /// manufacturing evidence about state that no longer exists.
+  Future<void> _createCaptureReviewLabelsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS capture_review_labels (
+        id TEXT PRIMARY KEY,
+        capture_uuid TEXT NOT NULL,
+        transaction_id TEXT NULL,
+        review_state TEXT NOT NULL,
+        action TEXT NOT NULL
+          CHECK(action IN ('accepted','corrected','dismissed')),
+        corrected_fields TEXT NOT NULL DEFAULT '',
+        corrected_direction INTEGER NOT NULL DEFAULT 0,
+        work_item_revision INTEGER NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE(capture_uuid, work_item_revision)
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_crl_capture '
+      'ON capture_review_labels(capture_uuid);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_crl_action '
+      'ON capture_review_labels(action);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_crl_direction '
+      'ON capture_review_labels(corrected_direction);',
+    );
+  }
+
+  Future<void> _createCaptureWorkItemsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS capture_work_items (
+        capture_uuid TEXT PRIMARY KEY,
+        content_fingerprint TEXT NULL,
+        state TEXT NOT NULL DEFAULT 'received'
+          CHECK(state IN ('received','model_in_flight','model_result_persisted',
+                          'applied','review','rejected','dead_letter')),
+        lease_owner TEXT NULL,
+        claimed_at TEXT NULL,
+        lease_expires_at TEXT NULL,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        model_result_json TEXT NULL,
+        model_executions INTEGER NOT NULL DEFAULT 0,
+        transaction_id TEXT NULL,
+        revision INTEGER NOT NULL DEFAULT 0,
+        last_error TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_cwi_state ON capture_work_items(state);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_cwi_lease_expiry '
+      'ON capture_work_items(lease_expires_at);',
+    );
+    // NOT UNIQUE, on purpose — see the identity note above.
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_cwi_fingerprint '
+      'ON capture_work_items(content_fingerprint);',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_cwi_transaction '
+      'ON capture_work_items(transaction_id);',
+    );
+  }
+
   Future<void> _createRemoteCouponsTable() async {
     await customStatement('''
       CREATE TABLE IF NOT EXISTS remote_coupons(

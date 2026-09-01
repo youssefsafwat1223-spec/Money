@@ -32,6 +32,29 @@ class SmsSanitizer {
   // International: +CC followed by 7–14 digits
   static final _intlPhone = RegExp(r'\+\d{7,15}\b');
 
+  // ── IBAN ─────────────────────────────────────────────────────────────────
+  // ISO 13616: two country letters, two check digits, then up to 30
+  // alphanumerics. The account pattern below is digits-only and therefore
+  // CANNOT match an IBAN — `SA0380000000608010167519` passed through
+  // untouched before this existed, which is a full account identifier sent to
+  // a third party. Runs BEFORE the digit rule so the more specific form wins.
+  static final _iban = RegExp(
+    r'\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b',
+  );
+
+  // ── One-time passcodes ───────────────────────────────────────────────────
+  // CUE-ANCHORED on purpose. A bare 4-6 digit run is far more often an amount
+  // or a card suffix than a passcode, so redacting by shape alone would
+  // destroy the very value the proof layer exists to establish. Only digits
+  // that FOLLOW an explicit OTP cue are removed, and the cue itself is kept so
+  // the message stays classifiable as an OTP.
+  static final _otp = RegExp(
+    r'((?:otp|one[- ]?time(?:\s+password)?|verification\s+code|'
+    r'رمز\s+التحقق|كود\s+التحقق|رمز\s+الدخول)'
+    r'(?:\s+(?:is|هو))?\s*:?\s*)\d{4,8}',
+    caseSensitive: false,
+  );
+
   // ── Account numbers ───────────────────────────────────────────────────────
   // Any 10–20 consecutive digits that were NOT already replaced by the phone
   // or card patterns above. Amounts are ≤ 9 digits without a currency context;
@@ -58,6 +81,22 @@ class SmsSanitizer {
     caseSensitive: false,
   );
 
+  // ── Read-only pattern accessors ──────────────────────────────────────────
+  // Exposed so `sanitization_edit_map.dart` can run the SAME passes in the
+  // SAME order and record where every character went. Sharing the patterns is
+  // what makes the edit map's output byte-identical to [sanitize] by
+  // construction rather than by a second implementation that could drift.
+  static RegExp get cardNumberPattern => _cardNumber;
+  static RegExp get saudiPhonePattern => _saudiPhone;
+  static RegExp get egyptPhonePattern => _egyptPhone;
+  static RegExp get intlPhonePattern => _intlPhone;
+  static RegExp get ibanPattern => _iban;
+  static RegExp get otpPattern => _otp;
+  static RegExp get accountNumberPattern => _accountNumber;
+  static RegExp get beneficiaryArPattern => _beneficiaryAr;
+  static RegExp get beneficiaryEnPattern => _beneficiaryEn;
+  static RegExp get greetingPattern => _greeting;
+
   /// Returns a sanitized copy of [rawSms] safe for sending to an AI service.
   ///
   /// [detectedType] is the type detected by the rule-based parser before
@@ -80,10 +119,16 @@ class SmsSanitizer {
     text = text.replaceAll(_egyptPhone, '[PHONE]');
     text = text.replaceAll(_intlPhone, '[PHONE]');
 
-    // 3. Long digit sequences not already replaced (account/IBAN substrings)
+    // 3. IBANs (alphanumeric, so the digit rule below cannot catch them)
+    text = text.replaceAll(_iban, '[IBAN]');
+
+    // 4. One-time passcodes, cue-anchored so amounts are never destroyed
+    text = text.replaceAllMapped(_otp, (m) => '${m.group(1)!}[OTP]');
+
+    // 5. Long digit sequences not already replaced (account substrings)
     text = text.replaceAll(_accountNumber, '[ACCOUNT]');
 
-    // 4. Beneficiary / recipient names for non-purchase types
+    // 6. Beneficiary / recipient names for non-purchase types
     final stripBeneficiary = detectedType == null ||
         detectedType == TransactionType.transfer ||
         detectedType == TransactionType.income;
@@ -94,7 +139,7 @@ class SmsSanitizer {
       text = text.replaceAll(_beneficiaryEn, 'To: [REDACTED]');
     }
 
-    // 5. Arabic greetings that include a personal name
+    // 7. Arabic greetings that include a personal name
     text = text.replaceAll(_greeting, '[REDACTED]');
 
     return text.trim();

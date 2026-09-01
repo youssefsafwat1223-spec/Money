@@ -657,7 +657,12 @@ test('feature-flag seeds exist and are fail-closed', () => {
 });
 
 test('the client Drift schema is untouched by this SERVER migration', () => {
-  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 31;/);
+  // The client schema is owned by the mobile phases; this SERVER migration never
+  // bumps or references it. The version pin tracks the current APPROVED value —
+  // v33 is owned by Proof-Carrying (capture_work_items, capture_review_labels).
+  // A literal pin here rots on every legitimate bump, so the load-bearing claim
+  // is the SQL assertion below; this line only catches an UNAPPROVED bump.
+  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 33;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });
 

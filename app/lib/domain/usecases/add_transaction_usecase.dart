@@ -37,6 +37,7 @@ import '../repositories/transaction_repository.dart';
 import '../services/bank_discovery_service.dart';
 import 'engagement_usecase.dart';
 import 'resolve_bank_for_sender_usecase.dart';
+import 'capture_commit_decision.dart';
 
 class AddTransactionResult {
   const AddTransactionResult._({
@@ -746,6 +747,12 @@ class AddTransactionUseCase {
         ) ==
         AiCaptureIngress.legacyPendingReview;
 
+    final primaryCommit = CaptureCommitDecision.primary(
+      canAutoConfirm: canAutoConfirm,
+      foreignUnpriced: foreignUnpriced,
+      requiresReview: requiresReview,
+    );
+
     final transaction = TransactionEntity(
       id: IdGenerator.next(),
       amountMoney: mainAmount.money,
@@ -762,9 +769,9 @@ class AddTransactionUseCase {
       rawMessage: rawMessage,
       parseConfidence: effectiveParsed.parseConfidence,
       direction: resolvedDirection,
-      status: (canAutoConfirm && !foreignUnpriced && !requiresReview)
-          ? TransactionStatus.confirmed
-          : TransactionStatus.pending,
+      // PHASE 1 seam: the primary row's commit status now flows through the
+      // single capture authority. The decision itself is unchanged.
+      status: primaryCommit.status,
       createdAt: now,
       updatedAt: now,
       foreignMoney: foreignAmount.money,
@@ -944,14 +951,14 @@ class AddTransactionUseCase {
       direction: TransactionDirectionEntity.debit,
       // MALI-026 (B8-2.10 §12): the fee line obeys the same ingress contract —
       // a non-exact fee amount cannot auto-confirm in canonical mode.
-      status: resolveAiCaptureIngress(
-                hasExactText: !feeAmount.legacyLossy,
-                canonicalMode:
-                    _coordinator.state() == PlanningCutoverState.canonical,
-              ) ==
-              AiCaptureIngress.legacyPendingReview
-          ? TransactionStatus.pending
-          : TransactionStatus.confirmed,
+      // PHASE 1 seam: routed through the same capture authority as the primary
+      // row so a future proof gate cannot secure one and miss the other. The
+      // decision itself is unchanged.
+      status: CaptureCommitDecision.fee(
+        hasExactText: !feeAmount.legacyLossy,
+        canonicalMode:
+            _coordinator.state() == PlanningCutoverState.canonical,
+      ).status,
       createdAt: now,
       updatedAt: now,
       transactionTimeFromSms: transactionTimeFromSms,

@@ -45,6 +45,15 @@ class DataWipeService {
     'engagement_events',
     'pending_merchant_feedback',
     'financial_cache_health',
+    // PHASE 8 — durable capture work items hold derived model output keyed to a
+    // captured message. They are operational recovery state, not user data, and
+    // must not survive sign-out/account change as an orphan record of a message
+    // the previous owner asked to be forgotten.
+    'capture_work_items',
+    // PHASE 9A — review labels are derived from a user's own captures. They are
+    // evidence about this person's corrections and must not survive a
+    // sign-out/account change into the next owner's session.
+    'capture_review_labels',
     // MALI-014 Batch-5 — the durable restore-operation journal is per-session
     // recovery state; clear it on sign-out/account change so a previous owner's
     // restore operations never carry into the next session (MALI-011).
