@@ -1,4 +1,5 @@
 import { offerFingerprint } from './fingerprint.ts';
+import { shouldApplyTransition, validateConversion } from './attribution.ts';
 import { type AffiliateAdapter, type NormalizedOffer, validateOffer } from './types.ts';
 
 /// COUPONS Phase 2 — the ingestion algorithm, extracted from the HTTP handler.
@@ -164,6 +165,96 @@ export async function ingestOffers(
     }
     for (const hint of offer.merchantDomainHints ?? []) {
       await store.suggestAlias(programId, hint, 'domain');
+    }
+  }
+
+  return result;
+}
+
+/// What conversion reconciliation needs from persistence.
+export interface ConversionStore {
+  findConversion(
+    networkKey: string,
+    externalConversionId: string,
+  ): Promise<{ id: string; status: string } | null>;
+  insertConversion(networkKey: string, row: Record<string, unknown>): Promise<void>;
+  updateConversion(id: string, row: Record<string, unknown>): Promise<void>;
+}
+
+export interface ReconcileResult {
+  fetched: number;
+  created: number;
+  updated: number;
+  rejected: number;
+  unchanged: number;
+  nextCursor: string | null;
+  rejections: string[];
+}
+
+/// Polling reconciliation.
+///
+/// Some networks only expose a report you have to pull; and even for push
+/// networks, webhooks are lost. A status update that never arrives leaves a
+/// user's saving stuck at pending forever, so reconciliation is not a fallback
+/// for push-only providers — it is the backstop for all of them.
+///
+/// Uses the SAME transition rule as the webhook path. A polled `approved` must
+/// not resurrect a conversion a webhook already told us was returned: a poll and
+/// a push are two views of one state machine, and giving them different rules is
+/// how the two disagree.
+export async function reconcileConversions(
+  adapter: AffiliateAdapter,
+  store: ConversionStore,
+  options: IngestOptions,
+): Promise<ReconcileResult> {
+  const result: ReconcileResult = {
+    fetched: 0, created: 0, updated: 0, rejected: 0, unchanged: 0,
+    nextCursor: null, rejections: [],
+  };
+  // A network with no polling API. Not an error, and not silently reported as
+  // "zero conversions" — the caller records a SKIPPED run.
+  if (typeof adapter.fetchConversions !== 'function') return result;
+
+  const page = await adapter.fetchConversions({
+    cursor: options.cursor,
+    limit: options.limit,
+    secrets: options.secrets,
+  });
+  result.fetched = page.conversions.length;
+  result.nextCursor = page.nextCursor;
+
+  for (const event of page.conversions) {
+    const problems = validateConversion(event);
+    if (problems.length > 0) {
+      // One malformed row does not fail the run, exactly as in offer ingestion.
+      result.rejected += 1;
+      result.rejections.push(...problems);
+      continue;
+    }
+
+    const row = {
+      external_conversion_id: event.externalConversionId,
+      click_id: event.clickId,
+      status: event.status,
+      order_amount_minor: event.orderAmountMinor ?? null,
+      order_currency: event.orderCurrency ?? null,
+      commission_amount_minor: event.commissionAmountMinor ?? null,
+      commission_currency: event.commissionCurrency ?? null,
+      provider_discount_minor: event.providerDiscountMinor ?? null,
+      provider_discount_currency: event.providerDiscountCurrency ?? null,
+      occurred_at: event.occurredAt ?? null,
+    };
+
+    const existing = await store.findConversion(
+      adapter.networkKey, event.externalConversionId);
+    if (existing == null) {
+      await store.insertConversion(adapter.networkKey, row);
+      result.created += 1;
+    } else if (shouldApplyTransition(existing.status, event.status)) {
+      await store.updateConversion(existing.id, row);
+      result.updated += 1;
+    } else {
+      result.unchanged += 1;
     }
   }
 

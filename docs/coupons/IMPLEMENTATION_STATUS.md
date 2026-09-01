@@ -17,7 +17,7 @@ things; this file only claims the first.
 | 0 — merchant_keywords versioning | **DONE** | `0093`. The defect was real and re-confirmed at HEAD before fixing. |
 | 1 — merchant-aware curated offers | **DONE** | `0094`, `0095`, Drift v34, resolver, ranking, UI, admin. |
 | 2 — affiliate ingestion | **DONE, fixture-backed** | `0096`, provider-neutral adapter contract, worker, review/publish. No network contracted. |
-| 3 — attribution | **DONE, fixture-backed** | `0097`, click/status/postback endpoints, device gateway, admin commission. Signature scheme is a seam awaiting a real provider. |
+| 3 — attribution | **DONE, fixture-backed** | `0097`, click/status/postback endpoints, device gateway, admin commission, polling reconciliation. Signature scheme is a seam awaiting a real provider. |
 | 4 — savings | **DONE** | Drift v35, exact minor-unit math, local ledger, confirm flow, breakdown screen. |
 | 5 — share to Qirsh | **DONE, unverified on device** | Android + iOS routing, separate stores, drain, domain resolution. |
 | 6 — Safari extension | **CLOSED: DEFER** | Two independent reviews. See `PHASE6_SAFARI_EXTENSION_DECISION.md`. |
@@ -81,6 +81,14 @@ disagree.
 **Nothing publishes itself.** `ingestOffers` has no code path producing
 `published`; making it automatic would take a schema change, not a config flag.
 
+**Polling is a backstop, not a fallback.** The conversions run is separate from
+the offers run, with its own cursor and its own ledger kind, and it goes through
+the same transition rule as the webhook — a poll and a push are two views of one
+state machine. It runs for push networks too: webhooks are lost, and a status
+update that never arrives leaves a user's saving pending forever. A network with
+no polling API records a SKIPPED run, because "no API" and "no conversions" are
+different facts and reporting them identically is how a broken poll hides.
+
 **A click has no user, no IP and no user-agent.** The network gets a random
 sub-id; the device keeps the only copy of the claim token. A wrong token is
 indistinguishable from a missing click, so the status endpoint is not an oracle.
@@ -123,9 +131,6 @@ saved nothing", which is a different and false statement.
 - **The iOS share extension is still named "إضافة رسالة بنك"**, which is now
   inaccurate for a URL share. Renaming is a product decision, deliberately left
   open rather than decided unilaterally.
-- **Polling reconciliation for conversions is not built.** The postback path is;
-  a network that only supports polling would need an `affiliate-sync` run of kind
-  `conversions`, which the schema supports and the worker does not yet implement.
 - **Three OPEN egress findings** recorded in `egress_inventory_test.dart`:
   `record_metric` has no consent gate, `accounts_backfill`'s `set_default_account`
   gates on transport rather than consent, and `SupabaseEngagementRecorder` is

@@ -81,6 +81,35 @@ export interface AffiliateAdapter {
   /** Fetch one bounded page. May throw; the worker converts a throw into a
    *  failed run and leaves the published catalog untouched. */
   fetchOffers(ctx: AdapterContext): Promise<OfferPage>;
+
+  /** OPTIONAL polling reconciliation.
+   *
+   *  Some networks push conversions to a webhook; some only expose a report you
+   *  have to pull. An adapter for a push-only network simply omits this, and the
+   *  worker skips it — rather than every adapter implementing a stub that
+   *  returns nothing, which reads as "no conversions" and is indistinguishable
+   *  from a broken poll.
+   *
+   *  Reconciliation matters even for push networks: webhooks are lost, and a
+   *  status that never arrives leaves a user's saving stuck at pending forever. */
+  fetchConversions?(ctx: AdapterContext): Promise<ConversionPage>;
+}
+
+/** One page of conversion updates. */
+export interface ConversionPage {
+  conversions: Array<{
+    externalConversionId: string;
+    clickId: string | null;
+    status: 'pending' | 'approved' | 'rejected' | 'returned' | 'cancelled';
+    orderAmountMinor?: number | null;
+    orderCurrency?: string | null;
+    commissionAmountMinor?: number | null;
+    commissionCurrency?: string | null;
+    providerDiscountMinor?: number | null;
+    providerDiscountCurrency?: string | null;
+    occurredAt?: string | null;
+  }>;
+  nextCursor: string | null;
 }
 
 /** Why a normalized offer was refused. Codes, never provider text. */

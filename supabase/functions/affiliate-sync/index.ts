@@ -26,7 +26,13 @@ import { corsHeaders } from '../_shared/capture_auth.ts';
 import { bearerSecretAuthorized, serviceClient } from '../_shared/capture_auth.ts';
 import { safeLog } from '../_shared/ai_endpoint.ts';
 import { FixtureAffiliateAdapter } from '../_shared/affiliate/fixture_adapter.ts';
-import { ingestOffers, type IngestStore, type StagedSource } from '../_shared/affiliate/ingest.ts';
+import {
+  type ConversionStore,
+  ingestOffers,
+  type IngestStore,
+  reconcileConversions,
+  type StagedSource,
+} from '../_shared/affiliate/ingest.ts';
 import type { AffiliateAdapter } from '../_shared/affiliate/types.ts';
 
 const WORKER_SECRET = Deno.env.get('AFFILIATE_WORKER_SECRET') ?? '';
@@ -127,6 +133,40 @@ function makeStore(supabase: ReturnType<typeof serviceClient>): IngestStore {
         provenance: 'provider',
         is_reviewed: false,
       });
+    },
+  };
+}
+
+/// Persistence for the conversions run.
+///
+/// Deliberately a SEPARATE interface from `IngestStore`, and separate rows: the
+/// offers run writes staged catalog content, the conversions run writes money.
+/// One store spanning both would let a catalog bug reach a conversion row.
+function makeConversionStore(
+  supabase: ReturnType<typeof serviceClient>,
+): ConversionStore {
+  return {
+    async findConversion(networkKey: string, externalConversionId: string) {
+      const { data } = await supabase
+        .from('affiliate_conversions')
+        .select('id, status')
+        .eq('network_key', networkKey)
+        .eq('external_conversion_id', externalConversionId)
+        .maybeSingle();
+      return data == null
+        ? null
+        : { id: data.id as string, status: data.status as string };
+    },
+    async insertConversion(networkKey: string, row: Record<string, unknown>) {
+      await supabase
+        .from('affiliate_conversions')
+        .insert({ network_key: networkKey, ...row });
+    },
+    async updateConversion(id: string, row: Record<string, unknown>) {
+      // external_conversion_id is the identity we matched on and must not be
+      // rewritten by an update.
+      const { external_conversion_id: _ignored, ...mutable } = row;
+      await supabase.from('affiliate_conversions').update(mutable).eq('id', id);
     },
   };
 }
@@ -232,6 +272,79 @@ Deno.serve(async (req) => {
       summary.push({ network: network.network_key, status: 'failed' });
       // Continue to the next network. One provider being down must not stop
       // ingestion for the others.
+    }
+
+    // ── Conversions reconciliation ──────────────────────────────────────────
+    //
+    // A SECOND run, of its own kind, with its own cursor. Kept separate from
+    // the offers run on purpose: a provider whose catalog endpoint is down must
+    // still have its conversions reconciled, because a status update that never
+    // arrives leaves a user's saving pending forever — and the reverse, a
+    // conversions outage silently halting catalog updates, is equally wrong.
+    //
+    // This is also why it runs for push networks and not only polling ones.
+    // Webhooks are lost; this is the backstop, not the fallback.
+    if (typeof adapter.fetchConversions !== 'function') {
+      // Recorded, not silent. "No conversions this run" and "this provider has
+      // no polling API" are different facts, and reporting them identically is
+      // how a broken poll hides.
+      await supabase.from('affiliate_ingestion_runs').insert({
+        network_key: network.network_key,
+        kind: 'conversions',
+        status: 'skipped',
+        safe_error_code: 'no_conversion_api',
+        finished_at: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    const { data: lastConvRun } = await supabase
+      .from('affiliate_ingestion_runs')
+      .select('cursor')
+      .eq('network_key', network.network_key)
+      .eq('kind', 'conversions')
+      .eq('status', 'ok')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const { data: convRun } = await supabase
+      .from('affiliate_ingestion_runs')
+      .insert({ network_key: network.network_key, kind: 'conversions', status: 'running' })
+      .select('id')
+      .single();
+
+    try {
+      const result = await reconcileConversions(adapter, makeConversionStore(supabase), {
+        networkId: network.id as string,
+        cursor: (lastConvRun?.cursor as string | null) ?? null,
+        limit: RUN_LIMIT,
+        secrets: { apiKey: Deno.env.get(`AFFILIATE_${adapter.networkKey.toUpperCase()}_KEY`) ?? '' },
+      });
+      await supabase
+        .from('affiliate_ingestion_runs')
+        .update({
+          status: 'ok',
+          cursor: result.nextCursor,
+          fetched_count: result.fetched,
+          new_count: result.created,
+          updated_count: result.updated,
+          rejected_count: result.rejected,
+          finished_at: new Date().toISOString(),
+        })
+        .eq('id', convRun!.id);
+      summary.push({ network: network.network_key, kind: 'conversions', ...result, rejections: undefined });
+    } catch (_error) {
+      await supabase
+        .from('affiliate_ingestion_runs')
+        .update({
+          status: 'failed',
+          safe_error_code: 'adapter_failed',
+          finished_at: new Date().toISOString(),
+        })
+        .eq('id', convRun!.id);
+      safeLog({ event: 'affiliate_conversions_run_failed', fn: 'affiliate-sync' });
+      summary.push({ network: network.network_key, kind: 'conversions', status: 'failed' });
     }
   }
 
