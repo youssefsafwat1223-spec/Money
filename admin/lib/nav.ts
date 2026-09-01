@@ -8,6 +8,7 @@ import {
   Megaphone,
   ScanText,
   SlidersHorizontal,
+  Store,
   TicketPercent,
   type LucideIcon,
 } from "lucide-react";
@@ -56,6 +57,12 @@ export const NAV: NavGroup[] = [
         label: "العروض والكوبونات",
         icon: TicketPercent,
         description: "عروض الشركاء التي تظهر داخل التطبيق",
+      },
+      {
+        href: "/merchants",
+        label: "المتاجر والأسماء البديلة",
+        icon: Store,
+        description: "هوية المتاجر المعتمدة والأسماء التي تُطابَق بها رسائل البنوك",
       },
       {
         href: "/announcements",
