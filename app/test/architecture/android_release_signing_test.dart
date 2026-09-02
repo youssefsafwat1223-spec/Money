@@ -87,17 +87,58 @@ void main() {
       }
     });
 
-    test('no keystore/credential files exist in the android tree', () {
-      final offenders = Directory('android')
+    test('no key material is TRACKED BY GIT', () {
+      // This used to scan the filesystem, which is a different and unreachable
+      // property: `tools/setup_android_key_properties.sh` writes
+      // `android/key.properties` exactly there, and Gradle reads it from there,
+      // so any machine able to build a signed release fails a filesystem scan
+      // by definition. The guard failed permanently on correct local setups —
+      // and a gate that is always red is a gate people learn to ignore.
+      //
+      // The real invariant, and the one this group is named after, is that key
+      // material is never COMMITTED. `git ls-files` answers exactly that, and
+      // it is strictly stronger than a path scan: it also catches a keystore
+      // committed somewhere outside `android/`.
+      final tracked = Process.runSync(
+        'git',
+        ['ls-files', '--', '*.jks', '*.keystore', '*key.properties'],
+        workingDirectory: '..',
+      );
+      expect(tracked.exitCode, 0, reason: 'git ls-files failed: ${tracked.stderr}');
+      final offenders = (tracked.stdout as String)
+          .split('\n')
+          .map((l) => l.trim())
+          .where((l) => l.isNotEmpty && !l.endsWith('.example'))
+          .toList();
+      expect(offenders, isEmpty,
+          reason: 'key material is committed to git: $offenders');
+    });
+
+    test('key material present on disk is ignored by git', () {
+      // The filesystem check that IS meaningful: if a keystore or
+      // key.properties exists locally, git must be ignoring it. This catches
+      // the dangerous case the old scan conflated with the harmless one — a
+      // real credential sitting in the tree that is NOT ignored, and is one
+      // `git add -A` away from being published.
+      final onDisk = Directory('android')
           .listSync(recursive: true)
           .whereType<File>()
           .map((f) => f.path)
           .where((p) =>
-              p.endsWith('.jks') ||
-              p.endsWith('.keystore') ||
-              p.endsWith('key.properties')) // the .example is fine
+              (p.endsWith('.jks') ||
+                  p.endsWith('.keystore') ||
+                  p.endsWith('key.properties')) &&
+              !p.endsWith('.example'))
           .toList();
-      expect(offenders, isEmpty, reason: 'key material present: $offenders');
+      for (final path in onDisk) {
+        final ignored = Process.runSync(
+          'git',
+          ['check-ignore', '-q', 'app/$path'],
+          workingDirectory: '..',
+        );
+        expect(ignored.exitCode, 0,
+            reason: 'key material NOT gitignored: app/$path');
+      }
     });
   });
 

@@ -981,4 +981,36 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get adLabel => 'Advertisement';
+
+  @override
+  String get smsAutoCaptureTitle => 'Automatic bank-SMS capture';
+
+  @override
+  String get smsAutoCaptureSubtitleOff =>
+      'Off — add transactions manually or by sharing';
+
+  @override
+  String get smsAutoCaptureSubtitleOn =>
+      'On — incoming bank messages are read on your device only';
+
+  @override
+  String get smsAutoCaptureSubtitleBlocked =>
+      'Permission denied — open system settings to allow';
+
+  @override
+  String get smsAutoCaptureOpenSettings => 'Open system settings';
+
+  @override
+  String get smsAutoCaptureDeniedTitle => 'Permission not granted';
+
+  @override
+  String get smsAutoCaptureDeniedBody =>
+      'Automatic capture needs permission to receive messages. You can still add transactions manually or by sharing a message with Qirsh.';
+
+  @override
+  String get smsCaptureTrustNotice =>
+      'On Android, Qirsh reads incoming messages only after you turn on automatic capture and grant permission. It does not read bank app notifications, and it never opens your message history.';
+
+  @override
+  String get commonCancel => 'Cancel';
 }

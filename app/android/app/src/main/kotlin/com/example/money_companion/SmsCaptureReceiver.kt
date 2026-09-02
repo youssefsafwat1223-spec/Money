@@ -9,10 +9,19 @@ import java.util.UUID
 /**
  * MALI-013 — optional automatic bank-SMS capture (opt-in).
  *
- * Declared behind a build-level manifest placeholder so a Play-safe, share-only
- * build can omit RECEIVE_SMS entirely (see AndroidManifest.xml). Even when the
- * permission is granted, capture stays OFF until the user explicitly enables it
- * (CaptureSettings.autoCaptureEnabled) — permission alone never starts reading.
+ * RECEIVE_SMS is declared UNCONDITIONALLY in AndroidManifest.xml. This comment
+ * used to claim the declaration sat behind a build-level manifest placeholder so
+ * a share-only build could omit it; no such placeholder exists — build.gradle.kts
+ * defines only `admobAppId`. That was a comment describing a safety mechanism
+ * that was never built, which is worse than no comment: it invites someone to
+ * believe a Play-safe variant is one Gradle property away. If a share-only
+ * variant is ever needed, it has to be BUILT (a placeholder on the
+ * <uses-permission> node plus a receiver `tools:node="remove"`), not flipped.
+ *
+ * Even when the permission is granted, capture stays OFF until the user
+ * explicitly enables it (CaptureSettings.autoCaptureEnabled) — permission alone
+ * never starts reading, and `onReceive` below returns before touching the intent
+ * unless that opt-in is true.
  *
  * Received messages are pre-filtered locally to plausible financial/bank
  * messages and routed through the SAME DurableCaptureQueue as share capture, so

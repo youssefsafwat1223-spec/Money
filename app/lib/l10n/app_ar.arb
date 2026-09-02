@@ -451,5 +451,23 @@
   "adLabel": "إعلان",
   "@adLabel": {
     "description": "Label above a third-party advertisement, distinguishing it from Qirsh's own offers."
+  },
+  "smsAutoCaptureTitle": "الالتقاط التلقائي لرسائل البنك",
+  "@smsAutoCaptureTitle": {
+    "description": "Settings toggle enabling Android automatic bank-SMS capture."
+  },
+  "smsAutoCaptureSubtitleOff": "مطفأ — أضف عملياتك يدويًا أو بالمشاركة",
+  "smsAutoCaptureSubtitleOn": "يعمل — تُقرأ رسائل البنك الواردة على جهازك فقط",
+  "smsAutoCaptureSubtitleBlocked": "تم رفض الإذن — افتح إعدادات النظام للسماح",
+  "smsAutoCaptureOpenSettings": "فتح إعدادات النظام",
+  "smsAutoCaptureDeniedTitle": "لم يُمنح الإذن",
+  "smsAutoCaptureDeniedBody": "الالتقاط التلقائي يحتاج إذن قراءة الرسائل الواردة. تقدر تكمل بالإضافة اليدوية أو بمشاركة الرسالة مع قرش.",
+  "smsCaptureTrustNotice": "على أندرويد، قرش يقرأ الرسائل الواردة فقط بعد ما تشغّل الالتقاط التلقائي وتمنح الإذن. لا يقرأ إشعارات تطبيقات البنوك، ولا يفتح أرشيف رسائلك.",
+  "@smsCaptureTrustNotice": {
+    "description": "Accurate description of what Qirsh does and does not read."
+  },
+  "commonCancel": "إلغاء",
+  "@commonCancel": {
+    "description": "Generic cancel action in a dialog."
   }
 }

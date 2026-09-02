@@ -1,3 +1,8 @@
+import '../../core/utils/l10n_ext.dart';
+import '../capture/widgets/sms_capture_disclosure.dart';
+import '../capture/services/native_capture_bridge.dart';
+import '../capture/services/android_sms_capture_service.dart';
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -497,10 +502,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     (status) => _CaptureHealthTile(status: status),
                     () => const SizedBox.shrink(),
                   ),
-                  const _TrustNoticeTile(
-                    text:
-                        'قرش يرسل إشعارات لمساعدتك، ولا يقرأ إشعارات البنك أو رسائل SMS من النظام.',
-                  ),
+                  // MALI-013 — the automatic bank-SMS capture opt-in.
+                  //
+                  // This is the ONLY way a user can turn the feature on. Until
+                  // it existed, the app shipped RECEIVE_SMS and a registered
+                  // SMS_RECEIVED receiver for a feature no user could reach —
+                  // which fails Play's core-functionality test for a restricted
+                  // permission and contradicted the already-live privacy policy
+                  // §8. Android-only, and hidden entirely when the build does
+                  // not declare the permission.
+                  const _SmsAutoCaptureTile(),
+                  // Replaces a sentence that said Qirsh "does not read bank
+                  // notifications or system SMS". That was true of a fresh
+                  // install through the UI that existed, and false as a
+                  // description of what the app implements and declares.
+                  _TrustNoticeTile(text: context.l10n.smsCaptureTrustNotice),
                   _SwitchTile(
                     title: 'تأكيد العمليات الملتقطة',
                     icon: AppLucideIcons.messageSquare,
@@ -2064,6 +2080,109 @@ class _NavTile extends StatelessWidget {
             ),
       trailing: Icon(AppLucideIcons.chevronLeft, color: c.textMuted, size: 20),
       onTap: onTap,
+    );
+  }
+}
+
+/// MALI-013 — the Android automatic-SMS-capture switch.
+///
+/// ## Why it renders from the platform, never from a local bool
+///
+/// Every input can change outside this screen: the OS permission can be revoked
+/// in system Settings while the app is backgrounded, and the stored opt-in is
+/// reset on identity change. A locally-held boolean would leave the switch ON
+/// for a permission Android has already taken away — the app claiming to
+/// capture a user's bank messages when it cannot is the one lie this feature
+/// must never tell. So the value is always the platform's `effective` state.
+///
+/// ## Disclosure ordering is structural
+///
+/// Turning the switch on calls `requestAndEnable`, which takes the disclosure
+/// as a callback and has no path to the system dialog without it returning
+/// true. Play treats a permission dialog shown before the disclosure as a
+/// violation even when the user then grants it, so the ordering cannot be left
+/// to whoever calls this — and it is not.
+class _SmsAutoCaptureTile extends ConsumerWidget {
+  const _SmsAutoCaptureTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final l10n = context.l10n;
+    final caps = ref.watch(captureCapabilitiesProvider).valueOrNull;
+    // Hidden until the platform confirms the build declares the permission.
+    // iOS, and any future share-only Android build, never see this row.
+    if (caps == null || !caps.receiveSmsDeclared) return const SizedBox.shrink();
+
+    final enabled = caps.isAutomaticSmsCaptureEnabled;
+    final blocked = !caps.hasReceiveSmsPermission && !enabled;
+
+    Future<void> refresh() async {
+      ref.invalidate(captureCapabilitiesProvider);
+      await ref.read(captureCapabilitiesProvider.future);
+    }
+
+    Future<void> onChanged(bool wanted) async {
+      final service = AndroidSmsCaptureService.instance;
+      if (!wanted) {
+        // Off is immediate and does NOT revoke the OS permission — that is the
+        // user's business in system Settings. This is the in-app stop switch
+        // and it has to work while the permission is still granted.
+        await service.disableAutomaticCapture();
+        await refresh();
+        return;
+      }
+
+      final result = await service.requestAndEnable(
+        showDisclosure: () => showSmsCaptureDisclosure(context),
+      );
+      await refresh();
+      if (!context.mounted) return;
+
+      switch (result.status) {
+        case SmsPermissionStatus.granted:
+          return;
+        case SmsPermissionStatus.permanentlyDenied:
+          // The ONLY route out of "don't ask again": asking again returns
+          // instantly without showing anything, so offering a retry here would
+          // be a button that silently does nothing.
+          final go = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: Text(l10n.smsAutoCaptureDeniedTitle),
+              content: Text(l10n.smsAutoCaptureDeniedBody),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(false),
+                  child: Text(l10n.commonCancel),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(true),
+                  child: Text(l10n.smsAutoCaptureOpenSettings),
+                ),
+              ],
+            ),
+          );
+          if (go ?? false) await service.openSystemSettings();
+        case SmsPermissionStatus.denied:
+        case SmsPermissionStatus.unavailable:
+        case SmsPermissionStatus.inProgress:
+          // Declined, dismissed, denied-but-askable, or a platform error. The
+          // switch stays off and share/manual capture keep working; there is
+          // nothing to announce.
+          return;
+      }
+    }
+
+    return _SwitchTile(
+      title: l10n.smsAutoCaptureTitle,
+      icon: AppLucideIcons.messageSquare,
+      value: enabled,
+      subtitle: enabled
+          ? l10n.smsAutoCaptureSubtitleOn
+          : blocked
+              ? l10n.smsAutoCaptureSubtitleBlocked
+              : l10n.smsAutoCaptureSubtitleOff,
+      onChanged: (v) => unawaited(onChanged(v)),
     );
   }
 }

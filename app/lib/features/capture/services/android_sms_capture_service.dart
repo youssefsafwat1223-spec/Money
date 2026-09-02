@@ -71,7 +71,18 @@ class AndroidSmsCaptureService {
       }
     }
 
-    final result = await NativeCaptureBridge.requestReceiveSmsPermission();
+    // BOUNDED. `MainActivity.pendingSmsPermissionResult` is an activity-instance
+    // field: the manifest declares the usual configuration changes as handled,
+    // so an ordinary rotation does not lose it — but if the activity is
+    // recreated for any other reason while the system dialog is up, the new
+    // instance holds null, `onRequestPermissionsResult` returns early, and this
+    // Future never completes. That would leave the Settings switch spinning
+    // forever on a permission the user may well have granted.
+    //
+    // On timeout we do not guess: we re-read the platform's own capability
+    // snapshot, which is authoritative for both halves of the two-key lock.
+    final result = await NativeCaptureBridge.requestReceiveSmsPermission()
+        .timeout(const Duration(minutes: 2), onTimeout: _stateAfterLostResult);
     if (result.status != SmsPermissionStatus.granted) return result;
 
     final enabled =
@@ -82,6 +93,27 @@ class AndroidSmsCaptureService {
       granted: true,
       enabled: enabled,
     );
+  }
+
+  /// Recover the real state after a permission result was lost in transit.
+  ///
+  /// Reports what the platform actually says rather than assuming denial: the
+  /// user may have granted the permission before the round trip broke, and
+  /// telling them it failed would be as wrong as telling them it worked.
+  static Future<SmsPermissionResult> _stateAfterLostResult() async {
+    try {
+      final caps = await NativeCaptureBridge.captureCapabilities();
+      return SmsPermissionResult(
+        status: caps.hasReceiveSmsPermission
+            ? SmsPermissionStatus.granted
+            : SmsPermissionStatus.denied,
+        declared: caps.receiveSmsDeclared,
+        granted: caps.hasReceiveSmsPermission,
+        enabled: caps.isAutomaticSmsCaptureEnabled,
+      );
+    } catch (_) {
+      return SmsPermissionResult.unsupported;
+    }
   }
 
   /// Turn automatic capture off without touching the OS permission.

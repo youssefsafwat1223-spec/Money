@@ -1,8 +1,15 @@
 {
   "_doc": "Phase-7 Batch-1 — the machine-readable expected-skip/ignored manifest, keyed by stable reason/name patterns (NOT volatile global counts). tools/check_test_skips.mjs enforces it: an unexpected skip, a changed reason, an ignored test without an entry, partial/malformed credentials, or credentials-present-but-skipped all FAIL the gate.",
   "credentialGroups": {
-    "supabaseServiceRole": ["SUPABASE_URL", "SUPABASE_ANON_KEY", "SUPABASE_SERVICE_ROLE_KEY"],
-    "supabaseAnon": ["SUPABASE_URL", "SUPABASE_ANON_KEY"]
+    "supabaseServiceRole": [
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY",
+      "SUPABASE_SERVICE_ROLE_KEY"
+    ],
+    "supabaseAnon": [
+      "SUPABASE_URL",
+      "SUPABASE_ANON_KEY"
+    ]
   },
   "node": {
     "expectedSkips": [
@@ -28,6 +35,14 @@
         "class": "live-external",
         "finding": "MALI-024/054n/076n",
         "removeWhen": "live Supabase creds present",
+        "mustRunWhenPrereq": true
+      },
+      {
+        "reasonContains": "migrations 0093/0094 must be applied",
+        "group": "supabaseServiceRole",
+        "class": "live-external",
+        "finding": "COUPONS-P0/P1",
+        "removeWhen": "live Supabase creds present AND migrations 0093/0094 applied",
         "mustRunWhenPrereq": true
       }
     ]

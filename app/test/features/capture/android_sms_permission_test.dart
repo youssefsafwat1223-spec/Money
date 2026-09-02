@@ -270,4 +270,73 @@ void main() {
       }
     });
   });
+  // ── REACHABILITY ─────────────────────────────────────────────────────────
+  //
+  // Every test above proves the enable path is CORRECT. For months none of
+  // them noticed it was also UNREACHABLE: the manifest declared RECEIVE_SMS,
+  // the receiver was registered, the service and the disclosure both existed —
+  // and no UI called any of it, so a user could never switch the feature on.
+  //
+  // That is not a cosmetic gap. Google Play requires a declared restricted
+  // permission to enable core functionality a reviewer can actually exercise,
+  // and the privacy policy was already live telling users the app captures
+  // bank SMS. A correct feature nobody can reach fails both.
+  group('the enable path is reachable from production code', () {
+    Iterable<File> libDart() => Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'));
+
+    int callersOf(String symbol, String declaredIn) {
+      var n = 0;
+      for (final f in libDart()) {
+        final path = f.path.replaceAll(r'\\', '/');
+        if (path.endsWith(declaredIn)) continue;
+        if (f.readAsStringSync().contains(symbol)) n++;
+      }
+      return n;
+    }
+
+    test('AndroidSmsCaptureService has at least one production caller', () {
+      expect(
+        callersOf('AndroidSmsCaptureService',
+            'features/capture/services/android_sms_capture_service.dart'),
+        greaterThan(0),
+        reason: 'the service exists but nothing calls it — the feature would '
+            'ship unreachable, exactly as it did before MALI-013 was wired',
+      );
+    });
+
+    test('the disclosure is shown from production code, not only tests', () {
+      expect(
+        callersOf('showSmsCaptureDisclosure',
+            'features/capture/widgets/sms_capture_disclosure.dart'),
+        greaterThan(0),
+        reason: 'Play requires the disclosure immediately before the system '
+            'dialog; a disclosure with no caller means no compliant path',
+      );
+    });
+
+    test('the toggle renders from the platform, not a stored local flag', () {
+      // A cached bool would leave the switch ON for a permission Android has
+      // already revoked — the app claiming to read a user's bank messages when
+      // it cannot.
+      final providers =
+          File('lib/features/settings/settings_providers.dart').readAsStringSync();
+      expect(providers, contains('captureCapabilitiesProvider'));
+      expect(providers, contains('AndroidSmsCaptureService.instance.capabilities()'));
+    });
+
+    test('Settings no longer claims the app does not read SMS', () {
+      final settings =
+          File('lib/features/settings/settings_screen.dart').readAsStringSync();
+      expect(settings.contains('ولا يقرأ إشعارات البنك أو رسائل SMS من النظام'),
+          isFalse,
+          reason: 'that sentence was false as a description of what this build '
+              'implements and declares');
+      expect(settings, contains('smsCaptureTrustNotice'),
+          reason: 'the replacement copy must come from l10n, not be inlined');
+    });
+  });
+
 }

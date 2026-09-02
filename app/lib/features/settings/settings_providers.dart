@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/di/app_providers.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/supporting_entities.dart';
+import '../capture/services/android_sms_capture_service.dart';
 import '../capture/services/native_capture_bridge.dart';
 
 const captureHealthNudgeThreshold = Duration(days: 7);
@@ -67,3 +68,18 @@ void refreshNotificationPreferences(WidgetRef ref) {
 void refreshUserSettings(WidgetRef ref) {
   ref.invalidate(userSettingsProvider);
 }
+
+/// MALI-013 — the Android automatic-SMS-capture capability snapshot.
+///
+/// Read from the platform on every watch rather than cached in Dart, because
+/// every field can change outside the app: the user can revoke RECEIVE_SMS in
+/// system Settings, and the stored opt-in is reset on identity change. A cached
+/// Dart bool would show a toggle ON for a permission the OS has already taken
+/// away — which is exactly the "we are capturing your SMS" lie this feature
+/// cannot afford to tell.
+///
+/// Non-Android returns the default (`receiveSmsDeclared: false`), which hides
+/// the toggle entirely.
+final captureCapabilitiesProvider = FutureProvider<CaptureCapabilities>(
+  (ref) => AndroidSmsCaptureService.instance.capabilities(),
+);

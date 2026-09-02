@@ -1,5 +1,18 @@
 # Phase-11 readiness / external activation pack
 
+> **CORRECTION (2026-09-02) — this pack describes a wiring state that does not
+> exist.** It instructs enabling the shadow client at 1% and describes remote
+> flag activation. Verified against source today: `ProofShadowClient`,
+> `ProofChecker` and `ProofApplyAuthority` have **zero production callers** —
+> the only construction anywhere is in a test helper. With no production call
+> site, flipping the flag cannot generate shadow traffic or change any decision.
+>
+> The engine is implemented and tested; it is **not integrated**. Activation is
+> a separate integration change (wire a call site, ship it disabled, then use
+> this pack), not a flag flip. Drift v33 was already bumped for this work, so
+> there is no migration hazard in leaving it dormant.
+
+
 **Implementation state: FROZEN.** Phases 6–10 are implementation-complete.
 No further feature engineering. Auto-commit is NOT enabled and Phase 11 is
 NOT unlocked.

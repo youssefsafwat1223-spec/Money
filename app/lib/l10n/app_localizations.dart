@@ -1818,6 +1818,60 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'إعلان'**
   String get adLabel;
+
+  /// Settings toggle enabling Android automatic bank-SMS capture.
+  ///
+  /// In ar, this message translates to:
+  /// **'الالتقاط التلقائي لرسائل البنك'**
+  String get smsAutoCaptureTitle;
+
+  /// No description provided for @smsAutoCaptureSubtitleOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'مطفأ — أضف عملياتك يدويًا أو بالمشاركة'**
+  String get smsAutoCaptureSubtitleOff;
+
+  /// No description provided for @smsAutoCaptureSubtitleOn.
+  ///
+  /// In ar, this message translates to:
+  /// **'يعمل — تُقرأ رسائل البنك الواردة على جهازك فقط'**
+  String get smsAutoCaptureSubtitleOn;
+
+  /// No description provided for @smsAutoCaptureSubtitleBlocked.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم رفض الإذن — افتح إعدادات النظام للسماح'**
+  String get smsAutoCaptureSubtitleBlocked;
+
+  /// No description provided for @smsAutoCaptureOpenSettings.
+  ///
+  /// In ar, this message translates to:
+  /// **'فتح إعدادات النظام'**
+  String get smsAutoCaptureOpenSettings;
+
+  /// No description provided for @smsAutoCaptureDeniedTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم يُمنح الإذن'**
+  String get smsAutoCaptureDeniedTitle;
+
+  /// No description provided for @smsAutoCaptureDeniedBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'الالتقاط التلقائي يحتاج إذن قراءة الرسائل الواردة. تقدر تكمل بالإضافة اليدوية أو بمشاركة الرسالة مع قرش.'**
+  String get smsAutoCaptureDeniedBody;
+
+  /// Accurate description of what Qirsh does and does not read.
+  ///
+  /// In ar, this message translates to:
+  /// **'على أندرويد، قرش يقرأ الرسائل الواردة فقط بعد ما تشغّل الالتقاط التلقائي وتمنح الإذن. لا يقرأ إشعارات تطبيقات البنوك، ولا يفتح أرشيف رسائلك.'**
+  String get smsCaptureTrustNotice;
+
+  /// Generic cancel action in a dialog.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلغاء'**
+  String get commonCancel;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

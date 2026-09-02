@@ -10,7 +10,8 @@
 # lists the offending lines.
 #
 # Guards (all against app/lib — production code only):
-#   1. DB schema stays at 31 (_targetSchemaVersion) — no unapproved bump.
+#   1. DB schema stays at the AUTHORIZED version (_targetSchemaVersion) — no
+#      unapproved bump. The authorized value and its history live in section 1.
 #   2. No *_supabase_primary authority-switch flag keys are read (quoted selectors).
 #   3. No FinancialCacheRepairService is imported or constructed.
 #   4. No legacy Supabase financial repository is imported or constructed.
@@ -30,15 +31,28 @@ hits() { grep -rnE "$1" "$LIB" 2>/dev/null; }
 
 echo "══ MALI-034 architecture guard ══"
 
-# 1. Schema pinned at 31 --------------------------------------------------------
-# v30 = Phase-8 B8-3 fixed-precision cutover (the money authority).
-# v31 = Coupons C4: ONE additive, refetchable catalog cache table
-#       (remote_coupons). No further bump is authorized without approval.
+# 1. Schema pinned at the CURRENT AUTHORIZED version ----------------------------
+#
+# The pin is not "never change"; it is "changing this number is a deliberate act
+# that edits this file too". Each bump below was separately approved and shipped:
+#
+#   v30 — Phase-8 B8-3 fixed-precision cutover (the money authority)
+#   v31 — Coupons C4: the refetchable remote_coupons catalog cache
+#   v32 — Phase 8/9A capture work items
+#   v33 — Proof-Carrying capture review labels
+#   v34 — Coupons Phase 1: merchant catalog + alias cache, coupon economics
+#   v35 — Coupons Phase 3/4: affiliate click receipts + local savings ledger
+#
+# The guard sat at 31 for four bumps and failed CI on correct, approved work,
+# which is the failure mode that teaches people to ignore a gate. Raising the
+# number is the whole point of the check — an UNAPPROVED bump still fails here,
+# loudly, because whoever makes it has to come and edit this list.
+AUTHORIZED_SCHEMA=35
 schema_line="$(grep -E 'const int _targetSchemaVersion = [0-9]+;' "$LIB/data/db/app_database.dart" 2>/dev/null)"
-if echo "$schema_line" | grep -qE '= 31;'; then
-  okc "schema pinned at 31"
+if echo "$schema_line" | grep -qE "= ${AUTHORIZED_SCHEMA};"; then
+  okc "schema pinned at ${AUTHORIZED_SCHEMA}"
 else
-  fail "schema is not 31 (found: ${schema_line:-<missing>}) — v30 money cutover + v31 coupon cache are the authorized versions"
+  fail "schema is not ${AUTHORIZED_SCHEMA} (found: ${schema_line:-<missing>}) — a bump must be an approved change, recorded in the list above in tools/check_arch_guard.sh"
 fi
 
 # 1b. …and the developer documentation says the SAME number ---------------------

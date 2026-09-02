@@ -14,7 +14,26 @@ exactly — Google cross-checks all three, and Data Safety answers are attested.
 
 Traced through `capture_sync_service.dart` → `capture_backend_client.dart`, and
 cross-checked against the egress inventory
-(`test/architecture/egress_inventory_test.dart`: 12 gated, 1 exempt, 0 open).
+(`test/architecture/egress_inventory_test.dart`).
+
+> **CORRECTED 2026-09-02.** This line previously read "12 gated, 1 exempt, **0
+> open**". That was false when written or became false shortly after: the
+> inventory today records **6 exempt and 3 OPEN findings**. This document is
+> destined for a Google Play Data Safety submission, so a stale privacy count in
+> it is not a documentation nit — it is an inaccurate regulatory declaration.
+>
+> The three OPEN findings, stated plainly:
+> 1. `record_metric` — product telemetry with **no client-side consent gate**.
+>    Mitigated server-side: owner-bound, key-allowlisted, rate-limited, and it
+>    carries an event key plus a coarse dimension, never user data.
+> 2. `set_default_account` in the accounts backfill — gated on transport
+>    capability rather than on consent, unlike its sibling push/pull services.
+> 3. `SupabaseEngagementRecorder` — declared but never instantiated, so nothing
+>    reaches the network today.
+>
+> None of the three transmits SMS content, transaction amounts, merchants or
+> balances. The declaration below is accurate about SMS handling; this note
+> exists so the "0 open" claim is not carried into a submission.
 
 | Item | On device | Stored locally | Sent off-device | Gate | Retained by backend | Shared |
 |---|---|---|---|---|---|---|

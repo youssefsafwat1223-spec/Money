@@ -49,15 +49,24 @@ Nothing in this document has been executed against production.
 
 ---
 
+> **Staleness notice (2026-09-02).** This document records the state at the time
+> it was written and was not revised as later tracks landed. Two rows below are
+> now wrong and are marked STALE rather than silently corrected, because the
+> verdict column no longer means what it meant when it was filled in: Drift is at
+> **v35** (v32/v33 Proof, v34 Coupons merchant catalog, v35 savings + click
+> receipts) and the migration ceiling is **0098**. Every *executable* pin — three
+> Node contract tests and one architecture test — is correct at 35; only this
+> prose drifted. Treat `docs/project/CURRENT_STATE.md` as authoritative.
+
 ## 1. Source baseline (verified, not assumed)
 
 | Item | Expected | Actual | Verdict |
 |---|---|---|---|
 | Bundle / package id | `com.youssefsafwat.mali` | iOS `com.youssefsafwat.mali` (+ `.ShareBankMessage`, `.RunnerTests`); Android `applicationId = com.youssefsafwat.mali` | **PASS** |
-| Drift schema | v31 | `_targetSchemaVersion = 31` (`app/lib/data/db/app_database.dart:21`) | **PASS** |
+| Drift schema | v31 *(stale — see note)* | `_targetSchemaVersion = 35` (`app/lib/data/db/app_database.dart:21`) | **STALE** |
 | `google_mobile_ads` | exactly 9.0.0 | `google_mobile_ads: 9.0.0` (no caret) | **PASS** |
 | `liquid_glass_renderer` | exactly 0.2.0-dev.4 | `liquid_glass_renderer: 0.2.0-dev.4` | **PASS** |
-| Migration ceiling | 0083 | 83 files, `0001…0083`, dense and gapless | **PASS** |
+| Migration ceiling | 0083 *(stale)* | 98 files, `0001…0098`, dense and gapless | **STALE** |
 | CAS | false | `kServerRevisionCas = false` (`app/lib/core/sync/sync_capabilities.dart:27`) | **PASS** |
 | Financial capabilities | unknown unless activated | `exactPush`/`exactPull`/`planningServerCurrency` all return `ExactTransportCapability.unknown` | **PASS** |
 | Feature flag source defaults | all false | `enable_referrals:false`, `enable_report_ads:false`, `enable_coupons:false` | **PASS** |

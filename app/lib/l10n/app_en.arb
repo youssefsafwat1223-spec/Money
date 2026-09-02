@@ -344,5 +344,14 @@
   "savingsConfirmAction": "Calculate",
   "savingsCannotCompute": "We cannot work out an exact figure for this offer, so we will not show one.",
   "savingsReversedNote": "This was reversed after the store cancelled the purchase.",
-  "adLabel": "Advertisement"
+  "adLabel": "Advertisement",
+  "smsAutoCaptureTitle": "Automatic bank-SMS capture",
+  "smsAutoCaptureSubtitleOff": "Off — add transactions manually or by sharing",
+  "smsAutoCaptureSubtitleOn": "On — incoming bank messages are read on your device only",
+  "smsAutoCaptureSubtitleBlocked": "Permission denied — open system settings to allow",
+  "smsAutoCaptureOpenSettings": "Open system settings",
+  "smsAutoCaptureDeniedTitle": "Permission not granted",
+  "smsAutoCaptureDeniedBody": "Automatic capture needs permission to receive messages. You can still add transactions manually or by sharing a message with Qirsh.",
+  "smsCaptureTrustNotice": "On Android, Qirsh reads incoming messages only after you turn on automatic capture and grant permission. It does not read bank app notifications, and it never opens your message history.",
+  "commonCancel": "Cancel"
 }

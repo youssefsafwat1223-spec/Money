@@ -965,4 +965,36 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get adLabel => 'إعلان';
+
+  @override
+  String get smsAutoCaptureTitle => 'الالتقاط التلقائي لرسائل البنك';
+
+  @override
+  String get smsAutoCaptureSubtitleOff =>
+      'مطفأ — أضف عملياتك يدويًا أو بالمشاركة';
+
+  @override
+  String get smsAutoCaptureSubtitleOn =>
+      'يعمل — تُقرأ رسائل البنك الواردة على جهازك فقط';
+
+  @override
+  String get smsAutoCaptureSubtitleBlocked =>
+      'تم رفض الإذن — افتح إعدادات النظام للسماح';
+
+  @override
+  String get smsAutoCaptureOpenSettings => 'فتح إعدادات النظام';
+
+  @override
+  String get smsAutoCaptureDeniedTitle => 'لم يُمنح الإذن';
+
+  @override
+  String get smsAutoCaptureDeniedBody =>
+      'الالتقاط التلقائي يحتاج إذن قراءة الرسائل الواردة. تقدر تكمل بالإضافة اليدوية أو بمشاركة الرسالة مع قرش.';
+
+  @override
+  String get smsCaptureTrustNotice =>
+      'على أندرويد، قرش يقرأ الرسائل الواردة فقط بعد ما تشغّل الالتقاط التلقائي وتمنح الإذن. لا يقرأ إشعارات تطبيقات البنوك، ولا يفتح أرشيف رسائلك.';
+
+  @override
+  String get commonCancel => 'إلغاء';
 }

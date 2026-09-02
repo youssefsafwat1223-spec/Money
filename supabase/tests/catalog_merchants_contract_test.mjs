@@ -84,7 +84,7 @@ async function dropMerchant(id) {
   await rest(`/catalog_merchants?id=eq.${id}`, { method: 'DELETE' });
 }
 
-test('0094: PostgreSQL agrees with Dart on every name fixture', { skip: !liveTest }, async () => {
+test('0094: PostgreSQL agrees with Dart on every name fixture', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   const merchantId = await makeMerchant();
   try {
     for (const c of fixtures.name_cases) {
@@ -105,7 +105,7 @@ test('0094: PostgreSQL agrees with Dart on every name fixture', { skip: !liveTes
   }
 });
 
-test('0094: PostgreSQL agrees with Dart on every domain fixture', { skip: !liveTest }, async () => {
+test('0094: PostgreSQL agrees with Dart on every domain fixture', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   const merchantId = await makeMerchant();
   try {
     for (const c of fixtures.domain_cases) {
@@ -118,7 +118,7 @@ test('0094: PostgreSQL agrees with Dart on every domain fixture', { skip: !liveT
   }
 });
 
-test('0094: alias_normalized cannot be supplied by the caller', { skip: !liveTest }, async () => {
+test('0094: alias_normalized cannot be supplied by the caller', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // GENERATED ALWAYS has no OVERRIDING escape hatch, unlike an identity column,
   // so this is a hard guarantee rather than a convention. Without it an admin
   // request could store a key that does not match its own raw value, and the
@@ -138,7 +138,7 @@ test('0094: alias_normalized cannot be supplied by the caller', { skip: !liveTes
   }
 });
 
-test('0094: the write guard rejects everything the device would strip', { skip: !liveTest }, async () => {
+test('0094: the write guard rejects everything the device would strip', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // If the catalog may hold what the lookup pipeline removes, the same string
   // resolves differently depending on which stage matched it — alias
   // `cafe term 4471` -> A and `cafe` -> B means the unstripped query hits A and
@@ -161,7 +161,7 @@ test('0094: the write guard rejects everything the device would strip', { skip: 
   }
 });
 
-test('0094: the guard does NOT reject real names that resemble noise', { skip: !liveTest }, async () => {
+test('0094: the guard does NOT reject real names that resemble noise', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // The lexicon is deliberately multi-word-anchored. Bare `payment`, `pos`,
   // `purchase`, `شراء`, `دفع` are plausible starts of real business names, and
   // stripping them would turn PAYMENT SOLUTIONS into a different merchant. A
@@ -183,7 +183,7 @@ test('0094: the guard does NOT reject real names that resemble noise', { skip: !
   }
 });
 
-test('0094: an empty key is rejected', { skip: !liveTest }, async () => {
+test('0094: an empty key is rejected', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // Every input that folds away produces ''. Stored, they would all share one
   // key and match each other.
   const merchantId = await makeMerchant();
@@ -200,7 +200,7 @@ test('0094: an empty key is rejected', { skip: !liveTest }, async () => {
   }
 });
 
-test('0094: two merchants cannot hold the same REVIEWED alias in one scope', { skip: !liveTest }, async () => {
+test('0094: two merchants cannot hold the same REVIEWED alias in one scope', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   const a = await makeMerchant();
   const b = await makeMerchant();
   try {
@@ -235,7 +235,7 @@ test('0094: two merchants cannot hold the same REVIEWED alias in one scope', { s
   }
 });
 
-test('0094: writes bump the catalog version so devices re-sync', { skip: !liveTest }, async () => {
+test('0094: writes bump the catalog version so devices re-sync', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // 0006 shipped merchant_keywords with a version row and no bump, pinning every
   // synced device forever. These tables must not repeat it.
   async function version(category) {
@@ -257,7 +257,7 @@ test('0094: writes bump the catalog version so devices re-sync', { skip: !liveTe
   }
 });
 
-test('0094: anon and authenticated can read but never write', { skip: !liveTest || !anonKey }, async () => {
+test('0094: anon and authenticated can read but never write', { skip: liveTest && anonKey ? false : 'requires SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   const { response: readOk } = await rest('/catalog_merchants?select=id&limit=1', {}, anonKey);
   assert.equal(readOk.status, 200, 'the catalog must be readable without auth — it is a catalog');
 
@@ -268,7 +268,7 @@ test('0094: anon and authenticated can read but never write', { skip: !liveTest 
   assert.ok(writeBlocked.status >= 400, 'anon could write to the merchant catalog');
 });
 
-test('0094: unreviewed aliases are never served to a device', { skip: !liveTest || !anonKey }, async () => {
+test('0094: unreviewed aliases are never served to a device', { skip: liveTest && anonKey ? false : 'requires SUPABASE_URL, SUPABASE_ANON_KEY and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // The review step is the entire safety model for provider-suggested aliases.
   // If an unreviewed row reaches a device, review is decorative.
   const id = await makeMerchant();

@@ -103,7 +103,7 @@ async function deltaFor(sinceVersion) {
 // A keyword string that cannot collide with catalog data or another run.
 const probe = () => `ZZTEST_${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
 
-test('0093: INSERT bumps the category version', { skip: !liveTest }, async () => {
+test('0093: INSERT bumps the category version', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   const before = await categoryVersion('merchant_keywords');
   const id = await insertKeyword(probe());
   try {
@@ -116,7 +116,7 @@ test('0093: INSERT bumps the category version', { skip: !liveTest }, async () =>
   }
 });
 
-test('0093: UPDATE bumps the category version', { skip: !liveTest }, async () => {
+test('0093: UPDATE bumps the category version', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   const id = await insertKeyword(probe());
   try {
     const before = await categoryVersion('merchant_keywords');
@@ -127,7 +127,7 @@ test('0093: UPDATE bumps the category version', { skip: !liveTest }, async () =>
   }
 });
 
-test('0093: deactivation bumps the category version', { skip: !liveTest }, async () => {
+test('0093: deactivation bumps the category version', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // Deactivation REMOVES a row from the served snapshot. If it does not bump,
   // devices keep applying a keyword the admin has switched off — the most
   // user-visible form of this defect.
@@ -148,7 +148,7 @@ test('0093: deactivation bumps the category version', { skip: !liveTest }, async
   }
 });
 
-test('0093: hard DELETE bumps the category version', { skip: !liveTest }, async () => {
+test('0093: hard DELETE bumps the category version', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // The table models soft delete, but nothing PREVENTS a hard delete through
   // PostgREST or SQL. Without a bump the removed keyword lives on every synced
   // device forever, and no admin action can dislodge it.
@@ -158,7 +158,7 @@ test('0093: hard DELETE bumps the category version', { skip: !liveTest }, async 
   assert.ok((await categoryVersion('merchant_keywords')) > before);
 });
 
-test('0093: a timestamp-only touch does NOT bump', { skip: !liveTest }, async () => {
+test('0093: a timestamp-only touch does NOT bump', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   // enrich-merchant stamps updated_at on every upsert (index.ts:367). Bumping
   // on that would force the whole fleet to re-download the dictionary daily and
   // would make the version mean "somebody wrote" rather than "something
@@ -177,7 +177,7 @@ test('0093: a timestamp-only touch does NOT bump', { skip: !liveTest }, async ()
   }
 });
 
-test('0093: catalog-delta observes the bump', { skip: !liveTest }, async () => {
+test('0093: catalog-delta observes the bump', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   const before = await categoryVersion('merchant_keywords');
   const id = await insertKeyword(probe());
   try {
@@ -191,7 +191,7 @@ test('0093: catalog-delta observes the bump', { skip: !liveTest }, async () => {
 
 test(
   '0093: a device pinned at an older version receives the updated snapshot',
-  { skip: !liveTest },
+  { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' },
   async () => {
     // The whole point. A device in the field holds the version it last synced;
     // before 0093 that pinned it permanently.
@@ -220,7 +220,7 @@ test(
   },
 );
 
-test('0093: no unrelated catalog category is disturbed', { skip: !liveTest }, async () => {
+test('0093: no unrelated catalog category is disturbed', { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' }, async () => {
   const before = await allVersions();
   const id = await insertKeyword(probe());
   try {
@@ -241,7 +241,7 @@ test('0093: no unrelated catalog category is disturbed', { skip: !liveTest }, as
 
 test(
   '0093: the trigger guard covers every served column',
-  { skip: !liveTest },
+  { skip: liveTest ? false : 'requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)' },
   async () => {
     // The UPDATE trigger fires on an explicit column list. A column added to
     // merchant_keywords later would be served to devices but would NOT bump,
