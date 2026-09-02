@@ -1136,6 +1136,14 @@ final startupSyncReconcileServiceProvider =
     // Audit H-4: the backfills are a push path and obey the same transport
     // authority as the outbox push services.
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
+    // C-3 — ...and the same CONSENT authority. Transport capability answers
+    // "can we send this safely"; it never answered "may we". This path was an
+    // OPEN egress finding for exactly that reason while every sibling service
+    // in the pipeline already asked.
+    mayEgress: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.financialSync),
   );
 });
 

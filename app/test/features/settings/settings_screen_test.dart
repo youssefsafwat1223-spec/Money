@@ -1,3 +1,5 @@
+import 'package:money_companion/l10n/app_localizations.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -56,6 +58,16 @@ void main() {
           activeCurrenciesProvider.overrideWith((ref) async => const []),
         ],
         child: MaterialApp(
+          // SettingsScreen reads context.l10n (the SMS-capture trust
+          // notice), so this harness has to supply delegates.
+          locale: const Locale('ar'),
+          supportedLocales: AppL10n.supportedLocales,
+          localizationsDelegates: const [
+            ...AppL10n.localizationsDelegates,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
           theme: AppTheme.light,
           home: const Directionality(
             textDirection: TextDirection.rtl,
@@ -132,6 +144,16 @@ void main() {
           activeCurrenciesProvider.overrideWith((ref) async => const []),
         ],
         child: MaterialApp.router(
+          // SettingsScreen reads context.l10n (the SMS-capture trust
+          // notice), so this harness has to supply delegates.
+          locale: const Locale('ar'),
+          supportedLocales: AppL10n.supportedLocales,
+          localizationsDelegates: const [
+            ...AppL10n.localizationsDelegates,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
           theme: AppTheme.light,
           routerConfig: router,
         ),

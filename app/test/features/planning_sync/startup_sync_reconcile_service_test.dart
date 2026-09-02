@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -174,4 +175,60 @@ void main() {
     final outcome = await service().run();
     expect(outcome, ReconcileOutcome.skippedGuest);
   });
+  // ── C-3 consent gate ─────────────────────────────────────────────────────
+  //
+  // `run()` returns `skippedGuest` before reaching the consent check whenever
+  // SupabaseConfig is unconfigured, which is always true in a unit test, so the
+  // gate cannot be exercised through the public entry point here. It is pinned
+  // by source contract instead — the same technique this repository already
+  // uses for the ads and SMS-capture invariants — plus the egress inventory
+  // test, which now fails if this file stops being a gated decision.
+  group('C-3 — the backfills are consent-gated (source contract)', () {
+    final service = File(
+      'lib/features/planning_sync/services/startup_sync_reconcile_service.dart',
+    ).readAsStringSync();
+
+    test('the gate defaults to DENY', () {
+      // A caller that forgets to pass consent must get no network, not silent
+      // egress. This is the same default the sibling push services use.
+      expect(service, contains('_denyEgressByDefault'));
+      expect(service, contains('_mayEgress = mayEgress ?? _denyEgressByDefault'));
+      expect(service, contains('static Future<bool> _denyEgressByDefault() async => false;'));
+    });
+
+    test('consent is checked BEFORE any backfill is constructed', () {
+      final gate = service.indexOf('if (!await _mayEgress())');
+      expect(gate, greaterThan(-1), reason: 'the consent gate must exist');
+      for (final backfill in const [
+        'AccountsBackfillService(',
+        'TransactionsBackfillService(',
+        'PlanningPrimaryBackfillService(',
+      ]) {
+        final at = service.indexOf(backfill);
+        if (at == -1) continue; // not driven from here
+        expect(gate, lessThan(at),
+            reason: '$backfill runs before consent is checked');
+      }
+    });
+
+    test('refusal is its OWN outcome, not folded into an existing one', () {
+      // `skippedNothingPending` would be a lie (there IS pending data) and
+      // `blockedUnverifiedTransport` would be a different lie (that is a
+      // capability problem the app can fix; this is the user's answer).
+      expect(service, contains('skippedNoConsent'));
+      expect(service, contains('return ReconcileOutcome.skippedNoConsent;'));
+    });
+
+    test('the DI provider passes the real consent authority', () {
+      // A gate defaulting to deny is only useful if production actually
+      // supplies the answer — otherwise the feature is silently dead.
+      final di = File('lib/core/di/app_providers.dart').readAsStringSync();
+      final at = di.indexOf('StartupSyncReconcileService(');
+      expect(at, greaterThan(-1));
+      final block = di.substring(at, di.indexOf(');', at));
+      expect(block, contains('mayEgress:'));
+      expect(block, contains('EgressClass.financialSync'));
+    });
+  });
+
 }

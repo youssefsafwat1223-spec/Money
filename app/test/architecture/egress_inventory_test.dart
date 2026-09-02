@@ -46,6 +46,11 @@ void main() {
         'EgressClass.financialSync — gated once per pull, not per entity',
     'features/planning_sync/services/planning_child_sync_service.dart':
         'EgressClass.financialSync — consent precedes the capability gate',
+    'features/planning_sync/services/accounts_backfill_service.dart':
+        'EgressClass.financialSync — money. Gated by its CALLER, '
+            'StartupSyncReconcileService, whose single check covers every '
+            'backfill it drives. Was an OPEN finding until 2026-09-02: it '
+            'gated on transport capability and never on consent.',
     'core/backup/supabase_remote_backup_store.dart':
         'EgressClass.backup — gated by its CALLER, RemoteBackupController',
     'core/backup/encrypted_backup_service.dart':
@@ -65,6 +70,14 @@ void main() {
   /// `RemoteBackupController`, which is where the consent decision belongs.
   /// Recording the indirection keeps the check honest instead of loosening it.
   const gatedByCaller = <String, String>{
+    // CLOSED 2026-09-02 (was an OPEN finding). The backfills reached from
+    // StartupSyncReconcileService gated on TRANSPORT capability and never on
+    // consent, while every sibling push/pull service in the same pipeline
+    // asked. A transport gate answers "can we send this safely"; it does not
+    // answer "may we". ONE gate at the reconcile entry covers every backfill it
+    // drives, and it defaults to DENY.
+    'features/planning_sync/services/accounts_backfill_service.dart':
+        'features/planning_sync/services/startup_sync_reconcile_service.dart',
     'core/backup/supabase_remote_backup_store.dart':
         'core/backup/remote_backup_controller.dart',
     'core/backup/encrypted_backup_service.dart':
@@ -104,13 +117,7 @@ void main() {
             'plus a coarse dimension rather than user data. It is awaited from '
             'bootstrap, so a consent read there would need to survive a cold '
             'start with no settings loaded. Tracked, not hidden.',
-    'features/planning_sync/services/accounts_backfill_service.dart':
-        'OPEN FINDING — not exempt. set_default_account is financialSync-class '
-            'egress reached through StartupSyncReconcileService, which gates on '
-            'TRANSPORT capability (shouldParkExactMoneyWrite) and not on '
-            'consent. Its sibling push/pull services in this same pipeline ARE '
-            'consent-gated, so this is an inconsistency in one path rather than '
-            'a deliberate exemption.',
+
     'features/gamification/services/engagement_event_service.dart':
         'OPEN FINDING — unwired, not exempt. SupabaseEngagementRecorder is '
             'declared but instantiated nowhere in lib/; grep finds no caller, '

@@ -22,6 +22,15 @@ enum ReconcileOutcome {
   skippedGuest,
   skippedNothingPending,
 
+  /// C-3 — cloud processing consent is off, so nothing may leave the device.
+  ///
+  /// Distinct from [skippedNothingPending]: there IS pending local data, and it
+  /// stays local and visible to the pre-sign-out inventory. Distinct from
+  /// [blockedUnverifiedTransport] too — that is a capability problem the app
+  /// can resolve on its own, this is the user's answer and is not ours to
+  /// resolve.
+  skippedNoConsent,
+
   /// Complete and clean — no failed phase, no unresolved money mismatch.
   ran,
 
@@ -94,10 +103,14 @@ class StartupSyncReconcileService {
     // fails CLOSED rather than pushing over an unproven transport.
     ExactTransportCapability Function() pushCapability =
         _unknownPushCapability,
+    /// C-3 — consulted before any backfill runs. Defaults to DENY so a caller
+    /// that forgets it gets no network.
+    Future<bool> Function()? mayEgress,
   })  : _db = db,
         _getAuthUserId = getAuthUserId ?? currentSupabaseUserId,
         _coordinator = coordinator,
-        _pushCapability = pushCapability;
+        _pushCapability = pushCapability,
+        _mayEgress = mayEgress ?? _denyEgressByDefault;
 
   static ExactTransportCapability _unknownPushCapability() =>
       ExactTransportCapability.unknown;
@@ -106,11 +119,27 @@ class StartupSyncReconcileService {
   final Future<String?> Function() _getAuthUserId;
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
+  final Future<bool> Function() _mayEgress;
+
+  static Future<bool> _denyEgressByDefault() async => false;
 
   Future<ReconcileOutcome> run() async {
     if (!SupabaseConfig.isConfigured) return ReconcileOutcome.skippedGuest;
     final uid = await _getAuthUserId();
     if (uid == null) return ReconcileOutcome.skippedGuest;
+
+    // C-3 — money must not leave the device without cloud consent.
+    //
+    // Recorded as an OPEN egress finding until 2026-09-02: this path gated on
+    // TRANSPORT capability (below) and never on consent, while every sibling
+    // push/pull service in the same pipeline asks. A transport gate answers
+    // "can we send this safely"; it does not answer "may we". The privacy
+    // screen promises the switch disables synchronisation, and for the three
+    // backfills reached from here it did not.
+    //
+    // Defaults to DENY, like the siblings, so a caller that forgets gets no
+    // network rather than silent egress.
+    if (!await _mayEgress()) return ReconcileOutcome.skippedNoConsent;
 
     if (!await hasUnsyncedLocalData()) {
       return ReconcileOutcome.skippedNothingPending;
