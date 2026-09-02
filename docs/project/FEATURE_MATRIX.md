@@ -56,12 +56,12 @@ simulator or emulator run has been performed.**
 | Feature | Impl | Wired | Tested | Runtime | Device | Backend | Flag | Prod |
 |---|---|---|---|---|---|---|---|---|
 | Local Drift (SQLCipher) | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
-| Cloud ledger sync | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ unverified ledger | **all OFF** | ❌ |
+| Cloud ledger sync | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ through 0092 | **all OFF** | ❌ |
 | Encrypted backup | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ storage bucket | always on | ❌ |
 | Restore | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | always on | ❌ |
 | Authentication (Google/Apple) | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | always on | ❌ |
 | Onboarding | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
-| Account deletion / wipe | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ `0084` state unknown | always on | ❌ |
+| Account deletion / wipe | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `0084` applied (verified) | always on | ❌ |
 | Feature flags | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `catalog-flags` | — | ❌ |
 | Notifications (local) | ✅ | ✅ | ✅ | ❌ | ❌ | — | user pref | ❌ |
 | APNs push | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ functions exist | — | ❌ no key |
@@ -75,7 +75,7 @@ simulator or emulator run has been performed.**
 | UMP consent | ✅ | ✅ | ✅ | ❌ | ❌ | — | — | ❌ |
 | Ad-free entitlement | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `0083` | — | ❌ |
 | Referrals | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `0083` | `enable_referrals` OFF | ❌ |
-| Coupons catalog | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ `0081/0082` | `enable_coupons` OFF | ❌ |
+| Coupons catalog | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `0081/0082` applied | `enable_coupons` OFF | ❌ |
 | Merchant offers | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ `0094` source-only | OFF | ❌ |
 | Affiliate ingestion | ✅ | ✅ | ✅ fixture | ❌ | ❌ | ❌ `0096` source-only | OFF | ❌ no network |
 | Affiliate attribution | ✅ | ✅ | ✅ fixture | ❌ | ❌ | ❌ `0097` source-only | OFF | ❌ no network |
@@ -87,13 +87,13 @@ simulator or emulator run has been performed.**
 
 | Feature | Impl | Wired | Tested | Runtime | Device | Backend | Flag | Prod |
 |---|---|---|---|---|---|---|---|---|
-| Admin panel | ✅ | ✅ | ✅ 140 tests | ❌ | — | ⚠️ | — | ❌ |
+| Admin panel | ✅ | ✅ | ✅ 140 tests | ❌ | — | ✅ through 0092 | — | ❌ |
 | Localization AR/EN | ✅ | ✅ | ✅ freshness gate | ❌ | ❌ | — | — | ❌ |
 | Privacy / consent screens | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
 | Biometric lock | ✅ | ✅ | ✅ | ❌ | ❌ | — | user pref | ❌ |
 | Android signing | ✅ | — | ✅ guard | — | ❌ | — | — | ❌ not enrolled |
 | iOS signing / provisioning | ⚠️ partial | — | ✅ guard | — | ❌ | — | — | ❌ portal blocked |
-| Telemetry | ✅ | ✅ | ✅ | ❌ | ❌ | ⚠️ `0098` source-only | consent-gated | ❌ |
+| Telemetry | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ `0098` source-only — events dropped until applied | consent-gated | ❌ |
 
 ---
 

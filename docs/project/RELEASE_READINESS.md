@@ -4,6 +4,21 @@
 
 Not BETA READY. Not a Release Candidate. Not Production Ready.
 
+> **Re-evaluated after the migration ledger was verified (2026-09-02).**
+> The classification **does not change**, and it is worth being precise about
+> why. Closing RB-4 removed a *production* blocker and the product's worst
+> unknown — whether account deletion actually erases server-side. It removed
+> nothing from the BETA READY bar, which is device QA, and **no physical device
+> has been used**.
+>
+> What genuinely improved: this label is no longer qualified by "…and we cannot
+> tell what the backend is running". Production is verified applied through
+> 0092. Open production blockers went from three to two, and both remaining ones
+> are external — hardware and Google's review queue.
+>
+> Promoting the label on the strength of a document correction would be exactly
+> the inflation this file exists to prevent.
+
 ## What the label means here
 
 | Label | Met? | Why |
@@ -11,7 +26,7 @@ Not BETA READY. Not a Release Candidate. Not Production Ready.
 | NOT READY | passed | No known executable engineering blocker remains. The one that did — Android SMS capture being unreachable — is fixed. |
 | **ENGINEERING COMPLETE** | **current** | Code and integration are complete; canonical CI is green; every remaining item needs hardware, an external account, or a production database this machine cannot read. |
 | BETA READY | **no** | Requires device QA. No physical device has ever been attached to this machine, and no simulator or emulator run has been performed either. |
-| RELEASE CANDIDATE | **no** | Additionally requires the Play restricted-permission approval and a verified production migration ledger. |
+| RELEASE CANDIDATE | **no** | Additionally requires the Play restricted-permission approval. *(The production migration ledger requirement is now **met** — verified applied through 0092 on 2026-09-02.)* |
 | PRODUCTION READY | **no** | Additionally requires deployed migrations, deployed Edge Functions, configured AdMob units, and store approval. |
 
 ## The honest boundary
@@ -20,7 +35,7 @@ Not BETA READY. Not a Release Candidate. Not Production Ready.
 
 - Affiliate fixture tests are **not** real network validation — no network is contracted.
 - Zero simulator runs are **not** simulator validation.
-- Migration source is **not** a deployed migration — and for 0084–0092 the repo contradicts itself about which it is.
+- Migration source is **not** a deployed migration. Verified state: applied through **0092**; **0093–0098 are source-only** and must not be assumed deployed.
 - Edge Function tests are **not** deployed Edge Functions; four affiliate functions have never executed against the live project.
 - An AdMob component is **not** a configured AdMob account; no production ad unit exists.
 - A written device QA plan is **not** device QA.
@@ -113,8 +128,8 @@ RB-4, RB-5 and RB-6 for the three that gate a production claim, and
 ## Path to the next label
 
 1. **→ BETA READY:** connect an Android device; run the SMS device QA matrix and
-   the banner QA checklist. Resolve the migration ledger from the Supabase
-   dashboard.
+   the banner QA checklist. ~~Resolve the migration ledger.~~ ✅ done
+   2026-09-02 — production verified applied through 0092.
 2. **→ RELEASE CANDIDATE:** reconcile the three SMS disclosure documents, submit
    the Play permissions declaration and Data Safety form, obtain approval.
    Restore Apple portal access and complete iOS device QA.

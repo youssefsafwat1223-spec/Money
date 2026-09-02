@@ -34,30 +34,30 @@ filesystem while claiming to check what was committed.
 `data_safety_draft.md` stated the egress inventory had "0 open" findings. It has
 three. That document is destined for a regulatory submission.
 
+### RB-4 — the production migration ledger was unknowable · ✅ **CLOSED 2026-09-02**
+
+**Resolved by owner verification.** A read-only query against
+`supabase_migrations.schema_migrations` on the production project
+(`rjwphwsefnuotpbtuycf`) confirmed the ledger is **continuous through 0092**,
+with 0084–0092 each explicitly present.
+
+The `SOURCE-ONLY / NOT APPLIED` headers on 0084, 0085 and 0086 were stale: they
+named an earlier production project that is no longer the deployment target.
+Corrected in place; deployment state now lives in one file,
+`MIGRATION_LEDGER.md`.
+
+**What this closes:** the worst open unknown in the product — `0084` is a
+data-erasure repair, so "possibly unapplied" meant "account deletion may not
+fully erase and we cannot tell". It is applied. Deletion completeness is
+server-side verified.
+
+**What it does not close:** 0093–0098 remain source-only and must not be
+assumed deployed. Every feature depending on them is behind an OFF flag, so
+nothing is broken by their absence.
+
 ---
 
 ## OPEN — blocking PRODUCTION, not blocking further engineering
-
-### RB-4 — the production migration ledger is unknowable · **CRITICAL** · EXTERNAL
-
-**Evidence.** `0072_backend_security_hardening.sql:5` claims "0001-0092 applied
-and ledger-verified on production". `0084_purge_user_data_restore.sql:4` says
-"SOURCE-ONLY. NOT APPLIED TO ANY PROJECT." 0084 ≤ 0092; both cannot be true.
-`supabase migration list --linked` returns **403 — "Your account does not have
-the necessary privileges"**.
-
-**Why it blocks.** 0084 is a *data-erasure repair* migration. If it is not
-applied, account deletion may not fully erase. Shipping a deletion feature whose
-server side may be absent is not defensible, and nothing in this repository can
-tell you which it is.
-
-**Owner action.** From the Supabase dashboard for project `rjwphwsefnuotpbtuycf`,
-read `supabase_migrations.schema_migrations` and report the highest applied
-version. Or grant this account Management API privileges so it can be read
-automatically.
-
-**Not blocking.** Any client-side work. Migrations 0093–0098 are known
-source-only and their features are all behind OFF flags.
 
 ### RB-5 — no physical device has ever been used · **RELEASE BLOCKER** · DEVICE
 
@@ -100,7 +100,7 @@ consent-gated and is off by default.
 | Affiliate click gateway unwired | CLEANUP | Coupons work; the CTA opens the plain merchant URL. No network is contracted, so wiring a gated egress path now adds accidental-activation risk for no benefit. |
 | `SupabaseEngagementRecorder` unwired | LOW | Nothing reaches the network. Recorded as an OPEN egress finding so the consent obligation is visible before a caller appears. |
 | `record_metric` has no client consent gate | MEDIUM | Server-side owner-bound, allowlisted, rate-limited; carries a key and a coarse dimension, never user data. Tracked, not hidden. |
-| `set_default_account` gates on transport, not consent | MEDIUM | An inconsistency with its sibling services in the same pipeline. Real, worth fixing, not release-stopping. |
+| ~~`set_default_account` gates on transport, not consent~~ | ✅ FIXED | Closed 2026-09-02. One consent gate at the `StartupSyncReconcileService` entry now covers every backfill it drives, defaults to DENY, and refusal is its own outcome. |
 | No JVM test source set for Android | LOW | Kotlin is covered by structural assertions over source rather than execution. Weaker, and recorded as such. |
 | iOS share extension still named «إضافة رسالة بنك» | LOW | Now inaccurate for a URL share. A product naming decision, deliberately left to the owner. |
 | `app/android/key.properties` on disk | LOW | Gitignored, never committed, and now asserted so by the corrected guard. Consider relocating outside the repo anyway. |

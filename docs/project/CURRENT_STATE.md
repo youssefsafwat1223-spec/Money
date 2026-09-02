@@ -20,9 +20,9 @@ What blocks a stronger label, in order:
    not iOS. SMS receipt, push delivery, background execution, share extensions,
    App Groups, banner rendering and permission behaviour are all unverified on
    hardware. Simulator/emulator evidence does not exist either.
-2. **The production migration ledger is unknowable from this repository.** See
-   §Backend below — the repo contradicts itself and the Management API returns
-   403 for this account.
+2. ~~The production migration ledger is unknowable.~~ **CLOSED 2026-09-02** by
+   owner verification: production is applied continuously through **0092**. See
+   §Backend.
 3. **Google Play approval for `RECEIVE_SMS` is pending**, and the declaration
    has not been submitted.
 4. **No affiliate network is contracted**; coupons/affiliate/savings run against
@@ -160,16 +160,23 @@ table is classified in neither set.
 98 migrations, dense and gapless, rollback coverage complete from 0084, lint
 PASS.
 
-**The deployed state is contradictory and cannot be resolved from here.**
-`0072_backend_security_hardening.sql:5` says "DEPLOYED … 0001-0092 applied and
-ledger-verified on production". `0084_purge_user_data_restore.sql:4` says
-"SOURCE-ONLY. NOT APPLIED TO ANY PROJECT." 0084 ≤ 0092; both cannot be true.
-`supabase migration list --linked` returns **403** ("Your account does not have
-the necessary privileges"), so the real ledger is unreadable with the present
-credentials. Linked project ref is `rjwphwsefnuotpbtuycf`.
+**Deployed state: verified through 0092.** An owner read-only query against
+`supabase_migrations.schema_migrations` on the production project
+(`rjwphwsefnuotpbtuycf`) on 2026-09-02 confirmed the ledger is continuous
+through 0092, with 0084–0092 each explicitly present.
 
-**Treat every migration from 0084 upward as UNVERIFIED until someone with
-dashboard access reads the ledger.** 0093–0098 are certainly source-only.
+This closes what had been the product's worst unknown. `0084` is a data-erasure
+repair, and while its state was disputed, "account deletion may not fully erase"
+could not be ruled out. It is applied.
+
+The `SOURCE-ONLY / NOT APPLIED` headers on 0084–0086 were stale — they named an
+earlier production project that is no longer the deployment target, so they were
+accurate about a project these migrations were never going to run on and silent
+about the one they did. Corrected in place. Deployment state now lives in one
+file: `MIGRATION_LEDGER.md`.
+
+**0093–0098 are source-only and must not be assumed deployed.** Every feature
+depending on them is behind a flag seeded OFF.
 
 Edge Functions: 28 exist and type-check. `affiliate-sync`,
 `prepare-affiliate-click`, `affiliate-click-status` and `affiliate-postback`

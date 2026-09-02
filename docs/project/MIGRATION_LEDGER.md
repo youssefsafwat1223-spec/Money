@@ -1,69 +1,89 @@
 # Qirsh — migration ledger truth
 
-**As of 2026-09-02. The deployed state of this database CANNOT be determined
-from this repository.** This file records exactly what each source claims, why
-they cannot all be true, and what has to happen to resolve it.
-
-Nothing here is a guess. Where the truth is unknown it says unknown.
+**This is the single source of truth for what is deployed.** Migration file
+headers describe what a migration *does*; they do not record where it has run.
 
 ---
 
-## The contradiction
+## Verified production state
 
-Ten migrations carry an inserted claim, identical in wording and dated
-2026-09-01:
+| | |
+|---|---|
+| **Production project** | `rjwphwsefnuotpbtuycf` |
+| **Applied continuously through** | **0092** |
+| **Verified** | 2026-09-02, owner read-only query against `supabase_migrations.schema_migrations` |
+| **Explicitly confirmed present** | 0084, 0085, 0086, 0087, 0088, 0089, 0090, 0091, 0092 |
+| **Source-only, NOT deployed** | **0093 – 0098** |
+
+**0093–0098 must not be assumed deployed and must not be applied without an
+explicit activation instruction.** Every feature that depends on them is behind
+a flag seeded OFF, so nothing is broken by their absence.
+
+| Migration | Feature | Flag |
+|---|---|---|
+| 0093 | `merchant_keywords` catalog versioning | — (correctness fix) |
+| 0094 | `catalog_merchants` + reviewed aliases | `enable_offers_merchants` OFF |
+| 0095 | coupon offer economics | `enable_coupons` OFF |
+| 0096 | affiliate core | `enable_affiliate_links` OFF |
+| 0097 | affiliate attribution | `enable_affiliate_links` OFF |
+| 0098 | `record_metric` ad-key allowlist | telemetry silently dropped until applied |
+
+---
+
+## The contradiction that existed, and why it survived
+
+Until 2026-09-02 this repository asserted two incompatible things.
+
+Ten migrations (**0071–0080**) carried, verbatim:
 
 > `DEPLOYED (status corrected 2026-09-01: 0001-0092 applied and ledger-verified
 > on production; this header was never revised after the deploy).`
 
-They are **0071, 0072, 0073, 0074, 0075, 0076, 0077, 0078, 0079, 0080**.
+Three migrations **inside that same range** (**0084, 0085, 0086**) said:
 
-Three migrations inside that same claimed range say the opposite:
+> `SOURCE-ONLY. NOT APPLIED TO ANY PROJECT.`
 
-| Migration | Header |
-|---|---|
-| `0084_purge_user_data_restore.sql` | "SOURCE-ONLY. NOT APPLIED TO ANY PROJECT. Requires explicit authorisation" |
-| `0085_concurrency_absent_row_locking.sql` | SOURCE-ONLY |
-| `0086_backups_owner_liveness.sql` | SOURCE-ONLY |
+0084 ≤ 0092, so both could not be true. The Management API returned **403** for
+the available credentials, so the ledger could not be read from this machine and
+the contradiction stood unresolved through the 2026-09-02 finalization audit.
 
-**0084 ≤ 0092.** If 0001–0092 are applied, 0084 is applied, and its own header
-is false. If 0084 is genuinely unapplied, the "0001-0092" claim is false. There
-is no reading in which both are correct.
+**The owner query resolved it: the 0071–0080 claim was correct, and the
+0084–0086 headers were stale.**
 
-## Why it cannot be resolved from here
+**Why they were stale is the part worth keeping.** Those three headers named a
+*different* production project — an earlier deployment target that is no longer
+in use and is now explicitly off-limits. They were accurate statements about a
+project these migrations were never going to run on, and said nothing at all
+about the project they did run on. A reader checking "has 0084 been applied?"
+got a confident answer to a question they had not asked.
 
-```
-$ supabase migration list --linked
-Initialising login role...
-unexpected login role status 403: {"message":"Your account does not have the
-necessary privileges to access this endpoint."}
-```
+That is why it survived repeated audits: the sentence was not wrong in the way
+audits look for. It was wrong about its subject.
 
-The linked project ref is `rjwphwsefnuotpbtuycf` (verified in
-`supabase/.temp/project-ref`). The Management API refuses this account, and no
-database password is available in the environment. **No remote mutation was
-attempted and none should be.**
+**Why it mattered.** `0084` is a *data-erasure repair* — it restores deletion
+completeness in `purge_user_data()`. "Possibly not applied" meant "account
+deletion may not fully erase, and we cannot tell". That is the single worst
+shape an unknown can take in this product, and it is now closed.
 
-## Why it matters more than a documentation nit
+---
 
-`0084_purge_user_data_restore.sql` is a **data-erasure repair**. If it is not
-applied, account deletion may not fully erase user data server-side. Shipping a
-deletion feature whose server half may be absent is not defensible, and the
-client cannot tell the difference.
+## The rule this leaves behind
 
-The other two are a concurrency fix (`0085`, absent-row locking) and a backup
-ownership liveness check (`0086`) — both correctness fixes whose absence is
-silent.
+Deployment state lives **here, in one file**. Migration headers must not carry a
+per-file deployment claim.
 
-## Known with certainty
+Ten copies of one fact is precisely how the contradiction arose: the copies were
+batch-edited on 2026-09-01, three files inside the range were missed, and from
+that moment the repository disagreed with itself. A single record cannot
+disagree with itself.
 
-| Range | State | Confidence |
-|---|---|---|
-| 0093–0098 | **SOURCE-ONLY** | Certain. Written in this session and the previous one; never deployed; every dependent feature is behind an OFF flag. |
-| 0084–0092 | **DISPUTED** | The repository contradicts itself. Treat as unapplied until proven otherwise. |
-| 0001–0083 | **PROBABLY APPLIED** | Consistent with every header, and with the app functioning against the project. Not independently verified here. |
+The 0071–0080 headers still carry their (correct) claim. They were left alone
+rather than swept, because rewriting ten accurate files is churn — but they
+should not be treated as authoritative, and nothing new should imitate them.
 
-## How to resolve it
+---
+
+## How to verify, next time
 
 From the Supabase dashboard for `rjwphwsefnuotpbtuycf`, SQL editor:
 
@@ -74,23 +94,6 @@ order by version desc
 limit 20;
 ```
 
-Then:
-
-1. Record the highest applied version in this file, with the date.
-2. Correct every migration header that disagrees — in **one** commit, so the
-   correction is auditable rather than scattered.
-3. Apply anything missing from 0084 upward, in order, after reading each
-   rollback file first.
-4. Only then treat 0093–0098 as deployable.
-
-Until step 1 happens, **no production-readiness claim about the backend is
-supportable**, and `RELEASE_BLOCKERS.md` RB-4 stays open.
-
-## A process note
-
-The 2026-09-01 claim was batch-inserted into ten files at once. Whatever its
-accuracy, that shape is the problem: a deployment fact repeated in ten places
-will disagree with itself the first time one copy is edited, and it did.
-
-Deployment state belongs in **one** place — this file — with migration headers
-describing what a migration *does*, not where it has run.
+Then update the table at the top of this file with the result and the date. If
+the highest applied version is below the highest file in `supabase/migrations/`,
+list the gap explicitly — do not describe it as "probably applied".

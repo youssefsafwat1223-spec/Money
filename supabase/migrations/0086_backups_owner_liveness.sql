@@ -1,8 +1,22 @@
 -- ===========================================================================
 -- 0086 -- backups Storage write barrier for deleted Auth users (H-24 residual)
 -- ===========================================================================
--- SOURCE-ONLY. NOT APPLIED TO ANY PROJECT. Production `vrombzdgwqjjiijbidqb`
--- and evidence staging `dpdukyozedajelflkeix` have had ZERO contact.
+-- ── DEPLOYMENT STATUS (corrected 2026-09-02) ───────────────────────────────
+-- APPLIED IN PRODUCTION. Verified by a read-only owner query against
+-- `supabase_migrations.schema_migrations` on the CURRENT production project
+-- (`rjwphwsefnuotpbtuycf`): the ledger is continuous through 0092, and 0084,
+-- 0085 and 0086 are each explicitly present.
+--
+-- The "SOURCE-ONLY / NOT APPLIED TO ANY PROJECT" header this replaces was true
+-- when written and was never revised. It was written against a DIFFERENT,
+-- earlier production project; that project is no longer the deployment target
+-- and is now explicitly off-limits. The header therefore described a project
+-- this migration was never going to run on, while saying nothing about the one
+-- it did run on. That is why it survived four audits.
+--
+-- Deployment state is tracked in ONE place — docs/project/MIGRATION_LEDGER.md.
+-- Do not re-add a per-file deployment claim here: ten copies of one fact is how
+-- this contradiction arose.
 --
 -- A Supabase access token remains cryptographically valid until its expiry even
 -- after its auth.users row is deleted. The original backups policies checked
