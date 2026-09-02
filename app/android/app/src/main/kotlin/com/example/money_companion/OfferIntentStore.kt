@@ -1,4 +1,4 @@
-package com.example.money_companion
+package com.youssefsafwat.mali
 
 import android.content.Context
 import android.content.SharedPreferences

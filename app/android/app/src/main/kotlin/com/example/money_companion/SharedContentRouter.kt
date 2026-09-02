@@ -1,4 +1,4 @@
-package com.example.money_companion
+package com.youssefsafwat.mali
 
 /**
  * COUPONS Phase 5 — deciding where shared text goes, at the native boundary.
