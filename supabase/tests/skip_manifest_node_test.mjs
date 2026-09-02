@@ -39,12 +39,19 @@ function runChecker({ tap, deno, env = {} }) {
   });
 }
 
-// A minimal valid node TAP: one skip matching each manifest credential group.
+// A minimal valid node TAP: one skip matching EVERY manifest entry.
+//
+// It must cover every entry, not merely one per credential group: the checker
+// also fails an entry that matches NOTHING, so that a manifest line outliving
+// the test it excused is caught rather than quietly accumulating. That means
+// this fixture has to grow whenever the manifest does — which is the point, and
+// is how the 0093/0094 entry was caught the day it was added.
 const validTap = [
   "TAP version 13",
   "ok 1 - a purge test # SKIP requires SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY",
   "ok 2 - a process-ios-sms test # SKIP requires SUPABASE_URL + SUPABASE_ANON_KEY (deployed process-ios-sms)",
   "ok 3 - a storage test # SKIP requires SUPABASE_URL + SUPABASE_ANON_KEY + SUPABASE_SERVICE_ROLE_KEY and a project with migrations 0075+0076 + the backups bucket deployed",
+  "ok 4 - a coupons catalog test # SKIP requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY (live PostgreSQL: migrations 0093/0094 must be applied)",
 ].join("\n");
 
 test("valid manifest-matched skips with credentials ABSENT → pass", () => {
