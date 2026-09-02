@@ -21,6 +21,7 @@ affiliate click gateway (D-14), and the two consistency fixes below.
 | iOS share extension display name | LOW | «إضافة رسالة بنك» is now inaccurate for a URL share. A product naming decision, left to the owner. |
 | Relocate `android/key.properties` | LOW | Gitignored and asserted so, but real key material in a source tree is one archive away from travelling. |
 | JVM test source set for Android | LOW | Kotlin is covered by structural source assertions rather than execution. |
+| macOS target cannot open the database | LOW | `macos/Runner/*.entitlements` has no keychain entitlement, so the SQLCipher key cannot be read under the sandbox and `database_open` fails. macOS is not a shipping target, but it is the ONLY runtime surface on this machine. Fixing it needs a real signing identity — an ad-hoc build expands `$(AppIdentifierPrefix)` to nothing and is killed at launch. Worth doing: it would turn "no runtime QA is possible" into "a smoke run is possible". |
 
 ## Blocked on the owner
 

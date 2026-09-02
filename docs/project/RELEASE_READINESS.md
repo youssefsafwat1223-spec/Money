@@ -27,7 +27,24 @@ Not BETA READY. Not a Release Candidate. Not Production Ready.
 
 ## What has actually been verified
 
-Canonical CI (`tools/ci_gates.sh`, the repository's own authority — 11 gates,
+**Canonical CI on 2026-09-02: 12 mandatory gates passed, 0 failed.** The
+baseline at the start of this finalization was 8 passed / 4 failed.
+
+```
+mandatory gates passed : 12
+mandatory gates failed : 0
+tools unavailable      : 0
+caller-skipped tests   : 0
+artifact-dependent     : 1   (iOS packaging — needs a built Runner.app)
+node tests skipped     : 89  (credentials absent, all manifest-declared)
+skip/ignore manifest   : satisfied
+```
+
+Flutter suite: **3513 passed, 1 skipped, 0 failed** (bulk) plus **24 passed**
+(serialized production-cost crypto). Deno 215. Node contract 317 / 228 pass / 0
+fail. Admin 140 / 140, lint clean, `npm run build` succeeds.
+
+Canonical CI (`tools/ci_gates.sh`, the repository's own authority — 12 gates,
 with a truthfulness contract that forbids counting a skip as a pass):
 migration lint, Deno tests + lint, `flutter analyze`, the full Flutter suite in
 two stages, Node contract tests, skip-manifest enforcement, admin authorization
@@ -39,6 +56,53 @@ Static and architectural guarantees are strong: 430 test files, egress
 inventory with every network call classified, backup/wipe/restore coverage
 guards, forward-only schema enforcement, and a new reachability guard that fails
 if a permission-gated feature loses its last production caller.
+
+## Runtime evidence — what was actually run, and what it proves
+
+There is **no iOS simulator, no Android emulator, no `adb`, and no AVD** on this
+machine (`flutter devices` reports only macOS desktop and Chrome). The only
+runtime surface available is the macOS desktop target, which is **not a shipping
+platform**. It was used anyway, because zero runtime evidence is worse than
+partial runtime evidence honestly labelled.
+
+**What ran, 2026-09-02:**
+
+```
+flutter build macos --debug   →  ✓ Built money_companion.app   (exit 0)
+```
+
+The entire Dart tree and every native plugin compile and link. That is the first
+build evidence in this project's record.
+
+The binary was then launched and observed:
+
+```
+[SupabaseConfig] env=production configured=false
+[Bootstrap] session_restore ok (579ms)
+[Bootstrap] notifications_init ok (185ms)
+[Bootstrap] [id] ok (4197ms)
+[Bootstrap] database_open failed after 50ms: PlatformException
+```
+
+**Two real findings from that:**
+
+1. The app **boots, runs its bootstrap chain, and survives a database-open
+   failure without crashing.** That is the fail-open behaviour the design claims,
+   observed rather than asserted.
+2. `database_open` fails on macOS because `macos/Runner/*.entitlements` carries
+   no keychain entitlement, so `flutter_secure_storage` cannot hold the SQLCipher
+   key under the sandbox. **This is a macOS-target gap, not an iOS/Android
+   defect.**
+
+An attempt to close (2) by adding `keychain-access-groups` was **reverted**: on
+an ad-hoc-signed local build `$(AppIdentifierPrefix)` expands to nothing, the
+resulting group is invalid, and the app was killed at launch. Making macOS a
+usable QA surface needs a real signing identity. Recorded as deferred debt in
+`MASTER_ROADMAP.md` rather than left half-done.
+
+**What this evidence is not.** It is not mobile runtime QA. It exercises no SMS
+receipt, no share extension, no App Group, no push, no platform-view banner, and
+no real database. Every mobile-specific behaviour remains unverified.
 
 ## What has never been verified
 
