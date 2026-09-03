@@ -19,7 +19,9 @@ previous report claimed otherwise, this file is right and the report is stale.
 
 **Runtime = Android 13 emulator, 2026-09-03** (see `ANDROID_EMULATOR_QA.md`).
 **Device is still ❌ everywhere: no test has been run on physical hardware.**
-Emulator evidence is not device evidence and does not close RB-5.
+Emulator evidence is not device evidence and does not close RB-5, which is
+**PENDING — HARDWARE CURRENTLY UNAVAILABLE**. Do not re-run the emulator suite
+when hardware returns; resume only the physical-device-only matrix.
 
 ---
 

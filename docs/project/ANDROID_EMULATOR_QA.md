@@ -113,7 +113,9 @@ reconciliation, which is deliberately not declared.
 
 ## 5. PHYSICAL-DEVICE-ONLY — cannot be closed on an emulator
 
-RB-5 stays **OPEN** until these are done on real hardware.
+**RB-5 status: PENDING — HARDWARE CURRENTLY UNAVAILABLE.** This section is the
+authoritative resume list. When a device returns, run **only** these; §3 above
+is banked and must not be repeated.
 
 1. **Real carrier/bank SMS** in the actual formats of Saudi/Egyptian banks —
    emulator injection uses text I authored, which cannot validate real templates.

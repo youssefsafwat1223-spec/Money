@@ -35,7 +35,7 @@ Not BETA READY. Not a Release Candidate. Not Production Ready.
 |---|---|---|
 | NOT READY | passed | No known executable engineering blocker remains. The one that did — Android SMS capture being unreachable — is fixed. |
 | **ENGINEERING COMPLETE** | **current** | Code and integration are complete; canonical CI is green; every remaining item needs hardware, an external account, or a production database this machine cannot read. |
-| BETA READY | **no** | Requires **device** QA. An Android emulator pass ran 2026-09-03 (22 PASS) — real runtime evidence, not device evidence. RB-5 stays open. |
+| BETA READY | **no** | Requires **device** QA. RB-5 is **PENDING — HARDWARE CURRENTLY UNAVAILABLE**; the 2026-09-03 emulator pass (22 PASS) is banked and must not be repeated. |
 | RELEASE CANDIDATE | **no** | Additionally requires the Play restricted-permission approval. *(The production migration ledger requirement is now **met** — verified applied through 0092 on 2026-09-02.)* |
 | PRODUCTION READY | **no** | Additionally requires deployed migrations, deployed Edge Functions, configured AdMob units, and store approval. |
 
@@ -142,8 +142,9 @@ RB-4, RB-5 and RB-6 for the three that gate a production claim, and
 
 ## Path to the next label
 
-1. **→ BETA READY:** connect an Android device; run the SMS device QA matrix and
-   the banner QA checklist. ~~Resolve the migration ledger.~~ ✅ done
+1. **→ BETA READY:** reconnect the Xiaomi 2201117TG and run **only** the
+   physical-device-only matrix (§5 of `ANDROID_EMULATOR_QA.md`) via
+   `device_qa_plan.md` and `MANUAL_BANNER_QA_CHECKLIST.md`. ~~Resolve the migration ledger.~~ ✅ done
    2026-09-02 — production verified applied through 0092.
 2. **→ RELEASE CANDIDATE:** reconcile the three SMS disclosure documents, submit
    the Play permissions declaration and Data Safety form, obtain approval.

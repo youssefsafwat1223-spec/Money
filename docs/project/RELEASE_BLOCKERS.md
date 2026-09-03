@@ -59,28 +59,39 @@ nothing is broken by their absence.
 
 ## OPEN — blocking PRODUCTION, not blocking further engineering
 
-### RB-5 — no physical-device QA · **STILL OPEN** · DEVICE
+### RB-5 — Android physical-device QA · **PENDING — HARDWARE CURRENTLY UNAVAILABLE** · EXTERNAL RELEASE GATE
 
-**Advanced, not closed, on 2026-09-03.** A full Android **emulator** pass ran
-(Android 13, API 33, x86_64) against the real debug APK: 22 tests PASS, 2
-BLOCKED on authentication, 2 not run. Full record: `ANDROID_EMULATOR_QA.md`.
+**Status is not "in progress". It is parked on hardware.** This stays an
+external release gate and cannot be closed by any amount of further emulator,
+simulator or static work.
 
-What that bought: automatic SMS capture proven end to end with the app not
-running, the two-key lock proven against genuinely-delivered SMS in both
-negative states, multipart reassembly, the privacy prefilter dropping chat/OTP/
-spam, durable-queue survival across a full device restart, Force Stop
-suppression, and merchant-URL isolation from the financial queue.
+**Already banked, do NOT repeat.** The Android emulator pass of 2026-09-03
+(Android 13 / API 33 / x86_64, against the real 201 MB debug APK) is complete
+and recorded in `ANDROID_EMULATOR_QA.md`: 22 PASS, 2 blocked on authentication,
+2 not run. It proved the two-key lock against genuinely delivered SMS, capture
+with the app not running, multipart reassembly, the privacy prefilter,
+durable-queue survival across a device restart, Force Stop suppression, and
+merchant-URL isolation from the financial queue.
 
-**Why it does not close.** Emulator evidence is not device evidence. Real
-carrier/bank SMS formats, OEM lifecycle (the target device is a Xiaomi with MIUI
-autostart management), doze, APNs, dual-SIM, real Settings permission
-revocation, lock-screen rendering, AdMob rendering, and release-build cold-start
-timing are all unreachable from an AOSP emulator. The complete list is §5 of
-`ANDROID_EMULATOR_QA.md`.
+**When hardware returns, resume ONLY the physical-device-only matrix.** Do not
+re-run the emulator suite — it adds no new evidence and costs hours.
 
-**Owner action.** Reconnect the Xiaomi 2201117TG and run
-`Qirsh Production/18_Android_SMS_Capture/device_qa_plan.md` plus
-`docs/MANUAL_BANNER_QA_CHECKLIST.md`.
+Run exactly:
+- `Qirsh Production/18_Android_SMS_Capture/device_qa_plan.md`
+- `docs/MANUAL_BANNER_QA_CHECKLIST.md`
+
+scoped to §5 of `ANDROID_EMULATOR_QA.md`, which is the authoritative list of
+what an emulator structurally cannot answer: real carrier/bank SMS formats,
+Xiaomi/MIUI autostart and background-kill behaviour, doze and app-standby, real
+APNs delivery, dual-SIM routing, permission revocation through the real Settings
+app, lock-screen notification rendering, AdMob rendering including the
+platform-view-over-sheet bleed check, release-build cold-start timing (which
+determines whether the observed low-RAM broadcast-timeout risk is real in the
+field), and the v33→v34→v35 migration on a populated real database.
+
+**Target hardware on file:** Xiaomi 2201117TG (Redmi Note 11S), Android 13,
+locale ar-EG, dual live Orange EG SIM — profiled 2026-09-02, currently
+disconnected.
 
 ### RB-6 — Google Play restricted-permission approval · **RELEASE BLOCKER** · EXTERNAL APPROVAL
 

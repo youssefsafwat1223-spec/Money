@@ -16,11 +16,12 @@ hardware, against a real network, or against a real production database.**
 
 What blocks a stronger label, in order:
 
-1. **No physical-device QA.** An Android **emulator** pass ran on 2026-09-03
-   (22 PASS — see `ANDROID_EMULATOR_QA.md`), which is real runtime evidence and
-   is **not** device evidence. Real carrier SMS, OEM lifecycle (Xiaomi/MIUI),
-   doze, APNs, dual-SIM, lock-screen rendering and AdMob rendering remain
-   unverified. iOS has had no runtime of any kind.
+1. **Android physical-device QA — PENDING, HARDWARE CURRENTLY UNAVAILABLE.**
+   The emulator pass of 2026-09-03 is complete and banked (22 PASS —
+   `ANDROID_EMULATOR_QA.md`); it is real runtime evidence and is **not** device
+   evidence. When hardware returns, resume **only** the physical-device-only
+   matrix (§5 of that file) — the emulator suite must not be repeated. iOS has
+   had no runtime of any kind.
 2. ~~The production migration ledger is unknowable.~~ **CLOSED 2026-09-02** by
    owner verification: production is applied continuously through **0092**. See
    §Backend.
