@@ -1,5 +1,59 @@
 # Mali — Complete Monetization Plan
 
+> **⚠️ PARTIALLY SUPERSEDED — owner decision, 2026-09-03. Read §0 before acting on
+> anything in this document.** The 2026-06-14 blanket prohibitions on banners and
+> interstitials are superseded **only** by the specific ad surfaces listed in §0.
+> Everything else in this plan — including every other "Never" — remains binding.
+
+---
+
+## 0. Current ad-surface contract (2026-09-03) — AUTHORITATIVE
+
+This section outranks every other statement in this file. It is the single
+product contract for where an ad may appear in Qirsh.
+
+**This is not a general permission to place ads across Qirsh.** It is a closed
+allowlist. A surface that is not named APPROVED below is prohibited, whether or
+not it appears in the exclusion list.
+
+### Approved ad surfaces — the complete list
+
+| Surface | Format | Status | Basis |
+|---|---|---|---|
+| `AdPlacement.transactionsList` | Anchored adaptive banner, one per list, at the first section boundary | **APPROVED** | Owner decision 2026-09-03 |
+| Report export | Interstitial, on export completion | **APPROVED — preserved** | Commissioned after this plan; owner workstream `Qirsh Production/13_AdMob/` carries owner-assigned activation tasks, and the four `ADMOB_*` identifiers are wired through `codemagic.yaml` |
+
+Nothing else. No third surface is approved.
+
+### Explicitly excluded — ads must never appear here
+
+Dashboard / Home · Budgets · Goals · Smart Inbox · capture, review and
+confirmation flows · transaction detail and edit · Coupons, Savings and Merchant
+offers · onboarding and auth · privacy screens · backup and restore · deletion
+and other destructive flows · any form or modal financial action.
+
+This list is illustrative of the boundary, **not** exhaustive of what is
+prohibited — the allowlist above is what defines what is permitted.
+
+### How this is enforced
+
+The allowlist is structural, not documentary. `AdPlacement` enumerates the
+approved placements; `app/test/architecture/report_ads_guards_test.dart` holds a
+positive call-site allowlist that fails if `QirshAdBanner` is mounted anywhere
+other than an approved site. **That guard must not be weakened into a general ads
+permission.** Adding a surface requires an owner decision recorded in
+`docs/project/DECISIONS.md`, not merely a passing test.
+
+### What this decision does not do
+
+It does not enable ads. Both formats remain behind flags seeded OFF
+(`enable_report_ads`, `enable_banner_ads`, `enable_banner_transactions_list`),
+no production ad units exist, and activation remains a separate owner action.
+
+Recorded as **D-18**; closes **RB-9**.
+
+---
+
 > Strategy document — no code, no implementation. Business + product + technical plan only.
 > Last updated: 2026-06-14
 
@@ -29,8 +83,8 @@ Mali is a **trust-first financial tool**. Every monetization decision must pass 
 
 | Model | Why to avoid |
 |-------|-------------|
-| Banner ads in main app | Makes financial tool feel cheap. Destroys trust. |
-| Interstitial / pop-up ads | Trust killer. Never in a financial app. |
+| Banner ads in main app | Makes financial tool feel cheap. Destroys trust. **⚠️ Superseded in part by §0: one banner is approved on the transactions list. Everywhere else this still holds.** |
+| Interstitial / pop-up ads | Trust killer. Never in a financial app. **⚠️ Superseded in part by §0: the report-export interstitial is approved. No other interstitial is.** |
 | Selling user data | Illegal in most target markets + destroys brand permanently |
 | Aggressive BNPL promotions | Predatory reputation risk |
 
@@ -113,13 +167,21 @@ Rewarded ads work best when the user hits a natural friction point and is offere
 - **Content:** Relevant financial products only (cards, savings, insurance)
 - **Frequency:** Max 1 native card per 5 organic cards in Discover feed
 
-### ❌ Banner Ads — Never
+### ⚠️ Banner Ads — Never → **ONE APPROVED SURFACE** (see §0)
 - Destroys the premium feel
 - Distracts during financial review
 - CPM is low — not worth the trust damage
 
-### ❌ Interstitials — Never
+**Superseded 2026-09-03 for exactly one surface:** `AdPlacement.transactionsList`.
+The reasoning above still governs every other surface, and no second banner
+surface may be added without a new owner decision.
+
+### ⚠️ Interstitials — Never → **ONE APPROVED SURFACE** (see §0)
 - Full stop. No exceptions for a financial app.
+
+**Superseded 2026-09-03 for exactly one surface:** the report-export interstitial,
+which was commissioned after this plan. It fires on export completion, never
+during a financial action. No other interstitial is permitted.
 
 ---
 
@@ -288,7 +350,7 @@ Highest revenue per user model. You earn when users take valuable actions (open 
 
 5. **The free experience must feel complete.** Free users should never feel punished. Plus users feel *empowered*.
 
-6. **Offers are in their own section.** Dashboard, transactions, and budgets are completely ad-free.
+6. **Offers are in their own section.** Dashboard and budgets are completely ad-free. **Amended 2026-09-03:** the transactions list carries one approved banner (§0); Dashboard, Budgets, Goals and every flow in §0's exclusion list remain ad-free. Rule 1 — never interrupt a financial action — is **not** amended and still binds every surface.
 
 7. **No dark patterns.** No pre-ticked subscription boxes. No "cancel anytime" in tiny print. No hiding the free option.
 

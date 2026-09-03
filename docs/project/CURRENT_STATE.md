@@ -227,10 +227,13 @@ keys and PEM blocks found only PEM *header string literals* inside
 only `.example` files are tracked.
 
 `app/android/key.properties` exists **on disk** (gitignored, never committed)
-from the August signing work. It makes
-`test/architecture/android_release_signing_test.dart` fail, because that guard
-scans the filesystem while its name says "committed". Left failing deliberately:
-weakening a key-material guard to make a suite green is a bad trade.
+from the August signing work. This used to fail
+`test/architecture/android_release_signing_test.dart`, because that guard
+scanned the filesystem while its name said "committed". **Corrected (D-16), and
+verified passing 2026-09-03 — 11/11.** The guard now asks git what is *tracked*
+anywhere in the repo, which is both its real invariant and a stronger one; it
+was not weakened to go green. Key material on disk is asserted to be
+git-ignored rather than assumed absent.
 
 Egress inventory is enforced by an architecture test with three **OPEN
 findings**, recorded rather than hidden:
@@ -246,7 +249,11 @@ findings**, recorded rather than hidden:
 
 ## Ads
 
-One interstitial (report export) and one banner (transactions list). Both behind
+One interstitial (report export) and one banner (transactions list). **Both
+placements are APPROVED and the allowlist is closed** — owner decision
+2026-09-03, D-18, which closed RB-9 and partially superseded
+`docs/plans/MONETIZATION_PLAN.md`. No third surface is permitted; the enum and
+the call sites are both pinned by `report_ads_guards_test.dart`. Both behind
 flags seeded OFF, both non-personalized (`nonPersonalizedAds: true`), no ATT
 prompt and no `NSUserTrackingUsageDescription` by deliberate decision. UMP is the
 sole consent authority. Ad-free entitlement is server-authoritative and

@@ -8,7 +8,7 @@ claiming Release Candidate or higher.
 
 ---
 
-## RESOLVED on 2026-09-02
+## RESOLVED
 
 ### RB-1 — Android automatic SMS capture was unreachable ✅ FIXED
 
@@ -117,26 +117,59 @@ Entry point: `Qirsh Production/18_Android_SMS_Capture/PLAY_SUBMISSION_PACKAGE.md
 
 Plus the reviewer video, which needs RB-5 hardware.
 
-### RB-7 — nothing in CI compiles the Android app · **CRITICAL** · OWNED
+### RB-7 — CI did not compile the app · **Android ✅ CLOSED 2026-09-03 · iOS still OPEN (MEDIUM)**
 
-**Evidence.** The Android app was unbuildable from `564f1327` until
+**Why this existed.** The Android app was unbuildable from `564f1327` until
 `7161ad04` — a wrong package declaration on two Kotlin files — and **every gate
 stayed green the whole time**: 12/12 canonical CI, 3537 Flutter tests, Deno,
 Node, admin, migration lint, all architecture guards. It was caught only by
 physically building for a device.
 
-**Partially mitigated.** `android_source_integrity_test.dart` now catches this
-specific class statically in ~1s (one package across all Kotlin sources, package
-== `applicationId`, `MainActivity` references resolvable, manifest components
-exist). Proven non-vacuous.
+#### Android — CLOSED
 
-**Not resolved.** A static guard is not a compiler. Any Kotlin error it does not
-model still ships green. `flutter build apk` takes ~38 minutes cold, which is why
-it is not in the inner loop — but a release pipeline that never compiles the
-artifact it releases is a real gap.
+Two independent layers now cover it:
 
-**Recommended.** Add an Android compile step to the release workflow (not the
-inner loop), e.g. `assembleDebug` on CI hardware with a warm Gradle cache.
+1. **A real compiler in automatic CI.** `codemagic.yaml`'s
+   `backend-and-quality-gates` workflow builds a **debug APK** on every push and
+   pull request to `main`, `master`, `develop` and `feat/*` (added in
+   `8a5bd3aa`). It is the only auto-triggered workflow — the three build
+   workflows are manual-only — and it needs no signing key, no production AdMob
+   ids and no backend. It exercises Gradle 9.1.0, AGP 9.0.1, Kotlin 2.3.20,
+   javac, `GeneratedPluginRegistrant`, native plugins, sqlite3mc via the NDK and
+   manifest merge, verifies the vendored `file_picker` fork is actually resolved,
+   and asserts the artifact exists rather than trusting the exit code.
+2. **A ~1s static guard** for the specific class that caused it —
+   `android_source_integrity_test.dart` (one package across all Kotlin sources,
+   package == `applicationId`, `MainActivity` references resolvable, manifest
+   components exist). Proven non-vacuous.
+
+The recommendation this blocker used to carry — "add an Android compile step to
+the release workflow" — is **done**. Only two narrow caveats remain, both
+deliberate and neither blocking:
+
+- `tools/ci_gates.sh` itself still does not compile Android, so a **local** green
+  `ci_gates.sh` run is not evidence that Android builds. The compiler lives in
+  Codemagic, not in the inner loop, because a cold `flutter build apk` is ~38
+  minutes. Do not read a local 12/12 as build proof.
+- Pure-documentation changesets skip the workflow by design (`excludes: docs/**`,
+  `**/*.md`), so an Android build is not spent on a README edit.
+
+#### iOS — still OPEN · MEDIUM
+
+**The identical gap exists for iOS and is not otherwise recorded.** The
+`ios-unsigned-sideload` and `ios-signed-release` workflows are **manual-only**,
+and `backend-and-quality-gates` contains no iOS compile step at all. So the same
+failure mode that hid the Android break for weeks is live for iOS today: a
+CocoaPods, plugin-registration, Swift or Xcode-toolchain defect would stay
+invisible until someone manually runs a release build.
+
+iOS is the weaker side of this, not the stronger one: it has **had no runtime of
+any kind** (`FEATURE_MATRIX.md` — every iOS Runtime and Device cell is ❌), so
+unlike Android there is no emulator pass standing behind it either.
+
+`flutter build ios --no-codesign` needs no signing identity and no Apple portal
+access, which are the things currently blocked — so this is fixable now and does
+not depend on the Apple 2FA item in `EXTERNAL_REQUIREMENTS.md`.
 
 ### RB-8 — AI egress was single-gated · ✅ **FIXED 2026-09-03** · was CRITICAL
 
@@ -155,27 +188,34 @@ Fixed by routing every site through `ConsentAuthority`, pinned by
 while reconciling statements for the Play declaration — which is the argument
 for doing that reconciliation against source rather than against documents.
 
-### RB-9 — the monetization plan prohibits both shipped ad formats · **OWNER DECISION** · blocks ad ACTIVATION only
+### RB-9 — the monetization plan prohibited both shipped ad formats · ✅ **CLOSED 2026-09-03** · was OWNER DECISION
 
-`docs/plans/MONETIZATION_PLAN.md` (2026-06-14) states "**❌ Banner Ads — Never**",
-"**❌ Interstitials — Never** — Full stop. No exceptions for a financial app",
-and principle 6: "Dashboard, transactions, and budgets are completely ad-free."
+**Resolved by owner decision.** `docs/plans/MONETIZATION_PLAN.md` (2026-06-14)
+said "**❌ Banner Ads — Never**", "**❌ Interstitials — Never**" and "Dashboard,
+transactions, and budgets are completely ad-free". It is now **partially
+superseded** — by exactly two surfaces, and by nothing else:
 
-Both shipped formats contradict it — the report-export interstitial and the
-transactions banner — and both were commissioned **later** than the plan. This
-is the same supersession pattern as `ANDROID_SMS_CAPTURE_DECISION.md`, which
-claimed SMS capture was disabled months after the position was revoked.
+| Surface | Status |
+|---|---|
+| `AdPlacement.transactionsList` — anchored adaptive banner | **APPROVED** |
+| Report-export interstitial | **APPROVED — preserved**, its later owner approval evidenced |
 
-Surfaced by one reviewer citing the file; verified. It outranks reviewer
-opinion, so the placement question was resolved against the repository rather
-than against either recommendation.
+The interstitial was preserved under the owner's condition that later approval
+already be evidenced. It is: `Qirsh Production/13_AdMob/` is a numbered owner
+workstream with owner-assigned activation tasks for this exact feature, and its
+four identifiers are wired through `codemagic.yaml`. Full reasoning: **D-18**.
 
-**Blocks activation, not engineering.** Everything is implemented, reviewed and
-inert behind flags seeded OFF; three separate owner actions are required before
-an ad can appear. Options and a recommendation are in
-`ADMOB_PRODUCTION_READINESS.md` §1 — short version: supersede principle 6 for
-transactions, or ship no banner. Do not move the banner to Coupons; both
-reviewers independently ruled that out.
+**This is a closed allowlist, not a general ads permission.** Dashboard/Home,
+Budgets, Goals, Smart Inbox, capture/review/confirmation, transaction
+detail/edit, Coupons/Savings/Merchant offers, onboarding/auth, privacy,
+backup/restore, destructive flows, and forms and modal financial actions are
+excluded — and that list is illustrative: any surface not on the allowlist is
+prohibited. The structural guard in `report_ads_guards_test.dart` is preserved
+unweakened.
+
+**What this does not do:** it does not enable ads. All three flags stay seeded
+OFF and no production ad unit exists, so nothing can serve. Ad activation
+remains gated on the owner actions in `EXTERNAL_REQUIREMENTS.md`.
 
 ---
 

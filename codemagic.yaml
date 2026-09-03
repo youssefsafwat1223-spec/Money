@@ -222,6 +222,7 @@ workflows:
             --dart-define=APP_VERSION="$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' app/pubspec.yaml)" \
             --dart-define=ADMOB_APP_ID_IOS="${ADMOB_APP_ID_IOS:-}" \
             --dart-define=ADMOB_INTERSTITIAL_IOS="${ADMOB_INTERSTITIAL_IOS:-}" \
+            --dart-define=ADMOB_BANNER_IOS="${ADMOB_BANNER_IOS:-}" \
             --export-options-plist=/Users/builder/export_options.plist
 
       # Resolve the export exactly once. Zero or multiple candidates fail before
@@ -361,7 +362,8 @@ workflows:
             --dart-define=LEGAL_BASE_URL="${LEGAL_BASE_URL:-}" \
             --dart-define=APP_VERSION="$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' app/pubspec.yaml)" \
             --dart-define=ADMOB_APP_ID_ANDROID="${ADMOB_APP_ID_ANDROID:-}" \
-            --dart-define=ADMOB_INTERSTITIAL_ANDROID="${ADMOB_INTERSTITIAL_ANDROID:-}"
+            --dart-define=ADMOB_INTERSTITIAL_ANDROID="${ADMOB_INTERSTITIAL_ANDROID:-}" \
+            --dart-define=ADMOB_BANNER_ANDROID="${ADMOB_BANNER_ANDROID:-}"
 
       # §13 — never ship an artifact whose signer was not checked. Cheap, and it
       # would catch a debug-signed or unsigned bundle before it reaches Play.

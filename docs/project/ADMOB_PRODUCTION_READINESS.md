@@ -6,53 +6,58 @@ any build in this repository.**
 
 ---
 
-## 1. THE DECISION YOU HAVE TO MAKE FIRST
+## 1. THE AD-SURFACE CONTRACT — RESOLVED 2026-09-03
 
-The repository contains an owner strategy document that **prohibits the feature
-that was later commissioned**. This surfaced during review and it outranks any
-recommendation I or the reviewers could make.
+**The open product question here is closed.** `docs/plans/MONETIZATION_PLAN.md`
+(2026-06-14) prohibited banners and interstitials outright; the owner superseded
+that on 2026-09-03 for **exactly two surfaces and nothing else**. Recorded as
+**D-18**; closed **RB-9**; §0 of the monetization plan is now the authoritative
+copy of this contract.
 
-`docs/plans/MONETIZATION_PLAN.md` (2026-06-14) says, in a numbered list of
-product principles:
+### Approved — the complete list
 
-> **6. Offers are in their own section.** Dashboard, transactions, and budgets
-> are completely **ad-free**.
+| Surface | Format | Status |
+|---|---|---|
+| `AdPlacement.transactionsList` | Anchored adaptive banner, one per list, at the first section boundary | **APPROVED** |
+| Report export | Interstitial on export completion | **APPROVED — preserved** |
 
-and, in its format section:
+The interstitial was preserved under the owner's condition that its later
+approval already be evidenced. It is: `Qirsh Production/13_AdMob/` is a numbered
+owner-facing workstream carrying owner-assigned activation tasks for this exact
+feature ("the report-export interstitial (R4/R7)"), and its four `ADMOB_*`
+identifiers are wired through `codemagic.yaml` into the release pipeline. The
+"DESIGN ONLY" banner in `docs/REPORT_ADS_SYSTEM.md` r3 is stale prose about a
+feature that shipped.
 
-> **❌ Banner Ads — Never** — "Destroys the premium feel. Distracts during
-> financial review. CPM is low — not worth the trust damage."
-> **❌ Interstitials — Never** — "Full stop. No exceptions for a financial app."
-> **NEVER: Banner ads, interstitials, selling user data, sweepstakes…**
+### Excluded
 
-**Both shipped ad formats contradict that document**: the report-export
-interstitial (commissioned as R4/R7) and the transactions banner (commissioned
-2026-09-01, placement delegated to the reviewers).
+Dashboard / Home · Budgets · Goals · Smart Inbox · capture, review and
+confirmation flows · transaction detail and edit · Coupons, Savings and Merchant
+offers · onboarding and auth · privacy · backup and restore · deletion and
+destructive flows · forms and modal financial actions.
 
-This is the same pattern as `ANDROID_SMS_CAPTURE_DECISION.md`, which said SMS
-capture was disabled long after you had revoked that position — an older
-document that a later decision superseded and nobody revised.
+**This exclusion list is illustrative, not exhaustive.** The allowlist above is
+what defines what is permitted; a surface on neither list is prohibited. This is
+**not** a general permission to place ads across Qirsh.
 
-**What I did NOT do:** silently delete the placement, and silently keep it.
-Either would be me resolving a product question that is yours. Instead:
+Earlier reviewer guidance stands and is now moot in the same direction: both
+reviewers independently ruled out moving the banner to Coupons, and Coupons is
+excluded.
 
-- The banner is **fully implemented, reviewed and inert** — three separate
-  owner actions are required before it can appear (two flags plus production ad
-  units), so nothing ships against your principles by accident.
-- The conflict is recorded here, at the top, where the next session will see it.
+### The guard is structural and stays that way
 
-**Three ways forward, and my recommendation:**
+`app/test/architecture/report_ads_guards_test.dart` holds a **positive call-site
+allowlist**: `QirshAdBanner` may be mounted only at an approved site, and any new
+mount fails CI. This decision does not relax it, and it must not be relaxed into
+a general permission. Adding a surface requires a new entry in
+`docs/project/DECISIONS.md`.
 
-| | |
-|---|---|
-| **A. Supersede principle 6** for transactions only, as you did for SMS capture. One line in `MONETIZATION_PLAN.md`. Everything is then ready. |
-| **B. Keep principle 6, move the banner.** But the only remaining non-excluded surface is Coupons, and **both reviewers independently said keep AdMob out of Coupons** — a third-party banner competing with your own affiliate marketplace. There is effectively nowhere else. |
-| **C. Keep principle 6, ship no banner.** The infrastructure stays dormant; the interstitial keeps its own separate decision. |
+### This enables nothing
 
-**My recommendation: A or C, not B.** The plan is 3 months old and predates both
-commissions; if you still believe principle 6, C is honest and costs only the
-banner. B is the worst of both — it puts ads exactly where your own reviewers
-said not to.
+`enable_report_ads`, `enable_banner_ads` and `enable_banner_transactions_list`
+are all seeded OFF, no production ad unit exists, and a release build without
+injected identifiers resolves null and serves nothing. Activation is a separate
+owner action — §6 below.
 
 ---
 

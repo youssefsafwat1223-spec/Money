@@ -141,3 +141,46 @@ manifest had no permission; the activation pack described activating code with
 no call site; the release-readiness doc recorded Drift v31; and a **Play Data
 Safety draft** claimed zero open egress findings when there are three. The last
 one would have gone into a regulatory submission.
+
+## D-18 · The ad-surface allowlist is closed, and it is two surfaces
+
+**Owner decision, 2026-09-03. Closes RB-9.**
+
+`docs/plans/MONETIZATION_PLAN.md` (2026-06-14) prohibited banners and
+interstitials outright. That prohibition is superseded **only** by the two
+surfaces below, and explicitly is **not** a general permission to place ads
+across Qirsh.
+
+| Surface | Status |
+|---|---|
+| `AdPlacement.transactionsList` — anchored adaptive banner | **APPROVED** |
+| Report-export interstitial | **APPROVED — preserved** |
+
+The interstitial was preserved under the owner's condition *"only if its later
+owner approval is already evidenced in project history/current decisions."* It
+is. The evidence is `Qirsh Production/13_AdMob/`, a numbered owner-facing
+production workstream whose README tracks owner-assigned activation tasks
+("AdMob account created — Youssef", "Four production identifiers obtained —
+Youssef", "Set in Codemagic — Youssef") for this specific feature, described
+there as "the report-export interstitial (R4/R7)". Its four `ADMOB_*`
+identifiers are wired through `codemagic.yaml` into the release pipeline. That
+is the same evidence class as `18_Android_SMS_Capture/`, which was accepted as
+authoritative for the SMS supersession. Design-only spec status in
+`docs/REPORT_ADS_SYSTEM.md` r3 is stale prose about a feature that shipped.
+
+**Excluded, and this list is illustrative rather than exhaustive:** Dashboard /
+Home, Budgets, Goals, Smart Inbox, capture / review / confirmation flows,
+transaction detail and edit, Coupons / Savings / Merchant offers, onboarding and
+auth, privacy, backup and restore, deletion and destructive flows, forms and
+modal financial actions. What defines the boundary is the allowlist, not the
+exclusions: a surface absent from both is prohibited.
+
+**The guard stays structural.** `report_ads_guards_test.dart` holds a *positive*
+call-site allowlist — `QirshAdBanner` may be mounted only at an approved site,
+and any new mount fails CI. This decision does not relax it. Widening it
+requires a new entry in this file, not a test edit.
+
+**No ad is enabled by this.** `enable_report_ads`, `enable_banner_ads` and
+`enable_banner_transactions_list` remain seeded OFF, no production ad units
+exist, and a release build without injected identifiers resolves null and serves
+nothing. Activation is a separate owner action.

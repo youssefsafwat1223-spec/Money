@@ -1,6 +1,17 @@
-# Report Ads System — Specification (V1, design-only) — **r3**
+# Report Ads System — Specification (V1) — **r3**
 
-> Status: **DESIGN ONLY.** No code, no migrations, no dependencies, no ad-unit
+> **⚠️ STATUS CORRECTED 2026-09-03. This document's "design only" header was
+> stale.** The report-export interstitial **is implemented and shipped** —
+> `app/lib/features/report_ads/` and `app/lib/features/ads/`, with native wiring
+> on both platforms, guard tests, and four `ADMOB_*` identifiers passed through
+> `codemagic.yaml`. The placement is **APPROVED — preserved** by owner decision
+> 2026-09-03 (`docs/project/DECISIONS.md` D-18). It is inert: `enable_report_ads`
+> is seeded OFF and no production ad unit exists. The text below is the original
+> design and is retained as the design record; where it and the source disagree,
+> the source wins. Current state: `docs/project/ADMOB_PRODUCTION_READINESS.md`.
+
+> Original status line (historical): **DESIGN ONLY.** No code, no migrations, no
+> dependencies, no ad-unit
 > registration, no staging/production contact. Baseline tree `8d33cff5`,
 > **Drift v31 (no bump — see §11)**, server migrations 0001→0082.
 > Companions: [REFERRAL_REWARDS_SYSTEM.md](./REFERRAL_REWARDS_SYSTEM.md),

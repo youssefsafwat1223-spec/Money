@@ -276,8 +276,35 @@ void main() {
       if (f.readAsStringSync().contains('QirshAdBanner')) found.add(path);
     }
     expect(found, approved,
-        reason: 'banner call sites changed — approve the new placement here, '
-            'and check it against the NEVER list in docs/BANNER_ADS_SYSTEM.md');
+        reason: 'banner call sites changed. The ad-surface allowlist is CLOSED '
+            '(owner decision 2026-09-03, D-18): a surface not on it is '
+            'prohibited. Adding one requires an owner decision recorded in '
+            'docs/project/DECISIONS.md and section 0 of '
+            'docs/plans/MONETIZATION_PLAN.md — not an edit to this list.');
+  });
+
+  test('the AdPlacement enum itself is a closed allowlist', () {
+    // The call-site guard above is necessary but not sufficient. A second
+    // placement could be added to the enum and mounted inside the ALREADY
+    // approved file, and the call-site set would not change. The approved
+    // surfaces are a product contract (D-18), so the enum that names them is
+    // pinned too: exactly one banner placement is approved.
+    final src = File('lib/features/ads/ad_placement.dart').readAsStringSync();
+    final body = src.substring(src.indexOf('enum AdPlacement {'));
+    final values = RegExp(r'^\s{2}([a-z][A-Za-z0-9]*)\(', multiLine: true)
+        .allMatches(body)
+        .map((m) => m.group(1))
+        .toSet();
+    expect(values, {'transactionsList'},
+        reason: 'AdPlacement changed. Approved surfaces are transactionsList '
+            '(banner) and the report-export interstitial, and nothing else. '
+            'Excluded by owner decision: Dashboard/Home, Budgets, Goals, Smart '
+            'Inbox, capture/review/confirmation, transaction detail/edit, '
+            'Coupons/Savings/Merchant offers, onboarding/auth, privacy, '
+            'backup/restore, destructive flows, and forms and modal financial '
+            'actions. That exclusion list is illustrative — the allowlist is '
+            'what permits. Record a new surface in docs/project/DECISIONS.md '
+            'first.');
   });
 
   test('the banner flag keys exist in the flag defaults', () {
