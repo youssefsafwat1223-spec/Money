@@ -1,6 +1,6 @@
 # Qirsh — release blockers
 
-**As of 2026-09-02.** A blocker is something that makes a release *indefensible*,
+**As of 2026-09-03.** A blocker is something that makes a release *indefensible*,
 not merely imperfect. Everything else is in `MASTER_ROADMAP.md` as debt.
 
 Policy: **zero unresolved RELEASE BLOCKER and zero unresolved CRITICAL** before
@@ -59,23 +59,28 @@ nothing is broken by their absence.
 
 ## OPEN — blocking PRODUCTION, not blocking further engineering
 
-### RB-5 — no physical device has ever been used · **RELEASE BLOCKER** · DEVICE
+### RB-5 — no physical-device QA · **STILL OPEN** · DEVICE
 
-**Evidence.** No Android device has ever been attached to this machine; iOS
-needs Apple portal access requiring an unavailable 2FA code. No simulator or
-emulator run has been performed either.
+**Advanced, not closed, on 2026-09-03.** A full Android **emulator** pass ran
+(Android 13, API 33, x86_64) against the real debug APK: 22 tests PASS, 2
+BLOCKED on authentication, 2 not run. Full record: `ANDROID_EMULATOR_QA.md`.
 
-**Why it blocks.** Every one of these is unverifiable without hardware and is
-load-bearing: SMS receipt with the app closed, multipart SMS reassembly, process
-death and restart, notification delivery, APNs, background execution, the iOS
-share extension and App Group handoff, permission grant/revoke behaviour, banner
-rendering under a modal sheet (`AdWidget` is a platform view and platform views
-have bled over Flutter modals in this app before), and the whole v34→v35
-migration on a real populated database.
+What that bought: automatic SMS capture proven end to end with the app not
+running, the two-key lock proven against genuinely-delivered SMS in both
+negative states, multipart reassembly, the privacy prefilter dropping chat/OTP/
+spam, durable-queue survival across a full device restart, Force Stop
+suppression, and merchant-URL isolation from the financial queue.
 
-**Owner action.** Connect an Android device with USB debugging and run
-`Qirsh Production/18_Android_SMS_Capture/device_qa_plan.md` and
-`docs/MANUAL_BANNER_QA_CHECKLIST.md`. iOS needs the portal unblocked first.
+**Why it does not close.** Emulator evidence is not device evidence. Real
+carrier/bank SMS formats, OEM lifecycle (the target device is a Xiaomi with MIUI
+autostart management), doze, APNs, dual-SIM, real Settings permission
+revocation, lock-screen rendering, AdMob rendering, and release-build cold-start
+timing are all unreachable from an AOSP emulator. The complete list is §5 of
+`ANDROID_EMULATOR_QA.md`.
+
+**Owner action.** Reconnect the Xiaomi 2201117TG and run
+`Qirsh Production/18_Android_SMS_Capture/device_qa_plan.md` plus
+`docs/MANUAL_BANNER_QA_CHECKLIST.md`.
 
 ### RB-6 — Google Play restricted-permission approval · **RELEASE BLOCKER** · EXTERNAL APPROVAL
 
@@ -89,6 +94,27 @@ draft records an optional sanitized-text path that the backend retains; the live
 privacy policy describes an optional cloud/AI path. All three must say the same
 thing, and the true statement is the third one — the path exists, is
 consent-gated and is off by default.
+
+### RB-7 — nothing in CI compiles the Android app · **CRITICAL** · OWNED
+
+**Evidence.** The Android app was unbuildable from `564f1327` until
+`7161ad04` — a wrong package declaration on two Kotlin files — and **every gate
+stayed green the whole time**: 12/12 canonical CI, 3537 Flutter tests, Deno,
+Node, admin, migration lint, all architecture guards. It was caught only by
+physically building for a device.
+
+**Partially mitigated.** `android_source_integrity_test.dart` now catches this
+specific class statically in ~1s (one package across all Kotlin sources, package
+== `applicationId`, `MainActivity` references resolvable, manifest components
+exist). Proven non-vacuous.
+
+**Not resolved.** A static guard is not a compiler. Any Kotlin error it does not
+model still ships green. `flutter build apk` takes ~38 minutes cold, which is why
+it is not in the inner loop — but a release pipeline that never compiles the
+artifact it releases is a real gap.
+
+**Recommended.** Add an Android compile step to the release workflow (not the
+inner loop), e.g. `assembleDebug` on CI hardware with a warm Gradle cache.
 
 ---
 

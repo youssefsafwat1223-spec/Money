@@ -15,9 +15,11 @@ previous report claimed otherwise, this file is right and the report is stale.
 - **Flag** — default state.
 - **Prod** — validated in production with real users/partners.
 
-`—` means not applicable. **No column below has a single ✅ under Device or
-Runtime: no physical device has ever been attached to this machine, and no
-simulator or emulator run has been performed.**
+`—` means not applicable.
+
+**Runtime = Android 13 emulator, 2026-09-03** (see `ANDROID_EMULATOR_QA.md`).
+**Device is still ❌ everywhere: no test has been run on physical hardware.**
+Emulator evidence is not device evidence and does not close RB-5.
 
 ---
 
@@ -25,8 +27,8 @@ simulator or emulator run has been performed.**
 
 | Feature | Impl | Wired | Tested | Runtime | Device | Backend | Flag | Prod |
 |---|---|---|---|---|---|---|---|---|
-| Android automatic SMS | ✅ | ✅ *(fixed 2026-09-02)* | ✅ | ❌ | ❌ | — | opt-in, default off | ❌ Play approval pending |
-| Android share-to-Qirsh | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
+| Android automatic SMS | ✅ | ✅ | ✅ | **✅ emulator** | ❌ | — | opt-in, default off | ❌ Play approval pending |
+| Android share-to-Qirsh | ✅ | ✅ | ✅ | **✅ emulator** | ❌ | — | always on | ❌ |
 | iOS Shortcuts capture | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `process-ios-sms` | always on | ❌ |
 | iOS share extension (text) | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
 | iOS share extension (URL) | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
@@ -34,7 +36,7 @@ simulator or emulator run has been performed.**
 | Parser engine | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ catalog rules | `parser_engine_version=v1` | ❌ |
 | Categorization | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ catalog | always on | ❌ |
 | Smart Inbox | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ `smart_inbox_pull_sync` OFF | OFF | ❌ |
-| Durable capture queue | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
+| Durable capture queue | ✅ | ✅ | ✅ | **✅ emulator** | ❌ | — | always on | ❌ |
 | **Proof-Carrying engine** | ✅ | **❌ zero callers** | ✅ | ❌ | ❌ | ✅ `parse-sms` shadow route | n/a — cannot activate by flag | ❌ |
 
 ## Money and planning
@@ -55,7 +57,7 @@ simulator or emulator run has been performed.**
 
 | Feature | Impl | Wired | Tested | Runtime | Device | Backend | Flag | Prod |
 |---|---|---|---|---|---|---|---|---|
-| Local Drift (SQLCipher) | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
+| Local Drift (SQLCipher) | ✅ | ✅ | ✅ | **✅ emulator** (fresh create) | ❌ | — | always on | ❌ |
 | Cloud ledger sync | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ through 0092 | **all OFF** | ❌ |
 | Encrypted backup | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ storage bucket | always on | ❌ |
 | Restore | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | always on | ❌ |
@@ -81,7 +83,7 @@ simulator or emulator run has been performed.**
 | Affiliate attribution | ✅ | ✅ | ✅ fixture | ❌ | ❌ | ❌ `0097` source-only | OFF | ❌ no network |
 | **Affiliate click gateway** | ✅ | **❌ zero callers** | ✅ | ❌ | ❌ | ❌ | OFF | ❌ |
 | Savings ledger | ✅ | ✅ | ✅ | ❌ | ❌ | — local only | `enable_savings_claims` OFF | ❌ |
-| Share-to-Qirsh (offers) | ✅ | ✅ | ✅ | ❌ | ❌ | — | always on | ❌ |
+| Share-to-Qirsh (offers) | ✅ | ✅ | ✅ | **✅ emulator** (URL isolation proven) | ❌ | — | always on | ❌ |
 
 ## Platform and operations
 
@@ -107,5 +109,8 @@ simulator or emulator run has been performed.**
    accidental-activation risk for no benefit.
 3. **Android automatic SMS — was unreachable, now wired.** This was the release
    blocker; it is fixed, and a reachability guard prevents the regression.
-4. **Every Device and Runtime cell is ❌.** That is the honest ceiling on any
-   readiness claim above ENGINEERING COMPLETE.
+4. **Every Device cell is still ❌.** Six Runtime cells are now ✅ from the
+   2026-09-03 Android emulator run — including automatic SMS capture end to end,
+   multipart reassembly, the privacy prefilter, and merchant-URL isolation. That
+   is real runtime evidence, and it is still not device evidence: RB-5 stays
+   open, and the physical-device-only list is §5 of `ANDROID_EMULATOR_QA.md`.

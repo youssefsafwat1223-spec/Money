@@ -4,6 +4,16 @@
 
 Not BETA READY. Not a Release Candidate. Not Production Ready.
 
+> **Re-evaluated after Android emulator QA (2026-09-03).** Still
+> ENGINEERING COMPLETE — and the label is now better earned than it was, because
+> a defect that would have made it false was found and fixed: **the Android app
+> did not compile**, and had not since 2026-09-01, while every gate reported
+> green. Emulator QA proved the built app installs, boots, opens its encrypted
+> database, captures a real inbound SMS end to end with the app not running,
+> drops non-financial messages, and keeps merchant URLs out of the financial
+> queue. None of that is physical-device evidence, so BETA READY is unchanged.
+> A new CRITICAL, RB-7, records that nothing in CI compiles Android.
+>
 > **Re-evaluated after the migration ledger was verified (2026-09-02).**
 > The classification **does not change**, and it is worth being precise about
 > why. Closing RB-4 removed a *production* blocker and the product's worst
@@ -25,7 +35,7 @@ Not BETA READY. Not a Release Candidate. Not Production Ready.
 |---|---|---|
 | NOT READY | passed | No known executable engineering blocker remains. The one that did — Android SMS capture being unreachable — is fixed. |
 | **ENGINEERING COMPLETE** | **current** | Code and integration are complete; canonical CI is green; every remaining item needs hardware, an external account, or a production database this machine cannot read. |
-| BETA READY | **no** | Requires device QA. No physical device has ever been attached to this machine, and no simulator or emulator run has been performed either. |
+| BETA READY | **no** | Requires **device** QA. An Android emulator pass ran 2026-09-03 (22 PASS) — real runtime evidence, not device evidence. RB-5 stays open. |
 | RELEASE CANDIDATE | **no** | Additionally requires the Play restricted-permission approval. *(The production migration ledger requirement is now **met** — verified applied through 0092 on 2026-09-02.)* |
 | PRODUCTION READY | **no** | Additionally requires deployed migrations, deployed Edge Functions, configured AdMob units, and store approval. |
 

@@ -1,6 +1,6 @@
 # Qirsh — current state
 
-**As of 2026-09-02, branch `feat/phase1-data-integrity`.** Written against
+**As of 2026-09-03, branch `feat/phase1-data-integrity`.** Written against
 source, not against previous reports. Where an older document and the code
 disagree, the code wins and this file says so.
 
@@ -16,10 +16,11 @@ hardware, against a real network, or against a real production database.**
 
 What blocks a stronger label, in order:
 
-1. **No physical device has ever been attached to this machine.** Not Android,
-   not iOS. SMS receipt, push delivery, background execution, share extensions,
-   App Groups, banner rendering and permission behaviour are all unverified on
-   hardware. Simulator/emulator evidence does not exist either.
+1. **No physical-device QA.** An Android **emulator** pass ran on 2026-09-03
+   (22 PASS — see `ANDROID_EMULATOR_QA.md`), which is real runtime evidence and
+   is **not** device evidence. Real carrier SMS, OEM lifecycle (Xiaomi/MIUI),
+   doze, APNs, dual-SIM, lock-screen rendering and AdMob rendering remain
+   unverified. iOS has had no runtime of any kind.
 2. ~~The production migration ledger is unknowable.~~ **CLOSED 2026-09-02** by
    owner verification: production is applied continuously through **0092**. See
    §Backend.
@@ -75,6 +76,19 @@ an OPEN egress finding so the consent obligation is visible before the first
 caller appears.
 
 ---
+
+## What was fixed on 2026-09-03
+
+**The Android app did not compile.** `OfferIntentStore.kt` and
+`SharedContentRouter.kt` declared the directory's package
+(`com.example.money_companion`) instead of the app's
+(`com.youssefsafwat.mali`), so `MainActivity` could not resolve either class. It
+had been broken since `564f1327` and **every gate stayed green**, because
+nothing in this repository compiles Android. Fixed in `7161ad04`, with a ~1s
+static guard (`android_source_integrity_test.dart`) that catches this class and
+is proven non-vacuous. The build is now verified: `✓ Built app-debug.apk`.
+
+The residual gap — no Android compile anywhere in CI — is **RB-7**.
 
 ## What was fixed on 2026-09-02
 
