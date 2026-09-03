@@ -86,11 +86,16 @@ its products.** That is an independent purpose. It would break "may not be
 extended for any other purpose", flip Data Safety to *Shared: YES*, and void the
 exception claim.
 
-**Action:** commit to a no-training tier (paid Gemini API or Vertex AI), verify
-the data-governance terms **at enablement**, and record the terms version and
-date next to the Data Safety row. `GEMINI_API_KEY` is currently unset in
-production, so this decision is still ahead of you — keep it that way until the
-tier is pinned.
+**Action — owner requirements as stated 2026-09-03:**
+
+1. Use a **paid / billing-enabled tier** whose **current** data-use terms state
+   that submitted content is **not used for product improvement**.
+2. **Do not enable voluntary log or dataset sharing** in the Google Cloud /
+   AI Studio console.
+3. Record the terms version and the verification date next to the Data Safety
+   row in `data_safety_draft.md`.
+4. Only then set `GEMINI_API_KEY`. It is unset in production today and **stays
+   unset until (1)–(3) are recorded and verified**.
 
 ### 4.2 Redeploy the legal site
 
@@ -100,7 +105,9 @@ policy URL, so a reviewer would read the stale copy.
 Regenerate with `tools/build_legal_site.py` and redeploy `/privacy` and
 `/en/privacy`. **Deployment is an owner action** — not performed here.
 
-### 4.3 Record the reviewer video — needs RB-5 hardware
+### 4.3 Reviewer video — **PENDING, HARDWARE UNAVAILABLE**
+
+Blocked on RB-5. Script is §5 of the declaration.
 
 Script is §5 of the declaration. Steps 4, 8 and 10 are what reviewers check.
 
