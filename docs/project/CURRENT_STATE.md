@@ -78,7 +78,27 @@ caller appears.
 
 ---
 
-## What was fixed on 2026-09-03
+## What was fixed on 2026-09-03 (Play readiness)
+
+**AI egress was single-gated, and it made the live privacy policy false.**
+`ConsentAuthority` required `cloud && aiConsentGranted`; the production wiring
+asked only for `aiConsentGranted` at four sites. With cloud processing OFF and
+AI ON — reachable from the UI — sanitized bank-SMS text still left the device,
+while the published policy promised it could not. Fixed and pinned by
+`ai_egress_consent_test.dart`. Full account: **RB-8**.
+
+Three more false SMS statements were corrected in the same pass: the live
+policy and the store copy both claimed **notification access the app has never
+had**; the Play declaration draft claimed nothing is sent to an AI provider and
+misquoted the shipped disclosure; and two shipped strings overstated
+("nothing leaves your phone", and an AI toggle describing "unfamiliar messages"
+when the code is AI-first).
+
+Entry point for the Play track:
+`Qirsh Production/18_Android_SMS_Capture/PLAY_SUBMISSION_PACKAGE.md`. Nothing
+has been submitted.
+
+## What was fixed on 2026-09-03 (Android build)
 
 **The Android app did not compile.** `OfferIntentStore.kt` and
 `SharedContentRouter.kt` declared the directory's package

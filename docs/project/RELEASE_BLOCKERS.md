@@ -96,15 +96,26 @@ disconnected.
 ### RB-6 — Google Play restricted-permission approval · **RELEASE BLOCKER** · EXTERNAL APPROVAL
 
 `RECEIVE_SMS` requires an approved permissions declaration under the SMS-based
-money management exception. The draft is ready and **not submitted**; the Data
-Safety form likewise.
+money management exception. **Nothing has been submitted.**
 
-**Before submitting**, reconcile three documents that currently do not agree:
-the declaration draft says no SMS text reaches an AI provider; the Data Safety
-draft records an optional sanitized-text path that the backend retains; the live
-privacy policy describes an optional cloud/AI path. All three must say the same
-thing, and the true statement is the third one — the path exists, is
-consent-gated and is off by default.
+**The reconciliation is DONE (2026-09-03).** Every SMS statement was audited
+against the code and four were false — including one that made the live privacy
+policy untrue (see RB-8). The declaration is rewritten, the disclosure quoted
+verbatim, the store copy corrected, and a 12-step reviewer video script written.
+Entry point: `Qirsh Production/18_Android_SMS_Capture/PLAY_SUBMISSION_PACKAGE.md`.
+
+**Two things still block submission, both owner actions:**
+
+1. **Pin a no-training AI provider tier before `GEMINI_API_KEY` is ever set.**
+   Both reviewers made this the pivot: the exception permits transfer to a
+   *service provider*, and the Gemini free tier permits Google to use submitted
+   content to improve its products — an independent purpose that would void the
+   claim and flip Data Safety to *Shared: YES*. The key is unset in production;
+   keep it that way until the tier and its terms are recorded.
+2. **Redeploy the legal site.** The policy source is corrected; the live page
+   still says "and notification messages". The declaration attaches that URL.
+
+Plus the reviewer video, which needs RB-5 hardware.
 
 ### RB-7 — nothing in CI compiles the Android app · **CRITICAL** · OWNED
 
@@ -126,6 +137,23 @@ artifact it releases is a real gap.
 
 **Recommended.** Add an Android compile step to the release workflow (not the
 inner loop), e.g. `assembleDebug` on CI hardware with a warm Gradle cache.
+
+### RB-8 — AI egress was single-gated · ✅ **FIXED 2026-09-03** · was CRITICAL
+
+`ConsentAuthority` required `cloud && aiConsentGranted` for AI egress; the
+production wiring asked only for `aiConsentGranted` at four call sites, and
+`ai_parser_client` never consulted `ConsentAuthority`. With cloud processing OFF
+and AI ON — a state the UI allows — sanitized bank-SMS text was still
+transmitted.
+
+That made a **published legal document false**: the policy promises that with
+cloud off "no financial data leaves your device — this is enforced at every
+network call, not only in the settings UI."
+
+Fixed by routing every site through `ConsentAuthority`, pinned by
+`ai_egress_consent_test.dart` (non-vacuous), 505 related tests passing. Found
+while reconciling statements for the Play declaration — which is the argument
+for doing that reconciliation against source rather than against documents.
 
 ---
 
