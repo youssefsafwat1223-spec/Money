@@ -1005,7 +1005,14 @@ final bankDiscoveryServiceProvider = Provider<BankDiscoveryService?>((ref) {
       final settings = await DriftUserSettingsRepository(
         ref.read(appDatabaseProvider),
       ).getSettings();
-      return settings.aiConsentGranted;
+      // OD-07 / C-3 — AI needs BOTH consents, matching
+      // `ConsentAuthority.decide(EgressClass.aiProcessing)`: "restrictive state
+      // wins". This used to read `aiConsentGranted` alone, so a user with cloud
+      // processing OFF and AI ON still had sanitized SMS text transmitted —
+      // contradicting the LIVE privacy policy, which promises that with cloud
+      // off "no financial data leaves your device — this is enforced at every
+      // network call, not only in the settings UI".
+      return ConsentAuthority.decide(EgressClass.aiProcessing, settings);
     },
     loadInstallId: InstallId.get,
   );
@@ -1242,7 +1249,14 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
         : null,
     loadAiConsent: () async {
       final settings = await DriftUserSettingsRepository(db).getSettings();
-      return settings.aiConsentGranted;
+      // OD-07 / C-3 — AI needs BOTH consents, matching
+      // `ConsentAuthority.decide(EgressClass.aiProcessing)`: "restrictive state
+      // wins". This used to read `aiConsentGranted` alone, so a user with cloud
+      // processing OFF and AI ON still had sanitized SMS text transmitted —
+      // contradicting the LIVE privacy policy, which promises that with cloud
+      // off "no financial data leaves your device — this is enforced at every
+      // network call, not only in the settings UI".
+      return ConsentAuthority.decide(EgressClass.aiProcessing, settings);
     },
     loadInstallId: InstallId.get,
     resolveBankForSenderUseCase: ref.watch(resolveBankForSenderUseCaseProvider),

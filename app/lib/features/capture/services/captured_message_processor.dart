@@ -1,3 +1,4 @@
+import '../../../core/privacy/consent_authority.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../../core/backend/supabase_config.dart';
@@ -184,7 +185,8 @@ class CapturedMessageProcessor {
               : null,
           aiClient: aiParserClient,
           loadAiConsent: () async =>
-              (await settingsRepository.getSettings()).aiConsentGranted,
+              ConsentAuthority.decide(EgressClass.aiProcessing,
+                          await settingsRepository.getSettings()),
           loadInstallId: InstallId.get,
           accountRepository:
               DriftAccountRepository(db, outboxQueue: planningOutbox),
@@ -199,7 +201,8 @@ class CapturedMessageProcessor {
                   mappingRepository: senderBankMappingRepository,
                   client: bankDiscoveryClient,
                   loadAiConsent: () async =>
-                      (await settingsRepository.getSettings()).aiConsentGranted,
+                      ConsentAuthority.decide(EgressClass.aiProcessing,
+                          await settingsRepository.getSettings()),
                   loadInstallId: InstallId.get,
                 ),
         ),

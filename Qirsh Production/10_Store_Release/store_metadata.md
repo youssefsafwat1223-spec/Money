@@ -25,8 +25,19 @@ name.** Use seeded demo data.
 
 ## Description — what to lead with
 
-Qirsh reads bank SMS and notifications **on the device** to build a private
-spending record. The differentiators worth stating:
+Qirsh reads incoming bank **SMS** on the device to build a private spending
+record.
+
+> **CORRECTED 2026-09-03.** This previously said "bank SMS **and
+> notifications**". Qirsh has **never** had notification access — there is no
+> `NotificationListenerService` and no `BIND_NOTIFICATION_LISTENER_SERVICE`, and
+> `android_sms_permission_test.dart` asserts their absence precisely because the
+> documentation claimed one for months. Claiming it in store-facing copy would
+> describe a second restricted permission the app does not request, and the
+> in-app trust notice tells users the opposite ("it does not read bank app
+> notifications").
+
+The differentiators worth stating:
 
 - works offline; financial data stays on the device in an encrypted database
 - cloud sync is **optional and off by default**
@@ -41,7 +52,9 @@ policy says exactly that and the store listing must not overreach.
 Reviewers cannot receive real bank SMS. Provide:
 - a demo account
 - how to trigger a capture manually (paste/share a sample message)
-- a plain explanation that notification access is the app's core function
+- a plain explanation that **automatic incoming bank-SMS capture** is the app's
+  core function (Android only; `RECEIVE_SMS`, never `READ_SMS`). Notification
+  access is NOT used and must not be mentioned.
 
 ## Age rating
 

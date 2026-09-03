@@ -95,8 +95,14 @@ class PrivacyScreen extends ConsumerWidget {
                             icon: AppLucideIcons.sparkles,
                             title: 'التحليل بالذكاء الاصطناعي',
                             subtitle:
-                                'استخدام نماذج ذكاء اصطناعي سحابية لفهم الرسائل غير المألوفة وتصنيفها. '
-                                'إيقافه يقتصر التحليل على القواعد المحلية.',
+                                // The code is AI-FIRST (`_tryAiParseFirst`): with
+                                // this AND cloud processing on, EVERY captured
+                                // message is sent, not only unfamiliar ones.
+                                // The old copy said "unfamiliar messages", which
+                                // understated it.
+                                'لما تشغّله مع المعالجة السحابية، بتتبعت نسخة منقّاة من كل رسالة بنكية '
+                                'لنماذج ذكاء اصطناعي سحابية عشان تتقرأ وتتصنّف. '
+                                'إيقافه يقتصر التحليل على القواعد المحلية على جهازك.',
                             value: settings.aiConsentGranted,
                             onChanged: (value) => _setConsent(
                               ref,

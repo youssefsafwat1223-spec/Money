@@ -1102,7 +1102,7 @@ abstract class AppL10n {
   /// No description provided for @smsPermissionRationaleBody.
   ///
   /// In ar, this message translates to:
-  /// **'قرش يقرأ رسائل البنك على جهازك فقط عشان يسجّل عملياتك تلقائياً. مش بنقرأ رسائلك الشخصية، ومفيش حاجة بتطلع برّه الجهاز.'**
+  /// **'قِرش يقرأ رسائل البنك الواردة على جهازك عشان يسجّل عملياتك تلقائياً. مابيقراش رسائلك الشخصية، والتحليل بيتم على الجهاز افتراضياً — مافيش حاجة بتطلع منه غير لو شغّلت المعالجة السحابية بنفسك.'**
   String get smsPermissionRationaleBody;
 
   /// No description provided for @listeningTitle.

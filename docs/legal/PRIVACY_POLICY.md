@@ -2,8 +2,8 @@
 
 **Last updated: 2026-08-29**
 
-Qirsh (قِرش) is a personal finance app that reads bank SMS and notification
-messages on your device and turns them into a private record of your spending.
+Qirsh (قِرش) is a personal finance app that reads bank SMS on your device and
+turns them into a private record of your spending.
 
 This policy describes what the app actually does. It was written after the
 privacy behaviour was audited and corrected, not before — several statements

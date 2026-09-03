@@ -562,7 +562,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smsPermissionRationaleBody =>
-      'Qirsh reads bank SMS on your device only to log your transactions automatically. We don\'t read personal messages and nothing leaves your phone.';
+      'Qirsh reads incoming bank SMS on your device to log your transactions automatically. It does not read personal messages, and parsing happens on your device by default — nothing leaves it unless you turn on cloud processing yourself.';
 
   @override
   String get listeningTitle => 'Armed — waiting for your first message';
