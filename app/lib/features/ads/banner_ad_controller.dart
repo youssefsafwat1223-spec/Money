@@ -60,6 +60,15 @@ class AdMobBannerAdLoader implements BannerAdLoader {
   BannerAd? _ad;
   bool _disposed = false;
 
+  /// The size Google returned from the adaptive lookup, kept so [load] can pass
+  /// the SAME object back.
+  ///
+  /// Rebuilding `AdSize(width: w, height: h)` from its numbers makes the request
+  /// a CUSTOM size rather than an anchored-adaptive one, which is a different
+  /// (and thinner) inventory type. Both reviewers caught this independently: the
+  /// layout was right and the request was asking for the wrong thing.
+  AdSize? _resolvedSize;
+
   static const Duration _loadTimeout = Duration(seconds: 20);
 
   @override
@@ -81,8 +90,10 @@ class AdMobBannerAdLoader implements BannerAdLoader {
     try {
       final size = await AdSize.getLargeAnchoredAdaptiveBannerAdSize(widthPx)
           .timeout(const Duration(seconds: 5));
+      _resolvedSize = size;
       return size?.height;
     } catch (_) {
+      _resolvedSize = null;
       return null;
     }
   }
@@ -103,9 +114,14 @@ class AdMobBannerAdLoader implements BannerAdLoader {
       if (!completer.isCompleted) completer.complete(ok);
     }
 
+    // The adaptive size Google gave us, or the genuine standard banner. NOT a
+    // reconstructed custom size — see `_resolvedSize`. `AdSize.banner` is the
+    // real 320x50 constant rather than `width x 50`, which would again be a
+    // custom size wearing a standard size's dimensions.
+    final size = _resolvedSize ?? AdSize.banner;
     final ad = BannerAd(
       adUnitId: adUnitId,
-      size: AdSize(width: widthPx, height: heightPx),
+      size: size,
       // Matches the interstitial and docs/REPORT_ADS_SYSTEM.md §13: this app
       // ships no ATT prompt and no IDFA, so every request is non-personalized.
       request: const AdRequest(

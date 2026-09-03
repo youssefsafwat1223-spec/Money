@@ -38,9 +38,11 @@ final _silentAnalytics = BannerAdsAnalytics(
 class _SpyLoader implements BannerAdLoader {
   static int loadCalls = 0;
   static int resolveCalls = 0;
+  static int disposeCalls = 0;
   static void reset() {
     loadCalls = 0;
     resolveCalls = 0;
+    disposeCalls = 0;
   }
 
   @override
@@ -66,7 +68,7 @@ class _SpyLoader implements BannerAdLoader {
   }
 
   @override
-  void dispose() {}
+  void dispose() => disposeCalls++;
 }
 
 Widget _app({
@@ -296,4 +298,45 @@ void main() {
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });
+  testWidgets('eligibility turning FALSE drops an ad we already hold',
+      (tester) async {
+    // The gap both reviewers found: only the VISUAL gate disposed. A user who
+    // earned ad-free mid-session, or revoked UMP consent, kept a loaded banner
+    // alive behind an empty box.
+    final eligible = ValueNotifier<bool>(true);
+    addTearDown(eligible.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          bannerEligibilityProvider(AdPlacement.transactionsList)
+              .overrideWith((ref) async => eligible.value),
+          bannerAdLoaderFactoryProvider.overrideWithValue(_SpyLoader.new),
+          bannerAdsAnalyticsProvider.overrideWithValue(_silentAnalytics),
+        ],
+        child: const MaterialApp(
+          home: Scaffold(
+            body: QirshAdBanner(placement: AdPlacement.transactionsList),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(_SpyLoader.loadCalls, 1, reason: 'eligible: one request');
+    expect(_SpyLoader.disposeCalls, 0);
+
+    // Entitlement flips — e.g. an ad-free reward lands.
+    eligible.value = false;
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(QirshAdBanner)),
+    );
+    container.invalidate(
+        bannerEligibilityProvider(AdPlacement.transactionsList));
+    await tester.pumpAndSettle();
+
+    expect(_SpyLoader.disposeCalls, greaterThan(0),
+        reason: 'the held ad must be released, not merely hidden');
+    expect(tester.getSize(find.byType(QirshAdBanner)).height, 0);
+  });
+
 }

@@ -33,6 +33,8 @@ from __future__ import annotations
 import html
 import pathlib
 import re
+import os
+import re
 import shutil
 import sys
 
@@ -566,6 +568,40 @@ def main() -> int:
             return 1
         shutil.copyfile(srcfile, OUT / asset)
         written.append(asset)
+
+    # ── app-ads.txt ─────────────────────────────────────────────────────────
+    #
+    # AdMob has required app-ads.txt verification for newly configured apps
+    # since January 2025; without it, serving to the app is restricted. The file
+    # must be plain text at the DOMAIN ROOT (https://qirsh.site/app-ads.txt),
+    # which is why it is emitted here rather than as a page route.
+    #
+    # It needs the real AdMob publisher id, and a WRONG one is worse than none:
+    # it authorises the wrong seller. So this emits the file only when
+    # ADMOB_PUBLISHER_ID is supplied, and otherwise says loudly that it skipped.
+    # Never write a placeholder.
+    publisher = os.environ.get("ADMOB_PUBLISHER_ID", "").strip()
+    if publisher:
+        if not re.fullmatch(r"pub-\d{16}", publisher):
+            print(
+                f"error: ADMOB_PUBLISHER_ID must look like pub-<16 digits>, "
+                f"got a value of length {len(publisher)}",
+                file=sys.stderr,
+            )
+            return 1
+        (OUT / "app-ads.txt").write_text(
+            f"google.com, {publisher}, DIRECT, f08c47fec0942fa0\n",
+            encoding="utf-8",
+        )
+        written.append("app-ads.txt")
+    else:
+        print(
+            "note: ADMOB_PUBLISHER_ID not set — app-ads.txt NOT written.\n"
+            "      AdMob restricts serving to newly configured apps without it.\n"
+            "      Re-run with ADMOB_PUBLISHER_ID=pub-XXXXXXXXXXXXXXXX once the\n"
+            "      AdMob account exists. A placeholder is worse than absence.",
+            file=sys.stderr,
+        )
 
     print(f"wrote {len(written)} files to {OUT}:")
     for w in written:

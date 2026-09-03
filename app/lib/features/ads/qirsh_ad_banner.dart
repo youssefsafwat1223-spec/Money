@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -91,6 +93,20 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
     if (mounted) setState(() {});
   }
 
+  /// Drop the controller and any ad it holds, after the current frame.
+  ///
+  /// Deferred because this is reached from `build`, and disposing a platform
+  /// view mid-build is not safe. Idempotent — every gate can call it freely.
+  void _tearDownAfterFrame() {
+    if (_controller == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _controller?.removeListener(_onControllerChanged);
+      _disposeController();
+      if (mounted) setState(() {});
+    });
+  }
+
   @override
   void dispose() {
     _controller?.removeListener(_onControllerChanged);
@@ -113,14 +129,7 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
           // Drop the ad entirely rather than holding a hidden one. Holding it
           // would mean a native view attached to a screen the user is not
           // looking at, which is the thing this whole gate exists to prevent.
-          if (_controller != null) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (!mounted) return;
-              _controller?.removeListener(_onControllerChanged);
-              _disposeController();
-              if (mounted) setState(() {});
-            });
-          }
+          _tearDownAfterFrame();
           return const SizedBox.shrink();
         }
 
@@ -128,7 +137,15 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
             ref.watch(bannerEligibilityProvider(widget.placement)).valueOrNull;
         // Null means the entitlement/consent lookup has not answered yet. Not
         // eligible: an ad-free user must never see even a momentary slot.
-        if (eligible != true) return const SizedBox.shrink();
+        if (eligible != true) {
+          // ...and if we ALREADY hold an ad when eligibility turns false, drop
+          // it now. This path used to return an empty box while keeping the ad
+          // alive, so a user who earned ad-free mid-session — or revoked UMP
+          // consent — still had a loaded banner held behind the scenes. Only
+          // the visual gate disposed; the entitlement gate did not.
+          _tearDownAfterFrame();
+          return const SizedBox.shrink();
+        }
 
         final controller = _controller;
         if (controller == null) {
@@ -160,15 +177,49 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
 
 /// The loaded banner, with its label and its separation from whatever is above
 /// and below it.
-class _BannerSlot extends StatelessWidget {
+class _BannerSlot extends StatefulWidget {
   const _BannerSlot({required this.height, required this.ad});
 
   final double height;
   final BannerAd ad;
 
   @override
+  State<_BannerSlot> createState() => _BannerSlotState();
+}
+
+class _BannerSlotState extends State<_BannerSlot> {
+  /// Taps are ignored for a moment after the slot appears.
+  ///
+  /// Insert-when-loaded means content below moves DOWN once, and a finger
+  /// already descending toward a transaction row would land on the ad instead —
+  /// which is precisely the accidental click Google's placement guidance
+  /// penalises. Reserving space instead would trade this for an empty box on
+  /// every no-fill, which is worse in a finance app. So: keep the sequencing,
+  /// and make the first moment after insertion a dead zone.
+  static const _tapShield = Duration(milliseconds: 800);
+
+  bool _acceptsTaps = false;
+  Timer? _shieldTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _shieldTimer = Timer(_tapShield, () {
+      if (mounted) setState(() => _acceptsTaps = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _shieldTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final height = widget.height;
+    final ad = widget.ad;
     return Padding(
       // Real vertical separation, both sides. The transactions list is made of
       // tappable rows that open a detail sheet; an ad flush against one is the
@@ -195,7 +246,10 @@ class _BannerSlot extends StatelessWidget {
               child: SizedBox(
                 width: ad.size.width.toDouble(),
                 height: height,
-                child: AdWidget(ad: ad),
+                child: IgnorePointer(
+                  ignoring: !_acceptsTaps,
+                  child: AdWidget(ad: ad),
+                ),
               ),
             ),
           ),

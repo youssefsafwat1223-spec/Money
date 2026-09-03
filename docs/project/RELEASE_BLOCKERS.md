@@ -155,6 +155,28 @@ Fixed by routing every site through `ConsentAuthority`, pinned by
 while reconciling statements for the Play declaration — which is the argument
 for doing that reconciliation against source rather than against documents.
 
+### RB-9 — the monetization plan prohibits both shipped ad formats · **OWNER DECISION** · blocks ad ACTIVATION only
+
+`docs/plans/MONETIZATION_PLAN.md` (2026-06-14) states "**❌ Banner Ads — Never**",
+"**❌ Interstitials — Never** — Full stop. No exceptions for a financial app",
+and principle 6: "Dashboard, transactions, and budgets are completely ad-free."
+
+Both shipped formats contradict it — the report-export interstitial and the
+transactions banner — and both were commissioned **later** than the plan. This
+is the same supersession pattern as `ANDROID_SMS_CAPTURE_DECISION.md`, which
+claimed SMS capture was disabled months after the position was revoked.
+
+Surfaced by one reviewer citing the file; verified. It outranks reviewer
+opinion, so the placement question was resolved against the repository rather
+than against either recommendation.
+
+**Blocks activation, not engineering.** Everything is implemented, reviewed and
+inert behind flags seeded OFF; three separate owner actions are required before
+an ad can appear. Options and a recommendation are in
+`ADMOB_PRODUCTION_READINESS.md` §1 — short version: supersede principle 6 for
+transactions, or ship no banner. Do not move the banner to Coupons; both
+reviewers independently ruled that out.
+
 ---
 
 ## NOT blockers — recorded debt

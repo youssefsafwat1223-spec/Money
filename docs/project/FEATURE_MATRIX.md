@@ -75,7 +75,7 @@ when hardware returns; resume only the physical-device-only matrix.
 | Feature | Impl | Wired | Tested | Runtime | Device | Backend | Flag | Prod |
 |---|---|---|---|---|---|---|---|---|
 | Report interstitial | ✅ | ✅ | ✅ | ❌ | ❌ | — | `enable_report_ads` OFF | ❌ no ad unit |
-| Banner (transactions) | ✅ | ✅ | ✅ | ❌ | ❌ | — | OFF ×2 | ❌ no ad unit |
+| Banner (transactions) | ✅ | ✅ | ✅ | ❌ | ❌ | — | OFF ×2 | ❌ no ad unit — **and RB-9**: the monetization plan says transactions are ad-free |
 | UMP consent | ✅ | ✅ | ✅ | ❌ | ❌ | — | — | ❌ |
 | Ad-free entitlement | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `0083` | — | ❌ |
 | Referrals | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ `0083` | `enable_referrals` OFF | ❌ |

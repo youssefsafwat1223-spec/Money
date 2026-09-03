@@ -59,12 +59,27 @@ final bannerPlacementEnabledProvider =
 /// on these screens to lose, so weakening the policy would trade a real risk —
 /// showing ads to someone who earned ad-free, during a transient lookup
 /// failure — for no revenue at all.
-final bannerEntitlementProvider = FutureProvider<ReportEntitlementState>(
+/// `autoDispose` is load-bearing, not tidiness.
+///
+/// As a plain `FutureProvider` this cached its FIRST answer for the life of the
+/// process and nothing ever invalidated it. Two real consequences, both found
+/// independently by two reviewers: a user who earned ad-free mid-session kept
+/// seeing banners until they restarted the app — breaking the one promise this
+/// gate exists to keep — and a first evaluation that raced UMP consent cached
+/// "no consent" forever, silently killing banners for the whole session.
+///
+/// The resolver behind it has its own 5-minute TTL cache, so re-evaluating on
+/// each fresh watch costs no network.
+final bannerEntitlementProvider =
+    FutureProvider.autoDispose<ReportEntitlementState>(
   (ref) => ref.watch(reportEntitlementResolverProvider).resolve(),
 );
 
 /// Whether UMP currently permits ad requests.
-final bannerConsentProvider = FutureProvider<bool>(
+/// `autoDispose` for the same reason as the entitlement provider: UMP consent
+/// can be granted or revoked at any time, including from the Settings privacy
+/// options form, and a cached answer would outlive the user's decision.
+final bannerConsentProvider = FutureProvider.autoDispose<bool>(
   (ref) => ref.watch(adConsentServiceProvider).canRequestAds(),
 );
 
@@ -75,7 +90,7 @@ final bannerConsentProvider = FutureProvider<bool>(
 /// provider answers "may this placement serve at all", and it must be true
 /// before the widget is even inserted into a list.
 final bannerEligibilityProvider =
-    FutureProvider.family<bool, AdPlacement>((ref, placement) async {
+    FutureProvider.autoDispose.family<bool, AdPlacement>((ref, placement) async {
   if (!ref.watch(bannerPlacementEnabledProvider(placement))) return false;
   if (!AdMobBuildConfig.isBannerConfiguredFor(defaultTargetPlatform)) {
     return false;

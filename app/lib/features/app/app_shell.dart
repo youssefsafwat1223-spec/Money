@@ -388,6 +388,13 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (!mounted) return;
       // Settings entry now reflects the freshly-known UMP requirement (§4).
       ref.invalidate(adPrivacyOptionsRequiredProvider);
+      // ...and so must the banner gates. Consent has just been gathered; an
+      // eligibility answer computed before that would have cached "no consent"
+      // for the session. Entitlement is invalidated alongside it because this
+      // runs on resume, which is exactly when an ad-free reward earned
+      // elsewhere becomes true.
+      ref.invalidate(bannerConsentProvider);
+      ref.invalidate(bannerEntitlementProvider);
       // Only after UMP has been gathered is a preload allowed (§2.5);
       // maybePreload re-checks flag + config + entitlement + canRequestAds.
       await ref.read(reportExportCoordinatorProvider).maybePreload();
