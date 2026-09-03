@@ -52,8 +52,10 @@ Not BETA READY. Not a Release Candidate. Not Production Ready.
 
 ## What has actually been verified
 
-**Canonical CI on 2026-09-02: 12 mandatory gates passed, 0 failed.** The
-baseline at the start of this finalization was 8 passed / 4 failed.
+**Canonical CI on 2026-09-03: 12 mandatory gates passed, 0 failed.** Flutter
+**3518 passed / 1 skipped / 0 failed** (bulk) plus **24 passed** (serialized
+crypto). The baseline at the start of this finalization was 8 passed / 4
+failed.
 
 ```
 mandatory gates passed : 12
@@ -65,9 +67,12 @@ node tests skipped     : 89  (credentials absent, all manifest-declared)
 skip/ignore manifest   : satisfied
 ```
 
-Flutter suite: **3513 passed, 1 skipped, 0 failed** (bulk) plus **24 passed**
-(serialized production-cost crypto). Deno 215. Node contract 317 / 228 pass / 0
-fail. Admin 140 / 140, lint clean, `npm run build` succeeds.
+Deno 215. Node contract 317 / 228 pass / 0 fail. Admin 140 / 140, lint clean,
+`npm run build` succeeds.
+
+**Android build verified 2026-09-03**: `✓ Built app-debug.apk` (201 MB, exit 0)
+— the first time the Android artifact has been confirmed to compile. See RB-7:
+no CI gate does this.
 
 Canonical CI (`tools/ci_gates.sh`, the repository's own authority — 12 gates,
 with a truthfulness contract that forbids counting a skip as a pass):
