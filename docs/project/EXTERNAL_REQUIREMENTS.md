@@ -1,6 +1,6 @@
 # Qirsh — external requirements
 
-**As of 2026-09-02.** Every dependency that engineering cannot satisfy from this
+**As of 2026-09-03.** Every dependency that engineering cannot satisfy from this
 machine. Discovered from source: the app's `String.fromEnvironment` inputs, the
 Edge Functions' `Deno.env.get` reads, and the platform configuration files.
 
@@ -17,11 +17,11 @@ Edge Functions' `Deno.env.get` reads, and the platform configuration files.
 
 | Dependency | Purpose | Required for | Status | Environment | Secret name | Owner action |
 |---|---|---|---|---|---|---|
-| Google Play permissions declaration | Justify `RECEIVE_SMS` under the SMS-based money management exception | Publishing Android at all | **EXTERNAL APPROVAL** | Play Console | — | Submit the draft in `Qirsh Production/18_Android_SMS_Capture/play_declaration_draft.md`, then await review |
+| Google Play permissions declaration | Justify `RECEIVE_SMS` under the SMS-based money management exception | Publishing Android at all | **EXTERNAL APPROVAL** — package ready, two gates first | Play Console | — | Follow `Qirsh Production/18_Android_SMS_Capture/PLAY_SUBMISSION_PACKAGE.md` §5. Blocked on pinning a no-training AI tier and redeploying the legal site |
 | Play Data Safety form | Required disclosure | Publishing Android | **MISSING** | Play Console | — | Submit `data_safety_draft.md`; must be reconciled with the declaration first (see Blockers) |
 | Physical Android device | SMS receipt, background execution, permission flow, banner render | Any BETA claim | **DEVICE REQUIRED** | — | — | Connect a device over USB with developer mode; run `Qirsh Production/18_Android_SMS_Capture/device_qa_plan.md` |
 | Physical iPhone | Share extension, App Groups, APNs, Shortcuts | Any BETA claim | **DEVICE REQUIRED** | — | — | Same, plus a provisioning profile |
-| Supabase dashboard access | Read the real migration ledger | Resolving the 0084/0072 contradiction | **MISSING** — Management API returns 403 | Supabase | — | Grant this account privileges, or read `supabase_migrations.schema_migrations` from the dashboard and report the highest applied version |
+| ~~Supabase dashboard access~~ | Read the real migration ledger | ~~Resolving the 0084/0072 contradiction~~ | ✅ **DONE 2026-09-02** — verified applied through 0092 | Supabase | — | None. Re-verify before applying 0093–0098, which remain source-only |
 | Apple Developer 2FA | Provisioning, App IDs, APNs key | iOS release | **MISSING** | Apple Developer | — | Provide a 2FA code from a trusted device; the client is currently unavailable |
 | Android upload keystore enrolment | Play App Signing | Android release | **MISSING** | Play Console | `ANDROID_KEYSTORE_*` | Enrol; the keystore exists locally and is gitignored |
 
@@ -55,7 +55,7 @@ Edge Functions' `Deno.env.get` reads, and the platform configuration files.
 | Supabase project | **AVAILABLE** | Linked ref `rjwphwsefnuotpbtuycf` |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | **AVAILABLE** | Build-time dart-defines |
 | Domain + DNS + TLS | **AVAILABLE** | `qirsh.site` live, legal pages deployed |
-| Privacy policy and Terms | **AVAILABLE** | §8 describing SMS capture is **live** |
+| Privacy policy and Terms | **AVAILABLE, but the live copy is STALE** | §8 describing SMS capture is live. The source was corrected 2026-09-03 (it claimed notification access the app has never had); **regenerate and redeploy `/privacy` and `/en/privacy` before submitting the Play declaration**, which attaches that URL |
 | `LEGAL_BASE_URL` | **AVAILABLE** | Production default |
 | Android upload keystore | **AVAILABLE** locally | Gitignored, never committed |
 
