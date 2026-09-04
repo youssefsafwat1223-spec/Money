@@ -51,8 +51,11 @@ data-erasure repair, so "possibly unapplied" meant "account deletion may not
 fully erase and we cannot tell". It is applied. Deletion completeness is
 server-side verified.
 
-**What it does not close:** 0093–0098 remain source-only and must not be
-assumed deployed. Every feature depending on them is behind an OFF flag, so
+**What it does not close:** 0093–0097 remain source-only and must not be
+assumed deployed. **0098 is DEFERRED** — moved to `supabase/deferred/` on
+2026-09-04 because it would immediately enable report-export telemetry for
+cloud-consenting users and **there is no telemetry feature flag** to prevent it.
+See `MIGRATION_LEDGER.md` and `supabase/deferred/README.md`. Every feature depending on them is behind an OFF flag, so
 nothing is broken by their absence.
 
 ---

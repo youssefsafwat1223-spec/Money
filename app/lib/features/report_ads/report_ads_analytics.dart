@@ -14,7 +14,10 @@ import '../../core/backend/metrics_client.dart';
 /// The sink is the generic consent-neutral `record_metric` RPC via MetricsClient.
 /// Unrecognised keys are silent server-side no-ops; these keys were dropped that
 /// way from R4 until migration `0098` finally allowlisted them, alongside the
-/// banner keys. Until 0098 is DEPLOYED they are still dropped — an events
+/// banner keys. 0098 is **DEFERRED** (`supabase/deferred/`, 2026-09-04): it
+/// would enable this telemetry for every cloud-consenting user and there is no
+/// telemetry feature flag to stop it, so activation is an owner decision.
+/// Until it is applied these events are still dropped server-side — an events
 /// pipeline that looks wired and records nothing is worse than none, because
 /// nobody re-checks a feature they believe is working.
 class ReportAdsAnalytics {

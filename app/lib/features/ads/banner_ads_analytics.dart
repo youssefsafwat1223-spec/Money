@@ -25,7 +25,9 @@ class BannerAdsAnalytics {
   final MetricsClient _metrics;
 
   /// The complete set of keys this class can ever emit. Mirrored by the
-  /// server-side allowlist in migration 0098 — a key that is not in both is a
+  /// server-side allowlist in migration 0098 (DEFERRED — `supabase/deferred/`,
+  /// so these keys are dropped server-side until an owner activates it) — a key
+  /// that is not in both is a
   /// silently dropped row, which is worse than no telemetry because it looks
   /// like it works.
   static const Set<String> eventKeys = {

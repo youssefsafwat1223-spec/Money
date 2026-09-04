@@ -123,6 +123,20 @@ for f in "$MIG_DIR"/*.sql; do
 done
 echo "  catalog_versions seed floor: $seed_bad violation(s)"
 
+# 5) Deferred migrations — visibility only, never a failure.
+#
+#    A file under supabase/deferred/ is deliberately NOT part of the deployment
+#    target, so it is excluded from every check above. That exclusion is correct
+#    but silent, and a deferred migration can sit unlinted for months and then be
+#    activated. Print the count so it stays visible in every CI log.
+DEFERRED_DIR="$(dirname "$0")/../deferred"
+if [ -d "$DEFERRED_DIR" ]; then
+  deferred_n=$(find "$DEFERRED_DIR" -maxdepth 1 -name '[0-9]*.sql' ! -name '*_rollback.sql' | wc -l | xargs)
+  if [ "$deferred_n" != "0" ]; then
+    echo "  deferred (NOT linted, NOT deployed): $deferred_n — see supabase/deferred/README.md"
+  fi
+fi
+
 if [ "$fail" -eq 0 ]; then
   echo "PASS: migrations lint (numbering + SECURITY DEFINER lockdown + rollback coverage + catalog seed floor)."
 fi

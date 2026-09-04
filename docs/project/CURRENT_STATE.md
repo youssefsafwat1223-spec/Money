@@ -48,7 +48,7 @@ What blocks a stronger label, in order:
 | Flutter app | ~125k lines `lib/`, ~80k lines `test/`, 430 test files |
 | Features | 27 directories under `app/lib/features/` |
 | Drift schema | **v35** (forward-only) |
-| Supabase migrations | **0001…0098**, 41 rollback files, lint PASS |
+| Supabase migrations | **0001…0097** active (0098 deferred), 41 rollback files, lint PASS |
 | Edge Functions | 28 |
 | Admin panel | Next.js, 12 route groups |
 | Localization | `app_ar.arb` / `app_en.arb`, Arabic is the template |
@@ -222,8 +222,8 @@ table is classified in neither set.
 
 ## Backend
 
-98 migrations, dense and gapless, rollback coverage complete from 0084, lint
-PASS.
+97 active migrations, dense and gapless, rollback coverage complete from 0084,
+lint PASS. 0098 is deferred out of the active set (`supabase/deferred/`).
 
 **Deployed state: verified through 0092.** An owner read-only query against
 `supabase_migrations.schema_migrations` on the production project
@@ -240,7 +240,7 @@ accurate about a project these migrations were never going to run on and silent
 about the one they did. Corrected in place. Deployment state now lives in one
 file: `MIGRATION_LEDGER.md`.
 
-**0093–0098 are source-only and must not be assumed deployed.** Every feature
+**0093–0097 are source-only and must not be assumed deployed. 0098 is DEFERRED** to `supabase/deferred/` — it would enable report-export telemetry with no flag able to stop it. Every feature
 depending on them is behind a flag seeded OFF.
 
 Edge Functions: 28 exist and type-check. `affiliate-sync`,

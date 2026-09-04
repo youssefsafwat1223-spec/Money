@@ -13,7 +13,8 @@ headers describe what a migration *does*; they do not record where it has run.
 | **Applied continuously through** | **0092** |
 | **Verified** | 2026-09-02, owner read-only query against `supabase_migrations.schema_migrations` |
 | **Explicitly confirmed present** | 0084, 0085, 0086, 0087, 0088, 0089, 0090, 0091, 0092 |
-| **Source-only, NOT deployed** | **0093 – 0098** |
+| **Source-only, NOT deployed — ACTIVE TARGET** | **0093 – 0097** |
+| **DEFERRED — product activation decision required** | **0098** (`supabase/deferred/`) |
 
 **0093–0098 must not be assumed deployed and must not be applied without an
 explicit activation instruction.** Every feature that depends on them is behind
@@ -103,8 +104,20 @@ list the gap explicitly — do not describe it as "probably applied".
 # 0093–0098 pre-deploy safety review — 2026-09-04
 
 **Nothing was deployed.** Two independent adversarial reviews (Fable, Codex) plus
-a source pass. Result: **0093–0097 SAFE TO DEPLOY; 0098 is blocked by the
-owner's own constraint** (below).
+a source pass.
+
+**Outcome — active production deployment target is `0093 – 0097`.**
+`0098` is **DEFERRED** and has been moved out of `supabase/migrations/` to
+`supabase/deferred/` (2026-09-04) so `supabase db push` cannot propose it. A
+header comment does not stop the CLI; removing the file does.
+
+**Production evidence supplied by the owner, 2026-09-04:**
+- `coupons` row count = **0** → 0095's ten immediate `CHECK` validations are
+  negligible. The concern raised in review is resolved by measurement, not by
+  assumption; no `NOT VALID` split is needed.
+- Vault holds **neither** `project_url` **nor** `affiliate_worker_secret` →
+  0096's hourly `affiliate-sync` cron is **inert**. It fails closed and logs
+  rather than calling anything.
 
 ## The blocker found and fixed before deploy — 0094 seed off-by-one
 
