@@ -32,7 +32,7 @@ The following never leave your device unless you turn on cloud sync:
 
 | Data | Why |
 |---|---|
-| Bank SMS / notification text | To extract the amount, merchant, date and account |
+| Bank SMS text, and messages you share or paste | To extract the amount, merchant, date and account |
 | Transactions, accounts, cards, balances | The core function of the app |
 | Budgets, goals, subscriptions, plans | Planning features |
 | Merchant→category learning | So your corrections apply to future transactions |

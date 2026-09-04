@@ -112,8 +112,40 @@ Entry point: `Qirsh Production/18_Android_SMS_Capture/PLAY_SUBMISSION_PACKAGE.md
    content to improve its products — an independent purpose that would void the
    claim and flip Data Safety to *Shared: YES*. The key is unset in production;
    keep it that way until the tier and its terms are recorded.
-2. **Redeploy the legal site.** The policy source is corrected; the live page
-   still says "and notification messages". The declaration attaches that URL.
+2. **Redeploy both sites.** *(Source now fully corrected — 2026-09-03. Deploy
+   is the only remaining step, and it is an owner action.)*
+
+   The earlier note here said "the policy source is corrected". **That was
+   wrong.** Re-auditing on 2026-09-03 found the false notification-reading claim
+   still live in **seven** strings across **two** builders and **both**
+   languages:
+
+   | Source | Where |
+   |---|---|
+   | `docs/legal/PRIVACY_POLICY.md` | the collected-data table |
+   | `docs/legal/TERMS.md` | §1 "What Qirsh is" |
+   | `tools/site_content.py` | EN features, EN FAQ, EN footer |
+   | `tools/site_content.py` | AR features, AR FAQ, AR footer |
+
+   Only the policy's prose §8 had been fixed. There are **two** site builders —
+   `build_legal_site.py` (legal pages) and `build_site.py` (the marketing site
+   that produces `/privacy` and `/en/privacy`) — and the earlier pass touched
+   neither one's content module.
+
+   The claim is false: there is no `NotificationListenerService`, no
+   `BIND_NOTIFICATION_LISTENER_SERVICE`, and no notification-read path on either
+   platform. The app's own shipped Arabic string has said so correctly the whole
+   time — `smsCaptureTrustNotice`: «لا يقرأ إشعارات تطبيقات البنوك». So the
+   product told users one thing in-app and the opposite in a legal document.
+
+   All seven corrected; both sites rebuilt and verified clean in both languages.
+   Pinned by `public_copy_truthfulness_test.dart`, which fails if any public
+   source re-claims the capability *and* fails first if the capability is ever
+   genuinely added — so the copy cannot become true by accident. Proven
+   non-vacuous.
+
+   **Nothing has been deployed.** `qirsh.site` still serves the old text until
+   the owner redeploys, and the declaration attaches that URL.
 
 Plus the reviewer video, which needs RB-5 hardware.
 

@@ -55,7 +55,7 @@ Edge Functions' `Deno.env.get` reads, and the platform configuration files.
 | Supabase project | **AVAILABLE** | Linked ref `rjwphwsefnuotpbtuycf` |
 | `SUPABASE_URL` / `SUPABASE_ANON_KEY` | **AVAILABLE** | Build-time dart-defines |
 | Domain + DNS + TLS | **AVAILABLE** | `qirsh.site` live, legal pages deployed |
-| Privacy policy and Terms | **AVAILABLE, but the live copy is STALE** | §8 describing SMS capture is live. The source was corrected 2026-09-03 (it claimed notification access the app has never had); **regenerate and redeploy `/privacy` and `/en/privacy` before submitting the Play declaration**, which attaches that URL |
+| Privacy policy and Terms | **AVAILABLE, but the live copy is STALE** | Source **fully** corrected 2026-09-03 and both sites rebuilt clean in AR and EN. An earlier pass fixed only the policy's §8 prose; a re-audit found the false notification-reading claim still in **seven** strings across `PRIVACY_POLICY.md`, `TERMS.md` and `tools/site_content.py` (EN + AR features, FAQ and footer), served by **two** builders — `build_legal_site.py` and `build_site.py`, the latter producing `/privacy` and `/en/privacy`. Now pinned by `public_copy_truthfulness_test.dart`. **Still not deployed:** run `python3 tools/build_site.py` and `python3 tools/build_legal_site.py`, then deploy, **before** submitting the Play declaration, which attaches that URL |
 | `LEGAL_BASE_URL` | **AVAILABLE** | Production default |
 | Android upload keystore | **AVAILABLE** locally | Gitignored, never committed |
 

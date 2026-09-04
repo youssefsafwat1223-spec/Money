@@ -9,8 +9,10 @@ not use the app.
 
 ## 1. What Qirsh is
 
-Qirsh is a personal finance tracker. It reads bank SMS and notification messages
-on your device and organises them into a private record of your spending.
+Qirsh is a personal finance tracker. It reads bank SMS on your device — on
+Android, only after you turn on automatic capture and grant permission — along
+with messages you share or paste yourself, and organises them into a private
+record of your spending. It does not read bank app notifications.
 
 **Qirsh is not a bank, and is not affiliated with any bank.** It does not hold
 money, move money, or execute transactions. It reads messages your bank already

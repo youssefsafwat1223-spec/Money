@@ -49,8 +49,9 @@ STRINGS = {
                       "مش موجودة.",
         "features": [
             ("inbox", "التقاط ذكي",
-             "قِرش يقرأ رسائل البنك والإشعارات على جهازك ويحوّلها لعمليات، "
-             "فمش محتاج تكتبها بإيدك."),
+             "قِرش يقرأ رسائل البنك على جهازك — على أندرويد بعد ما تشغّل الالتقاط "
+             "التلقائي وتمنح الإذن — ويحوّلها لعمليات، فمش محتاج تكتبها بإيدك. "
+             "تقدر كمان تشارك أي رسالة أو تلزقها بنفسك."),
             ("list", "حسابات وبطاقات",
              "احتفظ بأكتر من حساب وبطاقة، كل واحد بعملته، والأرصدة تفضل منفصلة "
              "بدل ما تتجمع في رقم واحد."),
@@ -85,8 +86,9 @@ STRINGS = {
         "faq_h": "أسئلة",
         "faq": [
             ("لازم أربط حسابي البنكي؟",
-             "لأ. قِرش بيقرأ رسائل البنك والإشعارات اللي البنك بيبعتها لجوالك "
-             "أصلاً. مابيتصلش بالبنك."),
+             "لأ. قِرش بيقرأ رسائل البنك اللي البنك بيبعتها لجوالك أصلاً — على "
+             "أندرويد بعد ما تشغّل الالتقاط التلقائي وتمنح الإذن. مابيتصلش "
+             "بالبنك، ومابيقراش إشعارات تطبيقات البنوك."),
             ("بياناتي المالية بتخرج من جوالي؟",
              "مش إلا لو شغّلت المزامنة السحابية. هي مقفولة افتراضياً، وطالما "
              "مقفولة مفيش بيانات مالية بتغادر الجهاز. التفاصيل الكاملة في سياسة "
@@ -102,8 +104,8 @@ STRINGS = {
              'راسلنا على <a href="mailto:business@qirsh.site">business@qirsh.site</a>، '
              'أو شوف <a href="/support">صفحة الدعم</a>.'),
         ],
-        "foot_desc": "تطبيق إدارة مصاريف بيقرأ رسائل البنك والإشعارات على جهازك "
-                     "ويحوّلها لسجل خاص لمصاريفك.",
+        "foot_desc": "تطبيق إدارة مصاريف بيقرأ رسائل البنك على جهازك ويحوّلها لسجل خاص "
+                     "لمصاريفك.",
         "foot_product": "المنتج", "foot_legal": "قانوني ومساعدة",
         "foot_features": "المزايا", "foot_privacy_a": "نهجنا في الخصوصية",
         "foot_faq": "الأسئلة", "foot_privacy": "سياسة الخصوصية",
@@ -171,8 +173,10 @@ STRINGS = {
                       "describes a feature that does not exist yet.",
         "features": [
             ("inbox", "Smart capture",
-             "Qirsh reads bank SMS and notification messages on your device and "
-             "turns them into transactions, so you are not typing them in by hand."),
+             "Qirsh reads the bank SMS on your device — on Android, only after you "
+             "turn on automatic capture and grant permission — and turns them "
+             "into transactions, so you are not typing them in by hand. You can "
+             "also share or paste a message yourself."),
             ("list", "Accounts and cards",
              "Keep multiple accounts and cards, each in its own currency, with "
              "balances kept separately rather than merged into one number."),
@@ -207,8 +211,10 @@ STRINGS = {
         "faq_h": "Questions",
         "faq": [
             ("Do I have to connect my bank account?",
-             "No. Qirsh reads the bank SMS and notification messages your bank "
-             "already sends to your phone. It does not connect to your bank."),
+             "No. Qirsh reads the bank SMS your bank already sends to your phone — "
+             "on Android, only after you turn on automatic capture and grant "
+             "permission. It does not connect to your bank, and it does not "
+             "read bank app notifications."),
             ("Does my financial data leave my phone?",
              "Not unless you turn cloud sync on. It is off by default, and with "
              "it off no financial data leaves the device. The full detail is in "
@@ -226,9 +232,8 @@ STRINGS = {
              'Email <a href="mailto:business@qirsh.site">business@qirsh.site</a>, '
              'or read the <a href="/en/support">support page</a>.'),
         ],
-        "foot_desc": "A personal finance app that reads bank SMS and notification "
-                     "messages on your device and turns them into a private "
-                     "record of your spending.",
+        "foot_desc": "A personal finance app that reads bank SMS on your device "
+                     "and turns them into a private record of your spending.",
         "foot_product": "Product", "foot_legal": "Legal & help",
         "foot_features": "Features", "foot_privacy_a": "Privacy approach",
         "foot_faq": "FAQ", "foot_privacy": "Privacy Policy",
