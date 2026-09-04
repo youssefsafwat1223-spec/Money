@@ -12,9 +12,29 @@ written as placeholders unless the literal is already public on the internet.
 populate it until every external credential exists. When it is complete this file
 will say so at the top.
 
-> **STATUS: NOT READY FOR SETUP.** Outstanding external items are listed in
-> §5. Normal release work continues; this inventory is updated whenever a new
-> required variable is discovered.
+> **STATUS: ENVIRONMENT VARIABLES READY · APPLE INTEGRATION BLOCKED — 2026-09-04**
+>
+> **Every required variable across all three groups is now READY.** Recalculated
+> after the owner created the six AdMob identifiers: `supabase` 2/2 required,
+> `google_play` 4/4 required, `admob` 6/6 — **0 required variables missing**.
+>
+> The formal **CODEMAGIC ENVIRONMENT — READY FOR ONE-TIME SETUP** call is
+> deliberately withheld, for one reason only: **Apple**. The ASC API key, the
+> distribution certificate and the provisioning profile are Codemagic
+> *integrations* rather than variables (§3), and they cannot be created while
+> Apple Developer portal access is blocked on 2FA. Declaring READY now would send
+> you into a sitting that ends at a wall — which is the exact outcome this
+> document exists to prevent.
+>
+> **Only two things are outstanding, and only one of them blocks:**
+>
+> | Item | Blocks setup? | Why |
+> |---|---|---|
+> | Apple Developer portal access (2FA) → ASC key + signing identity | **YES** | `ios-signed-release` cannot be configured or run without it |
+> | `SENTRY_DSN` | **No** | Optional. Absent means no crash reporting; no build fails, and it can be added later |
+>
+> When Apple access is restored, this banner becomes READY and the whole of §9 is
+> doable in one sitting.
 
 ---
 
@@ -110,16 +130,28 @@ blocked.
 
 ## 4. AdMob — group `admob` (to be created)
 
-None of these exist yet, which is precisely why every ad path is currently inert.
+The **values now exist** (owner-created, 2026-09-04). The **group does not** — no
+`admob` group is defined in Codemagic, which is why all six still resolve to empty
+at build time and every ad path remains inert. That is the intended state until
+§9.
 
 | Variable | Platform | Secure | Required | Shape | Status |
 |---|---|---|---|---|---|
-| `ADMOB_APP_ID_ANDROID` | Android | **YES** | Optional | `ca-app-pub-<16 digits>` **`~`** `<10 digits>` | **MISSING** |
-| `ADMOB_APP_ID_IOS` | iOS | **YES** | Optional | same, **tilde** | **MISSING** |
-| `ADMOB_BANNER_ANDROID` | Android | **YES** | Optional | `ca-app-pub-<16 digits>` **`/`** `<10 digits>` | **MISSING** |
-| `ADMOB_BANNER_IOS` | iOS | **YES** | Optional | same, **slash** | **MISSING** |
-| `ADMOB_INTERSTITIAL_ANDROID` | Android | **YES** | Optional | same, **slash** | **MISSING** |
-| `ADMOB_INTERSTITIAL_IOS` | iOS | **YES** | Optional | same, **slash** | **MISSING** |
+| `ADMOB_APP_ID_ANDROID` | Android | **YES** | Optional | `ca-app-pub-<16 digits>` **`~`** `<10 digits>` | ✅ **READY — OWNER HAS VALUE** |
+| `ADMOB_APP_ID_IOS` | iOS | **YES** | Optional | same, **tilde** | ✅ **READY — OWNER HAS VALUE** |
+| `ADMOB_BANNER_ANDROID` | Android | **YES** | Optional | `ca-app-pub-<16 digits>` **`/`** `<10 digits>` | ✅ **READY — OWNER HAS VALUE** |
+| `ADMOB_BANNER_IOS` | iOS | **YES** | Optional | same, **slash** | ✅ **READY — OWNER HAS VALUE** |
+| `ADMOB_INTERSTITIAL_ANDROID` | Android | **YES** | Optional | same, **slash** | ✅ **READY — OWNER HAS VALUE** |
+| `ADMOB_INTERSTITIAL_IOS` | iOS | **YES** | Optional | same, **slash** | ✅ **READY — OWNER HAS VALUE** |
+
+**All six were created in the AdMob console by the owner (2026-09-04).** The
+values exist and are held by the owner; they have **not** been entered into
+Codemagic and must not be until the one-time setup in §9. Their literal values are
+deliberately absent from this repository — the shapes above are the contract, and
+`build.gradle.kts` plus `admob_build_config.dart` validate them at build time.
+
+*Pending Codemagic entry* is not the same as *missing*: nothing external blocks
+these any more.
 
 **Application ids use a TILDE; ad-unit ids use a SLASH.** `build.gradle.kts:50`
 and `admob_build_config.dart:74-76` enforce both shapes exactly, mirroring what
