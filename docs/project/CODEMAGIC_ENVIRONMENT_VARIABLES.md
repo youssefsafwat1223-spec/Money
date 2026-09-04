@@ -12,30 +12,37 @@ written as placeholders unless the literal is already public on the internet.
 populate it until every external credential exists. When it is complete this file
 will say so at the top.
 
-> **STATUS: ENVIRONMENT VARIABLES READY · APPLE CONNECTED · PROFILES TO VERIFY — 2026-09-04**
+> # ✅ CODEMAGIC ENVIRONMENT — READY FOR ONE-TIME SETUP
 >
-> **Every required variable across all three groups is READY.** `supabase` 2/2,
-> `google_play` 4/4, `admob` 6/6 — **0 required variables missing**.
->
-> **Apple is no longer the blocker.** The owner confirmed 2026-09-04 that the
-> Apple Developer portal integration is connected and the App Store Connect API
-> key `codemagic_asc_api_key` exists — the name in `codemagic.yaml` matches. No
-> `apple` variable group is needed or wanted; these are Codemagic *integrations*,
-> and a shadow variable group would be a second source of truth for signing.
->
-> **One item remains unverified, and it is the one that fails late:** the share
-> extension `com.youssefsafwat.mali.ShareBankMessage` is a **separately signed
-> binary** needing its own App ID and distribution provisioning profile, with the
-> App Group `group.com.youssefsafwat.mali` enabled on **both** App IDs. A missing
-> extension profile compiles fine and **fails at export**.
->
-> | Item | Blocks setup? | Why |
-> |---|---|---|
-> | Extension App ID + provisioning profile | **Verify first** | Export fails after a successful compile |
-> | `SENTRY_DSN` | No | Optional; absent means no crash reporting, no build failure |
->
-> Once the extension profile is confirmed, this becomes READY and §9 is doable in
+> **2026-09-05. Every required credential and identifier now exists.** Do §9 in
 > one sitting.
+>
+> | Group / item | Required | Status |
+> |---|---|---|
+> | `supabase` | 2/2 | ✅ READY |
+> | `google_play` | 4/4 | ✅ READY |
+> | `admob` | 6/6 | ✅ READY — owner holds all six |
+> | ASC API key `codemagic_asc_api_key` | 1 | ✅ CONNECTED |
+> | Provisioning — main + share extension | 2 | ✅ **VERIFIED ACTIVE** |
+>
+> **Apple signing — externally verified by the owner, 2026-09-05.** Both profiles
+> Active, App Store type, valid through **2027-06-29**, both carrying the shared
+> App Group `group.com.youssefsafwat.mali`:
+>
+> - *Mali App Store Main* → `com.youssefsafwat.mali` (App Groups, In-App
+>   Purchase, Push Notifications, Sign in with Apple)
+> - *Mali App Store Share* → `com.youssefsafwat.mali.ShareBankMessage` (App Groups)
+>
+> That closes the one item flagged as "fails at export, not at compile" — the
+> share extension is a separately signed binary and now has its own Active
+> profile with the App Group on both App IDs.
+>
+> **Only optional items remain**, and none blocks setup or any build:
+>
+> | Item | Blocks? | Effect if absent |
+> |---|---|---|
+> | `SENTRY_DSN` | No | No crash reporting. No build failure |
+> | Legacy *Mali App Store Shortcuts* profile | No | Unused — safe to delete, see §3a |
 
 ---
 
@@ -140,6 +147,35 @@ Pinned by `android_ci_compile_gate_test.dart`, proven non-vacuous.
 **The unsigned workflow is the fallback.** `ios-unsigned-sideload` needs no Apple
 credential, which is why it exists — it keeps iOS buildable while the portal is
 blocked.
+
+---
+
+### 3a. The legacy *Mali App Store Shortcuts* profile — unused, safe to delete
+
+**Confirmed from the current Xcode project and from real built artifacts,
+2026-09-05.** The obsolete App Intents extension target is genuinely gone; the
+Shortcuts *functionality* still ships, compiled into the main app rather than as
+a separate extension.
+
+Four independent lines of evidence:
+
+1. **`Runner.xcodeproj` declares exactly three native targets** — `Runner`
+   (application), `ShareBankMessage` (app-extension) and `RunnerTests`
+   (unit-test). There is **no** `BankMessageShortcuts` target.
+2. **`BankMessageShortcuts.swift` compiles into the Runner target's Sources
+   phase** (`97C146EA…`), not into an extension. The feature ships; the separate
+   binary does not.
+3. **No `.appex` product, no `com.youssefsafwat.mali.BankMessageShortcuts` bundle
+   identifier, and no Embed step** references it anywhere in the project file.
+4. **The built artifacts agree.** Both the device and simulator `Runner.app`
+   produced on 2026-09-03/04 embed exactly one extension:
+   `ShareBankMessage.appex`. `app/tools/verify_ios_packaging.sh` independently
+   forbids `BankMessageShortcuts.appex` by name and passed.
+
+So the profile authorises a bundle id nothing builds. Deleting it is safe and is
+**not** required — an unused profile is harmless. Nothing has ever shipped to
+TestFlight or the App Store, so there is no installed base that could depend on
+it.
 
 ---
 
