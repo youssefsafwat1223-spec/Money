@@ -136,6 +136,54 @@ void main() {
     });
   });
 
+  // Added 2026-09-04 while reconciling the iOS release config. These are about
+  // what a SUCCESSFUL build does, which is the part nobody looks at until it has
+  // already happened.
+  group('iOS release config safety', () {
+    test('a successful signed build does NOT auto-submit to Apple', () {
+      // `submit_to_testflight: true` uploads on EVERY successful run. Submission
+      // is not authorised, no iOS build has ever run on a physical device, and
+      // until 2026-09-03 iOS did not compile at all. Publishing as a side effect
+      // of succeeding is the wrong default; the IPA is an artifact until someone
+      // decides otherwise.
+      final ios = _workflow('ios-signed-release');
+      expect(ios.contains('submit_to_testflight: true'), isFalse,
+          reason: 'auto-submit to TestFlight must stay off until submission is '
+              'explicitly authorised — flip it deliberately, not by inheriting '
+              'a default');
+    });
+
+    test('release config carries no placeholder bundle identifier', () {
+      // The template id (com.example.*) shipping in a release config is the iOS
+      // analogue of the Kotlin package bug: it looks fine until an artifact is
+      // signed and rejected, or worse, accepted under the wrong identity.
+      final ci = File('../codemagic.yaml').readAsStringSync();
+      expect(ci.contains('com.example'), isFalse,
+          reason: 'codemagic.yaml contains a com.example placeholder id');
+      expect(ci.contains('moneyCompanion'), isFalse,
+          reason: 'codemagic.yaml contains the stale moneyCompanion id');
+      expect(ci, contains('bundle_identifier: com.youssefsafwat.mali'),
+          reason: 'the signed iOS workflow must name the authoritative bundle id');
+    });
+
+    test('every iOS bundle id in the Xcode project is under the app id', () {
+      // Runner, the share extension and the test host. The extension is a
+      // separate signed binary and needs its own App ID and profile; a stale one
+      // here fails at export, long after the compile that looked fine.
+      final pbx =
+          File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+      final ids = RegExp(r'PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);')
+          .allMatches(pbx)
+          .map((m) => m.group(1)!.trim())
+          .toSet();
+      expect(ids, isNotEmpty);
+      for (final id in ids) {
+        expect(id.startsWith('com.youssefsafwat.mali'), isTrue,
+            reason: 'unexpected iOS bundle identifier: $id');
+      }
+    });
+  });
+
   group('separation of responsibilities', () {
     test('the compile gate needs no signing key', () {
       final quality = _workflow('backend-and-quality-gates');

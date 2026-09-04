@@ -171,6 +171,19 @@ workflows:
           REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
 
       - name: Set up provisioning profiles
+        # THREE bundle ids exist in this project, not one:
+        #   com.youssefsafwat.mali                    (Runner)
+        #   com.youssefsafwat.mali.ShareBankMessage   (share extension, a
+        #                                              SEPARATE signed binary)
+        #   com.youssefsafwat.mali.RunnerTests        (test host, not shipped)
+        #
+        # `ios_signing.bundle_identifier` above names only the main app.
+        # `use-profiles` applies whatever profiles the ASC integration fetched,
+        # so the EXTENSION needs its own App ID and distribution profile in the
+        # Apple Developer portal, and BOTH App IDs need the App Group capability
+        # for `group.com.youssefsafwat.mali` — the extension and the app share one
+        # container, and that is how a shared bank message reaches the app.
+        # A missing extension profile fails at export, not at compile.
         script: |
           xcode-project use-profiles
 
@@ -255,9 +268,22 @@ workflows:
       - ${IOS_RELEASE_IPA}.provenance
       - /tmp/xcodebuild_logs/*.log
     publishing:
+      # AUTO-SUBMIT IS OFF — 2026-09-04, deliberate.
+      #
+      # This flag was previously ENABLED, which uploads to TestFlight on
+      # EVERY successful run of this workflow. Submission to Apple is not
+      # authorised, no iOS build has ever been exercised on a physical device
+      # (every iOS Runtime/Device cell in FEATURE_MATRIX.md is still ❌), and
+      # until 2026-09-03 the app did not compile for iOS at all. A workflow that
+      # publishes as a side effect of succeeding is the wrong default while any
+      # of that is true.
+      #
+      # With this false, a successful build produces a signed, provenance-stamped
+      # IPA as an artifact and stops. Upload it deliberately — or re-enable this
+      # — only when submission is explicitly authorised.
       app_store_connect:
         auth: integration
-        submit_to_testflight: true
+        submit_to_testflight: false
       email:
         recipients:
           - youssefsafwat1278@gmail.com

@@ -12,29 +12,30 @@ written as placeholders unless the literal is already public on the internet.
 populate it until every external credential exists. When it is complete this file
 will say so at the top.
 
-> **STATUS: ENVIRONMENT VARIABLES READY · APPLE INTEGRATION BLOCKED — 2026-09-04**
+> **STATUS: ENVIRONMENT VARIABLES READY · APPLE CONNECTED · PROFILES TO VERIFY — 2026-09-04**
 >
-> **Every required variable across all three groups is now READY.** Recalculated
-> after the owner created the six AdMob identifiers: `supabase` 2/2 required,
-> `google_play` 4/4 required, `admob` 6/6 — **0 required variables missing**.
+> **Every required variable across all three groups is READY.** `supabase` 2/2,
+> `google_play` 4/4, `admob` 6/6 — **0 required variables missing**.
 >
-> The formal **CODEMAGIC ENVIRONMENT — READY FOR ONE-TIME SETUP** call is
-> deliberately withheld, for one reason only: **Apple**. The ASC API key, the
-> distribution certificate and the provisioning profile are Codemagic
-> *integrations* rather than variables (§3), and they cannot be created while
-> Apple Developer portal access is blocked on 2FA. Declaring READY now would send
-> you into a sitting that ends at a wall — which is the exact outcome this
-> document exists to prevent.
+> **Apple is no longer the blocker.** The owner confirmed 2026-09-04 that the
+> Apple Developer portal integration is connected and the App Store Connect API
+> key `codemagic_asc_api_key` exists — the name in `codemagic.yaml` matches. No
+> `apple` variable group is needed or wanted; these are Codemagic *integrations*,
+> and a shadow variable group would be a second source of truth for signing.
 >
-> **Only two things are outstanding, and only one of them blocks:**
+> **One item remains unverified, and it is the one that fails late:** the share
+> extension `com.youssefsafwat.mali.ShareBankMessage` is a **separately signed
+> binary** needing its own App ID and distribution provisioning profile, with the
+> App Group `group.com.youssefsafwat.mali` enabled on **both** App IDs. A missing
+> extension profile compiles fine and **fails at export**.
 >
 > | Item | Blocks setup? | Why |
 > |---|---|---|
-> | Apple Developer portal access (2FA) → ASC key + signing identity | **YES** | `ios-signed-release` cannot be configured or run without it |
-> | `SENTRY_DSN` | **No** | Optional. Absent means no crash reporting; no build fails, and it can be added later |
+> | Extension App ID + provisioning profile | **Verify first** | Export fails after a successful compile |
+> | `SENTRY_DSN` | No | Optional; absent means no crash reporting, no build failure |
 >
-> When Apple access is restored, this banner becomes READY and the whole of §9 is
-> doable in one sitting.
+> Once the extension profile is confirmed, this becomes READY and §9 is doable in
+> one sitting.
 
 ---
 
@@ -66,7 +67,7 @@ a written inventory is needed.
 | `supabase` | Backend URL + anon key, legal URL, Sentry | the **three release** workflows only | not needed on `backend-and-quality-gates` (it passes no dart-defines) |
 | `google_play` | Android **upload-key** material | `android-release` | any iOS or quality workflow |
 | `admob` **(does not exist yet)** | The six production AdMob identifiers | `android-release`, `ios-signed-release` | **`backend-and-quality-gates`** — a test enforces this |
-| `apple` *(optional; see §3)* | Only if ASC is not wired via the Codemagic integration | `ios-signed-release` | Android + quality workflows |
+| ~~`apple`~~ | **Not needed.** ASC and signing are wired through Codemagic *integrations*, verified connected 2026-09-04 — do not create a shadow variable group | — | — |
 
 Groups currently referenced in `codemagic.yaml`: **`supabase`**, **`google_play`**.
 `admob` is new. There is **no** `apple` group today — iOS signing uses Codemagic's
@@ -118,8 +119,22 @@ publishing:
 
 | Item | Where it lives | Secure | Required | Status | Fails closed as |
 |---|---|---|---|---|---|
-| ASC API key `codemagic_asc_api_key` | Codemagic → Integrations → App Store Connect | managed | **Required for `ios-signed-release`** | **MISSING** — Apple portal access is blocked (2FA) | The signed workflow cannot run at all. `ios-unsigned-sideload` still works |
-| iOS distribution certificate + provisioning profile | Codemagic → Code signing identities | managed | Required | **MISSING** — same blocker | Signed build fails; unsigned sideload unaffected |
+| ASC API key `codemagic_asc_api_key` | Codemagic → Integrations → App Store Connect | managed | **Required for `ios-signed-release`** | ✅ **CONNECTED** — verified by the owner 2026-09-04 (Key ID on file, value never recorded here). The name in `codemagic.yaml` matches | The signed workflow cannot run at all. `ios-unsigned-sideload` still works |
+| iOS distribution certificate | Codemagic → Code signing identities | managed | Required | ✅ **CONNECTED** — Apple Developer portal integration is live | Signed build fails; unsigned sideload unaffected |
+| Provisioning profile — **`com.youssefsafwat.mali`** | Apple Developer portal | managed | Required | **VERIFY** | export fails |
+| Provisioning profile — **`com.youssefsafwat.mali.ShareBankMessage`** | Apple Developer portal | managed | **Required — separate binary** | **VERIFY — most likely gap** | The share extension cannot be signed, so **export fails after a successful compile** |
+| App Group `group.com.youssefsafwat.mali` on **both** App IDs | Apple Developer portal | — | Required | **VERIFY** | Share-to-Qirsh silently stops working: the extension writes to a container the app cannot read |
+
+**Three bundle ids exist, not one** — `com.youssefsafwat.mali` (Runner),
+`com.youssefsafwat.mali.ShareBankMessage` (the share extension, a separately
+signed binary) and `com.youssefsafwat.mali.RunnerTests` (test host, not shipped).
+`ios_signing.bundle_identifier` names only the main app, so the extension needs
+its own App ID and distribution profile. **A missing extension profile fails at
+export, not at compile** — which is the expensive place to discover it.
+
+**Auto-submit to TestFlight is OFF** (`submit_to_testflight: false`, 2026-09-04).
+A successful signed build produces a provenance-stamped IPA artifact and stops.
+Pinned by `android_ci_compile_gate_test.dart`, proven non-vacuous.
 | `ADMOB_APP_ID_IOS` | group `admob` (§4) | NO | Optional | **MISSING** | See §4 |
 
 **The unsigned workflow is the fallback.** `ios-unsigned-sideload` needs no Apple
