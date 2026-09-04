@@ -527,6 +527,51 @@ handles your data and the terms under which it is offered.</p>
 </div>"""
 
 
+def emit_app_ads_txt(out_dir):
+    """Write app-ads.txt into `out_dir` from ADMOB_PUBLISHER_ID.
+
+    AdMob has required app-ads.txt verification for newly configured apps since
+    January 2025; without it, serving to the app is restricted. The file must be
+    plain text at the DOMAIN ROOT (https://qirsh.site/app-ads.txt), which is why
+    it is emitted as a bare file rather than a page route.
+
+    It needs the real AdMob publisher id, and a WRONG one is worse than none: it
+    authorises the wrong seller to sell your inventory. So this writes the file
+    only when ADMOB_PUBLISHER_ID is supplied, and otherwise says loudly that it
+    skipped. It never writes a placeholder.
+
+    Lives here and is imported by build_site.py rather than copied, for the same
+    reason `render` is: TWO site builders exist, only build_site.py produces the
+    tree that is actually deployed, and a second copy of this logic would be a
+    second thing to forget. app-ads.txt shipped in build_legal_site.py alone for
+    a while, which meant setting the publisher id wrote the file into a directory
+    nothing deploys.
+
+    Returns the filename if written, None if skipped. Raises ValueError if the
+    publisher id is malformed.
+    """
+    publisher = os.environ.get("ADMOB_PUBLISHER_ID", "").strip()
+    if not publisher:
+        print(
+            "note: ADMOB_PUBLISHER_ID not set — app-ads.txt NOT written.\n"
+            "      AdMob restricts serving to newly configured apps without it.\n"
+            "      Re-run with ADMOB_PUBLISHER_ID=pub-XXXXXXXXXXXXXXXX once the\n"
+            "      AdMob account exists. A placeholder is worse than absence.",
+            file=sys.stderr,
+        )
+        return None
+    if not re.fullmatch(r"pub-\d{16}", publisher):
+        raise ValueError(
+            f"ADMOB_PUBLISHER_ID must look like pub-<16 digits>, "
+            f"got a value of length {len(publisher)}"
+        )
+    (out_dir / "app-ads.txt").write_text(
+        f"google.com, {publisher}, DIRECT, f08c47fec0942fa0\n",
+        encoding="utf-8",
+    )
+    return "app-ads.txt"
+
+
 def main() -> int:
     if not SRC.is_dir():
         print(f"error: {SRC} not found", file=sys.stderr)
@@ -570,38 +615,14 @@ def main() -> int:
         written.append(asset)
 
     # ── app-ads.txt ─────────────────────────────────────────────────────────
-    #
-    # AdMob has required app-ads.txt verification for newly configured apps
-    # since January 2025; without it, serving to the app is restricted. The file
-    # must be plain text at the DOMAIN ROOT (https://qirsh.site/app-ads.txt),
-    # which is why it is emitted here rather than as a page route.
-    #
-    # It needs the real AdMob publisher id, and a WRONG one is worse than none:
-    # it authorises the wrong seller. So this emits the file only when
-    # ADMOB_PUBLISHER_ID is supplied, and otherwise says loudly that it skipped.
-    # Never write a placeholder.
-    publisher = os.environ.get("ADMOB_PUBLISHER_ID", "").strip()
-    if publisher:
-        if not re.fullmatch(r"pub-\d{16}", publisher):
-            print(
-                f"error: ADMOB_PUBLISHER_ID must look like pub-<16 digits>, "
-                f"got a value of length {len(publisher)}",
-                file=sys.stderr,
-            )
-            return 1
-        (OUT / "app-ads.txt").write_text(
-            f"google.com, {publisher}, DIRECT, f08c47fec0942fa0\n",
-            encoding="utf-8",
-        )
-        written.append("app-ads.txt")
-    else:
-        print(
-            "note: ADMOB_PUBLISHER_ID not set — app-ads.txt NOT written.\n"
-            "      AdMob restricts serving to newly configured apps without it.\n"
-            "      Re-run with ADMOB_PUBLISHER_ID=pub-XXXXXXXXXXXXXXXX once the\n"
-            "      AdMob account exists. A placeholder is worse than absence.",
-            file=sys.stderr,
-        )
+    # Shared with build_site.py — see emit_app_ads_txt().
+    try:
+        name = emit_app_ads_txt(OUT)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    if name:
+        written.append(name)
 
     print(f"wrote {len(written)} files to {OUT}:")
     for w in written:

@@ -49,7 +49,7 @@ import shutil
 import sys
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
-from build_legal_site import render, stamp  # noqa: E402
+from build_legal_site import emit_app_ads_txt, render, stamp  # noqa: E402
 from site_content import STRINGS  # noqa: E402
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -374,6 +374,29 @@ def main() -> int:
             return 1
         shutil.copyfile(f, OUT / asset)
         written.append(asset)
+
+    # app-ads.txt — AdMob seller authorisation at the DOMAIN ROOT.
+
+    # Shared with build_legal_site.py so the two builders cannot drift.
+
+    # THIS is the builder whose output is deployed, so this is the copy
+
+    # that actually reaches https://qirsh.site/app-ads.txt.
+
+    try:
+
+        _ads = emit_app_ads_txt(OUT)
+
+    except ValueError as exc:
+
+        print(f"error: {exc}", file=sys.stderr)
+
+        return 1
+
+    if _ads:
+
+        written.append(_ads)
+
 
     print(f"wrote {len(written)} files to {OUT}:")
     for w in written:

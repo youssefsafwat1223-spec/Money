@@ -235,4 +235,50 @@ void main() {
     expect(File('../tools/build_legal_site.py').existsSync(), isTrue,
         reason: 'tools/build_legal_site.py still generates the rollback host');
   });
+
+  test('the DEPLOYED site builder emits app-ads.txt', () {
+    // The bug this pins: app-ads.txt generation lived ONLY in
+    // build_legal_site.py, which writes build/legal/ — while the tree that is
+    // actually deployed to qirsh.site comes from build_site.py -> build/site/.
+    // Setting ADMOB_PUBLISHER_ID therefore wrote the file into a directory
+    // nothing publishes, and AdMob would still see no app-ads.txt.
+    //
+    // Same two-builder trap that let a false privacy claim stay live: the
+    // feature existed, just not in the builder that ships.
+    final deployed = File('../tools/build_site.py').readAsStringSync();
+    expect(deployed, contains('emit_app_ads_txt'),
+        reason: 'build_site.py produces the DEPLOYED tree, so it — not only '
+            'build_legal_site.py — must emit app-ads.txt at the domain root');
+
+    // One implementation, imported rather than copied. A second copy is a
+    // second thing to forget to update.
+    expect(deployed, contains('from build_legal_site import'),
+        reason: 'app-ads.txt logic must be shared, not duplicated');
+
+    final shared = File('../tools/build_legal_site.py').readAsStringSync();
+    expect(shared, contains('def emit_app_ads_txt('),
+        reason: 'the shared emitter must exist where build_site.py imports it');
+
+    // A wrong publisher id authorises the wrong seller, which is worse than
+    // having no file at all. Both the shape check and the never-placeholder
+    // rule are load-bearing.
+    expect(shared, contains(r'pub-\d{16}'),
+        reason: 'the publisher id shape check must survive');
+    expect(shared, contains('ADMOB_PUBLISHER_ID'),
+        reason: 'the id must come from the environment, never be hardcoded');
+  });
+
+  test('no AdMob publisher id is hardcoded in the site builders', () {
+    // The id belongs in the environment/CI, not in source. A committed id is
+    // both a config-in-code smell and, if wrong, a seller-authorisation bug.
+    for (final path in const [
+      '../tools/build_site.py',
+      '../tools/build_legal_site.py',
+      '../tools/site_content.py',
+    ]) {
+      final src = File(path).readAsStringSync();
+      expect(RegExp(r'pub-\d{16}').hasMatch(src), isFalse,
+          reason: '$path hardcodes an AdMob publisher id');
+    }
+  });
 }
