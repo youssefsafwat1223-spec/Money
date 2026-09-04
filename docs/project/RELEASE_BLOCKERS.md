@@ -158,42 +158,39 @@ Entry point: `Qirsh Production/18_Android_SMS_Capture/PLAY_SUBMISSION_PACKAGE.md
    source contract is verified; whether the deployed revision matches source is
    not, and no deployment was performed.
 
-2. **Redeploy both sites.** *(Source now fully corrected — 2026-09-03. Deploy
-   is the only remaining step, and it is an owner action.)*
+2. **Redeploy the site.** ✅ **DONE AND VERIFIED LIVE 2026-09-04.**
 
-   The earlier note here said "the policy source is corrected". **That was
-   wrong.** Re-auditing on 2026-09-03 found the false notification-reading claim
-   still live in **seven** strings across **two** builders and **both**
-   languages:
+   Deployed revision **`f5cabf4d`** to `qirsh@72.62.236.204:/var/www/qirsh-site`
+   (Nginx/Ubuntu), built by the canonical `python3 tools/build_site.py`.
+   Rollback snapshot kept at `/var/www/qirsh-site.bak-20260904`.
 
-   | Source | Where |
-   |---|---|
-   | `docs/legal/PRIVACY_POLICY.md` | the collected-data table |
-   | `docs/legal/TERMS.md` | §1 "What Qirsh is" |
-   | `tools/site_content.py` | EN features, EN FAQ, EN footer |
-   | `tools/site_content.py` | AR features, AR FAQ, AR footer |
+   **Verified from the public internet, not from the build directory.** All
+   eight routes return 200 with **zero** occurrences of `notification messages`,
+   `notification text` or `والإشعارات`, and all eight are **byte-identical** to
+   the local build:
 
-   Only the policy's prose §8 had been fixed. There are **two** site builders —
-   `build_legal_site.py` (legal pages) and `build_site.py` (the marketing site
-   that produces `/privacy` and `/en/privacy`) — and the earlier pass touched
-   neither one's content module.
+   `/` · `/privacy` · `/terms` · `/support` · `/en/` · `/en/privacy` ·
+   `/en/terms` · `/en/support`
 
-   The claim is false: there is no `NotificationListenerService`, no
-   `BIND_NOTIFICATION_LISTENER_SERVICE`, and no notification-read path on either
-   platform. The app's own shipped Arabic string has said so correctly the whole
-   time — `smsCaptureTrustNotice`: «لا يقرأ إشعارات تطبيقات البنوك». So the
-   product told users one thing in-app and the opposite in a legal document.
+   The check was made non-vacuous in both directions: the corrected wording is
+   confirmed **present** live — "Bank SMS text, and messages you share or paste",
+   "It does not read bank app notifications", and the Arabic
+   «مابيقراش إشعارات تطبيقات البنوك».
 
-   All seven corrected; both sites rebuilt and verified clean in both languages.
-   Pinned by `public_copy_truthfulness_test.dart`, which fails if any public
-   source re-claims the capability *and* fails first if the capability is ever
-   genuinely added — so the copy cannot become true by accident. Proven
-   non-vacuous.
+   Before the deploy the false claim was live on every page (3 hits each on `/`,
+   `/en/`, `/privacy`, `/en/privacy`; 2 on `/terms`), confirmed by fetching them
+   rather than by trusting this document.
 
-   **Nothing has been deployed.** `qirsh.site` still serves the old text until
-   the owner redeploys, and the declaration attaches that URL.
+   **The legal-site portion of RB-6 is CLOSED.**
 
-Plus the reviewer video, which needs RB-5 hardware.
+   *Two stale records corrected in the same pass.*
+   `Qirsh Production/14_Website_Hosting/README.md` claimed "Nothing is deployed.
+   No DNS record has been created." The site has been live since ~2026-08-30 on
+   a real VPS with valid TLS and HSTS. `legal_url_migration.md` declares the
+   Workers → `qirsh.site` migration COMPLETED while its precondition checklist is
+   entirely unticked.
+
+   Plus the reviewer video, which needs RB-5 hardware.
 
 ### RB-7 — CI did not compile the app · ✅ **CLOSED 2026-09-03** (both platforms) · was CRITICAL
 

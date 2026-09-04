@@ -65,7 +65,7 @@ path "is not demonstrably dual-gated". That gate is now enforced and tested.
 | `data_safety_draft.md` | Honest; egress-count claim corrected 2026-09-02 |
 | Prominent disclosure (shipped) | Correct, and structurally enforced before the system dialog |
 | Privacy policy **source** | Corrected |
-| Privacy policy **live site** | ⚠️ **STALE — still contains "and notification messages"** |
+| Privacy policy **live site** | ✅ **CURRENT — corrected and deployed 2026-09-04** (revision `f5cabf4d`); verified live on all eight routes, zero false-claim hits, byte-identical to source |
 | Store listing copy | Corrected |
 | Review video | **NOT RECORDED** — needs RB-5 hardware |
 | Play declaration form | **NOT SUBMITTED** |

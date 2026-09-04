@@ -2,8 +2,26 @@
 
 The public site at `qirsh.site` and the admin app at `admin.qirsh.site`.
 
-**Phase 1 (local build) is done. Nothing is deployed. No DNS record has been
-created. Hostinger has not been contacted.**
+**⚠️ THIS PARAGRAPH WAS STALE AND IS CORRECTED — 2026-09-04.**
+
+**The public site IS deployed and live.** `qirsh.site` resolves to the Qirsh VPS
+(`72.62.236.204`) and serves all eight routes over valid TLS with HSTS, from
+`/var/www/qirsh-site` under Nginx. It has been live since approximately
+2026-08-30. DNS exists; the apex `A` record is in place.
+
+Deploy with the documented command in [`vps_and_nginx.md`](vps_and_nginx.md):
+`rsync -av --delete --rsync-path="sudo rsync" build/site/ qirsh@72.62.236.204:/var/www/qirsh-site/`
+then `sudo chown -R www-data:www-data /var/www/qirsh-site`. The docroot is
+`www-data`-owned, so the plain `rsync` in that file needs the `--rsync-path` sudo
+form to succeed.
+
+Last deploy: **2026-09-04, revision `f5cabf4d`** — the corrected legal copy.
+
+*Original text, kept as the record of what this said:* "Phase 1 (local build) is
+done. Nothing is deployed. No DNS record has been created. Hostinger has not been
+contacted." That stopped being true when the VPS was provisioned and was never
+updated — which is why a false claim sat live on the privacy policy for days
+while the repository believed nothing was published at all.
 
 | Document | Covers |
 |---|---|

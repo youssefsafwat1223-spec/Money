@@ -32,6 +32,13 @@ property of the Nginx config in [`vps_and_nginx.md`](vps_and_nginx.md).
 
 ## Preconditions — all must hold before step 1
 
+> **Note added 2026-09-04.** This checklist is entirely unticked while the header
+> declares the migration COMPLETED. The migration *did* happen — `qirsh.site`
+> serves `/privacy` and `/en/privacy` with 200 over valid TLS and is the built-in
+> default in `legal_urls.dart`. The boxes were simply never filled in. Treat the
+> header as authoritative and this list as a record of what should have been
+> confirmed, not as evidence that it was not.
+
 - [ ] `qirsh.site` deployed and serving from the VPS
 - [ ] Valid TLS on `qirsh.site` (and `www`)
 - [ ] `https://qirsh.site/privacy` → **200**, renders, mobile-readable
