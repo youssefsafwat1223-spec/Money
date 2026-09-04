@@ -97,3 +97,99 @@ limit 20;
 Then update the table at the top of this file with the result and the date. If
 the highest applied version is below the highest file in `supabase/migrations/`,
 list the gap explicitly — do not describe it as "probably applied".
+
+---
+
+# 0093–0098 pre-deploy safety review — 2026-09-04
+
+**Nothing was deployed.** Two independent adversarial reviews (Fable, Codex) plus
+a source pass. Result: **0093–0097 SAFE TO DEPLOY; 0098 is blocked by the
+owner's own constraint** (below).
+
+## The blocker found and fixed before deploy — 0094 seed off-by-one
+
+`0094` seeded `catalog_versions` at **1** for `catalog_merchants` and
+`merchant_aliases` while both sequences start at 1. `0002` gets this right by
+omitting the column and taking the `DEFAULT 0`.
+
+The consequence, had it shipped:
+
+1. Apply 0094 → category version 1, tables empty.
+2. Any device syncs. `catalog_sync_service.dart:263` calls
+   `upsertVersion(category, serverVersion, serverVersion)` **unconditionally,
+   even for an empty item list** → device stores `since = 1`.
+3. First merchant inserted → trigger takes `nextval() = 1`, so
+   `updated_version = 1` and the category version stays **1**.
+4. `catalog-delta:100` serves `.gt('updated_version', since)` → `1 > 1` false.
+
+**The first row ever inserted into each table would be invisible to every device
+that synced in between — permanently, with no version change to signal a delta.**
+Row 2 onward arrives normally, making the symptom a single missing row on some
+devices only. This is the same defect class `0093` exists to repair.
+
+**Not mitigated by feature flags.** `CatalogCategories.syncable`
+(`catalog_daos.dart:48-57`) lists both categories **unconditionally**;
+`enable_offers_merchants` gates the coupons *UI*, not catalog sync. Every device
+would have synced and pinned itself before any merchant existed.
+
+**Fixed at source** (0094 unapplied, so nothing to migrate around), plus two
+guards:
+- a runtime invariant in 0094's own verification block — the migration aborts if
+  either table is empty while its category version is non-zero;
+- a CI check in `supabase/tools/check_migrations.sh` — any migration that creates
+  a `catalog_*` table and seeds `catalog_versions` non-zero fails the lint.
+  Proven non-vacuous: restoring `1` produces a FAIL.
+
+**Proof standard, stated honestly.** No live Postgres was available (no server
+binary, no Docker, so `dryrun_migrations.sh` could not run). The fix is proven by
+arithmetic, the runtime assertion and the CI guard — **not** by observed
+behaviour on a database.
+
+## 0098 — blocked by the "telemetry OFF" constraint
+
+**There is no telemetry feature flag.** `record_metric`'s allowlist *is* the
+switch. 0072 ships `ARRAY['app_open']`; 0098 adds 11 keys.
+
+Two of them are emitted by **already-shipped clients**:
+`report_export_coordinator.dart:82` fires `report_export_requested` at the top of
+`run()`, before any ad gate, and `:201` fires `report_export_completed` after
+every successful export. Their only gate is cloud-processing consent
+(`report_ads_analytics.dart:39`) — **not** `enable_report_ads`.
+
+So applying 0098 immediately begins persisting report-export telemetry for every
+cloud-consenting user, with no flag able to prevent it. Practical volume today is
+near zero (the app is unpublished and consent seeds to `unset`), but the
+requirement "keep telemetry OFF" cannot be satisfied while 0098 is applied.
+
+**Resolution is a product decision, not an engineering one:** either defer 0098
+until telemetry is intended to activate, or accept the collection explicitly.
+
+## Non-blocking findings recorded
+
+| # | Finding | Evidence |
+|---|---|---|
+| 1 | `record_metric.dimension` is **server-side free text**. The comment claims the client can only pass a placement key, but the function enforces only `length ≤ 128` (`0098:72`). Any authenticated user can persist arbitrary text under 11 keys at 1000 rows/day. Admin-read-only and rate-limited, so low severity — a `p_dimension ~ '^[a-z0-9_]{1,32}$'` guard would close it and the comment currently overstates the protection. | `0098:26-27`, `0098:72` |
+| 2 | `0095`'s ten `CHECK` constraints use **immediate validation** (no `NOT VALID`), each taking `ACCESS EXCLUSIVE` on `coupons` plus a full scan. **Production cost is unmeasured** — it could not be measured from this workstation. Must be evidenced before deploy; see the pre-deploy checks. | `0095:46-129` |
+| 3 | `0093` may cause **more catalog re-downloads than its comments project**, because `enrich-merchant` looks a keyword up by `keyword` alone, ignoring country (`enrich-merchant:352-370`). Two users in different countries hitting one merchant ping-pong `country_code`; each flip trips the trigger's WHEN clause and, because `merchant_keywords` is snapshot-versioned, forces a fleet-wide dictionary re-download. Bandwidth, not correctness — devices converge. The country-blind lookup is a pre-existing defect that 0093 amplifies. | `0093:103-116`, `catalog-delta:205-215` |
+
+Also: every `merchant_keywords` write now serialises on one `catalog_versions`
+row, and the one-time bump creates a single fleet-wide snapshot burst. Bounded in
+practice by `enrich-merchant`'s per-identity rate limit.
+
+## Reviewer disagreement, resolved against source
+
+Fable said the 0094 defect was harmless with flags off. **That is wrong** — the
+catalog sync is not flag-gated (`catalog_daos.dart:48-57`), which makes it strictly
+worse than Fable assessed. Codex called 0093 "unbounded blocking DDL"; that
+overstates it — `CREATE TRIGGER` is O(1) and needs its lock only briefly. The
+real 0093 costs are the write serialisation and the snapshot burst above.
+Codex's 0098 telemetry finding is correct and is the operative blocker.
+
+## What could NOT be verified from this workstation
+
+- `supabase db push --dry-run` — 403 on the login-role endpoint, and it requires
+  `SUPABASE_DB_PASSWORD`. **The owner must re-run it**; 0094's *content* changed,
+  though the proposed file set should still be exactly 0093–0098.
+- Production `coupons` row count (0095 lock cost).
+- Deployed Edge Function revisions (`supabase functions list` → 403).
+- Vault contents (`project_url`, `affiliate_worker_secret`) for 0096's cron.

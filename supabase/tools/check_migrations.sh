@@ -91,7 +91,39 @@ else
   note "rollback directory not found: $ROLLBACK_DIR"
 fi
 
+# 4) catalog_versions seed floor — the first-row-visibility invariant.
+#
+#    A migration that CREATEs a versioned catalog table and seeds its
+#    catalog_versions row must seed it at 0. Both the version sequence and the
+#    seed start the table's life, and the first row inserted takes
+#    nextval() = 1. Seeded at 1, that first row's updated_version equals the
+#    category version, catalog-delta serves items with
+#    `.gt('updated_version', since)` (catalog-delta/index.ts:100), and any device
+#    that stored version 1 for the then-empty category never receives it —
+#    permanently, with no version change to signal a delta. Row 2 onward arrives
+#    normally, so the symptom is a single missing row on some devices only.
+#
+#    0002 got this right by omitting the column and taking the DEFAULT 0.
+#    0094 shipped `('catalog_merchants', 1, ...)` and was caught in review before
+#    it was applied. This check exists so the next one is caught by CI instead.
+seed_bad=0
+for f in "$MIG_DIR"/*.sql; do
+  # Only migrations that CREATE a catalog table are in scope; a later migration
+  # legitimately bumps an existing category to a nonzero version.
+  grep -qiE 'CREATE TABLE[^;]*catalog_' "$f" || continue
+  while IFS= read -r line; do
+    # Match a seed tuple: ('category', <n>, ...) with a nonzero literal version.
+    if printf '%s' "$line" | grep -qE "\('[a-z_]+',[[:space:]]*[1-9][0-9]*[[:space:]]*,"; then
+      note "$(basename "$f"): seeds catalog_versions at a nonzero version: ${line# }"
+      note "  seed at 0 — see the first-row-visibility invariant in this lint."
+      seed_bad=$((seed_bad + 1))
+      fail=1
+    fi
+  done < <(awk '/INSERT INTO catalog_versions/,/;/' "$f")
+done
+echo "  catalog_versions seed floor: $seed_bad violation(s)"
+
 if [ "$fail" -eq 0 ]; then
-  echo "PASS: migrations lint (numbering + SECURITY DEFINER lockdown + rollback coverage)."
+  echo "PASS: migrations lint (numbering + SECURITY DEFINER lockdown + rollback coverage + catalog seed floor)."
 fi
 exit "$fail"

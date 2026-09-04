@@ -328,9 +328,28 @@ CREATE TRIGGER trg_catalog_merchants_updated_at
 -- bump it, so every device that synced once was pinned forever. These tables
 -- get their bump at creation time, not later.
 -- ---------------------------------------------------------------------------
+-- SEED AT 0, NOT 1 — this is load-bearing, and 1 is a real bug.
+--
+-- 0002 seeds its categories with `INSERT INTO catalog_versions (category)`,
+-- taking the column DEFAULT of 0 (0002:12-20). Both sequences here are fresh,
+-- so the FIRST row ever inserted takes nextval() = 1 and sets
+-- updated_version = 1. Seeded at 1 the category version would still be 1 after
+-- that insert — unchanged — while catalog-delta serves items with
+-- `.gt('updated_version', since)` (catalog-delta/index.ts:100).
+--
+-- A device that synced while the table was empty stores the server version
+-- unconditionally, even for an empty item list
+-- (catalog_sync_service.dart:260-268), so it would hold since = 1 and evaluate
+-- 1 > 1 = false: the first merchant and the first alias would be invisible to
+-- that device FOREVER, with no version change to signal a delta. Row 2 onward
+-- would arrive normally, which makes the gap nearly undiagnosable in the field.
+--
+-- Seeded at 0: first insert takes nextval() = 1, 1 > 0 is true, the row is
+-- served. This is the same defect class 0093 exists to repair, and the reason
+-- that repair had to be written at all.
 INSERT INTO catalog_versions (category, version, updated_at) VALUES
-  ('catalog_merchants', 1, now()),
-  ('merchant_aliases',  1, now())
+  ('catalog_merchants', 0, now()),
+  ('merchant_aliases',  0, now())
 ON CONFLICT (category) DO NOTHING;
 
 CREATE OR REPLACE FUNCTION trg_version_catalog_merchants() RETURNS TRIGGER AS $$
@@ -453,6 +472,33 @@ BEGIN
   SELECT count(*) INTO n FROM catalog_versions
    WHERE category IN ('catalog_merchants','merchant_aliases');
   IF n <> 2 THEN RAISE EXCEPTION '0094: catalog_versions rows missing (%)', n; END IF;
+
+  -- THE FIRST-ROW-VISIBILITY INVARIANT.
+  --
+  -- While a table is still empty its category version must be 0. Seeded at 1,
+  -- the first insert takes nextval() = 1, leaves the category version at 1, and
+  -- catalog-delta's `.gt('updated_version', since)` hides that row from every
+  -- device that already stored version 1 for the empty category — permanently,
+  -- and with no version change to signal a delta. Asserted rather than trusted,
+  -- because the symptom (exactly one missing row, only on some devices) is
+  -- nearly undiagnosable in the field.
+  SELECT count(*) INTO n FROM catalog_versions cv
+   WHERE cv.category = 'catalog_merchants'
+     AND cv.version <> 0
+     AND NOT EXISTS (SELECT 1 FROM catalog_merchants);
+  IF n <> 0 THEN
+    RAISE EXCEPTION
+      '0094: catalog_merchants is empty but its version is not 0 — the first row inserted would be invisible to already-synced devices';
+  END IF;
+
+  SELECT count(*) INTO n FROM catalog_versions cv
+   WHERE cv.category = 'merchant_aliases'
+     AND cv.version <> 0
+     AND NOT EXISTS (SELECT 1 FROM catalog_merchant_aliases);
+  IF n <> 0 THEN
+    RAISE EXCEPTION
+      '0094: merchant_aliases is empty but its version is not 0 — the first alias inserted would be invisible to already-synced devices';
+  END IF;
 
   -- the frozen keys must behave; a silent regeneration error would otherwise
   -- only surface as merchants that never resolve on device
