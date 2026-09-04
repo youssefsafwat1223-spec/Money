@@ -53,6 +53,45 @@ void main() {
     });
   });
 
+  // Added 2026-09-03. iOS had the identical gap and it was hiding a real break:
+  // `Cannot find 'SharedOfferIntentStore' in scope` — a share-extension type in
+  // no build target, invisible because BOTH Xcode workflows are manual-only and
+  // nothing here had ever compiled iOS. Same defect class and same feature as
+  // the Android package bug. These assertions exist so the gate that caught it
+  // cannot be quietly dropped.
+  group('pre-release iOS compile coverage', () {
+    test('the canonical quality workflow compiles iOS', () {
+      final quality = _workflow('backend-and-quality-gates');
+      expect(quality, contains('flutter build ios --debug --no-codesign'),
+          reason: 'an iOS compile must run before release day, not on it');
+      expect(quality, contains('iOS compile gate'));
+    });
+
+    test('the iOS gate needs no signing identity', () {
+      // The point of --no-codesign: Apple portal access and the provisioning
+      // profile are BLOCKED external dependencies. A gate that needed them
+      // could never run, so it would be disabled and the coverage lost.
+      final quality = _workflow('backend-and-quality-gates');
+      expect(quality, contains('--no-codesign'));
+      for (final signing in const [
+        'CERTIFICATE_PRIVATE_KEY',
+        'APP_STORE_CONNECT',
+        'xcode-project use-profiles',
+      ]) {
+        expect(quality.contains(signing), isFalse,
+            reason: 'the iOS gate must not depend on signing: found "$signing"');
+      }
+    });
+
+    test('the gate proves the app AND the embedded extension were built', () {
+      // The defect lived in the share extension, which is a separate binary. A
+      // Runner.app produced without its .appex would read as success.
+      final quality = _workflow('backend-and-quality-gates');
+      expect(quality, contains('build/ios/iphoneos/Runner.app'));
+      expect(quality, contains('PlugIns/ShareBankMessage.appex'));
+    });
+  });
+
   group('toolchain pinning', () {
     test('Flutter and JDK are pinned on the compile workflow', () {
       final quality = _workflow('backend-and-quality-gates');

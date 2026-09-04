@@ -408,7 +408,9 @@ workflows:
   backend-and-quality-gates:
     name: Backend & Quality Gates
     instance_type: mac_mini_m2
-    max_build_duration: 90
+    # Raised from 90 when the iOS compile gate was added: this workflow now runs
+    # the canonical gates plus TWO full native builds.
+    max_build_duration: 120
     # Audit H-16: this workflow (which holds the ONLY Android compile coverage)
     # must run AUTOMATICALLY on the pre-release development path — never behind a
     # human pressing "Run". It stays quality-only: no signing key, no production
@@ -498,6 +500,39 @@ workflows:
           test -f build/app/outputs/flutter-apk/app-debug.apk \
             || { echo "ERROR: debug APK missing after a 'successful' build"; exit 1; }
           echo "Android compile gate passed (debug APK produced)."
+
+      # ── iOS compile gate (RB-7, iOS half) ──────────────────────────────────
+      # Added 2026-09-03 after the iOS app was found UNBUILDABLE by the first
+      # compile ever attempted in this repository:
+      #     Cannot find 'SharedOfferIntentStore' in scope
+      #     ios/ShareBankMessage/ShareViewController.swift:47
+      # Both copies of the file existed and were correct; neither had ever been
+      # added to a target in project.pbxproj, so nothing compiled them. That is
+      # the same defect class, in the same feature, as the Android package bug —
+      # and it survived for the same reason: nothing here compiled iOS, because
+      # BOTH Xcode workflows are manual-only.
+      #
+      # --no-codesign is the point: this needs no signing identity, no
+      # provisioning profile and no Apple portal access, all of which are
+      # currently blocked. It still exercises CocoaPods resolution, the Swift
+      # compiler across Runner AND the share extension, GeneratedPluginRegistrant
+      # and every plugin's iOS unit. The signed IPA stays in the ios-* workflows.
+      - name: iOS compile gate (unsigned - no signing identity required)
+        working_directory: app
+        script: |
+          set -eu
+          flutter build ios --debug --no-codesign
+
+          # Prove the artifact exists rather than trusting the exit code alone.
+          test -d build/ios/iphoneos/Runner.app \
+            || { echo "ERROR: Runner.app missing after a 'successful' build"; exit 1; }
+
+          # The share extension is a SEPARATE binary and the defect that
+          # motivated this gate was inside it. A Runner.app without the embedded
+          # appex means the extension silently did not build.
+          test -d build/ios/iphoneos/Runner.app/PlugIns/ShareBankMessage.appex \
+            || { echo "ERROR: ShareBankMessage.appex not embedded"; exit 1; }
+          echo "iOS compile gate passed (unsigned Runner.app + embedded appex)."
     publishing:
       email:
         recipients:

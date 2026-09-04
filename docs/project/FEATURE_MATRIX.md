@@ -19,6 +19,13 @@ previous report claimed otherwise, this file is right and the report is stale.
 
 **Runtime = Android 13 emulator, 2026-09-03** (see `ANDROID_EMULATOR_QA.md`).
 **Device is still ❌ everywhere: no test has been run on physical hardware.**
+
+**iOS Runtime is ❌ for every row, and that is not the same as "untested".**
+Until 2026-09-03 the iOS app **did not compile at all** — a share-extension type
+was in no build target (RB-7). It compiles now and the artifact is verified, but
+no iOS row has ever been exercised in a running app, on a simulator or
+otherwise. Read every ❌ in the iOS-affecting rows below as "never run", not as
+"run and failed".
 Emulator evidence is not device evidence and does not close RB-5, which is
 **PENDING — HARDWARE CURRENTLY UNAVAILABLE**. Do not re-run the emulator suite
 when hardware returns; resume only the physical-device-only matrix.

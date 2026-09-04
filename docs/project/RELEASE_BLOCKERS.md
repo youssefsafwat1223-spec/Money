@@ -117,7 +117,7 @@ Entry point: `Qirsh Production/18_Android_SMS_Capture/PLAY_SUBMISSION_PACKAGE.md
 
 Plus the reviewer video, which needs RB-5 hardware.
 
-### RB-7 — CI did not compile the app · **Android ✅ CLOSED 2026-09-03 · iOS still OPEN (MEDIUM)**
+### RB-7 — CI did not compile the app · ✅ **CLOSED 2026-09-03** (both platforms) · was CRITICAL
 
 **Why this existed.** The Android app was unbuildable from `564f1327` until
 `7161ad04` — a wrong package declaration on two Kotlin files — and **every gate
@@ -154,22 +154,57 @@ deliberate and neither blocking:
 - Pure-documentation changesets skip the workflow by design (`excludes: docs/**`,
   `**/*.md`), so an Android build is not spent on a README edit.
 
-#### iOS — still OPEN · MEDIUM
+#### iOS — CLOSED 2026-09-03, and it was broken
 
-**The identical gap exists for iOS and is not otherwise recorded.** The
-`ios-unsigned-sideload` and `ios-signed-release` workflows are **manual-only**,
-and `backend-and-quality-gates` contains no iOS compile step at all. So the same
-failure mode that hid the Android break for weeks is live for iOS today: a
-CocoaPods, plugin-registration, Swift or Xcode-toolchain defect would stay
-invisible until someone manually runs a release build.
+**The first iOS build ever attempted in this repository failed.** The same gap
+existed for iOS — both Xcode workflows are manual-only and the auto-triggered
+workflow had no iOS step — and it was hiding the same class of defect, in the
+same feature:
 
-iOS is the weaker side of this, not the stronger one: it has **had no runtime of
-any kind** (`FEATURE_MATRIX.md` — every iOS Runtime and Device cell is ❌), so
-unlike Android there is no emulator pass standing behind it either.
+```
+Swift Compiler Error: Cannot find 'SharedOfferIntentStore' in scope
+ios/ShareBankMessage/ShareViewController.swift:47
+```
 
-`flutter build ios --no-codesign` needs no signing identity and no Apple portal
-access, which are the things currently blocked — so this is fixable now and does
-not depend on the Apple 2FA item in `EXTERNAL_REQUIREMENTS.md`.
+Both copies of `SharedOfferIntentStore.swift` existed on disk, were correct, and
+were byte-identical. **Neither had ever been added to a target** in
+`Runner.xcodeproj/project.pbxproj`, so nothing compiled them, while two files
+that *do* compile referenced the type (`ShareViewController.swift` and
+`AppDelegate.swift` — so the Runner target would have failed next). Its
+neighbour `SharedCaptureStore.swift` is wired into both targets correctly, which
+is exactly why this survived inspection. On iOS there is no error for "source
+file nobody builds" — only for the reference that cannot resolve, reported
+somewhere else entirely.
+
+This is the iOS twin of the Android package bug (`564f1327` → `7161ad04`), from
+the same offer-URL sharing work, surviving for the same reason.
+
+**Fixed and verified.** Both copies wired into their targets (`PBXBuildFile`,
+`PBXFileReference`, group child, Sources phase). Build now verified:
+`✓ Built build/ios/iphoneos/Runner.app` (207 MB) with
+`PlugIns/ShareBankMessage.appex` embedded.
+
+Three layers now cover iOS:
+
+1. **A real compiler in automatic CI.** `backend-and-quality-gates` builds an
+   unsigned iOS app on every push/PR. `--no-codesign` needs no signing identity,
+   no provisioning profile and no Apple portal access — none of which are
+   available — while still exercising CocoaPods, the Swift compiler across
+   Runner *and* the extension, `GeneratedPluginRegistrant` and every plugin's
+   iOS unit. It asserts the `.appex` is embedded, because the defect lived in
+   the extension and a `Runner.app` without it would read as success.
+2. **A ~1s static guard**, `ios_source_integrity_test.dart`: every `.swift` file
+   in a target directory must appear in some Sources build phase, and both
+   copies of each App-Group store must stay byte-identical. Proven non-vacuous
+   against the original `project.pbxproj`.
+3. **The byte-identity contract now runs in CI.** `RunnerTests.swift` asserted it
+   for `SharedCaptureStore`, but XCTest only runs under Xcode and never executes
+   in this repository's CI. `SharedOfferIntentStore` had the same two-copy shape
+   and **no check at all**. Both are covered by the Dart guard, which does run.
+
+**What remains open for iOS is runtime, not compilation** — every iOS Runtime
+and Device cell in `FEATURE_MATRIX.md` is still ❌, and that is RB-5's iOS
+counterpart, gated on hardware and an Apple provisioning profile.
 
 ### RB-8 — AI egress was single-gated · ✅ **FIXED 2026-09-03** · was CRITICAL
 

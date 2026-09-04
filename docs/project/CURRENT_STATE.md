@@ -20,8 +20,9 @@ What blocks a stronger label, in order:
    The emulator pass of 2026-09-03 is complete and banked (22 PASS —
    `ANDROID_EMULATOR_QA.md`); it is real runtime evidence and is **not** device
    evidence. When hardware returns, resume **only** the physical-device-only
-   matrix (§5 of that file) — the emulator suite must not be repeated. iOS has
-   had no runtime of any kind.
+   matrix (§5 of that file) — the emulator suite must not be repeated. **iOS has
+   had no runtime of any kind**; as of 2026-09-03 it at least *compiles*, which
+   it did not before.
 2. ~~The production migration ledger is unknowable.~~ **CLOSED 2026-09-02** by
    owner verification: production is applied continuously through **0092**. See
    §Backend.
@@ -109,7 +110,30 @@ nothing in this repository compiles Android. Fixed in `7161ad04`, with a ~1s
 static guard (`android_source_integrity_test.dart`) that catches this class and
 is proven non-vacuous. The build is now verified: `✓ Built app-debug.apk`.
 
-The residual gap — no Android compile anywhere in CI — is **RB-7**.
+The residual gap that this exposed — nothing in CI compiled the app on either
+platform — is **RB-7**, now closed for both.
+
+## What was fixed on 2026-09-03 (iOS build)
+
+**The iOS app did not compile either, and never had.** The first iOS build ever
+attempted in this repository failed with `Cannot find 'SharedOfferIntentStore'
+in scope` (`ios/ShareBankMessage/ShareViewController.swift:47`). Both copies of
+the file existed on disk, were correct and were byte-identical — **neither had
+ever been added to a target** in `Runner.xcodeproj/project.pbxproj`, so nothing
+compiled them, while `ShareViewController.swift` and `AppDelegate.swift` both
+referenced the type. The neighbouring `SharedCaptureStore.swift` is wired into
+both targets correctly, which is why this passed inspection.
+
+Same defect class, same feature (offer-URL sharing), same cause as the Android
+break: nothing compiled iOS, because both Xcode workflows are manual-only.
+
+Fixed by wiring both copies into their targets. Verified:
+`✓ Built build/ios/iphoneos/Runner.app` with `ShareBankMessage.appex` embedded.
+An unsigned iOS compile gate now runs on every push (`--no-codesign` needs no
+Apple portal access), backed by `ios_source_integrity_test.dart` — a ~1s static
+guard, proven non-vacuous, which also brings the two-copy byte-identity contract
+into CI for the first time (`RunnerTests.swift` asserted it only for
+`SharedCaptureStore`, and XCTest never runs here).
 
 ## What was fixed on 2026-09-02
 

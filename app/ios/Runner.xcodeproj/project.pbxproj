@@ -20,6 +20,8 @@
 		A00100000000000000000021 /* NativeGlassView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000021 /* NativeGlassView.swift */; };
 		A00100000000000000000002 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000002 /* ShareViewController.swift */; };
 		A00100000000000000000003 /* SharedCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000003 /* SharedCaptureStore.swift */; };
+		A00100000000000000000031 /* SharedOfferIntentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000031 /* SharedOfferIntentStore.swift */; };
+		A00100000000000000000032 /* SharedOfferIntentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000032 /* SharedOfferIntentStore.swift */; };
 		A00100000000000000000006 /* ShareBankMessage.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = A00200000000000000000006 /* ShareBankMessage.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		A0010000000000000000000B /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000014 /* PrivacyInfo.xcprivacy */; };
 		A00100000000000000000011 /* BankMessageShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000004 /* BankMessageShortcuts.swift */; };
@@ -88,6 +90,8 @@
 		A00200000000000000000021 /* NativeGlassView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeGlassView.swift; sourceTree = "<group>"; };
 		A00200000000000000000002 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		A00200000000000000000003 /* SharedCaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedCaptureStore.swift; sourceTree = "<group>"; };
+		A00200000000000000000031 /* SharedOfferIntentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedOfferIntentStore.swift; sourceTree = "<group>"; };
+		A00200000000000000000032 /* SharedOfferIntentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedOfferIntentStore.swift; sourceTree = "<group>"; };
 		A00200000000000000000004 /* BankMessageShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = BankMessageShortcuts.swift; path = BankMessageShortcuts/BankMessageShortcuts.swift; sourceTree = SOURCE_ROOT; };
 		A00200000000000000000006 /* ShareBankMessage.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShareBankMessage.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A00200000000000000000008 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
@@ -210,6 +214,7 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				A00200000000000000000001 /* SharedCaptureStore.swift */,
+				A00200000000000000000031 /* SharedOfferIntentStore.swift */,
 				A00200000000000000000021 /* NativeGlassView.swift */,
 				A00200000000000000000008 /* Runner.entitlements */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
@@ -223,6 +228,7 @@
 			children = (
 				A00200000000000000000002 /* ShareViewController.swift */,
 				A00200000000000000000003 /* SharedCaptureStore.swift */,
+				A00200000000000000000032 /* SharedOfferIntentStore.swift */,
 				A00200000000000000000009 /* Info.plist */,
 				A00200000000000000000010 /* ShareBankMessage.entitlements */,
 				A00200000000000000000014 /* PrivacyInfo.xcprivacy */,
@@ -514,6 +520,7 @@
 			files = (
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				A00100000000000000000001 /* SharedCaptureStore.swift in Sources */,
+				A00100000000000000000031 /* SharedOfferIntentStore.swift in Sources */,
 				A00100000000000000000021 /* NativeGlassView.swift in Sources */,
 				A00100000000000000000011 /* BankMessageShortcuts.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
@@ -527,6 +534,7 @@
 			files = (
 				A00100000000000000000002 /* ShareViewController.swift in Sources */,
 				A00100000000000000000003 /* SharedCaptureStore.swift in Sources */,
+				A00100000000000000000032 /* SharedOfferIntentStore.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
