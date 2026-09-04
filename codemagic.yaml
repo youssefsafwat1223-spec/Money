@@ -456,11 +456,17 @@ workflows:
         - pattern: 'feat/*'
           include: true
       cancel_previous_builds: true
-      when:
-        changeset:
-          excludes:
-            - 'docs/**'
-            - '**/*.md'
+    # `when` is a WORKFLOW-level key and a SIBLING of `triggering`, never a child
+    # of it. Nested inside, Codemagic rejects the whole file with
+    # "backend-and-quality-gates -> triggering -> when: extra fields not
+    # permitted" — the build never starts, so nothing here runs at all.
+    # Behaviour is unchanged by the move: pure-documentation changesets are still
+    # skipped so an Android + iOS build is not spent on a README edit.
+    when:
+      changeset:
+        excludes:
+          - 'docs/**'
+          - '**/*.md'
     environment:
       flutter: 3.44.2
       # JDK 17 is what the project actually requires (sourceCompatibility /

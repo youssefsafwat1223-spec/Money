@@ -136,6 +136,62 @@ void main() {
     });
   });
 
+  // Added 2026-09-05 after Codemagic REJECTED the whole file with
+  //   "backend-and-quality-gates -> triggering -> when: extra fields not permitted"
+  // `when` is a WORKFLOW-level key and a sibling of `triggering`, never a child.
+  // Nested, the config does not merely misbehave — it fails schema validation, so
+  // NO workflow runs at all and the repository silently loses every gate it
+  // believes it has. That is the worst failure mode available here, and it is
+  // invisible to every other test, because they all read the YAML as text.
+  group('codemagic schema shape', () {
+    test('`when` is never nested inside `triggering`', () {
+      final lines = File('../codemagic.yaml').readAsLinesSync();
+      // `triggering:` children are indented deeper than the key itself. Walk the
+      // block and fail if `when:` appears inside it.
+      for (var i = 0; i < lines.length; i++) {
+        final m = RegExp(r'^(\s*)triggering:\s*$').firstMatch(lines[i]);
+        if (m == null) continue;
+        final baseIndent = m.group(1)!.length;
+        for (var j = i + 1; j < lines.length; j++) {
+          final line = lines[j];
+          if (line.trim().isEmpty || line.trimLeft().startsWith('#')) continue;
+          final indent = line.length - line.trimLeft().length;
+          if (indent <= baseIndent) break; // left the triggering block
+          expect(RegExp(r'^\s*when:').hasMatch(line), isFalse,
+              reason: 'codemagic.yaml:${j + 1} nests `when:` inside '
+                  '`triggering:`. Codemagic rejects the entire file — no '
+                  'workflow runs. Move `when:` to workflow level, as a sibling '
+                  'of `triggering:`.');
+        }
+      }
+    });
+
+    test('the changeset exclusion survived the move', () {
+      // The move must not quietly drop the docs-only skip, or every README edit
+      // spends two native builds.
+      final ci = File('../codemagic.yaml').readAsStringSync();
+      expect(ci, contains('changeset:'));
+      expect(ci, contains("- 'docs/**'"));
+      expect(ci, contains("- '**/*.md'"));
+    });
+
+    test('the quality gate still triggers automatically on the dev path', () {
+      // The whole reason this workflow exists is that it must not sit behind a
+      // human pressing Run. A schema fix must not cost that.
+      final quality = _workflow('backend-and-quality-gates');
+      expect(quality, contains('triggering:'));
+      for (final needed in const [
+        '- push',
+        '- pull_request',
+        'cancel_previous_builds: true',
+        "pattern: 'feat/*'",
+      ]) {
+        expect(quality, contains(needed),
+            reason: 'automatic triggering lost "$needed"');
+      }
+    });
+  });
+
   // Added 2026-09-04 while reconciling the iOS release config. These are about
   // what a SUCCESSFUL build does, which is the part nobody looks at until it has
   // already happened.
