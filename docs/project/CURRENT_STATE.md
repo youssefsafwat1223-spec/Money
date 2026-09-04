@@ -305,5 +305,7 @@ banner design relies on.
 - `FEATURE_MATRIX.md` — what is implemented vs wired vs tested vs deployed.
 - `RELEASE_BLOCKERS.md` — what actually stops a release.
 - `EXTERNAL_REQUIREMENTS.md` — every account, credential and device needed.
+- `CODEMAGIC_ENVIRONMENT_VARIABLES.md` — every build-time variable, its group,
+  its workflows, and the one-time Codemagic setup. Configure Codemagic **last**.
 - `DECISIONS.md` — decisions taken and why, including the reversed ones.
 - `REVIEW_LOG.md` — what Fable and Codex reviewed, and where they disagreed.

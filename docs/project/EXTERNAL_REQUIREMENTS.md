@@ -6,6 +6,13 @@ Edge Functions' `Deno.env.get` reads, and the platform configuration files.
 
 **No secret values appear in this document, and none ever should.** Names only.
 
+> **For build-time variables specifically, see
+> [`CODEMAGIC_ENVIRONMENT_VARIABLES.md`](CODEMAGIC_ENVIRONMENT_VARIABLES.md)** — the
+> authoritative inventory of what Codemagic consumes, which group each variable
+> belongs to, which workflows it attaches to, and the one-time setup order.
+> This file remains the inventory of *external dependencies*; that one is the
+> inventory of *build configuration*.
+
 ## Status values
 
 `AVAILABLE` · `MISSING` · `EXPIRED` · `ROTATION REQUIRED` · `EXTERNAL APPROVAL` ·
