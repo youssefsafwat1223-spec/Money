@@ -106,12 +106,58 @@ Entry point: `Qirsh Production/18_Android_SMS_Capture/PLAY_SUBMISSION_PACKAGE.md
 
 **Two things still block submission, both owner actions:**
 
-1. **Pin a no-training AI provider tier before `GEMINI_API_KEY` is ever set.**
-   Both reviewers made this the pivot: the exception permits transfer to a
-   *service provider*, and the Gemini free tier permits Google to use submitted
-   content to improve its products — an independent purpose that would void the
-   claim and flip Data Safety to *Shared: YES*. The key is unset in production;
-   keep it that way until the tier and its terms are recorded.
+1. **Pin a no-training AI provider tier.** ✅ **SATISFIED 2026-09-04.**
+
+   Owner confirmed the production Gemini project is **Tier 1 · Prepay**
+   (paid / billing-enabled), with **GenerateContent API storage OFF**,
+   **Interactions API storage OFF**, and **no voluntary dataset or log sharing
+   enabled**.
+
+   This was the pivot both reviewers identified: the exception permits transfer
+   to a **service provider**, and the Gemini free tier permits Google to use
+   submitted content to improve its products — an independent purpose that would
+   void the claim and flip Data Safety to *Shared: YES*. On a paid tier with
+   storage off, Google is a processor acting on our instruction, so the
+   declaration's service-provider framing holds and Data Safety stays
+   *Shared: NO*.
+
+   **Architecture verified 2026-09-04 (source, not assertion).** The key is read
+   **only** server-side, via `Deno.env.get('GEMINI_API_KEY')` in three Edge
+   Functions — `parse-sms`, `process-ios-sms`, `bank-discovery`. The Flutter
+   client never contacts Google: it invokes those functions and nothing else.
+   There is **no** Gemini reference in `app/lib`, the Android or iOS projects, any
+   dart-define, `codemagic.yaml`, GitHub Actions, or any committed `.env`, and no
+   Google API-key literal exists in any tracked file. `parse-sms` keeps the
+   shadow credential in a **separate** variable with no fallback to the
+   production key, and the credential itself is never logged — only the fact of
+   its absence.
+
+   **The secret is SET and verified — 2026-09-04.** `GEMINI_API_KEY` exists in
+   the linked project (`rjwphwsefnuotpbtuycf`), confirmed by a read-only
+   `supabase secrets list` that returns digests only. **The value has never been
+   read, printed, logged, committed or written anywhere in this repository**, and
+   the digest is deliberately not recorded here either.
+
+   `GEMINI_SHADOW_API_KEY` is correctly **absent**: the Proof shadow arm has no
+   call site, and `parse-sms` refuses a shadow contract outright rather than
+   falling back to the production credential. Verified by
+   `_shared/proof_contract_test.ts` (11 passing), including "INERT DEPLOYMENT: no
+   shadow credential means no route, so no call is possible" and two privacy
+   cases asserting no refusal payload can contain either key.
+
+   **Setting the key activates nothing on its own.** AI egress requires
+   `ConsentAuthority.decide(EgressClass.aiProcessing, settings)` — `cloud &&
+   aiConsentGranted` — at all four production call sites, and both consents
+   derive from `ConsentState`, which seeds to `unset`. Only an explicit
+   `accepted` grants; `unset` and `declined` both fail closed. So for any user
+   who has not consented, behaviour is unchanged.
+
+   **One thing could not be verified from here:** `supabase functions list`
+   returns 403 with the current CLI token, so the *deployed* revision of
+   `parse-sms` / `process-ios-sms` / `bank-discovery` could not be read. The
+   source contract is verified; whether the deployed revision matches source is
+   not, and no deployment was performed.
+
 2. **Redeploy both sites.** *(Source now fully corrected — 2026-09-03. Deploy
    is the only remaining step, and it is an owner action.)*
 

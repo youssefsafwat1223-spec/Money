@@ -27,7 +27,13 @@ What blocks a stronger label, in order:
    owner verification: production is applied continuously through **0092**. See
    §Backend.
 3. **Google Play approval for `RECEIVE_SMS` is pending**, and the declaration
-   has not been submitted.
+   has not been submitted. The AI-provider precondition is now **satisfied**: the
+   production Gemini project is Tier 1 · Prepay with both storage settings OFF
+   and no voluntary sharing, and `GEMINI_API_KEY` is set server-side only
+   (verified 2026-09-04, existence only — the value is not in this repository in
+   any form). That keeps Data Safety at *Shared: NO*. What still blocks
+   submission is redeploying the corrected legal/marketing copy and the reviewer
+   video, which needs RB-5 hardware.
 4. **No affiliate network is contracted**; coupons/affiliate/savings run against
    a fixture adapter.
 5. **No AdMob production ad units exist**; banners and the interstitial resolve
