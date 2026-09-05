@@ -138,6 +138,12 @@ workflows:
     environment:
       groups:
         - supabase
+        # Production AdMob identifiers. Attached to the two SIGNED release
+        # workflows only — never to the quality gate (a guard enforces that) and
+        # never to the unsigned sideload, which is a test artifact.
+        # Absence stays safe: every ADMOB_* define below tolerates an empty
+        # value, so a build without this group serves no ads rather than failing.
+        - admob
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.youssefsafwat.mali
@@ -310,6 +316,13 @@ workflows:
         # ANDROID_KEYSTORE_PATH is NOT stored — it is produced by the
         # materialisation step below and exported for build.gradle.kts.
         - google_play
+        # Production AdMob identifiers. Signed release workflows only.
+        # ADMOB_APP_ID_ANDROID is read by build.gradle.kts from the ENVIRONMENT
+        # as well as passed as a dart-define, so the group must be attached here
+        # for the native side to see it at all. A malformed value fails the
+        # Gradle build; Google's test publisher in a release build also fails;
+        # absent is legal and warns that the release ships with ads off.
+        - admob
       flutter: 3.44.2
       vars:
         PACKAGE_NAME: "com.youssefsafwat.mali"

@@ -73,7 +73,7 @@ a written inventory is needed.
 |---|---|---|---|
 | `supabase` | Backend URL + anon key, legal URL, Sentry | the **three release** workflows only | not needed on `backend-and-quality-gates` (it passes no dart-defines) |
 | `google_play` | Android **upload-key** material | `android-release` | any iOS or quality workflow |
-| `admob` **(does not exist yet)** | The six production AdMob identifiers | `android-release`, `ios-signed-release` | **`backend-and-quality-gates`** — a test enforces this |
+| `admob` | The six production AdMob identifiers | `android-release`, `ios-signed-release` — **wired in `codemagic.yaml` 2026-09-05** | **`backend-and-quality-gates`** and **`ios-unsigned-sideload`** — a structural test enforces both |
 | ~~`apple`~~ | **Not needed.** ASC and signing are wired through Codemagic *integrations*, verified connected 2026-09-04 — do not create a shadow variable group | — | — |
 
 Groups currently referenced in `codemagic.yaml`: **`supabase`**, **`google_play`**.
@@ -181,10 +181,17 @@ it.
 
 ## 4. AdMob — group `admob` (to be created)
 
-The **values now exist** (owner-created, 2026-09-04). The **group does not** — no
-`admob` group is defined in Codemagic, which is why all six still resolve to empty
-at build time and every ad path remains inert. That is the intended state until
-§9.
+**Populated in Codemagic by the owner and wired in `codemagic.yaml` (2026-09-05).**
+The `admob` group is attached to `ios-signed-release` and `android-release`, and
+to nothing else — verified structurally, by parsing the YAML rather than grepping
+it, in `android_ci_compile_gate_test.dart`. All three probes (attaching it to the
+quality gate, attaching it to the unsigned sideload, removing it from
+`android-release`) fail the guard.
+
+**This still does not enable ads.** The identifiers now reach a signed release
+build; `enable_report_ads`, `enable_banner_ads` and
+`enable_banner_transactions_list` remain seeded OFF, and every ad path is
+additionally gated on UMP consent and a server-authoritative ad-free entitlement.
 
 | Variable | Platform | Secure | Required | Shape | Status |
 |---|---|---|---|---|---|
@@ -336,8 +343,9 @@ header says READY.
 | `ANDROID_KEY_ALIAS` | **yes** |
 | `ANDROID_KEY_PASSWORD` | **yes** |
 
-**`admob`** *(create)* — attach to **`android-release`** and
-**`ios-signed-release`** only
+**`admob`** — ✅ **created by the owner and wired in `codemagic.yaml`
+(2026-09-05)**; attached to **`android-release`** and **`ios-signed-release`**
+only
 
 | Variable | Secure |
 |---|---|

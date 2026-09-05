@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yaml/yaml.dart';
 
 /// R8C — the Android compile CI contract.
 ///
@@ -143,6 +144,68 @@ void main() {
   // NO workflow runs at all and the repository silently loses every gate it
   // believes it has. That is the worst failure mode available here, and it is
   // invisible to every other test, because they all read the YAML as text.
+  // Added 2026-09-05 when the production AdMob identifiers were wired in.
+  //
+  // STRUCTURAL, not textual. Every other codemagic assertion in this file greps
+  // the YAML as a string, which cannot tell "the group is attached to this
+  // workflow" from "the word appears somewhere in a comment". Group attachment
+  // decides which builds carry production monetization credentials, so it is
+  // parsed properly.
+  group('admob group attachment', () {
+    Map<String, List<String>> groupsByWorkflow() {
+      final doc = loadYaml(File('../codemagic.yaml').readAsStringSync()) as Map;
+      final workflows = doc['workflows'] as Map;
+      return {
+        for (final entry in workflows.entries)
+          entry.key as String: (((entry.value as Map)['environment']
+                          as Map?)?['groups'] as List?)
+                      ?.map((e) => e.toString())
+                      .toList() ??
+                  const <String>[],
+      };
+    }
+
+    test('admob is attached to EXACTLY the two signed release workflows', () {
+      final groups = groupsByWorkflow();
+      final withAdmob = groups.entries
+          .where((e) => e.value.contains('admob'))
+          .map((e) => e.key)
+          .toSet();
+      expect(withAdmob, {'ios-signed-release', 'android-release'},
+          reason: 'production AdMob credentials belong to signed release builds '
+              'and nowhere else');
+    });
+
+    test('admob is NOT attached to the quality gate', () {
+      // That workflow runs AUTOMATICALLY on every push and pull request. It must
+      // carry no production monetization credential it does not need — the same
+      // reason it carries no signing key and performs no store upload.
+      expect(groupsByWorkflow()['backend-and-quality-gates'],
+          isNot(contains('admob')),
+          reason: 'the auto-triggered quality gate must never hold production '
+              'AdMob configuration');
+    });
+
+    test('admob is NOT attached to the unsigned sideload', () {
+      // A sideload artifact is for testing. Production ad units in a build that
+      // is handed around informally is how test traffic becomes real traffic.
+      expect(groupsByWorkflow()['ios-unsigned-sideload'], isNot(contains('admob')),
+          reason: 'the unsigned sideload build must not carry production ad units');
+    });
+
+    test('the groups each release workflow actually needs are all present', () {
+      // Attaching admob must not have displaced anything. Android in particular
+      // needs google_play for the upload key, and BOTH need supabase or the
+      // build fails its own fail-closed backend assertion.
+      final groups = groupsByWorkflow();
+      expect(groups['android-release'],
+          containsAll(<String>['supabase', 'google_play', 'admob']));
+      expect(groups['ios-signed-release'],
+          containsAll(<String>['supabase', 'admob']));
+      expect(groups['ios-unsigned-sideload'], contains('supabase'));
+    });
+  });
+
   group('codemagic schema shape', () {
     test('`when` is never nested inside `triggering`', () {
       final lines = File('../codemagic.yaml').readAsLinesSync();
