@@ -197,9 +197,14 @@ running this — certbot proves control over each name over HTTP.
 ## Deploying the public site
 
 ```bash
-python3 tools/build_site.py          # writes build/site/
-rsync -av --delete build/site/ qirsh@vps:/var/www/qirsh-site/
+ADMOB_PUBLISHER_ID=pub-… python3 tools/build_site.py   # writes build/site/
+tools/deploy_site.sh                                   # fail-closed preflight, then rsync
 ```
+
+**Do not hand-run the rsync.** `--delete` makes the server match the build
+exactly, and `app-ads.txt` is only emitted when `ADMOB_PUBLISHER_ID` is set — a
+rebuild without it silently deleted the live file. `tools/deploy_site.sh` refuses
+to deploy an incomplete tree; `--preflight-only` checks without deploying.
 
 `--delete` keeps the server identical to the build. The generator is
 standard-library-only, so no toolchain has to exist on the VPS.

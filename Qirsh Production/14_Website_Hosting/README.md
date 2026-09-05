@@ -10,10 +10,22 @@ The public site at `qirsh.site` and the admin app at `admin.qirsh.site`.
 2026-08-30. DNS exists; the apex `A` record is in place.
 
 Deploy with the documented command in [`vps_and_nginx.md`](vps_and_nginx.md):
-`rsync -av --delete --rsync-path="sudo rsync" build/site/ qirsh@72.62.236.204:/var/www/qirsh-site/`
-then `sudo chown -R www-data:www-data /var/www/qirsh-site`. The docroot is
-`www-data`-owned, so the plain `rsync` in that file needs the `--rsync-path` sudo
-form to succeed.
+**`tools/deploy_site.sh`** — the canonical deploy. Do not hand-run rsync.
+
+```bash
+ADMOB_PUBLISHER_ID=pub-… python3 tools/build_site.py
+tools/deploy_site.sh                 # add --preflight-only to check without deploying
+```
+
+It fails CLOSED before touching production: the tree must exist, all eight routes
+and `app-ads.txt` must be present and non-empty, `app-ads.txt` must match
+`google.com, pub-<16 digits>, DIRECT, f08c47fec0942fa0`, and it must be identical
+to what is already live unless `--allow-app-ads-change` is passed. It then rsyncs,
+fixes ownership, and re-verifies `app-ads.txt` over HTTP.
+
+**Why:** the deploy used to be a raw `rsync -av --delete`, and `build_site.py`
+emits `app-ads.txt` only when `ADMOB_PUBLISHER_ID` is set — so a rebuild without
+that variable silently DELETED the live file while reporting success.
 
 Last deploy: **2026-09-04, revision `f5cabf4d`** — the corrected legal copy.
 
