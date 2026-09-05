@@ -398,6 +398,11 @@ class BackupSnapshotBuilder {
     // Restoring them elsewhere would attach correction history to captures that
     // device never made.
     'capture_review_labels',
+    // Device-local Proof diagnostics. Excluded deliberately: the table exists
+    // to measure THIS device's engine behaviour, it is never synced, and
+    // restoring another device's shadow observations would corrupt the Tier 2
+    // population it feeds. Losing it on restore costs nothing a user can see.
+    'proof_shadow_evaluations',
     'financial_import_runs',
     'notification_log_events',
     'catalog_metadata',

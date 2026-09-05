@@ -1,3 +1,4 @@
+import '../capture/proof_commit_gate.dart';
 import '../entities/transaction_entity.dart';
 import '../../engine/parser/capture_money.dart';
 
@@ -48,10 +49,18 @@ class CaptureCommitDecision {
   ///
   /// Verbatim port of the pre-seam expression:
   /// `(canAutoConfirm && !foreignUnpriced && !requiresReview)`.
+  /// [proofGate] is PHASE 11 and is optional so every existing caller and the
+  /// characterization tests keep their exact behaviour.
+  ///
+  /// It is applied LAST and can only ever turn `confirmed` into `pending`.
+  /// There is deliberately no path by which it turns `pending` into
+  /// `confirmed`: a Proof verdict was never sufficient to commit money, so a
+  /// wrong Proof verdict cannot commit money. In shadow mode it is inert.
   factory CaptureCommitDecision.primary({
     required bool canAutoConfirm,
     required bool foreignUnpriced,
     required bool requiresReview,
+    ProofGateDecision? proofGate,
   }) {
     if (!canAutoConfirm) {
       return const CaptureCommitDecision._(
@@ -71,6 +80,15 @@ class CaptureCommitDecision {
         reason: CaptureCommitReason.nonExactAmountIngress,
       );
     }
+    // PHASE 11, applied last and subtractively. Reaching here means every
+    // deterministic gate already passed; the armed gate decides only whether
+    // that confirmation lands unseen or goes to a human.
+    if (proofGate != null && proofGate.withholdsConfirmation) {
+      return const CaptureCommitDecision._(
+        status: TransactionStatus.pending,
+        reason: CaptureCommitReason.proofNotCorroborated,
+      );
+    }
     return const CaptureCommitDecision._(
       status: TransactionStatus.confirmed,
       reason: CaptureCommitReason.autoConfirmed,
@@ -87,10 +105,26 @@ class CaptureCommitDecision {
   /// did. Routing it through this class changes where the decision lives, not
   /// what it decides; unifying the two policies would be a behaviour change and
   /// belongs to a later, separately-approved phase.
+  /// [primaryWithheldByProof] closes the fee bypass.
+  ///
+  /// The fee is a LEG of the same captured message, not an independent event.
+  /// If Proof withheld the primary row, a confirmed fee would be an orphan: a
+  /// committed financial row belonging to a transaction a human has not yet
+  /// seen, and one that no screen shows as related to anything pending. The
+  /// seam class was introduced precisely so a proof gate could not inherit the
+  /// "secure one row, miss the other" failure — so the fee follows the primary
+  /// to review rather than standing alone.
   factory CaptureCommitDecision.fee({
     required bool hasExactText,
     required bool canonicalMode,
+    bool primaryWithheldByProof = false,
   }) {
+    if (primaryWithheldByProof) {
+      return const CaptureCommitDecision._(
+        status: TransactionStatus.pending,
+        reason: CaptureCommitReason.proofNotCorroborated,
+      );
+    }
     final ingress = resolveAiCaptureIngress(
       hasExactText: hasExactText,
       canonicalMode: canonicalMode,
@@ -125,4 +159,10 @@ enum CaptureCommitReason {
   /// The amount reached canonical mode without verified exact text
   /// (`AiCaptureIngress.legacyPendingReview`).
   nonExactAmountIngress,
+
+  /// PHASE 11. Every deterministic gate passed, but the armed Proof gate did
+  /// not corroborate the parse, so the row goes to review instead of being
+  /// committed unseen. Only reachable when `enable_proof_autocommit` is ON;
+  /// in shadow mode this reason can never be produced.
+  proofNotCorroborated,
 }

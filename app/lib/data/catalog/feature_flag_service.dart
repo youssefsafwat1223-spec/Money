@@ -49,6 +49,27 @@ const Map<String, Object> _defaults = {
   'enable_savings_claims': false,
   'enable_announcements': true,
   'parser_engine_version': 'v1',
+  // PHASE 11 — Proof-carrying autocommit. Seeded OFF and shipped OFF.
+  //
+  // This is the REMOTE KILL SWITCH. With it false the Proof gate runs in shadow
+  // and the commit decision is byte-identical to what it would be without
+  // Proof, so turning it off can never leave a capture in a state the
+  // deterministic pipeline could not have produced.
+  //
+  // Note the gate is SUBTRACTIVE: armed, it can only send an auto-confirmation
+  // to review, never create one. Enabling it cannot cause a false commit; the
+  // worst it can do is ask a human about a correct capture.
+  'enable_proof_autocommit': false,
+  // Floor for the armed gate, in permille, applied to the DETERMINISTIC
+  // PARSER's confidence. Named for the parser because ProofResult carries a
+  // verdict enum and no numeric confidence — `proof_confidence_min` implied a
+  // number that does not exist and would have become a false contract the
+  // moment anyone tuned it. Never activated, so no migration is needed.
+  //
+  // 990 is far above the deterministic auto-confirm bar of 0.92 on purpose:
+  // that bar decides "probably right", this one decides "safe to never show
+  // anyone".
+  'proof_parser_confidence_min': 990,
   'ledger_dual_write': false,
   'ledger_pull_sync': false,
   'ledger_push_sync': false,

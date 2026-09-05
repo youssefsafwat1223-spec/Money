@@ -37,6 +37,13 @@ import '../repositories/transaction_repository.dart';
 import '../services/bank_discovery_service.dart';
 import 'engagement_usecase.dart';
 import 'resolve_bank_for_sender_usecase.dart';
+import '../capture/proof_proposal_builder.dart';
+import '../../engine/proof/evidence.dart';
+import '../../engine/proof/proof_checker.dart';
+import 'dart:convert';
+import 'package:crypto/crypto.dart';
+import '../capture/proof_shadow_record.dart';
+import '../capture/proof_commit_gate.dart';
 import 'capture_commit_decision.dart';
 
 class AddTransactionResult {
@@ -269,6 +276,12 @@ class AddTransactionUseCase {
     ParserIsolate? parserIsolate,
     RecordEngagementUseCase? recordEngagementUseCase,
     Future<void> Function(String key, {String? dimension})? logMetric,
+    // PHASE 11. Injected, never read from a global: the domain layer stays
+    // flag-free, and a test can exercise armed mode without touching runtime
+    // flag state. Defaults keep Proof inert for every existing caller.
+    ProofGateMode Function()? proofGateMode,
+    int Function()? proofParserConfidenceMinPermille,
+    void Function(ProofShadowRecord record)? recordProofShadow,
     Future<List<BankProfile>> Function({String? senderId})? loadBankProfiles,
     Future<List<CatalogParserRule>> Function(String? senderId)?
         loadCatalogRules,
@@ -303,6 +316,9 @@ class AddTransactionUseCase {
         _parserIsolate = parserIsolate ?? const ParserIsolate(),
         _recordEngagementUseCase = recordEngagementUseCase,
         _logMetric = logMetric,
+        _proofGateMode = proofGateMode,
+        _proofParserConfidenceMinPermille = proofParserConfidenceMinPermille,
+        _recordProofShadow = recordProofShadow,
         _loadBankProfiles = loadBankProfiles,
         _loadCatalogRules = loadCatalogRules,
         _loadRemoteKeywords = loadRemoteKeywords,
@@ -318,6 +334,142 @@ class AddTransactionUseCase {
         _bankDiscoveryService = bankDiscoveryService,
         _suspectedDuplicateRepository = suspectedDuplicateRepository;
 
+  /// PHASE 11 — run Proof for one capture and return the gate's finding.
+  ///
+  /// Never throws into the commit path. Proof is corroboration; if the engine
+  /// fails for any reason the capture must still be processed exactly as it
+  /// would have been, so every failure degrades to `notEvaluated` — which the
+  /// gate treats as "not agreement", never as agreement.
+  ProofGateDecision _evaluateProofGate({
+    required String rawMessage,
+    required TransactionType type,
+    required int amountMinorUnits,
+    required String currencyIso,
+    required double parseConfidence,
+  }) {
+    // EVERYTHING is inside the guard, including the flag reads and the gate
+    // evaluation itself. Both independent reviewers found the earlier version's
+    // "never throws" claim false: the injected callbacks ran BEFORE the try
+    // (and `featureFlags` throws StateError when uninitialised), and
+    // `evaluate()` ran AFTER it (and `.floor()` throws on a non-finite
+    // confidence). Either would have aborted the SAVE — in shadow mode — for a
+    // capture that would otherwise have been stored fine. Corroboration must
+    // never be able to lose a transaction.
+    try {
+      final mode = _proofGateMode?.call() ?? ProofGateMode.shadow;
+      final minPermille = _proofParserConfidenceMinPermille?.call() ??
+          ProofCommitGate.defaultParserConfidenceMinPermille;
+      ProofResult? proof;
+      String? canonical;
+      String? direction;
+      ProofProposalRefusal? refusal;
+      final evidence = extractEvidence(rawMessage);
+      final outcome = const ProofProposalBuilder().build(
+        evidence: evidence,
+        type: type,
+        amountMinorUnits: amountMinorUnits,
+        currencyIso: currencyIso,
+      );
+      final proposal = outcome.proposal;
+      refusal = outcome.refusal;
+      if (proposal != null) {
+        proof = const ProofChecker().check(evidence, proposal);
+        direction = proposal.direction;
+        final currencyNode =
+            evidence.items.firstWhere((e) => e.id == proposal.currencyId);
+        canonical = ProofProposalBuilder.canonicalAmount(
+            amountMinorUnits, currencyNode.scale ?? 2);
+      }
+      final decision = const ProofCommitGate().evaluate(
+        mode: mode,
+        proof: proof,
+        parseConfidence: parseConfidence,
+        parsedDirection: direction,
+        parsedAmountCanonical: canonical,
+        parsedCurrency: currencyIso,
+        confidenceMinPermille: minPermille,
+      );
+      _emitShadowRecord(
+        rawMessage: rawMessage,
+        decision: decision,
+        proof: proof,
+        refusal: refusal,
+        parsedDirection: direction,
+        parsedAmountCanonical: canonical,
+        parsedCurrency: currencyIso,
+      );
+      return decision;
+    } catch (_) {
+      // Degrade to "not evaluated" in SHADOW. Shadow is the safe default here:
+      // if the failure was the mode lookup itself we do not know whether the
+      // gate was meant to be armed, and guessing "armed" could withhold a
+      // confirmation on the strength of a bug.
+      return const ProofGateDecision(
+        mode: ProofGateMode.shadow,
+        outcome: ProofGateOutcome.notEvaluated,
+        parseConfidencePermille: 0,
+        confidenceMinPermille: ProofCommitGate.defaultParserConfidenceMinPermille,
+      );
+    }
+  }
+
+  /// Build and hand off one durable shadow observation.
+  ///
+  /// Field comparisons are recorded as MATCH OUTCOMES, never as the compared
+  /// values: storing the amount and currency would reconstruct the transaction
+  /// inside a diagnostic table with a different purpose and lifetime.
+  void _emitShadowRecord({
+    required String rawMessage,
+    required ProofGateDecision decision,
+    required ProofResult? proof,
+    required ProofProposalRefusal? refusal,
+    required String? parsedDirection,
+    required String? parsedAmountCanonical,
+    required String? parsedCurrency,
+  }) {
+    final record = _recordProofShadow;
+    if (record == null) return;
+    try {
+      ProofFieldMatch cmp(String? a, String? b) {
+        if (a == null || b == null || a.trim().isEmpty || b.trim().isEmpty) {
+          return ProofFieldMatch.absent;
+        }
+        return a.trim().toLowerCase() == b.trim().toLowerCase()
+            ? ProofFieldMatch.matched
+            : ProofFieldMatch.mismatched;
+      }
+
+      // One-way, local, and only for idempotency — see ProofShadowRecord.
+      final key = sha256
+          .convert(utf8.encode('$_proofEngineVersion|$rawMessage'))
+          .toString()
+          .substring(0, 32);
+
+      record(ProofShadowRecord(
+        evaluationKey: key,
+        evaluatedAt: DateTime.now().toUtc(),
+        engineVersion: _proofEngineVersion,
+        gateMode: decision.mode,
+        outcome: decision.outcome,
+        wouldHaveCommitted: decision.agrees,
+        parseConfidencePermille: decision.parseConfidencePermille,
+        confidenceMinPermille: decision.confidenceMinPermille,
+        proofVerdict: proof?.verdict,
+        amountMatch: cmp(proof?.amountCanonical, parsedAmountCanonical),
+        directionMatch: cmp(proof?.direction, parsedDirection),
+        currencyMatch: cmp(proof?.currency, parsedCurrency),
+        refusal: refusal,
+      ));
+    } catch (_) {
+      // Recording is best-effort and must never be load-bearing.
+    }
+  }
+
+  /// Reproducibility stamp. Bump when the gate, builder or thresholds change in
+  /// a way that makes older observations non-comparable — otherwise a mixed
+  /// population would be silently averaged during Tier 2.
+  static const String _proofEngineVersion = 'proof-gate-1';
+
   static const double autoConfirmThreshold = 0.92;
   static const double categoryAutoConfirmThreshold = 0.80;
 
@@ -330,6 +482,12 @@ class AddTransactionUseCase {
   final MerchantIntelligenceStore _merchantIntelligence;
   final RecordEngagementUseCase? _recordEngagementUseCase;
   final Future<void> Function(String key, {String? dimension})? _logMetric;
+
+  /// PHASE 11 Proof gate wiring. All three default to "inert": shadow mode, the
+  /// shipped floor, and no recorder.
+  final ProofGateMode Function()? _proofGateMode;
+  final int Function()? _proofParserConfidenceMinPermille;
+  final void Function(ProofShadowRecord record)? _recordProofShadow;
   final Future<List<BankProfile>> Function({String? senderId})?
       _loadBankProfiles;
   // F-016: the raw catalog rules the engine applies as first authority.
@@ -747,10 +905,29 @@ class AddTransactionUseCase {
         ) ==
         AiCaptureIngress.legacyPendingReview;
 
+    // ---- PHASE 11: Proof gate -------------------------------------------
+    //
+    // Evaluated for EVERY capture so shadow measurement sees the real
+    // population, not a filtered one. In shadow mode the decision below is
+    // byte-identical to what it would be without Proof — which is what makes
+    // the recorded numbers describe the decision that was actually made.
+    //
+    // `proofResult` is null until the Proof engine is fed by the capture
+    // pipeline; a null is recorded as `notEvaluated` and is never agreement.
+    final proofGate = _evaluateProofGate(
+      rawMessage: rawMessage,
+      type: effectiveParsed.type,
+      amountMinorUnits: mainAmount.money.minorUnits,
+      currencyIso: transactionCurrency,
+      parseConfidence: effectiveParsed.parseConfidence,
+    );
+    // Outcome label plus two integers. No message text, no amount, no merchant:
+    // recording a shadow verdict must never become an exfiltration path.
     final primaryCommit = CaptureCommitDecision.primary(
       canAutoConfirm: canAutoConfirm,
       foreignUnpriced: foreignUnpriced,
       requiresReview: requiresReview,
+      proofGate: proofGate,
     );
 
     final transaction = TransactionEntity(
@@ -823,6 +1000,8 @@ class AddTransactionUseCase {
     // re-pasting the same message — primary already a duplicate — can never add
     // a second fee.
     final secondary = await _maybeSaveFee(
+      primaryWithheldByProof:
+          primaryCommit.reason == CaptureCommitReason.proofNotCorroborated,
       rawMessage: rawMessage,
       primary: parsed,
       occurredAt: occurredAt,
@@ -893,6 +1072,9 @@ class AddTransactionUseCase {
     DateTime? transactionTimeFromSms,
     DateTime? smsReceivedAt,
     required ComparisonTimestampSource comparisonTimestampSource,
+    /// True when Proof withheld the PRIMARY row. The fee is a leg of the same
+    /// captured message, so it must not stand alone as a confirmed row.
+    bool primaryWithheldByProof = false,
   }) async {
     final fee = _extractFeeAmount(rawMessage);
     if (fee == null) return null;
@@ -958,6 +1140,9 @@ class AddTransactionUseCase {
         hasExactText: !feeAmount.legacyLossy,
         canonicalMode:
             _coordinator.state() == PlanningCutoverState.canonical,
+        // The fee follows the primary: a Proof-withheld primary must never
+        // leave a confirmed fee row behind it.
+        primaryWithheldByProof: primaryWithheldByProof,
       ).status,
       createdAt: now,
       updatedAt: now,

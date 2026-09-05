@@ -68,6 +68,8 @@ import '../../domain/repositories/smart_inbox_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/repositories/user_settings_repository.dart';
 import '../../domain/services/bank_discovery_service.dart';
+import '../../data/capture/proof_shadow_dao.dart';
+import '../../domain/capture/proof_commit_gate.dart';
 import '../../domain/usecases/add_transaction_usecase.dart';
 import '../../domain/usecases/budget_progress_usecase.dart';
 import '../../domain/usecases/confirm_transaction_usecase.dart';
@@ -1183,6 +1185,33 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
   // provider rebuilt in the meantime (e.g. installId resolving).
   final db = ref.watch(appDatabaseProvider);
   return AddTransactionUseCase(
+    // PHASE 11 — Proof gate config, read at CALL TIME so a remote flag flip
+    // takes effect on the next capture without rebuilding the use case. This is
+    // the kill switch's propagation path.
+    proofGateMode: () => featureFlags.getBool('enable_proof_autocommit')
+        ? ProofGateMode.armed
+        : ProofGateMode.shadow,
+    // PHASE 11 — the DURABLE shadow recorder. Previously null, which meant the
+    // gate computed findings and dropped them, so Tier 2 could count nothing.
+    // Fire-and-forget: the DAO swallows its own failures, and this is not
+    // awaited, so a diagnostic write can neither fail nor slow a commit.
+    recordProofShadow: (record) {
+      // Uses the captured `db`, not ref.read: this provider explicitly captures
+      // it because reading `ref` inside a closure throws if the provider
+      // rebuilds — which would silently stop recording.
+      unawaited(ProofShadowDao(db).record(record));
+    },
+    proofParserConfidenceMinPermille: () {
+      final v = featureFlags.getInt('proof_parser_confidence_min');
+      // TUNE-UPWARD-ONLY. A range check would have accepted any value in 1..989
+      // and silently LOWERED the floor — a remote `99` (the plausible
+      // percent-for-permille typo) would have dropped it from 990‰ to ~10%.
+      // Remote config may make this gate stricter; it may never make it looser
+      // than what shipped.
+      return (v > ProofCommitGate.defaultParserConfidenceMinPermille && v <= 1000)
+          ? v
+          : ProofCommitGate.defaultParserConfidenceMinPermille;
+    },
     transactionRepository: ref.watch(transactionRepositoryProvider),
     merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
     merchantIntelligence: ref.watch(merchantIntelligenceProvider),

@@ -8,6 +8,10 @@ import '../../../core/utils/id_generator.dart';
 import '../../../core/utils/install_id.dart';
 import 'capture_device_registration_service.dart';
 import '../../../data/catalog/catalog_daos.dart';
+import 'dart:async';
+import '../../../data/capture/proof_shadow_dao.dart';
+import '../../../domain/capture/proof_commit_gate.dart';
+import '../../../core/di/app_providers.dart' show featureFlags;
 import '../../../data/db/app_database.dart';
 import '../../../data/db/ownership_guard.dart';
 import '../../../data/repositories/drift_budget_repository.dart';
@@ -140,6 +144,25 @@ class CapturedMessageProcessor {
           : null;
       final ingestUseCase = IngestCapturedMessageUseCase(
         AddTransactionUseCase(
+          // PHASE 11 — the background capture path MUST carry the same Proof
+          // wiring as the foreground one. This is where automatic bank SMS
+          // actually flows, so a use case constructed without it would default
+          // to shadow (safe) but record NOTHING — and Tier 2 would count zero
+          // from the only path that matters at volume.
+          proofGateMode: () => featureFlags.getBool('enable_proof_autocommit')
+              ? ProofGateMode.armed
+              : ProofGateMode.shadow,
+          proofParserConfidenceMinPermille: () {
+            final v = featureFlags.getInt('proof_parser_confidence_min');
+            // Tune-upward-only, identical to the foreground clamp.
+            return (v > ProofCommitGate.defaultParserConfidenceMinPermille &&
+                    v <= 1000)
+                ? v
+                : ProofCommitGate.defaultParserConfidenceMinPermille;
+          },
+          recordProofShadow: (record) {
+            unawaited(ProofShadowDao(db).record(record));
+          },
           transactionRepository:
               DriftTransactionRepository(db, outboxQueue: ledgerOutbox),
           merchantCategoryRepository: DriftMerchantCategoryRepository(db),

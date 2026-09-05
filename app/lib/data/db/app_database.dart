@@ -18,7 +18,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 35;
+const int _targetSchemaVersion = 36;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -600,7 +600,50 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV35AffiliateAndSavings,
       postcondition: _verifyV35AffiliateAndSavings,
     ),
+    // PHASE 11 — the durable Proof shadow store. Registered here rather than
+    // buried in the flat repair list: the DAO swallows its own insert errors by
+    // design, so a missing table would be permanently INVISIBLE. The
+    // postcondition is what turns that into a loud migration failure.
+    _SchemaMigration(
+      from: 35,
+      to: 36,
+      apply: _applyV36ProofShadow,
+      postcondition: _verifyV36ProofShadow,
+    ),
   ];
+
+  static Future<void> _applyV36ProofShadow(AppDatabase db) =>
+      db._createProofShadowTable();
+
+  static Future<bool> _verifyV36ProofShadow(AppDatabase db) async {
+    final rows = await db
+        .customSelect(
+          "SELECT name FROM sqlite_master WHERE type='table' "
+          "AND name='proof_shadow_evaluations';",
+        )
+        .get();
+    return rows.isNotEmpty;
+  }
+
+  Future<void> _createProofShadowTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS proof_shadow_evaluations (
+        evaluation_key TEXT PRIMARY KEY,
+        evaluated_at TEXT NOT NULL,
+        engine_version TEXT NOT NULL,
+        gate_mode TEXT NOT NULL,
+        outcome TEXT NOT NULL,
+        would_have_committed INTEGER NOT NULL DEFAULT 0,
+        parse_confidence_permille INTEGER NOT NULL,
+        confidence_min_permille INTEGER NOT NULL,
+        proof_verdict TEXT NOT NULL DEFAULT '',
+        amount_match TEXT NOT NULL,
+        direction_match TEXT NOT NULL,
+        currency_match TEXT NOT NULL,
+        refusal_reason TEXT NOT NULL DEFAULT ''
+      );
+    ''');
+  }
 
   static Future<void> _applyV33ReviewLabels(AppDatabase db) =>
       db._createCaptureReviewLabelsTable();
@@ -1788,6 +1831,7 @@ class AppDatabase extends GeneratedDatabase {
     // v33 (PHASE 9A): real user labels for the Phase-11 precision gate.
     // ADDITIVE, and created unconditionally for the same reason as above.
     await _createCaptureReviewLabelsTable();
+    await _createProofShadowTable();
 
     // v34 (COUPONS PHASE 1): the merchant catalog cache. Unconditional for the
     // same reason as the two above — a version gate would skip these on a

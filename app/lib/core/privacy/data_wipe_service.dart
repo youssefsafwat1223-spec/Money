@@ -54,6 +54,11 @@ class DataWipeService {
     // evidence about this person's corrections and must not survive a
     // sign-out/account change into the next owner's session.
     'capture_review_labels',
+    // Proof shadow observations are derived from the user's captures. They hold
+    // no amounts or message text, but they are a record that THIS user's
+    // messages were evaluated, so a wipe must remove them like any other
+    // capture-derived data. Diagnostics do not get a privacy exemption.
+    'proof_shadow_evaluations',
     // COUPONS Phase 3 + 4 — both are user-scoped. A click receipt is a
     // credential for one person's click and a savings entry is a statement
     // about their spending; the next account on this device must inherit
