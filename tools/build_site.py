@@ -138,6 +138,11 @@ def shell(loc: str, title: str, body: str, *, path: str, desc: str) -> str:
 <title>{html.escape(title)}</title>
 <meta name="description" content="{html.escape(desc)}">
 <meta name="robots" content="index, follow">
+<!-- Mitgo/Admitad ad-space ownership verification for qirsh.site. A static
+     ownership proof, not a tracker: no script, no network call, no cookie, and
+     no user data. Emitted from the shared head so the root homepage carries it,
+     which is where the verifier looks. -->
+<meta name="mitgo-verification" content="f3ac6110-e2e2-47e3-b348-7501f0f2b85f">
 <meta name="color-scheme" content="light">
 <meta name="theme-color" content="#F4F6FB">
 <link rel="canonical" href="{CANONICAL_ORIGIN}{path}">
