@@ -67,7 +67,7 @@ void main() {
 
     final dbFramework = openUninit(newDbFile(), enableMigrations: true);
     addTearDown(dbFramework.close);
-    expect(await userVersion(dbFramework), 36,
+    expect(await userVersion(dbFramework), 37,
         reason: 'framework stamps schemaVersion (33) — the behavior the fix disables');
   });
 
@@ -75,7 +75,7 @@ void main() {
     final db = openUninit(newDbFile());
     addTearDown(db.close);
     await db.initialize();
-    expect(await userVersion(db), 36);
+    expect(await userVersion(db), 37);
     expect(await count(db, 'accounts'), greaterThan(0));
     expect(await count(db, 'categories'), greaterThan(0));
   });
@@ -119,7 +119,7 @@ void main() {
 
     await db.initialize();
 
-    expect(await userVersion(db), 36);
+    expect(await userVersion(db), 37);
     expect(await columnExists(db, 'transactions', 'foreign_amount'), isTrue,
         reason: 'version<9 gate fired — real on-disk version (8) was observed');
     expect(await count(db, "transactions WHERE id='legacy_tx'"), 1,
@@ -140,11 +140,11 @@ void main() {
 
     final db2 = openUninit(f);
     addTearDown(db2.close);
-    expect(await userVersion(db2), 36,
+    expect(await userVersion(db2), 37,
         reason: 'the pipeline owns user_version and persisted the current '
             'target to disk; reopening observes it before initialize runs');
     await db2.initialize(); // idempotent no-op
-    expect(await userVersion(db2), 36);
+    expect(await userVersion(db2), 37);
     expect(await count(db2, "accounts WHERE id='marker'"), 1);
   });
 

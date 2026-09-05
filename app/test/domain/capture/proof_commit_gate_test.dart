@@ -98,6 +98,8 @@ void main() {
         ProofGateOutcome.disagreeFields,
         ProofGateOutcome.belowConfidence,
         ProofGateOutcome.notEvaluated,
+        ProofGateOutcome.evidenceError,
+        ProofGateOutcome.checkerError,
       ]) {
         final d = CaptureCommitDecision.primary(
           canAutoConfirm: true,
@@ -333,6 +335,23 @@ void main() {
     test('missing or nonsensical values fall back to the floor', () {
       for (final bad in [0, -1, 1001, 99999]) {
         expect(clamp(bad), 990);
+      }
+    });
+  });
+
+  group('every non-agreement outcome withholds when armed', () {
+    test('EVERY enum value except agree withholds — exhaustively', () {
+      // Written over the enum itself so a NEW outcome added later cannot
+      // silently default to passing.
+      for (final o in ProofGateOutcome.values) {
+        final d = ProofGateDecision(
+          mode: ProofGateMode.armed,
+          outcome: o,
+          parseConfidencePermille: 1000,
+          confidenceMinPermille: 990,
+        );
+        expect(d.withholdsConfirmation, o != ProofGateOutcome.agree,
+            reason: '$o must ${o == ProofGateOutcome.agree ? "pass" : "withhold"}');
       }
     });
   });

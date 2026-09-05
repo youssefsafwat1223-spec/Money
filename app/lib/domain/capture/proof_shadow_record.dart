@@ -29,6 +29,7 @@ class ProofShadowRecord {
   const ProofShadowRecord({
     required this.evaluationKey,
     required this.evaluatedAt,
+    this.transactionId,
     required this.engineVersion,
     required this.gateMode,
     required this.outcome,
@@ -47,6 +48,19 @@ class ProofShadowRecord {
   /// so reprocessing cannot inflate the Tier 2 denominator.
   final String evaluationKey;
   final DateTime evaluatedAt;
+
+  /// The transaction this evaluation influenced, when one was created.
+  ///
+  /// `transactions.id` is the stable identity that actually exists in
+  /// production: it never changes across edits, and it is what any later
+  /// correction is applied to. `capture_uuid` was the obvious candidate but its
+  /// pipeline (`capture_work_items`) has no production writer, so joining on it
+  /// would produce a table of nulls.
+  ///
+  /// Null when no transaction was created (a refusal, an error, or a capture
+  /// that produced no row) — those observations still count in the denominator
+  /// and are classified `unattributed` rather than dropped.
+  final String? transactionId;
 
   /// Reproducibility: which gate/engine produced this row. A threshold or
   /// engine change makes old rows non-comparable, and without this the mixed
@@ -78,6 +92,7 @@ class ProofShadowRecord {
   Map<String, Object?> toRow() => {
         'evaluation_key': evaluationKey,
         'evaluated_at': evaluatedAt.toUtc().toIso8601String(),
+        'transaction_id': transactionId,
         'engine_version': engineVersion,
         'gate_mode': gateMode.name,
         'outcome': outcome.name,

@@ -269,6 +269,24 @@ Future<AccountEntity?> _accountByNumber(
   return suffixMatch;
 }
 
+/// What one Proof evaluation produced, carried from the gate to the recorder so
+/// the observation can be persisted AFTER the transaction id exists.
+class _ProofGateEvaluation {
+  const _ProofGateEvaluation({
+    required this.decision,
+    required this.proof,
+    required this.refusal,
+    required this.parsedDirection,
+    required this.parsedAmountCanonical,
+  });
+
+  final ProofGateDecision decision;
+  final ProofResult? proof;
+  final ProofProposalRefusal? refusal;
+  final String? parsedDirection;
+  final String? parsedAmountCanonical;
+}
+
 class AddTransactionUseCase {
   AddTransactionUseCase({
     required TransactionRepository transactionRepository,
@@ -340,29 +358,44 @@ class AddTransactionUseCase {
   /// fails for any reason the capture must still be processed exactly as it
   /// would have been, so every failure degrades to `notEvaluated` — which the
   /// gate treats as "not agreement", never as agreement.
-  ProofGateDecision _evaluateProofGate({
+  /// Run Proof for one capture. NEVER throws: corroboration must not be able to
+  /// lose a transaction. Every failure mode returns a decision carrying an
+  /// explicit outcome, so no attempted evaluation is silently lost.
+  _ProofGateEvaluation _evaluateProofGate({
     required String rawMessage,
     required TransactionType type,
     required int amountMinorUnits,
     required String currencyIso,
     required double parseConfidence,
   }) {
-    // EVERYTHING is inside the guard, including the flag reads and the gate
-    // evaluation itself. Both independent reviewers found the earlier version's
-    // "never throws" claim false: the injected callbacks ran BEFORE the try
-    // (and `featureFlags` throws StateError when uninitialised), and
-    // `evaluate()` ran AFTER it (and `.floor()` throws on a non-finite
-    // confidence). Either would have aborted the SAVE — in shadow mode — for a
-    // capture that would otherwise have been stored fine. Corroboration must
-    // never be able to lose a transaction.
+    // Mode and threshold are read INDEPENDENTLY, on purpose.
+    //
+    // They were in one try block, so a THRESHOLD failure after a successful
+    // mode read silently disarmed a gate the operator had turned ON — losing a
+    // safety mechanism because an unrelated lookup threw. Now a threshold
+    // failure falls back to the shipped floor (the strictest value, and the
+    // tune-upward-only baseline) while the known mode is preserved.
+    ProofGateMode mode = ProofGateMode.shadow;
     try {
-      final mode = _proofGateMode?.call() ?? ProofGateMode.shadow;
-      final minPermille = _proofParserConfidenceMinPermille?.call() ??
-          ProofCommitGate.defaultParserConfidenceMinPermille;
-      ProofResult? proof;
-      String? canonical;
-      String? direction;
-      ProofProposalRefusal? refusal;
+      mode = _proofGateMode?.call() ?? ProofGateMode.shadow;
+    } catch (_) {
+      // Shadow only when the MODE ITSELF is unknown: guessing "armed" could
+      // withhold a confirmation on the strength of a bug.
+      mode = ProofGateMode.shadow;
+    }
+    int minPermille = ProofCommitGate.defaultParserConfidenceMinPermille;
+    try {
+      minPermille = _proofParserConfidenceMinPermille?.call() ?? minPermille;
+    } catch (_) {
+      minPermille = ProofCommitGate.defaultParserConfidenceMinPermille;
+    }
+
+    ProofResult? proof;
+    String? canonical;
+    String? direction;
+    ProofProposalRefusal? refusal;
+    ProofGateOutcome? errorOutcome;
+    try {
       final evidence = extractEvidence(rawMessage);
       final outcome = const ProofProposalBuilder().build(
         evidence: evidence,
@@ -373,14 +406,28 @@ class AddTransactionUseCase {
       final proposal = outcome.proposal;
       refusal = outcome.refusal;
       if (proposal != null) {
-        proof = const ProofChecker().check(evidence, proposal);
         direction = proposal.direction;
         final currencyNode =
             evidence.items.firstWhere((e) => e.id == proposal.currencyId);
         canonical = ProofProposalBuilder.canonicalAmount(
             amountMinorUnits, currencyNode.scale ?? 2);
+        try {
+          proof = const ProofChecker().check(evidence, proposal);
+        } catch (_) {
+          errorOutcome = ProofGateOutcome.checkerError;
+        }
       }
-      final decision = const ProofCommitGate().evaluate(
+    } catch (_) {
+      // Evidence extraction or proposal construction failed. Distinct from a
+      // refusal: a refusal is the engine working, an error is it failing, and
+      // conflating them would let a rising defect rate hide inside a benign
+      // refusal rate.
+      errorOutcome = ProofGateOutcome.evidenceError;
+    }
+
+    ProofGateDecision decision;
+    try {
+      decision = const ProofCommitGate().evaluate(
         mode: mode,
         proof: proof,
         parseConfidence: parseConfidence,
@@ -389,43 +436,57 @@ class AddTransactionUseCase {
         parsedCurrency: currencyIso,
         confidenceMinPermille: minPermille,
       );
-      _emitShadowRecord(
-        rawMessage: rawMessage,
-        decision: decision,
-        proof: proof,
-        refusal: refusal,
-        parsedDirection: direction,
-        parsedAmountCanonical: canonical,
-        parsedCurrency: currencyIso,
-      );
-      return decision;
     } catch (_) {
-      // Degrade to "not evaluated" in SHADOW. Shadow is the safe default here:
-      // if the failure was the mode lookup itself we do not know whether the
-      // gate was meant to be armed, and guessing "armed" could withhold a
-      // confirmation on the strength of a bug.
-      return const ProofGateDecision(
-        mode: ProofGateMode.shadow,
-        outcome: ProofGateOutcome.notEvaluated,
+      decision = ProofGateDecision(
+        mode: mode,
+        outcome: ProofGateOutcome.checkerError,
         parseConfidencePermille: 0,
-        confidenceMinPermille: ProofCommitGate.defaultParserConfidenceMinPermille,
+        confidenceMinPermille: minPermille,
       );
     }
+
+    // An error outcome overrides whatever the gate concluded, so the persisted
+    // observation names the failure rather than reporting a clean disagreement.
+    if (errorOutcome != null) {
+      decision = ProofGateDecision(
+        mode: decision.mode,
+        outcome: errorOutcome,
+        parseConfidencePermille: decision.parseConfidencePermille,
+        confidenceMinPermille: decision.confidenceMinPermille,
+      );
+    }
+    return _ProofGateEvaluation(
+      decision: decision,
+      proof: proof,
+      refusal: refusal,
+      parsedDirection: direction,
+      parsedAmountCanonical: canonical,
+    );
   }
 
-  /// Build and hand off one durable shadow observation.
+  /// Persist ONE durable observation for an attempted evaluation.
+  ///
+  /// Called for EVERY attempt, including refusals and internal errors: a
+  /// denominator that silently omits the cases where the engine struggled would
+  /// overstate how well it performs, and crash probability correlates with
+  /// message shape.
   ///
   /// Field comparisons are recorded as MATCH OUTCOMES, never as the compared
-  /// values: storing the amount and currency would reconstruct the transaction
+  /// values — storing amount and currency would reconstruct the transaction
   /// inside a diagnostic table with a different purpose and lifetime.
+  /// DURABILITY TRADE-OFF, stated explicitly.
+  ///
+  /// The write is fire-and-forget and swallows failures, so an observation can
+  /// be lost on an abrupt process death. That is deliberate and required: the
+  /// standing constraint is that a diagnostic write must NEVER affect the
+  /// financial commit path, and awaiting the insert would make a locked or slow
+  /// database able to delay a save. Tier 2 therefore counts what was durably
+  /// recorded, which is a floor on what was attempted — the bias is toward
+  /// UNDER-counting, never toward overstating how well the engine performed.
   void _emitShadowRecord({
     required String rawMessage,
-    required ProofGateDecision decision,
-    required ProofResult? proof,
-    required ProofProposalRefusal? refusal,
-    required String? parsedDirection,
-    required String? parsedAmountCanonical,
-    required String? parsedCurrency,
+    required _ProofGateEvaluation evaluation,
+    required String? transactionId,
   }) {
     final record = _recordProofShadow;
     if (record == null) return;
@@ -439,6 +500,7 @@ class AddTransactionUseCase {
             : ProofFieldMatch.mismatched;
       }
 
+      final d = evaluation.decision;
       // One-way, local, and only for idempotency — see ProofShadowRecord.
       final key = sha256
           .convert(utf8.encode('$_proofEngineVersion|$rawMessage'))
@@ -448,17 +510,20 @@ class AddTransactionUseCase {
       record(ProofShadowRecord(
         evaluationKey: key,
         evaluatedAt: DateTime.now().toUtc(),
+        transactionId: transactionId,
         engineVersion: _proofEngineVersion,
-        gateMode: decision.mode,
-        outcome: decision.outcome,
-        wouldHaveCommitted: decision.agrees,
-        parseConfidencePermille: decision.parseConfidencePermille,
-        confidenceMinPermille: decision.confidenceMinPermille,
-        proofVerdict: proof?.verdict,
-        amountMatch: cmp(proof?.amountCanonical, parsedAmountCanonical),
-        directionMatch: cmp(proof?.direction, parsedDirection),
-        currencyMatch: cmp(proof?.currency, parsedCurrency),
-        refusal: refusal,
+        gateMode: d.mode,
+        outcome: d.outcome,
+        wouldHaveCommitted: d.agrees,
+        parseConfidencePermille: d.parseConfidencePermille,
+        confidenceMinPermille: d.confidenceMinPermille,
+        proofVerdict: evaluation.proof?.verdict,
+        amountMatch: cmp(
+            evaluation.proof?.amountCanonical, evaluation.parsedAmountCanonical),
+        directionMatch:
+            cmp(evaluation.proof?.direction, evaluation.parsedDirection),
+        currencyMatch: cmp(evaluation.proof?.currency, null),
+        refusal: evaluation.refusal,
       ));
     } catch (_) {
       // Recording is best-effort and must never be load-bearing.
@@ -914,7 +979,7 @@ class AddTransactionUseCase {
     //
     // `proofResult` is null until the Proof engine is fed by the capture
     // pipeline; a null is recorded as `notEvaluated` and is never agreement.
-    final proofGate = _evaluateProofGate(
+    final proofEval = _evaluateProofGate(
       rawMessage: rawMessage,
       type: effectiveParsed.type,
       amountMinorUnits: mainAmount.money.minorUnits,
@@ -927,7 +992,7 @@ class AddTransactionUseCase {
       canAutoConfirm: canAutoConfirm,
       foreignUnpriced: foreignUnpriced,
       requiresReview: requiresReview,
-      proofGate: proofGate,
+      proofGate: proofEval.decision,
     );
 
     final transaction = TransactionEntity(
@@ -958,6 +1023,17 @@ class AddTransactionUseCase {
       comparisonTimestamp: comparisonTimestamp,
       comparisonTimestampSource: comparisonTimestampSource,
       duplicateStatus: DuplicateStatus.normal,
+    );
+
+    // Persisted AFTER the transaction exists so the observation carries its id
+    // — the attribution key that lets Tier 2 ask whether a would-have-committed
+    // decision was later corrected. Emitted for EVERY attempt, including
+    // refusals and internal errors, so the denominator is not silently pruned
+    // of the cases where the engine struggled.
+    _emitShadowRecord(
+      rawMessage: rawMessage,
+      evaluation: proofEval,
+      transactionId: transaction.id,
     );
 
     final saved = await _transactionRepository.saveTransaction(

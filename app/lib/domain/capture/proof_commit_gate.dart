@@ -58,9 +58,19 @@ enum ProofGateOutcome {
   /// Everything corroborates, but parse confidence is below the floor.
   belowConfidence,
 
-  /// Proof produced nothing for this capture (no evidence, not run, or the
-  /// engine is unavailable). Never treated as agreement.
+  /// Proof produced nothing for this capture because no proposal could be
+  /// built. The accompanying `ProofProposalRefusal` says which rule refused.
+  /// Never treated as agreement.
   notEvaluated,
+
+  /// Evidence extraction or proposal construction THREW. Distinct from
+  /// `notEvaluated`: a refusal is the engine working correctly, an error is the
+  /// engine failing. Conflating them would let a rising defect rate hide inside
+  /// a benign-looking refusal rate.
+  evidenceError,
+
+  /// The checker or the gate evaluation itself threw. Also never agreement.
+  checkerError,
 }
 
 /// The gate's finding for one capture.

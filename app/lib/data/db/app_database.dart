@@ -18,7 +18,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 36;
+const int _targetSchemaVersion = 37;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -610,7 +610,36 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV36ProofShadow,
       postcondition: _verifyV36ProofShadow,
     ),
+    // PHASE 11 Tier 2 — the attribution join key. Without it a shadow
+    // observation cannot be tied to the transaction it influenced, and the
+    // "would have committed AND was later corrected" numerator is
+    // unanswerable.
+    _SchemaMigration(
+      from: 36,
+      to: 37,
+      apply: _applyV37ProofShadowAttribution,
+      postcondition: _verifyV37ProofShadowAttribution,
+    ),
   ];
+
+  static Future<void> _applyV37ProofShadowAttribution(AppDatabase db) =>
+      db._addProofShadowAttribution();
+
+  static Future<bool> _verifyV37ProofShadowAttribution(AppDatabase db) async {
+    final cols = await db
+        .customSelect(
+            "SELECT name FROM pragma_table_info('proof_shadow_evaluations');")
+        .get();
+    if (!cols.any((r) => r.read<String>('name') == 'transaction_id')) {
+      return false;
+    }
+    // The column existing is not enough: a NULL row is an unclassifiable row.
+    final nulls = await db
+        .customSelect('SELECT COUNT(*) AS n FROM proof_shadow_evaluations '
+            'WHERE transaction_id IS NULL;')
+        .get();
+    return (nulls.first.read<int?>('n') ?? 0) == 0;
+  }
 
   static Future<void> _applyV36ProofShadow(AppDatabase db) =>
       db._createProofShadowTable();
@@ -640,9 +669,43 @@ class AppDatabase extends GeneratedDatabase {
         amount_match TEXT NOT NULL,
         direction_match TEXT NOT NULL,
         currency_match TEXT NOT NULL,
-        refusal_reason TEXT NOT NULL DEFAULT ''
+        refusal_reason TEXT NOT NULL DEFAULT '',
+        transaction_id TEXT NULL
       );
     ''');
+    // Attribution join: shadow observation -> the transaction it influenced.
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_proof_shadow_txn '
+      'ON proof_shadow_evaluations(transaction_id);',
+    );
+  }
+
+  /// v37 adds the attribution column to an existing v36 table. Separate from
+  /// the CREATE above because a v36 database already has the table without it.
+  Future<void> _addProofShadowAttribution() async {
+    final cols = await customSelect(
+            "SELECT name FROM pragma_table_info('proof_shadow_evaluations');")
+        .get();
+    final has = cols.any((r) => r.read<String>('name') == 'transaction_id');
+    if (!has) {
+      await customStatement(
+        'ALTER TABLE proof_shadow_evaluations ADD COLUMN transaction_id TEXT NULL;',
+      );
+    }
+    // BACKFILL — load-bearing. Rows written by a v36 build have NULL here, and
+    // in SQL both `= ''` and `!= ''` evaluate to NULL for them, so they would
+    // match NONE of the attribution predicates and be silently dropped from the
+    // Tier 2 population — violating this module's own "classified, not dropped"
+    // contract. They could never have been attributed anyway (the v36 writer had
+    // no transaction id), so '' is the correct classification: unattributed.
+    await customStatement(
+      "UPDATE proof_shadow_evaluations SET transaction_id = '' "
+      'WHERE transaction_id IS NULL;',
+    );
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_proof_shadow_txn '
+      'ON proof_shadow_evaluations(transaction_id);',
+    );
   }
 
   static Future<void> _applyV33ReviewLabels(AppDatabase db) =>
@@ -1832,6 +1895,7 @@ class AppDatabase extends GeneratedDatabase {
     // ADDITIVE, and created unconditionally for the same reason as above.
     await _createCaptureReviewLabelsTable();
     await _createProofShadowTable();
+    await _addProofShadowAttribution();
 
     // v34 (COUPONS PHASE 1): the merchant catalog cache. Unconditional for the
     // same reason as the two above — a version gate would skip these on a
