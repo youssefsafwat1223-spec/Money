@@ -5,6 +5,7 @@
 #
 # Gates (mandatory unless the toolchain is unavailable):
 #   1. supabase migration lint (numbering + SECURITY DEFINER lockdown)
+#      + catalog parser asset drift (canonical source vs bundled asset)
 #   2. Deno edge-function tests (ALL functions, not just _shared/) + Deno lint (_shared)
 #   3. flutter analyze
 #   4a. flutter test — BULK parallel; production-cost Argon2 crypto EXCLUDED
@@ -102,6 +103,19 @@ fi
 
 step "migration lint"
 if bash "$ROOT/supabase/tools/check_migrations.sh"; then ok "migrations"; else bad "migrations"; fi
+
+# Catalog parser rules exist in two places that must never disagree: the
+# canonical source and the bundled app asset. Migration 0091 widened the amount
+# quantifier in the database and the asset was never regenerated, so every
+# shipped rule kept the pre-0091 shape — and because catalog-delta serves no
+# unvalidated parser, that fix could reach no device by any route. This gate
+# makes the two copies incapable of drifting silently again.
+step "catalog asset drift"
+if python3 "$ROOT/tools/gen_catalog_assets.py" --check; then
+  ok "catalog asset in sync"
+else
+  bad "catalog asset drifted from supabase/catalog/parser_rules.json"
+fi
 
 step "deno edge-function tests + lint"
 if command -v deno >/dev/null 2>&1; then
