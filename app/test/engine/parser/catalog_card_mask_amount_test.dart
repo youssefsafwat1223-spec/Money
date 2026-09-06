@@ -76,19 +76,37 @@ void main() {
           reason: 'no fixture matched — the assertions would be vacuous');
     });
 
-    test('KNOWN LIMITATION: the SNB fix covers the Arabic layout only', () {
-      // Found in review. The real ENGLISH layout is 'Amount 8 SAR' — currency
-      // AFTER the amount — which a currency-before-amount rule cannot match.
-      // Fail-closed (no match, heuristics take over) rather than wrong money,
-      // and not live while no parser is servable. Pinned so the limitation
-      // cannot be forgotten before ...101 is ever promoted.
-      const englishLayout =
-          'Online Purchase\nAmount 8 SAR\nAccount *5172\nAt barq';
+    test('the ENGLISH layout works too — currency AFTER the amount', () {
+      // The bilingual half. An earlier fix required the currency BEFORE the
+      // amount and silently made this layout unmatchable.
       final m = matchCatalogRule([byId(_snb)],
-          senderId: 'SNB', messageText: englishLayout);
-      expect(m?.amountText, isNot('8'),
-          reason: 'if this starts passing, the pattern was widened — update '
-              'the canonical note and this test together');
+          senderId: 'SNB',
+          messageText: 'Online Purchase\nAmount 8 SAR\nAccount *5172\nAt barq');
+      expect(m?.amountText, '8');
+    });
+
+    test('a preceding digit run is never the amount, in either language', () {
+      // The grammar requires a currency token ADJACENT to the amount, so a card
+      // suffix, account suffix, reference or date cannot be captured — without
+      // widening to "nearest number".
+      const cases = <String, String?>{
+        // card/account/reference/date with NO adjacent currency -> no amount
+        'عملية شراء\nبطاقة:مدى;****4521\nلدى:SHOP': null,
+        'Purchase\nAccount *998877\nAt SHOP': null,
+        'Purchase\nRef 5566778899\nAt SHOP': null,
+        // the same noise BEFORE a real amount -> the amount still wins
+        'Purchase\nCard *4521\nAmount 12.50 SAR\nAt SHOP': '12.50',
+        'شراء\nبطاقة:****4521\nمبلغ:ريال 99.75\nلدى:SHOP': '99.75',
+        'Purchase\non 06/09/2026 at 14:22\nAmount 3.00 SAR\nAt SHOP': '3.00',
+        // a trailing balance must not displace the amount
+        'شراء\nمبلغ:SAR 45.00\nلدى:SHOP\nالرصيد:SAR 9,999.00': '45.00',
+      };
+      cases.forEach((message, expected) {
+        final m = matchCatalogRule([byId(_snb)],
+            senderId: 'SNB', messageText: message);
+        expect(m?.amountText, expected,
+            reason: 'message starting ${message.split('\n').first}');
+      });
     });
 
     test('the SNB rule extracts the money, not the first digit run', () {
@@ -101,14 +119,14 @@ void main() {
       expect(m.amountText, isNot('4521'), reason: 'the card suffix');
     });
 
-    test('SNB requires the currency token, so a bare digit run cannot match', () {
-      // The narrowest statement of the fix, asserted only where the defect was
-      // actually reproduced.
-      expect(byId(_snb).messagePattern, contains(r'(?:SAR|ريال|ر\.س)\s*(?<amount>'),
-          reason: 'SNB lost the required-currency guard');
-      expect(byId(_snb).messagePattern.contains(r'(?:SAR|ريال|ر\.س)?\s*(?<amount>'),
-          isFalse,
-          reason: 'SNB made the currency optional again — the exact defect');
+    test('SNB requires a currency ADJACENT to the amount, on either side', () {
+      // The narrowest statement of the grammar: two zero-width assertions, so
+      // the captured token itself is unchanged.
+      final p = byId(_snb).messagePattern;
+      expect(p, contains('(?<='), reason: 'lost the currency-before assertion');
+      expect(p, contains('(?='), reason: 'lost the currency-after assertion');
+      expect(p.contains(r'(?:SAR|ريال|ر\.س)?\s*(?<amount>'), isFalse,
+          reason: 'the optional-currency form is the original defect');
     });
 
     test('Riyad is deliberately UNCHANGED, and that risk is recorded', () {

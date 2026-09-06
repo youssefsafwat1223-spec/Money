@@ -3,6 +3,7 @@ import { assertEquals } from 'https://deno.land/std@0.208.0/testing/asserts.ts';
 import {
   classify,
   evaluateRow,
+  toMinorUnits,
   validateParser,
   type GoldenRow,
   type RuleUnderTest,
@@ -230,4 +231,91 @@ Deno.test('matching is case-INSENSITIVE, as it is on the device', () => {
 Deno.test('a lowercase sender is accepted, matching the device', () => {
   const r = evaluateRow(SNB, row({ sender: 'snb' }));
   assertEquals(r.passed, true, 'the device matches senders case-insensitively');
+});
+
+// ── Item 6: financial exactness and no unvalidated claimed fields ───────────
+
+Deno.test('money is compared EXACTLY in minor units, not with a tolerance', () => {
+  // The old check was |got-expected| > 0.001, which accepts a whole minor unit
+  // on a 3-decimal currency — the currencies 0091 widened the rules for.
+  assertEquals(toMinorUnits('12.450', 3), 12450n);
+  assertEquals(toMinorUnits('12.451', 3), 12451n);
+  assertEquals(toMinorUnits('45', 2), 4500n);
+  assertEquals(toMinorUnits('1,234.56', 2), 123456n);
+  // More precision than the currency allows is a disagreement, not noise.
+  assertEquals(toMinorUnits('12.451', 2), null);
+  assertEquals(toMinorUnits('abc', 2), null);
+  assertEquals(toMinorUnits('', 2), null);
+});
+
+Deno.test('a one-minor-unit error on a 3-decimal currency now FAILS', () => {
+  const kwd: RuleUnderTest = {
+    ...SNB,
+    message_pattern: 'Amount (?<amount>[0-9.]+)',
+    extracted_fields: { amount: 'amount', currency: 'KWD', type: 'debit' },
+  };
+  const r = evaluateRow(kwd, row({
+    message_text: 'Amount 12.451',
+    expected_amount: 12.450,
+    expected_currency: 'KWD',
+    expected_merchant: null,
+  }));
+  assertEquals(r.passed, false, '12.451 must not pass as 12.450');
+  assertEquals(r.failure_kind, 'amount_mismatch');
+});
+
+Deno.test('the same value in a different written form still passes', () => {
+  // Non-vacuity: exactness must not reject legitimate formatting.
+  const r = evaluateRow(SNB, row({
+    message_text: 'عملية شراء\nمبلغ:SAR 45\nلدى:NETFLIX',
+    expected_amount: 45.00,
+  }));
+  assertEquals(r.passed, true);
+});
+
+Deno.test('an unknown currency fails rather than assuming 2 decimals', () => {
+  const r = evaluateRow(SNB, row({ expected_currency: 'ZZZ' }));
+  assertEquals(r.passed, false);
+  // currency is compared before the scale is needed, so either failure is right
+  assertEquals(
+    r.failure_kind === 'unsupported_currency' || r.failure_kind === 'currency_mismatch',
+    true,
+  );
+});
+
+Deno.test('a claimed field the validator cannot prove blocks promotion', () => {
+  // `balance` was claimed by three production rules and compared by nothing, so
+  // 'passed' certified a capability never exercised. Any unknown claim now
+  // fails outright.
+  const bogus: RuleUnderTest = {
+    ...SNB,
+    extracted_fields: { ...SNB.extracted_fields, iban: 'iban' },
+  };
+  const v = validateParser(bogus, [row()]);
+  assertEquals(v.status, 'failed');
+  assertEquals(v.reason?.includes('cannot prove'), true);
+  assertEquals(v.reason?.includes('iban'), true);
+});
+
+Deno.test('BALANCE is now proven when the rule claims it', () => {
+  const withBalance: RuleUnderTest = {
+    ...SNB,
+    message_pattern:
+      'مبلغ:SAR (?<amount>[0-9.,]+)[\\s\\S]*?الرصيد:SAR (?<balance>[0-9.,]+)',
+    extracted_fields: { ...SNB.extracted_fields, balance: 'balance' },
+  };
+  const text = 'عملية شراء\nمبلغ:SAR 45.00\nلدى:NETFLIX\nالرصيد:SAR 1,200.00';
+  const good = evaluateRow(withBalance, row({
+    message_text: text, expected_balance: 1200.00,
+    // this narrow pattern captures no merchant, so state no expectation
+    expected_merchant: null,
+  }));
+  assertEquals(good.passed, true);
+  assertEquals(good.checked_fields.includes('balance'), true);
+
+  const bad = evaluateRow(withBalance, row({
+    message_text: text, expected_balance: 999.00, expected_merchant: null,
+  }));
+  assertEquals(bad.passed, false);
+  assertEquals(bad.failure_kind, 'balance_mismatch');
 });

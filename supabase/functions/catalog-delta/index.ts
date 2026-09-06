@@ -12,6 +12,17 @@ export function isValidCountryParam(value: string): boolean {
   return /^[A-Z]{2,3}$/.test(value);
 }
 
+/**
+ * Hard ceiling on an authoritative parser snapshot.
+ *
+ * Parsers are a curated set (twelve today). Rather than paginate an
+ * authoritative set — where a client would have to reassemble pages atomically
+ * to be safe — the contract declares a bound: beyond it the snapshot is marked
+ * incomplete and the client must not revoke anything. Growing past this is a
+ * deliberate decision, not a silent truncation.
+ */
+const SERVABLE_SNAPSHOT_MAX = 500;
+
 const tableByCategory: Record<string, string> = {
   banks: 'banks',
   parsers: 'sms_parsers',
@@ -151,18 +162,44 @@ Deno.serve(async (req) => {
     // ids, independent of `since`. The client deletes anything absent from it.
     // Cold sync and delta sync then converge on the same set by construction,
     // which no amount of version bookkeeping could guarantee.
-    let servableIds: string[] | undefined;
+    // The snapshot is only usable if the client can PROVE it is complete: a
+    // truncated PostgREST page is indistinguishable from a full result, and a
+    // client that trusted it would deactivate every rule beyond the page. So
+    // the set travels with an explicit bound and an exact count, and the client
+    // refuses to act unless the two agree.
+    let servableSnapshot:
+      | {
+        complete: boolean;
+        count: number;
+        max: number;
+        catalog_version: number;
+        ids: string[];
+      }
+      | undefined;
     if (category === 'parsers') {
-      const { data: servable, error: servableError } = await client
-        .from(table)
-        .select('id')
-        .eq('is_active', true)
-        .eq('is_deleted', false)
-        .eq('validation_status', 'passed')
-        .not('validated_at', 'is', null)
-        .gt('golden_test_count', 0);
+      const { data: servable, error: servableError, count: exactCount } =
+        await client
+          .from(table)
+          .select('id', { count: 'exact' })
+          .eq('is_active', true)
+          .eq('is_deleted', false)
+          .eq('validation_status', 'passed')
+          .not('validated_at', 'is', null)
+          .gt('golden_test_count', 0)
+          .order('id', { ascending: true })
+          .range(0, SERVABLE_SNAPSHOT_MAX - 1);
       if (servableError) return json({ error: servableError.message }, 500);
-      servableIds = (servable ?? []).map((r: { id: string }) => r.id);
+      const ids = (servable ?? []).map((r: { id: string }) => r.id);
+      // `count` is the server-side total; if it exceeds what we returned, the
+      // page is short and the snapshot is NOT authoritative.
+      const total = typeof exactCount === 'number' ? exactCount : ids.length;
+      servableSnapshot = {
+        complete: total === ids.length && ids.length <= SERVABLE_SNAPSHOT_MAX,
+        count: ids.length,
+        max: SERVABLE_SNAPSHOT_MAX,
+        catalog_version: version,
+        ids,
+      };
     }
 
     const deletedQuery = applyCountryFilter(
@@ -187,9 +224,9 @@ Deno.serve(async (req) => {
       meta: { category, version, since_version: since },
       items: items ?? [],
       deleted_ids: deletedIds,
-      // Present for parsers only. `undefined` is omitted by JSON.stringify, so
-      // other categories are byte-identical to before.
-      servable_ids: servableIds,
+      // Parsers only. `undefined` is omitted by JSON.stringify, so every other
+      // category's response is byte-identical to before.
+      servable_snapshot: servableSnapshot,
     });
   } catch (error) {
     console.error('catalog-delta failed', error);

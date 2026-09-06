@@ -46,6 +46,8 @@ export interface GoldenRow {
   readonly expected_amount: number | null;
   readonly expected_currency: string | null;
   readonly expected_merchant: string | null;
+  /** Some rules claim `balance`; without this the claim is unverifiable. */
+  readonly expected_balance?: number | string | null;
   readonly is_otp?: boolean;
   readonly is_promo?: boolean;
   /** Optional: pins the row to ONE rule rather than the whole bank. */
@@ -74,6 +76,9 @@ export type FailureKind =
   | 'merchant_mismatch'
   | 'type_mismatch'
   | 'sender_scope_mismatch'
+  | 'balance_mismatch'
+  | 'unsupported_currency'
+  | 'unvalidatable_claim'
   | 'invalid_pattern';
 
 export interface RowResult {
@@ -103,6 +108,31 @@ export interface Verdict {
 /** Promotion requires at least this many applicable positives. */
 export const MIN_APPLICABLE_POSITIVES = 1;
 
+/**
+ * Fields this validator knows how to prove. A rule may not claim anything else.
+ *
+ * `extracted_fields` is the rule's own advertised extraction contract, and a
+ * claim nobody checks is worse than no claim: `passed` then certifies a
+ * capability that was never exercised. `balance` was exactly that — claimed by
+ * NBE, CIB and SNB, compared by nothing. So an unknown claim now FAILS the run
+ * rather than passing silently; the fix is either to teach the validator that
+ * field or to drop it from the rule.
+ */
+export const VALIDATABLE_FIELDS = new Set([
+  'amount',
+  'currency',
+  'type',
+  'merchant',
+  'balance',
+]);
+
+/** Claims the validator cannot prove. Empty is the only acceptable answer. */
+export function unvalidatableClaims(rule: RuleUnderTest): string[] {
+  return Object.keys(rule.extracted_fields)
+    .filter((f) => !VALIDATABLE_FIELDS.has(f))
+    .sort();
+}
+
 /** A row is 'ignored' when it declares that class or is flagged OTP/promo. */
 function isIgnored(row: GoldenRow): boolean {
   return row.expected_type === 'ignored' ||
@@ -120,13 +150,51 @@ export function appliesToRule(rule: RuleUnderTest, row: GoldenRow): boolean {
   return row.parser_id == null || row.parser_id === rule.id;
 }
 
-/** Money text -> number, tolerating thousands separators. Never rounds. */
-function toNumber(text: string | undefined): number | null {
-  if (text === undefined) return null;
-  const cleaned = text.replace(/,/g, '').trim();
-  if (cleaned === '') return null;
-  const n = Number(cleaned);
-  return Number.isFinite(n) ? n : null;
+/**
+ * ISO-4217 minor-unit scale, mirroring app/lib/domain/finance/currency_scale.dart.
+ * Kept as an explicit table rather than a default, so an unknown currency is a
+ * validation failure instead of a silent 2-decimal assumption.
+ */
+const CURRENCY_SCALE: Record<string, number> = {
+  KWD: 3, BHD: 3, OMR: 3, JOD: 3, TND: 3, LYD: 3, IQD: 3,
+  JPY: 0, KRW: 0, ISK: 0, CLP: 0, VND: 0, XAF: 0, XOF: 0,
+  UGX: 0, RWF: 0, DJF: 0, GNF: 0, PYG: 0, KMF: 0,
+  SAR: 2, AED: 2, EGP: 2, QAR: 2, ILS: 2, LBP: 2, SYP: 2,
+  MAD: 2, MRU: 2, DZD: 2, SDG: 2, YER: 2, SOS: 2, TRY: 2,
+  USD: 2, EUR: 2, GBP: 2, INR: 2, PKR: 2, BDT: 2, PHP: 2,
+  IDR: 2, MYR: 2, SGD: 2, NGN: 2, KES: 2, ZAR: 2, ETB: 2,
+  GHS: 2,
+};
+
+export function scaleFor(currency: string | null): number | null {
+  if (!currency) return null;
+  const s = CURRENCY_SCALE[currency.trim().toUpperCase()];
+  return s === undefined ? null : s;
+}
+
+/**
+ * Money text -> EXACT minor units, by string arithmetic. Never floating point.
+ *
+ * The previous check was `Math.abs(got - expected) > 0.001`, which accepts a
+ * whole minor unit on a 3-decimal currency — precisely the currencies migration
+ * 0091 widened the rules for — so 12.451 passed as 12.450. A wrong financial
+ * value must never round into PASS. Returns null when the text is not a clean
+ * decimal or carries more fraction digits than the currency permits.
+ */
+export function toMinorUnits(
+  text: string | number | undefined | null,
+  scale: number,
+): bigint | null {
+  if (text === undefined || text === null) return null;
+  const raw = String(text).replace(/,/g, '').trim();
+  if (!/^-?\d+(\.\d+)?$/.test(raw)) return null;
+  const negative = raw.startsWith('-');
+  const [whole, fraction = ''] = (negative ? raw.slice(1) : raw).split('.');
+  // More precision than the currency has is a real disagreement, not noise.
+  if (fraction.length > scale) return null;
+  const padded = (fraction + '0'.repeat(scale)).slice(0, scale);
+  const units = BigInt(whole + (scale > 0 ? padded : ''));
+  return negative ? -units : units;
 }
 
 /** Comparison for merchant/currency: case- and whitespace-insensitive. */
@@ -247,15 +315,32 @@ export function evaluateRow(rule: RuleUnderTest, row: GoldenRow): RowResult {
     checked_fields: checked,
   });
 
-  // AMOUNT — exact to the financial tolerance already used by this validator.
+  // The currency decides the scale, so resolve it before any money comparison.
+  const currencyForScale =
+    (row.expected_currency ?? claimedValue(rule, 'currency', groups));
+  const scale = scaleFor(currencyForScale);
+
+  // AMOUNT — EXACT, in minor units. No tolerance.
   if (rule.extracted_fields['amount'] !== undefined && row.expected_amount !== null) {
     checked.push('amount');
-    const got = toNumber(claimedValue(rule, 'amount', groups) ?? undefined);
-    if (got === null) {
-      return fail('amount_not_extracted', 'expected an amount, captured none');
+    if (scale === null) {
+      return fail('unsupported_currency',
+        `cannot compare money without a known currency scale (${currencyForScale})`);
     }
-    if (Math.abs(got - row.expected_amount) > 0.001) {
-      return fail('amount_mismatch', `expected ${row.expected_amount}, captured ${got}`);
+    const capturedText = claimedValue(rule, 'amount', groups);
+    const got = toMinorUnits(capturedText ?? undefined, scale);
+    if (got === null) {
+      return fail('amount_not_extracted',
+        `expected an amount, captured ${JSON.stringify(capturedText)}`);
+    }
+    const want = toMinorUnits(row.expected_amount, scale);
+    if (want === null) {
+      return fail('amount_mismatch',
+        `expected_amount ${row.expected_amount} has more precision than ${currencyForScale}`);
+    }
+    if (got !== want) {
+      return fail('amount_mismatch',
+        `expected ${want} minor units, captured ${got}`);
     }
   }
 
@@ -274,6 +359,22 @@ export function evaluateRow(rule: RuleUnderTest, row: GoldenRow): RowResult {
     const got = claimedValue(rule, 'type', groups) ?? rule.transaction_type;
     if (loose(got) !== loose(row.expected_type)) {
       return fail('type_mismatch', `expected ${row.expected_type}, rule claims ${got}`);
+    }
+  }
+
+  // BALANCE — three rules claim it (NBE, CIB, SNB) and it was never compared,
+  // so `passed` certified an extraction contract the run never exercised.
+  if (rule.extracted_fields['balance'] !== undefined &&
+      row.expected_balance !== undefined && row.expected_balance !== null) {
+    checked.push('balance');
+    if (scale === null) {
+      return fail('unsupported_currency', 'balance needs a known currency scale');
+    }
+    const gotBal = toMinorUnits(claimedValue(rule, 'balance', groups) ?? undefined, scale);
+    const wantBal = toMinorUnits(row.expected_balance, scale);
+    if (gotBal === null || wantBal === null || gotBal !== wantBal) {
+      return fail('balance_mismatch',
+        `expected ${row.expected_balance}, captured ${claimedValue(rule, 'balance', groups)}`);
     }
   }
 
@@ -296,6 +397,24 @@ export function evaluateRow(rule: RuleUnderTest, row: GoldenRow): RowResult {
 }
 
 export function validateParser(rule: RuleUnderTest, rows: GoldenRow[]): Verdict {
+  // A claim nobody can check must not reach 'passed'.
+  const unprovable = unvalidatableClaims(rule);
+  if (unprovable.length > 0) {
+    return {
+      status: 'failed',
+      reason:
+        `rule claims field(s) this validator cannot prove: ${unprovable.join(', ')}. ` +
+        'Teach the validator, or remove the claim from extracted_fields.',
+      results: [],
+      applicable_positive_count: 0,
+      applicable_negative_count: 0,
+      out_of_scope_count: 0,
+      golden_test_count: 0,
+      false_positive_count: 0,
+      amount_error_count: 0,
+    };
+  }
+
   const mine = rows.filter((r) => appliesToRule(rule, r));
   const results = mine.map((r) => evaluateRow(rule, r));
 

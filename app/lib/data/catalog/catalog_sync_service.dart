@@ -254,17 +254,22 @@ class CatalogSyncService {
       final deletedIds = _stringList(data['deleted_ids']);
       // Parsers only; absent for every other category.
       //
-      // Authoritative ONLY when the server actually sent a list. `_stringList`
-      // turns any non-list into an empty list, so keying off mere presence let
-      // a null/string/object value read as "nothing is servable" and deactivate
-      // every rule on the device. A malformed body must be inert, not
-      // destructive.
-      final rawServable = data['servable_ids'];
-      final servableIds = rawServable is List ? _stringList(rawServable) : null;
+      // Revocation acts on an AUTHORITATIVE snapshot or not at all. Three ways
+      // this can be untrustworthy, all of which must be inert rather than
+      // destructive, because retention is one-way and a wrong revocation
+      // cannot self-heal:
+      //   * a malformed body (null/string/object) — `_stringList` turns any
+      //     non-list into an empty list, which would read as "nothing is
+      //     servable" and deactivate every rule;
+      //   * a TRUNCATED page — indistinguishable from a full result without an
+      //     explicit count, so the client would revoke everything beyond it;
+      //   * a snapshot for a different catalog version than the items just
+      //     applied — a torn read across concurrent writes.
       final meta = data['meta'];
       final serverVersion = meta is Map
           ? (meta['version'] as num?)?.toInt() ?? sinceVersion
           : sinceVersion;
+      final servableIds = _authoritativeServableIds(data, serverVersion);
 
       await _database.transaction(() async {
         await _writeCategory(category, items, deletedIds, servableIds);
@@ -299,6 +304,55 @@ class CatalogSyncService {
     return data.map((key, value) {
       return MapEntry(key.toString(), (value as num?)?.toInt() ?? 0);
     });
+  }
+
+  /// The servable set, but only when the server PROVED the snapshot is
+  /// complete and current. Returns null — meaning "do not revoke" — otherwise.
+  ///
+  /// Fail-open on revocation is the right default here: keeping a stale rule is
+  /// recoverable by the next good sync, whereas mass-deactivating on a bad
+  /// response is not, because reactivation only happens through an upsert the
+  /// device will not receive while its version already matches.
+  @visibleForTesting
+  static List<String>? authoritativeServableIdsForTest(
+    Map<dynamic, dynamic> data,
+    int appliedVersion,
+  ) =>
+      _authoritativeServableIdsImpl(data, appliedVersion);
+
+  List<String>? _authoritativeServableIds(
+    Map<dynamic, dynamic> data,
+    int appliedVersion,
+  ) =>
+      _authoritativeServableIdsImpl(data, appliedVersion);
+
+  static List<String>? _authoritativeServableIdsImpl(
+    Map<dynamic, dynamic> data,
+    int appliedVersion,
+  ) {
+    final snapshot = data['servable_snapshot'];
+    if (snapshot is! Map) return null;
+    if (snapshot['complete'] != true) return null;
+
+    final ids = snapshot['ids'];
+    if (ids is! List) return null;
+    // Genuine strings only. Coercing here would let a list of maps or numbers
+    // become plausible-looking ids and revoke real rules.
+    if (ids.any((e) => e is! String)) return null;
+    final parsed = ids.cast<String>().toList(growable: false);
+
+    // The count the server computed must equal what actually arrived.
+    final count = snapshot['count'];
+    if (count is! int || count != parsed.length) return null;
+
+    final max = snapshot['max'];
+    if (max is int && parsed.length > max) return null;
+
+    // And it must describe the same catalog version as the items applied.
+    final snapshotVersion = snapshot['catalog_version'];
+    if (snapshotVersion is! int || snapshotVersion != appliedVersion) return null;
+
+    return parsed;
   }
 
   Future<void> _writeCategory(
@@ -366,3 +420,15 @@ class CatalogSyncService {
     return value.map((item) => item.toString()).toList(growable: false);
   }
 }
+
+/// Test seam for the authoritative-snapshot contract.
+///
+/// The decision is pure and is the one that decides whether a device revokes
+/// parser authority, so it is worth testing directly rather than only through a
+/// full sync with a fake transport.
+@visibleForTesting
+List<String>? debugAuthoritativeServableIds(
+  Map<dynamic, dynamic> body,
+  int appliedVersion,
+) =>
+    CatalogSyncService.authoritativeServableIdsForTest(body, appliedVersion);
