@@ -90,7 +90,41 @@ ALTER TABLE public.parser_golden_tests
 CREATE INDEX IF NOT EXISTS parser_golden_tests_parser_id_idx
   ON public.parser_golden_tests(parser_id);
 
--- ── 2. Canonical rule bodies (GENERATED — see header) ───────────────────────
+-- ── 2. Pre-image journal, so section 3 is exactly reversible ────────────────
+--
+-- The generated UPDATEs below overwrite six canonical fields on all twelve
+-- rules. For eleven of them that writes the value already there, but a rule an
+-- admin had edited away from canonical WOULD be silently overwritten and the
+-- rollback could not restore it. Same shape as the 0087 journal: capture the
+-- pre-image first, and have the rollback replay it.
+CREATE TABLE IF NOT EXISTS public.sms_parsers_canonical_reset_0099 (
+  parser_id            UUID PRIMARY KEY,
+  sender_pattern       TEXT NOT NULL,
+  message_pattern      TEXT NOT NULL,
+  transaction_type     TEXT NOT NULL,
+  language             TEXT NOT NULL,
+  priority             INT  NOT NULL,
+  extracted_fields     JSONB NOT NULL,
+  captured_at          TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- 0092's lesson: a bare CREATE TABLE in `public` inherits platform default
+-- grants for anon/authenticated. This journal holds every parser rule body, so
+-- lock it down explicitly rather than relying on silence.
+ALTER TABLE public.sms_parsers_canonical_reset_0099 ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON public.sms_parsers_canonical_reset_0099 FROM PUBLIC;
+REVOKE ALL ON public.sms_parsers_canonical_reset_0099 FROM anon, authenticated;
+
+INSERT INTO public.sms_parsers_canonical_reset_0099 (
+  parser_id, sender_pattern, message_pattern, transaction_type,
+  language, priority, extracted_fields
+)
+SELECT id, sender_pattern, message_pattern, transaction_type,
+       language, priority, extracted_fields
+  FROM public.sms_parsers
+ON CONFLICT (parser_id) DO NOTHING;
+
+-- ── 3. Canonical rule bodies (GENERATED — see header) ──────────────────────
 
 -- GENERATED — DO NOT EDIT.
 --
@@ -116,7 +150,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 100,
   extracted_fields  = '{"amount": "amount", "balance": "balance", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000001';
+WHERE id = '10000000-0000-4000-8000-000000000001' AND bank_id = '00000000-0000-4000-8000-000000000001';
 
 -- 10000000-0000-4000-8000-000000000002
 UPDATE public.sms_parsers SET
@@ -126,7 +160,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 100,
   extracted_fields  = '{"amount": "amount", "balance": "balance", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000002';
+WHERE id = '10000000-0000-4000-8000-000000000002' AND bank_id = '00000000-0000-4000-8000-000000000002';
 
 -- 10000000-0000-4000-8000-000000000003
 UPDATE public.sms_parsers SET
@@ -136,7 +170,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 90,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000003';
+WHERE id = '10000000-0000-4000-8000-000000000003' AND bank_id = '00000000-0000-4000-8000-000000000003';
 
 -- 10000000-0000-4000-8000-000000000004
 UPDATE public.sms_parsers SET
@@ -146,7 +180,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 90,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000004';
+WHERE id = '10000000-0000-4000-8000-000000000004' AND bank_id = '00000000-0000-4000-8000-000000000004';
 
 -- 10000000-0000-4000-8000-000000000005
 UPDATE public.sms_parsers SET
@@ -156,7 +190,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 80,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000005';
+WHERE id = '10000000-0000-4000-8000-000000000005' AND bank_id = '00000000-0000-4000-8000-000000000005';
 
 -- 10000000-0000-4000-8000-000000000006
 UPDATE public.sms_parsers SET
@@ -166,7 +200,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 70,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000006';
+WHERE id = '10000000-0000-4000-8000-000000000006' AND bank_id = '00000000-0000-4000-8000-000000000006';
 
 -- 10000000-0000-4000-8000-000000000007
 UPDATE public.sms_parsers SET
@@ -176,7 +210,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 70,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000007';
+WHERE id = '10000000-0000-4000-8000-000000000007' AND bank_id = '00000000-0000-4000-8000-000000000007';
 
 -- 10000000-0000-4000-8000-000000000008
 UPDATE public.sms_parsers SET
@@ -186,7 +220,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 60,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000008';
+WHERE id = '10000000-0000-4000-8000-000000000008' AND bank_id = '00000000-0000-4000-8000-000000000008';
 
 -- 10000000-0000-4000-8000-000000000101
 UPDATE public.sms_parsers SET
@@ -196,7 +230,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 100,
   extracted_fields  = '{"amount": "amount", "balance": "balance", "currency": "SAR", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000101';
+WHERE id = '10000000-0000-4000-8000-000000000101' AND bank_id = '00000000-0000-4000-8000-000000000101';
 
 -- 10000000-0000-4000-8000-000000000102
 UPDATE public.sms_parsers SET
@@ -206,7 +240,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 90,
   extracted_fields  = '{"amount": "amount", "currency": "SAR", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000102';
+WHERE id = '10000000-0000-4000-8000-000000000102' AND bank_id = '00000000-0000-4000-8000-000000000102';
 
 -- 10000000-0000-4000-8000-000000000103
 UPDATE public.sms_parsers SET
@@ -216,7 +250,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 80,
   extracted_fields  = '{"amount": "amount", "currency": "SAR", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000103';
+WHERE id = '10000000-0000-4000-8000-000000000103' AND bank_id = '00000000-0000-4000-8000-000000000103';
 
 -- 10000000-0000-4000-8000-000000000104
 UPDATE public.sms_parsers SET
@@ -226,33 +260,34 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 80,
   extracted_fields  = '{"amount": "amount", "currency": "SAR", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000104';
+WHERE id = '10000000-0000-4000-8000-000000000104' AND bank_id = '00000000-0000-4000-8000-000000000104';
 
 DO $$
 DECLARE missing INT;
 BEGIN
   SELECT count(*) INTO missing FROM (VALUES
-    ('10000000-0000-4000-8000-000000000001'),
-    ('10000000-0000-4000-8000-000000000002'),
-    ('10000000-0000-4000-8000-000000000003'),
-    ('10000000-0000-4000-8000-000000000004'),
-    ('10000000-0000-4000-8000-000000000005'),
-    ('10000000-0000-4000-8000-000000000006'),
-    ('10000000-0000-4000-8000-000000000007'),
-    ('10000000-0000-4000-8000-000000000008'),
-    ('10000000-0000-4000-8000-000000000101'),
-    ('10000000-0000-4000-8000-000000000102'),
-    ('10000000-0000-4000-8000-000000000103'),
-    ('10000000-0000-4000-8000-000000000104')
-  ) AS want(id)
+    ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001'),
+    ('10000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000002'),
+    ('10000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000003'),
+    ('10000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000004'),
+    ('10000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000005'),
+    ('10000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000006'),
+    ('10000000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-000000000007'),
+    ('10000000-0000-4000-8000-000000000008', '00000000-0000-4000-8000-000000000008'),
+    ('10000000-0000-4000-8000-000000000101', '00000000-0000-4000-8000-000000000101'),
+    ('10000000-0000-4000-8000-000000000102', '00000000-0000-4000-8000-000000000102'),
+    ('10000000-0000-4000-8000-000000000103', '00000000-0000-4000-8000-000000000103'),
+    ('10000000-0000-4000-8000-000000000104', '00000000-0000-4000-8000-000000000104')
+  ) AS want(id, bank_id)
   WHERE NOT EXISTS (
-    SELECT 1 FROM public.sms_parsers p WHERE p.id = want.id::uuid
+    SELECT 1 FROM public.sms_parsers p
+     WHERE p.id = want.id::uuid AND p.bank_id = want.bank_id::uuid
   );
   IF missing > 0 THEN
-    RAISE EXCEPTION 'canonical parser rules: % id(s) absent from sms_parsers', missing;
+    RAISE EXCEPTION
+      'canonical parser rules: % rule(s) absent or bound to a different bank', missing;
   END IF;
 END $$;
-
 -- ── POSTCONDITIONS ──────────────────────────────────────────────────────────
 DO $$
 DECLARE
@@ -261,20 +296,113 @@ DECLARE
   prior_passed INT;
 BEGIN
   SELECT passed_before INTO prior_passed FROM _0099_before;
-  -- Evidence is rule-scoped and provable.
+  -- EXACT SCHEMA CONTRACT.
+  --
+  -- ADD COLUMN IF NOT EXISTS is idempotent, which also means it is SILENT: a
+  -- pre-staged column of the wrong type, a foreign key pointing elsewhere or
+  -- with different actions, a CHECK admitting different values, or an index on
+  -- the wrong columns all survive untouched while the migration reports
+  -- success. These assert the FINAL contract rather than the fact that a name
+  -- exists, so a materially different pre-staged object FAILS here.
+
+  -- parser_id: present, NOT NULL, uuid.
   SELECT count(*) INTO bad FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'parser_golden_tests'
-     AND column_name IN ('parser_id', 'expected_balance', 'provenance');
-  IF bad <> 3 THEN
-    RAISE EXCEPTION '0099 postcondition: golden evidence columns missing (found %)', bad;
+     AND column_name = 'parser_id' AND is_nullable = 'NO' AND data_type = 'uuid';
+  IF bad <> 1 THEN
+    RAISE EXCEPTION '0099: parser_id must exist as NOT NULL uuid (matched %)', bad;
   END IF;
 
-  IF EXISTS (
-    SELECT 1 FROM information_schema.columns
-     WHERE table_schema = 'public' AND table_name = 'parser_golden_tests'
-       AND column_name = 'parser_id' AND is_nullable = 'YES'
-  ) THEN
-    RAISE EXCEPTION '0099 postcondition: parser_id must be NOT NULL';
+  -- expected_balance: present, numeric, nullable (absence of evidence is not a
+  -- failure; the validator decides whether a claim went unproven).
+  SELECT count(*) INTO bad FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'parser_golden_tests'
+     AND column_name = 'expected_balance' AND data_type = 'numeric'
+     AND is_nullable = 'YES';
+  IF bad <> 1 THEN
+    RAISE EXCEPTION '0099: expected_balance must be a nullable numeric (matched %)', bad;
+  END IF;
+
+  -- The FK must target sms_parsers(id) and cascade deletes: evidence for a rule
+  -- that no longer exists is not evidence.
+  SELECT count(*) INTO bad
+    FROM pg_constraint c
+    JOIN pg_class child ON child.oid = c.conrelid
+    JOIN pg_class parent ON parent.oid = c.confrelid
+    JOIN pg_attribute ca ON ca.attrelid = c.conrelid AND ca.attnum = c.conkey[1]
+    JOIN pg_attribute pa ON pa.attrelid = c.confrelid AND pa.attnum = c.confkey[1]
+   WHERE c.contype = 'f'
+     AND child.relname = 'parser_golden_tests'
+     AND ca.attname = 'parser_id'
+     AND parent.relname = 'sms_parsers'
+     AND pa.attname = 'id'
+     AND c.confdeltype = 'c'                       -- ON DELETE CASCADE
+     AND array_length(c.conkey, 1) = 1;
+  IF bad <> 1 THEN
+    RAISE EXCEPTION
+      '0099: parser_id must have exactly one FK to sms_parsers(id) ON DELETE CASCADE (matched %)',
+      bad;
+  END IF;
+
+  -- No SECOND foreign key on parser_id pointing somewhere else.
+  SELECT count(*) INTO bad
+    FROM pg_constraint c
+    JOIN pg_class child ON child.oid = c.conrelid
+    JOIN pg_attribute ca ON ca.attrelid = c.conrelid AND ca.attnum = c.conkey[1]
+   WHERE c.contype = 'f' AND child.relname = 'parser_golden_tests'
+     AND ca.attname = 'parser_id';
+  IF bad <> 1 THEN
+    RAISE EXCEPTION '0099: parser_id carries % foreign keys; expected exactly 1', bad;
+  END IF;
+
+  -- provenance CHECK admits EXACTLY the intended vocabulary.
+  SELECT count(*) INTO bad FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+   WHERE t.relname = 'parser_golden_tests' AND c.contype = 'c'
+     AND pg_get_constraintdef(c.oid) LIKE '%provenance%'
+     AND pg_get_constraintdef(c.oid) LIKE '%bank_documented%'
+     AND pg_get_constraintdef(c.oid) LIKE '%bank_sandbox%'
+     AND pg_get_constraintdef(c.oid) LIKE '%controlled_transaction%'
+     AND pg_get_constraintdef(c.oid) LIKE '%anonymized_fixture%'
+     AND pg_get_constraintdef(c.oid) LIKE '%synthetic_negative%';
+  IF bad <> 1 THEN
+    RAISE EXCEPTION
+      '0099: provenance CHECK must admit exactly the five intended values (matched %)', bad;
+  END IF;
+
+  -- expected_type CHECK must include reversal, and there must be only one.
+  SELECT count(*) INTO bad FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+   WHERE t.relname = 'parser_golden_tests' AND c.contype = 'c'
+     AND pg_get_constraintdef(c.oid) LIKE '%expected_type%';
+  IF bad <> 1 THEN
+    RAISE EXCEPTION
+      '0099: expected_type must have exactly one CHECK (found %) — a stale '
+      'duplicate would admit a different vocabulary', bad;
+  END IF;
+  SELECT count(*) INTO bad FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+   WHERE t.relname = 'parser_golden_tests' AND c.contype = 'c'
+     AND pg_get_constraintdef(c.oid) LIKE '%expected_type%'
+     AND pg_get_constraintdef(c.oid) LIKE '%reversal%'
+     AND pg_get_constraintdef(c.oid) LIKE '%debit%'
+     AND pg_get_constraintdef(c.oid) LIKE '%credit%'
+     AND pg_get_constraintdef(c.oid) LIKE '%balance_inquiry%'
+     AND pg_get_constraintdef(c.oid) LIKE '%ignored%';
+  IF bad <> 1 THEN
+    RAISE EXCEPTION '0099: expected_type CHECK is missing an intended value';
+  END IF;
+
+  -- The index must exist ON parser_id specifically, not merely by name.
+  SELECT count(*) INTO bad
+    FROM pg_index i
+    JOIN pg_class t ON t.oid = i.indrelid
+    JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
+   WHERE t.relname = 'parser_golden_tests'
+     AND a.attname = 'parser_id'
+     AND i.indnatts = 1;
+  IF bad < 1 THEN
+    RAISE EXCEPTION '0099: no single-column index on parser_golden_tests(parser_id)';
   END IF;
 
   -- The SNB rule carries the bilingual, evidence-backed amount grammar.

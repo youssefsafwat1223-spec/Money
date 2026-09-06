@@ -31,13 +31,21 @@ ALTER TABLE public.parser_golden_tests
   DROP COLUMN IF EXISTS provenance,
   DROP COLUMN IF EXISTS added_by;
 
--- ── 2. The SNB rule body ────────────────────────────────────────────────────
--- Restores the exact pre-0099 pattern: currency OPTIONAL before the amount.
--- Only ...101 changed, so only ...101 is reverted; the {1,3} amount scale from
--- 0091 is deliberately preserved, as it predates this migration.
-UPDATE public.sms_parsers
-   SET message_pattern =
-     '[\s\S]*(?:شراء|دفع|Purchase|Payment)[\s\S]*?(?:SAR|ريال|ر\.س)?\s*(?<amount>[0-9][0-9,]*(?:\.[0-9]{1,3})?)[\s\S]*?(?:لدى|At)\s*:?[ ]*(?<merchant>[^\n]+)?'
- WHERE id = '10000000-0000-4000-8000-000000000101';
+-- ── 2. Every rule body 0099 overwrote ───────────────────────────────────────
+-- Replayed from the pre-image journal, so a rule that had been edited AWAY from
+-- canonical before 0099 is restored to what it actually was — not merely to
+-- what canonical said. Restoring only SNB would silently keep 0099's values on
+-- any other rule that had diverged.
+UPDATE public.sms_parsers AS p
+   SET sender_pattern   = j.sender_pattern,
+       message_pattern  = j.message_pattern,
+       transaction_type = j.transaction_type,
+       language         = j.language,
+       priority         = j.priority,
+       extracted_fields = j.extracted_fields
+  FROM public.sms_parsers_canonical_reset_0099 AS j
+ WHERE p.id = j.parser_id;
+
+DROP TABLE IF EXISTS public.sms_parsers_canonical_reset_0099;
 
 COMMIT;

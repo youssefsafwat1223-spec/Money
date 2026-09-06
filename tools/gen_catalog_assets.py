@@ -28,8 +28,55 @@ ASSET = ROOT / "app" / "assets" / "catalog" / "parsers.json"
 # transcription error the way the bundled asset did.
 DB_SQL = ROOT / "supabase" / "catalog" / "generated" / "parser_rules.sql"
 
-# The asset ships exactly these keys, in this order. Anything the canonical file
-# carries for provenance (comments) stays out of the shipped bundle.
+# ── FIELD OWNERSHIP ─────────────────────────────────────────────────────────
+#
+# CANONICAL-OWNED — rule configuration and identity. The canonical file is the
+# only place these may be edited; both projections are generated from it and CI
+# fails on divergence. A field added here MUST also be projected into the DB
+# (enforced below), so a new configuration field cannot silently reach devices
+# while leaving the database behind — the 0091 failure mode.
+CANONICAL_IDENTITY = ["id", "bank_id"]
+CANONICAL_CONFIG = [
+    "sender_pattern",
+    "message_pattern",
+    "transaction_type",
+    "language",
+    "priority",
+    "extracted_fields",
+]
+
+# DB-RUNTIME-OWNED — excluded by design, not by oversight:
+#   is_active, is_deleted          operational state; an admin deactivates or
+#                                  tombstones a rule, and the device's authority
+#                                  epoch decides activation from the served
+#                                  snapshot. The bundle seeds INACTIVE
+#                                  regardless of what this file says.
+#   created_version/updated_version/deleted_version
+#                                  assigned by trg_parsers_version.
+#   created_at, updated_at         database lifecycle metadata.
+#   validation_status, validated_at, validated_by, golden_test_count,
+#   false_positive_count, amount_error_count
+#                                  evidence, written only by a parser-test run.
+# Generating any of these would let a file overwrite state the database owns.
+DB_RUNTIME_OWNED = [
+    "is_active",
+    "is_deleted",
+    "created_version",
+    "updated_version",
+    "deleted_version",
+    "created_at",
+    "updated_at",
+    "validation_status",
+    "validated_at",
+    "validated_by",
+    "golden_test_count",
+    "false_positive_count",
+    "amount_error_count",
+]
+
+# The asset ships exactly these keys, in this order. It carries the two runtime
+# flags as SEED DEFAULTS only — the seeder forces parsers inactive regardless —
+# and they are never projected into the database.
 ASSET_KEYS = [
     "id",
     "bank_id",
@@ -80,6 +127,19 @@ def render_sql() -> str:
         "-- stays the Parser Lab's job.",
         "",
     ]
+    # Guard the generator against itself: a canonical config field that is not
+    # projected would reach the bundle and never the database.
+    projected = {
+        "sender_pattern", "message_pattern", "transaction_type",
+        "language", "priority", "extracted_fields",
+    }
+    missing = [f for f in CANONICAL_CONFIG if f not in projected]
+    if missing:
+        raise SystemExit(
+            f"canonical config field(s) {missing} are not projected into SQL; "
+            "add them to render_sql() before shipping"
+        )
+
     for rule in rules:
         lines.append(f"-- {rule['id']}")
         lines.append("UPDATE public.sms_parsers SET")
@@ -92,7 +152,13 @@ def render_sql() -> str:
             "  extracted_fields  = "
             f"{sql_literal(json.dumps(rule['extracted_fields'], ensure_ascii=False, sort_keys=True))}::jsonb"
         )
-        lines.append(f"WHERE id = {sql_literal(rule['id'])};")
+        # bank_id is canonical IDENTITY, not configuration: rewriting it would
+        # re-point a rule at a different bank. Asserted instead, so a mismatch
+        # fails loudly rather than being silently "corrected".
+        lines.append(
+            f"WHERE id = {sql_literal(rule['id'])}"
+            f" AND bank_id = {sql_literal(rule['bank_id'])};"
+        )
         lines.append("")
     # A migration that silently updates zero rows is the 0091 failure mode.
     lines += [
@@ -101,15 +167,19 @@ def render_sql() -> str:
         "BEGIN",
         "  SELECT count(*) INTO missing FROM (VALUES",
     ]
-    ids = ",\n".join(f"    ({sql_literal(r['id'])})" for r in rules)
+    ids = ",\n".join(
+        f"    ({sql_literal(r['id'])}, {sql_literal(r['bank_id'])})" for r in rules
+    )
     lines.append(ids)
     lines += [
-        "  ) AS want(id)",
+        "  ) AS want(id, bank_id)",
         "  WHERE NOT EXISTS (",
-        "    SELECT 1 FROM public.sms_parsers p WHERE p.id = want.id::uuid",
+        "    SELECT 1 FROM public.sms_parsers p",
+        "     WHERE p.id = want.id::uuid AND p.bank_id = want.bank_id::uuid",
         "  );",
         "  IF missing > 0 THEN",
-        "    RAISE EXCEPTION 'canonical parser rules: % id(s) absent from sms_parsers', missing;",
+        "    RAISE EXCEPTION",
+        "      'canonical parser rules: % rule(s) absent or bound to a different bank', missing;",
         "  END IF;",
         "END $$;",
         "",

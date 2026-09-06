@@ -22,7 +22,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 100,
   extracted_fields  = '{"amount": "amount", "balance": "balance", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000001';
+WHERE id = '10000000-0000-4000-8000-000000000001' AND bank_id = '00000000-0000-4000-8000-000000000001';
 
 -- 10000000-0000-4000-8000-000000000002
 UPDATE public.sms_parsers SET
@@ -32,7 +32,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 100,
   extracted_fields  = '{"amount": "amount", "balance": "balance", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000002';
+WHERE id = '10000000-0000-4000-8000-000000000002' AND bank_id = '00000000-0000-4000-8000-000000000002';
 
 -- 10000000-0000-4000-8000-000000000003
 UPDATE public.sms_parsers SET
@@ -42,7 +42,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 90,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000003';
+WHERE id = '10000000-0000-4000-8000-000000000003' AND bank_id = '00000000-0000-4000-8000-000000000003';
 
 -- 10000000-0000-4000-8000-000000000004
 UPDATE public.sms_parsers SET
@@ -52,7 +52,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 90,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000004';
+WHERE id = '10000000-0000-4000-8000-000000000004' AND bank_id = '00000000-0000-4000-8000-000000000004';
 
 -- 10000000-0000-4000-8000-000000000005
 UPDATE public.sms_parsers SET
@@ -62,7 +62,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 80,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000005';
+WHERE id = '10000000-0000-4000-8000-000000000005' AND bank_id = '00000000-0000-4000-8000-000000000005';
 
 -- 10000000-0000-4000-8000-000000000006
 UPDATE public.sms_parsers SET
@@ -72,7 +72,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 70,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000006';
+WHERE id = '10000000-0000-4000-8000-000000000006' AND bank_id = '00000000-0000-4000-8000-000000000006';
 
 -- 10000000-0000-4000-8000-000000000007
 UPDATE public.sms_parsers SET
@@ -82,7 +82,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 70,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000007';
+WHERE id = '10000000-0000-4000-8000-000000000007' AND bank_id = '00000000-0000-4000-8000-000000000007';
 
 -- 10000000-0000-4000-8000-000000000008
 UPDATE public.sms_parsers SET
@@ -92,7 +92,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 60,
   extracted_fields  = '{"amount": "amount", "currency": "currency", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000008';
+WHERE id = '10000000-0000-4000-8000-000000000008' AND bank_id = '00000000-0000-4000-8000-000000000008';
 
 -- 10000000-0000-4000-8000-000000000101
 UPDATE public.sms_parsers SET
@@ -102,7 +102,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 100,
   extracted_fields  = '{"amount": "amount", "balance": "balance", "currency": "SAR", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000101';
+WHERE id = '10000000-0000-4000-8000-000000000101' AND bank_id = '00000000-0000-4000-8000-000000000101';
 
 -- 10000000-0000-4000-8000-000000000102
 UPDATE public.sms_parsers SET
@@ -112,7 +112,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 90,
   extracted_fields  = '{"amount": "amount", "currency": "SAR", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000102';
+WHERE id = '10000000-0000-4000-8000-000000000102' AND bank_id = '00000000-0000-4000-8000-000000000102';
 
 -- 10000000-0000-4000-8000-000000000103
 UPDATE public.sms_parsers SET
@@ -122,7 +122,7 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 80,
   extracted_fields  = '{"amount": "amount", "currency": "SAR", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000103';
+WHERE id = '10000000-0000-4000-8000-000000000103' AND bank_id = '00000000-0000-4000-8000-000000000103';
 
 -- 10000000-0000-4000-8000-000000000104
 UPDATE public.sms_parsers SET
@@ -132,29 +132,31 @@ UPDATE public.sms_parsers SET
   language          = 'ar_en',
   priority          = 80,
   extracted_fields  = '{"amount": "amount", "currency": "SAR", "merchant": "merchant", "type": "debit"}'::jsonb
-WHERE id = '10000000-0000-4000-8000-000000000104';
+WHERE id = '10000000-0000-4000-8000-000000000104' AND bank_id = '00000000-0000-4000-8000-000000000104';
 
 DO $$
 DECLARE missing INT;
 BEGIN
   SELECT count(*) INTO missing FROM (VALUES
-    ('10000000-0000-4000-8000-000000000001'),
-    ('10000000-0000-4000-8000-000000000002'),
-    ('10000000-0000-4000-8000-000000000003'),
-    ('10000000-0000-4000-8000-000000000004'),
-    ('10000000-0000-4000-8000-000000000005'),
-    ('10000000-0000-4000-8000-000000000006'),
-    ('10000000-0000-4000-8000-000000000007'),
-    ('10000000-0000-4000-8000-000000000008'),
-    ('10000000-0000-4000-8000-000000000101'),
-    ('10000000-0000-4000-8000-000000000102'),
-    ('10000000-0000-4000-8000-000000000103'),
-    ('10000000-0000-4000-8000-000000000104')
-  ) AS want(id)
+    ('10000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000001'),
+    ('10000000-0000-4000-8000-000000000002', '00000000-0000-4000-8000-000000000002'),
+    ('10000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000003'),
+    ('10000000-0000-4000-8000-000000000004', '00000000-0000-4000-8000-000000000004'),
+    ('10000000-0000-4000-8000-000000000005', '00000000-0000-4000-8000-000000000005'),
+    ('10000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000006'),
+    ('10000000-0000-4000-8000-000000000007', '00000000-0000-4000-8000-000000000007'),
+    ('10000000-0000-4000-8000-000000000008', '00000000-0000-4000-8000-000000000008'),
+    ('10000000-0000-4000-8000-000000000101', '00000000-0000-4000-8000-000000000101'),
+    ('10000000-0000-4000-8000-000000000102', '00000000-0000-4000-8000-000000000102'),
+    ('10000000-0000-4000-8000-000000000103', '00000000-0000-4000-8000-000000000103'),
+    ('10000000-0000-4000-8000-000000000104', '00000000-0000-4000-8000-000000000104')
+  ) AS want(id, bank_id)
   WHERE NOT EXISTS (
-    SELECT 1 FROM public.sms_parsers p WHERE p.id = want.id::uuid
+    SELECT 1 FROM public.sms_parsers p
+     WHERE p.id = want.id::uuid AND p.bank_id = want.bank_id::uuid
   );
   IF missing > 0 THEN
-    RAISE EXCEPTION 'canonical parser rules: % id(s) absent from sms_parsers', missing;
+    RAISE EXCEPTION
+      'canonical parser rules: % rule(s) absent or bound to a different bank', missing;
   END IF;
 END $$;
