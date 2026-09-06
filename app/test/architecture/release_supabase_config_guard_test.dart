@@ -14,13 +14,20 @@ import 'package:flutter_test/flutter_test.dart';
 ///
 /// If that assertion is ever removed, the runtime assumption stops holding —
 /// so this test fails instead.
+///
+/// It checks the assertion STEP, not the workflow. A guard that accepted the
+/// step's NAME plus any `exit 1` elsewhere in the workflow was satisfied by a
+/// step named "Assert production Supabase config" whose script was `true` —
+/// verified, and the reason the step body and `ignore_failure` are pinned here.
 void main() {
   final yaml = File('../codemagic.yaml').readAsStringSync();
 
-  /// Split the file into top-level workflow blocks.
+  /// Split the file into top-level workflow blocks. The key charset is wide on
+  /// purpose: a narrower one silently folds an unmatched workflow into the
+  /// previous body, which HIDES a workflow from every check below.
   Map<String, String> workflows() {
     final out = <String, String>{};
-    final matches = RegExp(r'^  ([a-z0-9-]+):$', multiLine: true)
+    final matches = RegExp(r'^  ([A-Za-z0-9_-]+):$', multiLine: true)
         .allMatches(yaml)
         .toList();
     for (var i = 0; i < matches.length; i++) {
@@ -30,6 +37,21 @@ void main() {
     }
     return out;
   }
+
+  /// Split a workflow body into its named script steps.
+  Map<String, String> steps(String body) {
+    final out = <String, String>{};
+    final matches =
+        RegExp(r'^      - name: (.*)$', multiLine: true).allMatches(body).toList();
+    for (var i = 0; i < matches.length; i++) {
+      final start = matches[i].start;
+      final end = i + 1 < matches.length ? matches[i + 1].start : body.length;
+      out[matches[i].group(1)!.trim()] = body.substring(start, end);
+    }
+    return out;
+  }
+
+  const assertStep = 'Assert production Supabase config';
 
   /// Workflows that produce something a person can install.
   const shipping = [
@@ -47,16 +69,32 @@ void main() {
       }
     });
 
-    test('each asserts non-empty SUPABASE_URL and ANON_KEY, and fails hard', () {
+    test('every workflow that publishes artifacts is covered by this guard', () {
+      // The list above is an allowlist, so a NEW artifact-producing workflow
+      // would otherwise be invisible to every check here.
+      final found = workflows();
+      final publishing = found.entries
+          .where((e) => e.value.contains(RegExp(r'^    artifacts:$', multiLine: true)))
+          .map((e) => e.key)
+          .toList();
+      expect(publishing.toSet(), shipping.toSet(),
+          reason: 'a workflow publishes artifacts but is not guarded — add it '
+              'to `shipping` and give it the config assertion');
+    });
+
+    test('the assertion STEP itself checks both vars and fails hard', () {
       final found = workflows();
       for (final w in shipping) {
-        final body = found[w]!;
-        expect(body, contains(r'${SUPABASE_URL:-}'),
-            reason: '$w no longer checks SUPABASE_URL');
+        final body = steps(found[w]!)[assertStep];
+        expect(body, isNotNull, reason: '$w lost the "$assertStep" step');
+        expect(body!, contains(r'${SUPABASE_URL:-}'),
+            reason: '$w: the assert step no longer checks SUPABASE_URL');
         expect(body, contains(r'${SUPABASE_ANON_KEY:-}'),
-            reason: '$w no longer checks SUPABASE_ANON_KEY');
+            reason: '$w: the assert step no longer checks SUPABASE_ANON_KEY');
         expect(body, contains('exit 1'),
-            reason: '$w checks the config but does not fail the build');
+            reason: '$w: the assert step checks the config but does not fail');
+        expect(body.contains('ignore_failure'), isFalse,
+            reason: '$w: ignore_failure makes the assertion advisory');
       }
     });
 
@@ -65,7 +103,7 @@ void main() {
       final found = workflows();
       for (final w in shipping) {
         final body = found[w]!;
-        final assertAt = body.indexOf('Assert production Supabase config');
+        final assertAt = body.indexOf('      - name: $assertStep');
         final buildAt =
             body.indexOf(RegExp(r'flutter build (ios|ipa|apk|appbundle)'));
         expect(assertAt, isNot(-1), reason: '$w lost the assertion step');

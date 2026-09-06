@@ -49,7 +49,9 @@
     "    validation_status, validated_at, validated_by, golden_test_count,",
     "    false_positive_count, amount_error_count",
     "                                     evidence, written only by parser-test",
-    "  The two runtime flags appear in the bundled asset as SEED DEFAULTS only.",
+    "  is_active, is_deleted and updated_at appear in the bundled asset as SEED",
+    "  DEFAULTS only \u2014 the three exceptions. The generator rejects any OTHER",
+    "  runtime field on a canonical rule rather than dropping it silently.",
     "  Generating any runtime field would let a file overwrite state the database",
     "  owns; omitting a canonical field would let the bundle and the database",
     "  diverge, which is exactly what happened with 0091."

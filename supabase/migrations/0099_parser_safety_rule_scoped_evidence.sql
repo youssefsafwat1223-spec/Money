@@ -24,8 +24,10 @@
 --
 -- 2. RULE BODIES COME FROM THE CANONICAL SOURCE.
 --    The UPDATEs below are GENERATED from supabase/catalog/parser_rules.json by
---    tools/gen_catalog_assets.py and copied in verbatim; CI fails if they drift
---    (tools/ci_gates.sh, "catalog asset drift"). 0091 widened the amount
+--    tools/gen_catalog_assets.py and copied in verbatim. Two guards, because
+--    they cover different things: ci_gates.sh "catalog asset drift" pins the
+--    generated files to canonical, and parser_migration_canonical_test.dart
+--    pins THIS migration's embedded copy to the generated file. 0091 widened the amount
 --    quantifier in the database while the bundled asset kept the old shape, and
 --    nothing noticed for months. No regex is retyped by hand here.
 --
@@ -288,10 +290,36 @@ BEGIN
       'canonical parser rules: % rule(s) absent or bound to a different bank', missing;
   END IF;
 END $$;
+
+-- ── 4. Trim the journal to the rows this migration actually CHANGED ─────────
+--
+-- The capture above deliberately takes every rule, because it must run BEFORE
+-- the UPDATEs and cannot know which bodies will differ. But replaying a row
+-- that 0099 never altered is not a rollback — it is an unrelated write. A rule
+-- outside the canonical twelve is never updated here; if an admin edits it
+-- AFTER 0099, the rollback would silently revert that edit to a pre-0099 value
+-- 0099 had no part in. Same for a canonical rule that already matched.
+--
+-- So drop every journal row whose pre-image still equals the live row. What
+-- remains is exactly the set 0099 overwrote, which is exactly what the rollback
+-- must restore. Re-running 0099 re-captures and re-trims to the same set; a
+-- genuine pre-image survives because the INSERT is ON CONFLICT DO NOTHING.
+DELETE FROM public.sms_parsers_canonical_reset_0099 AS j
+ USING public.sms_parsers AS p
+ WHERE p.id = j.parser_id
+   AND p.sender_pattern   IS NOT DISTINCT FROM j.sender_pattern
+   AND p.message_pattern  IS NOT DISTINCT FROM j.message_pattern
+   AND p.transaction_type IS NOT DISTINCT FROM j.transaction_type
+   AND p.language         IS NOT DISTINCT FROM j.language
+   AND p.priority         IS NOT DISTINCT FROM j.priority
+   AND p.extracted_fields IS NOT DISTINCT FROM j.extracted_fields;
+
 -- ── POSTCONDITIONS ──────────────────────────────────────────────────────────
 DO $$
 DECLARE
   bad INT;
+  def TEXT;
+  vocab TEXT[];
   snb TEXT;
   prior_passed INT;
 BEGIN
@@ -306,34 +334,66 @@ BEGIN
   -- exists, so a materially different pre-staged object FAILS here.
 
   -- parser_id: present, NOT NULL, uuid.
+  --
+  -- domain_name IS NULL matters: information_schema reports a DOMAIN over uuid
+  -- as data_type 'uuid', so a pre-staged `CREATE DOMAIN ... AS uuid CHECK (...)`
+  -- would pass a bare type check while narrowing what the column accepts.
   SELECT count(*) INTO bad FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'parser_golden_tests'
-     AND column_name = 'parser_id' AND is_nullable = 'NO' AND data_type = 'uuid';
+     AND column_name = 'parser_id' AND is_nullable = 'NO' AND data_type = 'uuid'
+     AND domain_name IS NULL;
   IF bad <> 1 THEN
-    RAISE EXCEPTION '0099: parser_id must exist as NOT NULL uuid (matched %)', bad;
+    RAISE EXCEPTION '0099: parser_id must exist as NOT NULL uuid, not a domain (matched %)', bad;
   END IF;
 
   -- expected_balance: present, numeric, nullable (absence of evidence is not a
   -- failure; the validator decides whether a claim went unproven).
+  --
+  -- The precision/scale pair must be NULL. data_type is 'numeric' for
+  -- NUMERIC(10,0) too, and that column silently ROUNDS: a pre-staged
+  -- NUMERIC(10,0) stores 1234.56 as 1235, so every balance claim the validator
+  -- compares would then fail against evidence the database itself corrupted.
   SELECT count(*) INTO bad FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'parser_golden_tests'
      AND column_name = 'expected_balance' AND data_type = 'numeric'
-     AND is_nullable = 'YES';
+     AND is_nullable = 'YES' AND domain_name IS NULL
+     AND numeric_precision IS NULL AND numeric_scale IS NULL;
   IF bad <> 1 THEN
-    RAISE EXCEPTION '0099: expected_balance must be a nullable numeric (matched %)', bad;
+    RAISE EXCEPTION
+      '0099: expected_balance must be a nullable UNCONSTRAINED numeric '
+      '(no precision/scale, no domain) — matched %', bad;
+  END IF;
+
+  -- expected_type must still be plain text. A domain retype survives the
+  -- DROP/ADD CONSTRAINT above (literals coerce to the base type) and would then
+  -- reject 'reversal' at INSERT time, long after this migration reported success.
+  SELECT count(*) INTO bad FROM information_schema.columns
+   WHERE table_schema = 'public' AND table_name = 'parser_golden_tests'
+     AND column_name = 'expected_type' AND data_type = 'text'
+     AND domain_name IS NULL;
+  IF bad <> 1 THEN
+    RAISE EXCEPTION '0099: expected_type must be plain text, not a domain or enum (matched %)', bad;
   END IF;
 
   -- The FK must target sms_parsers(id) and cascade deletes: evidence for a rule
   -- that no longer exists is not evidence.
+  -- Every pg_catalog lookup below is schema-qualified. Matching on relname
+  -- alone counts objects in ANY schema: an `archive.parser_golden_tests` with
+  -- its own FK and index satisfies all three catalog checks while
+  -- public.parser_golden_tests.parser_id carries no foreign key at all.
   SELECT count(*) INTO bad
     FROM pg_constraint c
     JOIN pg_class child ON child.oid = c.conrelid
+    JOIN pg_namespace cn ON cn.oid = child.relnamespace
     JOIN pg_class parent ON parent.oid = c.confrelid
+    JOIN pg_namespace pn ON pn.oid = parent.relnamespace
     JOIN pg_attribute ca ON ca.attrelid = c.conrelid AND ca.attnum = c.conkey[1]
     JOIN pg_attribute pa ON pa.attrelid = c.confrelid AND pa.attnum = c.confkey[1]
    WHERE c.contype = 'f'
+     AND cn.nspname = 'public'
      AND child.relname = 'parser_golden_tests'
      AND ca.attname = 'parser_id'
+     AND pn.nspname = 'public'
      AND parent.relname = 'sms_parsers'
      AND pa.attname = 'id'
      AND c.confdeltype = 'c'                       -- ON DELETE CASCADE
@@ -348,32 +408,61 @@ BEGIN
   SELECT count(*) INTO bad
     FROM pg_constraint c
     JOIN pg_class child ON child.oid = c.conrelid
+    JOIN pg_namespace cn ON cn.oid = child.relnamespace
     JOIN pg_attribute ca ON ca.attrelid = c.conrelid AND ca.attnum = c.conkey[1]
-   WHERE c.contype = 'f' AND child.relname = 'parser_golden_tests'
+   WHERE c.contype = 'f' AND cn.nspname = 'public'
+     AND child.relname = 'parser_golden_tests'
      AND ca.attname = 'parser_id';
   IF bad <> 1 THEN
     RAISE EXCEPTION '0099: parser_id carries % foreign keys; expected exactly 1', bad;
   END IF;
 
   -- provenance CHECK admits EXACTLY the intended vocabulary.
+  --
+  -- Presence of the five words is NOT the contract. A pre-staged CHECK listing
+  -- a sixth value contains all five and would pass; so would the INVERSION
+  -- (`NOT IN (<the five>)`), which rejects precisely the values that are meant
+  -- to be legal. So: exactly one provenance CHECK, its full set of string
+  -- literals equal to the five, and its shape a membership test rather than an
+  -- exclusion. Unlike expected_type this constraint is never dropped and
+  -- re-added, so whatever was pre-staged is what ships.
   SELECT count(*) INTO bad FROM pg_constraint c
     JOIN pg_class t ON t.oid = c.conrelid
-   WHERE t.relname = 'parser_golden_tests' AND c.contype = 'c'
-     AND pg_get_constraintdef(c.oid) LIKE '%provenance%'
-     AND pg_get_constraintdef(c.oid) LIKE '%bank_documented%'
-     AND pg_get_constraintdef(c.oid) LIKE '%bank_sandbox%'
-     AND pg_get_constraintdef(c.oid) LIKE '%controlled_transaction%'
-     AND pg_get_constraintdef(c.oid) LIKE '%anonymized_fixture%'
-     AND pg_get_constraintdef(c.oid) LIKE '%synthetic_negative%';
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+   WHERE n.nspname = 'public' AND t.relname = 'parser_golden_tests'
+     AND c.contype = 'c'
+     AND pg_get_constraintdef(c.oid) LIKE '%provenance%';
   IF bad <> 1 THEN
     RAISE EXCEPTION
-      '0099: provenance CHECK must admit exactly the five intended values (matched %)', bad;
+      '0099: expected exactly one provenance CHECK, found %', bad;
+  END IF;
+
+  SELECT pg_get_constraintdef(c.oid) INTO def FROM pg_constraint c
+    JOIN pg_class t ON t.oid = c.conrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+   WHERE n.nspname = 'public' AND t.relname = 'parser_golden_tests'
+     AND c.contype = 'c'
+     AND pg_get_constraintdef(c.oid) LIKE '%provenance%';
+
+  SELECT array_agg(DISTINCT m[1] ORDER BY m[1]) INTO vocab
+    FROM regexp_matches(def, '''([^'']*)''', 'g') AS m;
+  IF vocab IS DISTINCT FROM ARRAY[
+       'anonymized_fixture', 'bank_documented', 'bank_sandbox',
+       'controlled_transaction', 'synthetic_negative'] THEN
+    RAISE EXCEPTION
+      '0099: provenance CHECK vocabulary is %, not the five intended values', vocab;
+  END IF;
+  IF def !~ '= ANY' OR def ~ '<> ALL' OR def ~ '\mNOT\M' THEN
+    RAISE EXCEPTION
+      '0099: provenance CHECK must ADMIT the five values, not exclude them (%)', def;
   END IF;
 
   -- expected_type CHECK must include reversal, and there must be only one.
   SELECT count(*) INTO bad FROM pg_constraint c
     JOIN pg_class t ON t.oid = c.conrelid
-   WHERE t.relname = 'parser_golden_tests' AND c.contype = 'c'
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+   WHERE n.nspname = 'public' AND t.relname = 'parser_golden_tests'
+     AND c.contype = 'c'
      AND pg_get_constraintdef(c.oid) LIKE '%expected_type%';
   IF bad <> 1 THEN
     RAISE EXCEPTION
@@ -382,7 +471,9 @@ BEGIN
   END IF;
   SELECT count(*) INTO bad FROM pg_constraint c
     JOIN pg_class t ON t.oid = c.conrelid
-   WHERE t.relname = 'parser_golden_tests' AND c.contype = 'c'
+    JOIN pg_namespace n ON n.oid = t.relnamespace
+   WHERE n.nspname = 'public' AND t.relname = 'parser_golden_tests'
+     AND c.contype = 'c'
      AND pg_get_constraintdef(c.oid) LIKE '%expected_type%'
      AND pg_get_constraintdef(c.oid) LIKE '%reversal%'
      AND pg_get_constraintdef(c.oid) LIKE '%debit%'
@@ -394,15 +485,30 @@ BEGIN
   END IF;
 
   -- The index must exist ON parser_id specifically, not merely by name.
+  --
+  -- NOT unique, NOT partial, and valid. A pre-staged UNIQUE index under this
+  -- name is skipped by CREATE INDEX IF NOT EXISTS and then caps evidence at ONE
+  -- row per rule, which makes the mixed debit/credit/reversal suite this
+  -- migration exists to enable impossible. `WHERE false` and an indisvalid =
+  -- false leftover from a failed CONCURRENTLY build index nothing at all.
+  -- indnkeyatts (not indnatts) counts KEY columns, so an INCLUDE payload is
+  -- allowed; it changes nothing about which rows the index covers.
   SELECT count(*) INTO bad
     FROM pg_index i
     JOIN pg_class t ON t.oid = i.indrelid
+    JOIN pg_namespace n ON n.oid = t.relnamespace
     JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = i.indkey[0]
-   WHERE t.relname = 'parser_golden_tests'
+   WHERE n.nspname = 'public'
+     AND t.relname = 'parser_golden_tests'
      AND a.attname = 'parser_id'
-     AND i.indnatts = 1;
+     AND i.indnkeyatts = 1
+     AND NOT i.indisunique
+     AND i.indpred IS NULL
+     AND i.indisvalid;
   IF bad < 1 THEN
-    RAISE EXCEPTION '0099: no single-column index on parser_golden_tests(parser_id)';
+    RAISE EXCEPTION
+      '0099: parser_golden_tests(parser_id) needs a non-unique, non-partial, '
+      'valid single-key index; found none';
   END IF;
 
   -- The SNB rule carries the bilingual, evidence-backed amount grammar.

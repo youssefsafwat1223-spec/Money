@@ -74,9 +74,17 @@ DB_RUNTIME_OWNED = [
     "amount_error_count",
 ]
 
-# The asset ships exactly these keys, in this order. It carries the two runtime
-# flags as SEED DEFAULTS only — the seeder forces parsers inactive regardless —
-# and they are never projected into the database.
+# ASSET-CARRIED RUNTIME KEYS. Three DB-runtime-owned fields travel in the
+# bundled asset as SEED DEFAULTS only: the seeder forces parsers inactive
+# regardless of is_active, and none of the three is ever projected into the
+# database. They are listed separately so a canonical rule that carries any
+# OTHER runtime-owned field is rejected rather than silently dropped.
+ASSET_RUNTIME_SEED = ["is_active", "is_deleted", "updated_at"]
+
+# Exactly the keys a canonical rule may carry — all required, none extra.
+ALLOWED_RULE_KEYS = CANONICAL_IDENTITY + CANONICAL_CONFIG + ASSET_RUNTIME_SEED
+
+# The asset ships exactly these keys, in this order.
 ASSET_KEYS = [
     "id",
     "bank_id",
@@ -92,10 +100,49 @@ ASSET_KEYS = [
 ]
 
 
-def render() -> str:
+def load_rules() -> list[dict]:
+    """Read canonical and prove every rule carries EXACTLY the owned key set.
+
+    Both projections used to be built with `if k in rule`, so a rule missing a
+    key silently shipped a shorter record and a rule carrying an UNOWNED key
+    (say a new `confidence`) was silently dropped from both — with `--check`
+    still green, because it compares generated output against generated output.
+    A field that reaches neither projection is the 0091 failure mode wearing a
+    different hat, so it must fail here instead.
+    """
     canonical = json.loads(CANONICAL.read_text(encoding="utf-8"))
     rules = canonical["rules"]
-    shaped = [{k: rule[k] for k in ASSET_KEYS if k in rule} for rule in rules]
+
+    seen: set[str] = set()
+    allowed = set(ALLOWED_RULE_KEYS)
+    for rule in rules:
+        rid = rule.get("id")
+        if rid is None:
+            raise SystemExit("canonical: a rule has no id")
+        if rid in seen:
+            raise SystemExit(
+                f"canonical: duplicate rule id {rid}; ids are the stable key "
+                "the DB projection updates by, so a duplicate silently applies twice"
+            )
+        seen.add(rid)
+
+        keys = set(rule)
+        missing = [k for k in ALLOWED_RULE_KEYS if k not in keys]
+        if missing:
+            raise SystemExit(f"canonical: rule {rid} is missing {missing}")
+        extra = sorted(keys - allowed)
+        if extra:
+            raise SystemExit(
+                f"canonical: rule {rid} carries unowned field(s) {extra}. Add each "
+                "to CANONICAL_CONFIG (and to SQL_PROJECTION, so it reaches the "
+                "database) or remove it — a field owned by neither list would ship "
+                "to devices and never to the DB, which is the 0091 failure mode."
+            )
+    return rules
+
+
+def render() -> str:
+    shaped = [{k: rule[k] for k in ASSET_KEYS} for rule in load_rules()]
     return json.dumps(shaped, ensure_ascii=False, indent=2) + "\n"
 
 
@@ -106,9 +153,23 @@ def sql_literal(value: str) -> str:
     return "'" + value.replace("'", "''") + "'"
 
 
+# How each canonical config field is written into SQL. This dict IS the
+# projection — render_sql() emits from it — so the guard below compares the
+# ownership list against what the generator actually does, not against a second
+# hardcoded copy of the same list.
+SQL_PROJECTION = {
+    "sender_pattern": lambda v: sql_literal(v),
+    "message_pattern": lambda v: sql_literal(v),
+    "transaction_type": lambda v: sql_literal(v),
+    "language": lambda v: sql_literal(v),
+    "priority": lambda v: str(int(v)),
+    "extracted_fields":
+        lambda v: sql_literal(json.dumps(v, ensure_ascii=False, sort_keys=True)) + "::jsonb",
+}
+
+
 def render_sql() -> str:
-    canonical = json.loads(CANONICAL.read_text(encoding="utf-8"))
-    rules = canonical["rules"]
+    rules = load_rules()
     lines = [
         "-- GENERATED — DO NOT EDIT.",
         "--",
@@ -127,31 +188,29 @@ def render_sql() -> str:
         "-- stays the Parser Lab's job.",
         "",
     ]
-    # Guard the generator against itself: a canonical config field that is not
-    # projected would reach the bundle and never the database.
-    projected = {
-        "sender_pattern", "message_pattern", "transaction_type",
-        "language", "priority", "extracted_fields",
-    }
-    missing = [f for f in CANONICAL_CONFIG if f not in projected]
+    # Guard the generator against itself: a canonical config field with no
+    # projection would reach the bundle and never the database.
+    missing = [f for f in CANONICAL_CONFIG if f not in SQL_PROJECTION]
     if missing:
         raise SystemExit(
             f"canonical config field(s) {missing} are not projected into SQL; "
-            "add them to render_sql() before shipping"
+            "add them to SQL_PROJECTION before shipping"
+        )
+    stray = [f for f in SQL_PROJECTION if f not in CANONICAL_CONFIG]
+    if stray:
+        raise SystemExit(
+            f"SQL_PROJECTION writes {stray}, which canonical does not own; "
+            "the DB projection must never overwrite a runtime-owned column"
         )
 
     for rule in rules:
         lines.append(f"-- {rule['id']}")
         lines.append("UPDATE public.sms_parsers SET")
-        lines.append(f"  sender_pattern    = {sql_literal(rule['sender_pattern'])},")
-        lines.append(f"  message_pattern   = {sql_literal(rule['message_pattern'])},")
-        lines.append(f"  transaction_type  = {sql_literal(rule['transaction_type'])},")
-        lines.append(f"  language          = {sql_literal(rule['language'])},")
-        lines.append(f"  priority          = {rule['priority']},")
-        lines.append(
-            "  extracted_fields  = "
-            f"{sql_literal(json.dumps(rule['extracted_fields'], ensure_ascii=False, sort_keys=True))}::jsonb"
-        )
+        for i, field in enumerate(CANONICAL_CONFIG):
+            comma = "," if i < len(CANONICAL_CONFIG) - 1 else ""
+            lines.append(
+                f"  {field.ljust(18)}= {SQL_PROJECTION[field](rule[field])}{comma}"
+            )
         # bank_id is canonical IDENTITY, not configuration: rewriting it would
         # re-point a rule at a different bank. Asserted instead, so a mismatch
         # fails loudly rather than being silently "corrected".
