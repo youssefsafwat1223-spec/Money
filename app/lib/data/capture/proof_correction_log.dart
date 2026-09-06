@@ -71,6 +71,16 @@ class ProofCorrectionLog {
 
   final AppDatabase _db;
 
+  /// Monotonic tie-breaker for the event id.
+  ///
+  /// The id was `transactionId:microsecondsSinceEpoch`. Two events written in
+  /// the same microsecond — which happens whenever one user action emits two
+  /// events, and routinely under test — collided on the PRIMARY KEY, and the
+  /// insert's catch-all swallowed the violation. The event was simply LOST,
+  /// silently, and a lost event is a lost correction: the bias is toward the
+  /// metric looking safer than reality.
+  static int _seq = 0;
+
   /// Which Proof-relevant classes differ between the stored row and the edit.
   ///
   /// `account` is included even though `ProofChecker` does not corroborate an
@@ -117,8 +127,8 @@ class ProofCorrectionLog {
         '(id, transaction_id, event_type, changed_fields, occurred_at) '
         'VALUES (?,?,?,?,?)',
         variables: <Variable<Object>>[
-          Variable<String>(
-              '$transactionId:${DateTime.now().toUtc().microsecondsSinceEpoch}'),
+          Variable<String>('$transactionId:'
+              '${DateTime.now().toUtc().microsecondsSinceEpoch}:${_seq++}'),
           Variable<String>(transactionId),
           Variable<String>(_wire(event)),
           Variable<String>(

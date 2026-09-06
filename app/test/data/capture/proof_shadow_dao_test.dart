@@ -465,4 +465,122 @@ void main() {
       expect(s.meetsTier2Gate(minObservations: 4), isFalse);
     });
   });
+
+  group('THE SIX RELEASE-GATE SEMANTICS', () {
+    Future<void> ev(String txnId, String type) async {
+      await db.customInsert(
+        'INSERT INTO proof_correction_events '
+        '(id, transaction_id, event_type, changed_fields, occurred_at) '
+        'VALUES (?,?,?,?,?)',
+        variables: <Variable<Object>>[
+          Variable<String>('$txnId:$type:${DateTime.now().microsecondsSinceEpoch}'),
+          Variable<String>(txnId),
+          Variable<String>(type),
+          Variable<String>(''),
+          Variable<String>(DateTime.now().toUtc().toIso8601String()),
+        ],
+      );
+    }
+
+    test('1. the denominator counts ONLY would-have-committed observations', () async {
+      // A confirmed observation that Proof would have WITHHELD must not add
+      // evidence that auto-commit is safe — it was never going to auto-commit.
+      await insertTxn('withheld');
+      await dao.record(rec('w', committed: false, txnId: 'withheld'));
+      await ev('withheld', 'confirmed');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.wouldHaveCommitted, 0);
+      expect(s.resolvedObservations, 0,
+          reason: 'a withheld observation is not auto-commit evidence');
+    });
+
+    test('2. the failure numerator counts ONLY would-have-committed corrections',
+        () async {
+      await insertTxn('wc');
+      await dao.record(rec('c1', committed: true, txnId: 'wc'));
+      await ev('wc', 'confirmed');
+      await insertTxn('wh');
+      await dao.record(rec('c2', committed: false, txnId: 'wh'));
+      await ev('wh', 'corrected_financial');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.correctedFinancial, 0,
+          reason: 'the correction belongs to a WITHHELD observation');
+    });
+
+    test('3. a corrected WITHHELD transaction does NOT fail the gate', () async {
+      // Proof sent it to review, a human fixed it — the system worked.
+      await insertTxn('ok');
+      await dao.record(rec('g', committed: true, txnId: 'ok'));
+      await ev('ok', 'confirmed');
+      await insertTxn('rev');
+      await dao.record(rec('r', committed: false, txnId: 'rev'));
+      await ev('rev', 'corrected_financial');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.meetsTier2Gate(minObservations: 1), isTrue,
+          reason: 'reviewing and fixing is the gate working, not failing');
+    });
+
+    test('4. an UNRESOLVED would-have-committed row is not in the denominator',
+        () async {
+      await insertTxn('u');
+      await dao.record(rec('u', committed: true, txnId: 'u'));
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.wouldHaveCommitted, 1);
+      expect(s.unresolved, 1);
+      expect(s.resolvedObservations, 0);
+      expect(s.meetsTier2Gate(minObservations: 1), isFalse);
+    });
+
+    test('5. rejected/deleted is classified and NEVER silently correct', () async {
+      // The regression this check exists for: every auto-committed transaction
+      // thrown away by the user is a catastrophic signal, and previously it
+      // SATISFIED the gate because deletions padded the denominator while never
+      // being able to fail it.
+      for (var i = 0; i < 3; i++) {
+        await insertTxn('d$i');
+        await dao.record(rec('d$i', committed: true, txnId: 'd$i'));
+        await ev('d$i', 'rejected_or_deleted');
+      }
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.rejectedOrDeleted, 3, reason: 'explicitly classified');
+      expect(s.resolvedObservations, 0, reason: 'ambiguous, proves nothing');
+      expect(s.meetsTier2Gate(minObservations: 3), isFalse,
+          reason: 'three deletions must NOT pass a safety gate');
+      expect(s.attributionPartitionsCleanly, isTrue);
+    });
+
+    test('6. every count is scoped to ONE engine version', () async {
+      await insertTxn('e1');
+      await insertTxn('e2');
+      await dao.record(rec('a', committed: true, txnId: 'e1', engine: 'gate-A'));
+      await dao.record(rec('b', committed: true, txnId: 'e2', engine: 'gate-B'));
+      await ev('e1', 'confirmed');
+      await ev('e2', 'corrected_financial');
+
+      final a = await dao.tier2Summary(engineVersion: 'gate-A');
+      final b = await dao.tier2Summary(engineVersion: 'gate-B');
+      expect(a.wouldHaveCommitted, 1);
+      expect(a.correctedFinancial, 0, reason: "B's correction must not leak");
+      expect(a.meetsTier2Gate(minObservations: 1), isTrue);
+      expect(b.correctedFinancial, 1);
+      expect(b.meetsTier2Gate(minObservations: 1), isFalse);
+    });
+
+    test('the gate fails on a SINGLE financially wrong auto-commit', () async {
+      for (var i = 0; i < 5; i++) {
+        await insertTxn('ok$i');
+        await dao.record(rec('ok$i', committed: true, txnId: 'ok$i'));
+        await ev('ok$i', 'confirmed');
+      }
+      var s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.meetsTier2Gate(minObservations: 5), isTrue);
+
+      await insertTxn('bad');
+      await dao.record(rec('bad', committed: true, txnId: 'bad'));
+      await ev('bad', 'corrected_financial');
+      s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.meetsTier2Gate(minObservations: 5), isFalse,
+          reason: 'ZERO financially wrong auto-commits is the contract');
+    });
+  });
 }

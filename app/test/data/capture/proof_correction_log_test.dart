@@ -195,4 +195,16 @@ void main() {
       }
     });
   });
+
+  test('rapid successive events never collide and never vanish', () async {
+    // The id was transactionId:microseconds, so two events in the same
+    // microsecond collided on the PK and the insert's catch-all swallowed the
+    // violation — a silently LOST correction, biasing the metric toward safe.
+    for (var i = 0; i < 50; i++) {
+      await log.record(
+          transactionId: 'burst', event: ProofCorrectionEvent.confirmed);
+    }
+    expect(await eventsFor('burst'), hasLength(50),
+        reason: 'every event must persist; a lost one is a lost correction');
+  });
 }

@@ -275,18 +275,28 @@ class ProofTier2Summary {
           unresolved ==
       wouldHaveCommitted;
 
-  /// Observations a human actually resolved. This — not `wouldHaveCommitted` —
-  /// is the evidence base.
-  int get resolvedObservations =>
-      confirmedUnchanged + correctedFinancial + rejectedOrDeleted;
+  /// Observations a human ADJUDICATED — they looked at the parse and either
+  /// accepted it or fixed it. This, not `wouldHaveCommitted`, is the evidence
+  /// base for the gate.
+  ///
+  /// `rejectedOrDeleted` is deliberately EXCLUDED. A deletion is ambiguous: it
+  /// may mean the parse was wrong, or merely that the row was a duplicate or
+  /// the user changed their mind. Counting it toward the denominator while it
+  /// can never fail the gate would let 1000 deletions — every auto-committed
+  /// transaction thrown away, a catastrophic signal — satisfy the release gate.
+  /// That is the same vacuous-pass failure as counting `unresolved`, one level
+  /// down. Ambiguous evidence proves nothing in either direction, so it is
+  /// reported separately and excluded from both sides.
+  int get resolvedObservations => confirmedUnchanged + correctedFinancial;
 
   /// THE RELEASE GATE.
   ///
-  /// n counts RESOLVED observations, not merely attributed ones. A naive
-  /// `wouldHaveCommitted >= 1000` passes vacuously when all 1000 captures are
-  /// sitting unlooked-at: zero corrections found because nobody looked. That is
-  /// a falsely-passing safety gate, which is the one failure mode this whole
-  /// exercise exists to prevent. `unresolved` is never evidence of correctness.
+  /// n counts ADJUDICATED observations, not merely attributed ones. A naive
+  /// `wouldHaveCommitted >= 1000` passes vacuously when all 1000 captures sit
+  /// unlooked-at: zero corrections found because nobody looked. Neither
+  /// `unresolved` nor `rejectedOrDeleted` is evidence of correctness, so
+  /// neither counts toward n. A falsely-passing safety gate is the one failure
+  /// mode this whole exercise exists to prevent.
   bool meetsTier2Gate({int minObservations = 1000}) =>
       resolvedObservations >= minObservations && correctedFinancial == 0;
 }
