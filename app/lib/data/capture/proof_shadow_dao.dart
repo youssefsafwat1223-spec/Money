@@ -78,37 +78,38 @@ class ProofShadowDao {
   ///
   /// Attribution, for the "was it right?" question:
   ///
-  ///   autoConfirmedUntouched  committed at insert and never written since —
-  ///                           the ONLY clean positive signal available
-  ///   touchedAfterCreation    written after creation. NOT a correction count
-  ///                           — see below
-  ///   deleted                 the transaction is gone — classified, NOT dropped
-  ///   unattributed            no transaction id (refusal/error/no row created)
-  ///   stillPending            pending and never written since
+  ///   confirmedUnchanged   the user accepted the parse as-is
+  ///   correctedFinancial   a PROOF-RELEVANT field was changed.
+  ///                        THE correctness-failure numerator
+  ///   rejectedOrDeleted    the parse was thrown away rather than fixed
+  ///   unresolved           no provenance event yet — the user has not acted.
+  ///                        NEVER counted as correct
   ///
-  /// ## Why there is no "corrected" bucket
+  /// ## Provenance, not timestamps
   ///
-  /// An earlier version of this class had `laterCorrected`, inferred from
-  /// `updated_at > created_at`, documented as an upper bound on real
-  /// corrections. **That was wrong, and wrong in the dangerous direction.**
+  /// These come from `proof_correction_events`, an append-only log written ONLY
+  /// from the explicit user-intent repository methods. The earlier version
+  /// inferred correction from `updated_at > created_at`, which was wrong in the
+  /// dangerous direction: `confirm()` bumps `updated_at` exactly as an edit
+  /// does, so a user AGREEING with the parse was indistinguishable from a user
+  /// FIXING it.
   ///
-  /// `confirm()` bumps `updated_at`
-  /// (`drift_transaction_repository.dart` — `UPDATE transactions SET status =
-  /// 'confirmed' … updated_at = ?`). So a user CONFIRMING a pending capture —
-  /// the action that means "the parse was RIGHT" — produced the same signal as
-  /// a correction. `categorize`, soft delete, sync pull-apply, the import
-  /// soft-hide and the migration timestamp repair all bump it too.
+  /// Every non-user writer — sync pull-apply, the import soft-hide, the
+  /// migration timestamp repair — mutates `transactions` with raw SQL and never
+  /// calls those methods, so it physically cannot emit a correction event. The
+  /// immunity is structural rather than a filter someone must remember.
   ///
-  /// So `touchedAfterCreation` does not bound corrections; it is saturated by
-  /// the happy path. It is reported because dropping it would hide the
-  /// population, not because it measures error.
+  /// A category-only, merchant-only, note-only or date-only edit logs
+  /// `non_financial_edit` and is NOT a correctness failure.
   ///
-  /// **Consequence for the release gate.** Tier 2's "would it have been
-  /// right?" half is NOT answerable from this store today. The safety
-  /// numerator (`wouldHaveCommitted`) is sound; the correctness numerator
-  /// requires real edit provenance — a per-field edit log, or activating the
-  /// dormant `capture_review_labels` pipeline, which has no production writer.
-  /// Do not compute an error rate from these columns.
+  /// ## The release gate
+  ///
+  ///   financially wrong = correctedFinancial
+  ///   gate: wouldHaveCommitted >= 1000 AND correctedFinancial == 0
+  ///
+  /// `unresolved` is reported separately and never counted as correct — a
+  /// capture nobody has looked at is not evidence that the parse was right.
+
   Future<ProofTier2Summary> tier2Summary({
     required String engineVersion,
   }) async {
@@ -136,19 +137,46 @@ class ProofShadowDao {
     // only set whose correctness the Tier 2 gate is about.
     const attributed = 'AND s.would_have_committed = 1';
     final unattributed = await count("$attributed AND s.transaction_id = ''");
-    final deleted = await count("$attributed AND s.transaction_id != '' "
-        'AND NOT EXISTS (SELECT 1 FROM transactions t '
-        'WHERE t.id = s.transaction_id)');
-    final autoConfirmedUntouched =
-        await count("$attributed AND s.transaction_id != '' "
-            'AND EXISTS (SELECT 1 FROM transactions t WHERE t.id = s.transaction_id '
-            "AND t.status = 'confirmed' AND t.updated_at <= t.created_at)");
-    final touched = await count("$attributed AND s.transaction_id != '' "
-        'AND EXISTS (SELECT 1 FROM transactions t WHERE t.id = s.transaction_id '
-        'AND t.updated_at > t.created_at)');
-    final stillPending = await count("$attributed AND s.transaction_id != '' "
-        'AND EXISTS (SELECT 1 FROM transactions t WHERE t.id = s.transaction_id '
-        "AND t.status != 'confirmed' AND t.updated_at <= t.created_at)");
+    // STRICT PRECEDENCE, applied in order, so every attributed observation
+    // lands in exactly one bucket:
+    //
+    //   corrected_financial  >  rejected/vanished  >  confirmed  >  unresolved
+    //
+    // The earlier version let a CONFIRMED-then-VANISHED row match both
+    // `confirmedUnchanged` and `rejectedOrDeleted` — double-counted, which drove
+    // the `unresolved` remainder NEGATIVE. Each predicate below now excludes
+    // everything above it.
+    const evt = 'proof_correction_events';
+    const hasCorrected = 'EXISTS (SELECT 1 FROM $evt ec '
+        "WHERE ec.transaction_id = s.transaction_id "
+        "AND ec.event_type = 'corrected_financial')";
+    const goneOrRejected = '(EXISTS (SELECT 1 FROM $evt er '
+        "WHERE er.transaction_id = s.transaction_id "
+        "AND er.event_type = 'rejected_or_deleted') "
+        'OR NOT EXISTS (SELECT 1 FROM transactions t '
+        'WHERE t.id = s.transaction_id))';
+
+    final correctedFinancial =
+        await count("$attributed AND s.transaction_id != '' AND $hasCorrected");
+
+    // A vanished row counts here too: the parse did not survive, and calling
+    // that "unresolved" would flatter the gate.
+    final rejectedOrDeleted = await count(
+        "$attributed AND s.transaction_id != '' "
+        'AND NOT $hasCorrected AND $goneOrRejected');
+
+    final confirmedUnchanged = await count(
+        "$attributed AND s.transaction_id != '' "
+        'AND NOT $hasCorrected AND NOT $goneOrRejected '
+        'AND EXISTS (SELECT 1 FROM $evt e WHERE e.transaction_id = '
+        "s.transaction_id AND e.event_type = 'confirmed')");
+
+    // Remainder: attributed, still present, and no decisive event yet.
+    final unresolved = wouldCommit -
+        unattributed -
+        correctedFinancial -
+        rejectedOrDeleted -
+        confirmedUnchanged;
 
     final refusals = <String, int>{};
     final rows = await _db.customSelect(
@@ -170,11 +198,11 @@ class ProofShadowDao {
       refusedToPropose: refused,
       evaluationErrors: errors,
       wouldHaveCommitted: wouldCommit,
-      autoConfirmedUntouched: autoConfirmedUntouched,
-      touchedAfterCreation: touched,
-      deleted: deleted,
+      confirmedUnchanged: confirmedUnchanged,
+      correctedFinancial: correctedFinancial,
+      rejectedOrDeleted: rejectedOrDeleted,
       unattributed: unattributed,
-      stillPending: stillPending,
+      unresolved: unresolved,
       refusalBreakdown: refusals,
     );
   }
@@ -199,11 +227,11 @@ class ProofTier2Summary {
     required this.refusedToPropose,
     required this.evaluationErrors,
     required this.wouldHaveCommitted,
-    required this.autoConfirmedUntouched,
-    required this.touchedAfterCreation,
-    required this.deleted,
+    required this.confirmedUnchanged,
+    required this.correctedFinancial,
+    required this.rejectedOrDeleted,
     required this.unattributed,
-    required this.stillPending,
+    required this.unresolved,
     required this.refusalBreakdown,
   });
 
@@ -213,15 +241,23 @@ class ProofTier2Summary {
   final int refusedToPropose;
   final int evaluationErrors;
   final int wouldHaveCommitted;
-  /// Committed at insert and never written since. The only clean positive.
-  final int autoConfirmedUntouched;
 
-  /// Written after creation. NOT a correction count — `confirm()` bumps
-  /// `updated_at`, so this is saturated by ordinary confirmations.
-  final int touchedAfterCreation;
-  final int deleted;
+  /// The user accepted the parse as-is — an explicit `confirmed` event with no
+  /// financial correction after it.
+  final int confirmedUnchanged;
+
+  /// A Proof-relevant field was changed. THE correctness-failure numerator.
+  final int correctedFinancial;
+
+  /// Thrown away rather than fixed, or the row no longer exists.
+  final int rejectedOrDeleted;
+
+  /// No transaction id — refusal, error, or no row created.
   final int unattributed;
-  final int stillPending;
+
+  /// Attributed but no decisive event yet. NEVER counted as correct: a capture
+  /// nobody has looked at is not evidence that the parse was right.
+  final int unresolved;
   final Map<String, int> refusalBreakdown;
 
   /// Every attempted evaluation lands in exactly one bucket. If this is ever
@@ -232,10 +268,25 @@ class ProofTier2Summary {
   /// The would-have-committed population likewise partitions completely — no
   /// observation is silently dropped, including deleted transactions.
   bool get attributionPartitionsCleanly =>
-      autoConfirmedUntouched +
-          touchedAfterCreation +
-          deleted +
+      confirmedUnchanged +
+          correctedFinancial +
+          rejectedOrDeleted +
           unattributed +
-          stillPending ==
+          unresolved ==
       wouldHaveCommitted;
+
+  /// Observations a human actually resolved. This — not `wouldHaveCommitted` —
+  /// is the evidence base.
+  int get resolvedObservations =>
+      confirmedUnchanged + correctedFinancial + rejectedOrDeleted;
+
+  /// THE RELEASE GATE.
+  ///
+  /// n counts RESOLVED observations, not merely attributed ones. A naive
+  /// `wouldHaveCommitted >= 1000` passes vacuously when all 1000 captures are
+  /// sitting unlooked-at: zero corrections found because nobody looked. That is
+  /// a falsely-passing safety gate, which is the one failure mode this whole
+  /// exercise exists to prevent. `unresolved` is never evidence of correctness.
+  bool meetsTier2Gate({int minObservations = 1000}) =>
+      resolvedObservations >= minObservations && correctedFinancial == 0;
 }

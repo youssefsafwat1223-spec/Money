@@ -12,6 +12,7 @@ import '../../domain/services/card_account_grouper.dart';
 import '../../domain/services/duplicate_transaction_detector.dart';
 import '../../engine/parser/card_network.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
+import '../capture/proof_correction_log.dart';
 import '../db/app_database.dart';
 import '../db/database_seed.dart';
 import '../db/money_codec.dart';
@@ -26,6 +27,11 @@ class DriftTransactionRepository implements TransactionRepository {
 
   final AppDatabase _db;
   final LedgerOutboxQueue? _outboxQueue;
+
+  /// PHASE 11 correctness provenance. Constructed lazily from the same
+  /// database so no call site has to wire it, and so an event can never be
+  /// forgotten at one of the write methods.
+  ProofCorrectionLog get _proofLog => ProofCorrectionLog(_db);
 
   @override
   Future<TransactionEntity> confirm(String id) async {
@@ -56,6 +62,12 @@ class DriftTransactionRepository implements TransactionRepository {
         throw StateError('Transaction not found: $id');
       }
       await _outboxQueue?.enqueue(OutboxOperation.update, updated);
+      // PHASE 11: the user ACCEPTED the parse as-is. Distinguishable from an
+      // edit only because this is an explicit event — confirm() also bumps
+      // updated_at, which is why the timestamp could never carry this.
+      await _proofLog.record(
+        transactionId: id, event: ProofCorrectionEvent.confirmed);
+
       return updated;
     });
   }
@@ -265,6 +277,12 @@ class DriftTransactionRepository implements TransactionRepository {
         throw StateError('Transaction not found: $transactionId');
       }
       await _outboxQueue?.enqueue(OutboxOperation.update, updated);
+      // PHASE 11: category is NOT a Proof-relevant field. Recorded so the
+      // population stays visible, explicitly as a non-financial edit.
+      await _proofLog.record(
+          transactionId: transactionId,
+          event: ProofCorrectionEvent.nonFinancialEdit);
+
       return updated;
     });
   }
@@ -282,6 +300,23 @@ class DriftTransactionRepository implements TransactionRepository {
     String? accountId,
   }) async {
     return _db.transaction(() async {
+      // PHASE 11 correctness provenance: capture the PRE-EDIT row so only
+      // Proof-relevant changes count as a financial correction. A
+      // category-only, merchant-only, note-only or date-only edit must not be
+      // recorded as the parse having been wrong.
+      // GUARDED for the same reason as updateAccount: getById() maps the whole
+      // row and can throw on a value it does not recognise, and this method did
+      // not read the row before provenance existed. A diagnostic concern must
+      // never be able to break a user's edit. A null `beforeEdit` makes
+      // financialDelta() see null old values, which it treats as "no change" —
+      // so an unreadable row logs a non-financial edit rather than inventing a
+      // correction it cannot substantiate.
+      TransactionEntity? beforeEdit;
+      try {
+        beforeEdit = await getById(transactionId);
+      } catch (_) {
+        beforeEdit = null;
+      }
       if (amount.currency != currency.trim().toUpperCase()) {
         throw ArgumentError(
           'transaction amount currency ${amount.currency} does not match '
@@ -337,6 +372,22 @@ class DriftTransactionRepository implements TransactionRepository {
         throw StateError('Transaction not found: $transactionId');
       }
       await _outboxQueue?.enqueue(OutboxOperation.update, updated);
+      // PHASE 11: only the Proof-relevant classes decide whether this edit is a
+      // correctness failure. financialDelta() returns an EMPTY set for a
+      // non-financial edit, which recordEdit logs as nonFinancialEdit.
+      final proofChanged = ProofCorrectionLog.financialDelta(
+        oldAmountMinor: beforeEdit?.amountMoney.minorUnits,
+        newAmountMinor: amount.minorUnits,
+        oldCurrency: beforeEdit?.currency,
+        newCurrency: currency,
+        oldType: beforeEdit?.type.name,
+        newType: type.name,
+        oldAccountId: beforeEdit?.accountId,
+        newAccountId: accountId ?? beforeEdit?.accountId,
+      );
+      await _proofLog.recordEdit(
+          transactionId: transactionId, changedFields: proofChanged);
+
       return updated;
     });
   }
@@ -345,8 +396,27 @@ class DriftTransactionRepository implements TransactionRepository {
   Future<void> updateAccount({
     required String transactionId,
     required String accountId,
+    /// Declared, never inferred. AccountCurrencyRepairService runs at EVERY
+    /// BOOT and backfills orphaned rows through this method with no user
+    /// involved; without this it would append a false `corrected_financial`
+    /// per row from the first shipped boot.
+    ProofEditOrigin origin = ProofEditOrigin.user,
   }) async {
     await _db.transaction(() async {
+      // Provenance read, GUARDED. getById() maps the whole row and throws on
+      // values it does not recognise (an unmapped `source`, for instance), and
+      // updateAccount never read the row before this change — so an unguarded
+      // read would let a diagnostic concern break a real update. On failure the
+      // old value is unknown, and the emit below treats unknown as "changed",
+      // which is the conservative direction for a safety metric.
+      String? beforeAccount;
+      var beforeKnown = false;
+      try {
+        beforeAccount = (await getById(transactionId))?.accountId;
+        beforeKnown = true;
+      } catch (_) {
+        beforeKnown = false;
+      }
       await _db.customUpdate(
         'UPDATE transactions SET account_id = ?, updated_at = ? WHERE id = ?;',
         variables: [
@@ -358,6 +428,17 @@ class DriftTransactionRepository implements TransactionRepository {
       if (_outboxQueue != null) {
         final tx = await getById(transactionId);
         if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
+      }
+      // PHASE 11: conservative — Proof does not corroborate an account today,
+      // so counting a real user reassignment can only make the gate STRICTER.
+      // Emitted INSIDE the transaction so a rolled-back edit leaves no event,
+      // and only when the account actually CHANGES.
+      if (!beforeKnown || beforeAccount != accountId) {
+        await _proofLog.recordEdit(
+          transactionId: transactionId,
+          changedFields: const {ProofField.account},
+          origin: origin,
+        );
       }
     });
   }
@@ -414,7 +495,23 @@ class DriftTransactionRepository implements TransactionRepository {
         final tx = await getById(transactionId);
         if (tx != null) await _outboxQueue.enqueue(OutboxOperation.update, tx);
       }
+      // PHASE 11: an amount edit is the clearest financial correction there is
+      // — with one exception. A foreign capture on a home-currency card is
+      // stored with amount 0 ("awaiting pricing") BY DESIGN, because the SMS
+      // carried no home-currency amount. The user typing it in is completing a
+      // parse that never claimed an amount, not correcting a wrong one.
+      // Counting it would systematically inflate the correction rate with the
+      // app's own designed behaviour.
+      final awaitingPricing = existing.amountMoney.minorUnits == 0;
+      if (!awaitingPricing &&
+          existing.amountMoney.minorUnits != amount.minorUnits) {
+        await _proofLog.recordEdit(
+          transactionId: transactionId,
+          changedFields: const {ProofField.amount},
+        );
+      }
     });
+
   }
 
   @override
@@ -434,7 +531,14 @@ class DriftTransactionRepository implements TransactionRepository {
         ],
       );
       if (tx != null) await _outboxQueue!.enqueue(OutboxOperation.delete, tx);
+      // PHASE 11: rejection is a correctness outcome in its own right — the
+      // user threw the parse away rather than fixing it. Inside the
+      // transaction: a delete that rolls back must not leave a rejection event,
+      // and a committed delete must not lose one to a crash in the gap.
+      await _proofLog.record(
+          transactionId: id, event: ProofCorrectionEvent.rejectedOrDeleted);
     });
+
   }
 
   // MALI-074n: a specific account's scope is EXACT ownership (`account_id = ?`).

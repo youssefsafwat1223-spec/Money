@@ -1,3 +1,4 @@
+import '../capture/proof_correction_log.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../domain/entities/account_entity.dart';
@@ -107,7 +108,11 @@ class AccountCurrencyRepairService {
         final account = byCurrency[_normalizeCurrency(tx.currency)];
         if (account == null) continue;
         try {
+          // PHASE 11: this runs at EVERY BOOT and backfills orphaned rows with
+          // no user involved. Declared as a system repair so it cannot append
+          // false `corrected_financial` events to the Proof correctness log.
           await _transactions.updateAccount(
+            origin: ProofEditOrigin.systemRepair,
             transactionId: tx.id,
             accountId: account.id,
           );

@@ -1,3 +1,4 @@
+import '../../data/capture/proof_correction_log.dart' show ProofEditOrigin;
 import '../entities/card_summary.dart';
 import '../entities/category_spend.dart';
 import '../entities/report_models.dart';
@@ -102,9 +103,13 @@ abstract class TransactionRepository {
   Future<void> deleteTransaction(String id);
 
   /// يعيد ربط العملية بحساب آخر (بدون تغيير باقي الحقول).
+  /// [origin] declares WHO caused this. A background repair must pass
+  /// `systemRepair` so it cannot be recorded as a user correcting the parse —
+  /// `AccountCurrencyRepairService` backfills orphaned rows at every boot.
   Future<void> updateAccount({
     required String transactionId,
     required String accountId,
+    ProofEditOrigin origin = ProofEditOrigin.user,
   });
 
   /// يربط العملية ببطاقة (آخر 4 أرقام)، أو يفصلها عند null.

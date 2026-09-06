@@ -46,12 +46,14 @@ echo "══ MALI-034 architecture guard ══"
 #         Proof shadow observations that the Tier 2 activation gate counts
 #   v37 — PHASE 11 Tier 2: proof_shadow_evaluations.transaction_id, the
 #         attribution key joining an observation to the transaction it influenced
+#   v38 — PHASE 11 Tier 2: proof_correction_events, the append-only correctness
+#         provenance log (updated_at cannot distinguish confirm from correct)
 #
 # The guard sat at 31 for four bumps and failed CI on correct, approved work,
 # which is the failure mode that teaches people to ignore a gate. Raising the
 # number is the whole point of the check — an UNAPPROVED bump still fails here,
 # loudly, because whoever makes it has to come and edit this list.
-AUTHORIZED_SCHEMA=37
+AUTHORIZED_SCHEMA=38
 schema_line="$(grep -E 'const int _targetSchemaVersion = [0-9]+;' "$LIB/data/db/app_database.dart" 2>/dev/null)"
 if echo "$schema_line" | grep -qE "= ${AUTHORIZED_SCHEMA};"; then
   okc "schema pinned at ${AUTHORIZED_SCHEMA}"

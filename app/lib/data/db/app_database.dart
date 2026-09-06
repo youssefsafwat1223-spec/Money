@@ -18,7 +18,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 37;
+const int _targetSchemaVersion = 38;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -620,7 +620,27 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV37ProofShadowAttribution,
       postcondition: _verifyV37ProofShadowAttribution,
     ),
+    // PHASE 11 Tier 2 — correctness provenance. Without it, confirmation and
+    // correction are indistinguishable, because confirm() bumps updated_at just
+    // as an edit does.
+    _SchemaMigration(
+      from: 37,
+      to: 38,
+      apply: _applyV38ProofCorrectionEvents,
+      postcondition: _verifyV38ProofCorrectionEvents,
+    ),
   ];
+
+  static Future<void> _applyV38ProofCorrectionEvents(AppDatabase db) =>
+      db._createProofCorrectionEventsTable();
+
+  static Future<bool> _verifyV38ProofCorrectionEvents(AppDatabase db) async {
+    final rows = await db
+        .customSelect("SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='proof_correction_events';")
+        .get();
+    return rows.isNotEmpty;
+  }
 
   static Future<void> _applyV37ProofShadowAttribution(AppDatabase db) =>
       db._addProofShadowAttribution();
@@ -677,6 +697,35 @@ class AppDatabase extends GeneratedDatabase {
     await customStatement(
       'CREATE INDEX IF NOT EXISTS idx_proof_shadow_txn '
       'ON proof_shadow_evaluations(transaction_id);',
+    );
+  }
+
+  /// v38 — the correctness-provenance log.
+  ///
+  /// Append-only, and written ONLY from the explicit user-intent repository
+  /// methods. That placement is the whole design: every non-user writer — sync
+  /// pull-apply, the import soft-hide, the migration timestamp repair — mutates
+  /// `transactions` with RAW SQL and never touches the repository, so it cannot
+  /// manufacture a correction event. `updated_at` could not distinguish those;
+  /// an explicit event can.
+  ///
+  /// Stores WHICH CLASS of Proof-relevant field changed, never the values: the
+  /// question is "did the amount change", not "what was it".
+  Future<void> _createProofCorrectionEventsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS proof_correction_events (
+        id TEXT PRIMARY KEY,
+        transaction_id TEXT NOT NULL,
+        event_type TEXT NOT NULL
+          CHECK(event_type IN ('confirmed','corrected_financial',
+                               'rejected_or_deleted','non_financial_edit')),
+        changed_fields TEXT NOT NULL DEFAULT '',
+        occurred_at TEXT NOT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE INDEX IF NOT EXISTS idx_proof_correction_txn '
+      'ON proof_correction_events(transaction_id);',
     );
   }
 
@@ -1896,6 +1945,7 @@ class AppDatabase extends GeneratedDatabase {
     await _createCaptureReviewLabelsTable();
     await _createProofShadowTable();
     await _addProofShadowAttribution();
+    await _createProofCorrectionEventsTable();
 
     // v34 (COUPONS PHASE 1): the merchant catalog cache. Unconditional for the
     // same reason as the two above — a version gate would skip these on a

@@ -403,6 +403,10 @@ class BackupSnapshotBuilder {
     // restoring another device's shadow observations would corrupt the Tier 2
     // population it feeds. Losing it on restore costs nothing a user can see.
     'proof_shadow_evaluations',
+    // Device-local Proof diagnostics, excluded for the same reason as the
+    // shadow table: restoring another device's provenance would corrupt the
+    // Tier 2 population it feeds, and losing it costs the user nothing visible.
+    'proof_correction_events',
     'financial_import_runs',
     'notification_log_events',
     'catalog_metadata',

@@ -1,4 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/data/capture/proof_correction_log.dart'
+    show ProofEditOrigin;
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/card_summary.dart';
 import 'package:money_companion/domain/services/card_account_grouper.dart';
@@ -163,6 +165,7 @@ class _FakeTransactionRepository implements TransactionRepository {
   Future<void> updateAccount({
     required String transactionId,
     required String accountId,
+    ProofEditOrigin origin = ProofEditOrigin.user,
   }) {
     throw UnimplementedError();
   }

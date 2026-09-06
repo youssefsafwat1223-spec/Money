@@ -162,25 +162,24 @@ void main() {
       expect(s.refusedToPropose, 0);
     });
 
-    test('attribution classifies confirmed, corrected, deleted and unattributed',
-        () async {
+    test('with NO provenance events, attributed rows are unresolved', () async {
+      // Rewritten when correctness moved off `updated_at`. A row that was
+      // merely TOUCHED now proves nothing: with no explicit event it is
+      // unresolved, and unresolved is never counted as correct.
       await insertTxn('t-confirmed');
       await insertTxn('t-edited', edited: true);
-      await insertTxn('t-pending', status: 'pending');
-      // t-gone is deliberately never inserted -> deleted
       await dao.record(rec('a', committed: true, txnId: 't-confirmed'));
       await dao.record(rec('b', committed: true, txnId: 't-edited'));
       await dao.record(rec('c', committed: true, txnId: 't-gone'));
-      await dao.record(rec('d', committed: true)); // no txn id
-      await dao.record(rec('e', committed: true, txnId: 't-pending'));
+      await dao.record(rec('d', committed: true));
 
       final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
-      expect(s.wouldHaveCommitted, 5);
-      expect(s.autoConfirmedUntouched, 1);
-      expect(s.touchedAfterCreation, 1);
-      expect(s.deleted, 1, reason: 'deleted must be CLASSIFIED, not dropped');
+      expect(s.wouldHaveCommitted, 4);
+      expect(s.correctedFinancial, 0,
+          reason: 'a timestamp bump is NOT a financial correction');
+      expect(s.rejectedOrDeleted, 1, reason: 'the vanished row');
       expect(s.unattributed, 1);
-      expect(s.stillPending, 1);
+      expect(s.unresolved, 2);
       expect(s.attributionPartitionsCleanly, isTrue);
     });
 
@@ -219,24 +218,251 @@ void main() {
       }();
     });
 
-    test('confirming a pending capture does NOT read as a correction', () async {
-      // confirm() bumps updated_at, so the action meaning "the parse was RIGHT"
-      // produced the same signal as a correction. The bucket is now named
-      // touchedAfterCreation and is explicitly NOT a correction count — this
-      // test pins that naming so the misleading metric cannot come back.
+    test('confirming a pending capture is NOT a correction — provenance', () async {
+      // The original defect: confirm() bumps updated_at exactly as an edit
+      // does, so the action meaning "the parse was RIGHT" was indistinguishable
+      // from a correction. Provenance answers it explicitly.
       await insertTxn('t-pending', status: 'pending');
       await dao.record(rec('c', committed: true, txnId: 't-pending'));
       await db.customStatement(
           "UPDATE transactions SET status = 'confirmed', updated_at = ? "
           'WHERE id = ?;',
           ['2026-09-03T00:00:00.000Z', 't-pending']);
+      await db.customInsert(
+        'INSERT INTO proof_correction_events '
+        '(id, transaction_id, event_type, changed_fields, occurred_at) '
+        'VALUES (?,?,?,?,?)',
+        variables: <Variable<Object>>[
+          Variable<String>('e1'),
+          Variable<String>('t-pending'),
+          Variable<String>('confirmed'),
+          Variable<String>(''),
+          Variable<String>('2026-09-03T00:00:00.000Z'),
+        ],
+      );
 
       final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
-      // It lands in touchedAfterCreation — indistinguishable from a correction.
-      expect(s.touchedAfterCreation, 1);
-      expect(s.autoConfirmedUntouched, 0,
-          reason: 'a user-confirmed row is NOT a clean auto-confirm signal');
+      expect(s.confirmedUnchanged, 1,
+          reason: 'an explicit confirm is a CORRECT outcome, not a correction');
+      expect(s.correctedFinancial, 0);
       expect(s.attributionPartitionsCleanly, isTrue);
+    });
+  });
+
+  group('TIER 2 CORRECTNESS — provenance-driven states', () {
+    Future<void> event(String txnId, String type,
+        {String fields = ''}) async {
+      await db.customInsert(
+        'INSERT INTO proof_correction_events '
+        '(id, transaction_id, event_type, changed_fields, occurred_at) '
+        'VALUES (?,?,?,?,?)',
+        variables: <Variable<Object>>[
+          Variable<String>('$txnId:$type:${DateTime.now().microsecondsSinceEpoch}'),
+          Variable<String>(txnId),
+          Variable<String>(type),
+          Variable<String>(fields),
+          Variable<String>(DateTime.now().toUtc().toIso8601String()),
+        ],
+      );
+    }
+
+    test('confirm without a financial edit -> confirmedUnchanged', () async {
+      await insertTxn('t1');
+      await dao.record(rec('a', committed: true, txnId: 't1'));
+      await event('t1', 'confirmed');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.confirmedUnchanged, 1);
+      expect(s.correctedFinancial, 0);
+    });
+
+    test('a financial correction -> correctedFinancial, and it WINS', () async {
+      // One financial correction makes the decision wrong regardless of how
+      // many confirmations preceded it.
+      await insertTxn('t2');
+      await dao.record(rec('b', committed: true, txnId: 't2'));
+      await event('t2', 'confirmed');
+      await event('t2', 'corrected_financial', fields: 'amount');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.correctedFinancial, 1);
+      expect(s.confirmedUnchanged, 0);
+    });
+
+    test('a category-only edit does NOT become a correction', () async {
+      await insertTxn('t3');
+      await dao.record(rec('c', committed: true, txnId: 't3'));
+      await event('t3', 'non_financial_edit');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.correctedFinancial, 0);
+      // No decisive event yet, so it is UNRESOLVED — never counted as correct.
+      expect(s.unresolved, 1);
+    });
+
+    test('rejection -> rejectedOrDeleted', () async {
+      await insertTxn('t4');
+      await dao.record(rec('d', committed: true, txnId: 't4'));
+      await event('t4', 'rejected_or_deleted');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.rejectedOrDeleted, 1);
+    });
+
+    test('a vanished row with no event still counts as rejected', () async {
+      // Restore-from-backup dropping a later transaction, or a raw-SQL delete.
+      // Calling that "unresolved" would flatter the gate.
+      await dao.record(rec('e', committed: true, txnId: 't-gone'));
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.rejectedOrDeleted, 1);
+    });
+
+    test('no event at all stays unresolved, never correct', () async {
+      await insertTxn('t5');
+      await dao.record(rec('f', committed: true, txnId: 't5'));
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.unresolved, 1);
+      expect(s.confirmedUnchanged, 0);
+    });
+
+    test('a sync/timestamp-only mutation produces NO event', () async {
+      // Sync writes raw SQL and never calls the repository, so it physically
+      // cannot emit a correction. This pins that immunity.
+      await insertTxn('t6');
+      await dao.record(rec('g', committed: true, txnId: 't6'));
+      await db.customStatement(
+          "UPDATE transactions SET updated_at = ? WHERE id = 't6';",
+          ['2026-09-09T00:00:00.000Z']);
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.correctedFinancial, 0,
+          reason: 'a timestamp touch is not a correction');
+      expect(s.unresolved, 1);
+    });
+
+    test('the partition holds across every state', () async {
+      await insertTxn('p1');
+      await insertTxn('p2');
+      await insertTxn('p3');
+      await insertTxn('p4');
+      await dao.record(rec('p1', committed: true, txnId: 'p1'));
+      await dao.record(rec('p2', committed: true, txnId: 'p2'));
+      await dao.record(rec('p3', committed: true, txnId: 'p3'));
+      await dao.record(rec('p4', committed: true, txnId: 'p4'));
+      await dao.record(rec('p5', committed: true)); // unattributed
+      await event('p1', 'confirmed');
+      await event('p2', 'corrected_financial', fields: 'currency');
+      await event('p3', 'rejected_or_deleted');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.wouldHaveCommitted, 5);
+      expect(s.attributionPartitionsCleanly, isTrue);
+      expect(s.confirmedUnchanged, 1);
+      expect(s.correctedFinancial, 1);
+      expect(s.rejectedOrDeleted, 1);
+      expect(s.unattributed, 1);
+      expect(s.unresolved, 1);
+    });
+
+    test('the release gate requires n AND zero financial corrections', () async {
+      await insertTxn('g1');
+      await dao.record(rec('g1', committed: true, txnId: 'g1'));
+      await event('g1', 'confirmed');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.meetsTier2Gate(minObservations: 1), isTrue);
+      expect(s.meetsTier2Gate(), isFalse, reason: 'n=1 is far below 1000');
+
+      await insertTxn('g2');
+      await dao.record(rec('g2', committed: true, txnId: 'g2'));
+      await event('g2', 'corrected_financial', fields: 'amount');
+      final s2 = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s2.meetsTier2Gate(minObservations: 1), isFalse,
+          reason: 'one financial correction fails the gate outright');
+    });
+  });
+
+  group('regressions the provenance review caught', () {
+    Future<void> ev(String txnId, String type) async {
+      await db.customInsert(
+        'INSERT INTO proof_correction_events '
+        '(id, transaction_id, event_type, changed_fields, occurred_at) '
+        'VALUES (?,?,?,?,?)',
+        variables: <Variable<Object>>[
+          Variable<String>('$txnId:$type:${DateTime.now().microsecondsSinceEpoch}'),
+          Variable<String>(txnId),
+          Variable<String>(type),
+          Variable<String>(''),
+          Variable<String>(DateTime.now().toUtc().toIso8601String()),
+        ],
+      );
+    }
+
+    test('confirmed THEN vanished counts once, and never goes negative', () async {
+      // The double-count: this row matched confirmedUnchanged AND
+      // rejectedOrDeleted, driving the unresolved remainder negative.
+      await dao.record(rec('cv', committed: true, txnId: 't-vanished'));
+      await ev('t-vanished', 'confirmed'); // row itself never inserted
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.rejectedOrDeleted, 1, reason: 'vanishing outranks confirmation');
+      expect(s.confirmedUnchanged, 0);
+      expect(s.unresolved, greaterThanOrEqualTo(0));
+      expect(s.attributionPartitionsCleanly, isTrue);
+    });
+
+    test('every event-pair ordering resolves to ONE bucket', () async {
+      const pairs = [
+        ['confirmed', 'corrected_financial'],
+        ['corrected_financial', 'confirmed'],
+        ['confirmed', 'rejected_or_deleted'],
+        ['rejected_or_deleted', 'confirmed'],
+        ['corrected_financial', 'rejected_or_deleted'],
+        ['rejected_or_deleted', 'corrected_financial'],
+      ];
+      for (var i = 0; i < pairs.length; i++) {
+        final id = 'pair$i';
+        await insertTxn(id);
+        await dao.record(rec('k$i', committed: true, txnId: id));
+        await ev(id, pairs[i][0]);
+        await ev(id, pairs[i][1]);
+      }
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.wouldHaveCommitted, pairs.length);
+      expect(s.attributionPartitionsCleanly, isTrue,
+          reason: 'no ordering may double-count');
+      // corrected wins in all four pairs containing it.
+      expect(s.correctedFinancial, 4);
+      expect(s.rejectedOrDeleted, 2);
+      expect(s.confirmedUnchanged, 0);
+    });
+
+    test('duplicate same-type events do not double-count', () async {
+      await insertTxn('dup');
+      await dao.record(rec('d1', committed: true, txnId: 'dup'));
+      await ev('dup', 'confirmed');
+      await ev('dup', 'confirmed');
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.confirmedUnchanged, 1);
+      expect(s.attributionPartitionsCleanly, isTrue);
+    });
+
+    test('1000 UNRESOLVED observations do NOT pass the gate', () async {
+      // The falsely-passing gate: zero corrections found because nobody looked.
+      for (var i = 0; i < 5; i++) {
+        await insertTxn('u$i');
+        await dao.record(rec('u$i', committed: true, txnId: 'u$i'));
+      }
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.unresolved, 5);
+      expect(s.correctedFinancial, 0);
+      expect(s.meetsTier2Gate(minObservations: 5), isFalse,
+          reason: 'unlooked-at captures are not evidence of correctness');
+      expect(s.resolvedObservations, 0);
+    });
+
+    test('resolved observations DO pass when none were corrected', () async {
+      for (var i = 0; i < 3; i++) {
+        await insertTxn('r$i');
+        await dao.record(rec('r$i', committed: true, txnId: 'r$i'));
+        await ev('r$i', 'confirmed');
+      }
+      final s = await dao.tier2Summary(engineVersion: 'proof-gate-1');
+      expect(s.resolvedObservations, 3);
+      expect(s.meetsTier2Gate(minObservations: 3), isTrue);
+      expect(s.meetsTier2Gate(minObservations: 4), isFalse);
     });
   });
 }

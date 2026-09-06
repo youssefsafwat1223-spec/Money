@@ -59,6 +59,11 @@ class DataWipeService {
     // messages were evaluated, so a wipe must remove them like any other
     // capture-derived data. Diagnostics do not get a privacy exemption.
     'proof_shadow_evaluations',
+    // Correctness provenance is derived from the user's own review actions on
+    // their own captures. It holds no amounts and no message text, but it is a
+    // record of what they did, so a wipe removes it like any other
+    // capture-derived data.
+    'proof_correction_events',
     // COUPONS Phase 3 + 4 — both are user-scoped. A click receipt is a
     // credential for one person's click and a savings entry is a statement
     // about their spending; the next account on this device must inherit
