@@ -19,11 +19,22 @@ import { timingSafeEqual } from '../_shared/capture_auth.ts';
 // invoking this endpoint; it authenticates and then no-ops. (Immediate,
 // event-driven pushes — budgets, goals, achievements — keep their coordinated
 // local-primary/server-fallback model in their own functions.)
-serve((req) => {
+// AUTH (migration 0099). Was `SUPABASE_SERVICE_ROLE_KEY`, a platform-reserved
+// name whose value Supabase rotates and which differs from the project's real
+// service-role JWT — no caller could present it, so this endpoint was
+// unreachable. Same fix as 0053 applied to process-notification-retries.
+//
+// Its own secret, NOT the shared ENGAGEMENT_WORKER_SECRET: this endpoint is a
+// retired no-op with no data access, so it must not carry a credential that
+// would also unlock the three live evaluate-* functions. Least privilege is
+// meaningful exactly here, where the capabilities genuinely differ.
+//
+// Fails closed: an empty configured secret rejects every request.
+export function handleCronDailyReminders(req: Request): Response {
   const authHeader = req.headers.get('authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  if (!serviceKey || !timingSafeEqual(token, serviceKey)) {
+  const workerSecret = Deno.env.get('REMINDERS_WORKER_SECRET') ?? '';
+  if (!workerSecret || !timingSafeEqual(token, workerSecret)) {
     return new Response('Forbidden', { status: 403 });
   }
   // No pushes: streak + bill reminders are owned by the on-device scheduler.
@@ -31,4 +42,6 @@ serve((req) => {
     JSON.stringify({ status: 'retired', authority: 'local_scheduled_reminders' }),
     { headers: { 'Content-Type': 'application/json' } },
   );
-});
+}
+
+serve(handleCronDailyReminders);

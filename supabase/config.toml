@@ -451,3 +451,31 @@ verify_jwt = false
 # own SUPABASE_SERVICE_ROLE_KEY comparison instead of a Supabase-issued JWT.
 # Same pattern as purge-scheduled-deletions above.
 verify_jwt = false
+
+[functions.evaluate-budgets]
+# Not a user-facing endpoint — invoked only by the 0057 trigger on
+# user_transactions, gated by its own ENGAGEMENT_WORKER_SECRET comparison
+# instead of a Supabase-issued JWT. Same pattern as process-notification-retries.
+#
+# verify_jwt MUST be false: the caller presents a raw worker secret, which is
+# not a JWT. Leaving verification on makes the platform gateway reject every
+# dispatch with 401 before the handler runs — the endpoint would still be
+# unreachable, which is the exact bug 0098 exists to fix.
+verify_jwt = false
+
+[functions.evaluate-goals]
+# Same contract as evaluate-budgets: 0057 trigger on user_goals,
+# ENGAGEMENT_WORKER_SECRET, raw secret rather than a JWT.
+verify_jwt = false
+
+[functions.evaluate-gamification]
+# Same contract as evaluate-budgets: 0057 trigger on user_transactions,
+# ENGAGEMENT_WORKER_SECRET, raw secret rather than a JWT.
+verify_jwt = false
+
+[functions.cron-daily-reminders]
+# Invoked only by the pg_cron dispatch (run_cron_daily_reminders), gated by its
+# own REMINDERS_WORKER_SECRET — deliberately NOT the shared engagement secret,
+# because this endpoint is a retired no-op and must not hold a credential that
+# unlocks the three live functions.
+verify_jwt = false

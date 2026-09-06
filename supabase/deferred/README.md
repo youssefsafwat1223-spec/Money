@@ -36,6 +36,14 @@ new tail before moving it back.
 
 ## 0098_record_metric_ad_keys.sql — DEFERRED 2026-09-04
 
+> **NUMBER NOW TAKEN.** An active migration
+> `migrations/0098_engagement_worker_secret_auth.sql` has since claimed 0098,
+> exactly as the policy above anticipates. **Renumber this file (and its
+> rollback) to the current tail before moving it back into `migrations/`.**
+> Reactivating it at 0098 would collide, and the Supabase CLI will not apply a
+> migration numbered below the last applied remote version without
+> `--include-all`.
+
 **Condition for activation: an explicit owner decision to switch report-export
 and banner telemetry ON.**
 

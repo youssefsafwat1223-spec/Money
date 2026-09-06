@@ -9,15 +9,32 @@ import { anyDeviceRecentlyActive, isPushAllowed, loadNotificationPolicy } from '
 // supabase_planning_support.dart serverCategoryKey().
 const ALL_EXPENSES_CATEGORY_ID = 'all_expenses';
 
-serve(async (req) => {
+// AUTH (migration 0099). This previously compared the caller's bearer against
+// `SUPABASE_SERVICE_ROLE_KEY`. That name is PLATFORM-RESERVED: Supabase manages
+// and rotates its value, and it differs from the project's real service-role
+// JWT — so no caller, including the pg trigger dispatcher, could ever present
+// it back. The comparison could therefore never succeed and this function was
+// unreachable in production. Migration 0053 already solved exactly this for
+// process-notification-retries, and purge-scheduled-deletions before it; this
+// applies the same dedicated-worker-secret contract.
+//
+// The three evaluate-* functions SHARE one secret: they are one trust domain —
+// same caller (the 0057 trigger layer), same capability (forge a push for an
+// arbitrary user_id), same rotation lifecycle. Splitting them would not reduce
+// blast radius, because all copies live in the same Vault and the same Edge
+// env, so a compromise yielding one yields all three. cron-daily-reminders is
+// deliberately NOT in this domain and holds its own secret.
+//
+// Fails closed: an empty configured secret rejects every request.
+export async function handleEvaluateBudgets(req: Request): Promise<Response> {
   // Service-only endpoint (MALI-004): the DB webhook (migration 0057) sends
   // the service-role key from Vault as its Bearer token. Anything else —
   // including a perfectly valid ordinary user JWT — must be rejected, because
   // the body's record.user_id is trusted blindly below.
   const authHeader = req.headers.get('authorization') ?? '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  const serviceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-  if (!serviceKey || !timingSafeEqual(token, serviceKey)) {
+  const workerSecret = Deno.env.get('ENGAGEMENT_WORKER_SECRET') ?? '';
+  if (!workerSecret || !timingSafeEqual(token, workerSecret)) {
     return new Response('Forbidden', { status: 403 });
   }
 
@@ -155,4 +172,6 @@ serve(async (req) => {
   }
 
   return new Response('OK', { headers: { 'Content-Type': 'application/json' } });
-});
+}
+
+serve(handleEvaluateBudgets);
