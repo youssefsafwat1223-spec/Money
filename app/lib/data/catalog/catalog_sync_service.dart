@@ -252,13 +252,22 @@ class CatalogSyncService {
 
       final items = _listOfMaps(data['items']);
       final deletedIds = _stringList(data['deleted_ids']);
+      // Parsers only; absent for every other category.
+      //
+      // Authoritative ONLY when the server actually sent a list. `_stringList`
+      // turns any non-list into an empty list, so keying off mere presence let
+      // a null/string/object value read as "nothing is servable" and deactivate
+      // every rule on the device. A malformed body must be inert, not
+      // destructive.
+      final rawServable = data['servable_ids'];
+      final servableIds = rawServable is List ? _stringList(rawServable) : null;
       final meta = data['meta'];
       final serverVersion = meta is Map
           ? (meta['version'] as num?)?.toInt() ?? sinceVersion
           : sinceVersion;
 
       await _database.transaction(() async {
-        await _writeCategory(category, items, deletedIds);
+        await _writeCategory(category, items, deletedIds, servableIds);
         final syncedAt = DateTime.now().toUtc();
         await _metadataDao.upsertVersion(
           category,
@@ -296,6 +305,7 @@ class CatalogSyncService {
     String category,
     List<Map<String, Object?>> items,
     List<String> deletedIds,
+    List<String>? servableIds,
   ) async {
     switch (category) {
       case CatalogCategories.banks:
@@ -306,6 +316,12 @@ class CatalogSyncService {
         final dao = RemoteParsersDao(_database);
         await dao.upsertAll(items.map(RemoteParser.fromJson).toList());
         await dao.markDeleted(deletedIds);
+        // Authoritative revocation. Applied only when the server actually sent
+        // the set: a response without the key is an OLD server, and inventing
+        // an empty set there would deactivate every rule on the device.
+        if (servableIds != null) {
+          await dao.retainOnlyServable(servableIds);
+        }
       case CatalogCategories.currencies:
         final dao = RemoteCurrenciesDao(_database);
         await dao.upsertAll(items.map(RemoteCurrency.fromJson).toList());

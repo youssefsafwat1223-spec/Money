@@ -134,6 +134,37 @@ Deno.serve(async (req) => {
     const { data: items, error: itemError } = await itemQuery;
     if (itemError) return json({ error: itemError.message }, 500);
 
+    // ── REVOCATION (parsers) ────────────────────────────────────────────────
+    //
+    // A rule can stop being servable in three ways: demoted from `passed`,
+    // deactivated, or deleted. The `trg_parsers_version` trigger (0004) DOES
+    // bump `updated_version` on every one of those, so the device is told there
+    // is something new to fetch — but the revoked row is then filtered OUT of
+    // `items` by the very validation gate that revoked it, and only deletion
+    // populates `deleted_ids`. So the sync happens and carries no instruction
+    // to drop anything: a device that already holds the rule keeps serving
+    // money authority the server has withdrawn. The gap is not detection, it is
+    // that a filtered-out row is indistinguishable from an unchanged one.
+    //
+    // The fix is an authoritative set rather than a diff. Parsers are a dozen
+    // rows, so every response carries the COMPLETE list of currently-servable
+    // ids, independent of `since`. The client deletes anything absent from it.
+    // Cold sync and delta sync then converge on the same set by construction,
+    // which no amount of version bookkeeping could guarantee.
+    let servableIds: string[] | undefined;
+    if (category === 'parsers') {
+      const { data: servable, error: servableError } = await client
+        .from(table)
+        .select('id')
+        .eq('is_active', true)
+        .eq('is_deleted', false)
+        .eq('validation_status', 'passed')
+        .not('validated_at', 'is', null)
+        .gt('golden_test_count', 0);
+      if (servableError) return json({ error: servableError.message }, 500);
+      servableIds = (servable ?? []).map((r: { id: string }) => r.id);
+    }
+
     const deletedQuery = applyCountryFilter(
       client
         .from(table)
@@ -156,6 +187,9 @@ Deno.serve(async (req) => {
       meta: { category, version, since_version: since },
       items: items ?? [],
       deleted_ids: deletedIds,
+      // Present for parsers only. `undefined` is omitted by JSON.stringify, so
+      // other categories are byte-identical to before.
+      servable_ids: servableIds,
     });
   } catch (error) {
     console.error('catalog-delta failed', error);

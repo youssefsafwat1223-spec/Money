@@ -31,14 +31,42 @@ class SeedLoader {
       debugPrint('Catalog seed: skipped banks (already had data)');
     }
 
+    // PARSERS — seeded INACTIVE. This is the bundled-asset bypass, closed.
+    //
+    // The server gate admits a parser only once it has passed golden-test
+    // validation (catalog-delta checks validation_status/validated_at/
+    // golden_test_count). The bundle carried no validation metadata at all, so
+    // seeding it active made every unvalidated rule the device's first parsing
+    // authority — the exact authority the gate exists to withhold. It also
+    // meant a rule revoked on the server was resurrected by any wipe/reinstall,
+    // and an offline first run silently activated rules that may never be
+    // servable. Today NONE of the twelve is validated, so the bundle's whole
+    // content is rules the server refuses to serve.
+    //
+    // Seeding inactive keeps first-run and offline behaviour deterministic —
+    // the rows are present, versioned at 0, and the very first successful sync
+    // upserts and activates whatever the server actually serves — while making
+    // it impossible for an outage to activate a rule on the device's own say-so.
+    // Parsing is unaffected in kind: the engine's own heuristics remain the
+    // authority until a validated catalog rule arrives, which is what happens
+    // in production today regardless, since catalog-delta serves no parsers.
     if (await db.count('remote_parsers') == 0) {
       final parsers = await _readJsonList(
         'assets/catalog/parsers.json',
         RemoteParser.fromJson,
       );
-      await parsersDao.upsertAll(parsers);
+      // Inactive AT INSERT, not deactivated afterwards: an upsert-then-revoke
+      // pair is not atomic, and a crash between them would leave the entire
+      // bundle active with the nonempty-table check skipping the repair on
+      // every later run.
+      await parsersDao.upsertAll([
+        for (final p in parsers) p.copyWithActive(false),
+      ]);
       await metadataDao.upsertVersion(CatalogCategories.parsers, 0, 0);
-      debugPrint('Catalog seed: seeded parsers (${parsers.length})');
+      debugPrint(
+        'Catalog seed: seeded parsers INACTIVE (${parsers.length}) — '
+        'activation requires a validated rule from catalog-delta',
+      );
     } else {
       debugPrint('Catalog seed: skipped parsers (already had data)');
     }

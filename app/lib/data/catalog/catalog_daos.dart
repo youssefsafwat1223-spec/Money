@@ -362,6 +362,25 @@ class RemoteParser {
       updatedAt: _dateTimeFromJson(json['updated_at']),
     );
   }
+  /// The same rule with a different active flag.
+  ///
+  /// Used by the seeder to insert the bundle INACTIVE in one statement: the
+  /// bundle carries no validation metadata, so an active bundled rule would be
+  /// money authority the server gate never granted.
+  RemoteParser copyWithActive(bool active) => RemoteParser(
+        id: id,
+        bankId: bankId,
+        senderPattern: senderPattern,
+        messagePattern: messagePattern,
+        transactionType: transactionType,
+        language: language,
+        priority: priority,
+        extractedFields: extractedFields,
+        isActive: active,
+        isDeleted: isDeleted,
+        updatedAt: updatedAt,
+      );
+
 }
 
 class RemoteParsersDao {
@@ -427,6 +446,39 @@ class RemoteParsersDao {
       }
     });
   }
+  /// Revokes every local parser that the server no longer considers servable.
+  ///
+  /// A rule stops being servable by being demoted from `passed`, deactivated,
+  /// or deleted — and NONE of those bumps `updated_version`, while only the last
+  /// bumps `deleted_version`. So a version-keyed delta cannot express "drop
+  /// this": the row just stops appearing in `items` and a device that already
+  /// synced it keeps a rule the server revoked. catalog-delta therefore sends
+  /// the COMPLETE servable id set on every parser response, and this applies it.
+  ///
+  /// Deliberately deactivates rather than deleting: `is_deleted` is the
+  /// tombstone the engine already honours, and keeping the row means a rule
+  /// that is re-validated later is restored by the ordinary upsert path.
+  Future<void> retainOnlyServable(List<String> servableIds) async {
+    await _db.transaction(() async {
+      if (servableIds.isEmpty) {
+        // The server says NOTHING is servable. That is the current production
+        // state (no parser has passed validation), and it must be honoured
+        // rather than treated as an empty/failed response — otherwise a revoked
+        // rule survives precisely when every rule has been revoked.
+        await _db.customUpdate(
+          'UPDATE remote_parsers SET is_active = 0 WHERE is_active = 1;',
+        );
+        return;
+      }
+      final placeholders = List.filled(servableIds.length, '?').join(',');
+      await _db.customUpdate(
+        'UPDATE remote_parsers SET is_active = 0 '
+        'WHERE is_active = 1 AND id NOT IN ($placeholders);',
+        variables: servableIds.map(Variable.withString).toList(),
+      );
+    });
+  }
+
 
   Future<List<RemoteParser>> getActiveParsersByBankId(String bankId) async {
     final rows = await _db.customSelect(

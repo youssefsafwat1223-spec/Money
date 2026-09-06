@@ -186,7 +186,7 @@
     "id": "10000000-0000-4000-8000-000000000103",
     "bank_id": "00000000-0000-4000-8000-000000000103",
     "sender_pattern": "^(Riyad)$",
-    "message_pattern": "[\\s\\S]*(?:شراء|دفع|Purchase|Payment)[\\s\\S]*?(?:SAR|ريال|ر\\.س)\\s*(?<amount>[0-9][0-9,]*(?:\\.[0-9]{1,3})?)[\\s\\S]*?(?:لدى|At)\\s*:?[ ]*(?<merchant>[^\\n]+)?",
+    "message_pattern": "[\\s\\S]*(?:شراء|دفع|Purchase|Payment)[\\s\\S]*?(?:SAR|ريال|ر\\.س)?\\s*(?<amount>[0-9][0-9,]*(?:\\.[0-9]{1,3})?)[\\s\\S]*?(?:لدى|At)\\s*:?[ ]*(?<merchant>[^\\n]+)?",
     "transaction_type": "debit",
     "language": "ar_en",
     "priority": 80,

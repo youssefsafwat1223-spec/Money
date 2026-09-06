@@ -76,6 +76,21 @@ void main() {
           reason: 'no fixture matched — the assertions would be vacuous');
     });
 
+    test('KNOWN LIMITATION: the SNB fix covers the Arabic layout only', () {
+      // Found in review. The real ENGLISH layout is 'Amount 8 SAR' — currency
+      // AFTER the amount — which a currency-before-amount rule cannot match.
+      // Fail-closed (no match, heuristics take over) rather than wrong money,
+      // and not live while no parser is servable. Pinned so the limitation
+      // cannot be forgotten before ...101 is ever promoted.
+      const englishLayout =
+          'Online Purchase\nAmount 8 SAR\nAccount *5172\nAt barq';
+      final m = matchCatalogRule([byId(_snb)],
+          senderId: 'SNB', messageText: englishLayout);
+      expect(m?.amountText, isNot('8'),
+          reason: 'if this starts passing, the pattern was widened — update '
+              'the canonical note and this test together');
+    });
+
     test('the SNB rule extracts the money, not the first digit run', () {
       final f = parserGateFixtures
           .firstWhere((x) => x.id == 'known_bank_known_merchant_auto_confirm');
@@ -86,15 +101,30 @@ void main() {
       expect(m.amountText, isNot('4521'), reason: 'the card suffix');
     });
 
-    test('the currency token is REQUIRED, so a bare digit run cannot match', () {
-      // The narrowest statement of the fix.
-      for (final id in [_snb, _riyad]) {
-        expect(byId(id).messagePattern, contains(r'(?:SAR|ريال|ر\.س)\s*(?<amount>'),
-            reason: '$id lost the required-currency guard');
-        expect(byId(id).messagePattern.contains(r'(?:SAR|ريال|ر\.س)?\s*(?<amount>'),
-            isFalse,
-            reason: '$id made the currency optional again — the exact defect');
-      }
+    test('SNB requires the currency token, so a bare digit run cannot match', () {
+      // The narrowest statement of the fix, asserted only where the defect was
+      // actually reproduced.
+      expect(byId(_snb).messagePattern, contains(r'(?:SAR|ريال|ر\.س)\s*(?<amount>'),
+          reason: 'SNB lost the required-currency guard');
+      expect(byId(_snb).messagePattern.contains(r'(?:SAR|ريال|ر\.س)?\s*(?<amount>'),
+          isFalse,
+          reason: 'SNB made the currency optional again — the exact defect');
+    });
+
+    test('Riyad is deliberately UNCHANGED, and that risk is recorded', () {
+      // The same pattern shape, but the wrong-money failure could not be
+      // reproduced: no available Riyad message matches the rule at all. A money
+      // rule is not changed on resemblance, so this pins the current state and
+      // the canonical file records why. Flip this test when bank-sourced
+      // evidence arrives.
+      expect(byId(_riyad).messagePattern, contains(r'(?:SAR|ريال|ر\.س)?\s*(?<amount>'),
+          reason: 'Riyad changed without reproducing the defect');
+      final canonical =
+          File('../supabase/catalog/parser_rules.json').readAsStringSync();
+      expect(canonical, contains('Riyad (...103): UNCHANGED'),
+          reason: 'the unreproduced Riyad risk must stay documented');
+      expect(canonical, contains('currency'),
+          reason: 'including why the SNB fix would break it');
     });
   });
 
@@ -102,13 +132,17 @@ void main() {
     test('sender scope is unchanged and still anchored', () {
       expect(byId(_snb).senderPattern, r'^(SNB|AlAhli|Al Ahli)$');
       expect(byId(_riyad).senderPattern, r'^(Riyad)$');
-      // An anchored pattern must not match a superstring.
-      for (final id in [_snb, _riyad]) {
-        final re = RegExp(byId(id).senderPattern);
-        expect(re.hasMatch('NOT-${byId(id).senderPattern}'), isFalse);
-      }
-      expect(RegExp(byId(_snb).senderPattern).hasMatch('SNB-PROMO'), isFalse);
-      expect(RegExp(byId(_riyad).senderPattern).hasMatch('Riyadh'), isFalse);
+      // Anchoring, tested the way the DEVICE compiles it: case-insensitively
+      // (catalog_rule_matcher.dart uses caseSensitive: false). A case-sensitive
+      // check here would pass for the wrong reason.
+      final snbRe = RegExp(byId(_snb).senderPattern, caseSensitive: false);
+      final riyadRe = RegExp(byId(_riyad).senderPattern, caseSensitive: false);
+      expect(snbRe.hasMatch('SNB'), isTrue);
+      expect(snbRe.hasMatch('snb'), isTrue, reason: 'the device matches this');
+      expect(snbRe.hasMatch('SNB-PROMO'), isFalse);
+      expect(snbRe.hasMatch('Snb الاهلي'), isFalse, reason: 'anchored');
+      expect(riyadRe.hasMatch('riyad'), isTrue);
+      expect(riyadRe.hasMatch('Riyadh'), isFalse);
     });
 
     test('a foreign sender never reaches these rules', () {
