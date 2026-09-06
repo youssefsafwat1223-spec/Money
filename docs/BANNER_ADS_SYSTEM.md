@@ -215,7 +215,7 @@ There is deliberately **no** `*_suppressed_*` event. An event meaning "this user
 was eligible for an ad but we withheld it" is exactly the impression-opportunity
 signal the ad-free design promises never to emit.
 
-Migration `0098` allowlists these keys in `record_metric`, which previously
+Deferred migration `0099` (was 0098) allowlists these keys in `record_metric`, which previously
 allowed only `app_open` and silently dropped everything else — including the
 report-export ad events that have been emitted and discarded since R4.
 

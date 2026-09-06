@@ -1,11 +1,11 @@
--- ROLLBACK for 0098_record_metric_ad_keys.sql
+-- ROLLBACK for 0099_record_metric_ad_keys.sql
 --
 -- Non-destructive. It narrows the `record_metric` allowlist back to 0072's
 -- single `app_open` key. No table, column, row or grant is touched.
 --
 -- What it costs: every ads telemetry row stops being recorded from the moment
 -- this runs. Rows already written stay. The client keeps calling the RPC and
--- keeps getting a silent no-op, exactly as it did before 0098 — nothing breaks,
+-- keeps getting a silent no-op, exactly as it did before 0099 — nothing breaks,
 -- and no ad, report or banner behaviour changes, because telemetry is
 -- fire-and-forget on every path that emits it.
 --

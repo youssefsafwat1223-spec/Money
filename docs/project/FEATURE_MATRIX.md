@@ -104,7 +104,7 @@ when hardware returns; resume only the physical-device-only matrix.
 | Biometric lock | ✅ | ✅ | ✅ | ❌ | ❌ | — | user pref | ❌ |
 | Android signing | ✅ | — | ✅ guard | — | ❌ | — | — | ❌ not enrolled |
 | iOS signing / provisioning | ⚠️ partial | — | ✅ guard | — | ❌ | — | — | ❌ portal blocked |
-| Telemetry | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ `0098` source-only — events dropped until applied | consent-gated | ❌ |
+| Telemetry | ✅ | ✅ | ✅ | ❌ | ❌ | ❌ `0099` deferred — events dropped until applied | consent-gated | ❌ |
 
 ---
 

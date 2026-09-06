@@ -14,9 +14,9 @@ headers describe what a migration *does*; they do not record where it has run.
 | **Verified** | 2026-09-02, owner read-only query against `supabase_migrations.schema_migrations` |
 | **Explicitly confirmed present** | 0084, 0085, 0086, 0087, 0088, 0089, 0090, 0091, 0092 |
 | **Source-only, NOT deployed — ACTIVE TARGET** | **0093 – 0097** |
-| **DEFERRED — product activation decision required** | **0098** (`supabase/deferred/`) |
+| **DEFERRED — product activation decision required** | **0099** (`supabase/deferred/`, renumbered from 0098 on 2026-09-06) |
 
-**0093–0098 must not be assumed deployed and must not be applied without an
+**0093–0099 must not be assumed deployed and must not be applied without an
 explicit activation instruction.** Every feature that depends on them is behind
 a flag seeded OFF, so nothing is broken by their absence.
 
@@ -27,7 +27,7 @@ a flag seeded OFF, so nothing is broken by their absence.
 | 0095 | coupon offer economics | `enable_coupons` OFF |
 | 0096 | affiliate core | `enable_affiliate_links` OFF |
 | 0097 | affiliate attribution | `enable_affiliate_links` OFF |
-| 0098 | `record_metric` ad-key allowlist | telemetry silently dropped until applied |
+| 0099 | `record_metric` ad-key allowlist (deferred; was 0098) | telemetry silently dropped until applied |
 
 ---
 
@@ -103,6 +103,11 @@ list the gap explicitly — do not describe it as "probably applied".
 
 # 0093–0098 pre-deploy safety review — 2026-09-04
 
+> NOTE 2026-09-06: the deferred telemetry migration reviewed here as `0098` was
+> renumbered to **0099** when `0098_engagement_worker_secret_auth.sql` took the
+> active 0098 slot. Its SQL is unchanged; references below to `0098` in the
+> telemetry context mean today's `supabase/deferred/0099_record_metric_ad_keys.sql`.
+
 **Nothing was deployed.** Two independent adversarial reviews (Fable, Codex) plus
 a source pass.
 
@@ -158,7 +163,7 @@ binary, no Docker, so `dryrun_migrations.sh` could not run). The fix is proven b
 arithmetic, the runtime assertion and the CI guard — **not** by observed
 behaviour on a database.
 
-## 0098 — blocked by the "telemetry OFF" constraint
+## 0099 (was 0098) — blocked by the "telemetry OFF" constraint
 
 **There is no telemetry feature flag.** `record_metric`'s allowlist *is* the
 switch. 0072 ships `ARRAY['app_open']`; 0098 adds 11 keys.

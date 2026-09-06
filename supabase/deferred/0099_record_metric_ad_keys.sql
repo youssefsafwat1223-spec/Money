@@ -1,4 +1,4 @@
--- 0098_record_metric_ad_keys.sql — allowlist the ads telemetry keys.
+-- 0099_record_metric_ad_keys.sql — allowlist the ads telemetry keys.
 --
 -- NOT DEPLOYED. Source-only until the ledger is re-confirmed against production.
 --
