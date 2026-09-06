@@ -2,7 +2,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../data/catalog/catalog_daos.dart';
+import '../../core/backend/supabase_config.dart';
+import '../settings/settings_providers.dart';
 import '../common/category_catalog.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
+import 'affiliate_click_gateway.dart';
 import 'coupon_analytics.dart';
 import 'coupon_models.dart';
 import 'coupon_ranking.dart';
@@ -19,6 +23,50 @@ import 'merchant_lookup_pipeline.dart';
 
 /// The whole user-facing feature is gated by the existing remote flag, which
 /// is seeded OFF and fails closed.
+/// PHASE: affiliate click tracking. Seeded OFF and fails closed.
+///
+/// Tracking requires BOTH the remote flag AND cloud-processing consent. A click
+/// is an outbound network call that ties this user to a merchant visit, so it
+/// is an egress decision, not merely a feature toggle — the flag alone is not
+/// sufficient authority.
+final affiliateTrackingEnabledProvider = Provider<bool>((ref) {
+  if (!featureFlags.getBool('enable_affiliate_links')) return false;
+  // Consent must be PRESENT, not merely unknown. `valueOrNull` is null while
+  // settings are still loading, and defaulting that to "allowed" would let a
+  // click egress during startup before consent is known. Fails closed.
+  final settings = ref.watch(userSettingsProvider).valueOrNull;
+  if (settings == null) return false;
+  return settings.cloudProcessingEnabled;
+});
+
+/// The real click gateway, wired to `prepare-affiliate-click`.
+///
+/// Until now this class had no provider and no caller: the CTA opened the plain
+/// merchant URL directly, so no click was ever prepared or attributed. With
+/// `enable_affiliate_links` OFF the gateway still makes NO request — `open()`
+/// checks `trackingEnabled` before anything else and returns the untracked
+/// fallback URL, which is byte-identical to today's behaviour.
+final affiliateClickGatewayProvider = Provider<AffiliateClickGateway>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return AffiliateClickGateway(
+    database: db,
+    trackingEnabled: () => ref.read(affiliateTrackingEnabledProvider),
+    prepareClick: (body) async {
+      if (!SupabaseConfig.isConfigured) return null;
+      try {
+        final response = await supabase.Supabase.instance.client.functions
+            .invoke('prepare-affiliate-click', body: body);
+        final data = response.data;
+        return data is Map ? Map<String, Object?>.from(data) : null;
+      } catch (_) {
+        // The gateway cannot distinguish a network error from a refusal and
+        // does not need to: both fall back to the untracked merchant URL.
+        return null;
+      }
+    },
+  );
+});
+
 final couponsEnabledProvider = Provider<bool>((ref) {
   return featureFlags.getBool('enable_coupons');
 });

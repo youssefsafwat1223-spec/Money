@@ -203,5 +203,12 @@ export function shouldApplyTransition(current: string, incoming: string): boolea
   if (terminalNegative.includes(current) && !terminalNegative.includes(incoming)) {
     return false;
   }
+  // `pending` is a STARTING state, never news about a conversion that has
+  // already moved on. Networks deliver out of order — and receipts are pruned
+  // after 180 days while conversions live forever, so an old replayed `pending`
+  // can arrive with no replay guard left to stop it. Applying it would demote a
+  // settled `approved` back to pending and overwrite its amounts: a confirmed
+  // commission silently un-confirmed by a stale message.
+  if (incoming === 'pending') return false;
   return true;
 }

@@ -65,12 +65,17 @@ function json(body: unknown, status = 200): Response {
 function makeStore(supabase: ReturnType<typeof serviceClient>): IngestStore {
   return {
     async ensureProgram(networkId: string, externalProgramId: string) {
-      const { data: existing } = await supabase
+      // Same class as findConversion: a failed READ that looks like "absent"
+      // makes the caller CREATE a duplicate program.
+      const { data: existing, error: existingError } = await supabase
         .from('affiliate_programs')
         .select('id')
         .eq('network_id', networkId)
         .eq('external_program_id', externalProgramId)
         .maybeSingle();
+      if (existingError) {
+        throw new Error(`find_program_failed:${existingError.code ?? 'unknown'}`);
+      }
       if (existing?.id) return existing.id as string;
 
       const { data, error } = await supabase
@@ -83,12 +88,17 @@ function makeStore(supabase: ReturnType<typeof serviceClient>): IngestStore {
     },
 
     async findSource(programId: string, externalOfferId: string) {
-      const { data } = await supabase
+      // A failed read here reports "no such offer", and the caller then inserts
+      // a duplicate offer source.
+      const { data, error: findError } = await supabase
         .from('affiliate_offer_sources')
         .select('id, source_fingerprint, review_state')
         .eq('program_id', programId)
         .eq('external_offer_id', externalOfferId)
         .maybeSingle();
+      if (findError) {
+        throw new Error(`find_source_failed:${findError.code ?? 'unknown'}`);
+      }
       return (data as never) ?? null;
     },
 
@@ -126,13 +136,23 @@ function makeStore(supabase: ReturnType<typeof serviceClient>): IngestStore {
       // 0094 boilerplate guard refuses, is a normal outcome of a provider feed
       // and must not fail an otherwise good ingestion run. The offer is the
       // payload; the alias hint is a bonus.
-      await supabase.from('catalog_merchant_aliases').insert({
+      // Alias creation is best-effort by design (an alias that already exists
+      // is not an error), but a genuine failure must still be visible rather
+      // than vanish.
+      const { error: aliasError } = await supabase
+          .from('catalog_merchant_aliases')
+          .insert({
         merchant_id: merchantId,
         alias_raw: aliasRaw,
         alias_kind: kind,
         provenance: 'provider',
         is_reviewed: false,
-      });
+          });
+      // A duplicate alias is expected and harmless; anything else is a real
+      // ingestion failure and must reach the run status rather than vanish.
+      if (aliasError && aliasError.code !== '23505') {
+        throw new Error(`insert_alias_failed:${aliasError.code ?? 'unknown'}`);
+      }
     },
   };
 }
@@ -147,31 +167,55 @@ function makeConversionStore(
 ): ConversionStore {
   return {
     async findConversion(networkKey: string, externalConversionId: string) {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('affiliate_conversions')
         .select('id, status')
         .eq('network_key', networkKey)
         .eq('external_conversion_id', externalConversionId)
         .maybeSingle();
+      // A FAILED READ IS NOT "NOT FOUND". Swallowing this error was the worst of
+      // the three: the caller reads null, concludes no conversion exists, and
+      // INSERTS A DUPLICATE of a conversion that was already recorded. Throwing
+      // routes it to the run's catch, which records status 'failed'.
+      if (error) {
+        throw new Error(`find_conversion_failed:${error.code ?? 'unknown'}`);
+      }
       return data == null
         ? null
         : { id: data.id as string, status: data.status as string };
     },
     async insertConversion(networkKey: string, row: Record<string, unknown>) {
-      await supabase
+      const { error } = await supabase
         .from('affiliate_conversions')
         .insert({ network_key: networkKey, ...row });
+      // Money records. A dropped insert previously let the run report success
+      // while the conversion was never stored — the ingestion looked healthy and
+      // the revenue simply did not exist.
+      if (error) {
+        throw new Error(`insert_conversion_failed:${error.code ?? 'unknown'}`);
+      }
     },
     async updateConversion(id: string, row: Record<string, unknown>) {
       // external_conversion_id is the identity we matched on and must not be
       // rewritten by an update.
       const { external_conversion_id: _ignored, ...mutable } = row;
-      await supabase.from('affiliate_conversions').update(mutable).eq('id', id);
+      const { error } = await supabase
+        .from('affiliate_conversions')
+        .update(mutable)
+        .eq('id', id);
+      if (error) {
+        throw new Error(`update_conversion_failed:${error.code ?? 'unknown'}`);
+      }
     },
   };
 }
 
-Deno.serve(async (req) => {
+/// The handler, exported so the run-status and response contracts can be
+/// exercised behaviourally. `Deno.serve` below is the only production entry.
+export async function handleSync(
+  req: Request,
+  makeClient: () => ReturnType<typeof serviceClient> = serviceClient,
+): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: corsHeaders });
 
   if (!bearerSecretAuthorized(req.headers.get('Authorization'), WORKER_SECRET)) {
@@ -180,7 +224,7 @@ Deno.serve(async (req) => {
     return json({ error: 'unauthorized' }, 401);
   }
 
-  const supabase = serviceClient();
+  const supabase = makeClient();
 
   // Only networks an operator has deliberately promoted. A network row existing
   // is configuration; a network being `sandbox`/`live` is a decision, and the
@@ -225,11 +269,19 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    const { data: run } = await supabase
+    // If the run row cannot be created we have no auditable record to close.
+    // Proceeding would do real ingestion work whose status could never be
+    // updated, leaving a run STUCK at 'running' forever — or no record at all.
+    // Skip this network and report it, rather than working invisibly.
+    const { data: run, error: runError } = await supabase
       .from('affiliate_ingestion_runs')
       .insert({ network_key: network.network_key, kind: 'offers', status: 'running' })
       .select('id')
       .single();
+    if (runError || run?.id == null) {
+      summary.push({ network: network.network_key, kind: 'offers', status: 'failed' });
+      continue;
+    }
 
     try {
       const result = await ingestOffers(adapter, makeStore(supabase), {
@@ -308,11 +360,20 @@ Deno.serve(async (req) => {
       .limit(1)
       .maybeSingle();
 
-    const { data: convRun } = await supabase
+    // Same guard as the offers run above, and for the same reason. Without it a
+    // failed insert left convRun null, reconcileConversions still ran and wrote
+    // real money rows, and the `convRun!.id` in both the success and the catch
+    // branch then threw — escaping the loop, so the offers work already done for
+    // every network was reported as a 500 with no summary at all.
+    const { data: convRun, error: convRunError } = await supabase
       .from('affiliate_ingestion_runs')
       .insert({ network_key: network.network_key, kind: 'conversions', status: 'running' })
       .select('id')
       .single();
+    if (convRunError || convRun?.id == null) {
+      summary.push({ network: network.network_key, kind: 'conversions', status: 'failed' });
+      continue;
+    }
 
     try {
       const result = await reconcileConversions(adapter, makeConversionStore(supabase), {
@@ -348,5 +409,22 @@ Deno.serve(async (req) => {
     }
   }
 
-  return json({ ok: true, networks: summary });
-});
+  // TRUTHFUL RESULT. This was an unconditional `ok: true`, so a run in which
+  // every network failed still reported success to its caller — and the pg_cron
+  // dispatcher does not read the per-network summary. A monitor watching `ok`
+  // would have seen a healthy ingestion that stored nothing.
+  const failed = summary.filter((s) => s.status === 'failed');
+  const ok = failed.length === 0;
+  return json(
+    {
+      ok,
+      networks: summary,
+      failed_count: failed.length,
+    },
+    // 207 rather than 500: some networks may have succeeded, and the body says
+    // which. A non-2xx makes the failure visible to anything checking status.
+    ok ? 200 : 207,
+  );
+}
+
+Deno.serve((req) => handleSync(req));

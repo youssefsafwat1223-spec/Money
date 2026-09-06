@@ -458,7 +458,21 @@ class CouponDetailsSheet extends ConsumerWidget {
       showTopInfo(context, l10n.couponsOfferUnavailable);
       return;
     }
-    final raw = offer.partnerUrl;
+    // Route through the affiliate gateway. With `enable_affiliate_links` OFF —
+    // the shipped state — `open()` checks trackingEnabled FIRST and returns the
+    // untracked partner URL without making any request, so behaviour here is
+    // byte-identical to opening `offer.partnerUrl` directly. When the flag is
+    // on it returns a prepared, attributed URL instead.
+    //
+    // The gateway never throws and never returns a non-https URL; the checks
+    // below still run on whatever it hands back, because defence in depth is
+    // not delegated.
+    final result =
+        await ref.read(affiliateClickGatewayProvider).open(offer, surface: 'coupon_card');
+    // The gateway is awaited, so the sheet may be gone by now — the same guard
+    // the launch failure below already uses.
+    if (!context.mounted) return;
+    final raw = result.url;
     // Defence in depth: only https is ever launched, whatever the cache holds.
     final uri = raw == null ? null : Uri.tryParse(raw);
     if (uri == null || uri.scheme != 'https' || !uri.hasAuthority) {
