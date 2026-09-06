@@ -446,38 +446,56 @@ class RemoteParsersDao {
       }
     });
   }
-  /// Revokes every local parser that the server no longer considers servable.
+  /// Converges the local parser set on the server's authoritative servable set.
   ///
-  /// A rule stops being servable by being demoted from `passed`, deactivated,
-  /// or deleted — and NONE of those bumps `updated_version`, while only the last
-  /// bumps `deleted_version`. So a version-keyed delta cannot express "drop
-  /// this": the row just stops appearing in `items` and a device that already
-  /// synced it keeps a rule the server revoked. catalog-delta therefore sends
-  /// the COMPLETE servable id set on every parser response, and this applies it.
+  /// Deactivates every local rule absent from [servableIds] AND activates every
+  /// rule present in it. Both directions matter:
   ///
-  /// Deliberately deactivates rather than deleting: `is_deleted` is the
-  /// tombstone the engine already honours, and keeping the row means a rule
-  /// that is re-validated later is restored by the ordinary upsert path.
-  Future<void> retainOnlyServable(List<String> servableIds) async {
+  ///  * DEACTIVATE — a rule stops being servable by demotion, deactivation or
+  ///    deletion. The revoked row is filtered out of `items` by the same
+  ///    validation gate that revoked it, and only deletion fills `deleted_ids`,
+  ///    so the delta carries no instruction to drop it.
+  ///  * ACTIVATE — a rule re-validated later must come back. On a forced
+  ///    authority refresh the device is already at the server's version, so
+  ///    `items` is empty and no upsert would ever flip `is_active` back on.
+  ///
+  /// The caller must have PROVEN the snapshot complete first
+  /// (`_authoritativeServableIdsImpl`); this method trusts its argument.
+  Future<void> applyAuthoritativeServableSet(List<String> servableIds) async {
     await _db.transaction(() async {
       if (servableIds.isEmpty) {
-        // The server says NOTHING is servable. That is the current production
-        // state (no parser has passed validation), and it must be honoured
-        // rather than treated as an empty/failed response — otherwise a revoked
-        // rule survives precisely when every rule has been revoked.
+        // The server says NOTHING is servable — the current production state.
+        // It must be honoured rather than mistaken for an empty response, or a
+        // revoked rule survives exactly when every rule has been revoked.
         await _db.customUpdate(
           'UPDATE remote_parsers SET is_active = 0 WHERE is_active = 1;',
         );
         return;
       }
       final placeholders = List.filled(servableIds.length, '?').join(',');
+      final vars = servableIds.map(Variable.withString).toList();
       await _db.customUpdate(
         'UPDATE remote_parsers SET is_active = 0 '
         'WHERE is_active = 1 AND id NOT IN ($placeholders);',
-        variables: servableIds.map(Variable.withString).toList(),
+        variables: vars,
+      );
+      // Never resurrect a tombstoned rule: is_deleted stays authoritative.
+      await _db.customUpdate(
+        'UPDATE remote_parsers SET is_active = 1 '
+        'WHERE is_active = 0 AND is_deleted = 0 AND id IN ($placeholders);',
+        variables: vars,
       );
     });
   }
+
+  /// Deactivates every active parser. Used by the authority-epoch upgrade to
+  /// drop legacy authority BEFORE any rule can be consulted, and by the seeder.
+  Future<void> deactivateAll() async {
+    await _db.customUpdate(
+      'UPDATE remote_parsers SET is_active = 0 WHERE is_active = 1;',
+    );
+  }
+
 
 
   Future<List<RemoteParser>> getActiveParsersByBankId(String bankId) async {

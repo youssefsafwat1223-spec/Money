@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../db/app_database.dart';
 import 'announcement_service.dart';
 import 'catalog_daos.dart';
+import 'parser_authority.dart';
 import '../../core/observability/diagnostics.dart';
 import '../../core/observability/telemetry_error.dart';
 import '../../features/coupons/coupon_models.dart';
@@ -29,6 +30,20 @@ class CatalogSyncService {
   Future<void> syncAll({String? countryCode}) async {
     try {
       // Delta sync for versioned categories
+      // AUTHORITY EPOCH — before anything else. An install already at the
+      // server's parser version would never re-fetch, so a previous release's
+      // bundled-active rules would keep money authority with no server event
+      // able to dislodge them. This deactivates them once and forces one full
+      // refresh; the epoch advances only after a VERIFIED snapshot, so an
+      // outage leaves parsers inactive and retries next launch.
+      final authority = ParserAuthority(
+        RemoteParsersDao(_database),
+        _metadataDao,
+      );
+      final authorityAction = await authority.reconcile();
+      final forceParsers =
+          authorityAction == ParserAuthorityAction.refreshRequired;
+
       final versions = await _fetchVersions();
       final stale = <String>[];
       for (final category in CatalogCategories.syncable) {
@@ -39,8 +54,18 @@ class CatalogSyncService {
           stale.add(category);
         }
       }
+      if (forceParsers && !stale.contains(CatalogCategories.parsers)) {
+        stale.add(CatalogCategories.parsers);
+      }
       await Future.wait([
-        ...stale.map((c) => syncCategory(c, countryCode: countryCode)),
+        ...stale.map((c) => syncCategory(
+              c,
+              countryCode: countryCode,
+              // A forced authority refresh must fetch the FULL set: at the
+              // device's current version the delta would be empty, so nothing
+              // would be reactivated even when the server says it is servable.
+              fromZero: forceParsers && c == CatalogCategories.parsers,
+            )),
         syncFlags(countryCode: countryCode),
         syncAnnouncements(countryCode: countryCode),
         syncGrowthCampaigns(countryCode: countryCode),
@@ -218,6 +243,10 @@ class CatalogSyncService {
   Future<void> syncCategory(
     String category, {
     String? countryCode,
+    /// Ignore the stored version and request the FULL set. Used only by the
+    /// authority-epoch refresh, where a delta at the device's current version
+    /// would be empty and could therefore reactivate nothing.
+    bool fromZero = false,
   }) async {
     if (!CatalogCategories.syncable.contains(category)) {
       debugPrint('Catalog sync ignored unsupported category: $category');
@@ -226,7 +255,7 @@ class CatalogSyncService {
 
     try {
       final local = await _metadataDao.getVersion(category);
-      final sinceVersion = local?.localVersion ?? 0;
+      final sinceVersion = fromZero ? 0 : (local?.localVersion ?? 0);
       final response = await _client.functions.invoke(
         'catalog-delta',
         method: supabase.HttpMethod.get,
@@ -273,6 +302,14 @@ class CatalogSyncService {
 
       await _database.transaction(() async {
         await _writeCategory(category, items, deletedIds, servableIds);
+        // The epoch advances ONLY here: inside the same transaction that
+        // applied a snapshot the client already proved complete, current and
+        // correctly counted. Offline, truncated, malformed or stale responses
+        // never reach this line, so the forced refresh is retried next launch.
+        if (category == CatalogCategories.parsers && servableIds != null) {
+          await ParserAuthority(RemoteParsersDao(_database), _metadataDao)
+              .markRefreshed();
+        }
         final syncedAt = DateTime.now().toUtc();
         await _metadataDao.upsertVersion(
           category,
@@ -374,7 +411,7 @@ class CatalogSyncService {
         // the set: a response without the key is an OLD server, and inventing
         // an empty set there would deactivate every rule on the device.
         if (servableIds != null) {
-          await dao.retainOnlyServable(servableIds);
+          await dao.applyAuthoritativeServableSet(servableIds);
         }
       case CatalogCategories.currencies:
         final dao = RemoteCurrenciesDao(_database);
