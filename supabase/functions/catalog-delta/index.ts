@@ -192,9 +192,14 @@ Deno.serve(async (req) => {
       const ids = (servable ?? []).map((r: { id: string }) => r.id);
       // `count` is the server-side total; if it exceeds what we returned, the
       // page is short and the snapshot is NOT authoritative.
-      const total = typeof exactCount === 'number' ? exactCount : ids.length;
+      // No exact count means no proof. Falling back to the page length would
+      // mark a TRUNCATED page complete, which is the one thing this contract
+      // exists to prevent.
+      const total = typeof exactCount === 'number' ? exactCount : null;
       servableSnapshot = {
-        complete: total === ids.length && ids.length <= SERVABLE_SNAPSHOT_MAX,
+        complete: total !== null &&
+          total === ids.length &&
+          ids.length <= SERVABLE_SNAPSHOT_MAX,
         count: ids.length,
         max: SERVABLE_SNAPSHOT_MAX,
         catalog_version: version,

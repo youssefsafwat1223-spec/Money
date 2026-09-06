@@ -12,9 +12,32 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   final generated =
       File('../supabase/catalog/generated/parser_rules.sql').readAsStringSync();
-  final migration = File(
-    '../supabase/migrations/0099_parser_safety_rule_scoped_evidence.sql',
-  ).readAsStringSync();
+
+  /// The LATEST migration that embeds the generated rule SQL.
+  ///
+  /// Deliberately not pinned to 0099. The generated file is a CURRENT-state
+  /// artifact while a migration is immutable history, so requiring the current
+  /// file inside a specific historical migration would make any future
+  /// canonical change unshippable without editing applied SQL. Instead: when
+  /// canonical changes, you regenerate and add a NEW migration carrying the new
+  /// text, and this guard follows it. The invariant that matters is "the newest
+  /// applied rule bodies are generated, never hand-typed".
+  File latestRuleMigration() {
+    final embedding = Directory('../supabase/migrations')
+        .listSync()
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.sql'))
+        .where((f) => f.readAsStringSync().contains('UPDATE public.sms_parsers SET'))
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    if (embedding.isEmpty) {
+      throw StateError('no migration carries generated parser rule bodies');
+    }
+    return embedding.last;
+  }
+
+  final migrationFile = latestRuleMigration();
+  final migration = migrationFile.readAsStringSync();
 
   group('0099 consumes the generated canonical rule SQL', () {
     test('the generated file exists and is non-trivial', () {
@@ -26,7 +49,10 @@ void main() {
       // Verbatim, not "contains something similar": a hand-edited copy is
       // exactly the failure mode this guard exists to prevent.
       expect(migration, contains(generated),
-          reason: 'regenerate with tools/gen_catalog_assets.py and re-embed');
+          reason: 'the newest rule migration (${migrationFile.path}) does not '
+              'carry the current generated SQL. Regenerate with '
+              'tools/gen_catalog_assets.py and add a NEW migration with it — '
+              'never edit an applied one.');
     });
 
     test('all twelve stable parser ids are covered', () {
@@ -60,9 +86,13 @@ void main() {
         if (t.startsWith('--')) continue;
         if (!evidenceColumns.any(t.contains)) continue;
         // A read is fine: SELECT ... , WHERE ..., or a RAISE message.
+        // A read is fine: SELECT/WHERE/IF/RAISE, or a line that merely
+        // continues one of those (the postcondition spans several lines).
         final isRead = t.startsWith('SELECT') ||
+            t.startsWith('(SELECT') ||
             t.startsWith('WHERE') ||
             t.startsWith('IF ') ||
+            t.startsWith('AND ') ||
             t.startsWith('RAISE');
         expect(isRead, isTrue,
             reason: '0099 appears to WRITE validation evidence: $t');

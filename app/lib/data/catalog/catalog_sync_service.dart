@@ -39,6 +39,7 @@ class CatalogSyncService {
       final authority = ParserAuthority(
         RemoteParsersDao(_database),
         _metadataDao,
+        _database,
       );
       final authorityAction = await authority.reconcile();
       final forceParsers =
@@ -302,13 +303,26 @@ class CatalogSyncService {
 
       await _database.transaction(() async {
         await _writeCategory(category, items, deletedIds, servableIds);
+        // A forced refresh deactivated everything first precisely so nothing
+        // serves without proof. The upsert above restores `is_active` from the
+        // server row, so an UNVERIFIED response (old server, truncated,
+        // malformed, stale) would quietly reactivate rules the epoch had just
+        // revoked. Fail closed and retry next launch instead.
+        if (fromZero &&
+            category == CatalogCategories.parsers &&
+            servableIds == null) {
+          await RemoteParsersDao(_database).deactivateAll();
+        }
         // The epoch advances ONLY here: inside the same transaction that
         // applied a snapshot the client already proved complete, current and
         // correctly counted. Offline, truncated, malformed or stale responses
         // never reach this line, so the forced refresh is retried next launch.
         if (category == CatalogCategories.parsers && servableIds != null) {
-          await ParserAuthority(RemoteParsersDao(_database), _metadataDao)
-              .markRefreshed();
+          await ParserAuthority(
+            RemoteParsersDao(_database),
+            _metadataDao,
+            _database,
+          ).markRefreshed();
         }
         final syncedAt = DateTime.now().toUtc();
         await _metadataDao.upsertVersion(

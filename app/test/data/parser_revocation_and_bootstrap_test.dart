@@ -263,7 +263,7 @@ void _authorityEpochTests() {
     );
     parsers = RemoteParsersDao(db);
     metadata = CatalogMetadataDao(db);
-    authority = ParserAuthority(parsers, metadata);
+    authority = ParserAuthority(parsers, metadata, db);
     await RemoteBanksDao(db).upsertAll([
       RemoteBank(
         id: 'bank-1', nameAr: 'بنك', nameEn: 'Test Bank', shortCode: 'TB',
@@ -327,7 +327,7 @@ void _authorityEpochTests() {
       await legacyInstall();
       await authority.reconcile();
       // Simulate a restart: a fresh authority over the same database.
-      final afterRestart = ParserAuthority(parsers, metadata);
+      final afterRestart = ParserAuthority(parsers, metadata, db);
       expect(await afterRestart.reconcile(),
           ParserAuthorityAction.refreshRequired);
       expect(await activeIds(), isEmpty);
@@ -377,6 +377,21 @@ void _authorityEpochTests() {
       await parsers.applyAuthoritativeServableSet(['legacy-b']);
       expect(await activeIds(), {'legacy-b'},
           reason: 'revocation must not be a one-way door');
+    });
+
+    test('the reconcile runs even when NO sync happens at all', () async {
+      // The bypass I found before the reviewers did: syncCatalog returns early
+      // when the catalog is fresh, and again when Supabase is unconfigured.
+      // Both are launches that do no sync, and an upgraded install would then
+      // keep legacy authority until the staleness window happened to expire.
+      // The deactivation half is purely local and now runs before both guards.
+      await legacyInstall();
+      expect(await activeIds(), {'legacy-a', 'legacy-b'});
+
+      // No network, no version fetch, no snapshot — just the local reconcile.
+      await ParserAuthority(parsers, metadata, db).reconcile();
+      expect(await activeIds(), isEmpty,
+          reason: 'legacy authority must not survive a sync-less launch');
     });
 
     test('a tombstoned rule is never reactivated by the servable set', () async {

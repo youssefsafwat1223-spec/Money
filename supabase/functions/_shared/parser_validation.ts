@@ -51,7 +51,7 @@ export interface GoldenRow {
   readonly is_otp?: boolean;
   readonly is_promo?: boolean;
   /** Optional: pins the row to ONE rule rather than the whole bank. */
-  readonly parser_id?: string | null;
+  readonly parser_id: string;
 }
 
 export interface RuleUnderTest {
@@ -144,10 +144,17 @@ export function classify(rule: RuleUnderTest, row: GoldenRow): Applicability {
   return row.expected_type === rule.transaction_type ? 'positive' : 'out_of_scope';
 }
 
-/** Which rows belong to this rule at all. */
+/**
+ * Which rows belong to this rule at all — FAIL CLOSED.
+ *
+ * `parser_id` is NOT NULL from migration 0099, so a null reaching here is a
+ * caller bug (an omitted projection, a stale caller, a hand-built row). Treating
+ * that as "applies to every parser" would reintroduce exactly the cross-parser
+ * contamination the column exists to prevent, so an unattributed row is not
+ * evidence for anyone.
+ */
 export function appliesToRule(rule: RuleUnderTest, row: GoldenRow): boolean {
-  // A row pinned to another rule is not this rule's evidence.
-  return row.parser_id == null || row.parser_id === rule.id;
+  return row.parser_id === rule.id;
 }
 
 /**
@@ -433,11 +440,16 @@ export function validateParser(rule: RuleUnderTest, rows: GoldenRow[]): Verdict 
   // So when a rule claims `amount`, evidence means a row that pinned the
   // amount. Only a rule that claims no amount at all may qualify on other
   // captured fields.
-  const claimsAmount = rule.extracted_fields['amount'] !== undefined;
+  // EVERY provable field the rule claims must be proven by at least one
+  // passing positive row. Requiring only the amount left `balance` — claimed by
+  // NBE, CIB and SNB — promotable on an amount-only row, which is the same
+  // "certifies a capability never exercised" hole in a narrower place.
+  // `type` is excluded: it is derived from the rule's own declaration and the
+  // row's class, so it holds for any matching message.
+  const claimedProvable = Object.keys(rule.extracted_fields)
+    .filter((f) => VALIDATABLE_FIELDS.has(f) && f !== 'type');
   const contentChecked = (r: RowResult) =>
-    claimsAmount
-      ? r.checked_fields.includes('amount')
-      : r.checked_fields.some((f) => f !== 'type');
+    r.checked_fields.some((f) => f !== 'type');
   const meaningful = results.filter((r) =>
     r.applicability !== 'positive' || contentChecked(r)
   );
@@ -450,9 +462,15 @@ export function validateParser(rule: RuleUnderTest, rows: GoldenRow[]): Verdict 
     r.failure_kind === 'amount_mismatch' || r.failure_kind === 'amount_not_extracted'
   ).length;
 
-  const verifiedPositives = positives.filter((r) =>
-    r.passed && contentChecked(r)
-  ).length;
+  const passingPositives = positives.filter((r) => r.passed);
+  const verifiedPositives = passingPositives.filter(contentChecked).length;
+
+  // Which claims no passing positive ever exercised.
+  const provenFields = new Set<string>();
+  for (const r of passingPositives) {
+    for (const f of r.checked_fields) provenFields.add(f);
+  }
+  const unproven = claimedProvable.filter((f) => !provenFields.has(f));
 
   let status: 'passed' | 'failed' = 'passed';
   let reason: string | undefined;
@@ -466,6 +484,12 @@ export function validateParser(rule: RuleUnderTest, rows: GoldenRow[]): Verdict 
     reason =
       `no applicable positive evidence: ${verifiedPositives} verified row(s) of ` +
       `the rule's own class '${rule.transaction_type}', need ${MIN_APPLICABLE_POSITIVES}`;
+  } else if (unproven.length > 0) {
+    // There IS positive evidence, but it does not exercise every claim.
+    status = 'failed';
+    reason =
+      `the rule claims field(s) no passing row proved: ${unproven.join(', ')}. ` +
+      'Add evidence that pins them, or drop the claim from extracted_fields.';
   }
 
   return {

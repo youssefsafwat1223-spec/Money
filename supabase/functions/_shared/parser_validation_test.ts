@@ -22,6 +22,7 @@ const SNB: RuleUnderTest = {
 function row(over: Partial<GoldenRow> = {}): GoldenRow {
   return {
     id: 'row-1',
+    parser_id: 'rule-snb',
     sender: 'SNB',
     message_text: 'عملية شراء\nبطاقة:مدى;****4521\nمبلغ:SAR 45.00\nلدى:NETFLIX',
     expected_type: 'debit',
@@ -190,7 +191,9 @@ Deno.test('a currency-only row cannot promote a rule whose AMOUNT is wrong', () 
     row({ id: 'currency-only', expected_amount: null, expected_merchant: null }),
   ]);
   assertEquals(v.status, 'failed');
-  assertEquals(v.reason?.includes('no applicable positive evidence'), true);
+  // The row proves the currency LITERAL and nothing about the money, so the
+  // rule's own `amount` and `merchant` claims went unexercised.
+  assertEquals(v.reason?.includes('amount'), true, v.reason);
 });
 
 Deno.test('a merchant-only row cannot promote an amount-claiming rule either', () => {
@@ -318,4 +321,47 @@ Deno.test('BALANCE is now proven when the rule claims it', () => {
   }));
   assertEquals(bad.passed, false);
   assertEquals(bad.failure_kind, 'balance_mismatch');
+});
+
+// ── Reviewer-found gaps (Codex, final round) ───────────────────────────────
+
+Deno.test('a rule claiming BALANCE cannot pass on amount-only evidence', () => {
+  // Codex: expected_balance is nullable and balance was checked only when
+  // supplied, so NBE/CIB/SNB could be promoted having never exercised the
+  // balance claim they advertise. Every provable claim must now be proven.
+  const withBalance: RuleUnderTest = {
+    ...SNB,
+    extracted_fields: { ...SNB.extracted_fields, balance: 'balance' },
+  };
+  const v = validateParser(withBalance, [row()]); // no expected_balance
+  assertEquals(v.status, 'failed');
+  assertEquals(v.reason?.includes('balance'), true, v.reason);
+});
+
+Deno.test('…and DOES pass once a row pins the balance', () => {
+  // Non-vacuity for the test above.
+  const withBalance: RuleUnderTest = {
+    ...SNB,
+    message_pattern:
+      'مبلغ:SAR (?<amount>[0-9.,]+)[\\s\\S]*?لدى:(?<merchant>[^\\n]+)[\\s\\S]*?الرصيد:SAR (?<balance>[0-9.,]+)',
+    extracted_fields: { ...SNB.extracted_fields, balance: 'balance' },
+  };
+  const v = validateParser(withBalance, [
+    row({
+      message_text:
+          'عملية شراء\nمبلغ:SAR 45.00\nلدى:NETFLIX\nالرصيد:SAR 1,200.00',
+      expected_balance: 1200.00,
+    }),
+  ]);
+  assertEquals(v.status, 'passed', v.reason);
+});
+
+Deno.test('an unattributed golden row is evidence for NOBODY', () => {
+  // Codex: the validator treated a missing parser_id as "applies to every
+  // parser", which is the cross-parser contamination the column exists to stop.
+  // parser_id is NOT NULL from 0099, so a null here is a caller bug.
+  const orphan = { ...row(), parser_id: undefined } as unknown as GoldenRow;
+  const v = validateParser(SNB, [orphan]);
+  assertEquals(v.results.length, 0, 'an unattributed row must be ignored');
+  assertEquals(v.status, 'failed', 'and cannot promote anything');
 });

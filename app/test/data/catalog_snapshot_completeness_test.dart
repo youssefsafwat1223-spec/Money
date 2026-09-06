@@ -100,6 +100,17 @@ void main() {
       );
     });
 
+    test('a snapshot with no exact count is not complete', () {
+      // Fable: falling back to the page length would mark a TRUNCATED page
+      // complete — the one thing this contract exists to prevent. The server
+      // now emits complete:false when it cannot count exactly.
+      expect(
+        debugAuthoritativeServableIds(
+            body(snapshot: goodSnapshot(complete: false)), 48),
+        isNull,
+      );
+    });
+
     test('a snapshot for a DIFFERENT catalog version revokes nothing', () {
       // A torn read across concurrent writes, or a stale cached body.
       expect(

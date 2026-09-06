@@ -42,6 +42,12 @@
 
 BEGIN;
 
+-- Snapshot the promoted count BEFORE any change, so the postcondition can prove
+-- this migration did not alter it rather than demanding it be zero.
+CREATE TEMP TABLE _0099_before ON COMMIT DROP AS
+SELECT count(*) AS passed_before FROM public.sms_parsers
+ WHERE validation_status = 'passed';
+
 -- ── 1. Rule-scoped golden evidence ──────────────────────────────────────────
 
 ALTER TABLE public.parser_golden_tests
@@ -252,7 +258,9 @@ DO $$
 DECLARE
   bad INT;
   snb TEXT;
+  prior_passed INT;
 BEGIN
+  SELECT passed_before INTO prior_passed FROM _0099_before;
   -- Evidence is rule-scoped and provable.
   SELECT count(*) INTO bad FROM information_schema.columns
    WHERE table_schema = 'public' AND table_name = 'parser_golden_tests'
@@ -280,9 +288,18 @@ BEGIN
   END IF;
 
   -- And nothing here promoted anything.
-  SELECT count(*) INTO bad FROM public.sms_parsers WHERE validation_status = 'passed';
-  IF bad > 0 THEN
-    RAISE EXCEPTION '0099 postcondition: % parser(s) are passed; this migration promotes none', bad;
+  --
+  -- Asserted as "unchanged", not "zero". A global count of zero would abort in
+  -- any environment holding a LEGITIMATELY promoted parser, even though this
+  -- migration writes no validation column at all — punishing a correct state.
+  -- The snapshot is taken at the top of this same transaction.
+  IF (SELECT count(*) FROM public.sms_parsers WHERE validation_status = 'passed')
+     <> prior_passed THEN
+    RAISE EXCEPTION
+      '0099 postcondition: promoted parser count changed (% -> %); this '
+      'migration promotes none',
+      prior_passed,
+      (SELECT count(*) FROM public.sms_parsers WHERE validation_status = 'passed');
   END IF;
 
   RAISE LOG '0099 postconditions passed';

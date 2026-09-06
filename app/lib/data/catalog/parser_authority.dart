@@ -28,6 +28,7 @@
 /// reactivated by [RemoteParsersDao.applyAuthoritativeServableSet].
 library;
 
+import '../db/app_database.dart';
 import 'catalog_daos.dart';
 
 /// Bump when the authority contract changes in a way that must invalidate
@@ -53,10 +54,11 @@ enum ParserAuthorityAction {
 }
 
 class ParserAuthority {
-  const ParserAuthority(this._parsers, this._metadata);
+  const ParserAuthority(this._parsers, this._metadata, this._db);
 
   final RemoteParsersDao _parsers;
   final CatalogMetadataDao _metadata;
+  final AppDatabase _db;
 
   Future<int> storedEpoch() async {
     final row = await _metadata.getVersion(kParserAuthorityEpochKey);
@@ -70,11 +72,18 @@ class ParserAuthority {
   /// ones, and the refresh is retried on the next launch because the epoch was
   /// not advanced.
   Future<ParserAuthorityAction> reconcile() async {
-    if (await storedEpoch() >= kParserAuthorityEpoch) {
-      return ParserAuthorityAction.upToDate;
-    }
-    await _parsers.deactivateAll();
-    return ParserAuthorityAction.refreshRequired;
+    // ATOMIC. Two syncs can overlap (a cold-start force and a resume). Reading
+    // the epoch, then awaiting, then deactivating outside a transaction lets
+    // the second call wipe the set the first just activated — and if its own
+    // fetch then fails, the device is left with a CURRENT epoch and zero active
+    // parsers, which no later launch would force-refresh.
+    return _db.transaction(() async {
+      if (await storedEpoch() >= kParserAuthorityEpoch) {
+        return ParserAuthorityAction.upToDate;
+      }
+      await _parsers.deactivateAll();
+      return ParserAuthorityAction.refreshRequired;
+    });
   }
 
   /// Records that a verified authoritative snapshot has been applied.

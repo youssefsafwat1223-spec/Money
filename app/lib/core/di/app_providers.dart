@@ -23,6 +23,7 @@ import '../../data/catalog/catalog_daos.dart';
 import '../../data/catalog/catalog_sync_service.dart';
 import '../../data/catalog/feature_flag_service.dart';
 import '../../data/catalog/growth_campaign_service.dart';
+import '../../data/catalog/parser_authority.dart';
 import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
@@ -404,6 +405,22 @@ Future<void> syncCatalog(
 }) async {
   final database = ref.read(appDatabaseProvider);
   await const SeedLoader().seedIfEmpty(database);
+
+  // PARSER AUTHORITY EPOCH — before every early return below.
+  //
+  // This is a purely LOCAL reconcile: if a previous release left bundled rules
+  // active, they are deactivated here. It must not sit behind the staleness or
+  // Supabase-configured guards, because both of them are reasons a launch does
+  // NO sync at all — and an upgraded install would then keep serving money
+  // authority the current release does not trust, until the staleness window
+  // happened to expire. The forced re-fetch half still lives in syncAll; this
+  // half only ever removes authority, so running it early is always safe.
+  await ParserAuthority(
+    RemoteParsersDao(database),
+    CatalogMetadataDao(database),
+    database,
+  ).reconcile();
+
   // Init feature flags from seed data before first frame.
   await initFeatureFlagService(database);
   if (!SupabaseConfig.isConfigured) return;
