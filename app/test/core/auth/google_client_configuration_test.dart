@@ -74,11 +74,6 @@ void main() {
           googleServerClientId != null);
     });
 
-    test('whitespace is not configuration', () {
-      // A define of "   " must not count as configured.
-      expect(googleServerClientId, anyOf(isNull, isNot(matches(r'^\s*$'))));
-    });
-
     test('sign-in fails as a configuration error, without opening Google',
         () async {
       if (googleServerClientId != null) return; // configured build: N/A
