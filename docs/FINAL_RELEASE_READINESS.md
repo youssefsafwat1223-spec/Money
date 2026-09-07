@@ -375,10 +375,28 @@ Closing it requires a Play policy decision, not just hardware.
 - [ ] **Distribution** certificate + App Store provisioning profiles (Runner **and** ShareBankMessage) — see blocker I1/I2
 - [ ] App Store Connect app record created
 - [ ] App name / subtitle (brand: **Qirsh / قِرش**)
-- [ ] **Privacy policy URL (BLOCKER)** — required (financial data), and currently **broken**:
-      `privacy_screen.dart:25,27` link to `https://mali.youssefsafwat.com/privacy` and `/terms`, but
-      `youssefsafwat.com` returns **NXDOMAIN**. Both a store blocker and a live dead link in the app.
-      See `docs/MANUAL_RELEASE_PREREQUISITES.md` §0
+- [ ] **Google Sign-In production configuration (BLOCKER — Android)** — Android has no
+      working sign-in path until this is done, because Sign in with Apple is iOS-only and
+      authentication is mandatory (no guest path). Code side is CLOSED (`cc12acc0`): the platform
+      split is correct, Android fails closed with an honest message, and `android-release` fails the
+      build without the define. Remaining work is Google Cloud Console + Supabase, both external:
+        1. Create a **Web** OAuth client in project `881903820931` → supply as
+           `GOOGLE_SERVER_CLIENT_ID` in Codemagic.
+        2. Create an **Android** OAuth client for `com.youssefsafwat.mali` registered with the
+           **release/upload** SHA-1 (a debug-only SHA-1 fails in the shipped build).
+        3. Supabase → Auth → Google: enable, set **Skip nonce checks ON** (the native SDK embeds a
+           nonce the app cannot present — `GIDSignIn.m` uses AppAuth's auto-generated nonce and
+           never exposes it), and list **BOTH** audiences: the iOS client
+           `881903820931-c4ctt…` AND the new web client. iOS tokens carry the iOS audience,
+           Android tokens carry the web audience; listing only one silently breaks that platform.
+        4. No client secret is required — this is `signInWithIdToken`, not an OAuth redirect flow.
+
+- [x] ~~**Privacy policy URL (BLOCKER)**~~ — **PASS (2026-09-08)**. The hardcoded
+      `mali.youssefsafwat.com` links are gone: `lib/core/config/legal_urls.dart:35` resolves both
+      pages from `https://qirsh.site` (overridable at build time via `LEGAL_BASE_URL`), and the live
+      host was verified this session — `GET https://qirsh.site/privacy` → **200**, `GET
+      https://qirsh.site/terms` → **200**. Pinned by `test/core/legal_urls_test.dart` and
+      `test/architecture/site_deploy_guard_test.dart`. No longer a store blocker or a dead link.
 - [ ] Support URL
 - [ ] Screenshots for all required device sizes
 - [ ] Description + keywords (Arabic-first)
