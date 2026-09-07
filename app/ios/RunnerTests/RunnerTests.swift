@@ -124,4 +124,133 @@ class RunnerTests: XCTestCase {
     XCTAssertNil(SharedCaptureStore.backendConfig().deviceSecret,
                  "purge/wipe invalidates the device secret")
   }
+
+
+  // ── APNs environment pairing ───────────────────────────────────────────────
+  //
+  // A real iPhone registered a SANDBOX token as `production` because the old
+  // derivation was `#if DEBUG`, and DEBUG is not defined in this project's
+  // Swift build conditions. These pin the replacement: the value comes from the
+  // signed entitlement, and anything unresolved withholds the token.
+
+  private func profileBlob(withEntitlements body: String) -> Data {
+    // A provisioning profile is a plist wrapped in a CMS/DER envelope; the
+    // parser slices the plist out of the surrounding bytes.
+    let plist = """
+      <?xml version="1.0" encoding="UTF-8"?>
+      <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"       "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+      <plist version="1.0"><dict><key>Name</key><string>t</string>      <key>Entitlements</key><dict>\(body)</dict></dict></plist>
+      """
+    var data = Data([0x30, 0x82, 0x0A, 0xBC, 0x06, 0x09])
+    data.append(plist.data(using: .isoLatin1)!)
+    data.append(Data([0x00, 0x01, 0x02]))
+    return data
+  }
+
+  func testApnsDevelopmentEntitlementMapsToSandbox() {
+    XCTAssertEqual(ApnsEnvironment.map(entitlement: "development"), "sandbox")
+  }
+
+  func testApnsProductionEntitlementMapsToProduction() {
+    XCTAssertEqual(ApnsEnvironment.map(entitlement: "production"), "production")
+  }
+
+  func testApnsMissingEntitlementIsUnresolved() {
+    XCTAssertNil(ApnsEnvironment.map(entitlement: nil))
+  }
+
+  func testApnsUnexpectedEntitlementIsUnresolved() {
+    // Including case variants: the entitlement vocabulary is exact.
+    for value in ["", "staging", "sandbox", "Development", "PRODUCTION", "dev"] {
+      XCTAssertNil(
+        ApnsEnvironment.map(entitlement: value),
+        "\(value) must not resolve to an APNs host")
+    }
+  }
+
+  func testApnsEntitlementReadFromProvisioningProfile() {
+    let dev = profileBlob(
+      withEntitlements: "<key>aps-environment</key><string>development</string>")
+    XCTAssertEqual(ApnsEnvironment.entitlement(inProfile: dev), "development")
+    XCTAssertEqual(
+      ApnsEnvironment.map(entitlement: ApnsEnvironment.entitlement(inProfile: dev)),
+      "sandbox")
+
+    let prod = profileBlob(
+      withEntitlements: "<key>aps-environment</key><string>production</string>")
+    XCTAssertEqual(
+      ApnsEnvironment.map(entitlement: ApnsEnvironment.entitlement(inProfile: prod)),
+      "production")
+  }
+
+  func testApnsProfileWithoutEntitlementIsUnresolved() {
+    // Push capability absent from the profile: no token may be registered.
+    let none = profileBlob(
+      withEntitlements: "<key>application-identifier</key><string>X.y</string>")
+    XCTAssertNil(ApnsEnvironment.entitlement(inProfile: none))
+    XCTAssertNil(
+      ApnsEnvironment.map(entitlement: ApnsEnvironment.entitlement(inProfile: none)))
+  }
+
+  func testApnsGarbageProfileIsUnresolved() {
+    XCTAssertNil(ApnsEnvironment.entitlement(inProfile: Data([0x00, 0xFF, 0x10])))
+  }
+
+  func testApnsMissingProfileWithStoreReceiptIsProduction() {
+    // App Store / TestFlight: Apple strips the profile and re-signs for the
+    // production APNs host. The RECEIPT is the evidence; failing closed here
+    // would stop every shipping build from registering for push.
+    XCTAssertEqual(
+      ApnsEnvironment.resolve(profileData: nil, isStoreDistributed: true),
+      "production")
+  }
+
+  func testApnsMissingProfileWithoutStoreReceiptFailsClosed() {
+    // No profile AND no receipt: nothing establishes the environment, so the
+    // token must be withheld rather than guessed as production.
+    XCTAssertNil(
+      ApnsEnvironment.resolve(profileData: nil, isStoreDistributed: false))
+  }
+
+  func testApnsStoreEvidenceCannotOverrideAPresentProfile() {
+    // A development profile stays sandbox even if a receipt is somehow present:
+    // the signed profile is the stronger, more specific evidence.
+    let dev = profileBlob(
+      withEntitlements: "<key>aps-environment</key><string>development</string>")
+    XCTAssertEqual(
+      ApnsEnvironment.resolve(profileData: dev, isStoreDistributed: true),
+      "sandbox")
+  }
+
+  func testApnsDevelopmentBundleIsNotTreatedAsStoreDistributed() {
+    // The test bundle has no App Store receipt, so the real accessor must say
+    // so — this is what makes the missing-profile branch safe.
+    XCTAssertFalse(
+      ApnsEnvironment.isStoreDistributed(bundle: Bundle(for: RunnerTests.self)))
+    XCTAssertNil(
+      ApnsEnvironment.current(bundle: Bundle(for: RunnerTests.self)),
+      "a bundle with neither a profile nor a receipt must fail closed")
+  }
+
+  func testApnsRoutingDoesNotDependOnDebugCompileFlag() throws {
+    // The dead `#if DEBUG` branch is what shipped the defect. Assert the
+    // registration handler derives the environment from the entitlement.
+    let source = try String(
+      contentsOf: URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .appendingPathComponent("Runner/AppDelegate.swift"))
+    let start = try XCTUnwrap(
+      source.range(of: "didRegisterForRemoteNotificationsWithDeviceToken"))
+    let end = try XCTUnwrap(
+      source.range(of: "didFailToRegisterForRemoteNotificationsWithError"))
+    let handler = String(source[start.upperBound..<end.lowerBound])
+    XCTAssertFalse(
+      handler.contains("#if DEBUG"),
+      "APNs environment must never come from a compile flag")
+    XCTAssertTrue(handler.contains("ApnsEnvironment.current()"))
+    XCTAssertTrue(
+      handler.contains("guard let environment"),
+      "an unresolved environment must withhold the token")
+  }
 }

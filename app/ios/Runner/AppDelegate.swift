@@ -3,6 +3,100 @@ import Flutter
 import UIKit
 import UserNotifications
 
+/// The APNs host a device token belongs to, derived from the entitlement this
+/// binary was ACTUALLY SIGNED WITH.
+///
+/// WHY NOT `#if DEBUG`.
+/// It used to be `#if DEBUG ? "sandbox" : "production"`. `DEBUG` is not defined
+/// in this project's Swift build conditions — `SWIFT_ACTIVE_COMPILATION_CONDITIONS`
+/// is unset on Debug, Profile AND Release — so the branch was dead and every
+/// build reported "production". A real iPhone proved it: a Debug build signed
+/// `aps-environment: development` registered a SANDBOX token as `production`,
+/// which routes `sendCapturePush` to api.push.apple.com and earns BadDeviceToken
+/// on every send. Configuration names, Flutter build mode and compile flags all
+/// describe INTENT; only the signed entitlement describes what Apple actually
+/// issued the token for.
+///
+/// `SecTaskCopyValueForEntitlement` is the natural API but `SecTask` is not in
+/// the public iOS SDK (no `SecTask.h` under the iPhoneOS SDK's Security
+/// framework), so the App-Store-safe equivalent is the embedded provisioning
+/// profile, which is the artefact that GRANTED the entitlement.
+enum ApnsEnvironment {
+  static let entitlementKey = "aps-environment"
+
+  /// Pure mapping seam — the only place the vocabulary is translated.
+  /// `nil` means UNRESOLVED, and callers must withhold the token.
+  static func map(entitlement: String?) -> String? {
+    switch entitlement {
+    case "development": return "sandbox"
+    case "production": return "production"
+    default: return nil
+    }
+  }
+
+  /// Pull `aps-environment` out of a provisioning profile's CMS blob.
+  /// The payload is a plist embedded in DER, so the plist range is sliced out
+  /// rather than the whole blob being parsed.
+  static func entitlement(inProfile data: Data) -> String? {
+    guard let raw = String(data: data, encoding: .isoLatin1),
+          let start = raw.range(of: "<plist"),
+          let end = raw.range(of: "</plist>"),
+          let plistData = String(raw[start.lowerBound..<end.upperBound])
+            .data(using: .isoLatin1),
+          let plist = try? PropertyListSerialization.propertyList(
+            from: plistData, options: [], format: nil) as? [String: Any],
+          let entitlements = plist["Entitlements"] as? [String: Any]
+    else { return nil }
+    return entitlements[entitlementKey] as? String
+  }
+
+  /// Positive evidence that this binary came from the App Store or TestFlight.
+  ///
+  /// Those are the only distribution channels that legitimately ship WITHOUT an
+  /// embedded provisioning profile — Apple strips it and re-signs for the
+  /// production APNs environment. The receipt is the artefact that proves it:
+  /// `receipt` for the App Store, `sandboxReceipt` for TestFlight (which is a
+  /// StoreKit sandbox, unrelated to the APNs sandbox — a TestFlight build's
+  /// pushes go to the PRODUCTION host). A development build has no receipt, so
+  /// "no profile" alone can never be mistaken for "shipped by Apple".
+  static func isStoreDistributed(bundle: Bundle = .main) -> Bool {
+    guard let url = bundle.appStoreReceiptURL else { return false }
+    let name = url.lastPathComponent
+    guard name == "receipt" || name == "sandboxReceipt" else { return false }
+    return FileManager.default.fileExists(atPath: url.path)
+  }
+
+  /// Pure resolution seam — both missing-profile branches are testable.
+  ///
+  /// `nil` means UNRESOLVED and the caller must withhold the token.
+  static func resolve(profileData: Data?, isStoreDistributed: Bool) -> String? {
+    guard let data = profileData else {
+      // No profile. Only a real store receipt justifies "production"; anything
+      // else (a stripped, corrupted or hand-assembled bundle) fails closed.
+      return isStoreDistributed ? "production" : nil
+    }
+    return map(entitlement: entitlement(inProfile: data))
+  }
+
+  /// The environment this PROCESS was signed for, or `nil` when it cannot be
+  /// established — in which case no token may be registered.
+  ///
+  /// Nothing here reads a configuration NAME or a compile flag. The inputs are
+  /// the signed provisioning profile and the store receipt, both of which are
+  /// artefacts of how the binary was actually distributed.
+  static func current(bundle: Bundle = .main) -> String? {
+    if let url = bundle.url(
+      forResource: "embedded", withExtension: "mobileprovision") {
+      // A profile that exists but cannot be READ is unresolved — never treated
+      // as "absent", which would fall through to the store-receipt branch.
+      guard let data = try? Data(contentsOf: url) else { return nil }
+      return resolve(profileData: data, isStoreDistributed: false)
+    }
+    return resolve(
+      profileData: nil, isStoreDistributed: isStoreDistributed(bundle: bundle))
+  }
+}
+
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var captureChannel: FlutterMethodChannel?
@@ -268,12 +362,22 @@ import UserNotifications
     didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
   ) {
     let token = deviceToken.map { String(format: "%02x", $0) }.joined()
-    let environment: String
-    #if DEBUG
-    environment = "sandbox"
-    #else
-    environment = "production"
-    #endif
+    // Fail closed. A token registered against the wrong host is worse than no
+    // token: the backend reports a healthy send and nothing is ever delivered.
+    guard let environment = ApnsEnvironment.current() else {
+      let failure: [String: Any] = [
+        "message":
+          "aps-environment entitlement missing or unrecognised; push token withheld",
+        "domain": "qirsh.apns.environment",
+        "code": -1,
+        "occurredAt": ISO8601DateFormatter().string(from: Date()),
+      ]
+      UserDefaults.standard.set(failure, forKey: AppDelegate.apnsRegistrationFailureKey)
+      captureChannel?.invokeMethod("apnsRegistrationFailed", arguments: failure)
+      // Diagnostic only: no token, no entitlement value, no identifiers.
+      NSLog("[Capture] APNs environment unresolved - token not registered")
+      return
+    }
     SharedCaptureStore.setApnsToken(token, environment: environment)
     UserDefaults.standard.removeObject(forKey: AppDelegate.apnsRegistrationFailureKey)
     captureChannel?.invokeMethod("apnsTokenUpdated", arguments: [
