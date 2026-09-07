@@ -87,6 +87,7 @@ export async function processOne(
     token,
     environment,
     payloadId: row.payload_id,
+    notificationLogId: row.notification_log_id,
     title: notification.title,
     body: notification.body,
     notificationType: notification.type,

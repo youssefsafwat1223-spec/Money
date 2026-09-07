@@ -11,6 +11,14 @@ type ApnsMessage = {
   notificationType: string;
   transactionId?: string;
   smartInboxItemId?: string;
+  /// The `notification_logs.id` this push was logged under.
+  ///
+  /// Without it a TAP cannot be attributed: the client's open-sync upserts by
+  /// this exact server id (`onConflict: 'id'`), and the device has no other way
+  /// to learn it. A real iPhone tap was observed routing correctly while
+  /// `opened_at` stayed null for every APNs row, because this key was missing.
+  /// Optional so a caller that genuinely has no log row still sends the push.
+  notificationLogId?: string;
 };
 
 type ApnsResult =
@@ -65,6 +73,7 @@ export async function sendCapturePush(message: ApnsMessage): Promise<ApnsResult>
         payloadId: message.payloadId,
         transactionId: message.transactionId ?? '',
         smartInboxItemId: message.smartInboxItemId ?? '',
+        notificationLogId: message.notificationLogId ?? '',
         notificationType: message.notificationType,
         source: 'ios_shortcut',
       }),

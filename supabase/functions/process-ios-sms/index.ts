@@ -922,6 +922,7 @@ async function sendApnsIfPossible(
     token,
     environment,
     payloadId,
+    notificationLogId,
     title: notification.title,
     body: notification.body,
     notificationType: notification.type,
