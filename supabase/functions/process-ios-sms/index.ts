@@ -21,8 +21,8 @@ import { isDirectCaptureWriteEnabled, isLedgerDualWriteEnabled, upsertLedgerTran
 import { apiError, correlationId } from '../_shared/ai_endpoint.ts';
 import { extractCaptureAmount, withValidatedModelAmountText } from './money.ts';
 
-type CaptureStatus = 'processed' | 'needs_review' | 'duplicate' | 'rejected';
-type ParsedCapture = {
+export type CaptureStatus = 'processed' | 'needs_review' | 'duplicate' | 'rejected';
+export type ParsedCapture = {
   amount?: number;
   amount_text?: string;
   currency?: string;
@@ -643,7 +643,7 @@ async function detectDuplicate(
   );
 }
 
-function buildNotification(
+export function buildNotification(
   status: CaptureStatus,
   parsed: ParsedCapture,
   sender: string,
@@ -691,6 +691,16 @@ function detailLines(
   tzOffsetMinutes: number | null,
 ): string {
   const lines = [`المبلغ: ${formatAmount(parsed.amount ?? 0)} ${parsed.currency ?? ''}`.trim()];
+  // The transaction's NATURE, on every template.
+  //
+  // `typeTitle` already exposes this, but only inside the `processed` title;
+  // `duplicate` and `needs_review` hardcode their titles, so a real iPhone
+  // showed "عملية مشابهة" with the amount, merchant, card and time and no hint
+  // of whether money left or entered the account — data the parse already had.
+  // Putting it in detailLines fixes all three templates at once instead of
+  // patching two more titles.
+  const nature = natureLabelAr(parsed);
+  if (nature) lines.push(`النوع: ${nature}`);
   if (parsed.merchant) {
     lines.push(parsed.direction === 'credit' ? `المصدر: ${parsed.merchant}` : `التاجر: ${parsed.merchant}`);
   }
@@ -700,6 +710,28 @@ function detailLines(
   const category = categoryLabelAr(parsed.category);
   if (category) lines.push(`التصنيف: ${category}`);
   return lines.join('\n');
+}
+
+/// The nature of the movement, from the same `direction`/`type` the parser
+/// already produces. Direction wins because it is the grounded signal
+/// (`detectDirection`); `type` only refines it.
+///
+/// Returns null when the parse could not classify, so an unknown movement stays
+/// silent rather than being asserted as an expense.
+function natureLabelAr(parsed: ParsedCapture): string | null {
+  if (parsed.direction === 'credit' || parsed.type === 'income') return 'دخل';
+  switch (parsed.type) {
+    case 'transfer':
+      return 'تحويل';
+    case 'refund':
+      return 'استرداد';
+    case 'withdrawal':
+      return 'سحب نقدي';
+    case 'payment':
+      return 'مصروف';
+    default:
+      return parsed.direction === 'debit' ? 'مصروف' : null;
+  }
 }
 
 function typeTitle(parsed: ParsedCapture): string {
