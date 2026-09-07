@@ -84,6 +84,7 @@ workflows:
             --dart-define=SUPABASE_ENV=production \
             --dart-define=SENTRY_DSN="${SENTRY_DSN:-}" \
             --dart-define=LEGAL_BASE_URL="${LEGAL_BASE_URL:-}" \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID="${GOOGLE_SERVER_CLIENT_ID:-}" \
             --dart-define=APP_VERSION="$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' app/pubspec.yaml)"
 
       - name: Package .app into unsigned .ipa
@@ -238,6 +239,7 @@ workflows:
             --dart-define=SUPABASE_ENV=production \
             --dart-define=SENTRY_DSN="${SENTRY_DSN:-}" \
             --dart-define=LEGAL_BASE_URL="${LEGAL_BASE_URL:-}" \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID="${GOOGLE_SERVER_CLIENT_ID:-}" \
             --dart-define=APP_VERSION="$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' app/pubspec.yaml)" \
             --dart-define=ADMOB_APP_ID_IOS="${ADMOB_APP_ID_IOS:-}" \
             --dart-define=ADMOB_INTERSTITIAL_IOS="${ADMOB_INTERSTITIAL_IOS:-}" \
@@ -399,6 +401,7 @@ workflows:
             --dart-define=SUPABASE_ENV=production \
             --dart-define=SENTRY_DSN="${SENTRY_DSN:-}" \
             --dart-define=LEGAL_BASE_URL="${LEGAL_BASE_URL:-}" \
+            --dart-define=GOOGLE_SERVER_CLIENT_ID="${GOOGLE_SERVER_CLIENT_ID:-}" \
             --dart-define=APP_VERSION="$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' app/pubspec.yaml)" \
             --dart-define=ADMOB_APP_ID_ANDROID="${ADMOB_APP_ID_ANDROID:-}" \
             --dart-define=ADMOB_INTERSTITIAL_ANDROID="${ADMOB_INTERSTITIAL_ANDROID:-}" \
