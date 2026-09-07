@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -35,17 +36,63 @@ String generateAppleRawNonce({Random? random}) {
 String appleHashedNonce(String rawNonce) =>
     sha256.convert(utf8.encode(rawNonce)).toString();
 
+/// The iOS OAuth client. Its reversed form is the ONLY URL scheme registered in
+/// `ios/Runner/Info.plist`, which is what makes it the canonical one — the
+/// second client in `ios/GoogleService-Info.plist` has no registered scheme and
+/// could never complete a callback.
+const String kGoogleIosClientId =
+    '881903820931-c4cttgekf9d3tcv3j2lt10ao2upk4b1m.apps.googleusercontent.com';
+
+/// The WEB/server OAuth client, supplied at build time.
+///
+/// Android does not use an iOS client id, and `clientId` is not a supported
+/// parameter there at all: `GoogleSignInPlugin.java:222-231` reinterprets it as
+/// `serverClientId` with a warning, so passing the iOS client made Android call
+/// `requestIdToken(<iOS client>)` — an audience Google will not mint a token
+/// for. The resulting null `idToken` surfaced as "لم نستطع قراءة رمز دخول جوجل"
+/// with no hint that the CONFIGURATION was wrong.
+///
+/// Empty until the web client exists; [googleServerClientId] is null then, and
+/// [SupabaseAuthService.signInWithGoogle] fails with an explicit configuration
+/// error rather than a misleading token-read error.
+const String _kGoogleServerClientIdDefine =
+    String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
+
+String? get googleServerClientId =>
+    _kGoogleServerClientIdDefine.isEmpty ? null : _kGoogleServerClientIdDefine;
+
+/// Whether this platform can complete native Google sign-in with the
+/// configuration this build actually carries.
+///
+/// iOS signs with the iOS client. Android REQUIRES the web client as
+/// `serverClientId`; without it no id token is issued and the exchange cannot
+/// happen, so the failure belongs at configuration time, not mid-flow.
+bool googleSignInConfigured({TargetPlatform? platform}) {
+  final target = platform ?? defaultTargetPlatform;
+  if (target == TargetPlatform.android) return googleServerClientId != null;
+  return true;
+}
+
 class SupabaseAuthService implements AuthService {
   SupabaseAuthService({
     supabase.SupabaseClient? client,
     GoogleSignIn? googleSignIn,
+    TargetPlatform? platform,
   })  : _client = client ?? supabase.Supabase.instance.client,
+        _platform = platform ?? defaultTargetPlatform,
         _googleSignIn = googleSignIn ??
             GoogleSignIn(
               scopes: const ['email'],
-              clientId:
-                  '881903820931-c4cttgekf9d3tcv3j2lt10ao2upk4b1m.apps.googleusercontent.com',
+              // iOS only. Passing it on Android is silently reinterpreted as
+              // serverClientId by the plugin — the defect this replaces.
+              clientId: (platform ?? defaultTargetPlatform) ==
+                      TargetPlatform.android
+                  ? null
+                  : kGoogleIosClientId,
+              serverClientId: googleServerClientId,
             );
+
+  final TargetPlatform _platform;
 
   final supabase.SupabaseClient _client;
   final GoogleSignIn _googleSignIn;
@@ -55,6 +102,12 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<AuthIdentity> signInWithGoogle() async {
+    if (!googleSignInConfigured(platform: _platform)) {
+      // Honest failure: nothing about the user's action was wrong.
+      throw const AuthException(
+        'تسجيل الدخول بجوجل غير متاح في هذه النسخة. استخدم طريقة أخرى.',
+      );
+    }
     final account = await _googleSignIn.signIn();
     if (account == null) {
       throw const AuthCancelledException('تم إلغاء تسجيل الدخول بجوجل.');
