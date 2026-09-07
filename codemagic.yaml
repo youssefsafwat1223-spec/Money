@@ -362,6 +362,16 @@ workflows:
             echo "build must never ship without a real backend (stub-auth risk)."
             exit 1
           fi
+          # Android-ONLY gate. Sign in with Apple is iOS-only and there is no
+          # guest path, so Google is the sole way into the app on Android. An
+          # empty GOOGLE_SERVER_CLIENT_ID means the plugin is never asked for an
+          # id token and every sign-in fails — a shippable artifact nobody can
+          # log into. Fail the build instead of discovering it in the store.
+          if [ -z "${GOOGLE_SERVER_CLIENT_ID:-}" ]; then
+            echo "ERROR: GOOGLE_SERVER_CLIENT_ID is empty — Android's only"
+            echo "sign-in path would be dead in the shipped build."
+            exit 1
+          fi
 
       - name: Materialise upload keystore (ephemeral)
         script: |

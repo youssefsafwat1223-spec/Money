@@ -58,8 +58,10 @@ const String kGoogleIosClientId =
 const String _kGoogleServerClientIdDefine =
     String.fromEnvironment('GOOGLE_SERVER_CLIENT_ID');
 
-String? get googleServerClientId =>
-    _kGoogleServerClientIdDefine.isEmpty ? null : _kGoogleServerClientIdDefine;
+String? get googleServerClientId {
+  final value = _kGoogleServerClientIdDefine.trim();
+  return value.isEmpty ? null : value;
+}
 
 /// Whether this platform can complete native Google sign-in with the
 /// configuration this build actually carries.
@@ -73,6 +75,30 @@ bool googleSignInConfigured({TargetPlatform? platform}) {
   return true;
 }
 
+/// Builds the platform-correct client. Extracted so the platform split is
+/// testable: injecting a fake in the constructor would leave the branch that
+/// actually decides `clientId` vs `serverClientId` unexercised.
+GoogleSignIn buildGoogleSignIn(TargetPlatform platform) {
+  final isAndroid = platform == TargetPlatform.android;
+  return GoogleSignIn(
+    scopes: const ['email'],
+    // iOS/macOS only. On Android `clientId` is not supported and the plugin
+    // silently reinterprets it as serverClientId
+    // (GoogleSignInPlugin.java:222-231) — the defect this replaces.
+    clientId: isAndroid ? null : kGoogleIosClientId,
+    // ANDROID ONLY, deliberately. On iOS the Google SDK turns serverClientId
+    // into the OAuth `audience` parameter — GIDSignIn.m:726-727 sets
+    // additionalParameters[@"audience"] = serverClientID — so the iOS id token
+    // would be minted for the WEB client instead of the iOS one. iOS sign-in
+    // works today against a Supabase provider that lists the iOS client;
+    // populating the define for Android's sake would silently flip the iOS
+    // audience and break it, and no test could catch it. Keeping it
+    // Android-only decouples the platforms: each carries its own audience and
+    // neither can break the other. Supabase must list BOTH client ids.
+    serverClientId: isAndroid ? googleServerClientId : null,
+  );
+}
+
 class SupabaseAuthService implements AuthService {
   SupabaseAuthService({
     supabase.SupabaseClient? client,
@@ -80,20 +106,10 @@ class SupabaseAuthService implements AuthService {
     TargetPlatform? platform,
   })  : _client = client ?? supabase.Supabase.instance.client,
         _platform = platform ?? defaultTargetPlatform,
-        _googleSignIn = googleSignIn ??
-            GoogleSignIn(
-              scopes: const ['email'],
-              // iOS only. Passing it on Android is silently reinterpreted as
-              // serverClientId by the plugin — the defect this replaces.
-              clientId: (platform ?? defaultTargetPlatform) ==
-                      TargetPlatform.android
-                  ? null
-                  : kGoogleIosClientId,
-              serverClientId: googleServerClientId,
-            );
+        _googleSignIn =
+            googleSignIn ?? buildGoogleSignIn(platform ?? defaultTargetPlatform);
 
   final TargetPlatform _platform;
-
   final supabase.SupabaseClient _client;
   final GoogleSignIn _googleSignIn;
 
@@ -104,7 +120,7 @@ class SupabaseAuthService implements AuthService {
   Future<AuthIdentity> signInWithGoogle() async {
     if (!googleSignInConfigured(platform: _platform)) {
       // Honest failure: nothing about the user's action was wrong.
-      throw const AuthException(
+      throw const AuthConfigurationException(
         'تسجيل الدخول بجوجل غير متاح في هذه النسخة. استخدم طريقة أخرى.',
       );
     }
@@ -234,4 +250,13 @@ class AuthException implements Exception {
 
 class AuthCancelledException extends AuthException {
   const AuthCancelledException(super.message);
+}
+
+/// The build cannot complete this provider's flow at all — a missing or
+/// malformed OAuth configuration, not a transient failure.
+///
+/// Distinct from [AuthException] because the UI must NOT tell the user to try
+/// again: retrying a misconfigured build fails forever.
+class AuthConfigurationException extends AuthException {
+  const AuthConfigurationException(super.message);
 }

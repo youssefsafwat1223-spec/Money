@@ -113,6 +113,23 @@ void main() {
       }
     });
 
+    test('android-release fails closed without the Google web client', () {
+      // Sign in with Apple is iOS-only and there is no guest path, so Google is
+      // Android's ONLY way in. An empty GOOGLE_SERVER_CLIENT_ID ships an app
+      // nobody can log into, and no runtime check can save a released binary.
+      final body = steps(workflows()['android-release']!)[assertStep]!;
+      expect(body, contains(r'${GOOGLE_SERVER_CLIENT_ID:-}'));
+      expect(body, contains('exit 1'));
+
+      // iOS must NOT gate on it: the iOS client is what signs there, and
+      // requiring the web client would block a valid iOS release.
+      for (final w in ['ios-unsigned-sideload', 'ios-signed-release']) {
+        final ios = steps(workflows()[w]!)[assertStep]!;
+        expect(ios.contains(r'${GOOGLE_SERVER_CLIENT_ID:-}'), isFalse,
+            reason: '$w must not require the Android-only web client');
+      }
+    });
+
     test('the runtime gate this relies on still exists', () {
       // The guard is only meaningful because the app reads these at build time.
       final config =

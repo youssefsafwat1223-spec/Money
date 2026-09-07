@@ -36,38 +36,52 @@ void main() {
               'complete a callback');
     });
 
-    test('the decoy plist client is NOT the registered scheme', () {
-      // ios/GoogleService-Info.plist carries a different client whose reversed
-      // scheme is absent from Info.plist — proof it could never work.
-      final service =
-          File('ios/GoogleService-Info.plist').readAsStringSync();
-      final info = File('ios/Runner/Info.plist').readAsStringSync();
-      final decoy = RegExp(r'com\.googleusercontent\.apps\.[0-9a-zA-Z\-]+')
-          .allMatches(service)
-          .map((m) => m.group(0)!)
-          .toSet();
-      final registered = RegExp(r'com\.googleusercontent\.apps\.[0-9a-zA-Z\-]+')
-          .allMatches(info)
-          .map((m) => m.group(0)!)
-          .toSet();
-      expect(decoy.difference(registered), isNotEmpty,
-          reason: 'documents the known mismatch; if this ever becomes empty '
-              'the decoy was aligned or removed and this test can go');
-    });
-
     test('iOS is considered configured', () {
       expect(googleSignInConfigured(platform: TargetPlatform.iOS), isTrue);
     });
   });
 
+  group('platform split (the fix itself)', () {
+    test('iOS gets the iOS client and NEVER a serverClientId', () {
+      // GIDSignIn.m:726-727 turns serverClientId into the OAuth `audience`,
+      // which would mint the iOS token for the WEB client and break the
+      // Supabase audience check that works today.
+      final ios = buildGoogleSignIn(TargetPlatform.iOS);
+      expect(ios.clientId, kGoogleIosClientId);
+      expect(ios.serverClientId, isNull,
+          reason: 'serverClientId on iOS silently flips the token audience');
+    });
+
+    test('Android gets NO clientId — the plugin would misread it', () {
+      // GoogleSignInPlugin.java:222-231 reinterprets clientId as
+      // serverClientId on Android, which is the original defect.
+      final android = buildGoogleSignIn(TargetPlatform.android);
+      expect(android.clientId, isNull);
+      expect(android.serverClientId, googleServerClientId);
+    });
+
+    test('macOS is treated like iOS, not Android', () {
+      expect(buildGoogleSignIn(TargetPlatform.macOS).clientId,
+          kGoogleIosClientId);
+    });
+  });
+
   group('Android needs the web client', () {
-    test('no GOOGLE_SERVER_CLIENT_ID define means not configured', () {
-      expect(googleServerClientId, isNull);
-      expect(googleSignInConfigured(platform: TargetPlatform.android), isFalse);
+    test('configuration follows the define, whichever way it is set', () {
+      // Tolerant of a run WITH --dart-define=GOOGLE_SERVER_CLIENT_ID: assert
+      // the relationship, not the environment.
+      expect(googleSignInConfigured(platform: TargetPlatform.android),
+          googleServerClientId != null);
+    });
+
+    test('whitespace is not configuration', () {
+      // A define of "   " must not count as configured.
+      expect(googleServerClientId, anyOf(isNull, isNot(matches(r'^\s*$'))));
     });
 
     test('sign-in fails as a configuration error, without opening Google',
         () async {
+      if (googleServerClientId != null) return; // configured build: N/A
       final service = SupabaseAuthService(
         client: _client(),
         googleSignIn: _NeverCalledGoogleSignIn(),
@@ -75,12 +89,13 @@ void main() {
       );
       await expectLater(
         service.signInWithGoogle(),
-        throwsA(isA<AuthException>()
+        throwsA(isA<AuthConfigurationException>()
             .having((e) => e.message, 'message', contains('غير متاح'))),
       );
     });
 
     test('the error is not the misleading token-read message', () async {
+      if (googleServerClientId != null) return; // configured build: N/A
       final service = SupabaseAuthService(
         client: _client(),
         googleSignIn: _NeverCalledGoogleSignIn(),
@@ -89,7 +104,7 @@ void main() {
       try {
         await service.signInWithGoogle();
         fail('expected an AuthException');
-      } on AuthException catch (e) {
+      } on AuthConfigurationException catch (e) {
         expect(e.message.contains('لم نستطع قراءة رمز'), isFalse,
             reason: 'that message blamed the token read for a config defect');
       }

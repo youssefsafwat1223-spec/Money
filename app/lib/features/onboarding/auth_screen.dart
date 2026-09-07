@@ -8,6 +8,8 @@ import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/auth/auth_service.dart';
+import '../../core/auth/supabase_auth_service.dart'
+    show AuthCancelledException, AuthConfigurationException;
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
@@ -118,7 +120,18 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         debugPrintStack(stackTrace: stackTrace);
       }
       if (mounted) {
-        AppToast.showError(context, context.l10n.authSignInError);
+        // A CONFIGURATION failure is permanent: "try again" would be a lie the
+        // user could follow forever. Surface the service's own message for
+        // those; keep the generic retry copy for transient failures.
+        if (error is AuthCancelledException) {
+          // The user closed the sheet. Nothing failed; say nothing.
+        } else if (error is AuthConfigurationException) {
+          // Permanent for this build — "try again" would be a lie the user
+          // could follow forever.
+          AppToast.showError(context, error.message);
+        } else {
+          AppToast.showError(context, context.l10n.authSignInError);
+        }
       }
     } finally {
       if (mounted) {
