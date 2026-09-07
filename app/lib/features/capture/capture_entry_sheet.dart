@@ -26,7 +26,10 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
           _ActionTile(
             icon: AppLucideIcons.clipboardPaste,
             title: 'ألصق رسالة بنك',
-            subtitle: 'سيقوم الذكاء الاصطناعي بتصنيفها وإضافتها تلقائياً.',
+            // Truthful by default: AI consent is `unset` until the user grants
+            // it, so most installs read the message on-device only, and every
+            // capture lands in review rather than being added "automatically".
+            subtitle: 'نقرأ الرسالة ونجهّز العملية للمراجعة.',
             isPrimary: true,
             onTap: () {
               Navigator.of(context).pop();

@@ -280,21 +280,34 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
           showTopError(context,
               'الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.');
         } else {
-          final reason = addResult.aiFailureReason;
-          final showAiFailure = reason != null &&
-              reason != 'null_response' &&
-              !reason.startsWith('http_502') &&
-              !reason.startsWith('http_503') &&
-              !reason.startsWith('http_504') &&
-              reason != 'network_or_timeout';
-          showTopError(
-            context,
-            !showAiFailure
-                ? 'ما قدرنا نقرأها كعملية حتى بعد محاولة الذكاء الاصطناعي — ابعتلي نص الرسالة.'
-                : 'فشل الذكاء الاصطناعي: $reason',
-          );
+          showTopError(context, _unreadableMessage(addResult.aiFailureReason));
         }
     }
+  }
+
+  /// Honest copy for a message we could not read.
+  ///
+  /// `aiFailureReason` carries TWO different things: reasons the AI was never
+  /// invoked (consent not granted, no client, sender suppressed, the message
+  /// classified as non-transactional, an on-device-only drain) and reasons a
+  /// real attempt produced nothing. The old copy interpolated the raw token, so
+  /// the DEFAULT install — AI consent is `unset` until the user grants it —
+  /// read "فشل الذكاء الاصطناعي: consent_off": an internal identifier, and a
+  /// claim that something failed when nothing had run.
+  static String _unreadableMessage(String? reason) {
+    const notAttempted = {
+      'no_ai_client',
+      'consent_off',
+      'sender_suppressed',
+      'message_ignored',
+      'on_device_only',
+    };
+    if (reason != null && notAttempted.contains(reason)) {
+      // Local reading only — say so instead of blaming a service that was
+      // never asked.
+      return 'ما قدرناش نقرأ الرسالة على الجهاز — ضيفها يدوياً.';
+    }
+    return 'ما قدرنا نقرأها كعملية — ضيفها يدوياً.';
   }
 
   Future<void> _openBatchItem(

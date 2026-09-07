@@ -45,6 +45,29 @@ import '../../../engine/ai/bank_discovery_client.dart';
 import 'capture_notification_content.dart';
 import 'local_notification_service.dart';
 
+/// WHAT IN HERE IS LIVE, AND WHAT IS NOT.
+///
+/// [checkBudgetAlert] IS live — `app_shell.dart` and `manual_transaction_sheet
+/// .dart` both call it, and the comment at the app-shell call site records why:
+/// the relay import and the foreground shared-message ingest add transactions
+/// "without going through CapturedMessageProcessor, so its budget check never
+/// ran for them".
+///
+/// [process] / [processCapturedMessage] are NOT reachable. They were the
+/// background-isolate capture pipeline; every capture now arrives through the
+/// native durable queue and is ingested by `AppShell._consumeSharedInput`,
+/// which owns the per-item lease/ack boundary, the Smart Inbox persistence for
+/// unprocessable captures (via `SharedCaptureHandoffService`), and the same
+/// five-disposition notification switch reproduced here. Nothing dispatches a
+/// Dart background entry point for capture on either platform: the only capture
+/// channel is `money_companion/native_capture`, and no native code creates a
+/// background `FlutterEngine` or a `DartCallback` — pinned by
+/// `test/architecture/capture_entry_points_test.dart`.
+///
+/// They are kept rather than deleted because they are not merely unused: they
+/// are the only implementation of `_autoDetectCard`, which the live drain does
+/// NOT do. Deleting them would quietly convert a known gap into a lost one.
+/// Do not add callers; the live path is the drain.
 class CapturedMessageProcessor {
   const CapturedMessageProcessor._();
 
