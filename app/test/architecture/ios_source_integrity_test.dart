@@ -85,4 +85,26 @@ void main() {
               'together.');
     }
   });
+
+  test('the XCTest integration runner is gated off the Swift unit-test run', () {
+    // RunnerTests hosts the Swift unit tests. FLTIntegrationTestRunner spins
+    // the run loop with no timeout until Dart reports, so an ungated
+    // INTEGRATION_TEST_IOS_RUNNER blocks `xcodebuild test` forever whenever
+    // FLUTTER_TARGET is lib/main.dart (after any ordinary `flutter run`) —
+    // taking every Swift unit test down with it. Found in review; pinned here.
+    final src = File('ios/RunnerTests/IntegrationTestRunner.m').readAsStringSync();
+    final code = src.replaceAll(RegExp(r'//.*'), '');
+    final gate = code.indexOf('#if QIRSH_INTEGRATION_TEST');
+    final runner = code.indexOf('INTEGRATION_TEST_IOS_RUNNER(');
+    final end = code.indexOf('#endif');
+    expect(gate, isNonNegative, reason: 'runner must be behind #if QIRSH_INTEGRATION_TEST');
+    expect(runner, isNonNegative, reason: 'INTEGRATION_TEST_IOS_RUNNER missing');
+    expect(gate < runner && runner < end, isTrue,
+        reason: 'INTEGRATION_TEST_IOS_RUNNER must sit inside the #if … #endif');
+    // And nothing in the project makes the define unconditional.
+    final pbx = File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
+    expect(pbx.contains('QIRSH_INTEGRATION_TEST'), isFalse,
+        reason: 'the define must come from the integration xcodebuild '
+            'invocation only, never from project build settings');
+  });
 }

@@ -223,6 +223,11 @@ class _AppShellState extends ConsumerState<AppShell> {
       unawaited(_runLedgerSync(recoveryProbe: true));
       await _drainPendingNotificationRoutes();
       await _syncEngagement();
+      // Cold-start work is a long await chain inside initState's closure, and
+      // the shell is a route: opening a top-level page disposes it part-way
+      // through, after which this read throws. Nothing below is required for
+      // correctness on this pass — the next resume repeats it.
+      if (!mounted) return;
       unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
       // R4 §11: cold-start UMP gathering — the primary fix for the missing
       // production caller. Fire-and-forget, fail-open, once per session.
@@ -322,12 +327,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     final runNonCritical =
         _resumeCoalescer.shouldRunNonCritical(DateTime.now());
     unawaited(_syncRemoteOnboardingCompletion());
+    // Same disposal race as below: an await preceded this — syncCatalog reads ref immediately.
+    if (!mounted) return;
     if (runNonCritical) await syncCatalog(ref);
     if (runNonCritical) {
       // R4 §7/§11/§21: warm the report-export entitlement decision on resume,
       // then run the one UMP orchestration point (gather consent → refresh the
       // privacy-options state → gated preload) so no ad is ever preloaded
       // before UMP permits requests. Fire-and-forget.
+      // Same disposal race as below: an await preceded this — this read is synchronous.
+      if (!mounted) return;
       unawaited(ref
           .read(reportEntitlementResolverProvider)
           .refresh()
@@ -348,6 +357,13 @@ class _AppShellState extends ConsumerState<AppShell> {
     unawaited(_runLedgerSync(recoveryProbe: true));
     await _drainPendingNotificationRoutes();
     await _syncEngagement();
+    // Resume work is a long await chain and the shell is a route: opening a
+    // top-level page (/accounts, /goals, …) disposes it part-way through, and
+    // every `ref` use below then throws. This method has no try, so that
+    // escaped as an unhandled async error instead of resume work simply
+    // stopping. Nothing here is required for correctness on this pass — the
+    // next resume repeats it.
+    if (!mounted) return;
     unawaited(ref.read(notificationJourneyServiceProvider).evaluate());
     // MALI-065n: bounded-lease sweep of any export temp file a crash orphaned
     // while backgrounded — never touches one still inside its lease (an
@@ -665,6 +681,17 @@ class _AppShellState extends ConsumerState<AppShell> {
     do {
       try {
         await _runLedgerSyncBody(gen);
+      } on StateError catch (_) {
+        // The body holds ~7 `ref` uses across as many awaits; the shell is a
+        // route and can be disposed under any of them. Guarding each one is
+        // whack-a-mole, and deciding on `mounted` here is exact: disposed means
+        // stop this cycle (the outbox is durable, the next cycle retries),
+        // while a StateError raised while still mounted is a real bug and must
+        // keep propagating.
+        if (mounted) rethrow;
+        if (kDebugMode) {
+          debugPrint('[LedgerSync] stopped: shell disposed mid-cycle');
+        }
       } finally {
         // First completed round after sign-in: the pull has landed — reveal the
         // real data in one shot instead of defaults morphing under the user.
@@ -707,6 +734,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _runLedgerSyncBody(int gen) async {
+    // Same as _syncEngagementBody: awaited from a chain that can outlive the
+    // shell, so guard on entry as well as after each await below.
+    if (!mounted) return;
     // MALI-029 ownership guard: if the owner changed (sign-out / relogin) since
     // this run was scheduled, abort before doing any work — old-owner sync must
     // not write or refresh under a new owner. Sub-services also fail-safe (no
@@ -855,6 +885,13 @@ class _AppShellState extends ConsumerState<AppShell> {
       // local import committed — a kill anywhere in this loop re-delivers
       // exactly the unprocessed remainder on the next drain.
       final messages = await NativeCaptureBridge.peekPendingSharedMessages();
+      // The shell is a route, not a permanent host: opening a top-level page
+      // (/accounts, /goals, …) disposes it, and the peek above can outlive it.
+      // Every `ref` use below would then throw, and unlike the sync calls
+      // further up this is outside any try — so it escaped as an unhandled
+      // async error instead of the drain simply stopping. The queue is
+      // untouched; the next drain re-delivers it.
+      if (!mounted) return;
       if (kDebugMode) {
         debugPrint('[Capture] consumeSharedInput: ${messages.length} messages');
       }
@@ -1051,6 +1088,19 @@ class _AppShellState extends ConsumerState<AppShell> {
       if (pendingBankDiscovery != null) {
         await _openBankDiscoverySheet(pendingBankDiscovery);
       }
+    } on StateError catch (_) {
+      // The shell is a route, not a permanent host: opening a top-level page
+      // (/accounts, /goals, …) disposes it mid-drain, and any of the 22 awaits
+      // above can return to a dead `ref`. This method already returns early on
+      // !mounted in two places — being disposed means STOP, not fail — but the
+      // outer block was try/finally with no catch, so the StateError escaped as
+      // an unhandled async error instead. Guarding each await individually is
+      // whack-a-mole; deciding on `mounted` is exact. A StateError raised while
+      // still mounted is a real bug and must keep propagating.
+      if (mounted) rethrow;
+      if (kDebugMode) {
+        debugPrint('[Capture] drain stopped: shell disposed mid-drain');
+      }
     } finally {
       _isConsumingSharedInput = false;
     }
@@ -1131,14 +1181,25 @@ class _AppShellState extends ConsumerState<AppShell> {
       await _syncEngagementBody();
     } on AuthRepoException {
       await _handleAuthRequiredFailure();
+    } on StateError catch (_) {
+      // Same disposal race as _runLedgerSync; same exact discriminator.
+      if (mounted) rethrow;
+      if (kDebugMode) {
+        debugPrint('[Engagement] stopped: shell disposed mid-sync');
+      }
     } finally {
       _syncEngagementInFlight = false;
     }
   }
 
   Future<void> _syncEngagementBody() async {
+    // Entry is already a disposal window: this is awaited from _onResume after
+    // other awaits, so the shell can be gone before the first line runs.
+    if (!mounted) return;
     final preferences =
         await ref.read(loadNotificationPreferencesUseCaseProvider).call();
+    // Same reason as _onResume: the shell can be disposed across this await.
+    if (!mounted) return;
 
     // Streak reminder, weekly report, and bill/subscription reminders are
     // scheduled locally (no server-side equivalent exists) — this was
@@ -1155,6 +1216,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       hasActivityToday: hasActivityToday,
       preferences: preferences,
     );
+    // Same disposal race as below: an await preceded this.
+    if (!mounted) return;
     final bills = await ref.read(billRepositoryProvider).getAll();
     final planned = const NotificationPlanner().planScheduled(
       preferences: preferences,
@@ -1171,6 +1234,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Opportunistic — drains native (iOS Shortcut) notification events and
     // syncs the local outbox to notification_logs. Never blocks engagement
     // evaluation on network availability.
+    // Same disposal race as below: an await preceded this.
+    if (!mounted) return;
     unawaited(ref.read(notificationLogSyncServiceProvider).sync());
   }
 

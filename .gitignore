@@ -86,3 +86,6 @@ app/ios/Flutter/AdMob.xcconfig
 
 # Isolated physical-QA app instance (local only, never shipped)
 app/ios/Flutter/QA.xcconfig
+
+# Physical-device QA scratch (credentials + run logs, never committed)
+.qirsh-qa/

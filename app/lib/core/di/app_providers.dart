@@ -403,6 +403,9 @@ Future<void> syncCatalog(
   String? countryCode,
   bool force = false,
 }) async {
+  // Entry is already a disposal window: this is awaited from _onResume after
+  // other awaits, so the shell can be gone before the first line runs.
+  if (!ref.context.mounted) return;
   final database = ref.read(appDatabaseProvider);
   await const SeedLoader().seedIfEmpty(database);
 
@@ -425,11 +428,17 @@ Future<void> syncCatalog(
   await initFeatureFlagService(database);
   if (!SupabaseConfig.isConfigured) return;
   if (!force && !await _catalogSyncIsStale(database)) return;
+  // The caller is AppShell — a route. Opening a top-level page disposes it
+  // while the awaits above are in flight, and every `ref` use after that
+  // throws (observed on a physical iPhone: ref.invalidate from here aborted a
+  // post-auth run). Disposed means stop; the next resume repeats the sync.
+  if (!ref.context.mounted) return;
   await ref.read(catalogSyncServiceProvider).syncAll(countryCode: countryCode);
   // Catalog sync replaces remote_feature_flags in Drift; refresh the same
   // runtime singleton used by sync gates before any outbox/pull work runs.
   await initFeatureFlagService(database);
   // Invalidate announcement providers so UI rebuilds with fresh data.
+  if (!ref.context.mounted) return;
   ref.invalidate(activeAnnouncementsProvider);
   ref.invalidate(hasForceUpdateProvider);
   // Same-session flag reactivity (R4 §9): the report-ads placement gate must
