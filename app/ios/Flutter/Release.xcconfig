@@ -1,3 +1,10 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
 #include? "AdMob.xcconfig"
+
+// ── Isolated QA app instance ────────────────────────────────────────────────
+// Release and Profile pin the production identifiers unconditionally. There is
+// deliberately no QA.xcconfig include here: a shipping build must not depend on
+// the absence of a local file.
+QIRSH_BUNDLE_SUFFIX =
+QIRSH_ENTITLEMENTS_SUFFIX =

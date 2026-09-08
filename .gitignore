@@ -83,3 +83,6 @@ app/ios/Flutter/AdMob.xcconfig
 # reviewable. See that directory's README.
 /research/
 /demo-docker/
+
+# Isolated physical-QA app instance (local only, never shipped)
+app/ios/Flutter/QA.xcconfig

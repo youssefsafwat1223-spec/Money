@@ -293,7 +293,10 @@ void main() {
           File('ios/Runner.xcodeproj/project.pbxproj').readAsStringSync();
       final ids = RegExp(r'PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);')
           .allMatches(pbx)
-          .map((m) => m.group(1)!.trim())
+          // Values carrying a build-setting reference are quoted in pbxproj
+          // (PRODUCT_BUNDLE_IDENTIFIER = "com.youssefsafwat.mali$(SUFFIX)"),
+          // so strip quotes before checking the prefix.
+          .map((m) => m.group(1)!.trim().replaceAll('"', ''))
           .toSet();
       expect(ids, isNotEmpty);
       for (final id in ids) {

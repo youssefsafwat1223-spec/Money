@@ -1,0 +1,8 @@
+// Share-extension Release/Profile settings.
+//
+// Deliberately does NOT include QA.xcconfig: a release build must resolve to
+// the production identifiers even when a QA override file exists on the
+// machine that builds it.
+#include "Generated.xcconfig"
+QIRSH_BUNDLE_SUFFIX =
+QIRSH_ENTITLEMENTS_SUFFIX =

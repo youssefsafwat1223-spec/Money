@@ -1,2 +1,13 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
+
+// ── Isolated QA app instance ────────────────────────────────────────────────
+// Default is production: an empty suffix resolves PRODUCT_BUNDLE_IDENTIFIER to
+// com.youssefsafwat.mali and CODE_SIGN_ENTITLEMENTS to Runner.entitlements,
+// exactly as before this file grew these lines.
+QIRSH_BUNDLE_SUFFIX =
+QIRSH_ENTITLEMENTS_SUFFIX =
+// Local, gitignored, Debug-only. When present it flips this build to the .qa
+// bundle id, which iOS gives its own container — separate Drift database,
+// SharedPreferences, and keychain items. Release never reads it.
+#include? "QA.xcconfig"

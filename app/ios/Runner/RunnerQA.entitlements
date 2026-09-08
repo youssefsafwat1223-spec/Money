@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Isolated QA instance. Deliberately EMPTY.
+
+	     Omitting the App Group is the isolation mechanism, not an oversight:
+	     without the entitlement iOS refuses the QA build access to
+	     group.com.youssefsafwat.mali, so it cannot read or write the real
+	     app's shared capture container even though SharedCaptureStore still
+	     names that group. Every accessor there is optional-chained
+	     (SharedCaptureStore.swift:41), so capture degrades instead of
+	     crashing.
+
+	     Omitting keychain-access-groups leaves flutter_secure_storage on the
+	     default group — this bundle id — so the QA build gets its own
+	     SQLCipher key and its own session, and cannot decrypt the real app's
+	     database.
+
+	     aps-environment and Sign in with Apple are omitted so automatic
+	     signing can provision this App ID without portal capability setup.
+	     QA authenticates with email/password; push is verified on the real
+	     production build, not here. -->
+</dict>
+</plist>

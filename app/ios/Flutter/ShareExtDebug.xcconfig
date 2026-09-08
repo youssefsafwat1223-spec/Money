@@ -1,0 +1,11 @@
+// Share-extension Debug settings.
+//
+// The extension's bundle id must stay prefixed by the host app's, so it has to
+// resolve the same QIRSH_BUNDLE_SUFFIX the app does. Its previous base config
+// was Generated.xcconfig, which Flutter rewrites on every build and therefore
+// cannot carry a default.
+#include "Generated.xcconfig"
+QIRSH_BUNDLE_SUFFIX =
+QIRSH_ENTITLEMENTS_SUFFIX =
+// Local, gitignored, Debug-only. Absent in CI and in every release build.
+#include? "QA.xcconfig"
