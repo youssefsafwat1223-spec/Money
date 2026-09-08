@@ -8,9 +8,13 @@
 	     without the entitlement iOS refuses the QA build access to
 	     group.com.youssefsafwat.mali, so it cannot read or write the real
 	     app's shared capture container even though SharedCaptureStore still
-	     names that group. Every accessor there is optional-chained
-	     (SharedCaptureStore.swift:41), so capture degrades instead of
-	     crashing.
+	     names that group. The mechanism differs per API and neither reaches
+	     real data: containerURL(forSecurityApplicationGroupIdentifier:)
+	     returns nil and is guarded (SharedCaptureStore.swift:605), while
+	     UserDefaults(suiteName:) does NOT return nil — iOS silently detaches
+	     it to this app's own sandbox. Shared-keychain reads fail with
+	     errSecMissingEntitlement, which the code already treats as absent.
+	     Capture is non-functional in QA; it is never cross-wired.
 
 	     Omitting keychain-access-groups leaves flutter_secure_storage on the
 	     default group — this bundle id — so the QA build gets its own

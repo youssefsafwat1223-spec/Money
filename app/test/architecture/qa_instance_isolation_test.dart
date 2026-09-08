@@ -50,25 +50,52 @@ void main() {
     });
 
     test('release xcconfigs pin the suffixes to empty', () {
+      // xcconfig is last-write-wins, so asserting an empty assignment merely
+      // EXISTS passes even when `QIRSH_BUNDLE_SUFFIX = .qa` is appended below
+      // it. The last assignment is the one that decides.
       for (final cfg in [releaseCfg, extReleaseCfg]) {
-        expect(RegExp(r'^QIRSH_BUNDLE_SUFFIX\s*=\s*$', multiLine: true)
-            .hasMatch(cfg), isTrue);
-        expect(RegExp(r'^QIRSH_ENTITLEMENTS_SUFFIX\s*=\s*$', multiLine: true)
-            .hasMatch(cfg), isTrue);
+        for (final key in ['QIRSH_BUNDLE_SUFFIX', 'QIRSH_ENTITLEMENTS_SUFFIX']) {
+          final assignments = RegExp('^' + key + r'\s*=(.*)$', multiLine: true)
+              .allMatches(settingsOnly(cfg))
+              .map((m) => m.group(1)!.trim())
+              .toList();
+          expect(assignments, isNotEmpty, reason: '$key never pinned');
+          expect(assignments.last, isEmpty,
+              reason: 'the LAST $key assignment must be empty, got '
+                  '"${assignments.last}"');
+        }
+      }
+    });
+
+    test('no target or project build setting outranks the xcconfigs', () {
+      // Precedence is target > target xcconfig > project > project xcconfig.
+      // A QIRSH_* assignment inside project.pbxproj buildSettings would beat
+      // every xcconfig above and could ship the QA identifier — the one layer
+      // the other guards cannot see.
+      for (final key in ['QIRSH_BUNDLE_SUFFIX', 'QIRSH_ENTITLEMENTS_SUFFIX']) {
+        expect(RegExp('^\\s*' + key + r'\s*=', multiLine: true).hasMatch(pbxproj),
+            isFalse,
+            reason: '$key set in project.pbxproj outranks the xcconfig default');
       }
     });
 
     test('debug defaults to production before the override is included', () {
       // Order matters: the default must be assigned ABOVE the include, so a
       // machine without QA.xcconfig (CI, a fresh clone) builds the real app.
-      for (final cfg in [debugCfg, extDebugCfg]) {
-        final defaultAt = cfg.indexOf(RegExp(r'^QIRSH_BUNDLE_SUFFIX\s*=\s*$',
-            multiLine: true));
+      for (final raw in [debugCfg, extDebugCfg]) {
+        final cfg = settingsOnly(raw);
         final includeAt = cfg.indexOf('QA.xcconfig');
-        expect(defaultAt, isNonNegative, reason: 'no empty default');
         expect(includeAt, isNonNegative, reason: 'no QA include');
-        expect(defaultAt < includeAt, isTrue,
-            reason: 'the QA include must come after the empty default');
+        // Both suffixes, not just the bundle one: a build that took the QA id
+        // but the PRODUCTION entitlements would carry the real App Group and
+        // could reach the real shared container. That is the fail-open case.
+        for (final key in ['QIRSH_BUNDLE_SUFFIX', 'QIRSH_ENTITLEMENTS_SUFFIX']) {
+          final defaultAt =
+              cfg.indexOf(RegExp('^$key\\s*=\\s*\$', multiLine: true));
+          expect(defaultAt, isNonNegative, reason: 'no empty default for $key');
+          expect(defaultAt < includeAt, isTrue,
+              reason: 'the QA include must come after the $key default');
+        }
       }
     });
 
@@ -81,16 +108,22 @@ void main() {
     test('no bundle identifier is hardcoded past the suffix', () {
       // Every id must flow through the suffix, or a target silently keeps the
       // production container while the rest of the app moves.
-      // RunnerTests is excluded deliberately: it is a host-app test bundle that
-      // never ships and never gets its own container.
-      final bare = RegExp(
-              r'PRODUCT_BUNDLE_IDENTIFIER = com\.youssefsafwat\.mali(?!\.RunnerTests)')
+      // Checking only for an UNQUOTED literal would pass vacuously: pbxproj
+      // quotes any value containing $(...), so the dangerous shape —
+      // PRODUCT_BUNDLE_IDENTIFIER = "com.youssefsafwat.mali" — is quoted too.
+      // Strip quotes first, then require the suffix on every shipping id.
+      final ids = RegExp(r'PRODUCT_BUNDLE_IDENTIFIER = ([^;]+);')
           .allMatches(pbxproj)
-          .length;
-      expect(bare, 0,
-          reason: 'unquoted/unsuffixed production id left in project.pbxproj');
-      expect(pbxproj.contains(r'"com.youssefsafwat.mali$(QIRSH_BUNDLE_SUFFIX)"'),
-          isTrue);
+          .map((m) => m.group(1)!.trim().replaceAll('"', ''))
+          .toSet();
+      expect(ids, isNotEmpty);
+      for (final id in ids) {
+        // RunnerTests is excluded deliberately: a test bundle never ships and
+        // never gets its own container.
+        if (id.endsWith('.RunnerTests')) continue;
+        expect(id.contains(r'$(QIRSH_BUNDLE_SUFFIX)'), isTrue,
+            reason: 'bundle id bypasses the suffix: $id');
+      }
     });
   });
 
@@ -100,10 +133,11 @@ void main() {
 
     test('production entitlements keep their capabilities', () {
       // Nothing about the real app may be weakened to make QA possible.
-      expect(prodEnt.contains('group.com.youssefsafwat.mali'), isTrue);
-      expect(prodEnt.contains('keychain-access-groups'), isTrue);
-      expect(prodEnt.contains(r'$(APS_ENVIRONMENT)'), isTrue);
-      expect(prodEnt.contains('com.apple.developer.applesignin'), isTrue);
+      final prod = settingsOnly(prodEnt);
+      expect(prod.contains('group.com.youssefsafwat.mali'), isTrue);
+      expect(prod.contains('keychain-access-groups'), isTrue);
+      expect(prod.contains(r'$(APS_ENVIRONMENT)'), isTrue);
+      expect(prod.contains('com.apple.developer.applesignin'), isTrue);
     });
 
     test('QA entitlements grant no shared container', () {
@@ -129,7 +163,9 @@ void main() {
           if (!f.path.endsWith('.dart') && !f.path.endsWith('.swift')) continue;
           if (f.path.endsWith('qa_instance_isolation_test.dart')) continue;
           final src = f.readAsStringSync();
-          if (src.contains('QA_PASSWORD') || src.contains('QA_EMAIL')) {
+          if (src.contains('QA_PASSWORD') ||
+              src.contains('QA_EMAIL') ||
+              src.contains('QA_USER_ID')) {
             offenders.add(f.path);
           }
         }
@@ -154,7 +190,12 @@ void main() {
     // it with a separate container; it must never be softened to let a test
     // pass. If this fails, check that weakening was intended.
     final session = read('lib/core/session/app_session.dart');
-    expect(session.contains('await wipe();'), isTrue,
+    // Scoped to the owner gate itself: `await wipe();` anywhere in the file
+    // would also be satisfied by the unrelated sign-out wipe.
+    final gate = session.substring(
+        session.indexOf('Future<bool> _ensureLocalDataOwnedBy'));
+    final body = gate.substring(0, gate.indexOf('\n  }'));
+    expect(body.contains('await wipe();'), isTrue,
         reason: 'owner-change wipe removed — QA must not change product safety');
   });
 }
