@@ -136,7 +136,14 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
       _replaceWithSetup(OnboardingSetupEntry.full);
       return;
     }
-    if (mounted) context.pop();
+    if (!mounted) return;
+    // Outside onboarding this screen is reached by push() from data transfer
+    // (data_transfer_screen.dart) and backup (backup_screen.dart), so there is
+    // normally something to pop. When it is the root of the stack — entered by
+    // go(), a deep link, or a restored route — an unguarded pop throws
+    // "GoError: There is nothing to pop" and the user is stranded on a screen
+    // whose dismiss button is dead. Mirrors planning_repair_gate.dart.
+    context.canPop() ? context.pop() : context.go('/data-transfer');
   }
 
   void _replaceWithSetup(OnboardingSetupEntry entry) {

@@ -12,7 +12,11 @@ APP=${QIRSH_APP:-$(cd "$(dirname "$0")/.." && pwd)}
 # Reuse the DEFAULT DerivedData. Passing -derivedDataPath would force a cold
 # build; so would varying the build settings below, which apply to every target
 # and rehash each Pod (measured: 1000s full vs 206-901s incremental).
-DD=$(ls -dt $HOME/Library/Developer/Xcode/DerivedData/Runner-* | head -1)
+# Pick the DerivedData that actually HOLDS build products, not merely the most
+# recently touched one: xcodebuild can create a second Runner-* dir (a different
+# workspace-path hash), and `ls -dt` then selects a directory with no .xctestrun.
+DD=$(dirname "$(dirname "$(dirname "$(ls -t $HOME/Library/Developer/Xcode/DerivedData/Runner-*/Build/Products/*.xctestrun 2>/dev/null | head -1)")")" 2>/dev/null)
+[[ -z "$DD" ]] && DD=$(ls -dt $HOME/Library/Developer/Xcode/DerivedData/Runner-* | head -1)
 UDID=${QIRSH_DEVICE:?set QIRSH_DEVICE to the iPhone udid}
 DEFS='GCC_PREPROCESSOR_DEFINITIONS=$(inherited) QIRSH_INTEGRATION_TEST=1'
 # RunnerTests.swift does `@testable import Runner`, which needs ENABLE_TESTABILITY —
@@ -31,7 +35,9 @@ case "${1:-}" in
     grep -E "error:|warning: .*QIRSH" "$S/bft.log" | head -3
     ls -la $DD/Build/Products/*.xctestrun 2>/dev/null | awk '{print $5, $9}' ;;
   run)
-    XR=$(ls -t $DD/Build/Products/*.xctestrun 2>/dev/null | head -1); [ -n "$XR" ] || { echo "no .xctestrun — run build first"; exit 2; }
+    XR=$(ls -t $HOME/Library/Developer/Xcode/DerivedData/Runner-*/Build/Products/*.xctestrun 2>/dev/null | head -1)
+    [ -n "$XR" ] || { echo "no .xctestrun — run build first"; exit 2; }
+    echo "xctestrun: $XR" 
     # Run from a neutral cwd: inside app/ios xcodebuild also loads the workspace
     # scheme, reports its supported platforms as empty, and rejects the device.
     cd "$S" && t0=$(date +%s); rm -rf "$S/qa_run.xcresult"
