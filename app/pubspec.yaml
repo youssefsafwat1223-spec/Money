@@ -73,6 +73,11 @@ dependencies:
 dev_dependencies:
   flutter_test:
     sdk: flutter
+  # On-device runtime QA. Drives the real app from inside Dart, so journeys can
+  # be exercised without macOS Accessibility or a simulator — the iOS 26.5
+  # simulator on this machine fails Apple's own scene-create watchdog.
+  integration_test:
+    sdk: flutter
   flutter_lints: ^4.0.0
   # Used by test/architecture/ci_release_gate_authority_test.dart to parse
   # codemagic.yaml STRUCTURALLY (not via fragile whitespace scans). Declared
