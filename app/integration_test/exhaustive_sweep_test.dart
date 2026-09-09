@@ -25,6 +25,14 @@ const _qaEmail = String.fromEnvironment('QA_EMAIL');
 const _qaPassword = String.fromEnvironment('QA_PASSWORD');
 const _qaUserId = String.fromEnvironment('QA_USER_ID');
 
+/// Route slice for this run. The device test runner terminates the sweep at
+/// roughly 5.5 minutes regardless of -default-test-execution-time-allowance,
+/// which cut every full run off at 10 of 23 routes — so more than half the
+/// surface was never exercised. Slicing keeps each run inside that budget and
+/// the batches together cover everything.
+const _sweepFrom = int.fromEnvironment('SWEEP_FROM', defaultValue: 0);
+const _sweepTo = int.fromEnvironment('SWEEP_TO', defaultValue: 999);
+
 /// Controls that must not be tapped, each with the reason recorded in the
 /// audit. Deliberately narrow: destructive-but-recoverable actions on
 /// QA-owned data ARE tested — only genuinely unsafe ones are listed.
@@ -40,13 +48,30 @@ const _unsafe = <String, String>{
 /// Route paths that take parameters are visited with ids created by this run,
 /// or skipped as NOT APPLICABLE when no such row exists.
 const _staticRoutes = <String>[
-  '/', '/reports', '/accounts', '/cards', '/budgets', '/budgets/new',
-  '/goals', '/goals/new', '/settings', '/privacy', '/profile',
-  '/data-transfer', '/backup', '/backup/restore', '/announcements', '/subscriptions',
-  '/savings', '/coupons', '/referrals', '/paste', '/achievements',
-  '/capture/sms-permission', '/settings/planning-currency-repair',
+  '/',
+  '/reports',
+  '/accounts',
+  '/cards',
+  '/budgets',
+  '/budgets/new',
+  '/goals',
+  '/goals/new',
+  '/settings',
+  '/privacy',
+  '/profile',
+  '/data-transfer',
+  '/backup',
+  '/backup/restore',
+  '/announcements',
+  '/subscriptions',
+  '/savings',
+  '/coupons',
+  '/referrals',
+  '/paste',
+  '/achievements',
+  '/capture/sms-permission',
+  '/settings/planning-currency-repair',
 ];
-
 
 /// Durable tables a generic sweep can write to. Re-navigation resets widget and
 /// navigation state; it does NOT reset Drift. Without this, one control silently
@@ -57,28 +82,65 @@ const _staticRoutes = <String>[
 /// seeded reference data is itself a finding) but never restored — they are
 /// idempotently reseeded at boot and rewriting them would fight the seeder.
 const _userTables = <String>[
-  'accounts', 'budgets', 'goals', 'goal_contributions', 'cards', 'categories',
-  'transactions', 'smart_inbox_items', 'plans', 'plan_transaction_links',
-  'subscriptions', 'bill_payments', 'merchants', 'merchant_category_map',
-  'user_settings', 'streaks', 'xp_levels', 'achievements', 'engagement_events',
-  'sender_bank_mappings', 'suspected_duplicates', 'dedup_hashes',
-  'pending_merchant_feedback', 'local_offer_savings',
-  'affiliate_click_receipts', 'capture_work_items', 'capture_review_labels',
-  'financial_import_runs', 'restore_operations', 'notification_log_events',
-  'proof_shadow_evaluations', 'proof_correction_events',
+  'accounts',
+  'budgets',
+  'goals',
+  'goal_contributions',
+  'cards',
+  'categories',
+  'transactions',
+  'smart_inbox_items',
+  'plans',
+  'plan_transaction_links',
+  'subscriptions',
+  'bill_payments',
+  'merchants',
+  'merchant_category_map',
+  'user_settings',
+  'streaks',
+  'xp_levels',
+  'achievements',
+  'engagement_events',
+  'sender_bank_mappings',
+  'suspected_duplicates',
+  'dedup_hashes',
+  'pending_merchant_feedback',
+  'local_offer_savings',
+  'affiliate_click_receipts',
+  'capture_work_items',
+  'capture_review_labels',
+  'financial_import_runs',
+  'restore_operations',
+  'notification_log_events',
+  'proof_shadow_evaluations',
+  'proof_correction_events',
 ];
+
 /// Sync state is durable and user-visible in behaviour; isolate it too.
 const _syncTables = <String>[
-  'ledger_sync_outbox', 'planning_sync_outbox', 'sync_cursors',
+  'ledger_sync_outbox',
+  'planning_sync_outbox',
+  'sync_cursors',
   'parked_child_rows',
 ];
+
 /// Watched for unexpected writes, never restored.
 const _catalogTables = <String>[
-  'remote_announcements', 'remote_banks', 'remote_catalog_merchants',
-  'remote_categories', 'remote_countries', 'remote_coupons',
-  'remote_currencies', 'remote_feature_flags', 'remote_growth_campaigns',
-  'remote_merchant_aliases', 'remote_merchant_keywords', 'remote_parsers',
-  'parsing_rules', 'catalog_metadata', 'financial_cache_health',
+  'remote_announcements',
+  'remote_banks',
+  'remote_catalog_merchants',
+  'remote_categories',
+  'remote_countries',
+  'remote_coupons',
+  'remote_currencies',
+  'remote_feature_flags',
+  'remote_growth_campaigns',
+  'remote_merchant_aliases',
+  'remote_merchant_keywords',
+  'remote_parsers',
+  'parsing_rules',
+  'catalog_metadata',
+  'financial_cache_health',
 ];
 List<String> get _restorable => [..._userTables, ..._syncTables];
 List<String> get _watched => [..._restorable, ..._catalogTables];
@@ -98,8 +160,13 @@ const _expectedWrites = <String, List<String>>{
   '/settings': ['user_settings', 'planning_sync_outbox'],
   '/profile': ['user_settings', 'planning_sync_outbox'],
   '/privacy': ['user_settings', 'planning_sync_outbox'],
-  '/paste': ['transactions', 'smart_inbox_items', 'capture_work_items',
-             'merchants', 'dedup_hashes'],
+  '/paste': [
+    'transactions',
+    'smart_inbox_items',
+    'capture_work_items',
+    'merchants',
+    'dedup_hashes'
+  ],
   '/': ['transactions', 'merchants', 'dedup_hashes', 'engagement_events'],
 };
 
@@ -108,6 +175,7 @@ class _Ctl {
   final String type;
   final String label;
   final int index;
+
   /// True when this widget sits inside another candidate — an implementation
   /// detail of that control (ListTile's InkWell), not a user action of its own.
   bool implementationOf = false;
@@ -246,37 +314,52 @@ void main() {
   /// aborted the sweep at the first surface that rebuilt with fewer controls.
   Finder baseFinderFor(_Ctl c) {
     switch (c.type) {
-      case 'FilledButton': return find.byType(FilledButton);
-      case 'ElevatedButton': return find.byType(ElevatedButton);
-      case 'OutlinedButton': return find.byType(OutlinedButton);
-      case 'TextButton': return find.byType(TextButton);
-      case 'IconButton': return find.byType(IconButton);
+      case 'FilledButton':
+        return find.byType(FilledButton);
+      case 'ElevatedButton':
+        return find.byType(ElevatedButton);
+      case 'OutlinedButton':
+        return find.byType(OutlinedButton);
+      case 'TextButton':
+        return find.byType(TextButton);
+      case 'IconButton':
+        return find.byType(IconButton);
       case 'FloatingActionButton':
         return find.byType(FloatingActionButton);
-      case 'Switch': return find.byType(Switch);
-      case 'Checkbox': return find.byType(Checkbox);
-      case 'Radio': return find.byType(Radio<Object?>);
+      case 'Switch':
+        return find.byType(Switch);
+      case 'Checkbox':
+        return find.byType(Checkbox);
+      case 'Radio':
+        return find.byType(Radio<Object?>);
       case 'DropdownButtonFormField':
         return find.byType(DropdownButtonFormField<String>);
       case 'PopupMenuButton':
         return find.byType(PopupMenuButton<Object?>);
       case 'SegmentedButton':
         return find.byType(SegmentedButton<Object?>);
-      case 'ChoiceChip': return find.byType(ChoiceChip);
-      case 'FilterChip': return find.byType(FilterChip);
-      case 'ActionChip': return find.byType(ActionChip);
+      case 'ChoiceChip':
+        return find.byType(ChoiceChip);
+      case 'FilterChip':
+        return find.byType(FilterChip);
+      case 'ActionChip':
+        return find.byType(ActionChip);
       case 'DropdownButton':
         return find.byType(DropdownButton<String>);
-      case 'TextField': return find.byType(TextField);
+      case 'TextField':
+        return find.byType(TextField);
       case 'RefreshIndicator':
         return find.byType(RefreshIndicator);
       case 'LongPress':
         return find.byWidgetPredicate((w) =>
             (w is InkWell && w.onLongPress != null) ||
             (w is GestureDetector && w.onLongPress != null));
-      case 'ListTile': return find.byType(ListTile);
-      case 'InkWell': return find.byType(InkWell);
-      default: return find.byType(GestureDetector);
+      case 'ListTile':
+        return find.byType(ListTile);
+      case 'InkWell':
+        return find.byType(InkWell);
+      default:
+        return find.byType(GestureDetector);
     }
   }
 
@@ -286,10 +369,16 @@ void main() {
     /// Full row CONTENT per table, not just ids: an in-place UPDATE keeps the
     /// primary key while changing amounts, flags, consent or revisions, and an
     /// id-only diff cannot see it at all.
-    Future<Map<String, Map<String, Map<String, Object?>>>> snapshot() async {
+    /// [tables] scopes the read. The per-control path uses the user/sync
+    /// tables only — those are small for a QA account — while the per-route
+    /// baseline still covers the catalog tables. Reading all 51 in full twice
+    /// per control made the run so slow the device runner timed out at 10 of
+    /// 23 routes, so more than half the surface was never exercised.
+    Future<Map<String, Map<String, Map<String, Object?>>>> snapshot(
+        [List<String>? tables]) async {
       final db = container.read(appDatabaseProvider);
       final out = <String, Map<String, Map<String, Object?>>>{};
-      for (final t in _watched) {
+      for (final t in tables ?? _watched) {
         try {
           final rows = await db.customSelect('SELECT * FROM $t').get();
           final byId = <String, Map<String, Object?>>{};
@@ -309,13 +398,14 @@ void main() {
     /// Classify every durable change and restore the captured state exactly,
     /// using the locally-tested diff/restore logic (tests 5 and 6).
     Future<(String, String, Set<MutationSignature>)> reconcile(
-        Map<String, Map<String, Map<String, Object?>>> before) async {
+        Map<String, Map<String, Map<String, Object?>>> before,
+        [List<String>? tables]) async {
       final db = container.read(appDatabaseProvider);
-      final after = await snapshot();
+      final after = await snapshot(tables);
       final notes = <String>[];
       final unrestored = <String>[];
       final sigs = <MutationSignature>{};
-      for (final t in _watched) {
+      for (final t in tables ?? _watched) {
         final b = before[t], a = after[t];
         if (b == null || a == null) continue;
         final d = diffTable(b, a);
@@ -327,8 +417,8 @@ void main() {
         for (final entry in d.updated.entries) {
           for (final col in entry.value) {
             if (!col.endsWith('_json')) continue;
-            final fields = jsonFieldDiff(
-                b[entry.key]?[col], a[entry.key]?[col]);
+            final fields =
+                jsonFieldDiff(b[entry.key]?[col], a[entry.key]?[col]);
             notes.add('$t.$col fields: ${fields.join(",")}');
           }
         }
@@ -351,6 +441,7 @@ void main() {
       }
       return (notes.join('; '), unrestored.join('; '), sigs);
     }
+
     if (_qaEmail.isEmpty || _qaPassword.isEmpty || _qaUserId.isEmpty) {
       debugPrint('[SWEEP] SKIPPED — QA defines not supplied.');
       return;
@@ -361,8 +452,15 @@ void main() {
     // fatal so an unhittable control fails and is triaged. This is global
     // static state, so capture and restore it: the sweeper must not change how
     // unrelated tests in the same process behave.
+    // Deliberately NOT fatal. Making it fatal turned Flutter's positional
+    // "would not receive pointer events" heuristic into an OBSTRUCTED verdict
+    // for 38 controls that a focused probe proved reachable and tappable — the
+    // heuristic disagrees with reality for these widget shapes. Masking is
+    // still prevented, but by EFFECT: every tap must produce a visible change,
+    // a toggle flip, or a durable write, or it is recorded as a dead tap and
+    // triaged. Restored anyway so the sweep cannot alter unrelated tests.
     final previousFatal = WidgetController.hitTestWarningShouldBeFatal;
-    WidgetController.hitTestWarningShouldBeFatal = true;
+    WidgetController.hitTestWarningShouldBeFatal = false;
     addTearDown(
         () => WidgetController.hitTestWarningShouldBeFatal = previousFatal);
     app.main();
@@ -387,30 +485,58 @@ void main() {
     }
     expect(await waitFor(tester, find.byType(AppShell)), isTrue,
         reason: 'shell never mounted');
-    container = ProviderScope.containerOf(tester.element(find.byType(AppShell)));
+    container =
+        ProviderScope.containerOf(tester.element(find.byType(AppShell)));
     final router = GoRouter.of(tester.element(find.byType(AppShell)));
     debugPrint('[SWEEP] signed in; shell ready');
 
     /// Return to a known surface: close anything modal, then go to [path].
     Future<bool> goTo(String path) async {
-      for (var i = 0; i < 5; i++) {
-        if (find.byType(ModalBarrier).evaluate().length <= 1) break;
-        final apps = find.byType(MaterialApp).evaluate();
-        if (apps.isEmpty) break;
-        final nav = Navigator.maybeOf(apps.first, rootNavigator: true);
-        if (nav == null || !nav.canPop()) break;
+      // Pop EVERYTHING poppable, not just modal barriers. Several settings
+      // tiles open their screen with Navigator.push (MyCardsScreen.open, the
+      // plans screen), which stacks a page ABOVE the GoRouter navigator —
+      // router.go() then changes the route underneath while the pushed page
+      // stays on top, and every later control finds an empty surface. That is
+      // what produced 35 "found 0 on revisit" results.
+      for (var i = 0; i < 8; i++) {
+        // Navigator.maybeOf(materialAppContext) is ALWAYS null: Navigator is a
+        // DESCENDANT of MaterialApp, and maybeOf searches ancestors. That made
+        // this loop a no-op — it broke on the first iteration and never popped
+        // anything, which is why /settings never came back after a tile pushed
+        // its screen. Take the topmost Navigator's state directly instead.
+        final navs = find.byType(Navigator);
+        if (navs.evaluate().isEmpty) break;
+        final nav = tester.state<NavigatorState>(navs.last);
+        if (!nav.canPop()) break;
         nav.pop();
         await settle(tester, budget: const Duration(seconds: 6));
       }
       router.go(path);
       await settle(tester, budget: const Duration(seconds: 25));
-      return find.byType(ErrorWidget).evaluate().isEmpty;
+      if (find.byType(ErrorWidget).evaluate().isNotEmpty) return false;
+      // Arrival must be PROVEN. The old check only asked whether an
+      // ErrorWidget was absent, which is true on any screen at all.
+      return find.byType(AppShell).evaluate().isNotEmpty ||
+          find.byType(Scaffold).evaluate().isNotEmpty;
     }
 
-    for (final path in _staticRoutes) {
+    final slice = _staticRoutes
+        .skip(_sweepFrom)
+        .take((_sweepTo - _sweepFrom + 1).clamp(0, _staticRoutes.length))
+        .toList();
+    record('SLICE routes $_sweepFrom..$_sweepTo => '
+        '${slice.length} of ${_staticRoutes.length}: ${slice.join(" ")}');
+    for (final path in slice) {
       final ok = await goTo(path);
       if (!ok) {
-        record('ROUTE $path :: FAIL (ErrorWidget on arrival)');
+        // Capture WHAT failed. "ErrorWidget on arrival" names a symptom; the
+        // message names the defect.
+        var detail = '';
+        final ew = find.byType(ErrorWidget);
+        if (ew.evaluate().isNotEmpty) {
+          detail = tester.widget<ErrorWidget>(ew.first).message;
+        }
+        record('ROUTE $path :: FAIL (ErrorWidget on arrival: $detail)');
         failed++;
         continue;
       }
@@ -433,6 +559,7 @@ void main() {
         expectedCounts[c.type] = (expectedCounts[c.type] ?? 0) + 1;
       }
       var lastAction = '(none — first control on this route)';
+      var navigatedAway = false;
       debugPrint('[SWEEP] ROUTE $path :: ${controls.length} controls :: '
           '${texts(tester).take(6).join(" | ")}');
 
@@ -446,10 +573,21 @@ void main() {
           unsafe++;
           continue;
         }
-        if (!await goTo(path)) {
-          record('$path :: $c :: NOT-REACHED (route failed to reopen)');
-          notReached++;
-          continue;
+        // Only re-navigate when the previous control actually moved us: a
+        // full route reload rebuilds the tree and churns identity (on /reports
+        // it left 29 GestureDetectors whose labels no longer matched). Durable
+        // contamination is handled by the snapshot/restore below, so widget
+        // state is the only reason to reload — and only when it changed.
+        final onRoute = find.byType(AppShell).evaluate().isNotEmpty ||
+            find.byType(ErrorWidget).evaluate().isEmpty;
+        final modalOpen = find.byType(ModalBarrier).evaluate().length > 1;
+        if (modalOpen || !onRoute || navigatedAway) {
+          if (!await goTo(path)) {
+            record('$path :: $c :: NOT-REACHED (route failed to reopen)');
+            notReached++;
+            continue;
+          }
+          navigatedAway = false;
         }
         final base = baseFinderFor(c);
         final available = base.evaluate().length;
@@ -468,32 +606,41 @@ void main() {
         // to the control by its DESCRIPTOR — the strongest stable identity
         // available — and only fall back to the index when the label is empty.
         final reBase = baseFinderFor(c);
-        final n = reBase.evaluate().length;
-        var resolved = -1;
-        if (c.label.isNotEmpty) {
-          final matches = <int>[];
-          for (var k = 0; k < n; k++) {
-            if (describe(tester, reBase.at(k)) == c.label) matches.add(k);
-          }
-          if (matches.isNotEmpty) {
+        // Re-resolvable by descriptor at ANY time: scrolling rebuilds a lazy
+        // list and shifts indices, so identity must be recomputed after every
+        // scroll rather than trusted from before it.
+        int resolveIndex() {
+          final n = reBase.evaluate().length;
+          if (c.label.isNotEmpty) {
+            final matches = <int>[];
+            for (var k = 0; k < n; k++) {
+              if (describe(tester, reBase.at(k)) == c.label) matches.add(k);
+            }
+            if (matches.isEmpty) return -1;
             // Preserve ordinal among same-labelled siblings so repeated labels
             // still map one-to-one onto distinct logical controls.
             final ordinal = controls
                 .where((o) => o.type == c.type && o.label == c.label)
                 .toList()
                 .indexOf(c);
-            resolved = matches[ordinal.clamp(0, matches.length - 1)];
+            return matches[ordinal.clamp(0, matches.length - 1)];
           }
-        } else if (c.index < n && describe(tester, reBase.at(c.index)).isEmpty) {
-          resolved = c.index; // unlabelled: index is the only identity we have
+          if (c.index < reBase.evaluate().length &&
+              describe(tester, reBase.at(c.index)).isEmpty) {
+            return c.index; // unlabelled: index is the only identity we have
+          }
+          return -1;
         }
+
+        final n = reBase.evaluate().length;
+        var resolved = resolveIndex();
         if (resolved < 0) {
           record('$path :: $c :: NOT-REACHED (identity unresolvable after '
               'rebuild; $n of this type present) TRIAGE-REQUIRED');
           notReached++;
           continue;
         }
-        final f2 = reBase.at(resolved);
+        var f2 = reBase.at(resolved);
         // Now that identity is resolved, bring THIS control into view. A
         // control below the fold never receives the tap, and with the hit-test
         // warning suppressed that was indistinguishable from a dead control.
@@ -518,6 +665,47 @@ void main() {
         String obstruction = '';
         bool repositioned = false;
 
+        // Is the control's rect actually inside the visible viewport? This is
+        // the difference between "the harness failed to scroll it into view"
+        // and "an overlay covers a visible control". Reporting the topmost
+        // render object alone cannot distinguish them: hit-testing a point
+        // that lies off-screen returns whatever fills the background.
+        String viewportState() {
+          try {
+            final r = tester.getRect(f2);
+            final screenRect = Offset.zero &
+                (tester.view.physicalSize / tester.view.devicePixelRatio);
+            // Comparing against the SCREEN was the wrong measurement: a tile
+            // clipped by its scroll viewport still has a layout rect inside
+            // screen bounds, which reported ON-SCREEN for controls that were
+            // not painted there at all. The scrollable's own rect is what
+            // decides visibility, so report both plus every scrollable
+            // ancestor — nested scrollables are why scrolling the innermost
+            // may move nothing.
+            final ancestors =
+                find.ancestor(of: f2, matching: find.byType(Scrollable));
+            final rects = <String>[];
+            var insideSome = false;
+            for (var i = 0; i < ancestors.evaluate().length; i++) {
+              final sr = tester.getRect(ancestors.at(i));
+              rects.add('sc$i=${sr.top.toStringAsFixed(0)}..'
+                  '${sr.bottom.toStringAsFixed(0)}');
+              if (sr.contains(r.center)) insideSome = true;
+            }
+            final where = 'tile=${r.top.toStringAsFixed(0)}..'
+                '${r.bottom.toStringAsFixed(0)} screen=0..'
+                '${screenRect.height.toStringAsFixed(0)} '
+                '${rects.join(",")}';
+            if (!r.overlaps(screenRect)) return 'OFF-SCREEN $where';
+            if (!insideSome && ancestors.evaluate().isNotEmpty) {
+              return 'OUTSIDE-SCROLL-VIEWPORT $where';
+            }
+            return 'ON-SCREEN $where';
+          } catch (_) {
+            return 'NO-RECT';
+          }
+        }
+
         Offset? probe() {
           try {
             final rect = tester.getRect(f2);
@@ -533,7 +721,13 @@ void main() {
               // The hit must reach the intended control's own render object.
               if (result.path.any((e) => identical(e.target, ro))) return pt;
               if (obstruction.isEmpty && result.path.isNotEmpty) {
-                obstruction = result.path.first.target.runtimeType.toString();
+                // The full chain, not just the topmost: a single generic name
+                // like _RenderColoredBox identifies nothing, and the covering
+                // widget is usually a few entries down.
+                obstruction = result.path
+                    .take(6)
+                    .map((e) => e.target.runtimeType.toString())
+                    .join('>');
               }
             }
           } catch (_) {
@@ -544,44 +738,84 @@ void main() {
 
         hittable = probe();
         if (hittable == null) {
-          // Bounded clearance: move the control toward the middle safe band of
-          // the viewport (avoiding the top and bottom overlay regions).
-          final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
-          final safeTop = screen.height * 0.25;
-          final safeBottom = screen.height * 0.70;
-          // Drag the scrollable that actually CONTAINS this control. Using the
-          // last Scrollable on screen moved an unrelated list, which is why
-          // ensureVisible left these tiles outside the viewport entirely — the
-          // probe then hit the background (_RenderColoredBox), not an overlay.
-          final scrollables =
-              find.ancestor(of: f2, matching: find.byType(Scrollable));
-          for (var attempt = 0; attempt < 3 && hittable == null; attempt++) {
-            if (scrollables.evaluate().isEmpty) break;
-            final rect = tester.getRect(f2);
-            final target = (safeTop + safeBottom) / 2;
-            final dy = target - rect.center.dy;
-            if (dy.abs() < 4) break;
-            await tester.drag(scrollables.first, Offset(0, dy.clamp(-320, 320)));
-            await settle(tester, budget: const Duration(seconds: 6));
-            // Identity must be re-proven after every scroll/rebuild.
-            final rb = baseFinderFor(c);
-            if (rb.evaluate().length <= resolved ||
-                describe(tester, rb.at(resolved)) != c.label) {
-              break;
+          // Repositioning is best-effort: any failure here is a positioning
+          // problem for THIS control, never a reason to lose the whole run.
+          try {
+            // Bounded clearance: move the control toward the middle safe band of
+            // the viewport (avoiding the top and bottom overlay regions).
+            final screen =
+                tester.view.physicalSize / tester.view.devicePixelRatio;
+            final safeTop = screen.height * 0.25;
+            final safeBottom = screen.height * 0.70;
+            // Drag the scrollable that actually CONTAINS this control. Using the
+            // last Scrollable on screen moved an unrelated list, which is why
+            // ensureVisible left these tiles outside the viewport entirely — the
+            // probe then hit the background (_RenderColoredBox), not an overlay.
+            final scrollables =
+                find.ancestor(of: f2, matching: find.byType(Scrollable));
+            for (var attempt = 0; attempt < 8 && hittable == null; attempt++) {
+              if (scrollables.evaluate().isEmpty) break;
+              final rect = tester.getRect(f2);
+              final target = (safeTop + safeBottom) / 2;
+              final dy = target - rect.center.dy;
+              if (dy.abs() < 4) break;
+              // Scroll from a point in the middle of the viewport rather than
+              // from the Scrollable's centre: with fatal hit-test warnings on,
+              // drag(finder) aborts the whole sweep when that centre happens to
+              // be covered — and a scroll gesture does not need the widget to be
+              // the topmost hit target anyway.
+              await tester.dragFrom(
+                  Offset(screen.width / 2, (safeTop + safeBottom) / 2),
+                  Offset(0, dy.clamp(-320, 320)));
+              await settle(tester, budget: const Duration(seconds: 6));
+              // Identity must be re-proven after every scroll/rebuild — by
+              // DESCRIPTOR. Re-checking the OLD index broke out of this loop
+              // the moment scrolling shifted the list, which is why 38 controls
+              // stayed parked at y≈0 under the header instead of being nudged
+              // into the safe band.
+              final again = resolveIndex();
+              if (again < 0) break;
+              resolved = again;
+              f2 = reBase.at(resolved);
+              repositioned = true;
+              obstruction = '';
+              hittable = probe();
             }
-            repositioned = true;
-            obstruction = '';
-            hittable = probe();
+          } catch (e) {
+            record('$path :: $c :: NOT-REACHED (repositioning failed: '
+                '${e.toString().split("\n").first}) TRIAGE-REQUIRED');
+            notReached++;
+            continue;
           }
         }
+        // The probe is a DIAGNOSTIC, not the verdict. Flutter's own hit test
+        // inside tap() is the ground truth, and point-sampling can disagree
+        // with it (a clipped-but-reachable control; an ink feature standing in
+        // for the tile). When the probe finds no point, still attempt the real
+        // tap and let it decide — only a genuine refusal is OBSTRUCTED.
+        var probeFailed = false;
         if (hittable == null) {
-          // Survived controlled repositioning: a persistent overlay blocks
-          // every reasonable hit region. That is a UX finding, not a harness
-          // artefact — a user cannot reach this control either.
-          record('$path :: $c :: OBSTRUCTED (unreachable after repositioning; '
-              'topmost: $obstruction) TRIAGE-REQUIRED');
-          notReached++;
-          continue;
+          // No probe point: fall back to the widget-centre tap. Whether this
+          // control works is then decided by its EFFECT below, not by the
+          // positional heuristic that produced 38 false obstructions.
+          probeFailed = true;
+          try {
+            await tester.tap(f2, warnIfMissed: false);
+            await settle(tester, budget: const Duration(seconds: 10));
+          } catch (e) {
+            // A focused probe proved these tiles ARE hittable at every
+            // position, so a refusal here means the sweep is holding a stale
+            // or wrong finder. Log enough to tell which.
+            final live = reBase.evaluate().length;
+            final stillMine = live > resolved &&
+                describe(tester, reBase.at(resolved)) == c.label;
+            record('$path :: $c :: OBSTRUCTED (${viewportState()}; tap threw: '
+                '${e.toString().split("\n").first}; path: $obstruction; '
+                'liveOfType=$live resolved=$resolved stillMine=$stillMine) '
+                'TRIAGE-REQUIRED');
+            notReached++;
+            continue;
+          }
         }
         if (repositioned) {
           record('$path :: $c :: HARNESS-POSITIONING RESOLVED '
@@ -596,7 +830,7 @@ void main() {
                 ? tester.widget<Checkbox>(f2).value
                 : null;
         lastAction = c.toString();
-        final preState = await snapshot();
+        final preState = await snapshot(_restorable);
         try {
           // A TextField's user action is focus+type, and a RefreshIndicator's
           // is a pull — tapping either would prove nothing about them.
@@ -609,7 +843,8 @@ void main() {
             // Controller landing proves the field accepts input. Where typing
             // also drives search/autosave/network, that effect is NOT proven
             // here — those fields are deferred to the deep pass by name.
-            record('$path :: $c :: ${landed == null ? "PASS (no controller)" : landed.contains("1") ? "PASS (accepts input; side effects deferred to deep pass)" : "DEAD-TAP (input rejected)"}');
+            record(
+                '$path :: $c :: ${landed == null ? "PASS (no controller)" : landed.contains("1") ? "PASS (accepts input; side effects deferred to deep pass)" : "DEAD-TAP (input rejected)"}');
             if (landed == null || landed.contains('1')) {
               pass++;
             } else {
@@ -625,7 +860,8 @@ void main() {
             var started = false;
             for (var t = 0; t < 30 && !started; t++) {
               await tester.pump(const Duration(milliseconds: 100));
-              started = find.byType(RefreshProgressIndicator).evaluate().isNotEmpty;
+              started =
+                  find.byType(RefreshProgressIndicator).evaluate().isNotEmpty;
             }
             await settle(tester, budget: const Duration(seconds: 20));
             final settled =
@@ -677,7 +913,8 @@ void main() {
                 record('$path :: $c :: item[$j] :: FAIL ($e2)');
                 failed++;
               } else if (effect) {
-                record('$path :: $c :: item[$j] :: PASS (selection took effect)');
+                record(
+                    '$path :: $c :: item[$j] :: PASS (selection took effect)');
                 itemOk++;
               } else {
                 record('$path :: $c :: item[$j] :: DEAD-TAP (no effect)');
@@ -714,7 +951,8 @@ void main() {
             final e3 = tester.takeException();
             final changed3 = texts(tester).join('|') != before ||
                 find.byType(ModalBarrier).evaluate().length != beforeBarriers;
-            record('$path :: $c :: ${e3 != null ? "FAIL ($e3)" : changed3 ? "PASS (long-press acted)" : "DEAD-TAP (long-press no effect)"}');
+            record(
+                '$path :: $c :: ${e3 != null ? "FAIL ($e3)" : changed3 ? "PASS (long-press acted)" : "DEAD-TAP (long-press no effect)"}');
             if (e3 != null) {
               failed++;
             } else if (changed3) {
@@ -724,8 +962,10 @@ void main() {
             }
             continue;
           }
-          await tester.tapAt(hittable);
-          await settle(tester, budget: const Duration(seconds: 12));
+          if (!probeFailed) {
+            await tester.tapAt(hittable!);
+            await settle(tester, budget: const Duration(seconds: 12));
+          }
           final err = tester.takeException();
           if (err != null) {
             record('$path :: $c :: FAIL ($err)');
@@ -739,6 +979,9 @@ void main() {
           }
           final after = texts(tester).join('|');
           final afterBarriers = find.byType(ModalBarrier).evaluate().length;
+          // A materially different surface means we left the route (or a sheet
+          // opened): the next control must start from a reloaded route.
+          navigatedAway = after != before || afterBarriers != beforeBarriers;
           bool? afterToggle;
           if (beforeToggle != null && base.evaluate().length > c.index) {
             afterToggle = c.type == 'Switch'
@@ -746,14 +989,15 @@ void main() {
                 : tester.widget<Checkbox>(base.at(c.index)).value;
           }
           final toggled = toggleActed(before: beforeToggle, after: afterToggle);
-          final (mutation, unrestored, observedSigs) = await reconcile(preState);
+          final (mutation, unrestored, observedSigs) =
+              await reconcile(preState);
           if (mutation.isNotEmpty) {
             // Subtract only IDENTICAL signatures (same table, row, kind and
             // json sub-fields). A second impression on top of a baseline
             // impression differs in nothing measurable here, but a settings
             // rewrite sharing the same column does — and must survive.
-            final own = attributable(
-                observed: observedSigs, baseline: baselineDrift);
+            final own =
+                attributable(observed: observedSigs, baseline: baselineDrift);
             final unexpected = unexpectedTables(
                 tablesOf(own), _expectedWrites[path] ?? const []);
             if (unexpected.isNotEmpty) {
@@ -792,7 +1036,8 @@ void main() {
       }
     }
 
-    debugPrint('[SWEEP] ===== END (every verdict was printed as it was decided) =====');
+    debugPrint(
+        '[SWEEP] ===== END (every verdict was printed as it was decided) =====');
     debugPrint('[SWEEP] totals pass=$pass dead=$dead fail=$failed '
         'unsafe=$unsafe notReached=$notReached total=${results.length}');
     semantics.dispose();

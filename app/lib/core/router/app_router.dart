@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session.dart';
 import 'modal_route_observer.dart';
+import '../theme/widgets/navy_sheet_theme.dart';
 import '../../features/accounts/account_detail_screen.dart';
 import '../../features/accounts/accounts_screen.dart';
 import '../../features/achievements/achievements_screen.dart';
@@ -207,7 +209,23 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/capture/sms-permission',
       name: 'sms-permission',
-      builder: (context, state) => const SmsPermissionScreen(),
+      // SmsPermissionScreen is a SHEET body, not a page: it returns
+      // Directionality > ClipRRect > MaliGlass(sheet) > Column with no
+      // Scaffold and no bounded height, and its own SmsPermissionScreen
+      // .showSheet supplies navySheetTheme + FractionallySizedBox. Building it
+      // bare here produced an ErrorWidget the moment the route was opened —
+      // found by the exhaustive control sweep, which navigates every route.
+      // The route now supplies the same ancestors the screen declares it needs.
+      builder: (context, state) => Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: navySheetTheme(const FractionallySizedBox(
+            heightFactor: 0.82,
+            alignment: Alignment.bottomCenter,
+            child: SmsPermissionScreen(),
+          )),
+        ),
+      ),
     ),
     GoRoute(
       path: '/transaction/:id',

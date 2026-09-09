@@ -25,9 +25,19 @@ DEFS='GCC_PREPROCESSOR_DEFINITIONS=$(inherited) QIRSH_INTEGRATION_TEST=1'
 EXCL='EXCLUDED_SOURCE_FILE_NAMES=RunnerTests.swift'
 case "${1:-}" in
   config)
-    cd $APP && flutter build ios --config-only --profile -t integration_test/post_auth_journeys_test.dart --dart-define-from-file="$S/qa_run_defines.json" 2>&1 | tail -1
+    cd $APP && flutter build ios --config-only --profile -t ${QA_TARGET:-integration_test/exhaustive_sweep_test.dart} --dart-define-from-file="$S/qa_run_defines.json" 2>&1 | tail -1
     grep -E "^FLUTTER_TARGET=" $APP/ios/Flutter/Generated.xcconfig ;;
   build)
+    # Guard the target: `build` does not set FLUTTER_TARGET, so a previous
+    # `config` for a different entry point silently rebuilds THAT test. A run
+    # was lost to exactly this — the sweep produced no output because the
+    # focused probe was still the configured target.
+    WANT=${QA_TARGET:-integration_test/exhaustive_sweep_test.dart}
+    HAVE=$(grep -E '^FLUTTER_TARGET=' $APP/ios/Flutter/Generated.xcconfig | cut -d= -f2-)
+    if [[ "$HAVE" != "$WANT" ]]; then
+      echo "target mismatch: configured=$HAVE wanted=$WANT — run 'config' first"; exit 2
+    fi
+    echo "target: $HAVE"
     cd $APP/ios && t0=$(date +%s)
     xcodebuild build-for-testing -workspace Runner.xcworkspace -scheme Runner -configuration Profile \
       -destination "id=$UDID" "$DEFS" "$EXCL" > "$S/bft.log" 2>&1; rc=$?
@@ -42,7 +52,7 @@ case "${1:-}" in
     # scheme, reports its supported platforms as empty, and rejects the device.
     cd "$S" && t0=$(date +%s); rm -rf "$S/qa_run.xcresult"
     xcodebuild test-without-building -xctestrun "$XR" -destination "platform=iOS,id=$UDID" \
-      -only-testing:RunnerTests/RunnerIntegrationTests -default-test-execution-time-allowance 900 \
+      -only-testing:RunnerTests/RunnerIntegrationTests -default-test-execution-time-allowance 3000 \
       -resultBundlePath "$S/qa_run.xcresult" > "$S/twb.log" 2>&1; rc=$?
     echo "test-without-building exit=$rc in $(( $(date +%s) - t0 ))s"
     grep -E "\[QA\]" "$S/twb.log" | cut -c1-170
