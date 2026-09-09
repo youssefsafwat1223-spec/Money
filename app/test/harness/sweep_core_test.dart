@@ -187,8 +187,33 @@ void main() {
       final logical = logicalControls<String>(
         [outer, inner],
         (o, i) => o == outer && i == inner,
+        typeOf: (t) => t,
       );
       expect(logical, [outer]);
+    });
+
+    test('a switch row maps to the SWITCH, not the row', () {
+      // SwitchListTile renders ListTile > Switch. Keeping the row measured
+      // page text (which never changes for a toggle) and scored every
+      // notification and privacy toggle DEAD-TAP.
+      final logical = logicalControls<String>(
+        ['ListTile', 'Switch'],
+        (o, i) => o == 'ListTile' && i == 'Switch',
+        typeOf: (t) => t,
+      );
+      expect(logical, ['Switch'],
+          reason: 'the switch carries the action and the observable state');
+    });
+
+    test('checkbox and radio rows follow the same rule', () {
+      for (final control in ['Checkbox', 'Radio']) {
+        final logical = logicalControls<String>(
+          ['ListTile', control],
+          (o, i) => o == 'ListTile' && i == control,
+          typeOf: (t) => t,
+        );
+        expect(logical, [control]);
+      }
     });
 
     test('siblings are both kept', () {

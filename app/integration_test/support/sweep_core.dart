@@ -164,17 +164,39 @@ String tapVerdict({
   return 'DEAD-TAP (no visible change, no durable write) TRIAGE-REQUIRED';
 }
 
-/// Keeps only OUTERMOST candidates: a ListTile renders an InkWell, so counting
-/// both would inflate the denominator with something that is not a distinct
-/// user action. [contains] reports whether `outer` encloses `inner`.
+/// Control types whose INNER widget is the real user action even though an
+/// outer candidate encloses it. A SwitchListTile renders a ListTile wrapping a
+/// Switch: the row is a label, the switch is the control. Keeping the row and
+/// discarding the switch measured the wrong thing — the toggle's own value was
+/// never read, so every notification and privacy toggle scored DEAD-TAP.
+const _innerWins = {'Switch', 'Checkbox', 'Radio'};
+
+/// Keeps one logical control per user action. Normally that is the OUTERMOST
+/// candidate — a ListTile renders an InkWell, and counting both would inflate
+/// the denominator with something that is not a distinct action. The exception
+/// is [_innerWins]: there the enclosed widget carries the action and the state.
+/// [contains] reports whether `outer` encloses `inner`; [typeOf] names a
+/// candidate's widget type.
 List<T> logicalControls<T>(
   List<T> candidates,
-  bool Function(T outer, T inner) contains,
-) =>
-    candidates
-        .where((inner) => !candidates.any((outer) =>
-            !identical(outer, inner) && contains(outer, inner)))
-        .toList();
+  bool Function(T outer, T inner) contains, {
+  String Function(T)? typeOf,
+}) =>
+    candidates.where((candidate) {
+      final enclosing = candidates.where((other) =>
+          !identical(other, candidate) && contains(other, candidate));
+      if (enclosing.isEmpty) return true; // outermost — keep
+      // Enclosed: keep it only when it is the control rather than the chrome.
+      return typeOf != null && _innerWins.contains(typeOf(candidate));
+    }).where((candidate) {
+      // ...and drop an outer row whose action is really its inner toggle.
+      if (typeOf == null) return true;
+      final inner = candidates.where((other) =>
+          !identical(other, candidate) &&
+          contains(candidate, other) &&
+          _innerWins.contains(typeOf(other)));
+      return inner.isEmpty;
+    }).toList();
 
 
 /// Changed keys inside a JSON blob column. Reporting only "notifications_json

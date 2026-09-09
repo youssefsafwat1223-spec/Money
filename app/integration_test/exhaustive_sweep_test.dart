@@ -8,6 +8,8 @@ import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/features/app/app_shell.dart';
 import 'support/sweep_core.dart';
 import 'package:money_companion/core/di/app_providers.dart';
+import 'package:money_companion/features/settings/settings_providers.dart';
+import 'package:money_companion/core/theme/theme_mode_controller.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 /// EXHAUSTIVE CONTROL-LEVEL SWEEP — real iPhone, real Supabase, real RLS.
@@ -157,8 +159,10 @@ const _expectedWrites = <String, List<String>>{
   '/goals/new': ['goals', 'goal_contributions', 'planning_sync_outbox'],
   '/accounts': ['accounts', 'planning_sync_outbox'],
   '/cards': ['cards', 'accounts', 'planning_sync_outbox'],
-  '/settings': ['user_settings', 'planning_sync_outbox'],
-  '/profile': ['user_settings', 'planning_sync_outbox'],
+  // "اختبار إشعارات قرش" sends a test notification, which legitimately writes
+  // a log event; that is the flow's own side effect, not a stray write.
+  '/settings': ['user_settings', 'planning_sync_outbox', 'notification_log_events'],
+  '/profile': ['user_settings', 'planning_sync_outbox', 'notification_log_events'],
   '/privacy': ['user_settings', 'planning_sync_outbox'],
   '/paste': [
     'transactions',
@@ -222,6 +226,22 @@ void main() {
   /// A stable, human-readable name for a control: its own text, else the text
   /// of the nearest Text descendant, else its Semantics label, else its icon.
   String describe(WidgetTester tester, Finder f) {
+    try {
+      // A toggle carries no text of its own; its identity is the row it sits
+      // in. Without this, Switch[12] cannot be mapped to any static control.
+      final w = f.evaluate().single.widget;
+      if (w is Switch || w is Checkbox || w is Radio) {
+        final row = find.ancestor(of: f, matching: find.byType(ListTile));
+        if (row.evaluate().isNotEmpty) {
+          final t = find.descendant(of: row.first, matching: find.byType(Text));
+          if (t.evaluate().isNotEmpty) {
+            final tx = tester.widgetList<Text>(t).first;
+            final title = (tx.data ?? tx.textSpan?.toPlainText() ?? '').trim();
+            if (title.isNotEmpty) return 'row:$title';
+          }
+        }
+      }
+    } catch (_) {}
     try {
       final inner = find.descendant(of: f, matching: find.byType(Text));
       if (inner.evaluate().isNotEmpty) {
@@ -288,21 +308,31 @@ void main() {
         order.add(e);
       }
     });
-    final out = <_Ctl>[];
-    for (final e in order) {
-      var inner = false;
-      e.visitAncestorElements((a) {
-        if (a != e && candidates.containsKey(a)) {
-          inner = true;
+    // Which candidates enclose which, resolved against the real element tree.
+    bool encloses(Element outer, Element inner) {
+      var found = false;
+      inner.visitAncestorElements((a) {
+        if (identical(a, outer)) {
+          found = true;
           return false;
         }
         return true;
       });
+      return found;
+    }
+
+    final logical = logicalControls<Element>(
+      order,
+      encloses,
+      typeOf: (e) => candidates[e]!.type,
+    ).toSet();
+    final out = <_Ctl>[];
+    for (final e in order) {
       final ctl = candidates[e]!;
-      if (inner) {
-        ctl.implementationOf = true; // evidence, not a separate control
-      } else {
+      if (logical.contains(e)) {
         out.add(ctl);
+      } else {
+        ctl.implementationOf = true; // evidence, not a separate control
       }
     }
     return out;
@@ -430,8 +460,18 @@ void main() {
           for (final sql in restoreStatements(t, b, a)) {
             await db.customStatement(sql);
           }
+          // A database-only restore is not enough: the app caches settings in a
+          // provider and writes the WHOLE record back on the next save, so the
+          // previous control's toggle reappears even though the row was
+          // reverted. Observed as JSON field lists accumulating across
+          // controls while restore verification reported clean. Invalidate so
+          // app state re-reads the restored row.
+          if (t == 'user_settings') {
+            container.invalidate(userSettingsProvider);
+            await settle(tester, budget: const Duration(seconds: 6));
+          }
           // Prove the restore actually landed, rather than assuming it did.
-          final verify = await snapshot();
+          final verify = await snapshot(tables);
           if (!diffTable(b, verify[t] ?? const {}).isEmpty) {
             unrestored.add('$t (post-restore fingerprint still differs)');
           }
@@ -483,7 +523,13 @@ void main() {
       await AppSession.instance.finishOnboarding();
       await settle(tester, budget: const Duration(seconds: 45));
     }
-    expect(await waitFor(tester, find.byType(AppShell)), isTrue,
+    // Bootstrap + auth + onboarding can exceed the default wait on a cold
+    // start; a 20s budget here failed a whole slice with "shell never
+    // mounted" while the app was still starting.
+    expect(
+        await waitFor(tester, find.byType(AppShell),
+            timeout: const Duration(seconds: 90)),
+        isTrue,
         reason: 'shell never mounted');
     container =
         ProviderScope.containerOf(tester.element(find.byType(AppShell)));
@@ -822,8 +868,36 @@ void main() {
               '(hittable only after scrolling into the safe zone)');
         }
         final before = texts(tester).join('|');
+        // texts() sees only Text widgets; a TextField's content is an
+        // EditableText. A control that writes a value INTO a field ("استخدمه"
+        // applying a suggested amount) was therefore invisible to the diff.
+        String fieldValues() => tester
+            .widgetList<TextField>(find.byType(TextField))
+            .map((t) => t.controller?.text ?? '')
+            .join('|');
+        final beforeFields = fieldValues();
         final beforeBarriers = find.byType(ModalBarrier).evaluate().length;
+        // Navigation is an effect even when the destination reads similarly,
+        // and a theme change is an effect that alters no text at all. Without
+        // these, real controls (nav icons, the theme selector) scored
+        // DEAD-TAP because only page text was being compared.
+        final beforeLoc =
+            router.routerDelegate.currentConfiguration.uri.toString();
+        final beforeTheme = container.read(themeModeProvider);
         // Toggles do not change page text; their signal is their own value.
+        // A switch with a null onChanged is disabled by the product (a gated
+        // capability, an unavailable platform feature). That is expected
+        // inertness, not a dead control, and must be reported as such.
+        if (c.type == 'Switch' && tester.widget<Switch>(f2).onChanged == null) {
+          record('$path :: $c :: NOT APPLICABLE (switch disabled by the app; '
+              'onChanged is null)');
+          continue;
+        }
+        if (c.type == 'Checkbox' &&
+            tester.widget<Checkbox>(f2).onChanged == null) {
+          record('$path :: $c :: NOT APPLICABLE (checkbox disabled)');
+          continue;
+        }
         final beforeToggle = c.type == 'Switch'
             ? tester.widget<Switch>(f2).value
             : c.type == 'Checkbox'
@@ -835,11 +909,22 @@ void main() {
           // A TextField's user action is focus+type, and a RefreshIndicator's
           // is a pull — tapping either would prove nothing about them.
           if (c.type == 'TextField') {
+            // enterText alone is silently a no-op on device unless the field
+            // holds focus — the same trap that made three journeys report a
+            // save that never happened. Tap for focus, then fall back to the
+            // widget's own controller so a rejected value is a real finding
+            // rather than a missing keystroke.
             await tester.tap(f2, warnIfMissed: false);
             await settle(tester, budget: const Duration(seconds: 6));
             await tester.enterText(f2, '1');
             await settle(tester, budget: const Duration(seconds: 6));
-            final landed = tester.widget<TextField>(f2).controller?.text;
+            var landed = tester.widget<TextField>(f2).controller?.text;
+            if (landed != null && !landed.contains('1')) {
+              tester.widget<TextField>(f2).controller!.text = '1';
+              await settle(tester, budget: const Duration(seconds: 4));
+              landed = tester.widget<TextField>(f2).controller?.text;
+              record('$path :: $c :: note enterText was a no-op; used controller');
+            }
             // Controller landing proves the field accepts input. Where typing
             // also drives search/autosave/network, that effect is NOT proven
             // here — those fields are deferred to the deep pass by name.
@@ -979,14 +1064,21 @@ void main() {
           }
           final after = texts(tester).join('|');
           final afterBarriers = find.byType(ModalBarrier).evaluate().length;
+          final afterLoc =
+              router.routerDelegate.currentConfiguration.uri.toString();
+          final navigated = afterLoc != beforeLoc;
+          final themed = container.read(themeModeProvider) != beforeTheme;
           // A materially different surface means we left the route (or a sheet
           // opened): the next control must start from a reloaded route.
           navigatedAway = after != before || afterBarriers != beforeBarriers;
           bool? afterToggle;
-          if (beforeToggle != null && base.evaluate().length > c.index) {
+          // Read from the RESOLVED index. Reading base.at(c.index) — the index
+          // at enumeration — compared a different switch after any rebuild,
+          // so a toggle that did flip looked unchanged and scored DEAD-TAP.
+          if (beforeToggle != null && base.evaluate().length > resolved) {
             afterToggle = c.type == 'Switch'
-                ? tester.widget<Switch>(base.at(c.index)).value
-                : tester.widget<Checkbox>(base.at(c.index)).value;
+                ? tester.widget<Switch>(base.at(resolved)).value
+                : tester.widget<Checkbox>(base.at(resolved)).value;
           }
           final toggled = toggleActed(before: beforeToggle, after: afterToggle);
           final (mutation, unrestored, observedSigs) =
@@ -1015,8 +1107,13 @@ void main() {
             failed++;
             break;
           }
-          final changed =
-              after != before || afterBarriers != beforeBarriers || toggled;
+          final fieldsChanged = fieldValues() != beforeFields;
+          final changed = after != before ||
+              afterBarriers != beforeBarriers ||
+              toggled ||
+              navigated ||
+              themed ||
+              fieldsChanged;
           if (mutation.isNotEmpty) {
             record('$path :: $c :: MUTATION $mutation');
           }

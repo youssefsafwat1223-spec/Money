@@ -116,6 +116,18 @@ class BudgetsScreen extends ConsumerWidget {
 
           return RefreshIndicator(
             onRefresh: () async => refreshBudgets(ref),
+            // This indicator wraps a NestedScrollView. Its default predicate
+            // accepts notifications at depth 0, but under NestedScrollView the
+            // ScrollUpdateNotifications that accumulate the pull distance are
+            // emitted ONLY by the inner scrollable at depth 1 (measured: 20
+            // updates at depth 1, none at depth 0). So it armed on the start
+            // notification and never saw a single update — pull-to-refresh
+            // could not fire from the body or the header, on iOS or Android.
+            // Found by the exhaustive control sweep on a physical iPhone and
+            // reproduced with the exact structure in
+            // test/harness/nested_refresh_repro_test.dart. The other four
+            // RefreshIndicators in the app do not wrap a NestedScrollView.
+            notificationPredicate: (n) => n.depth == 1,
             child: SafeArea(
               top: false,
               bottom: false,
