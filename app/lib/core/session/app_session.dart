@@ -44,6 +44,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
   static const String _kMethod = 'auth_method';
   static const String _kEmail = 'auth_email';
   static const String _kWelcomeManifestoSeen = 'welcome_manifesto_seen';
+
+  /// Coach marks already shown, as a comma-separated id list. One key rather
+  /// than one per mark, so [sessionStorageKeys] — which the sign-out wipe walks
+  /// explicitly — cannot fall out of date as marks are added.
+  static const String _kCoachMarksSeen = 'coach_marks_seen';
   static const String _kCurrentAccount = 'onboarding_current_account_v1';
   static const String _kCompletedAccounts = 'onboarding_completed_accounts_v1';
   static const String _kLocalDataOwnerUid = 'local_data_owner_uid';
@@ -64,6 +69,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _kMethod,
     _kEmail,
     _kWelcomeManifestoSeen,
+    _kCoachMarksSeen,
     _kCurrentAccount,
     _kCompletedAccounts,
     _kLocalDataOwnerUid,
@@ -74,6 +80,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   String? email;
   bool _onboardingDone = false;
   bool _welcomeManifestoSeen = false;
+  Set<String> _coachMarksSeen = <String>{};
   String? _currentAccountKey;
   final Set<String> _completedAccountKeys = <String>{};
   StreamSubscription<supabase.AuthState>? _supabaseAuthSubscription;
@@ -265,6 +272,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final legacyOnboardingDone = done == '1';
     final welcomeSeen = await _storage.read(key: _kWelcomeManifestoSeen);
     _welcomeManifestoSeen = welcomeSeen == '1' || legacyOnboardingDone;
+    final coachMarks = await _storage.read(key: _kCoachMarksSeen);
+    _coachMarksSeen = (coachMarks ?? '')
+        .split(',')
+        .map((id) => id.trim())
+        .where((id) => id.isNotEmpty)
+        .toSet();
     if (legacyOnboardingDone && welcomeSeen != '1') {
       await _storage.write(key: _kWelcomeManifestoSeen, value: '1');
     }
@@ -293,6 +306,31 @@ class AppSession extends ValueNotifier<SessionStatus> {
     value = _onboardingDone && authMethod != null
         ? SessionStatus.authenticated
         : SessionStatus.needsOnboarding;
+  }
+
+  /// Whether a given coach mark has already been shown on this device for the
+  /// current account. Unknown ids read as unseen, so adding a mark shows it.
+  bool hasSeenCoachMark(String id) => _coachMarksSeen.contains(id);
+
+  /// Records a coach mark as shown. Idempotent.
+  Future<void> markCoachMarkSeen(String id) async {
+    if (_coachMarksSeen.contains(id)) return;
+    _coachMarksSeen = {..._coachMarksSeen, id};
+    await _storage.write(
+      key: _kCoachMarksSeen,
+      value: _coachMarksSeen.join(','),
+    );
+    notifyListeners();
+  }
+
+  /// Clears every coach mark so the guided tour can be replayed on demand —
+  /// the Help screen offers this, because a user who has dismissed guidance
+  /// once should not be locked out of it forever.
+  Future<void> resetCoachMarks() async {
+    if (_coachMarksSeen.isEmpty) return;
+    _coachMarksSeen = <String>{};
+    await _storage.delete(key: _kCoachMarksSeen);
+    notifyListeners();
   }
 
   /// يعلّم شاشة الترحيب السينمائية كمرئية حتى لا تظهر إلا مرة واحدة.

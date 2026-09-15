@@ -382,5 +382,18 @@
   "helpPrivacyBody": "Your financial data is stored encrypted on your device. From the privacy screen you control cloud processing and AI analysis, and you can withdraw consent at any time.",
   "helpBackupTitle": "Backup and restore",
   "helpBackupBody": "Export an encrypted copy of your data and keep it safe, or restore it on another device. The file is previewed on your device before anything is written, and your passphrase never leaves it.",
-  "helpFooter": "Still stuck? Contact us from the settings screen."
+  "helpFooter": "Still stuck? Contact us from the settings screen.",
+  "coachMarkNext": "Next",
+  "coachMarkDone": "Got it",
+  "coachMarkSkip": "Skip",
+  "coachDashboardAddTitle": "Record your first transaction",
+  "coachDashboardAddBody": "The add button lets you enter a transaction yourself, or paste a bank message for Qirsh to read for you.",
+  "coachDashboardPeriodTitle": "Pick the period",
+  "coachDashboardPeriodBody": "The period selector changes every figure on the screen: day, week, month, year, or a custom range.",
+  "coachDashboardInboxTitle": "Smart Inbox",
+  "coachDashboardInboxBody": "Whatever Qirsh captures from your bank messages waits here for review before it reaches your history.",
+  "coachDashboardHelpTitle": "The guide is always there",
+  "coachDashboardHelpBody": "“How to use Qirsh” lives in Settings, and you can replay this tour from there whenever you like.",
+  "helpReplayTour": "Replay the guided tour",
+  "helpReplayTourDone": "The guided tour will appear again."
 }

@@ -2046,6 +2046,84 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'لم تجد إجابتك؟ راسلنا من شاشة الإعدادات.'**
   String get helpFooter;
+
+  /// No description provided for @coachMarkNext.
+  ///
+  /// In ar, this message translates to:
+  /// **'التالي'**
+  String get coachMarkNext;
+
+  /// No description provided for @coachMarkDone.
+  ///
+  /// In ar, this message translates to:
+  /// **'تمام'**
+  String get coachMarkDone;
+
+  /// No description provided for @coachMarkSkip.
+  ///
+  /// In ar, this message translates to:
+  /// **'تخطّي'**
+  String get coachMarkSkip;
+
+  /// No description provided for @coachDashboardAddTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'سجّل أول عملية'**
+  String get coachDashboardAddTitle;
+
+  /// No description provided for @coachDashboardAddBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'من زر الإضافة تسجّل عملية يدويًا أو تلصق نص رسالة البنك ليقرأها قِرش نيابةً عنك.'**
+  String get coachDashboardAddBody;
+
+  /// No description provided for @coachDashboardPeriodTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر الفترة'**
+  String get coachDashboardPeriodTitle;
+
+  /// No description provided for @coachDashboardPeriodBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'مُحدِّد الفترة يغيّر كل الأرقام في الشاشة: اليوم، الأسبوع، الشهر، السنة، أو مدى مخصص.'**
+  String get coachDashboardPeriodBody;
+
+  /// No description provided for @coachDashboardInboxTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'صندوق الوارد الذكي'**
+  String get coachDashboardInboxTitle;
+
+  /// No description provided for @coachDashboardInboxBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ما يلتقطه قِرش من رسائل البنك ينتظرك هنا للمراجعة قبل أن يدخل سجلك.'**
+  String get coachDashboardInboxBody;
+
+  /// No description provided for @coachDashboardHelpTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدليل متاح دائمًا'**
+  String get coachDashboardHelpTitle;
+
+  /// No description provided for @coachDashboardHelpBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجد «كيف تستخدم قِرش» في الإعدادات في أي وقت، ويمكنك إعادة هذه الجولة من هناك.'**
+  String get coachDashboardHelpBody;
+
+  /// No description provided for @helpReplayTour.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة الجولة التعريفية'**
+  String get helpReplayTour;
+
+  /// No description provided for @helpReplayTourDone.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستظهر الجولة التعريفية من جديد.'**
+  String get helpReplayTourDone;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

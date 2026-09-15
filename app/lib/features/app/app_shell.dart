@@ -26,6 +26,7 @@ import '../../core/router/modal_route_observer.dart';
 import 'app_boot_loader.dart';
 import '../planning_sync/services/startup_sync_reconcile_service.dart';
 import '../../core/session/app_session.dart';
+import '../help/coach_marks.dart';
 import '../../core/sync/sync_wakeup.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_shadows.dart';
@@ -129,6 +130,19 @@ class _AppShellState extends ConsumerState<AppShell> {
   void initState() {
     super.initState();
     _lastSessionStatus = AppSession.instance.status;
+    // First-use guidance (charter RC-5 Layer A). Deferred to after the first
+    // frame: the shell is still building here, and the restore gate above may
+    // still be covering the screen — showing a dialog into that is how a tour
+    // ends up behind a loader with no way to reach it.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (AppSession.instance.status != SessionStatus.authenticated) return;
+      unawaited(showCoachMarksOnce(
+        context,
+        id: CoachMarkIds.dashboard,
+        marks: dashboardCoachMarks(context),
+      ));
+    });
     AppSession.instance.addListener(_handleSessionStatusChange);
     // Final push before the sign-out wipe destroys the outboxes — otherwise a
     // change made seconds before signing out is deleted un-uploaded and lost.

@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/session/app_session.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../common/app_card.dart';
 import '../common/app_screen_scaffold.dart';
@@ -125,6 +126,28 @@ class HelpScreen extends StatelessWidget {
                 ),
               ),
           ],
+          const SizedBox(height: AppSpacing.s4),
+          // Someone who dismissed the first-use tour should not be locked out
+          // of it forever — this is the only way back to Layer A.
+          AppCard(
+            onTap: () async {
+              await AppSession.instance.resetCoachMarks();
+              if (!context.mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text(l10n.helpReplayTourDone)),
+              );
+            },
+            child: Row(
+              children: [
+                Icon(AppLucideIcons.refreshCw, size: 20, color: c.primary),
+                const SizedBox(width: AppSpacing.s3),
+                Expanded(
+                  child: Text(l10n.helpReplayTour,
+                      style: AppTypography.bodyStrong(c.textMain)),
+                ),
+              ],
+            ),
+          ),
           const SizedBox(height: AppSpacing.s4),
           Text(
             l10n.helpFooter,

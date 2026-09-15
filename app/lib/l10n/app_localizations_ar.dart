@@ -1094,4 +1094,47 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get helpFooter => 'لم تجد إجابتك؟ راسلنا من شاشة الإعدادات.';
+
+  @override
+  String get coachMarkNext => 'التالي';
+
+  @override
+  String get coachMarkDone => 'تمام';
+
+  @override
+  String get coachMarkSkip => 'تخطّي';
+
+  @override
+  String get coachDashboardAddTitle => 'سجّل أول عملية';
+
+  @override
+  String get coachDashboardAddBody =>
+      'من زر الإضافة تسجّل عملية يدويًا أو تلصق نص رسالة البنك ليقرأها قِرش نيابةً عنك.';
+
+  @override
+  String get coachDashboardPeriodTitle => 'اختر الفترة';
+
+  @override
+  String get coachDashboardPeriodBody =>
+      'مُحدِّد الفترة يغيّر كل الأرقام في الشاشة: اليوم، الأسبوع، الشهر، السنة، أو مدى مخصص.';
+
+  @override
+  String get coachDashboardInboxTitle => 'صندوق الوارد الذكي';
+
+  @override
+  String get coachDashboardInboxBody =>
+      'ما يلتقطه قِرش من رسائل البنك ينتظرك هنا للمراجعة قبل أن يدخل سجلك.';
+
+  @override
+  String get coachDashboardHelpTitle => 'الدليل متاح دائمًا';
+
+  @override
+  String get coachDashboardHelpBody =>
+      'تجد «كيف تستخدم قِرش» في الإعدادات في أي وقت، ويمكنك إعادة هذه الجولة من هناك.';
+
+  @override
+  String get helpReplayTour => 'إعادة الجولة التعريفية';
+
+  @override
+  String get helpReplayTourDone => 'ستظهر الجولة التعريفية من جديد.';
 }

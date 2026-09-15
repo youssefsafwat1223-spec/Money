@@ -1111,4 +1111,47 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get helpFooter => 'Still stuck? Contact us from the settings screen.';
+
+  @override
+  String get coachMarkNext => 'Next';
+
+  @override
+  String get coachMarkDone => 'Got it';
+
+  @override
+  String get coachMarkSkip => 'Skip';
+
+  @override
+  String get coachDashboardAddTitle => 'Record your first transaction';
+
+  @override
+  String get coachDashboardAddBody =>
+      'The add button lets you enter a transaction yourself, or paste a bank message for Qirsh to read for you.';
+
+  @override
+  String get coachDashboardPeriodTitle => 'Pick the period';
+
+  @override
+  String get coachDashboardPeriodBody =>
+      'The period selector changes every figure on the screen: day, week, month, year, or a custom range.';
+
+  @override
+  String get coachDashboardInboxTitle => 'Smart Inbox';
+
+  @override
+  String get coachDashboardInboxBody =>
+      'Whatever Qirsh captures from your bank messages waits here for review before it reaches your history.';
+
+  @override
+  String get coachDashboardHelpTitle => 'The guide is always there';
+
+  @override
+  String get coachDashboardHelpBody =>
+      '“How to use Qirsh” lives in Settings, and you can replay this tour from there whenever you like.';
+
+  @override
+  String get helpReplayTour => 'Replay the guided tour';
+
+  @override
+  String get helpReplayTourDone => 'The guided tour will appear again.';
 }
