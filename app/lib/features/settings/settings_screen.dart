@@ -623,16 +623,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'تذكير السلسلة',
-                    icon: AppLucideIcons.flame,
-                    iconColor: c.accent,
-                    value: prefs.streakReminder,
-                    onChanged: (value) => _savePrefs(
-                      ref,
-                      prefs.copyWith(streakReminder: value),
-                    ),
-                  ),
-                  _SwitchTile(
                     icon: AppLucideIcons.moon,
                     iconColor: c.textMuted,
                     title: 'ساعات الهدوء',

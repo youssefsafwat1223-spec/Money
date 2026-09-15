@@ -109,8 +109,6 @@ class LocalNotificationService {
         return ('قرش', 'تقريرك الأسبوعي جاهز — افتح التطبيق');
       case NotificationType.achievements:
         return ('قرش', 'لديك إنجاز جديد — افتح التطبيق');
-      case NotificationType.streakReminder:
-        return ('قرش', 'لديك تذكير — افتح التطبيق');
       case NotificationType.marketing:
         return ('قرش', 'لديك رسالة — افتح التطبيق');
     }
@@ -124,11 +122,13 @@ class LocalNotificationService {
   static const String _marketingChannelId = 'qirsh_growth';
   static const String _budgetChannelId = 'budget_alerts';
   static const String _achievementChannelId = 'achievement_alerts';
-  static const String _streakChannelId = 'streak_reminders';
   static const String _weeklyReportChannelId = 'weekly_reports';
   static const String _billReminderChannelId = 'bill_reminders';
   static const String _goalMilestoneChannelId = 'goal_milestones';
-  static const int _streakReminderId = 88008;
+  /// RETIRED in V1 — the streak reminder was removed from the product. The id
+  /// is kept so already-scheduled reminders on existing installs can still be
+  /// found and cancelled; nothing schedules it any more.
+  static const int retiredStreakReminderId = 88008;
   static const int _weeklyReportId = 91001;
 
   final FlutterLocalNotificationsPlugin _plugin =
@@ -492,76 +492,6 @@ class LocalNotificationService {
     );
   }
 
-  Future<void> scheduleStreakReminder({
-    required bool hasActivityToday,
-    required NotificationPreferences preferences,
-  }) async {
-    if (!preferences.streakReminder || hasActivityToday) {
-      await _plugin.cancel(id: _streakReminderId);
-      return;
-    }
-
-    final now = tz.TZDateTime.now(tz.local);
-    var scheduled = tz.TZDateTime(
-      tz.local,
-      now.year,
-      now.month,
-      now.day,
-      20,
-    );
-    if (!scheduled.isAfter(now)) {
-      scheduled = scheduled.add(const Duration(days: 1));
-    }
-    scheduled = _nextAllowedDate(scheduled, preferences);
-
-    final logId = await logService?.recordCreated(
-        channel: _localChannel, notificationType: 'streak_reminder');
-    try {
-      if (!_initialized) {
-        await initialize();
-      }
-      await _plugin.zonedSchedule(
-        id: _streakReminderId,
-        title: 'ذكّر نفسك بلحظة سريعة',
-        body: 'عملية واحدة اليوم تكفي للمحافظة على السلسلة.',
-        scheduledDate: scheduled,
-        notificationDetails: const NotificationDetails(
-          android: AndroidNotificationDetails(
-            _streakChannelId,
-            'تذكير السلسلة',
-            channelDescription: 'تذكير مسائي لطيف عند غياب النشاط اليومي',
-            importance: Importance.defaultImportance,
-            priority: Priority.defaultPriority,
-          ),
-          iOS: DarwinNotificationDetails(
-            presentBanner: true,
-            presentList: true,
-            presentBadge: false,
-            presentSound: false,
-          ),
-        ),
-        androidScheduleMode: AndroidScheduleMode.inexactAllowWhileIdle,
-      );
-      if (logId != null) {
-        await logService?.recordSent(
-          logId: logId,
-          channel: _localChannel,
-          notificationType: 'streak_reminder',
-        );
-      }
-    } catch (error, stackTrace) {
-      if (logId != null) {
-        await logService?.recordFailed(
-          logId: logId,
-          channel: _localChannel,
-          notificationType: 'streak_reminder',
-          error: error,
-          stackTrace: stackTrace,
-        );
-      }
-    }
-  }
-
   Future<void> schedulePlannedNotifications(
     List<PlannedLocalNotification> notifications,
   ) async {
@@ -668,10 +598,26 @@ class LocalNotificationService {
       id == _weeklyReportId || (id >= 92000 && id < 992000);
 
   /// Every app-managed SCHEDULED reminder id (bill/subscription, weekly report,
-  /// streak). Public so the sign-out cancellation set is directly testable.
-  /// Excludes immediate/foreign ids so we never cancel someone else's request.
+  /// and the RETIRED streak reminder). Public so the sign-out cancellation set
+  /// is directly testable. Excludes immediate/foreign ids so we never cancel
+  /// someone else's request. The retired streak id stays in this set on purpose:
+  /// an install that scheduled one before V1 removed the feature must still have
+  /// it cancelled rather than left firing forever.
   static bool isManagedReminderId(int id) =>
-      _isManagedScheduledId(id) || id == _streakReminderId;
+      _isManagedScheduledId(id) || id == retiredStreakReminderId;
+
+  /// V1 retirement — cancel any streak reminder a previous version scheduled.
+  /// Removing the feature from the code does NOT unschedule what the OS is
+  /// already holding: without this, every device that had one keeps receiving
+  /// it indefinitely, from a feature that no longer exists.
+  Future<void> cancelRetiredStreakReminder() async {
+    try {
+      if (!_initialized) await initialize();
+      await _plugin.cancel(id: retiredStreakReminderId);
+    } catch (_) {
+      // Best effort: the next sign-out or planning cycle also clears it.
+    }
+  }
 
   /// MALI-019 §10 — cancel every app-managed scheduled reminder so a sign-out /
   /// ownership change never leaves the previous user's bill/weekly/streak

@@ -3284,7 +3284,7 @@ class AppDatabase extends GeneratedDatabase {
           INSERT INTO user_settings(
             id, country, currency, language, theme, input_method, notifications_json, db_encryption_key_ref, privacy_mode_enabled
           )
-          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"streakReminder":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursEnabled":false,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', '', 0);
+          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursEnabled":false,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', '', 0);
         ''',
         variables: [
           Variable.withString(IdGenerator.next()),

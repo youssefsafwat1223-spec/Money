@@ -110,14 +110,21 @@ void main() {
   });
 
   test(
-      'scheduleStreakReminder records created→failed for the scheduling attempt',
+      'the retired streak reminder is still cancellable and logs nothing new',
       () async {
-    await LocalNotificationService.instance.scheduleStreakReminder(
-      hasActivityToday: false,
-      preferences: const NotificationPreferences(),
+    // V1 removed the streak reminder. Deleting the scheduling code does not
+    // unschedule what the OS already holds, so the retirement path must remain
+    // reachable — and must not create notification-log noise of its own.
+    await LocalNotificationService.instance.cancelRetiredStreakReminder();
+    expect(await _eventTypesFor(db), isEmpty);
+    expect(
+      LocalNotificationService.isManagedReminderId(
+        LocalNotificationService.retiredStreakReminderId,
+      ),
+      isTrue,
+      reason: 'the retired id must stay in the sign-out cancellation set, or a '
+          'pre-V1 install keeps firing a reminder for a feature that is gone',
     );
-    final events = await _eventTypesFor(db);
-    expect(events, ['created', 'failed']);
   });
 
   test(

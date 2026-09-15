@@ -32,7 +32,6 @@ import '../../core/theme/app_shadows.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
-import '../../core/utils/riyadh_time.dart';
 import '../../domain/entities/captured_message.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
@@ -1206,16 +1205,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     // dropped when gamification/budgets moved to Supabase edge functions
     // (commit 8bf8259b) and never restored, so these three notification
     // types stopped firing entirely.
-    final streak = await ref.read(gamificationRepositoryProvider).getStreak();
-    final hasActivityToday = RiyadhTime.dayGap(
-          streak.lastActiveDate,
-          DateTime.now().toUtc(),
-        ) ==
-        0;
-    await LocalNotificationService.instance.scheduleStreakReminder(
-      hasActivityToday: hasActivityToday,
-      preferences: preferences,
-    );
     // Same disposal race as below: an await preceded this.
     if (!mounted) return;
     final bills = await ref.read(billRepositoryProvider).getAll();
@@ -1230,6 +1219,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     await LocalNotificationService.instance.schedulePlannedNotifications(
       planned,
     );
+    // V1 retired the streak reminder. Deleting the scheduling code does not
+    // unschedule what the OS already holds, so every planning cycle also
+    // cancels any reminder a pre-V1 build left pending.
+    await LocalNotificationService.instance.cancelRetiredStreakReminder();
 
     // Opportunistic — drains native (iOS Shortcut) notification events and
     // syncs the local outbox to notification_logs. Never blocks engagement
