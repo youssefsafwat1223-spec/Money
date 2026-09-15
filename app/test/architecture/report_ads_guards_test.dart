@@ -329,4 +329,52 @@ void main() {
         File('lib/features/ads/ad_placement.dart').readAsStringSync();
     expect(placement.contains('ca-app-pub-'), isFalse);
   });
+
+  test('every AdRequest is non-personalized, and ATT stays absent', () {
+    // This guard defends a claim made OUTSIDE Dart. `ios/Runner/
+    // PrivacyInfo.xcprivacy` declares `NSPrivacyTracking` false with an empty
+    // `NSPrivacyTrackingDomains`, and Info.plist ships no
+    // `NSUserTrackingUsageDescription`. That set is only honest while every ad
+    // request is non-personalized: flipping one `nonPersonalizedAds` to false
+    // would make the shipped privacy manifest untrue, and nothing in the Dart
+    // layer would notice.
+    //
+    // Turning personalized ads on is therefore not a one-line change. It needs
+    // an ATT usage string, an ATT request before the ad request, and both
+    // manifest keys updated — so this test failing is the intended signal, not
+    // an obstacle to route around.
+    var requests = 0;
+    for (final file in _adsLayerFiles()) {
+      final source = file.readAsStringSync();
+      for (final match in RegExp(r'AdRequest\(').allMatches(source)) {
+        requests++;
+        // The constructor call, up to its closing paren at the same nesting.
+        final tail = source.substring(match.end, match.end + 200 > source.length
+            ? source.length
+            : match.end + 200);
+        final body = tail.substring(0, tail.indexOf(')'));
+        expect(body, contains('nonPersonalizedAds: true'),
+            reason: '${file.path}: every AdRequest must be non-personalized — '
+                'the shipped privacy manifest says this app does not track');
+        expect(body, contains("'npa': '1'"),
+            reason: '${file.path}: the legacy npa extra is kept alongside the '
+                'typed property because mediation adapters still read it');
+      }
+    }
+    expect(requests, greaterThan(0),
+        reason: 'the guard found no AdRequest at all — it has stopped guarding');
+
+    // The other half of the same claim: no ATT anywhere.
+    for (final path in const [
+      'ios/Runner/Info.plist',
+      'ios/Runner/PrivacyInfo.xcprivacy',
+    ]) {
+      expect(_read(path).contains('NSUserTrackingUsageDescription'), isFalse,
+          reason: '$path declares an ATT purpose string while every ad request '
+              'is non-personalized — one of the two is wrong');
+    }
+    expect(_read('ios/Runner/PrivacyInfo.xcprivacy'),
+        contains('<key>NSPrivacyTracking</key>\n\t<false/>'),
+        reason: 'NSPrivacyTracking must stay false while ads are NPA-only');
+  });
 }

@@ -19,11 +19,11 @@ plainly that it is unverified. `BLOCKED` and `OWNER` are not `PASS`.
 | Item | State |
 |---|---|
 | `PrivacyInfo.xcprivacy` present | PASS — `ios/Runner/PrivacyInfo.xcprivacy` |
-| Required-reason API declarations | UNVERIFIED — the manifest exists; its declarations were not audited line by line |
+| Required-reason API declarations | **AUDITED.** `ios/Runner/PrivacyInfo.xcprivacy` declares two categories: `FileTimestamp` (C617.1) and `UserDefaults` (CA92.1, App Group access by `SharedCaptureStore`). App code contains no disk-space, system-boot-time or active-keyboard API use (grepped across `lib/`, `ios/Runner`, `ios/ShareBankMessage`, `ios/BankMessageShortcuts`), so no further category is owed. Sixteen pods ship their own manifests, which is how Apple expects SDK-level declarations to arrive. |
 | Permission purpose strings | PASS — `NSCameraUsageDescription`, `NSFaceIDUsageDescription`, `NSPhotoLibraryUsageDescription` |
 | In-app account deletion | present; the destructive phase asserts every financial table is emptied on sign-out |
 | Privacy Policy / Terms URLs | present in `privacy_screen.dart` |
-| App Store privacy labels | **OWNER** — declared in App Store Connect, not in the repo |
+| App Store privacy labels | **OWNER** — declared in App Store Connect, not in the repo. See §8: the label must cover the ads SDK even though the ad flags ship OFF. |
 | Cloud / AI disclosure matches behaviour | consent gating enforced in `ConsentAuthority`; wire-level proof UNVERIFIED |
 
 ## 3. Languages — the line that changes the listing
@@ -73,3 +73,34 @@ Verified absent from tracked source and from every commit in this effort.
   push/pull stays dark, and that is documented rather than activated to make a
   gate green.
 - Physical-device push delivery.
+
+## 8. Advertising — the item the checklist was missing
+
+`google_mobile_ads` 9.0.0 is a real dependency: `Google-Mobile-Ads-SDK` 13.3.0
+and `GoogleUserMessagingPlatform` 3.1.0 are linked into the binary,
+`GADApplicationIdentifier` and `SKAdNetworkItems` are declared in Info.plist,
+and there is a banner placement on the transactions list plus a report-export
+gateway.
+
+What is actually true today:
+
+| Item | State |
+|---|---|
+| Ads shown in a default V1 install | **NO** — `enable_banner_ads` and `enable_banner_transactions_list` both default `false` in `lib/data/catalog/feature_flag_service.dart`, and `getBool` falls back to that map |
+| Personalized ads | **NO** — both request sites pass `nonPersonalizedAds: true` *and* the legacy `extras: {'npa': '1'}` (`banner_ad_controller.dart:128-129`, `report_export_ad_gateway.dart:114-115`) |
+| ATT prompt | **NONE** — no `NSUserTrackingUsageDescription`, no `AppTrackingTransparency` call anywhere. Consistent with NPA-only |
+| UMP consent | present — `ad_consent_service.dart` drives `ConsentInformation` |
+| `NSPrivacyTracking` | `false`, with an empty `NSPrivacyTrackingDomains`. Defensible **only while ads stay non-personalized** |
+
+Two things follow, and neither is engineering:
+
+1. **The privacy label must still declare the ads SDK.** The flags are remote,
+   so the shipped binary can serve ads without a new review. A label that omits
+   advertising and is later contradicted by a flag flip is the bad outcome.
+2. **Turning personalized ads on is not a flag flip.** It requires ATT: an
+   `NSUserTrackingUsageDescription` string, an ATT request before the ad
+   request, `NSPrivacyTracking` set to `true`, and the tracking domains listed.
+   Flipping `nonPersonalizedAds` alone would make the shipped manifest untrue.
+
+Not claimed: that any of this has been reviewed by Apple, or that the ad units
+render correctly — the flags are off, so nothing rendered one in this cycle.
