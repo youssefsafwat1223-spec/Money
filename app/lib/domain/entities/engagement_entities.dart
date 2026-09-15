@@ -60,6 +60,7 @@ enum NotificationType {
   budgetWarning,
   budgetOver,
   achievements,
+  dailyReminder,
   weeklyReport,
   subscriptionReminder,
   goalMilestone,
@@ -73,6 +74,7 @@ class NotificationPreferences {
     this.budgetWarning = true,
     this.budgetOver = true,
     this.achievements = true,
+    this.dailyReminder = true,
     this.weeklyReport = true,
     this.subscriptionReminder = true,
     this.goalMilestone = true,
@@ -94,6 +96,10 @@ class NotificationPreferences {
   final bool budgetWarning;
   final bool budgetOver;
   final bool achievements;
+
+  /// The 22:00 device-local nudge. Replaces the retired streak reminder, which
+  /// was the app's only daily notification and fired at 20:00.
+  final bool dailyReminder;
   final bool weeklyReport;
   final bool subscriptionReminder;
   final bool goalMilestone;
@@ -127,6 +133,8 @@ class NotificationPreferences {
         return budgetOver;
       case NotificationType.achievements:
         return achievements;
+      case NotificationType.dailyReminder:
+        return dailyReminder;
       case NotificationType.weeklyReport:
         return weeklyReport;
       case NotificationType.subscriptionReminder:
@@ -143,6 +151,7 @@ class NotificationPreferences {
     bool? budgetWarning,
     bool? budgetOver,
     bool? achievements,
+    bool? dailyReminder,
     bool? weeklyReport,
     bool? subscriptionReminder,
     bool? goalMilestone,
@@ -164,6 +173,7 @@ class NotificationPreferences {
       budgetWarning: budgetWarning ?? this.budgetWarning,
       budgetOver: budgetOver ?? this.budgetOver,
       achievements: achievements ?? this.achievements,
+      dailyReminder: dailyReminder ?? this.dailyReminder,
       weeklyReport: weeklyReport ?? this.weeklyReport,
       subscriptionReminder: subscriptionReminder ?? this.subscriptionReminder,
       goalMilestone: goalMilestone ?? this.goalMilestone,
@@ -193,6 +203,7 @@ class NotificationPreferences {
       'budgetWarning': budgetWarning,
       'budgetOver': budgetOver,
       'achievements': achievements,
+      'dailyReminder': dailyReminder,
       'weeklyReport': weeklyReport,
       'subscriptionReminder': subscriptionReminder,
       'goalMilestone': goalMilestone,
@@ -220,6 +231,7 @@ class NotificationPreferences {
       budgetWarning: json['budgetWarning'] as bool? ?? true,
       budgetOver: json['budgetOver'] as bool? ?? true,
       achievements: json['achievements'] as bool? ?? true,
+      dailyReminder: json['dailyReminder'] as bool? ?? true,
       weeklyReport: json['weeklyReport'] as bool? ?? true,
       subscriptionReminder: json['subscriptionReminder'] as bool? ?? true,
       goalMilestone: json['goalMilestone'] as bool? ?? true,

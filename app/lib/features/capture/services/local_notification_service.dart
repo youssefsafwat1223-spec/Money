@@ -109,6 +109,8 @@ class LocalNotificationService {
         return ('قرش', 'تقريرك الأسبوعي جاهز — افتح التطبيق');
       case NotificationType.achievements:
         return ('قرش', 'لديك إنجاز جديد — افتح التطبيق');
+      case NotificationType.dailyReminder:
+        return ('قرش', 'تذكير يومي — افتح التطبيق');
       case NotificationType.marketing:
         return ('قرش', 'لديك رسالة — افتح التطبيق');
     }
@@ -123,6 +125,7 @@ class LocalNotificationService {
   static const String _budgetChannelId = 'budget_alerts';
   static const String _achievementChannelId = 'achievement_alerts';
   static const String _weeklyReportChannelId = 'weekly_reports';
+  static const String _dailyReminderChannelId = 'daily_reminders';
   static const String _billReminderChannelId = 'bill_reminders';
   static const String _goalMilestoneChannelId = 'goal_milestones';
   /// RETIRED in V1 — the streak reminder was removed from the product. The id
@@ -595,7 +598,9 @@ class LocalNotificationService {
   /// Ids the CAPACITY planner owns: bill/subscription reminders and the weekly
   /// report. Never touches immediate/foreign notifications.
   static bool _isManagedScheduledId(int id) =>
-      id == _weeklyReportId || (id >= 92000 && id < 992000);
+      id == _weeklyReportId ||
+      id == dailyReminderNotificationId ||
+      (id >= 92000 && id < 992000);
 
   /// Every app-managed SCHEDULED reminder id (bill/subscription, weekly report,
   /// and the RETIRED streak reminder). Public so the sign-out cancellation set
@@ -642,6 +647,8 @@ class LocalNotificationService {
         return 3; // time-sensitive bill/subscription due dates
       case PlannedNotificationKind.weeklyReport:
         return 1; // low priority — dropped first under pressure
+      case PlannedNotificationKind.dailyReminder:
+        return 2; // above the weekly digest, below a dated bill
     }
   }
 
@@ -986,6 +993,22 @@ class LocalNotificationService {
 
   NotificationDetails _detailsFor(PlannedNotificationKind kind) {
     switch (kind) {
+      case PlannedNotificationKind.dailyReminder:
+        return const NotificationDetails(
+          android: AndroidNotificationDetails(
+            _dailyReminderChannelId,
+            'التذكير اليومي',
+            channelDescription: 'تذكير يومي بتسجيل المصروفات',
+            importance: Importance.defaultImportance,
+            priority: Priority.defaultPriority,
+          ),
+          iOS: DarwinNotificationDetails(
+            presentBanner: true,
+            presentList: true,
+            presentBadge: false,
+            presentSound: false,
+          ),
+        );
       case PlannedNotificationKind.weeklyReport:
         return const NotificationDetails(
           android: AndroidNotificationDetails(

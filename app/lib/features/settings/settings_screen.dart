@@ -584,6 +584,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
+                    title: 'التذكير اليومي',
+                    subtitle: 'كل يوم الساعة 10 مساءً',
+                    icon: AppLucideIcons.bell,
+                    value: prefs.dailyReminder,
+                    onChanged: (value) => _savePrefs(
+                      ref,
+                      prefs.copyWith(dailyReminder: value),
+                    ),
+                  ),
+                  _SwitchTile(
                     title: 'التقرير الأسبوعي',
                     icon: AppLucideIcons.lineChart,
                     value: prefs.weeklyReport,

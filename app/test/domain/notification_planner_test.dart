@@ -202,7 +202,19 @@ void main() {
       nowRiyadh: DateTime(2026, 6, 12, 9),
     );
 
-    expect(planned, isEmpty);
+    // Scoped to the two kinds this test disables. The daily reminder is a
+    // separate preference, left enabled here, and is correctly still planned —
+    // asserting the whole list is empty would make this test fail for any
+    // future notification that has nothing to do with it.
+    expect(
+      planned.where((p) => p.kind == PlannedNotificationKind.weeklyReport),
+      isEmpty,
+    );
+    expect(
+      planned
+          .where((p) => p.kind == PlannedNotificationKind.subscriptionReminder),
+      isEmpty,
+    );
   });
 
   // ── billReminderNotificationId (collision-resistant scheme) ──────────────
