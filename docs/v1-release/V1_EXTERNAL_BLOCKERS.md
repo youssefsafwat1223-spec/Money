@@ -3,7 +3,94 @@
 Only genuine owner-or-external actions belong here. Everything else is
 engineering work and is tracked on the execution board.
 
-Last reconciled: 2026-09-15.
+Last reconciled: 2026-09-16.
+
+---
+
+## EB-004 — Distribution signing identity  🔴 **BLOCKING, OWNER-ONLY**
+
+**What.** No code-signing identity and no provisioning profile exist on this
+machine.
+
+```
+$ security find-identity -v -p codesigning
+     0 valid identities found
+$ ls ~/Library/MobileDevice/Provisioning\ Profiles/
+(empty)
+```
+
+**Effect.** No archive can be signed, so no `.ipa` can be produced or validated.
+This is the single blocking item between the current state and a submittable
+build.
+
+**Why it is owner-only.** A distribution certificate is issued to the owner's
+Apple Developer account and its private key is the owner's credential. Nothing
+an agent can generate substitutes for it.
+
+**Exact owner action.**
+
+1. Open Xcode → Settings → Accounts → add the Apple ID enrolled in the Apple
+   Developer Program (team **5TWARK8A23**).
+2. Select the team, then **Manage Certificates…** → **+** → **Apple
+   Distribution**. Xcode creates the certificate and stores its private key in
+   the login keychain.
+3. Confirm:
+   ```
+   security find-identity -v -p codesigning     # expect >= 1 valid identity
+   ```
+4. Then, from `app/`:
+   ```
+   flutter build ipa --release \
+     --export-options-plist=ios/ExportOptions.plist \
+     --dart-define-from-file=<the production defines file>
+   ```
+   `ios/ExportOptions.plist` is already written, lints clean, and is set to
+   `app-store-connect` / team `5TWARK8A23` / automatic signing / upload symbols.
+   Automatic signing will create the three profiles needed (app, share
+   extension, shortcuts extension) on first run.
+
+**Everything up to this boundary is done.** The unsigned release build succeeds
+at 1.0.0 (40) with the correct bundle identifier, which validates every part of
+the archive except the signature itself.
+
+---
+
+## EB-005 — App Store Connect authentication  🔴 **BLOCKING, OWNER-ONLY**
+
+**What.** No App Store Connect session and no App Store Connect API key are
+available to this environment.
+
+**Effect.** The app record, metadata, privacy labels, age rating, export
+compliance answers, screenshots and reviewer notes cannot be entered or
+uploaded, and no build can be submitted.
+
+**Why it is owner-only.** It is authentication in the owner's identity, and the
+privacy-label and export-compliance answers are legal declarations the owner
+makes, not an agent.
+
+**Exact owner action.** Either:
+
+* **Manual** — sign in to App Store Connect, create the app record for
+  `com.youssefsafwat.mali`, and paste from `V1_APP_STORE_SUBMISSION.md`, which
+  holds the complete privacy-label table (§1), advertising disclosure (§2), age
+  rating answers (§3), export compliance (§4) and reviewer notes (§5); or
+* **API key** — App Store Connect → Users and Access → Integrations → App Store
+  Connect API → generate a key with **App Manager** role, and place the `.p8`
+  plus its Key ID and Issuer ID where the build can read them. That would let
+  upload and metadata be automated on a later run. **Do not paste the `.p8`
+  contents into a chat.**
+
+**One decision only the owner can make:** which account Apple's reviewer signs in
+with. The reviewer notes are written assuming credentials are supplied in the
+App Review Information fields.
+
+---
+
+## EB-006 — Physical iPhone  🟡 NON-BLOCKING (charter-accepted)
+
+Unchanged from EB-002 below. Production APNs delivery, real SIM SMS receipt and
+background capture on a killed app are hardware-only and are never claimed from
+Simulator evidence.
 
 ---
 
@@ -83,3 +170,19 @@ owner can make them permanent; none blocks the release.
 
 Owner may make 1 and 2 permanent by correcting `~/.zshrc`. 3 disappears once
 EB-001 is resolved. 4 is a committed repository fix.
+
+
+---
+
+## Explicitly NOT owner blockers
+
+Recorded here because they were previously written up in a way that read like
+release blockers. They are post-V1 hardening; the reasoning is in
+`V1_SECURITY_CLASSIFICATION.md`.
+
+| Item | Why it is not a blocker |
+|---|---|
+| Certificate pinning | Apple does not require it and warns against deploying it unnecessarily. ATS is enforced with **zero** exceptions, there is no cleartext anywhere, capture text is redacted before it leaves, and the financial ledger does not cross the network at all in V1 |
+| Jailbreak / debugger detection | Not an App Store requirement and no Apple API exists for it. Every implementation is heuristic and locks legitimate users out. The data it would defend is the device owner's own |
+| App Attest / DeviceCheck | The principled fix for `register-device`'s root cause, but the exploitable path is already closed and rate limits bound the rest |
+| WCAG contrast "10/10 routes" | A false-positive-dominated automated result. Measured directly: white on the navy headers is **13.36:1**, body text **17.74:1**. The two genuine defects (`textMuted` in both themes) are fixed and locked by `test/core/theme/contrast_test.dart` |
