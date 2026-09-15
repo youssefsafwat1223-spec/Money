@@ -16,6 +16,7 @@ import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../privacy/consent_authority.dart';
+import '../tracking/user_activity_service.dart';
 import '../privacy/diagnostics_consent_gate.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
 import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
@@ -202,6 +203,15 @@ class BootstrapRunner {
       );
       AppSession.instance.configureLocalDataWipe(
         DataWipeService(database).wipeAll,
+      );
+      // C-3 — last-seen tracking is an egress about this person's behaviour.
+      // The service is static and cannot reach the database, so the gate is
+      // wired here, where it can. It defaults CLOSED, so a build that never
+      // reaches this line transmits nothing.
+      UserActivityService.configureConsentGate(
+        () => ConsentAuthority(
+          () => DriftUserSettingsRepository(database).getSettings(),
+        ).allows(EgressClass.profileAndSettings),
       );
       // MALI-054n/070n: residue purge = native App Group / SharedPreferences
       // capture queue + the pending-notification-actions file. Both run; the

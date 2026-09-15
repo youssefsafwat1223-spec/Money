@@ -54,6 +54,12 @@ void main() {
         'EgressClass.financialSync — same engine, same gate as the push above',
     'features/capture/services/ledger_sync_service.dart':
         'EgressClass.financialSync — the ledger pull, gated by its caller',
+    'core/tracking/user_activity_service.dart':
+        'EgressClass.profileAndSettings — profiles.last_seen_at, i.e. when this '
+            'person opened a money app. Was UNGATED on every cold start. The '
+            'service is static and cannot reach the database, so the gate is '
+            'injected from bootstrap and DEFAULTS CLOSED: an unconfigured build '
+            'transmits nothing',
     'features/gamification/services/gamification_sync_service.dart':
         'EgressClass.gamification — achievements, streaks and XP, derived from '
             'what this person did in the app. Was UNGATED and LEAKING: observed '
@@ -106,6 +112,9 @@ void main() {
         'core/di/app_providers.dart',
     'features/capture/services/ledger_sync_service.dart':
         'core/di/app_providers.dart',
+    // Static service, no DI — the gate is wired once during bootstrap.
+    'core/tracking/user_activity_service.dart':
+        'core/startup/bootstrap_runner.dart',
   };
 
   /// Files that reach the network WITHOUT a consent gate, each with the reason.
@@ -161,14 +170,6 @@ void main() {
             'it does not exist in a release build. Listed rather than ignored '
             'because the tables it reads are financial — if it is ever called '
             'outside that guard it must move to `gated`.',
-    'core/tracking/user_activity_service.dart':
-        'OPEN FINDING — not exempt. `ping()` writes last-seen activity to '
-            '`profiles` with no consent gate, and app_shell.dart calls it on '
-            'every cold start ("always writes"). EgressClass.profileAndSettings '
-            'already exists and returns the cloud decision. Recorded rather '
-            'than fixed in the same change that fixed gamification: the two '
-            'have different blast radii, and a last-seen write is not the same '
-            'question as pulling a user aggregate. Tracked, not hidden.',
     'data/catalog/catalog_sync_service.dart':
         'EXEMPT: catalog carries no user data, and delivers parser rules, '
             'feature flags and the force-update kill switch. Gating it would '
