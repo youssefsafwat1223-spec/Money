@@ -4,26 +4,51 @@ Final gate state. `BLOCKED` and `OPEN` are not `PASS`. Assessed 2026-09-16.
 
 ## Verdict
 
-**NOT READY**, and closer than it was. The two P0 gates that engineering could
-close — the SMS sanitizer divergence and the `register-device` privilege
-escalation — are closed in source and covered by tests that fail against the
-previous code. What remains needs owner decisions, a deploy the owner must
-authorise, physical hardware, or work measured in weeks rather than hours.
+**NOT READY**, and the reason is now narrow and specific rather than broad.
 
-Three things follow, and none of them is "ship it":
+Everything engineering could close in this cycle is closed and, where it
+mattered, deployed. What remains falls into three kinds, none of which more
+engineering hours would move:
 
-1. The authorization fix is **deployed**. Production carries it.
-2. Privacy is closed at the unit level in all three implementations. The
-   end-to-end marker run through a live capture is still the proof that it
-   holds on the wire.
-3. A P0 privacy leak was found in this cycle by **driving the app**, not by
-   reading it — and the structural guard written to prevent exactly that class
-   of defect could not see the file, because its regex required a receiver and
-   its call on one line and `dart format` splits long chains. Seven files were
-   invisible to it. That is a reason for humility about every gate on this page
-   whose evidence is a source scan.
-4. `NOT READY` here is not a formality. The terminal phrase this effort is
-   working toward is not claimed.
+**1. Owner credentials.** Distribution signing needs an Apple Developer
+certificate and provisioning profile. `security find-identity -v -p codesigning`
+reports **0 valid identities** on this machine and no profiles are installed, so
+no archive can be signed here. App Store Connect entry needs an Apple ID
+session. Everything up to that boundary is prepared: `ios/ExportOptions.plist`
+lints clean, the unsigned release build succeeds at 1.0.0 (40), and
+`V1_APP_STORE_SUBMISSION.md` holds the privacy-label table, age-rating and
+export-compliance answers, and reviewer notes ready to paste.
+
+**2. Product contract.** Push/pull exactness, money and currency round-trip are
+BLOCKED because the three transport capabilities are `unknown` by design and
+financial cloud sync ships dark. This is not an unfinished gate; it is the
+product. It was verified rather than assumed: with **both** consents granted and
+every capability `unknown`, the runtime recorder saw zero money requests across
+the money surfaces. Migration 0077 is deployed and local↔remote drift is zero,
+so the currency gate is blocked by that contract and no longer by uncertainty.
+
+**3. Physical hardware and real design work.** Native capture flows, the device
+matrix, and APNs delivery need a phone. Certificate pinning and root/debugger
+detection are weeks of work. WCAG contrast across ten screens is a brand-palette
+decision, and the audit records it as measured debt rather than pretending
+otherwise.
+
+### What changed the character of this cycle
+
+Three defects were found by **driving the app or the deployed backend**, after
+the same code had passed a 22-phase source audit:
+
+* `gamification_sync_service.dart` pulled achievements, streaks and XP with
+  cloud consent OFF, on every cold start.
+* `process-ios-sms` never stripped transfer beneficiary names, and echoed the
+  unredacted message body back in its response.
+* `user_activity_service.dart` wrote last-seen to `profiles` ungated.
+
+None was visible to the structural guard built to catch exactly that class,
+whose regex could not see a receiver on its own line — seven files were
+invisible to it. Every gate on this page whose only evidence is a source scan
+deserves that same suspicion, and the ones that could practically be moved to
+runtime evidence have been.
 
 | Gate | State | Evidence / why not |
 |---|---|---|
