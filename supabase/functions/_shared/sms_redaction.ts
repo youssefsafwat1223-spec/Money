@@ -84,3 +84,26 @@ export function redactPii(text: string): string {
     .replace(OTP_PATTERN, '$1[OTP]')
     .replace(ACCOUNT_PATTERN, '[ACCOUNT]');
 }
+
+/// Third-party names: the transfer beneficiary after إلى:/الى:/To:, and the
+/// personal name after an Arabic greeting.
+///
+/// Separate from [redactPii] because it is not a digit pattern and because
+/// `parse-sms` applied it while `process-ios-sms` and `bank-discovery` did not
+/// — a live wire probe against the deployed functions showed
+/// "حوالة الى: سارة الاسمري" surviving into `processed_captures.sanitized_text`
+/// in full. The shipping clients strip it before sending, so this is the
+/// defence-in-depth layer rather than the only one, but a third party never
+/// consented to anything here and is not the app's user to trade away.
+///
+/// Note the asymmetry with the Dart sanitizer, which KEEPS this content for a
+/// detected `payment` because a merchant is a business, not a person. The
+/// server cannot make that distinction: it redacts before parsing, so it has no
+/// type to condition on. Stripping unconditionally is the same choice
+/// `parse-sms` has always made — over-redact rather than leak a person.
+export function redactThirdPartyNames(text: string): string {
+  return text
+    .replace(/(إلى|الى)\s*:?\s*.+/gi, '$1: [REDACTED]')
+    .replace(/\bTo\s*:\s*.+/gi, 'To: [REDACTED]')
+    .replace(/(عزيزي|عزيزتي)\s+\S+/gi, '[REDACTED]');
+}

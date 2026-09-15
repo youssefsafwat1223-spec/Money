@@ -1,5 +1,9 @@
 import { assert, assertEquals, assertStringIncludes } from 'jsr:@std/assert@1';
-import { IBAN_DETECT_PATTERN, redactPii } from './sms_redaction.ts';
+import {
+  IBAN_DETECT_PATTERN,
+  redactPii,
+  redactThirdPartyNames,
+} from './sms_redaction.ts';
 
 Deno.test('IBANs are redacted — the account rule cannot reach them', () => {
   // The regression: `\b\d{10,20}\b` never matches this, because there is no
@@ -69,4 +73,34 @@ Deno.test('IBAN_DETECT_PATTERN is not stateful across calls', () => {
   const sms = 'SA0380000000608010167519';
   assertEquals(IBAN_DETECT_PATTERN.test(sms), true);
   assertEquals(IBAN_DETECT_PATTERN.test(sms), true);
+});
+
+Deno.test('third-party names are stripped', () => {
+  // A live wire probe against the deployed process-ios-sms showed
+  // "حوالة الى: سارة الاسمري" persisted in full: redactPii handles digits, and
+  // only parse-sms carried the name rules. A person who is not this app's user
+  // never agreed to anything here.
+  const out = redactThirdPartyNames('حوالة الى: سارة الاسمري');
+  assert(!out.includes('سارة'));
+  assertStringIncludes(out, '[REDACTED]');
+
+  assertStringIncludes(redactThirdPartyNames('To: John Smith'), 'To: [REDACTED]');
+  assertStringIncludes(redactThirdPartyNames('عزيزي أحمد'), '[REDACTED]');
+});
+
+Deno.test('the two passes compose without eating the amount', () => {
+  const out = redactThirdPartyNames(
+    redactPii('حوالة الى: سارة الاسمري بمبلغ 250.75 من SA0380000000608010167519'),
+  );
+  // The beneficiary rule takes the rest of the LINE, so the amount after it is
+  // gone by design — over-redaction, which is the safe direction. What must
+  // hold is that no identifier survives.
+  assert(!out.includes('سارة'));
+  assert(!out.includes('SA0380000000608010167519'));
+});
+
+Deno.test('an amount on its own line survives name stripping', () => {
+  const out = redactThirdPartyNames(redactPii('مبلغ 250.75 ريال\nالى: سارة'));
+  assertStringIncludes(out, '250.75');
+  assert(!out.includes('سارة'));
 });

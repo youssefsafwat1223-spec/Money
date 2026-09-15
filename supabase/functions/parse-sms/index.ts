@@ -14,7 +14,7 @@ import {
   schemaError,
 } from '../_shared/ai_endpoint.ts';
 import { validateEvidenceSpans } from '../_shared/evidence_spans.ts';
-import { redactPii } from '../_shared/sms_redaction.ts';
+import { redactPii, redactThirdPartyNames } from '../_shared/sms_redaction.ts';
 import { resolveGeminiRoute } from '../_shared/proof_contract.ts';
 import { amountFromText, withValidatedModelAmountText } from './money.ts';
 
@@ -75,11 +75,7 @@ const BANK_ATM_ALIASES = [
 // this endpoint's addition, because it is the one that feeds a categorizing
 // prompt and must not hand a third party's name to the model.
 function reSanitize(text: string): string {
-  return redactPii(text)
-    .replace(/(إلى|الى)\s*:?\s*.+/gi, '$1: [REDACTED]')
-    .replace(/\bTo\s*:\s*.+/gi, 'To: [REDACTED]')
-    .replace(/(عزيزي|عزيزتي)\s+\S+/gi, '[REDACTED]')
-    .trim();
+  return redactThirdPartyNames(redactPii(text)).trim();
 }
 
 function compactToken(value: string): string {

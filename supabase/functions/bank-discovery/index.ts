@@ -9,7 +9,11 @@ import {
   safeLog,
   schemaError,
 } from '../_shared/ai_endpoint.ts';
-import { IBAN_DETECT_PATTERN, redactPii } from '../_shared/sms_redaction.ts';
+import {
+  IBAN_DETECT_PATTERN,
+  redactPii,
+  redactThirdPartyNames,
+} from '../_shared/sms_redaction.ts';
 
 const MAX_BODY_BYTES = 8192;
 const MAX_SMS_LENGTH = 2000;
@@ -290,7 +294,7 @@ function reSanitize(text: string): string {
   // missing IBAN and OTP while forwarding the result to Gemini. The two cue
   // rules below are additions on top, not a substitute: they catch short
   // masked account tails that the 10-20 digit rule does not reach.
-  return redactPii(text)
+  return redactThirdPartyNames(redactPii(text))
     .replace(/(A\/C\s*NO\s*:?\s*)\*?\d{4,}/gi, '$1[ACCOUNT]')
     .replace(/(account|acct|a\/c)\s*:?\s*\*?\d{4,}/gi, '$1 [ACCOUNT]')
     .trim();

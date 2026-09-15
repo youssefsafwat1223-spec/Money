@@ -10,7 +10,7 @@ import {
 } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { fingerprintTimeKeys } from '../_shared/capture_fingerprint.ts';
-import { redactPii } from '../_shared/sms_redaction.ts';
+import { redactPii, redactThirdPartyNames } from '../_shared/sms_redaction.ts';
 import { markApnsLogFailed, markApnsLogSent, upsertQueuedApnsLog } from '../_shared/notification_logs.ts';
 import {
   isTransientApnsFailure,
@@ -139,7 +139,14 @@ export async function handleProcessIosSms(
   const deviceSecret = readString(body, 'deviceSecret', 'device_secret');
   const payloadId = readString(body, 'payloadId', 'payload_id');
   const sanitizedText = reSanitize(readString(body, 'sanitizedText', 'sanitized_text', 'smsText', 'sms_text'));
-  const rawText = readString(body, 'smsText', 'sms_text') || sanitizedText;
+  // Sanitized too. This was taken VERBATIM from the body and copied into
+  // `parsed.rawMessage`, which is persisted for every capture — not only the
+  // needs_review/rejected ones that store `sanitized_text`. Both shipping
+  // clients sanitize before sending, so this was the missing defence-in-depth
+  // layer rather than a live leak, but it is exactly the layer `07_SECURITY.md`
+  // says must be preserved, and a wire probe confirmed the raw text came
+  // straight back in the response.
+  const rawText = reSanitize(readString(body, 'smsText', 'sms_text')) || sanitizedText;
   const sender = readString(body, 'sender', 'senderId', 'sender_id', 'senderName', 'sender_name');
   const receivedAt = readString(body, 'receivedAt', 'received_at') || new Date().toISOString();
   const tzOffsetMinutes = typeof body.tzOffsetMinutes === 'number' ? body.tzOffsetMinutes : null;
@@ -1027,7 +1034,7 @@ function reSanitize(text: string): string {
   // This copy was missing the IBAN and OTP rules while forwarding the result
   // to Gemini, so a full IBAN reached the model. Delegated to the shared floor
   // rather than re-typed, so the three server copies cannot drift again.
-  return redactPii(text).trim();
+  return redactThirdPartyNames(redactPii(text)).trim();
 }
 
 function extractCurrency(text: string): string | undefined {

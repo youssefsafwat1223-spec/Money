@@ -37,7 +37,7 @@ Three things follow, and none of them is "ship it":
 | QUEUE FAIL-CLOSED | **PASS (runtime observed)** | Was a source-read claim. `integration_test/queue_failclosed_egress_test.dart` is the mirror of the cloud-OFF test: it grants **both** consents, asserts every transport capability is still `unknown`, then walks the money surfaces with the HttpOverrides recorder installed. Consent is not the gate here — the capability is — so this is the stronger claim: money parks even when the user has said yes to everything. **24 setup requests, 0 afterwards**, no financial table touched. |
 | DATABASE MIGRATIONS | **PASS** | Schema v38, transactional, `user_version` stamped inside the transaction. |
 | BACKUP / RESTORE | **PASS** | Restore is atomic; **the legacy-key fallback defect found and fixed this cycle** — older backups could not be restored at all. |
-| PRIVACY / SMS LEAKAGE | **PASS (unit)** | Four divergent sanitizers reconciled: the server copies share one floor, the Swift copy is verified against the shipped source, and one corpus is pinned in all three suites. IBAN, cue-anchored OTP, Arabic-Indic digits and lower-case IBANs now redact everywhere; the Swift copy fails closed on a rule that will not compile. The end-to-end wire marker run is still outstanding. |
+| PRIVACY / SMS LEAKAGE | **PASS — observed on the wire** | Four divergent sanitizers reconciled onto one shared floor, pinned by one corpus in three suites, then **proven against the deployed functions**: `app/tool/redaction_wire_probe.sh` sends a synthetic message carrying every PII class through the live `process-ios-sms` and reads back what the server stored. All ten classes redacted — IBAN upper and lower case, card, Saudi mobile, account, Arabic-Indic account, OTP on both Arabic and English cues, and the transfer beneficiary. Zero AI cost by construction: with cloud ON and AI OFF the rule parser runs alone, so no model is called. The row is deleted afterwards. |
 | CLOUD-OFF NETWORK | **PASS (runtime observed)** | Was UNVERIFIED, and finding out cost a real leak. `integration_test/cloud_off_egress_test.dart` installs an `HttpOverrides` before `app.main()`, so every `HttpClient` the process creates records its URIs, then drives nine surfaces with consent declined. It found `gamification_sync_service.dart` fetching achievements, streaks and XP with cloud consent OFF — now gated, and the run is clean: **17 setup requests, 0 afterwards.** Not wire-level: a socket proxy would also catch a plugin doing its own native networking; this catches everything that goes through Dart, which is every service the egress inventory lists. |
 | AUTHORIZATION | **PASS — DEPLOYED** | `register-device` still authenticates nothing — it must not, since the App Intent has no JWT — but a rotated secret no longer conveys a user's data: minting now clears `user_id`, so `sync-captures` returns only unclaimed rows to whoever rotated. `sync-captures` verifying no JWT is by design: the credential is a server-minted 256-bit secret and the user binding lives on a row only `link-capture-device` (which does verify a JWT) can write. **Deployed to `rjwphwsefnuotpbtuycf` 2026-09-16** (register-device v4 → v5). Live source re-downloaded and byte-identical to HEAD; `verify_jwt=true` unchanged; a malformed request is refused 400 without a write. Rollback artifact at `~/.qirsh-qa/edge-rollback-20260916-012926/`. |
 | NATIVE CAPTURE FLOWS | **BLOCKED** | Hardware only. |
@@ -74,11 +74,11 @@ Three things follow, and none of them is "ship it":
 1. ~~**Authorization — deploy.**~~ **DONE 2026-09-16.** All four fixed Edge
    Functions are live on `rjwphwsefnuotpbtuycf`, verified byte-identical after
    deploy. Production no longer carries the old behaviour.
-2. **Privacy — wire confirmation.** The sanitizer divergence itself is closed
-   (`c826d14b` + follow-up) and pinned by one corpus in three suites. What is
-   not done is observing it on the wire: the §3 marker run in
-   `docs/qa/QA_SECURITY_MATRIX.md` remains the end-to-end proof, and until it
-   runs, the claim rests on unit evidence.
+2. ~~**Privacy — wire confirmation.**~~ **DONE 2026-09-16.** The marker run
+   exists, is repeatable, and found two real gaps on its first execution: the
+   transfer beneficiary name survived into `processed_captures.sanitized_text`,
+   and `rawMessage` carried the unredacted body back in the response. Both are
+   fixed and redeployed; the probe now reports every class redacted.
 3. **Cloud-OFF on the wire.** Must be observed, not code-read.
 4. **Version.** `0.1.3+39` — owner decides whether V1 ships as `1.0.0`.
 5. **Store assets and metadata.** Screenshots, description, privacy labels.
