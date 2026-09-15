@@ -10,6 +10,7 @@ import {
 } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
 import { fingerprintTimeKeys } from '../_shared/capture_fingerprint.ts';
+import { redactPii } from '../_shared/sms_redaction.ts';
 import { markApnsLogFailed, markApnsLogSent, upsertQueuedApnsLog } from '../_shared/notification_logs.ts';
 import {
   isTransientApnsFailure,
@@ -1023,13 +1024,10 @@ function normalizeDigits(input: string): string {
 }
 
 function reSanitize(text: string): string {
-  return text
-    .replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, '[CARD]')
-    .replace(/\b05\d{8}\b/g, '[PHONE]')
-    .replace(/\b01[0125]\d{8}\b/g, '[PHONE]')
-    .replace(/\+\d{7,15}\b/g, '[PHONE]')
-    .replace(/\b\d{10,20}\b/g, '[ACCOUNT]')
-    .trim();
+  // This copy was missing the IBAN and OTP rules while forwarding the result
+  // to Gemini, so a full IBAN reached the model. Delegated to the shared floor
+  // rather than re-typed, so the three server copies cannot drift again.
+  return redactPii(text).trim();
 }
 
 function extractCurrency(text: string): string | undefined {

@@ -255,4 +255,62 @@ void main() {
       },
     );
   });
+
+  // ── Cross-implementation parity corpus ──────────────────────────────────
+  //
+  // The same inputs are pinned in three places, because the sanitizer exists
+  // in three implementations and divergence between them is the actual risk:
+  //   this file                                   (Dart client)
+  //   supabase/functions/_shared/sms_redaction_test.ts   (server floor)
+  //   app/tool/verify_swift_sanitizer.sh          (Share Extension)
+  // Two of the three were missing the IBAN and OTP rules while forwarding
+  // text to an off-device model. Change one, change all three.
+  group('SmsSanitizer — parity corpus', () {
+    test('IBANs are redacted; the account rule cannot reach them', () {
+      // `\b\d{10,20}\b` never matches this — there is no word boundary
+      // between "SA" and the digits that follow.
+      final out = SmsSanitizer.sanitize(
+        'حوالة من SA0380000000608010167519 بمبلغ 500 ريال',
+        detectedType: TransactionType.transfer,
+      );
+      expect(out, contains('[IBAN]'));
+      expect(out, isNot(contains('SA0380000000608010167519')));
+    });
+
+    test('OTP digits are redacted but the cue survives', () {
+      expect(
+        SmsSanitizer.sanitize('Your OTP is 483920',
+            detectedType: TransactionType.payment),
+        'Your OTP is [OTP]',
+      );
+      expect(
+        SmsSanitizer.sanitize('رمز التحقق: 8391',
+            detectedType: TransactionType.payment),
+        'رمز التحقق: [OTP]',
+      );
+    });
+
+    test('amounts are never redacted by shape', () {
+      // Cue-anchoring exists for exactly this: a bare 4-8 digit run is more
+      // often an amount than a passcode, and the proof layer needs the amount.
+      expect(
+        SmsSanitizer.sanitize('شراء بمبلغ 250.75 ريال',
+            detectedType: TransactionType.payment),
+        'شراء بمبلغ 250.75 ريال',
+      );
+      expect(
+        SmsSanitizer.sanitize('مبلغ 1250 ريال',
+            detectedType: TransactionType.payment),
+        'مبلغ 1250 ريال',
+      );
+    });
+
+    test('card wins over the generic account rule on a bare 16-digit run', () {
+      expect(
+        SmsSanitizer.sanitize('4539148803436467',
+            detectedType: TransactionType.payment),
+        '[CARD]',
+      );
+    });
+  });
 }

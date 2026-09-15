@@ -9,6 +9,7 @@ import {
   safeLog,
   schemaError,
 } from '../_shared/ai_endpoint.ts';
+import { IBAN_DETECT_PATTERN, redactPii } from '../_shared/sms_redaction.ts';
 
 const MAX_BODY_BYTES = 8192;
 const MAX_SMS_LENGTH = 2000;
@@ -285,12 +286,11 @@ function normalizeBankKey(
 }
 
 function reSanitize(text: string): string {
-  return text
-    .replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, '[CARD]')
-    .replace(/\b05\d{8}\b/g, '[PHONE]')
-    .replace(/\b01[0125]\d{8}\b/g, '[PHONE]')
-    .replace(/\+\d{7,15}\b/g, '[PHONE]')
-    .replace(/\b\d{10,20}\b/g, '[ACCOUNT]')
+  // Shared floor first (card, phone, IBAN, OTP, account) — this copy was
+  // missing IBAN and OTP while forwarding the result to Gemini. The two cue
+  // rules below are additions on top, not a substitute: they catch short
+  // masked account tails that the 10-20 digit rule does not reach.
+  return redactPii(text)
     .replace(/(A\/C\s*NO\s*:?\s*)\*?\d{4,}/gi, '$1[ACCOUNT]')
     .replace(/(account|acct|a\/c)\s*:?\s*\*?\d{4,}/gi, '$1 [ACCOUNT]')
     .trim();
@@ -303,6 +303,9 @@ function containsUnsafeRawData(text: string): boolean {
     /\+\d{7,15}\b/,
     /\b05\d{8}\b/,
     /\b01[0125]\d{8}\b/,
+    // An IBAN survived this gate before: it is alphanumeric, so none of the
+    // digit patterns above can match one.
+    IBAN_DETECT_PATTERN,
   ].some((pattern) => pattern.test(text));
 }
 

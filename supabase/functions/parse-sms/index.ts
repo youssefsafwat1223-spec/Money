@@ -14,6 +14,7 @@ import {
   schemaError,
 } from '../_shared/ai_endpoint.ts';
 import { validateEvidenceSpans } from '../_shared/evidence_spans.ts';
+import { redactPii } from '../_shared/sms_redaction.ts';
 import { resolveGeminiRoute } from '../_shared/proof_contract.ts';
 import { amountFromText, withValidatedModelAmountText } from './money.ts';
 
@@ -69,27 +70,16 @@ const BANK_ATM_ALIASES = [
 ];
 
 // Server-side re-sanitization mirrors Dart SmsSanitizer — belt-and-suspenders
-// in case the client-side sanitizer is bypassed or has a bug.
+// in case the client-side sanitizer is bypassed or has a bug. The PII floor
+// (card, phone, IBAN, OTP, account) is shared; the beneficiary rules below are
+// this endpoint's addition, because it is the one that feeds a categorizing
+// prompt and must not hand a third party's name to the model.
 function reSanitize(text: string): string {
-  text = text.replace(/\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g, '[CARD]');
-  text = text.replace(/\b05\d{8}\b/g, '[PHONE]');
-  text = text.replace(/\b01[0125]\d{8}\b/g, '[PHONE]');
-  text = text.replace(/\+\d{7,15}\b/g, '[PHONE]');
-  // IBANs are alphanumeric, so the digits-only account rule below cannot catch
-  // them. Without this a full account identifier reaches the model.
-  text = text.replace(/\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b/g, '[IBAN]');
-  // One-time passcodes, CUE-ANCHORED. A bare 4-6 digit run is far more often an
-  // amount than a passcode, so redacting by shape alone would destroy the value
-  // the proof layer exists to establish.
-  text = text.replace(
-    /((?:otp|one[- ]?time(?:\s+password)?|verification\s+code|رمز\s+التحقق|كود\s+التحقق|رمز\s+الدخول)(?:\s+(?:is|هو))?\s*:?\s*)\d{4,8}/gi,
-    '$1[OTP]',
-  );
-  text = text.replace(/\b\d{10,20}\b/g, '[ACCOUNT]');
-  text = text.replace(/(إلى|الى)\s*:?\s*.+/gi, '$1: [REDACTED]');
-  text = text.replace(/\bTo\s*:\s*.+/gi, 'To: [REDACTED]');
-  text = text.replace(/(عزيزي|عزيزتي)\s+\S+/gi, '[REDACTED]');
-  return text.trim();
+  return redactPii(text)
+    .replace(/(إلى|الى)\s*:?\s*.+/gi, '$1: [REDACTED]')
+    .replace(/\bTo\s*:\s*.+/gi, 'To: [REDACTED]')
+    .replace(/(عزيزي|عزيزتي)\s+\S+/gi, '[REDACTED]')
+    .trim();
 }
 
 function compactToken(value: string): string {

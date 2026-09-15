@@ -545,23 +545,62 @@ struct BackendCaptureClient {
 
   private static func sanitize(_ text: String) -> String {
     var value = text
-    let rules: [(String, String)] = [
+    // ORDER MATTERS and mirrors `lib/engine/privacy/sms_sanitizer.dart`:
+    // card -> phone -> IBAN -> OTP -> account. The generic account rule is last
+    // because it would otherwise eat the digit run inside a more specific match.
+    //
+    // IBAN and OTP were missing here while this copy carried a comment claiming
+    // parity with the Dart sanitizer. They are not optional: this is the path
+    // that reaches an off-device AI service, so it was the WEAKEST of the three
+    // sanitizers guarding the most sensitive egress. The account rule cannot
+    // stand in for the IBAN rule — `\b\d{10,20}\b` never matches a Saudi IBAN,
+    // because there is no word boundary between "SA" and the digits that follow.
+    let specificRules: [(String, String)] = [
       (#"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"#, "[CARD]"),
       (#"\b05\d{8}\b"#, "[PHONE]"),
       (#"\b01[0125]\d{8}\b"#, "[PHONE]"),
       (#"\+\d{7,15}\b"#, "[PHONE]"),
+      (#"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"#, "[IBAN]")
+    ]
+    let genericRules: [(String, String)] = [
       (#"\b\d{10,20}\b"#, "[ACCOUNT]")
     ]
-    for (pattern, replacement) in rules {
-      guard let regex = try? NSRegularExpression(pattern: pattern) else {
-        continue
+
+    func apply(_ rules: [(String, String)]) {
+      for (pattern, replacement) in rules {
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+          continue
+        }
+        value = regex.stringByReplacingMatches(
+          in: value,
+          range: NSRange(location: 0, length: (value as NSString).length),
+          withTemplate: replacement
+        )
       }
-      value = regex.stringByReplacingMatches(
+    }
+
+    apply(specificRules)
+    // Cue-anchored OTP, applied before the generic account rule. Redacting any
+    // 4-8 digit run by shape would destroy amounts and card suffixes, so only
+    // digits FOLLOWING an explicit cue are removed — and the cue is kept, so the
+    // message stays classifiable as an OTP. Mirrors the Dart `_otp` rule.
+    let otpPattern =
+      #"((?:otp|one[- ]?time(?:\s+password)?|verification\s+code|"# +
+      #"رمز\s+التحقق|كود\s+التحقق|رمز\s+الدخول)"# +
+      #"(?:\s+(?:is|هو))?\s*:?\s*)\d{4,8}"#
+    if let otpRegex = try? NSRegularExpression(
+      pattern: otpPattern,
+      options: [.caseInsensitive]
+    ) {
+      value = otpRegex.stringByReplacingMatches(
         in: value,
-        range: NSRange(location: 0, length: (value as NSString).length),
-        withTemplate: replacement
+        options: [],
+        range: NSRange(value.startIndex..., in: value),
+        withTemplate: "$1[OTP]"
       )
     }
+
+    apply(genericRules)
     // Third-party PII: beneficiary/sender names after إلى:/الى:/To: and
     // Arabic greetings with a personal name — mirrors
     // lib/engine/privacy/sms_sanitizer.dart so both capture paths (this
