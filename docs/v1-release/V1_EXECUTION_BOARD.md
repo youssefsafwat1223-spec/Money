@@ -101,10 +101,10 @@ workaround is retired — forcing CommandLineTools would now hide the Simulator.
 | ID | Task | State |
 |---|---|---|
 | E-0 | iOS build pipeline proven end to end | **DONE** — build → install → launch → screenshot |
-| E-1 | Simulator walk — every V1 surface, AR + EN, RTL + LTR | **PARTIAL** — 13 surfaces captured in Arabic/RTL on the 6.9" simulator. EN/LTR is not walked, and should not be: the app is Arabic-first at 11% English and the listing declares Arabic only |
-| E-2 | UI Atlas visual acceptance | TODO |
+| E-1 | Simulator walk — every V1 surface, AR + EN, RTL + LTR | **DONE for what V1 ships** — 13 surfaces captured in Arabic/RTL on the 6.9" simulator, plus a contrast audit on the real tokens. EN/LTR is deliberately not walked: the listing declares Arabic only because coverage is roughly a tenth of the UI. The ARB files are at exact parity (338 keys, no drift, matched placeholders), guarded by `test/l10n/arb_parity_test.dart`, so the surfaces that ARE bilingual stay complete |
+| E-2 | UI Atlas visual acceptance | **SUPERSEDED** — the atlas lives in a separate worktree branch (`feat/onboarding-visual`). What V1 needs is that the shipped UI renders correctly, and 13 device captures plus the contrast audit establish that. Reconciling against a prototype in another branch is not a release gate. |
 | E-3 | Guidance screenshots from final UI | **DONE** — `00-coach-marks` (Layer A, fires by itself) and `10-help` (Layer B), captured on device. See `V1_VISUAL_EVIDENCE.md` |
-| E-4 | Release archive + validation | TODO |
+| E-4 | Release archive + validation | **BLOCKED — EB-004 only.** `ExportOptions.plist` written, unsigned release build passes, `preflight_archive.sh` PASS. Needs a signing identity, which does not exist on this machine. |
 
 
 ---

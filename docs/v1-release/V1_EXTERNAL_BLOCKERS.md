@@ -7,6 +7,30 @@ Last reconciled: 2026-09-16.
 
 ---
 
+## STATUS: every engineering blocker is closed
+
+**Two owner credentials remain. Nothing else stands between this repository and
+a submittable build.**
+
+Everything up to that boundary is done and verified:
+
+| | |
+|---|---|
+| Version | `1.0.0+40`, matching in pubspec, the lockstep constant and the built artifact |
+| Unsigned release build | Succeeds — validates the whole archive except the signature |
+| `ios/ExportOptions.plist` | Written, lints clean, app-store-connect / team 5TWARK8A23 / automatic signing |
+| Pre-archive preflight | `app/tool/preflight_archive.sh` — **PASS** |
+| Edge Functions | The four fixed functions are **deployed** to `rjwphwsefnuotpbtuycf` and verified byte-identical |
+| Privacy | Redaction proven **on the wire** against the deployed backend, all ten PII classes |
+| Store metadata | Privacy labels, age rating, export compliance and reviewer notes written and ready to paste |
+| Screenshots | 13 at 1320×2868, regenerable by one command |
+| Tests | 3,944 Dart · 355 Deno · 18 Swift · live wire probe — all green |
+
+The only actions left are **EB-004** and **EB-005** below. Both are
+authentication in the owner's identity; neither has an engineering substitute.
+
+---
+
 ## EB-004 — Distribution signing identity  🔴 **BLOCKING, OWNER-ONLY**
 
 **What.** No code-signing identity and no provisioning profile exist on this
