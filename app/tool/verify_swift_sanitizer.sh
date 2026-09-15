@@ -20,9 +20,12 @@ python3 - "$src" "$work/check.swift" <<'PY'
 import sys
 src, out = sys.argv[1], sys.argv[2]
 s = open(src, encoding='utf-8').read()
-start = s.index('  private static func sanitize(_ text: String) -> String {')
+start = s.index('  private static func sanitize(_ text: String) throws -> String {')
 end = s.index('\n  }\n', start) + len('\n  }\n')
 body = s[start:end].replace('private static func', 'func', 1)
+# sanitize() throws when a rule will not compile; the standalone harness has no
+# BackendCaptureError, so give it one with the single case sanitize() raises.
+body = 'enum BackendCaptureError: Error { case sanitizerUnavailable }\n\n' + body
 body = '\n'.join(l[2:] if l.startswith('  ') else l for l in body.split('\n'))
 open(out, 'w', encoding='utf-8').write('import Foundation\n\n' + body + '''
 let cases: [(String, String, String)] = [
@@ -43,12 +46,22 @@ let cases: [(String, String, String)] = [
   // Card must win over the generic account rule on a bare 16-digit run,
   // which is only true while the specific rules run first.
   ("4539148803436467", "equals", "[CARD]"),
+  // Arabic-Indic digits: every pattern used ASCII \\d, so identifiers written
+  // in the digits half this market uses were forwarded to the model intact.
+  ("حساب ١٢٣٤٥٦٧٨٩٠١٢٣ خصم", "contains", "[ACCOUNT]"),
+  ("بطاقة ٤٥٣٩١٤٨٨٠٣٤٣٦٤٦٧", "contains", "[CARD]"),
+  ("اتصل ٠٥٥١٢٣٤٥٦٧", "contains", "[PHONE]"),
+  ("حساب ۱۲۳۴۵۶۷۸۹۰۱۲۳", "contains", "[ACCOUNT]"),
+  // ...without costing the amounts their reason for existing.
+  ("مبلغ ١٢٥٠ ريال", "equals", "مبلغ ١٢٥٠ ريال"),
+  // A lower-case IBAN is the same identifier.
+  ("IBAN sa0380000000608010167519", "contains", "[IBAN]"),
   // No raw identifier may survive.
   ("SA0380000000608010167519", "notContains", "SA038000000060801"),
 ]
 var failed = 0
 for (input, mode, expected) in cases {
-  let out = sanitize(input)
+  let out = try! sanitize(input)
   let ok: Bool
   switch mode {
   case "equals": ok = out == expected

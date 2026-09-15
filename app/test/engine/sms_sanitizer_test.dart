@@ -305,6 +305,52 @@ void main() {
       );
     });
 
+    test('Arabic-Indic digits are redacted, not waved through', () {
+      // Every pattern used ASCII \d, so a card or account number written in
+      // the digits half this market uses reached the model intact. `\b` is no
+      // help either: it is defined over [A-Za-z0-9_] only, so it does not even
+      // see an Arabic-Indic run as a word.
+      final account = SmsSanitizer.sanitize('حساب ١٢٣٤٥٦٧٨٩٠١٢٣ خصم',
+          detectedType: TransactionType.payment);
+      expect(account, contains('[ACCOUNT]'));
+      expect(account, isNot(contains('١٢٣٤٥٦٧٨٩٠')));
+
+      final card = SmsSanitizer.sanitize('بطاقة ٤٥٣٩١٤٨٨٠٣٤٣٦٤٦٧',
+          detectedType: TransactionType.payment);
+      expect(card, contains('[CARD]'));
+
+      final phone = SmsSanitizer.sanitize('اتصل ٠٥٥١٢٣٤٥٦٧',
+          detectedType: TransactionType.payment);
+      expect(phone, contains('[PHONE]'));
+
+      // Extended Arabic-Indic (U+06F0-06F9) too.
+      final extended = SmsSanitizer.sanitize('حساب ۱۲۳۴۵۶۷۸۹۰۱۲۳',
+          detectedType: TransactionType.payment);
+      expect(extended, contains('[ACCOUNT]'));
+    });
+
+    test('an Arabic-Indic amount still survives', () {
+      // The widened digit classes must not cost the amounts their reason for
+      // existing: four digits is an amount, not an account number.
+      expect(
+        SmsSanitizer.sanitize('مبلغ ١٢٥٠ ريال',
+            detectedType: TransactionType.payment),
+        'مبلغ ١٢٥٠ ريال',
+      );
+      expect(
+        SmsSanitizer.sanitize('مبلغ ٢٥٠٫٧٥ ريال',
+            detectedType: TransactionType.payment),
+        'مبلغ ٢٥٠٫٧٥ ريال',
+      );
+    });
+
+    test('a lower-case IBAN is the same identifier and is redacted', () {
+      final out = SmsSanitizer.sanitize('IBAN sa0380000000608010167519',
+          detectedType: TransactionType.transfer);
+      expect(out, contains('[IBAN]'));
+      expect(out, isNot(contains('sa0380000000608010167519')));
+    });
+
     test('card wins over the generic account rule on a bare 16-digit run', () {
       expect(
         SmsSanitizer.sanitize('4539148803436467',

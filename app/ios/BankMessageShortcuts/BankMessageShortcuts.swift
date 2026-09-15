@@ -476,6 +476,11 @@ enum BackendCaptureError: Error {
   case invalidURL
   case http(Int)
   case malformedResponse
+  /// A redaction rule failed to compile, so the sanitizer cannot promise the
+  /// text is clean. Raised rather than swallowed: this client posts to a
+  /// backend that forwards the text to an AI service, and a rule that quietly
+  /// did nothing used to mean the raw SMS went out in full.
+  case sanitizerUnavailable
 }
 
 @available(iOS 16.0, *)
@@ -503,7 +508,7 @@ struct BackendCaptureClient {
     urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
     urlRequest.setValue(anonKey, forHTTPHeaderField: "apikey")
     urlRequest.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
-    let sanitized = Self.sanitize(request.smsText)
+    let sanitized = try Self.sanitize(request.smsText)
     let body: [String: Any] = [
       "payloadId": payloadID,
       "installId": installID,
@@ -543,7 +548,7 @@ struct BackendCaptureClient {
     ), pushSent: json["pushSent"] as? Bool ?? false)
   }
 
-  private static func sanitize(_ text: String) -> String {
+  private static func sanitize(_ text: String) throws -> String {
     var value = text
     // ORDER MATTERS and mirrors `lib/engine/privacy/sms_sanitizer.dart`:
     // card -> phone -> IBAN -> OTP -> account. The generic account rule is last
@@ -555,21 +560,43 @@ struct BackendCaptureClient {
     // sanitizers guarding the most sensitive egress. The account rule cannot
     // stand in for the IBAN rule — `\b\d{10,20}\b` never matches a Saudi IBAN,
     // because there is no word boundary between "SA" and the digits that follow.
+    // Every digit shape this market sends: Latin, Arabic-Indic (U+0660-0669)
+    // and extended Arabic-Indic (U+06F0-06F9). ASCII `\d` alone meant a card
+    // or account number written in the digits half the market uses was
+    // forwarded to the model untouched. They are matched in place rather than
+    // normalised away, because the proof layer compares model output against
+    // spans of the very string that was sent.
+    // ICU escapes (\uFFFF), not Swift's \u{...}: these live inside raw
+    // strings, so the regex engine is what reads them.
+    let d = #"[0-9\u0660-\u0669\u06F0-\u06F9]"#
+    // `\b` is defined over [A-Za-z0-9_] alone, so it does not treat U+0660 as
+    // a word character and would place a "boundary" inside an Arabic-Indic
+    // run. These are that assertion widened; on ASCII input they are exactly
+    // equivalent to `\b`.
+    let nb = #"(?<![0-9\u0660-\u0669\u06F0-\u06F9A-Za-z_])"#
+    let nbEnd = #"(?![0-9\u0660-\u0669\u06F0-\u06F9A-Za-z_])"#
+
     let specificRules: [(String, String)] = [
-      (#"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"#, "[CARD]"),
-      (#"\b05\d{8}\b"#, "[PHONE]"),
-      (#"\b01[0125]\d{8}\b"#, "[PHONE]"),
-      (#"\+\d{7,15}\b"#, "[PHONE]"),
-      (#"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b"#, "[IBAN]")
+      (#"\#(nb)\#(d){4}[\s-]?\#(d){4}[\s-]?\#(d){4}[\s-]?\#(d){4}\#(nbEnd)"#, "[CARD]"),
+      // The leading 0 and 5 may themselves be Arabic-Indic, so they are classes.
+      (#"\#(nb)[0\u0660\u06F0][5\u0665\u06F5]\#(d){8}\#(nbEnd)"#, "[PHONE]"),
+      (#"\#(nb)[0\u0660\u06F0][1\u0661\u06F1][0125\u0660\u0661\u0662\u0665\u06F0\u06F1\u06F2\u06F5]\#(d){8}\#(nbEnd)"#, "[PHONE]"),
+      (#"\+\#(d){7,15}\#(nbEnd)"#, "[PHONE]"),
+      // The country code is matched case-insensitively: `sa0380...` is the same
+      // identifier as `SA0380...` and used to pass straight through.
+      (#"\#(nb)[A-Za-z]{2}\#(d){2}[A-Za-z0-9\u0660-\u0669\u06F0-\u06F9]{11,30}\#(nbEnd)"#, "[IBAN]")
     ]
     let genericRules: [(String, String)] = [
-      (#"\b\d{10,20}\b"#, "[ACCOUNT]")
+      (#"\#(nb)\#(d){10,20}\#(nbEnd)"#, "[ACCOUNT]")
     ]
 
-    func apply(_ rules: [(String, String)]) {
+    // A rule that will not compile is thrown, never skipped. `try?` + `continue`
+    // here meant a broken pattern silently redacted nothing and the raw SMS
+    // was posted in full to a backend that forwards it to an AI service.
+    func apply(_ rules: [(String, String)]) throws {
       for (pattern, replacement) in rules {
         guard let regex = try? NSRegularExpression(pattern: pattern) else {
-          continue
+          throw BackendCaptureError.sanitizerUnavailable
         }
         value = regex.stringByReplacingMatches(
           in: value,
@@ -579,7 +606,7 @@ struct BackendCaptureClient {
       }
     }
 
-    apply(specificRules)
+    try apply(specificRules)
     // Cue-anchored OTP, applied before the generic account rule. Redacting any
     // 4-8 digit run by shape would destroy amounts and card suffixes, so only
     // digits FOLLOWING an explicit cue are removed — and the cue is kept, so the
@@ -587,20 +614,21 @@ struct BackendCaptureClient {
     let otpPattern =
       #"((?:otp|one[- ]?time(?:\s+password)?|verification\s+code|"# +
       #"رمز\s+التحقق|كود\s+التحقق|رمز\s+الدخول)"# +
-      #"(?:\s+(?:is|هو))?\s*:?\s*)\d{4,8}"#
-    if let otpRegex = try? NSRegularExpression(
+      #"(?:\s+(?:is|هو))?\s*:?\s*)\#(d){4,8}"#
+    guard let otpRegex = try? NSRegularExpression(
       pattern: otpPattern,
       options: [.caseInsensitive]
-    ) {
-      value = otpRegex.stringByReplacingMatches(
-        in: value,
-        options: [],
-        range: NSRange(value.startIndex..., in: value),
-        withTemplate: "$1[OTP]"
-      )
+    ) else {
+      throw BackendCaptureError.sanitizerUnavailable
     }
+    value = otpRegex.stringByReplacingMatches(
+      in: value,
+      options: [],
+      range: NSRange(value.startIndex..., in: value),
+      withTemplate: "$1[OTP]"
+    )
 
-    apply(genericRules)
+    try apply(genericRules)
     // Third-party PII: beneficiary/sender names after إلى:/الى:/To: and
     // Arabic greetings with a personal name — mirrors
     // lib/engine/privacy/sms_sanitizer.dart so both capture paths (this

@@ -20,7 +20,7 @@ decisions, physical hardware, or work measured in weeks rather than hours.
 | QUEUE FAIL-CLOSED | **PASS** | With capability `unknown`, money writes park and nothing is transmitted. |
 | DATABASE MIGRATIONS | **PASS** | Schema v38, transactional, `user_version` stamped inside the transaction. |
 | BACKUP / RESTORE | **PASS** | Restore is atomic; **the legacy-key fallback defect found and fixed this cycle** — older backups could not be restored at all. |
-| PRIVACY / SMS LEAKAGE | **OPEN** | Three divergent sanitizers; the weakest serves the path reaching an off-device AI service. Not closed. |
+| PRIVACY / SMS LEAKAGE | **PASS (unit)** | Four divergent sanitizers reconciled: the server copies share one floor, the Swift copy is verified against the shipped source, and one corpus is pinned in all three suites. IBAN, cue-anchored OTP, Arabic-Indic digits and lower-case IBANs now redact everywhere; the Swift copy fails closed on a rule that will not compile. The end-to-end wire marker run is still outstanding. |
 | CLOUD-OFF NETWORK | **UNVERIFIED** | Enforcement is code-read, never observed on the wire. |
 | AUTHORIZATION | **OPEN** | `register-device` mints a device secret from the public anon key; `sync-captures` performs no JWT verification. Both stand. |
 | NATIVE CAPTURE FLOWS | **BLOCKED** | Hardware only. |
@@ -56,8 +56,11 @@ decisions, physical hardware, or work measured in weeks rather than hours.
 
 1. **Authorization (P0).** `register-device` and `sync-captures` need fixing or
    an explicit accepted-risk decision. Server-side change.
-2. **Privacy (P0).** The Swift sanitizer strips neither IBAN nor OTP while
-   claiming parity with the Dart one, on the path to an off-device AI service.
+2. **Privacy — wire confirmation.** The sanitizer divergence itself is closed
+   (`c826d14b` + follow-up) and pinned by one corpus in three suites. What is
+   not done is observing it on the wire: the §3 marker run in
+   `docs/qa/QA_SECURITY_MATRIX.md` remains the end-to-end proof, and until it
+   runs, the claim rests on unit evidence.
 3. **Cloud-OFF on the wire.** Must be observed, not code-read.
 4. **Version.** `0.1.3+39` — owner decides whether V1 ships as `1.0.0`.
 5. **Store assets and metadata.** Screenshots, description, privacy labels.

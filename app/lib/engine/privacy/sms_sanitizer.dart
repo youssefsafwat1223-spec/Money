@@ -17,20 +17,47 @@ import '../models/transaction_type.dart';
 class SmsSanitizer {
   SmsSanitizer._();
 
+  // ── Digit classes ────────────────────────────────────────────────────────
+  // Saudi and Egyptian banks send Arabic-Indic digits as well as Latin ones —
+  // that is the entire reason `Normalizer.normalizeDigits` exists. But the
+  // parser normalises a COPY, while this sanitizer runs on the string that
+  // actually leaves the device, and every pattern below used ASCII `\d`. A
+  // card, IBAN or account number written in the digits half this market uses
+  // was therefore transmitted unredacted.
+  //
+  // They are matched in place rather than normalised first: the proof layer
+  // compares model output against spans of the very string that was sent, and
+  // `sanitization_edit_map.dart` records where each character went, so
+  // rewriting characters here would move those spans out from under both.
+  static const String _dc = r'[0-9٠-٩۰-۹]';
+
+  // `\b` is defined over [A-Za-z0-9_] alone. It does not treat U+0660 as a word
+  // character, so against an Arabic-Indic run it places a "boundary" in the
+  // middle of the digits and matches a fragment. These two lookarounds are the
+  // same assertion widened to cover the digits above; on ASCII input they are
+  // exactly equivalent to `\b`.
+  static const String _wordish = r'0-9٠-٩۰-۹A-Za-z_';
+  static const String _nb = '(?<![$_wordish])';
+  static const String _nbEnd = '(?![$_wordish])';
+
   // ── Card numbers ─────────────────────────────────────────────────────────
   // Full 16-digit cards with optional separators. Does NOT match *1234 masked
   // forms (starts with *) — those are intentionally kept (not PII).
   static final _cardNumber = RegExp(
-    r'\b\d{4}[\s\-]?\d{4}[\s\-]?\d{4}[\s\-]?\d{4}\b',
+    '$_nb$_dc{4}[\\s\\-]?$_dc{4}[\\s\\-]?$_dc{4}[\\s\\-]?$_dc{4}$_nbEnd',
   );
 
   // ── Phone numbers ─────────────────────────────────────────────────────────
   // Saudi mobile: 05XXXXXXXX (10 digits starting with 05)
-  static final _saudiPhone = RegExp(r'\b05\d{8}\b');
+  // The leading 0 and 5 may themselves be Arabic-Indic, so they are classes
+  // rather than literals.
+  static final _saudiPhone =
+      RegExp('$_nb[0٠۰][5٥۵]$_dc{8}$_nbEnd');
   // Egyptian mobile: 01[0125]XXXXXXXX
-  static final _egyptPhone = RegExp(r'\b01[0125]\d{8}\b');
+  static final _egyptPhone = RegExp('$_nb[0٠۰][1١۱]'
+      '[0125٠١٢٥۰۱۲۵]$_dc{8}$_nbEnd');
   // International: +CC followed by 7–14 digits
-  static final _intlPhone = RegExp(r'\+\d{7,15}\b');
+  static final _intlPhone = RegExp('\\+$_dc{7,15}$_nbEnd');
 
   // ── IBAN ─────────────────────────────────────────────────────────────────
   // ISO 13616: two country letters, two check digits, then up to 30
@@ -38,8 +65,12 @@ class SmsSanitizer {
   // CANNOT match an IBAN — `SA0380000000608010167519` passed through
   // untouched before this existed, which is a full account identifier sent to
   // a third party. Runs BEFORE the digit rule so the more specific form wins.
+  //
+  // The country code is matched case-insensitively: `RegExp` defaults to
+  // case-sensitive, so `sa0380000000608010167519` — the same identifier, typed
+  // in lower case — used to pass straight through.
   static final _iban = RegExp(
-    r'\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b',
+    '$_nb[A-Za-z]{2}$_dc{2}[A-Za-z0-9٠-٩۰-۹]{11,30}$_nbEnd',
   );
 
   // ── One-time passcodes ───────────────────────────────────────────────────
@@ -51,7 +82,7 @@ class SmsSanitizer {
   static final _otp = RegExp(
     r'((?:otp|one[- ]?time(?:\s+password)?|verification\s+code|'
     r'رمز\s+التحقق|كود\s+التحقق|رمز\s+الدخول)'
-    r'(?:\s+(?:is|هو))?\s*:?\s*)\d{4,8}',
+    '(?:\\s+(?:is|هو))?\\s*:?\\s*)$_dc{4,8}',
     caseSensitive: false,
   );
 
@@ -59,7 +90,7 @@ class SmsSanitizer {
   // Any 10–20 consecutive digits that were NOT already replaced by the phone
   // or card patterns above. Amounts are ≤ 9 digits without a currency context;
   // real account numbers are 10+.
-  static final _accountNumber = RegExp(r'\b\d{10,20}\b');
+  static final _accountNumber = RegExp('$_nb$_dc{10,20}$_nbEnd');
 
   // ── Beneficiary / transfer recipient ─────────────────────────────────────
   // Captures everything after إلى: / الى: / To: to end of line.

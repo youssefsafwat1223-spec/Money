@@ -30,6 +30,32 @@ Deno.test('card, phone and account rules still apply in the right order', () => 
   assertEquals(redactPii('حساب 1234567890123'), 'حساب [ACCOUNT]');
 });
 
+Deno.test('Arabic-Indic digits are redacted, not waved through', () => {
+  // Every pattern used ASCII \\d, so identifiers written in the digits half
+  // this market uses reached Gemini intact.
+  const account = redactPii('حساب ١٢٣٤٥٦٧٨٩٠١٢٣ خصم');
+  assertStringIncludes(account, '[ACCOUNT]');
+  assert(!account.includes('١٢٣٤٥٦٧٨٩٠'));
+  assertStringIncludes(redactPii('بطاقة ٤٥٣٩١٤٨٨٠٣٤٣٦٤٦٧'), '[CARD]');
+  assertStringIncludes(redactPii('اتصل ٠٥٥١٢٣٤٥٦٧'), '[PHONE]');
+  // Extended Arabic-Indic (U+06F0-06F9) too.
+  assertStringIncludes(redactPii('حساب ۱۲۳۴۵۶۷۸۹۰۱۲۳'), '[ACCOUNT]');
+});
+
+Deno.test('an Arabic-Indic amount still survives', () => {
+  // The widened digit classes must not cost the amounts their reason for
+  // existing: four digits is an amount, not an account number.
+  assertEquals(redactPii('مبلغ ١٢٥٠ ريال'), 'مبلغ ١٢٥٠ ريال');
+  assertEquals(redactPii('مبلغ ٢٥٠٫٧٥ ريال'), 'مبلغ ٢٥٠٫٧٥ ريال');
+});
+
+Deno.test('a lower-case IBAN is the same identifier and is redacted', () => {
+  const out = redactPii('IBAN sa0380000000608010167519');
+  assertStringIncludes(out, '[IBAN]');
+  assert(!out.includes('sa0380000000608010167519'));
+  assertEquals(IBAN_DETECT_PATTERN.test('sa0380000000608010167519'), true);
+});
+
 Deno.test('the generic account rule does not eat a card number', () => {
   // A 16-digit run with no separators matches BOTH the card and the account
   // pattern; card must win, which is only true while it runs first.
