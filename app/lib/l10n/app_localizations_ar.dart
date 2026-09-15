@@ -997,4 +997,101 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get commonCancel => 'إلغاء';
+
+  @override
+  String get helpTitle => 'كيف تستخدم قِرش';
+
+  @override
+  String get helpSubtitle => 'دليل مختصر لأهم ما يمكنك فعله في التطبيق.';
+
+  @override
+  String get helpSettingsTile => 'كيف تستخدم قِرش';
+
+  @override
+  String get helpSettingsSubtitle => 'دليل الاستخدام والأسئلة الشائعة';
+
+  @override
+  String get helpSectionBasics => 'الأساسيات';
+
+  @override
+  String get helpSectionReports => 'التقارير والتحليلات';
+
+  @override
+  String get helpSectionPlanning => 'التخطيط';
+
+  @override
+  String get helpSectionPrivacy => 'الخصوصية والبيانات';
+
+  @override
+  String get helpAddTransactionTitle => 'تسجيل عملية';
+
+  @override
+  String get helpAddTransactionBody =>
+      'اضغط زر الإضافة في الشاشة الرئيسية، ثم اختر الإضافة اليدوية أو الصق نص رسالة البنك. يقرأ قِرش الرسالة ويستخرج المبلغ والتاجر والتاريخ، وتبقى لك الكلمة الأخيرة قبل الحفظ.';
+
+  @override
+  String get helpSmartInboxTitle => 'صندوق الوارد الذكي';
+
+  @override
+  String get helpSmartInboxBody =>
+      'العمليات التي يلتقطها قِرش من رسائل البنك تصل هنا أولًا. راجعها وأكّدها أو عدّل تصنيفها، فتنتقل بعدها إلى سجل عملياتك.';
+
+  @override
+  String get helpCategoriesTitle => 'التصنيفات';
+
+  @override
+  String get helpCategoriesBody =>
+      'لكل عملية تصنيف يحدد مكانها في التقارير والميزانيات. غيّر التصنيف من تفاصيل العملية، ويتعلّم قِرش اختيارك للمتجر نفسه مستقبلًا.';
+
+  @override
+  String get helpPeriodTitle => 'تغيير الفترة';
+
+  @override
+  String get helpPeriodBody =>
+      'أعلى قوائم العمليات والتقارير تجد مُحدِّد الفترة: اليوم، الأسبوع، الشهر، السنة، أو مدى مخصص. كل الأرقام في الشاشة تتبع الفترة المختارة.';
+
+  @override
+  String get helpAnnualTitle => 'التقرير السنوي';
+
+  @override
+  String get helpAnnualBody =>
+      'اختر «هذه السنة» أو «السنة الماضية» من مُحدِّد الفترة لتقرأ سلوكك المالي على مدار سنة كاملة: الإجمالي، التصنيفات، الاتجاهات، وأكثر المتاجر إنفاقًا.';
+
+  @override
+  String get helpAccountsTitle => 'الحسابات والبطاقات';
+
+  @override
+  String get helpAccountsBody =>
+      'أضف حسابًا لكل محفظة أو بنك، ولكل حساب عملته الخاصة. تظهر البطاقات تلقائيًا من رسائل البنك، ويمكنك إضافتها يدويًا.';
+
+  @override
+  String get helpBudgetsTitle => 'الميزانيات';
+
+  @override
+  String get helpBudgetsBody =>
+      'حدد سقفًا لتصنيف أو لكل المصروفات، واختر دوريته. ينبّهك قِرش عند بلوغ 80% ثم عند التجاوز.';
+
+  @override
+  String get helpGoalsTitle => 'الأهداف';
+
+  @override
+  String get helpGoalsBody =>
+      'أنشئ هدف ادخار بمبلغ وموعد، ثم أضف إليه مساهمات. يحسب قِرش المبلغ اليومي الموصى به ليبقى الهدف في مساره.';
+
+  @override
+  String get helpPrivacyTitle => 'تحكّمك في بياناتك';
+
+  @override
+  String get helpPrivacyBody =>
+      'بياناتك المالية محفوظة على جهازك ومشفّرة. من شاشة الخصوصية يمكنك التحكم في المعالجة السحابية والتحليل بالذكاء الاصطناعي، وسحب موافقتك في أي وقت.';
+
+  @override
+  String get helpBackupTitle => 'النسخ الاحتياطي والاستعادة';
+
+  @override
+  String get helpBackupBody =>
+      'صدّر نسخة مشفّرة من بياناتك واحتفظ بها، أو استعدها على جهاز آخر. تتم المعاينة على جهازك قبل أي كتابة، ولا تخرج كلمة المرور منه.';
+
+  @override
+  String get helpFooter => 'لم تجد إجابتك؟ راسلنا من شاشة الإعدادات.';
 }

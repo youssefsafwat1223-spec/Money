@@ -735,6 +735,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   'ومفتاحها محفوظ في خزنة النظام',
               children: [
                 _NavTile(
+                  icon: AppLucideIcons.helpCircle,
+                  title: context.l10n.helpSettingsTile,
+                  subtitle: context.l10n.helpSettingsSubtitle,
+                  onTap: () => context.push('/help'),
+                ),
+                _NavTile(
                   icon: AppLucideIcons.heartPulse,
                   title: 'الخصوصية والبيانات',
                   subtitle: 'أمان بياناتك وسياسة الخصوصية',

@@ -1013,4 +1013,102 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get commonCancel => 'Cancel';
+
+  @override
+  String get helpTitle => 'How to use Qirsh';
+
+  @override
+  String get helpSubtitle =>
+      'A short guide to the most useful things you can do.';
+
+  @override
+  String get helpSettingsTile => 'How to use Qirsh';
+
+  @override
+  String get helpSettingsSubtitle => 'Usage guide and common questions';
+
+  @override
+  String get helpSectionBasics => 'Basics';
+
+  @override
+  String get helpSectionReports => 'Reports and insights';
+
+  @override
+  String get helpSectionPlanning => 'Planning';
+
+  @override
+  String get helpSectionPrivacy => 'Privacy and data';
+
+  @override
+  String get helpAddTransactionTitle => 'Record a transaction';
+
+  @override
+  String get helpAddTransactionBody =>
+      'Tap the add button on the home screen, then choose manual entry or paste your bank message. Qirsh reads the message and extracts the amount, merchant and date — you always confirm before anything is saved.';
+
+  @override
+  String get helpSmartInboxTitle => 'Smart Inbox';
+
+  @override
+  String get helpSmartInboxBody =>
+      'Transactions Qirsh captures from bank messages arrive here first. Review and confirm them, or correct the category, and they move into your transaction history.';
+
+  @override
+  String get helpCategoriesTitle => 'Categories';
+
+  @override
+  String get helpCategoriesBody =>
+      'Every transaction has a category, which decides where it appears in reports and budgets. Change it from the transaction details, and Qirsh remembers your choice for that merchant.';
+
+  @override
+  String get helpPeriodTitle => 'Changing the period';
+
+  @override
+  String get helpPeriodBody =>
+      'At the top of the transactions and reports screens you\'ll find the period selector: day, week, month, year, or a custom range. Every figure on the screen follows the period you pick.';
+
+  @override
+  String get helpAnnualTitle => 'The annual report';
+
+  @override
+  String get helpAnnualBody =>
+      'Choose “This year” or “Last year” in the period selector to read a full year of financial behaviour: the total, categories, trends, and where you spent most.';
+
+  @override
+  String get helpAccountsTitle => 'Accounts and cards';
+
+  @override
+  String get helpAccountsBody =>
+      'Add an account for each wallet or bank, each with its own currency. Cards appear automatically from bank messages, and you can add them yourself.';
+
+  @override
+  String get helpBudgetsTitle => 'Budgets';
+
+  @override
+  String get helpBudgetsBody =>
+      'Set a cap for a category or for all spending, and choose how often it resets. Qirsh warns you at 80% and again when you go over.';
+
+  @override
+  String get helpGoalsTitle => 'Goals';
+
+  @override
+  String get helpGoalsBody =>
+      'Create a savings goal with an amount and a date, then add contributions. Qirsh works out the daily amount that keeps the goal on track.';
+
+  @override
+  String get helpPrivacyTitle => 'You control your data';
+
+  @override
+  String get helpPrivacyBody =>
+      'Your financial data is stored encrypted on your device. From the privacy screen you control cloud processing and AI analysis, and you can withdraw consent at any time.';
+
+  @override
+  String get helpBackupTitle => 'Backup and restore';
+
+  @override
+  String get helpBackupBody =>
+      'Export an encrypted copy of your data and keep it safe, or restore it on another device. The file is previewed on your device before anything is written, and your passphrase never leaves it.';
+
+  @override
+  String get helpFooter => 'Still stuck? Contact us from the settings screen.';
 }

@@ -1872,6 +1872,180 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'إلغاء'**
   String get commonCancel;
+
+  /// No description provided for @helpTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'كيف تستخدم قِرش'**
+  String get helpTitle;
+
+  /// No description provided for @helpSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'دليل مختصر لأهم ما يمكنك فعله في التطبيق.'**
+  String get helpSubtitle;
+
+  /// No description provided for @helpSettingsTile.
+  ///
+  /// In ar, this message translates to:
+  /// **'كيف تستخدم قِرش'**
+  String get helpSettingsTile;
+
+  /// No description provided for @helpSettingsSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'دليل الاستخدام والأسئلة الشائعة'**
+  String get helpSettingsSubtitle;
+
+  /// No description provided for @helpSectionBasics.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأساسيات'**
+  String get helpSectionBasics;
+
+  /// No description provided for @helpSectionReports.
+  ///
+  /// In ar, this message translates to:
+  /// **'التقارير والتحليلات'**
+  String get helpSectionReports;
+
+  /// No description provided for @helpSectionPlanning.
+  ///
+  /// In ar, this message translates to:
+  /// **'التخطيط'**
+  String get helpSectionPlanning;
+
+  /// No description provided for @helpSectionPrivacy.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخصوصية والبيانات'**
+  String get helpSectionPrivacy;
+
+  /// No description provided for @helpAddTransactionTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل عملية'**
+  String get helpAddTransactionTitle;
+
+  /// No description provided for @helpAddTransactionBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اضغط زر الإضافة في الشاشة الرئيسية، ثم اختر الإضافة اليدوية أو الصق نص رسالة البنك. يقرأ قِرش الرسالة ويستخرج المبلغ والتاجر والتاريخ، وتبقى لك الكلمة الأخيرة قبل الحفظ.'**
+  String get helpAddTransactionBody;
+
+  /// No description provided for @helpSmartInboxTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'صندوق الوارد الذكي'**
+  String get helpSmartInboxTitle;
+
+  /// No description provided for @helpSmartInboxBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'العمليات التي يلتقطها قِرش من رسائل البنك تصل هنا أولًا. راجعها وأكّدها أو عدّل تصنيفها، فتنتقل بعدها إلى سجل عملياتك.'**
+  String get helpSmartInboxBody;
+
+  /// No description provided for @helpCategoriesTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'التصنيفات'**
+  String get helpCategoriesTitle;
+
+  /// No description provided for @helpCategoriesBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لكل عملية تصنيف يحدد مكانها في التقارير والميزانيات. غيّر التصنيف من تفاصيل العملية، ويتعلّم قِرش اختيارك للمتجر نفسه مستقبلًا.'**
+  String get helpCategoriesBody;
+
+  /// No description provided for @helpPeriodTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيير الفترة'**
+  String get helpPeriodTitle;
+
+  /// No description provided for @helpPeriodBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى قوائم العمليات والتقارير تجد مُحدِّد الفترة: اليوم، الأسبوع، الشهر، السنة، أو مدى مخصص. كل الأرقام في الشاشة تتبع الفترة المختارة.'**
+  String get helpPeriodBody;
+
+  /// No description provided for @helpAnnualTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'التقرير السنوي'**
+  String get helpAnnualTitle;
+
+  /// No description provided for @helpAnnualBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر «هذه السنة» أو «السنة الماضية» من مُحدِّد الفترة لتقرأ سلوكك المالي على مدار سنة كاملة: الإجمالي، التصنيفات، الاتجاهات، وأكثر المتاجر إنفاقًا.'**
+  String get helpAnnualBody;
+
+  /// No description provided for @helpAccountsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحسابات والبطاقات'**
+  String get helpAccountsTitle;
+
+  /// No description provided for @helpAccountsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف حسابًا لكل محفظة أو بنك، ولكل حساب عملته الخاصة. تظهر البطاقات تلقائيًا من رسائل البنك، ويمكنك إضافتها يدويًا.'**
+  String get helpAccountsBody;
+
+  /// No description provided for @helpBudgetsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الميزانيات'**
+  String get helpBudgetsTitle;
+
+  /// No description provided for @helpBudgetsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدد سقفًا لتصنيف أو لكل المصروفات، واختر دوريته. ينبّهك قِرش عند بلوغ 80% ثم عند التجاوز.'**
+  String get helpBudgetsBody;
+
+  /// No description provided for @helpGoalsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأهداف'**
+  String get helpGoalsTitle;
+
+  /// No description provided for @helpGoalsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنشئ هدف ادخار بمبلغ وموعد، ثم أضف إليه مساهمات. يحسب قِرش المبلغ اليومي الموصى به ليبقى الهدف في مساره.'**
+  String get helpGoalsBody;
+
+  /// No description provided for @helpPrivacyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحكّمك في بياناتك'**
+  String get helpPrivacyTitle;
+
+  /// No description provided for @helpPrivacyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك المالية محفوظة على جهازك ومشفّرة. من شاشة الخصوصية يمكنك التحكم في المعالجة السحابية والتحليل بالذكاء الاصطناعي، وسحب موافقتك في أي وقت.'**
+  String get helpPrivacyBody;
+
+  /// No description provided for @helpBackupTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخ الاحتياطي والاستعادة'**
+  String get helpBackupTitle;
+
+  /// No description provided for @helpBackupBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'صدّر نسخة مشفّرة من بياناتك واحتفظ بها، أو استعدها على جهاز آخر. تتم المعاينة على جهازك قبل أي كتابة، ولا تخرج كلمة المرور منه.'**
+  String get helpBackupBody;
+
+  /// No description provided for @helpFooter.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم تجد إجابتك؟ راسلنا من شاشة الإعدادات.'**
+  String get helpFooter;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -16,6 +16,7 @@ import '../../features/onboarding/restore_prompt_screen.dart';
 import '../../features/onboarding/setup_screen.dart';
 import '../../features/onboarding/story_screen.dart';
 import '../../features/reports/reports_screen.dart';
+import '../../features/help/help_screen.dart';
 import '../../features/settings/privacy_screen.dart';
 import '../../features/settings/data_transfer_screen.dart';
 import '../../features/settings/planning_currency_repair_screen.dart';
@@ -141,6 +142,11 @@ final appRouter = GoRouter(
       path: '/privacy',
       name: 'privacy',
       builder: (context, state) => const PrivacyScreen(),
+    ),
+    GoRoute(
+      path: '/help',
+      name: 'help',
+      builder: (context, state) => const HelpScreen(),
     ),
     GoRoute(
       path: '/reports',
