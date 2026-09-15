@@ -22,7 +22,7 @@ decisions, physical hardware, or work measured in weeks rather than hours.
 | BACKUP / RESTORE | **PASS** | Restore is atomic; **the legacy-key fallback defect found and fixed this cycle** — older backups could not be restored at all. |
 | PRIVACY / SMS LEAKAGE | **PASS (unit)** | Four divergent sanitizers reconciled: the server copies share one floor, the Swift copy is verified against the shipped source, and one corpus is pinned in all three suites. IBAN, cue-anchored OTP, Arabic-Indic digits and lower-case IBANs now redact everywhere; the Swift copy fails closed on a rule that will not compile. The end-to-end wire marker run is still outstanding. |
 | CLOUD-OFF NETWORK | **UNVERIFIED** | Enforcement is code-read, never observed on the wire. |
-| AUTHORIZATION | **OPEN** | `register-device` mints a device secret from the public anon key; `sync-captures` performs no JWT verification. Both stand. |
+| AUTHORIZATION | **PASS (unit), pending deploy** | `register-device` still authenticates nothing — it must not, since the App Intent has no JWT — but a rotated secret no longer conveys a user's data: minting now clears `user_id`, so `sync-captures` returns only unclaimed rows to whoever rotated. `sync-captures` verifying no JWT is by design: the credential is a server-minted 256-bit secret and the user binding lives on a row only `link-capture-device` (which does verify a JWT) can write. **The change is in source only — the edge functions are not deployed.** |
 | NATIVE CAPTURE FLOWS | **BLOCKED** | Hardware only. |
 | OWASP SECURITY MATRIX | **OPEN** | 23 P0s in that domain; no root/debugger detection, no pinning; secure-storage options unset at all 12 sites. |
 | ACCESSIBILITY | **PARTIAL** | RTL/LTR asserted on the new surfaces; no full audit. |
@@ -54,8 +54,12 @@ decisions, physical hardware, or work measured in weeks rather than hours.
 
 ## What blocks the release candidate
 
-1. **Authorization (P0).** `register-device` and `sync-captures` need fixing or
-   an explicit accepted-risk decision. Server-side change.
+1. **Authorization — deploy.** The privilege-escalation path is fixed in
+   source and covered by a test that fails against the previous code
+   (`supabase/functions/register-device/handler_test.ts`). It is **not
+   deployed**: deploying edge functions to the production project is an
+   owner action, and nothing in this cycle has touched it. Until it is
+   deployed, production still carries the old behaviour.
 2. **Privacy — wire confirmation.** The sanitizer divergence itself is closed
    (`c826d14b` + follow-up) and pinned by one corpus in three suites. What is
    not done is observing it on the wire: the §3 marker run in
