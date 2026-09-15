@@ -207,6 +207,11 @@ class AppLucideIcons {
     fontFamily: _fontFamily,
     fontPackage: _fontPackage,
   );
+  static const IconData cigarette = IconData(
+    0xf209,
+    fontFamily: _fontFamily,
+    fontPackage: _fontPackage,
+  );
   static const IconData copy = IconData(
     0xf252,
     fontFamily: _fontFamily,

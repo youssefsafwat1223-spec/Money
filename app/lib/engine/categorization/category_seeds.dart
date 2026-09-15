@@ -379,5 +379,19 @@ class CategorySeeds {
     'سينما': Categories.entertainment.key,
     'فندق': Categories.travel.key,
     'مطار': Categories.travel.key,
+    // تدخين — منتجات التبغ والسجائر والمعسل والسجائر الإلكترونية.
+    // المطابقة بالاحتواء على اسم المتجر بعد رفعه لحروف كبيرة، فتغطي هذه
+    // المفاتيح الصياغات العربية والإنجليزية الشائعة في إيصالات المنطقة.
+    'TOBACCO': Categories.smoking.key,
+    'CIGARETTE': Categories.smoking.key,
+    // Deliberately NOT a bare 'SMOKE': it would swallow "Smokehouse" and
+    // "Smoky Grill", which are restaurants.
+    'SMOKE SHOP': Categories.smoking.key,
+    'VAPE': Categories.smoking.key,
+    'IQOS': Categories.smoking.key,
+    'تبغ': Categories.smoking.key,
+    'سجائر': Categories.smoking.key,
+    'دخان': Categories.smoking.key,
+    'معسل': Categories.smoking.key,
   };
 }

@@ -41,6 +41,8 @@ String categoryEmoji(String key) {
       return '☕';
     case 'wrench':
       return '🔧';
+    case 'cigarette':
+      return '🚬';
     case 'wallet-cards':
       return '💳';
     case 'hotel':

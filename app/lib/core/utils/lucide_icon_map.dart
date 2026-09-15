@@ -45,6 +45,8 @@ IconData lucideByName(String name) {
       return AppLucideIcons.coffee;
     case 'wrench':
       return AppLucideIcons.wrench;
+    case 'cigarette':
+      return AppLucideIcons.cigarette;
     case 'wallet-cards':
       return AppLucideIcons.walletCards;
     case 'hotel':

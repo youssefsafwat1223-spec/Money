@@ -85,8 +85,8 @@ void main() {
   });
 
   test('first launch seeds categories and merchant mappings only', () async {
-    // 25 product categories + 1 internal "all expenses".
-    expect(await db.count('categories'), 26);
+    // 26 product categories + 1 internal "all expenses".
+    expect(await db.count('categories'), 27);
     final allExpensesCategory = await db.customSelect(
       'SELECT id FROM categories WHERE key = ? LIMIT 1;',
       variables: [Variable.withString(BudgetEntity.allExpensesCategoryKey)],

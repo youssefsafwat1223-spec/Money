@@ -38,7 +38,7 @@ void main() {
     expect(await db.count('remote_parsers'), greaterThanOrEqualTo(12));
     expect(await db.count('remote_currencies'), greaterThanOrEqualTo(11));
     expect(await db.count('remote_countries'), greaterThanOrEqualTo(10));
-    expect(await db.count('remote_categories'), 21);
+    expect(await db.count('remote_categories'), 22);
 
     final metadata = CatalogMetadataDao(db);
     for (final category in CatalogCategories.phase0) {

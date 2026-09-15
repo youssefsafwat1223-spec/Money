@@ -285,6 +285,21 @@
     "updated_at": "2026-06-14T00:00:00.000Z"
   },
   {
+    "id": "20000000-0000-4000-8000-000000000021",
+    "key": "smoking",
+    "name_ar": "تدخين",
+    "name_en": "Smoking",
+    "icon": "cigarette",
+    "color_hex": "#795548",
+    "parent_key": null,
+    "type": "expense",
+    "sort_order": 20,
+    "is_system": true,
+    "is_active": true,
+    "is_deleted": false,
+    "updated_at": "2026-09-15T00:00:00.000Z"
+  },
+  {
     "id": "20000000-0000-4000-8000-000000000019",
     "key": "income",
     "name_ar": "دخل",

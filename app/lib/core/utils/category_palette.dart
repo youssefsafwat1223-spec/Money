@@ -52,6 +52,8 @@ Color categoryTileColor(String key) {
       return const Color(0xFF2E2416);
     case 'wrench':
       return const Color(0xFF262B31);
+    case 'cigarette':
+      return const Color(0xFF2A2320);
     // شخصي ومناسبات
     case 'gift':
       return const Color(0xFF3A1531);

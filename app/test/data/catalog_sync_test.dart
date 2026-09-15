@@ -457,7 +457,7 @@ void main() {
       expect(await db.count('remote_parsers'), greaterThanOrEqualTo(12));
       expect(await db.count('remote_currencies'), 11);
       expect(await db.count('remote_countries'), 10);
-      expect(await db.count('remote_categories'), 21);
+      expect(await db.count('remote_categories'), 22);
       expect(await db.count('remote_feature_flags'), greaterThanOrEqualTo(4));
     });
   });
