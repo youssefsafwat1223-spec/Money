@@ -110,6 +110,8 @@ enum TransactionsDatePreset {
   last7Days,
   last30Days,
   last90Days,
+  thisYear,
+  previousYear,
   custom,
 }
 
@@ -134,6 +136,8 @@ class TransactionsDateRange {
         TransactionsDatePreset.last7Days => 'آخر 7 أيام',
         TransactionsDatePreset.last30Days => 'آخر 30 يوم',
         TransactionsDatePreset.last90Days => 'آخر 90 يوم',
+        TransactionsDatePreset.thisYear => 'هذه السنة',
+        TransactionsDatePreset.previousYear => 'السنة الماضية',
         TransactionsDatePreset.custom => 'مخصص',
       };
 }
@@ -188,6 +192,21 @@ TransactionsDateRange transactionsRangeForPreset(
         preset: preset,
         from: current.subtract(const Duration(days: 90)),
         to: current,
+      ),
+    // Annual reporting. Boundaries mirror FinancialPeriod.year — the canonical
+    // half-open [Jan 1, next Jan 1) — so the yearly window cannot disagree with
+    // the period resolver every other surface uses. The current year is clamped
+    // to `now`: reporting a window that runs into the future would make the
+    // daily average and the "highest day" wrong for the rest of December.
+    TransactionsDatePreset.thisYear => TransactionsDateRange(
+        preset: preset,
+        from: DateTime(current.year),
+        to: current,
+      ),
+    TransactionsDatePreset.previousYear => TransactionsDateRange(
+        preset: preset,
+        from: DateTime(current.year - 1),
+        to: DateTime(current.year).subtract(const Duration(seconds: 1)),
       ),
     TransactionsDatePreset.custom => customFallback ??
         TransactionsDateRange(preset: preset, from: today, to: current),

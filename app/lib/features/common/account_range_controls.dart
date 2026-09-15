@@ -169,6 +169,8 @@ class _DateRangeChips extends ConsumerWidget {
         TransactionsDatePreset.last7Days => 'آخر 7 أيام',
         TransactionsDatePreset.last30Days => 'آخر 30 يوم',
         TransactionsDatePreset.last90Days => 'آخر 90 يوم',
+        TransactionsDatePreset.thisYear => 'هذه السنة',
+        TransactionsDatePreset.previousYear => 'السنة الماضية',
         TransactionsDatePreset.custom => 'مخصص',
       };
 
