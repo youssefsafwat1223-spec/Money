@@ -2,15 +2,27 @@
 
 Actual runtime and test evidence. A line without evidence is not a PASS.
 
-Measured 2026-09-15 against HEAD.
+Measured 2026-09-15, re-measured 2026-09-16 against HEAD.
 
 ## 1. Static and unit/widget
 
 | Gate | Result |
 |---|---|
 | `flutter analyze` | **0 issues** (was 25 at the start of this effort) |
-| `flutter test` | **3,916 pass · 2 skipped · 0 fail** |
+| `flutter test` | **3,923 pass · 2 skipped · 0 fail** (2026-09-16) |
 | iOS simulator build | **PASS** — `Runner.app` builds, installs, launches |
+| iOS **release** build | **PASS** — `flutter build ios --release --no-codesign` → `Runner.app` (60.2 MB); the Share Extension compiles and the widened redaction classes are present in the shipped binary |
+| `deno test supabase/functions` | **348 pass · 2 ignored · 0 fail** (2026-09-16) |
+| Swift sanitizer parity | **18/18** — `app/tool/verify_swift_sanitizer.sh`, which lifts `sanitize()` out of the shipped source verbatim so the code under test is the code that ships |
+
+### 1.1 What the 2026-09-16 additions actually cover
+
+| Suite | What it would catch |
+|---|---|
+| `supabase/functions/_shared/sms_redaction_test.ts` (9) | An IBAN, OTP or Arabic-Indic identifier reaching the model; an amount destroyed by over-redaction; a `/g` regex made stateful in a fail-closed gate |
+| `supabase/functions/register-device/handler_test.ts` (6) | A rotated relay secret inheriting a user link. **Confirmed by reverting the fix** — the rotation test fails, the other five still pass |
+| `app/test/architecture/report_ads_guards_test.dart` (+1) | An `AdRequest` made personalized, which would make the shipped privacy manifest untrue. **Confirmed by flipping the flag** |
+| `app/test/engine/sms_sanitizer_test.dart` (+8) | The same corpus as the Deno and Swift suites, so the three implementations cannot drift apart silently |
 
 ## 2. Exhaustive route sweep — iOS Simulator (iPhone 17, iOS 26.5)
 

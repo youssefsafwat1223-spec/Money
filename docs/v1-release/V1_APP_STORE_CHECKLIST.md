@@ -62,7 +62,7 @@ Verified absent from tracked source and from every commit in this effort.
 
 | Item | State |
 |---|---|
-| Screenshots from final UI | **NOT PRODUCED** — the pipeline is proven (build → install → launch → screenshot), so this is execution, not design |
+| Screenshots from final UI | **PRODUCED** — 13 captures at 1320×2868 (iPhone 17 Pro Max, the 6.9" class), regenerable by one command. See `V1_VISUAL_EVIDENCE.md`, which also records the two ways the harness produced plausible-but-wrong pictures before it was right |
 | Metadata / description / age rating | **OWNER** |
 | Support URL | **OWNER** — `qirsh.site` appears in release docs; not verified live |
 

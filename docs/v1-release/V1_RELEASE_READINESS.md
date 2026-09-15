@@ -4,13 +4,25 @@ Final gate state. `BLOCKED` and `OPEN` are not `PASS`. Assessed 2026-09-16.
 
 ## Verdict
 
-**NOT READY.** Five gates are genuinely open. Everything that can be closed by
-engineering inside this window has been closed; what remains needs either owner
-decisions, physical hardware, or work measured in weeks rather than hours.
+**NOT READY**, and closer than it was. The two P0 gates that engineering could
+close — the SMS sanitizer divergence and the `register-device` privilege
+escalation — are closed in source and covered by tests that fail against the
+previous code. What remains needs owner decisions, a deploy the owner must
+authorise, physical hardware, or work measured in weeks rather than hours.
+
+Three things follow, and none of them is "ship it":
+
+1. The authorization fix exists only in this repository. **Production still
+   carries the old behaviour** until the edge functions are deployed.
+2. Privacy is closed at the unit level in all three implementations. The
+   end-to-end marker run through a live capture is still the proof that it
+   holds on the wire.
+3. `NOT READY` here is not a formality. The terminal phrase this effort is
+   working toward is not claimed.
 
 | Gate | State | Evidence / why not |
 |---|---|---|
-| MONEY INVARIANTS | **PASS** | Minor-unit arithmetic verified: dual-write, no REAL fallback (throws instead of guessing), integer SUM, cross-currency addition throws. 3,916 tests. |
+| MONEY INVARIANTS | **PASS** | Minor-unit arithmetic verified: dual-write, no REAL fallback (throws instead of guessing), integer SUM, cross-currency addition throws. 3,923 tests. |
 | PUSH EXACTNESS | **BLOCKED** | Transport capability is `unknown` by product contract. Not activated to make a gate green. |
 | PULL EXACTNESS | **BLOCKED** | As above. |
 | MONEY ROUND-TRIP | **BLOCKED** | Requires live PostgREST + Postgres. |

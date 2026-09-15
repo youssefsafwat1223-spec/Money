@@ -101,9 +101,9 @@ workaround is retired — forcing CommandLineTools would now hide the Simulator.
 | ID | Task | State |
 |---|---|---|
 | E-0 | iOS build pipeline proven end to end | **DONE** — build → install → launch → screenshot |
-| E-1 | Simulator walk — every V1 surface, AR + EN, RTL + LTR | TODO |
+| E-1 | Simulator walk — every V1 surface, AR + EN, RTL + LTR | **PARTIAL** — 13 surfaces captured in Arabic/RTL on the 6.9" simulator. EN/LTR is not walked, and should not be: the app is Arabic-first at 11% English and the listing declares Arabic only |
 | E-2 | UI Atlas visual acceptance | TODO |
-| E-3 | Guidance screenshots from final UI | TODO (needs RC-5) |
+| E-3 | Guidance screenshots from final UI | **DONE** — `00-coach-marks` (Layer A, fires by itself) and `10-help` (Layer B), captured on device. See `V1_VISUAL_EVIDENCE.md` |
 | E-4 | Release archive + validation | TODO |
 
 
@@ -117,3 +117,6 @@ workaround is retired — forcing CommandLineTools would now hide the Simulator.
 | F-2 | Four duplicated `TransactionsDatePreset` label maps (`transactions_providers`, `transactions_screen`, `dashboard_screen`, `account_range_controls`) | P2 | Exhaustive switches keep them honest, so this is duplication rather than a defect. Not V1-blocking. |
 | F-3 | `dashboard_screen.dart` carries ~925 lines of uncommitted owner work (a daily-allowance feature) | — | Preserved byte-identically. Only the two label lines RC-3 required were committed, because the switch is exhaustive and HEAD would not otherwise compile. |
 | F-4 | No URL scheme is registered, so `qirsh://` deep links do not open | P2 | Discovered attempting a direct Simulator capture of `/help`. Worth confirming against the App Store checklist — the router accepts parameterised paths that nothing external can currently reach. |
+| F-5 | The privacy manifest's "no tracking" claim had nothing holding it | P1 → **CLOSED** | `google_mobile_ads` is linked and `NSPrivacyTracking` is `false`. That is true only while every `AdRequest` is non-personalized, and nothing connected the plist claim to the Dart behaviour. Guarded in `test/architecture/report_ads_guards_test.dart`; App Store checklist §8 added. |
+| F-6 | Four divergent SMS sanitizers, the weakest on the AI egress path | P0 → **CLOSED** | Server copies share `_shared/sms_redaction.ts`; Swift verified against the shipped source by `app/tool/verify_swift_sanitizer.sh`; one corpus pinned in three suites. Also closed on the same surface: Arabic-Indic digits (PRIVACY-14), lower-case IBANs (PRIVACY-36), and a Swift `try?`+`continue` that failed OPEN. |
+| F-7 | `register-device` let a rotated secret inherit a user link | P0 → **CLOSED in source** | Minting now clears `user_id`. Covered by `supabase/functions/register-device/handler_test.ts`, which fails against the previous code. **Not deployed** — that is an owner action. |
