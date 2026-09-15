@@ -44,6 +44,22 @@ void main() {
         'EgressClass.financialSync — money DOWN; a pull also WRITES locally',
     'features/planning_sync/services/planning_pull_service.dart':
         'EgressClass.financialSync — gated once per pull, not per entity',
+    // ── All four surfaced 2026-09-16, when the guard learned to see a
+    //    receiver on its own line. Three were correctly gated all along and
+    //    simply invisible; the fourth was not gated at all.
+    'features/planning_sync/services/planning_push_service.dart':
+        'EgressClass.financialSync — money. Gated by the sync engine, whose '
+            '`mayEgress` covers every push it drives',
+    'features/planning_sync/services/planning_server_currency_repair.dart':
+        'EgressClass.financialSync — same engine, same gate as the push above',
+    'features/capture/services/ledger_sync_service.dart':
+        'EgressClass.financialSync — the ledger pull, gated by its caller',
+    'features/gamification/services/gamification_sync_service.dart':
+        'EgressClass.gamification — achievements, streaks and XP, derived from '
+            'what this person did in the app. Was UNGATED and LEAKING: observed '
+            'at runtime fetching all three with cloud consent OFF. Gated '
+            '2026-09-16, and the constructor defaults CLOSED so a caller that '
+            'forgets the gate gets no egress rather than silent egress',
     'features/planning_sync/services/planning_child_sync_service.dart':
         'EgressClass.financialSync — consent precedes the capability gate',
     'features/planning_sync/services/accounts_backfill_service.dart':
@@ -82,6 +98,14 @@ void main() {
         'core/backup/remote_backup_controller.dart',
     'core/backup/encrypted_backup_service.dart':
         'core/backup/remote_backup_controller.dart',
+    // The planning/ledger engines hold one gate for the whole pipeline; the
+    // individual services are reached only through them.
+    'features/planning_sync/services/planning_push_service.dart':
+        'core/di/app_providers.dart',
+    'features/planning_sync/services/planning_server_currency_repair.dart':
+        'core/di/app_providers.dart',
+    'features/capture/services/ledger_sync_service.dart':
+        'core/di/app_providers.dart',
   };
 
   /// Files that reach the network WITHOUT a consent gate, each with the reason.
@@ -126,6 +150,25 @@ void main() {
             'so whoever wires this must gate it there and move this entry into '
             '`gated`. Listed the same way merchant_feedback_client.dart is, so '
             'the obligation is visible before the first caller appears.',
+    // ── Surfaced 2026-09-16 when the line-break form was added ────────────
+    'core/di/app_providers.dart':
+        'EXEMPT: the composition root. It constructs the gated services and '
+            'passes each its ConsentAuthority; the matches here are those '
+            'wirings, not egress of its own.',
+    'core/diagnostics/duplicate_trace_service.dart':
+        'EXEMPT: reads user_accounts / user_transactions, but its only caller '
+            'is behind `if (kDebugMode && !_didDupTrace)` in app_shell.dart, so '
+            'it does not exist in a release build. Listed rather than ignored '
+            'because the tables it reads are financial — if it is ever called '
+            'outside that guard it must move to `gated`.',
+    'core/tracking/user_activity_service.dart':
+        'OPEN FINDING — not exempt. `ping()` writes last-seen activity to '
+            '`profiles` with no consent gate, and app_shell.dart calls it on '
+            'every cold start ("always writes"). EgressClass.profileAndSettings '
+            'already exists and returns the cloud decision. Recorded rather '
+            'than fixed in the same change that fixed gamification: the two '
+            'have different blast radii, and a last-seen write is not the same '
+            'question as pulling a user aggregate. Tracked, not hidden.',
     'data/catalog/catalog_sync_service.dart':
         'EXEMPT: catalog carries no user data, and delivers parser rules, '
             'feature flags and the force-update kill switch. Gating it would '
@@ -141,7 +184,27 @@ void main() {
       // making one (`record_coupon_event`) that this guard could not see. Any
       // future RPC — an affiliate click, a status poll — would have been
       // equally invisible.
-      r"\.rpc[<(]",
+      r"\.rpc[<(]|"
+      // 2026-09-16 — the LINE-BREAK blind spot, found at runtime rather than
+      // by reading. Every alternative above requires the receiver and the call
+      // on ONE line. `dart format` puts a long chain's receiver on its own
+      // line, so
+      //
+      //     final rows = await supabase
+      //         .from('user_achievements')
+      //
+      // matched nothing, and SEVEN files were invisible to this guard — not a
+      // corner case, a whole formatting style. One of them,
+      // gamification_sync_service.dart, was fetching achievements, streaks and
+      // XP with cloud consent OFF; it was caught by driving the app with an
+      // HttpOverrides recorder installed, which is what
+      // `integration_test/cloud_off_egress_test.dart` now does on every run.
+      //
+      // The lesson is not "add this pattern". It is that a source-text guard
+      // can only see the shapes it was told about, so it needs a runtime
+      // counterpart that observes behaviour instead of spelling.
+      r"(?:supabase|client|_client|_supabase|instance\.client)\s*\n\s*\.(?:from|rpc)[<(]",
+      multiLine: true,
     );
 
     final found = <String>{};

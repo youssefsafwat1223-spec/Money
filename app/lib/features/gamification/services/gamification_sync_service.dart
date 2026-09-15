@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:drift/drift.dart' show Variable;
 
 import '../../../core/di/app_providers.dart';
+import '../../../core/privacy/consent_authority.dart';
 import '../../../data/db/app_database.dart';
 import '../../../domain/usecases/gamification_rules.dart';
 import '../../../data/db/sql_value_codec.dart';
@@ -19,6 +20,14 @@ final gamificationSyncServiceProvider = Provider((ref) {
     db: ref.watch(appDatabaseProvider),
     supabase: Supabase.instance.client,
     gamificationRepo: ref.watch(gamificationRepositoryProvider),
+    // C-3 — achievements, streaks and XP are derived from what this person did
+    // in the app, so they are user data and must not be fetched with cloud
+    // consent off. Read fresh per sync, so a revocation is observed by the next
+    // call rather than the next boot.
+    mayEgress: () => ConsentAuthority(
+          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+              .getSettings(),
+        ).allows(EgressClass.gamification),
   );
 });
 
@@ -28,13 +37,20 @@ class GamificationSyncService {
     required this.supabase,
     required this.gamificationRepo,
     Future<String?> Function()? getAuthUserId,
-  }) : _getAuthUserId =
-            getAuthUserId ?? (() async => supabase.auth.currentUser?.id);
+    Future<bool> Function()? mayEgress,
+  })  : _getAuthUserId =
+            getAuthUserId ?? (() async => supabase.auth.currentUser?.id),
+        // Defaults CLOSED. A caller that forgets to pass a gate gets no
+        // egress rather than silent egress — which is the habit that produced
+        // this defect: `EgressClass.gamification` has existed in
+        // `ConsentAuthority` the whole time and this service never asked it.
+        _mayEgress = mayEgress ?? (() async => false);
 
   final AppDatabase db;
   final SupabaseClient supabase;
   final GamificationRepository gamificationRepo;
   final Future<String?> Function() _getAuthUserId;
+  final Future<bool> Function() _mayEgress;
 
   Future<void> performSync() async {
     // Read fresh on every call rather than capturing at provider-construction
@@ -53,6 +69,12 @@ class GamificationSyncService {
   }
 
   Future<void> _pullFromSupabase(String userId) async {
+    // Consulted at the moment of egress, not at construction: consent can be
+    // revoked between a decision and a retry.
+    if (!await _mayEgress()) {
+      if (kDebugMode) debugPrint('[GamificationSync] denied: cloud consent off');
+      return;
+    }
     // Pull Achievements
     final serverAchievements = await supabase
         .from('user_achievements')

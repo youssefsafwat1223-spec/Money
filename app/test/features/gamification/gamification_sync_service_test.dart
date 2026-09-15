@@ -82,6 +82,9 @@ void main() {
       supabase: client,
       gamificationRepo: DriftGamificationRepository(db),
       getAuthUserId: () async => 'qa-user',
+      // Explicit, because the constructor defaults CLOSED. This test is about
+      // what the sync does when it is allowed to run.
+      mayEgress: () async => true,
     );
 
     await service.performSync();
@@ -97,5 +100,72 @@ void main() {
             .getSingle());
     expect(xp.read<int>('total_xp'), 20);
     expect(xp.read<int>('level'), 2);
+  });
+
+  test('cloud consent OFF: the server aggregate is never fetched', () async {
+    // The defect this guards: achievements, streaks and XP were pulled on every
+    // cold start with cloud consent off. `EgressClass.gamification` existed in
+    // ConsentAuthority the whole time; this service simply never asked. Found by
+    // driving the app with an HttpOverrides recorder installed, not by reading
+    // — `egress_inventory_test.dart` could not see this file at all, because its
+    // receiver sits on the line above the `.from(`.
+    final db = await AppDatabase.open(
+      executor: NativeDatabase.memory(),
+      keyStore: _MemoryKeyStore(),
+    );
+    addTearDown(db.close);
+    var requests = 0;
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'public-anon-key',
+      accessToken: () async => 'qa-access-token',
+      httpClient: MockClient((request) async {
+        requests++;
+        return _json(const <Object>[], request);
+      }),
+    );
+
+    final service = GamificationSyncService(
+      db: db,
+      supabase: client,
+      gamificationRepo: DriftGamificationRepository(db),
+      getAuthUserId: () async => 'qa-user',
+      mayEgress: () async => false,
+    );
+    await service.performSync();
+
+    expect(requests, 0,
+        reason: 'no gamification request may leave the device with cloud '
+            'consent off');
+  });
+
+  test('a caller that supplies no gate gets no egress', () async {
+    // Defaulting closed is the point. The habit that produced the defect was
+    // per-service opt-in, where forgetting the gate means silent egress.
+    final db = await AppDatabase.open(
+      executor: NativeDatabase.memory(),
+      keyStore: _MemoryKeyStore(),
+    );
+    addTearDown(db.close);
+    var requests = 0;
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'public-anon-key',
+      accessToken: () async => 'qa-access-token',
+      httpClient: MockClient((request) async {
+        requests++;
+        return _json(const <Object>[], request);
+      }),
+    );
+
+    final service = GamificationSyncService(
+      db: db,
+      supabase: client,
+      gamificationRepo: DriftGamificationRepository(db),
+      getAuthUserId: () async => 'qa-user',
+    );
+    await service.performSync();
+
+    expect(requests, 0);
   });
 }

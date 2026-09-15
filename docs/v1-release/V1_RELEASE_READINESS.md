@@ -17,7 +17,13 @@ Three things follow, and none of them is "ship it":
 2. Privacy is closed at the unit level in all three implementations. The
    end-to-end marker run through a live capture is still the proof that it
    holds on the wire.
-3. `NOT READY` here is not a formality. The terminal phrase this effort is
+3. A P0 privacy leak was found in this cycle by **driving the app**, not by
+   reading it — and the structural guard written to prevent exactly that class
+   of defect could not see the file, because its regex required a receiver and
+   its call on one line and `dart format` splits long chains. Seven files were
+   invisible to it. That is a reason for humility about every gate on this page
+   whose evidence is a source scan.
+4. `NOT READY` here is not a formality. The terminal phrase this effort is
    working toward is not claimed.
 
 | Gate | State | Evidence / why not |
@@ -33,7 +39,7 @@ Three things follow, and none of them is "ship it":
 | DATABASE MIGRATIONS | **PASS** | Schema v38, transactional, `user_version` stamped inside the transaction. |
 | BACKUP / RESTORE | **PASS** | Restore is atomic; **the legacy-key fallback defect found and fixed this cycle** — older backups could not be restored at all. |
 | PRIVACY / SMS LEAKAGE | **PASS (unit)** | Four divergent sanitizers reconciled: the server copies share one floor, the Swift copy is verified against the shipped source, and one corpus is pinned in all three suites. IBAN, cue-anchored OTP, Arabic-Indic digits and lower-case IBANs now redact everywhere; the Swift copy fails closed on a rule that will not compile. The end-to-end wire marker run is still outstanding. |
-| CLOUD-OFF NETWORK | **UNVERIFIED** | Enforcement is code-read, never observed on the wire. |
+| CLOUD-OFF NETWORK | **PASS (runtime observed)** | Was UNVERIFIED, and finding out cost a real leak. `integration_test/cloud_off_egress_test.dart` installs an `HttpOverrides` before `app.main()`, so every `HttpClient` the process creates records its URIs, then drives nine surfaces with consent declined. It found `gamification_sync_service.dart` fetching achievements, streaks and XP with cloud consent OFF — now gated, and the run is clean: **17 setup requests, 0 afterwards.** Not wire-level: a socket proxy would also catch a plugin doing its own native networking; this catches everything that goes through Dart, which is every service the egress inventory lists. |
 | AUTHORIZATION | **PASS (unit), pending deploy** | `register-device` still authenticates nothing — it must not, since the App Intent has no JWT — but a rotated secret no longer conveys a user's data: minting now clears `user_id`, so `sync-captures` returns only unclaimed rows to whoever rotated. `sync-captures` verifying no JWT is by design: the credential is a server-minted 256-bit secret and the user binding lives on a row only `link-capture-device` (which does verify a JWT) can write. **The change is in source only — the edge functions are not deployed.** |
 | NATIVE CAPTURE FLOWS | **BLOCKED** | Hardware only. |
 | OWASP SECURITY MATRIX | **OPEN** | 23 P0s in that domain; no root/debugger detection, no pinning; secure-storage options unset at all 12 sites. |
