@@ -201,7 +201,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                       ))
                         DropdownMenuItem<String>(
                           value: category.id,
-                          child: Text(category.nameAr),
+                          child: Text(category.name),
                         ),
                     ],
                     onChanged: (value) {

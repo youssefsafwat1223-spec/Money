@@ -306,7 +306,7 @@ class _TrendsTab extends StatelessWidget {
               title: 'اقتراح سريع',
               body: section.topCategories.isEmpty
                   ? 'ابدأ بإضافة عمليات أكثر عشان نطلع اقتراحات أوضح.'
-                  : 'أكبر صرف عندك على ${section.topCategories.first.category.nameAr}. راقب التصنيف ده أولاً.',
+                  : 'أكبر صرف عندك على ${section.topCategories.first.category.name}. راقب التصنيف ده أولاً.',
               color: c.cta,
             ),
           ],
@@ -705,7 +705,7 @@ class _CategoryLegendTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '%${(slice.percent * 100).round()} ${slice.category.nameAr}',
+                '%${(slice.percent * 100).round()} ${slice.category.name}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.subhead(c.textMain),
@@ -965,7 +965,7 @@ class _WeeklyInsightCard extends StatelessWidget {
       if (topCat != null)
         (
           AppLucideIcons.shapes,
-          'أكثر فئة صرفًا: ${topCat.category.nameAr}',
+          'أكثر فئة صرفًا: ${topCat.category.name}',
           c.cta,
         ),
       if (bestDay != null)

@@ -1,10 +1,17 @@
 /// التصنيفات الـ20 الأساسية (PRODUCT_SPEC §6). `key` ثابت يُخزَّن في DB،
 /// و`arName` للعرض.
 class Category {
-  const Category(this.key, this.arName);
+  const Category(this.key, this.arName, this.enName);
 
   final String key;
   final String arName;
+
+  /// The English display name. The local `categories` table stores only
+  /// `name_ar` (`name_en` exists solely in `remote_categories`), so before this
+  /// the app rendered Arabic category names in BOTH locales. Keys are stable, so
+  /// the English name belongs here beside the Arabic one rather than in a
+  /// migration on a financial database.
+  final String enName;
 
   @override
   String toString() => '$key ($arName)';
@@ -13,32 +20,32 @@ class Category {
 class Categories {
   Categories._();
 
-  static const restaurants = Category('restaurants', 'مطاعم');
-  static const groceries = Category('groceries', 'بقالة');
-  static const transport = Category('transport', 'مواصلات');
-  static const fuel = Category('fuel', 'وقود');
-  static const bills = Category('bills', 'فواتير');
-  static const shopping = Category('shopping', 'تسوق');
-  static const health = Category('health', 'صحة');
-  static const education = Category('education', 'تعليم');
-  static const entertainment = Category('entertainment', 'ترفيه');
-  static const subscriptions = Category('subscriptions', 'اشتراكات');
-  static const transfers = Category('transfers', 'تحويلات');
-  static const cash = Category('cash', 'سحب نقدي');
-  static const travel = Category('travel', 'سفر');
-  static const gifts = Category('gifts', 'هدايا');
-  static const kids = Category('kids', 'أطفال');
-  static const home = Category('home', 'منزل');
-  static const cafes = Category('cafes', 'كافيهات');
-  static const maintenance = Category('maintenance', 'صيانة');
-  static const smoking = Category('smoking', 'تدخين');
-  static const fitness = Category('fitness', 'لياقة ورياضة');
-  static const beauty = Category('beauty', 'عناية شخصية');
-  static const charity = Category('charity', 'تبرعات');
-  static const pets = Category('pets', 'حيوانات أليفة');
-  static const insurance = Category('insurance', 'تأمين');
-  static const income = Category('income', 'دخل');
-  static const other = Category('other', 'أخرى');
+  static const restaurants = Category('restaurants', 'مطاعم', 'Restaurants');
+  static const groceries = Category('groceries', 'بقالة', 'Groceries');
+  static const transport = Category('transport', 'مواصلات', 'Transport');
+  static const fuel = Category('fuel', 'وقود', 'Fuel');
+  static const bills = Category('bills', 'فواتير', 'Bills');
+  static const shopping = Category('shopping', 'تسوق', 'Shopping');
+  static const health = Category('health', 'صحة', 'Health');
+  static const education = Category('education', 'تعليم', 'Education');
+  static const entertainment = Category('entertainment', 'ترفيه', 'Entertainment');
+  static const subscriptions = Category('subscriptions', 'اشتراكات', 'Subscriptions');
+  static const transfers = Category('transfers', 'تحويلات', 'Transfers');
+  static const cash = Category('cash', 'سحب نقدي', 'Cash withdrawal');
+  static const travel = Category('travel', 'سفر', 'Travel');
+  static const gifts = Category('gifts', 'هدايا', 'Gifts');
+  static const kids = Category('kids', 'أطفال', 'Kids');
+  static const home = Category('home', 'منزل', 'Home');
+  static const cafes = Category('cafes', 'كافيهات', 'Cafés');
+  static const maintenance = Category('maintenance', 'صيانة', 'Maintenance');
+  static const smoking = Category('smoking', 'تدخين', 'Smoking');
+  static const fitness = Category('fitness', 'لياقة ورياضة', 'Fitness');
+  static const beauty = Category('beauty', 'عناية شخصية', 'Personal care');
+  static const charity = Category('charity', 'تبرعات', 'Charity');
+  static const pets = Category('pets', 'حيوانات أليفة', 'Pets');
+  static const insurance = Category('insurance', 'تأمين', 'Insurance');
+  static const income = Category('income', 'دخل', 'Income');
+  static const other = Category('other', 'أخرى', 'Other');
 
   static const List<Category> all = [
     restaurants,

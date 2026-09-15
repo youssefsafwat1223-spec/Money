@@ -87,7 +87,7 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
                     it.key != BudgetEntity.allExpensesCategoryKey,
               ))
                 AppCategoryChip(
-                  label: cat.nameAr,
+                  label: cat.name,
                   icon: cat.icon,
                   color: _selectedKey == cat.key ? c.primary : c.textLight,
                   selected: _selectedKey == cat.key,

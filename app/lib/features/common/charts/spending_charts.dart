@@ -373,7 +373,7 @@ class _Donut extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               Text(
-                compactCenter ? 'إجمالي' : slices.first.category.nameAr,
+                compactCenter ? 'إجمالي' : slices.first.category.name,
                 style: AppTypography.caption(centerCaptionColor),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
@@ -559,7 +559,7 @@ class _LegendRow extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(slice.category.nameAr,
+              Text(slice.category.name,
                   style: AppTypography.caption(c.textPrimary)),
               const SizedBox(height: 2),
               Text(

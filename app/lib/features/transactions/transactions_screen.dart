@@ -87,13 +87,13 @@ class TransactionsScreen extends ConsumerWidget {
           final sections = view.sections;
           Widget txRow(TransactionEntity tx) {
             final category = view.catalog.byId(tx.categoryId);
-            final title = tx.rawMerchant ?? category?.nameAr ?? 'عملية';
+            final title = tx.rawMerchant ?? category?.name ?? 'عملية';
             return AppTransactionRow(
               title: title,
               amount: tx.amount,
               currency: Currency.arabicLabel(tx.currency),
               subtitle:
-                  '${Formatters.time(tx.occurredAt)} · ${category?.nameAr ?? 'غير مصنّفة'}',
+                  '${Formatters.time(tx.occurredAt)} · ${category?.name ?? 'غير مصنّفة'}',
               categoryIconName: category?.iconName,
               categoryColor: category?.color,
               brandLogoUrl: BrandMark.logoFor(title, logos),
@@ -927,7 +927,7 @@ class _CategoryFilterButton extends ConsumerWidget {
                   color: active ? c.cta : c.textSecondary),
               const SizedBox(width: 6),
               Text(
-                selected?.nameAr ?? 'التصنيف',
+                selected?.name ?? 'التصنيف',
                 style: AppTypography.caption(active ? c.cta : c.textSecondary)
                     .copyWith(fontWeight: FontWeight.bold),
               ),
@@ -1002,7 +1002,7 @@ class _CategoryFilterSheet extends ConsumerWidget {
               for (final cat in catalog.all) ...[
                 Divider(height: 1, thickness: 1, color: c.divider),
                 _CategoryFilterRow(
-                  label: cat.nameAr,
+                  label: cat.name,
                   selected: selectedId == cat.id,
                   leading: AppAvatar.category(
                     category: cat,

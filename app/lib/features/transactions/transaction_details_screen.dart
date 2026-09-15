@@ -116,7 +116,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
         final amountColor = isDebit ? c.danger : c.success;
         final merchantTitle = tx.rawMerchant?.trim().isNotEmpty == true
             ? tx.rawMerchant!.trim()
-            : category?.nameAr ?? 'عملية';
+            : category?.name ?? 'عملية';
         final statusColor = switch (tx.status) {
           TransactionStatus.confirmed => c.success,
           TransactionStatus.pending => c.accent,
@@ -252,7 +252,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     _buildDetailRow(
                       context,
                       'التصنيف',
-                      category?.nameAr ?? 'غير مصنّف',
+                      category?.name ?? 'غير مصنّف',
                     ),
                     _divider(c),
                     _buildDetailRow(

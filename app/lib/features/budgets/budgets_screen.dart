@@ -688,7 +688,7 @@ class _BudgetCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isGeneral ? 'كل المصروفات' : category?.nameAr ?? 'تصنيف',
+                      isGeneral ? 'كل المصروفات' : category?.name ?? 'تصنيف',
                       style: AppTypography.cardTitle(c.textPrimary),
                     ),
                     const SizedBox(height: AppSpacing.s1),
@@ -886,7 +886,7 @@ class _BudgetHistoryRow extends StatelessWidget {
       BudgetPeriod.monthly => 'شهري',
       BudgetPeriod.yearly => 'سنوي',
     };
-    final title = isGeneral ? 'كل المصروفات' : category?.nameAr ?? 'تصنيف';
+    final title = isGeneral ? 'كل المصروفات' : category?.name ?? 'تصنيف';
     final dateLabel = _budgetPeriodDateLabel(entry, context);
     final subtitle = history.isCurrent
         ? 'ميزانية $periodLabel · $dateLabel · جارية'
@@ -1059,7 +1059,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
     final isOver = entry.remaining.isNegative;
     final title = entry.budget.isAllExpenses
         ? 'كل المصروفات'
-        : category?.nameAr ?? 'ميزانية';
+        : category?.name ?? 'ميزانية';
     final periodLabel = _periodLabel(entry.budget.period.name);
     final statusLabel = history.isCurrent
         ? 'الفترة الحالية'

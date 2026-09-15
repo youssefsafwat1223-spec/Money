@@ -272,7 +272,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                     ),
                     const SizedBox(width: AppSpacing.s3),
                     Expanded(
-                      child: Text(category.nameAr,
+                      child: Text(category.name,
                           style: AppTypography.subhead(c.textMain)),
                     ),
                     SizedBox(

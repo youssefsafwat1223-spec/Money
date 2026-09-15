@@ -445,7 +445,7 @@ class _ManualTransactionSheetState
                           size: 18,
                           color: category.color),
                       const SizedBox(width: 8),
-                      Text(category.nameAr),
+                      Text(category.name),
                     ],
                   ),
                 ),

@@ -256,7 +256,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                   Padding(
                     padding: const EdgeInsets.only(left: 8),
                     child: AppCategoryChip(
-                      label: cat.nameAr,
+                      label: cat.name,
                       icon: cat.icon,
                       color: cat.key == currentCategoryKey
                           ? c.primary

@@ -86,7 +86,7 @@ class TransactionRow extends StatelessWidget {
                           Flexible(
                             child: Text(
                               transaction.rawMerchant ??
-                                  category?.nameAr ??
+                                  category?.name ??
                                   'عملية',
                               style: AppTypography.bodyStrong(c.textPrimary)
                                   .copyWith(
@@ -143,7 +143,7 @@ class TransactionRow extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${category?.nameAr ?? '—'} · ${Formatters.time(transaction.occurredAt)}',
+                        '${category?.name ?? '—'} · ${Formatters.time(transaction.occurredAt)}',
                         style: AppTypography.caption(c.textMuted),
                       ),
                     ],

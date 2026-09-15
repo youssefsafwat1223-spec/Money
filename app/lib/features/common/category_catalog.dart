@@ -6,17 +6,38 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/category_emoji.dart';
 import '../../core/utils/category_palette.dart';
 import '../../core/utils/lucide_icon_map.dart';
+import '../../core/i18n/locale_provider.dart';
 import '../../domain/entities/category_entity.dart';
+import '../../engine/categorization/category.dart';
 
 /// نموذج عرض تصنيف (جاهز للواجهة: أيقونة + لون).
 class CategoryView {
-  CategoryView(this.entity);
+  CategoryView(this.entity, {this.languageCode = 'ar'});
 
   final CategoryEntity entity;
 
+  /// The UI language this view renders for. Resolved once, in
+  /// [categoryCatalogProvider], rather than at each of the ~60 render sites.
+  final String languageCode;
+
   String get id => entity.id;
   String get key => entity.key;
+  /// The stored Arabic name, verbatim. Kept for the few places that genuinely
+  /// mean "the Arabic name" rather than "the name to show".
   String get nameAr => entity.nameAr;
+
+  /// The name to SHOW, in the active language.
+  ///
+  /// The local `categories` table has no `name_en` column at all — English
+  /// names exist only in `remote_categories` — so every surface rendered the
+  /// Arabic name regardless of locale. Category keys are stable, so a system
+  /// category's English name is resolved from [Categories]; a user-created
+  /// category has exactly one name, the one they typed, and keeps it.
+  String get name {
+    if (languageCode != 'en') return entity.nameAr;
+    final known = Categories.all.where((c) => c.key == entity.key);
+    return known.isEmpty ? entity.nameAr : known.first.enName;
+  }
   IconData get icon => lucideByName(entity.icon);
 
   /// المفتاح النصّي للأيقونة (نفس مفاتيح Lucide المخزَّنة في الـ DB).
@@ -32,8 +53,8 @@ class CategoryView {
 
 /// كتالوج التصنيفات (id↔عرض، key↔عرض) — يُحمّل مرة من DB.
 class CategoryCatalog {
-  CategoryCatalog(List<CategoryEntity> categories)
-      : all = _dedupeByKey(categories) {
+  CategoryCatalog(List<CategoryEntity> categories, {String languageCode = 'ar'})
+      : all = _dedupeByKey(categories, languageCode) {
     for (final view in all) {
       _byId[view.id] = view;
       _byKey[view.key] = view;
@@ -42,11 +63,14 @@ class CategoryCatalog {
 
   // Guard against duplicate category rows in the DB (a duplicate key would crash
   // any DropdownButton built from `all`). Keep the first occurrence per key.
-  static List<CategoryView> _dedupeByKey(List<CategoryEntity> categories) {
+  static List<CategoryView> _dedupeByKey(
+    List<CategoryEntity> categories,
+    String languageCode,
+  ) {
     final seen = <String>{};
     final result = <CategoryView>[];
     for (final entity in categories) {
-      final view = CategoryView(entity);
+      final view = CategoryView(entity, languageCode: languageCode);
       if (seen.add(view.key)) result.add(view);
     }
     return result;
@@ -66,5 +90,8 @@ class CategoryCatalog {
 
 final categoryCatalogProvider = FutureProvider<CategoryCatalog>((ref) async {
   final categories = await ref.watch(categoryRepositoryProvider).getAll();
-  return CategoryCatalog(categories);
+  // Watched, so switching language rebuilds every category label at once
+  // instead of leaving stale names behind until the next data change.
+  final locale = ref.watch(localeProvider);
+  return CategoryCatalog(categories, languageCode: locale.languageCode);
 });
