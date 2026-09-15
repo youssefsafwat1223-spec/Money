@@ -512,7 +512,12 @@ class BackupCrypto {
           keySlots: blob.keySlots,
           secret: passphrase,
         );
-        return decryptJsonWithRawKey(blob: blob, keyBytes: keyBytes);
+        // MUST be awaited INSIDE the try: returning the future unawaited let
+        // the authentication failure raised during decryption escape the
+        // handler below, which made the legacy-key fallback unreachable and
+        // broke restore of any backup whose slots unwrap but whose body was
+        // sealed with the passphrase-derived key.
+        return await decryptJsonWithRawKey(blob: blob, keyBytes: keyBytes);
       } on SecretBoxAuthenticationError {
         final legacyKey = await deriveKey(
           passphrase: passphrase,

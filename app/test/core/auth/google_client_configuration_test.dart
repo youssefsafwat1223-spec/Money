@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:money_companion/core/auth/auth_service.dart';
 import 'package:money_companion/core/auth/supabase_auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 

@@ -479,7 +479,7 @@ class PlanningPushService {
         final response = await _remoteSink.casUpdateByServerId(
             remoteTable, serverId, expectedRevision, row);
         if (response == null) {
-          return _resolveUpsertConflict(
+          return await _resolveUpsertConflict(
               item, serverId, remoteTable, localTable);
         }
         await _attachServerId(localTable, item.entityId,
@@ -505,7 +505,7 @@ class PlanningPushService {
               remoteTable, serverId, base, row)
           : await _remoteSink.updateByServerId(remoteTable, serverId, row);
       if (response == null) {
-        return _resolveUpsertConflict(item, serverId, remoteTable, localTable);
+        return await _resolveUpsertConflict(item, serverId, remoteTable, localTable);
       }
       await _attachServerId(localTable, item.entityId, response['id'] as String,
           response['updated_at'] as String?,
@@ -601,7 +601,7 @@ class PlanningPushService {
           await _queue.markSuccess(item.id);
           return _PlanningPushOutcome.pushed;
         }
-        return _resolveDeleteConflict(remoteTable, serverId, localTable, item);
+        return await _resolveDeleteConflict(remoteTable, serverId, localTable, item);
       }
 
       final base = item.payloadJson['server_updated_at'] as String?;
@@ -612,7 +612,7 @@ class PlanningPushService {
         await _queue.markSuccess(item.id);
         return _PlanningPushOutcome.pushed;
       }
-      return _resolveDeleteConflict(remoteTable, serverId, localTable, item);
+      return await _resolveDeleteConflict(remoteTable, serverId, localTable, item);
     } catch (e) {
       if (_isConflict(e)) {
         await _markConflict(localTable, item.entityId);

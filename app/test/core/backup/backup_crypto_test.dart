@@ -146,6 +146,76 @@ void main() {
       payload,
     );
   });
+
+  test(
+      'a v2 blob whose BODY is sealed with the legacy passphrase key still '
+      'restores — the SecretBoxAuthenticationError fallback must be reachable',
+      () async {
+    // REGRESSION. `decryptJson` returned `decryptJsonWithRawKey(...)` from
+    // inside its own `try` without awaiting it, so the authentication failure
+    // raised during decryption escaped the `on SecretBoxAuthenticationError`
+    // handler and the legacy-key fallback below it was unreachable. This blob is
+    // exactly the shape that fallback exists for: key slots that unwrap cleanly,
+    // over a body only the passphrase-derived key opens. Before the fix this
+    // threw, and a user restoring an older backup lost it.
+    final crypto = BackupCrypto(
+      kdf: Argon2id(
+        memory: 1024,
+        parallelism: 1,
+        iterations: 1,
+        hashLength: 32,
+      ),
+    );
+    const passphrase = 'legacy backup password';
+    final salt = List<int>.filled(16, 11);
+    final payload = {
+      'version': 1,
+      'tables': {
+        'transactions': [
+          {'id': 'tx_legacy', 'amount_minor': 77700, 'currency': 'SAR'}
+        ],
+      },
+    };
+
+    // Body sealed with the LEGACY passphrase-derived key.
+    final legacyKey = await crypto.deriveKey(passphrase: passphrase, salt: salt);
+    final legacyBlob = await crypto.encryptJsonWithKey(
+      json: payload,
+      key: legacyKey,
+      salt: salt,
+    );
+
+    // A slot keyed to THIS passphrase, so `unwrapKeyFromSlots` SUCCEEDS — but
+    // wrapping the wrong key, so only the decryption underneath it fails. That
+    // is the one ordering that reaches the fallback; a slot whose secret does
+    // not match fails inside the awaited unwrap and exits through a path that
+    // already worked.
+    final otherKey = await crypto.deriveKey(
+      passphrase: 'a different key entirely',
+      salt: List<int>.filled(16, 12),
+    );
+    final slots = [
+      await crypto.createKeySlot(
+        type: 'passphrase',
+        secret: passphrase,
+        keyBytes: await otherKey.extractBytes(),
+      ),
+    ];
+
+    final mixedBlob = EncryptedBackupBlob(
+      version: 2,
+      salt: legacyBlob.salt,
+      nonce: legacyBlob.nonce,
+      cipherText: legacyBlob.cipherText,
+      mac: legacyBlob.mac,
+      keySlots: slots,
+    );
+
+    expect(
+      await crypto.decryptJson(blob: mixedBlob, passphrase: passphrase),
+      equals(payload),
+    );
+  });
 }
 
 class BackupCryptoBlobCompat {

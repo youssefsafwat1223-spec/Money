@@ -380,7 +380,7 @@ class LedgerPushService implements LedgerPushAdapter {
           await _queue.markSuccess(item.id);
           return _PushOutcome.pushed;
         }
-        return _resolveDeleteConflict(item, serverId);
+        return await _resolveDeleteConflict(item, serverId);
       }
 
       // Never id-only: guard on the last-known updated_at, or (when unknown) on
@@ -405,7 +405,7 @@ class LedgerPushService implements LedgerPushAdapter {
         await _queue.markSuccess(item.id);
         return _PushOutcome.pushed;
       }
-      return _resolveDeleteConflict(item, serverId);
+      return await _resolveDeleteConflict(item, serverId);
     } catch (e) {
       if (_isConflict(e)) {
         await _markConflict(item.transactionId);

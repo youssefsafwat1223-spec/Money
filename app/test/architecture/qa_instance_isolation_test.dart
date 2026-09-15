@@ -55,6 +55,7 @@ void main() {
       // it. The last assignment is the one that decides.
       for (final cfg in [releaseCfg, extReleaseCfg]) {
         for (final key in ['QIRSH_BUNDLE_SUFFIX', 'QIRSH_ENTITLEMENTS_SUFFIX']) {
+          // ignore: prefer_interpolation_to_compose_strings — the raw string exists to keep the regex unescaped; interpolating would force escaping it back.
           final assignments = RegExp('^' + key + r'\s*=(.*)$', multiLine: true)
               .allMatches(settingsOnly(cfg))
               .map((m) => m.group(1)!.trim())
@@ -73,6 +74,7 @@ void main() {
       // every xcconfig above and could ship the QA identifier — the one layer
       // the other guards cannot see.
       for (final key in ['QIRSH_BUNDLE_SUFFIX', 'QIRSH_ENTITLEMENTS_SUFFIX']) {
+        // ignore: prefer_interpolation_to_compose_strings — the raw string exists to keep the regex unescaped; interpolating would force escaping it back.
         expect(RegExp('^\\s*' + key + r'\s*=', multiLine: true).hasMatch(pbxproj),
             isFalse,
             reason: '$key set in project.pbxproj outranks the xcconfig default');

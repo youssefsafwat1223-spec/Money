@@ -514,7 +514,7 @@ class AccountsPushService {
           await _queue.markSuccess(item.id);
           return _AccountsPushOutcome.pushed;
         }
-        return _resolveDeleteConflict(serverId, item);
+        return await _resolveDeleteConflict(serverId, item);
       }
 
       final base = item.payloadJson['server_updated_at'] as String?;
@@ -524,7 +524,7 @@ class AccountsPushService {
         await _queue.markSuccess(item.id);
         return _AccountsPushOutcome.pushed;
       }
-      return _resolveDeleteConflict(serverId, item);
+      return await _resolveDeleteConflict(serverId, item);
     } catch (e) {
       if (_isConflict(e)) {
         await _markConflict(item.entityId);

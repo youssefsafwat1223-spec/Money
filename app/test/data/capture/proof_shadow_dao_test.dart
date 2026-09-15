@@ -124,13 +124,13 @@ void main() {
       'updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)',
       variables: <Variable<Object>>[
         Variable<String>(id),
-        Variable<double>(10.0),
-        Variable<String>('SAR'),
-        Variable<String>('payment'),
-        Variable<String>('bank'),
+        const Variable<double>(10.0),
+        const Variable<String>('SAR'),
+        const Variable<String>('payment'),
+        const Variable<String>('bank'),
         Variable<String>(created),
-        Variable<String>('x'),
-        Variable<double>(1.0),
+        const Variable<String>('x'),
+        const Variable<double>(1.0),
         Variable<String>(status),
         Variable<String>(created),
         Variable<String>(updated),
@@ -233,11 +233,11 @@ void main() {
         '(id, transaction_id, event_type, changed_fields, occurred_at) '
         'VALUES (?,?,?,?,?)',
         variables: <Variable<Object>>[
-          Variable<String>('e1'),
-          Variable<String>('t-pending'),
-          Variable<String>('confirmed'),
-          Variable<String>(''),
-          Variable<String>('2026-09-03T00:00:00.000Z'),
+          const Variable<String>('e1'),
+          const Variable<String>('t-pending'),
+          const Variable<String>('confirmed'),
+          const Variable<String>(''),
+          const Variable<String>('2026-09-03T00:00:00.000Z'),
         ],
       );
 
@@ -385,7 +385,7 @@ void main() {
           Variable<String>('$txnId:$type:${DateTime.now().microsecondsSinceEpoch}'),
           Variable<String>(txnId),
           Variable<String>(type),
-          Variable<String>(''),
+          const Variable<String>(''),
           Variable<String>(DateTime.now().toUtc().toIso8601String()),
         ],
       );
@@ -476,7 +476,7 @@ void main() {
           Variable<String>('$txnId:$type:${DateTime.now().microsecondsSinceEpoch}'),
           Variable<String>(txnId),
           Variable<String>(type),
-          Variable<String>(''),
+          const Variable<String>(''),
           Variable<String>(DateTime.now().toUtc().toIso8601String()),
         ],
       );

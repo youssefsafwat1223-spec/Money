@@ -22,7 +22,11 @@ dependencies:
   # typography over the network.
   lucide_icons: ^0.257.0
   # i18n
-  intl: 0.20.2
+  # Pinned to match whatever `flutter_localizations` pins for the SDK in use —
+  # the exact pin is not a product decision, it is Flutter's own constraint.
+  # Flutter 3.47's flutter_localizations requires ^0.20.3, so 0.20.2 no longer
+  # resolves.
+  intl: ^0.20.3
   drift: ^2.18.0
   flutter_secure_storage: ^9.2.2
   path: ^1.9.1
