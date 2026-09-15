@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../security/secure_storage_options.dart';
 
 /// App appearance preference (فاتح / داكن / تلقائي).
 ///
@@ -14,7 +15,7 @@ class ThemeModeController extends StateNotifier<ThemeMode> {
   }
 
   static const String _key = 'app_theme_mode';
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = SecureStorageOptions.storage;
 
   Future<void> _load() async {
     final raw = await _storage.read(key: _key);

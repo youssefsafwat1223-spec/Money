@@ -1,12 +1,13 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
+import '../security/secure_storage_options.dart';
 
 class AppLockService {
   AppLockService._();
 
   static final AppLockService instance = AppLockService._();
 
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = SecureStorageOptions.storage;
   static const String _kEnabled = 'app_lock_enabled';
 
   final LocalAuthentication _auth = LocalAuthentication();

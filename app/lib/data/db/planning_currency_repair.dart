@@ -5,6 +5,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../domain/finance/currency_scale.dart';
 import 'app_database.dart';
+import '../../core/security/secure_storage_options.dart';
 
 /// MALI-026 (Phase-8 B8-2.6) — pre-v30 PLANNING-CURRENCY REPAIR foundation.
 ///
@@ -42,7 +43,7 @@ abstract class RepairKeyValueStore {
 /// flutter_secure_storage-backed [RepairKeyValueStore] (the production wiring).
 class SecureRepairKeyValueStore implements RepairKeyValueStore {
   const SecureRepairKeyValueStore(
-      [this._storage = const FlutterSecureStorage()]);
+      [this._storage = SecureStorageOptions.storage]);
   final FlutterSecureStorage _storage;
   @override
   Future<String?> read(String key) => _storage.read(key: key);

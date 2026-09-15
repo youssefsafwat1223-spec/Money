@@ -1,6 +1,6 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import 'id_generator.dart';
+import '../security/secure_storage_options.dart';
 
 /// Stable, device-scoped install identifier stored in secure storage.
 /// Generated once on first launch and never changed.
@@ -8,7 +8,7 @@ class InstallId {
   InstallId._();
 
   static const _key = 'mali_install_id';
-  static const _storage = FlutterSecureStorage();
+  static const _storage = SecureStorageOptions.storage;
 
   static String? _cached;
 

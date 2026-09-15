@@ -13,6 +13,7 @@ import 'remote_backup_state.dart';
 import 'restore_controller.dart';
 import 'restore_plan.dart';
 import 'restore_result.dart';
+import '../security/secure_storage_options.dart';
 
 class BackupStatus {
   const BackupStatus({required this.enabled, this.lastBackupAt});
@@ -73,7 +74,7 @@ abstract class BackupService {
 }
 
 class StubBackupService implements BackupService {
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = SecureStorageOptions.storage;
   static const String _kEnabled = 'backup_enabled';
   static const String _kRecovery = 'backup_recovery_code';
   static const String _kLast = 'backup_last_at';

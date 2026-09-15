@@ -21,6 +21,7 @@ import 'restore_preparation.dart';
 import 'restore_result.dart';
 import 'restore_service.dart';
 import 'supabase_remote_backup_store.dart';
+import '../security/secure_storage_options.dart';
 
 /// Audit **H-23** — how locally cached backup crypto relates to the signed-in
 /// account.
@@ -79,7 +80,7 @@ class EncryptedBackupService implements BackupService {
     Future<String?> Function()? readLocalDataOwnerUid,
   })  : _database = database,
         _client = client ?? supabase.Supabase.instance.client,
-        _storage = storage ?? const FlutterSecureStorage(),
+        _storage = storage ?? SecureStorageOptions.storage,
         _crypto = crypto ?? BackupCrypto(),
         _injectedRemoteStore = remoteStore,
         _afterRestore = afterRestore,

@@ -1,4 +1,5 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/security/secure_storage_options.dart';
 
 // MALI-069n §Blocker-1 (Batch-4 closure #3) — cross-isolate ADMISSION-GENERATION
 // invalidation for background secondary jobs.
@@ -62,7 +63,7 @@ class AdmissionToken {
 
 class OwnershipGuard {
   OwnershipGuard({FlutterSecureStorage? storage})
-      : _storage = storage ?? const FlutterSecureStorage();
+      : _storage = storage ?? SecureStorageOptions.storage;
 
   final FlutterSecureStorage _storage;
 

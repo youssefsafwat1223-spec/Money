@@ -9,6 +9,7 @@ import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import 'capture_backend_client.dart';
 import 'native_capture_bridge.dart';
+import '../../../core/security/secure_storage_options.dart';
 
 typedef NativeBackendConfigWriter = Future<void> Function({
   required bool cloudProcessingEnabled,
@@ -34,7 +35,7 @@ class CaptureDeviceRegistrationService {
     ApnsTokenLoader? loadApnsToken,
   })  : _settingsRepository = settingsRepository,
         _client = client,
-        _storage = storage ?? const FlutterSecureStorage(),
+        _storage = storage ?? SecureStorageOptions.storage,
         _isIos = isIos ?? (() => Platform.isIOS),
         _isAndroid = isAndroid ?? (() => Platform.isAndroid),
         _isBackendConfigured =

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../../core/security/secure_storage_options.dart';
 
 abstract class DatabaseKeyStore {
   Future<String> readOrCreateKey();
@@ -156,7 +157,7 @@ class SecureDatabaseKeyStore implements DatabaseKeyStore {
   SecureDatabaseKeyStore({
     FlutterSecureStorage? storage,
     this.storageKey = defaultStorageKey,
-  }) : _storage = storage ?? const FlutterSecureStorage();
+  }) : _storage = storage ?? SecureStorageOptions.storage;
 
   /// Secure-storage key under which the SQLCipher DB key is kept. Exposed so
   /// account/data wipes can preserve it — deleting it while the encrypted DB

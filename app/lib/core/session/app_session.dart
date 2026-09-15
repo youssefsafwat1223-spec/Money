@@ -10,6 +10,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../data/db/database_key_store.dart';
 import '../backend/supabase_config.dart';
 import '../tracking/user_activity_service.dart';
+import '../security/secure_storage_options.dart';
 
 /// [sessionExpired] is distinct from [needsOnboarding]: onboarding metadata
 /// (auth method, completed-account keys) stays intact — only the *live*
@@ -39,7 +40,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   static final AppSession instance = AppSession._();
 
-  static const FlutterSecureStorage _storage = FlutterSecureStorage();
+  static const FlutterSecureStorage _storage = SecureStorageOptions.storage;
   static const String _kDone = 'onboarding_done';
   static const String _kMethod = 'auth_method';
   static const String _kEmail = 'auth_email';
