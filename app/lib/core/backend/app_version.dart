@@ -36,7 +36,7 @@ const String kAppVersion = String.fromEnvironment(
 /// `+`). Enforced by `app_version_test.dart`, which reads pubspec and compares.
 ///
 /// Update BOTH when bumping a release.
-const String kPubspecVersion = '0.1.3';
+const String kPubspecVersion = '1.0.0';
 
 /// The header every catalog request must carry.
 ///

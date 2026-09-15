@@ -10,7 +10,7 @@ plainly that it is unverified. `BLOCKED` and `OWNER` are not `PASS`.
 | Bundle identifier | `com.youssefsafwat.mali$(QIRSH_BUNDLE_SUFFIX)` | PASS — the suffix is empty for release; QA builds take their own |
 | Development team | `5TWARK8A23` | PASS |
 | Display name | `قرش` | PASS |
-| Version / build | **`0.1.3+39`** | **NEEDS AN OWNER DECISION** — a first App Store release is conventionally `1.0.0`. Metadata, not engineering. |
+| Version / build | **`1.0.0+40`** | **DONE.** Bumped from `0.1.3+39`; `kPubspecVersion` moved in lockstep and `app_version_test.dart` enforces it. Force-update is announcement-driven, not version-compared, so the jump cannot trip it. Verified in the built artifact: `CFBundleShortVersionString=1.0.0`, `CFBundleVersion=40`. |
 | App Group | `group.com.youssefsafwat.mali` | confirm against the Share Extension at archive time |
 | Entitlements | `Runner.entitlements`, `RunnerQA.entitlements` | PASS — QA entitlements are a separate file from the release one |
 
@@ -23,7 +23,7 @@ plainly that it is unverified. `BLOCKED` and `OWNER` are not `PASS`.
 | Permission purpose strings | PASS — `NSCameraUsageDescription`, `NSFaceIDUsageDescription`, `NSPhotoLibraryUsageDescription` |
 | In-app account deletion | present; the destructive phase asserts every financial table is emptied on sign-out |
 | Privacy Policy / Terms URLs | present in `privacy_screen.dart` |
-| App Store privacy labels | **OWNER** — declared in App Store Connect, not in the repo. See §8: the label must cover the ads SDK even though the ad flags ship OFF. |
+| App Store privacy labels | **PREPARED** — the exact table to enter is in `V1_APP_STORE_SUBMISSION.md` §1, derived from the manifest and from what the code does. Entering it needs the owner's App Store Connect session. |
 | Cloud / AI disclosure matches behaviour | consent gating enforced in `ConsentAuthority`; wire-level proof UNVERIFIED |
 
 ## 3. Languages — the line that changes the listing
@@ -41,7 +41,7 @@ See V1_LOCALIZATION_MATRIX.md.
 
 | Item | State |
 |---|---|
-| Review account credentials | **OWNER** |
+| Review account credentials | **OWNER** — the owner chooses which account to expose to Apple. Reviewer notes are written to assume one is supplied. |
 | Sign in with Apple | dependency present (required alongside Google sign-in); flow UNVERIFIED on device |
 | Google sign-in URL scheme | PASS — declared in Info.plist |
 | Reviewer-visible crash | none observed across 30 routes on the Simulator |
@@ -63,8 +63,9 @@ Verified absent from tracked source and from every commit in this effort.
 | Item | State |
 |---|---|
 | Screenshots from final UI | **PRODUCED** — 13 captures at 1320×2868 (iPhone 17 Pro Max, the 6.9" class), regenerable by one command. See `V1_VISUAL_EVIDENCE.md`, which also records the two ways the harness produced plausible-but-wrong pictures before it was right |
-| Metadata / description / age rating | **OWNER** |
+| Metadata / description / age rating | **PREPARED** — age rating answers and export-compliance answers in `V1_APP_STORE_SUBMISSION.md` §3-§4; reviewer notes ready to paste in §5. Entry needs the owner's session. |
 | Support URL | **OWNER** — `qirsh.site` appears in release docs; not verified live |
+| Export compliance | **PREPARED** — `V1_APP_STORE_SUBMISSION.md` §4. The app uses TLS plus SQLCipher at rest, which is the standard exemption; the answer is a legal statement, so it is answered in the questionnaire by the owner rather than hard-coded here |
 
 ## 7. Not claimed
 

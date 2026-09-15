@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- App Store distribution. Everything here is build configuration; none of
+	     it is a secret. The certificate and provisioning profile are NOT in this
+	     repository and must not be: this file only says what to do with them. -->
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>teamID</key>
+	<string>5TWARK8A23</string>
+	<!-- Automatic signing: Xcode resolves the distribution certificate and the
+	     profiles for the app and both extensions from the signed-in Apple
+	     Developer account. Manual signing would require pinning profile names
+	     that only exist on the owner's machine. -->
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- Symbols go to App Store Connect so crash reports are readable. The app
+	     ships Sentry too, but a crash before the Dart VM starts only ever
+	     reaches Apple. -->
+	<key>uploadSymbols</key>
+	<true/>
+	<!-- Bitcode has been dead since Xcode 14; stating it avoids a warning that
+	     reads like an error in CI logs. -->
+	<key>uploadBitcode</key>
+	<false/>
+	<!-- Let Apple thin per device. -->
+	<key>stripSwiftSymbols</key>
+	<true/>
+	<key>destination</key>
+	<string>export</string>
+</dict>
+</plist>

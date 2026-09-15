@@ -12,8 +12,7 @@ authorise, physical hardware, or work measured in weeks rather than hours.
 
 Three things follow, and none of them is "ship it":
 
-1. The authorization fix exists only in this repository. **Production still
-   carries the old behaviour** until the edge functions are deployed.
+1. The authorization fix is **deployed**. Production carries it.
 2. Privacy is closed at the unit level in all three implementations. The
    end-to-end marker run through a live capture is still the proof that it
    holds on the wire.
@@ -35,12 +34,12 @@ Three things follow, and none of them is "ship it":
 | CURRENCY ROUND-TRIP | **BLOCKED** | Requires migration 0077, whose deployment state is UNVERIFIED. |
 | DEDUP / IDEMPOTENCY | **PARTIAL** | Fingerprint and outbox logic covered by unit tests; the nine delivery paths are not all exercised. |
 | CRASH RECOVERY | **PARTIAL** | Outbox atomicity verified; fault injection at the 13 boundaries not built. |
-| QUEUE FAIL-CLOSED | **PASS** | With capability `unknown`, money writes park and nothing is transmitted. |
+| QUEUE FAIL-CLOSED | **PASS (runtime observed)** | Was a source-read claim. `integration_test/queue_failclosed_egress_test.dart` is the mirror of the cloud-OFF test: it grants **both** consents, asserts every transport capability is still `unknown`, then walks the money surfaces with the HttpOverrides recorder installed. Consent is not the gate here — the capability is — so this is the stronger claim: money parks even when the user has said yes to everything. **24 setup requests, 0 afterwards**, no financial table touched. |
 | DATABASE MIGRATIONS | **PASS** | Schema v38, transactional, `user_version` stamped inside the transaction. |
 | BACKUP / RESTORE | **PASS** | Restore is atomic; **the legacy-key fallback defect found and fixed this cycle** — older backups could not be restored at all. |
 | PRIVACY / SMS LEAKAGE | **PASS (unit)** | Four divergent sanitizers reconciled: the server copies share one floor, the Swift copy is verified against the shipped source, and one corpus is pinned in all three suites. IBAN, cue-anchored OTP, Arabic-Indic digits and lower-case IBANs now redact everywhere; the Swift copy fails closed on a rule that will not compile. The end-to-end wire marker run is still outstanding. |
 | CLOUD-OFF NETWORK | **PASS (runtime observed)** | Was UNVERIFIED, and finding out cost a real leak. `integration_test/cloud_off_egress_test.dart` installs an `HttpOverrides` before `app.main()`, so every `HttpClient` the process creates records its URIs, then drives nine surfaces with consent declined. It found `gamification_sync_service.dart` fetching achievements, streaks and XP with cloud consent OFF — now gated, and the run is clean: **17 setup requests, 0 afterwards.** Not wire-level: a socket proxy would also catch a plugin doing its own native networking; this catches everything that goes through Dart, which is every service the egress inventory lists. |
-| AUTHORIZATION | **PASS (unit), pending deploy** | `register-device` still authenticates nothing — it must not, since the App Intent has no JWT — but a rotated secret no longer conveys a user's data: minting now clears `user_id`, so `sync-captures` returns only unclaimed rows to whoever rotated. `sync-captures` verifying no JWT is by design: the credential is a server-minted 256-bit secret and the user binding lives on a row only `link-capture-device` (which does verify a JWT) can write. **The change is in source only — the edge functions are not deployed.** |
+| AUTHORIZATION | **PASS — DEPLOYED** | `register-device` still authenticates nothing — it must not, since the App Intent has no JWT — but a rotated secret no longer conveys a user's data: minting now clears `user_id`, so `sync-captures` returns only unclaimed rows to whoever rotated. `sync-captures` verifying no JWT is by design: the credential is a server-minted 256-bit secret and the user binding lives on a row only `link-capture-device` (which does verify a JWT) can write. **Deployed to `rjwphwsefnuotpbtuycf` 2026-09-16** (register-device v4 → v5). Live source re-downloaded and byte-identical to HEAD; `verify_jwt=true` unchanged; a malformed request is refused 400 without a write. Rollback artifact at `~/.qirsh-qa/edge-rollback-20260916-012926/`. |
 | NATIVE CAPTURE FLOWS | **BLOCKED** | Hardware only. |
 | OWASP SECURITY MATRIX | **OPEN** | 23 P0s in that domain; no root/debugger detection, no pinning; secure-storage options unset at all 12 sites. |
 | ACCESSIBILITY | **PARTIAL** | RTL/LTR asserted on the new surfaces; no full audit. |
@@ -72,12 +71,9 @@ Three things follow, and none of them is "ship it":
 
 ## What blocks the release candidate
 
-1. **Authorization — deploy.** The privilege-escalation path is fixed in
-   source and covered by a test that fails against the previous code
-   (`supabase/functions/register-device/handler_test.ts`). It is **not
-   deployed**: deploying edge functions to the production project is an
-   owner action, and nothing in this cycle has touched it. Until it is
-   deployed, production still carries the old behaviour.
+1. ~~**Authorization — deploy.**~~ **DONE 2026-09-16.** All four fixed Edge
+   Functions are live on `rjwphwsefnuotpbtuycf`, verified byte-identical after
+   deploy. Production no longer carries the old behaviour.
 2. **Privacy — wire confirmation.** The sanitizer divergence itself is closed
    (`c826d14b` + follow-up) and pinned by one corpus in three suites. What is
    not done is observing it on the wire: the §3 marker run in
