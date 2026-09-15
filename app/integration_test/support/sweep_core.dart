@@ -277,6 +277,61 @@ List<MutationSignature> signaturesFor(
   return out;
 }
 
+/// The SHAPE of a change: table, kind and sub-fields, without the row id.
+///
+/// Row identity is the right key for a writer that touches one known row and
+/// the wrong key for a background writer that sweeps MANY rows: catalog sync
+/// stamps `notification_log_events.synced_at` across whichever rows are due,
+/// so a no-tap baseline and a post-tap observation name the same churn on
+/// different ids and nothing subtracts.
+///
+/// This is NOT used to subtract. Subtraction stays signature-exact — a
+/// background writer creating `budgets/b1` must never excuse a control that
+/// created `budgets/b2`. It is used only to LABEL a leftover as churn the
+/// baseline already demonstrated, so the sweep can report it as background
+/// rather than charge it to a control, with the evidence on the line.
+String shapeOf(MutationSignature m) =>
+    '${m.table}/${m.kind}/${m.fields.join(",")}';
+
+/// Columns a sync writer stamps and a FEATURE never means. Deliberately tiny
+/// and closed: every entry is bookkeeping about when a row was last shipped,
+/// carrying no user-visible or financial meaning, so a change confined to them
+/// cannot be the product of a control doing something a person would notice.
+const kSyncBookkeepingColumns = <String>{
+  'synced_at',
+  'sync_status',
+  'server_updated_at',
+};
+
+/// True when every signature in [leftover] is background noise rather than the
+/// control's own work. Two independent ways to qualify, both narrow:
+///
+///  * its SHAPE was already observed in a window with no interaction, or
+///  * it is confined to [kSyncBookkeepingColumns] on a table declared to have
+///    a live background writer ([backgroundWrittenTables]).
+///
+/// The second exists because the first depends on luck: a writer on a cadence
+/// longer than the no-tap window is simply not observed, and on the run that
+/// exposed this, FOUR controls were charged with `synced_at` churn purely
+/// because the sync happened not to fire during any 12-second observation.
+/// Table membership is an asserted, reviewed property; a stamped column is a
+/// checked fact. Neither can excuse a CREATE or a DELETE, and neither can
+/// excuse a change to any column that carries meaning.
+bool isBackgroundChurn(
+  Set<MutationSignature> leftover,
+  Set<String> backgroundShapes, {
+  Set<String> backgroundWrittenTables = const {},
+}) {
+  if (leftover.isEmpty) return false;
+  return leftover.every((m) {
+    if (m.kind != 'updated') return false;
+    if (backgroundShapes.contains(shapeOf(m))) return true;
+    return backgroundWrittenTables.contains(m.table) &&
+        m.fields.isNotEmpty &&
+        m.fields.every(kSyncBookkeepingColumns.contains);
+  });
+}
+
 /// What the control is actually responsible for. A signature is background
 /// drift ONLY when an identical one (same table, row, kind and sub-fields) was
 /// observed with no interaction. Anything else — including an extra impression

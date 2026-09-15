@@ -113,7 +113,6 @@ const _userTables = <String>[
   'capture_review_labels',
   'financial_import_runs',
   'restore_operations',
-  'notification_log_events',
   'proof_shadow_evaluations',
   'proof_correction_events',
 ];
@@ -124,6 +123,24 @@ const _syncTables = <String>[
   'planning_sync_outbox',
   'sync_cursors',
   'parked_child_rows',
+];
+
+/// Durable, user-visible, and written by a LIVE background writer — so exact
+/// restore is a race the sweep loses, not an invariant it can hold.
+///
+/// Notification sync re-stamps `notification_log_events.synced_at` across
+/// whichever rows are due, on its own cadence. Keeping the table in the
+/// restore set made every post-restore fingerprint differ from the captured
+/// one, and a single tap on `/profile` raised a CONTAMINATION-HALT that
+/// abandoned the remaining 40-odd controls on that route.
+///
+/// The cost is stated rather than hidden: rows this sweep causes here are NOT
+/// rolled back. That is acceptable only because the table is an append-only
+/// log with no financial authority — it is still WATCHED, so a control that
+/// writes to it is still reported. No table carrying money or user settings
+/// may join this list.
+const _unrestorableTables = <String>[
+  'notification_log_events',
 ];
 
 /// Watched for unexpected writes, never restored.
@@ -145,13 +162,36 @@ const _catalogTables = <String>[
   'financial_cache_health',
 ];
 List<String> get _restorable => [..._userTables, ..._syncTables];
-List<String> get _watched => [..._restorable, ..._catalogTables];
+
+/// Compared after every control. Wider than [_restorable] on purpose: the
+/// unrestorable log still has to be diffed, or a control whose only effect is
+/// a log write becomes indistinguishable from a dead tap.
+List<String> get _perControlTables => [..._restorable, ..._unrestorableTables];
+List<String> get _watched =>
+    [..._restorable, ..._unrestorableTables, ..._catalogTables];
 
 /// Which tables a route is ALLOWED to write. A write outside this set is not a
 /// pass — it is an unexpected durable mutation and a triage finding.
 /// An entity write legitimately enqueues its sync companion, so the outbox is
 /// allowed ONLY on the flows that write that entity — never globally, or an
 /// unrelated control writing to the outbox would pass unnoticed.
+/// Maps a CONCRETE path back to the entry that describes what it may write.
+///
+/// `_expectedWrites` is keyed by route template, but the sweep now visits
+/// parameterized paths with real ids — `/budgets/XfEu.../edit` looked up
+/// nothing, so the budget form's own save was reported as an unexpected write
+/// to `budgets`. Substituting the id keeps the allowlist keyed by route rather
+/// than by row.
+String expectationKeyFor(String path) {
+  final s = path.split('/');
+  if (s.length == 4 && s[1] == 'budgets' && s[3] == 'edit') return '/budgets/new';
+  if (s.length == 3 && s[1] == 'goals') return '/goals';
+  if (s.length == 3 && s[1] == 'account') return '/accounts';
+  if (s.length == 3 && s[1] == 'card') return '/cards';
+  if (s.length == 3 && s[1] == 'transaction') return '/transaction/:id';
+  return path;
+}
+
 const _expectedWrites = <String, List<String>>{
   '/budgets': ['budgets', 'planning_sync_outbox'],
   '/budgets/new': ['budgets', 'planning_sync_outbox'],
@@ -164,6 +204,13 @@ const _expectedWrites = <String, List<String>>{
   '/settings': ['user_settings', 'planning_sync_outbox', 'notification_log_events'],
   '/profile': ['user_settings', 'planning_sync_outbox', 'notification_log_events'],
   '/privacy': ['user_settings', 'planning_sync_outbox'],
+  // The details sheet's own actions: recategorize, edit, delete.
+  '/transaction/:id': [
+    'transactions',
+    'categories',
+    'ledger_outbox',
+    'planning_sync_outbox',
+  ],
   '/paste': [
     'transactions',
     'smart_inbox_items',
@@ -452,6 +499,13 @@ void main() {
             notes.add('$t.$col fields: ${fields.join(",")}');
           }
         }
+        if (_unrestorableTables.contains(t)) {
+          // Reported (the signatures above already landed) but neither
+          // restored nor treated as contamination: a live background writer
+          // owns this table, so "the fingerprint still differs" says nothing
+          // about the control and halting the route on it loses real coverage.
+          continue;
+        }
         if (!_restorable.contains(t)) {
           unrestored.add('$t (catalog/reference — not restored)');
           continue;
@@ -518,6 +572,12 @@ void main() {
     await AppSession.instance
         .setIdentity(method: 'email', email: _qaEmail, userId: res.user!.id);
     await AppSession.instance.reconcileAccountOnboarding(client);
+    // A FRESH install (a clean Simulator) has not seen the cinematic welcome,
+    // and the router redirects every route to /welcome until it has — so the
+    // shell never mounts and every run dies on "shell never mounted". The
+    // welcome and onboarding routes are covered by the destructive phase, which
+    // reaches them the only way a user can.
+    await AppSession.instance.markWelcomeManifestoSeen();
     await settle(tester, budget: const Duration(seconds: 60));
     if (!AppSession.instance.hasCompletedOnboarding) {
       await AppSession.instance.finishOnboarding();
@@ -566,12 +626,65 @@ void main() {
           find.byType(Scaffold).evaluate().isNotEmpty;
     }
 
-    final slice = _staticRoutes
+    // ── Parameterized routes ────────────────────────────────────────────────
+    //
+    // Six routes take a path parameter and one (/design) is reachable only by
+    // direct navigation, so none of them appear in `_staticRoutes`. They were
+    // therefore never exercised: 12 of the router's 35 paths had no coverage at
+    // all, and the header comment claiming ids are "created by this run" was
+    // aspirational — nothing resolved them.
+    //
+    // Resolve each against the LIVE database. A route whose backing row does
+    // not exist is NOT APPLICABLE *for this device state* and is recorded with
+    // the reason, never silently dropped: "no row" is a fact about the fixture,
+    // not a verdict about the screen.
+    Future<String?> scalar(String sql) async {
+      try {
+        final rows = await container.read(appDatabaseProvider)
+            .customSelect(sql).get();
+        if (rows.isEmpty) return null;
+        final v = rows.first.data.values.first;
+        return v?.toString();
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final dynamicRoutes = <String>['/design'];
+    for (final (label, sql, template) in <(String, String, String)>[
+      ('account', 'SELECT id FROM accounts WHERE deleted_at IS NULL LIMIT 1',
+          '/account/{}'),
+      ('card', 'SELECT last4 FROM cards WHERE deleted_at IS NULL LIMIT 1',
+          '/card/{}'),
+      ('transaction', 'SELECT id FROM transactions LIMIT 1', '/transaction/{}'),
+      ('budget', 'SELECT id FROM budgets WHERE deleted_at IS NULL LIMIT 1',
+          '/budgets/{}/edit'),
+      ('goal', 'SELECT id FROM goals WHERE deleted_at IS NULL LIMIT 1',
+          '/goals/{}'),
+      ('merchant', 'SELECT id FROM remote_catalog_merchants LIMIT 1',
+          '/coupons/merchant/{}'),
+    ]) {
+      final id = await scalar(sql);
+      if (id == null || id.isEmpty) {
+        record('ROUTE ${template.replaceFirst("{}", ":$label")} :: '
+            'NOT APPLICABLE (no $label row exists on this device)');
+        continue;
+      }
+      dynamicRoutes.add(template.replaceFirst('{}', id));
+    }
+    record('DYNAMIC routes resolved: ${dynamicRoutes.join(" ")}');
+
+    /// Mutation SHAPES (table/kind/fields) seen in a no-tap window on any
+    /// route so far. Grows monotonically; never shrinks.
+    final backgroundShapes = <String>{};
+
+    final allRoutes = <String>[..._staticRoutes, ...dynamicRoutes];
+    final slice = allRoutes
         .skip(_sweepFrom)
-        .take((_sweepTo - _sweepFrom + 1).clamp(0, _staticRoutes.length))
+        .take((_sweepTo - _sweepFrom + 1).clamp(0, allRoutes.length))
         .toList();
     record('SLICE routes $_sweepFrom..$_sweepTo => '
-        '${slice.length} of ${_staticRoutes.length}: ${slice.join(" ")}');
+        '${slice.length} of ${allRoutes.length}: ${slice.join(" ")}');
     for (final path in slice) {
       final ok = await goTo(path);
       if (!ok) {
@@ -594,6 +707,15 @@ void main() {
       final baselinePre = await snapshot();
       await settle(tester, budget: const Duration(seconds: 12));
       final (baselineSummary, _, baselineDrift) = await reconcile(baselinePre);
+      // A shape proven background on ANY route is background everywhere: the
+      // writers that produce it (catalog sync stamping `synced_at`) are global
+      // and fire on a cadence, not on a route. Keeping the evidence per-route
+      // meant a writer that happened to stay quiet during ONE route's 12-second
+      // no-tap window was then charged to whatever was tapped next — which is
+      // exactly how the dashboard's nav icons were accused of writing to
+      // notification_log_events. A shape can only enter this set by having been
+      // observed with NO interaction at all.
+      backgroundShapes.addAll(baselineDrift.map(shapeOf));
       if (baselineDrift.isNotEmpty) {
         record('ROUTE $path :: NO-TAP BASELINE DRIFT: $baselineSummary '
             ':: signatures ${baselineDrift.map((m) => m.key).join(" | ")}');
@@ -904,7 +1026,7 @@ void main() {
                 ? tester.widget<Checkbox>(f2).value
                 : null;
         lastAction = c.toString();
-        final preState = await snapshot(_restorable);
+        final preState = await snapshot(_perControlTables);
         try {
           // A TextField's user action is focus+type, and a RefreshIndicator's
           // is a pull — tapping either would prove nothing about them.
@@ -1051,15 +1173,43 @@ void main() {
             await tester.tapAt(hittable!);
             await settle(tester, budget: const Duration(seconds: 12));
           }
+          // RECOVERY. A control that navigates while the Navigator is mid-frame
+          // raises `!_debugLocked`, and the element tree stays corrupt: every
+          // route visited afterwards then fails on `_elements.contains(element)`
+          // and is reported as a product failure it had nothing to do with. One
+          // re-entrant tap cost 19 routes of evidence. These two branches are
+          // where it actually surfaces — the exception is TAKEN here, so it
+          // never reaches the outer catch.
+          Future<bool> recoverRoute() async {
+            navigatedAway = true;
+            try {
+              await settle(tester, budget: const Duration(seconds: 8));
+              tester.takeException();
+              return await goTo(path);
+            } catch (_) {
+              return false;
+            }
+          }
+
           final err = tester.takeException();
           if (err != null) {
             record('$path :: $c :: FAIL ($err)');
             failed++;
+            if (!await recoverRoute()) {
+              record('$path :: RECOVERY FAILED — the remaining controls on this '
+                  'route are UNMEASURED, not passing');
+              break;
+            }
             continue;
           }
           if (find.byType(ErrorWidget).evaluate().isNotEmpty) {
             record('$path :: $c :: FAIL (ErrorWidget after tap)');
             failed++;
+            if (!await recoverRoute()) {
+              record('$path :: RECOVERY FAILED — the remaining controls on this '
+                  'route are UNMEASURED, not passing');
+              break;
+            }
             continue;
           }
           final after = texts(tester).join('|');
@@ -1083,6 +1233,12 @@ void main() {
           final toggled = toggleActed(before: beforeToggle, after: afterToggle);
           final (mutation, unrestored, observedSigs) =
               await reconcile(preState);
+          // Does this control own a durable write? Background churn is NOT an
+          // effect: counting the raw mutation string made `استيراد ملف` pass on
+          // the strength of catalog sync re-stamping `synced_at` while the OS
+          // file picker was up — a control passing on someone else's write is
+          // worse than a dead tap, because it looks like evidence.
+          var attributableWrite = false;
           if (mutation.isNotEmpty) {
             // Subtract only IDENTICAL signatures (same table, row, kind and
             // json sub-fields). A second impression on top of a baseline
@@ -1090,15 +1246,33 @@ void main() {
             // rewrite sharing the same column does — and must survive.
             final own =
                 attributable(observed: observedSigs, baseline: baselineDrift);
-            final unexpected = unexpectedTables(
-                tablesOf(own), _expectedWrites[path] ?? const []);
+            final unexpected = unexpectedTables(tablesOf(own),
+                _expectedWrites[expectationKeyFor(path)] ?? const []);
             if (unexpected.isNotEmpty) {
-              // The user's rule: an unrelated tile creating a budget row is a
-              // finding, not a pass.
-              record('$path :: $c :: UNEXPECTED-MUTATION '
-                  '${unexpected.join(",")} :: $mutation TRIAGE-REQUIRED');
-              failed++;
-              continue;
+              // Before charging the control: is every leftover an UPDATE whose
+              // shape a no-tap window already produced? Catalog sync re-stamps
+              // `notification_log_events.synced_at` across a moving set of
+              // rows, so row-exact subtraction can never cancel it and three
+              // innocent controls were charged with it. Reported, never
+              // silently dropped — and never for a created or deleted row.
+              if (isBackgroundChurn(own, backgroundShapes,
+                  backgroundWrittenTables: _unrestorableTables.toSet())) {
+                record('$path :: $c :: BACKGROUND-CHURN '
+                    '${unexpected.join(",")} (shape seen with no interaction) '
+                    ':: $mutation');
+                // Deliberately leaves `attributableWrite` false.
+              } else {
+                // The user's rule: an unrelated tile creating a budget row is a
+                // finding, not a pass.
+                record('$path :: $c :: UNEXPECTED-MUTATION '
+                    '${unexpected.join(",")} :: $mutation TRIAGE-REQUIRED');
+                failed++;
+                continue;
+              }
+            } else {
+              // Inside the route's allowlist and not background churn: this is
+              // the control's own write.
+              attributableWrite = own.isNotEmpty;
             }
           }
           if (unrestored.isNotEmpty) {
@@ -1108,12 +1282,23 @@ void main() {
             break;
           }
           final fieldsChanged = fieldValues() != beforeFields;
+          // An ATTRIBUTABLE durable write is an effect. Omitting it scored
+          // three working switches DEAD-TAP: `إخفاء الأرقام` wrote
+          // user_settings{privacy_mode_enabled} and was still called dead,
+          // because its only visible consequence is on OTHER screens and the
+          // isolation restores the row before the next observation.
+          //
+          // ATTRIBUTABLE, not merely present: unexpected writes never reach
+          // here (they were recorded as findings and `continue`d), and
+          // background churn is explicitly excluded, so a control can never
+          // pass on a write that was not its own.
           final changed = after != before ||
               afterBarriers != beforeBarriers ||
               toggled ||
               navigated ||
               themed ||
-              fieldsChanged;
+              fieldsChanged ||
+              attributableWrite;
           if (mutation.isNotEmpty) {
             record('$path :: $c :: MUTATION $mutation');
           }
@@ -1129,6 +1314,26 @@ void main() {
         } catch (e) {
           record('$path :: $c :: FAIL (threw: $e)');
           failed++;
+          // RECOVER. A control that navigates while the Navigator is mid-frame
+          // raises `!_debugLocked`, and every route visited afterwards then
+          // fails on `_elements.contains(element)` — one re-entrant tap
+          // invalidated the remaining 24 routes' evidence and reported them all
+          // as product failures. Reload the route so the next control starts
+          // from a clean tree; if the tree cannot be recovered, stop this route
+          // rather than emit verdicts the harness can no longer trust.
+          navigatedAway = true;
+          try {
+            await settle(tester, budget: const Duration(seconds: 8));
+            if (!await goTo(path)) {
+              record('$path :: RECOVERY FAILED — remaining controls on this '
+                  'route are unmeasured, not passing');
+              break;
+            }
+          } catch (_) {
+            record('$path :: RECOVERY FAILED — remaining controls on this '
+                'route are unmeasured, not passing');
+            break;
+          }
         }
       }
     }
