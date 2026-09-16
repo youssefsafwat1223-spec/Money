@@ -19,6 +19,7 @@ import '../../domain/entities/account_entity.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/theme/widgets/directional_chevron.dart';
 
 class DataTransferScreen extends ConsumerStatefulWidget {
   const DataTransferScreen({super.key, this.initialAction});
@@ -408,7 +409,7 @@ class _ActionTile extends StatelessWidget {
         leading: Icon(icon),
         title: Text(title),
         subtitle: Text(subtitle),
-        trailing: const Icon(AppLucideIcons.chevronLeft),
+        trailing: const DirectionalChevron(),
         onTap: onTap,
       );
 }

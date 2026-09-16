@@ -20,6 +20,7 @@ import '../transactions/transactions_providers.dart';
 import 'subscriptions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/theme/widgets/directional_chevron.dart';
 
 class BillFormSheet extends ConsumerStatefulWidget {
   const BillFormSheet({
@@ -887,7 +888,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
                       ],
                     ),
                   ),
-                  const Icon(AppLucideIcons.chevronLeft),
+                  const DirectionalChevron(),
                 ],
               ),
             ),

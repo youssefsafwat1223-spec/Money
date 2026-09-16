@@ -22,6 +22,7 @@ import '../onboarding/widgets/neon_illustration.dart';
 import 'settings_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/theme/widgets/directional_chevron.dart';
 
 class PrivacyScreen extends ConsumerWidget {
   const PrivacyScreen({super.key});
@@ -462,7 +463,7 @@ class _PrivacyCard extends StatelessWidget {
             title,
             style: AppTypography.bodyStrong(danger ? c.danger : c.textMain),
           ),
-          trailing: Icon(AppLucideIcons.chevronLeft, color: c.textMuted),
+          trailing: DirectionalChevron(color: c.textMuted),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           onTap: onTap,

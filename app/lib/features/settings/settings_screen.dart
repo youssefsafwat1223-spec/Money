@@ -51,6 +51,7 @@ import '../capture/services/local_notification_service.dart';
 import '../onboarding/ios_shortcut_guide.dart';
 import '../transactions/transactions_providers.dart';
 import 'settings_providers.dart';
+import '../../core/theme/widgets/directional_chevron.dart';
 
 /// maybeWhen that keeps rendering the last loaded value during a reload, so the
 /// frequent `user_settings` writes (sync, notification history, journey) don't
@@ -2084,7 +2085,7 @@ class _NavTile extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
               style: AppTypography.caption(c.textLight),
             ),
-      trailing: Icon(AppLucideIcons.chevronLeft, color: c.textMuted, size: 20),
+      trailing: DirectionalChevron(color: c.textMuted, size: 20),
       onTap: onTap,
     );
   }

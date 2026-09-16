@@ -107,6 +107,11 @@ void main() {
         ProviderScope.containerOf(tester.element(find.byType(AppShell)));
     final settingsRepo = container.read(userSettingsRepositoryProvider);
 
+    // Captured ONCE. `AppShell` is only mounted on the shell routes, so
+    // re-resolving the router inside the loop throws the moment the walk
+    // reaches a standalone route like /accounts.
+    final router = GoRouter.of(tester.element(find.byType(AppShell)));
+
     final failures = <String>[];
     final arabicSurvivors = <String, int>{};
     final visited = <String, int>{'ar': 0, 'en': 0};
@@ -120,7 +125,6 @@ void main() {
       final seen = <String>{};
       for (final route in _routes) {
         if (!seen.add(route)) continue;
-        final router = GoRouter.of(tester.element(find.byType(AppShell).first));
         router.go(route);
         await settle(tester);
 

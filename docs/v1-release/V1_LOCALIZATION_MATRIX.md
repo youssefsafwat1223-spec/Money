@@ -1,6 +1,64 @@
 # V1 Localization Matrix
 Measured 2026-09-15 against HEAD. Counts are Arabic string literals in
 widget-bearing files (the user-facing surface) versus `l10n.*` references.
+## 0. Runtime evidence — added 2026-09-16
+
+Everything below was previously measured by counting source. This section is
+the first **runtime** evidence: `integration_test/bilingual_walk_test.dart`
+drives every V1 route on the Simulator in `ar`, then switches
+`settings.language` to `en` — which is what `localeProvider` reads — and drives
+them again.
+
+| Measure | Result |
+|---|---|
+| Routes walked in Arabic | **19** |
+| Routes walked in English | **19** |
+| `Directionality` assertions | **38 / 38 passed** (RTL under `ar`, LTR under `en`) |
+| Captures | **38** at 1320×2868, `~/.qirsh-qa/bilingual/` |
+| Routes still rendering Arabic under `en` | **15 of 19** |
+
+Arabic strings surviving a switch to English, by route:
+
+| Route | Arabic strings | Route | Arabic strings |
+|---|---|---|---|
+| `/` | 88 | `/cards` | 18 |
+| `/settings` | 82 | `/accounts` | 16 |
+| `/profile` | 82 | `/privacy` | 12 |
+| `/budgets` | 38 | `/backup` | 9 |
+| `/reports` | 33 | `/data-transfer` | 9 |
+| `/achievements` | 27 | `/announcements` | 7 |
+| `/subscriptions` | 20 | `/paste` | 5 |
+| `/goals` | 18 | | |
+
+Four routes render no Arabic under `en`. Fifteen do.
+
+### What the direction assertion could NOT see
+
+It passed on all 38, and the English screenshots were still wrong. Containers
+mirrored correctly while the **disclosure chevron kept pointing left** — correct
+in Arabic, where forward is leftward; wrong in English. Fifteen call sites
+hardcoded `chevronLeft`.
+
+That is the honest limit of the assertion: it proves the direction was applied,
+not that the picture is right. Only the side-by-side captures showed it. Fixed
+via `DirectionalChevron`, verified on the re-run, and locked by
+`test/core/theme/widgets/directional_chevron_test.dart`.
+
+The tempting fix was wrong in a way worth recording. `IconData(...,
+matchTextDirection: true)` reads like the answer; Flutter mirrors a matching
+icon **only in RTL** (`widgets/icon.dart:334-344`), so with the bundled
+left-chevron glyph it would have pointed left in LTR and right in RTL — broken
+in both, including the language that already worked.
+
+### What this means for the listing
+
+English is not merely incomplete, it is **incoherent**: Arabic copy rendered
+inside correctly-mirrored LTR containers. Declaring Arabic only on the App Store
+remains correct, and is now supported by runtime evidence rather than a string
+count.
+
+---
+
 ## 1. The headline number
 | | |
 |---|---|

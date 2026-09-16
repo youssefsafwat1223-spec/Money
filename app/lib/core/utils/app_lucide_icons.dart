@@ -162,6 +162,7 @@ class AppLucideIcons {
     fontFamily: _fontFamily,
     fontPackage: _fontPackage,
   );
+
   static const IconData chevronUp = IconData(
     0xf1fd,
     fontFamily: _fontFamily,

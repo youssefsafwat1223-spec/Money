@@ -45,6 +45,7 @@ import 'manual_transaction_sheet.dart';
 import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
 import 'widgets/change_category_sheet.dart';
+import '../../core/theme/widgets/directional_chevron.dart';
 
 String _monthsLabel(int n) {
   if (n == 1) return 'شهر';
@@ -1932,7 +1933,7 @@ class _SmartInboxBanner extends ConsumerWidget {
                       .copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-              Icon(AppLucideIcons.chevronLeft, size: 18, color: c.cta),
+              DirectionalChevron(size: 18, color: c.cta),
             ],
           ),
         ),
@@ -2066,7 +2067,7 @@ class _SuspectedDuplicatesBanner extends ConsumerWidget {
                       .copyWith(fontWeight: FontWeight.w700),
                 ),
               ),
-              Icon(AppLucideIcons.chevronLeft, size: 16, color: c.accent),
+              DirectionalChevron(size: 16, color: c.accent),
             ],
           ),
         ),

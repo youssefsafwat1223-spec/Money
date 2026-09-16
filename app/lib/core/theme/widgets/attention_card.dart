@@ -4,7 +4,7 @@ import '../app_colors.dart';
 import '../app_spacing.dart';
 import '../app_typography.dart';
 import '../mali_tokens.dart';
-import '../../utils/app_lucide_icons.dart';
+import 'directional_chevron.dart';
 
 /// AttentionCard — a single, prioritized alert on the canvas (e.g. "٣ عمليات
 /// في انتظار مراجعتك"). Tinted by [color] (defaults to warning). Strict
@@ -75,7 +75,7 @@ class AttentionCard extends StatelessWidget {
                 ),
               ),
               if (onTap != null)
-                Icon(AppLucideIcons.chevronLeft, color: tone, size: 22),
+                DirectionalChevron(color: tone, size: 22),
             ],
           ),
         ),

@@ -8,6 +8,7 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../features/common/app_sheet_scaffold.dart';
 import '../transactions/manual_transaction_sheet.dart';
 import 'manual_paste_screen.dart';
+import '../../core/theme/widgets/directional_chevron.dart';
 
 Future<void> showCaptureEntrySheet(BuildContext context) {
   // لو الكيبورد كان مفتوح (جاي من خانة البحث مثلًا) فمساحة الشيت بتتاكل
@@ -108,7 +109,7 @@ class _ActionTile extends StatelessWidget {
                 ],
               ),
             ),
-            Icon(AppLucideIcons.chevronLeft, color: c.textLight, size: 20),
+            DirectionalChevron(color: c.textLight, size: 20),
           ],
         ),
       ),

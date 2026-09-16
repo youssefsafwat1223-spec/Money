@@ -20,6 +20,7 @@ import '../cards/cards_providers.dart';
 import 'account_form_sheet.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/theme/widgets/directional_chevron.dart';
 
 class AccountsScreen extends ConsumerWidget {
   const AccountsScreen({super.key});
@@ -253,7 +254,7 @@ class _AccountCard extends ConsumerWidget {
                 ],
               ),
             ),
-            Icon(AppLucideIcons.chevronLeft, color: c.textLight, size: 20),
+            DirectionalChevron(color: c.textLight, size: 20),
           ],
         ),
       ),
@@ -324,7 +325,7 @@ class _UnassignedCardTile extends StatelessWidget {
             Text(Formatters.amount(net.toDouble()),
                 style: AppTypography.caption(c.textLight)),
             const SizedBox(width: 6),
-            Icon(AppLucideIcons.chevronLeft, color: c.textLight, size: 20),
+            DirectionalChevron(color: c.textLight, size: 20),
           ],
         ),
       ),

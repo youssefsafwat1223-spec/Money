@@ -36,6 +36,7 @@ import 'allocate_income_sheet.dart';
 import 'budget_form_screen.dart';
 import 'budgets_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../../core/theme/widgets/directional_chevron.dart';
 
 class BudgetsScreen extends ConsumerWidget {
   const BudgetsScreen({super.key});
@@ -1511,7 +1512,7 @@ class _AllocateIncomeButton extends StatelessWidget {
                   ],
                 ),
               ),
-              Icon(AppLucideIcons.chevronLeft, color: c.onInk),
+              DirectionalChevron(color: c.onInk),
             ],
           ),
         ),
