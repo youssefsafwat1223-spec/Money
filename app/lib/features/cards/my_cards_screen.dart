@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -102,7 +103,7 @@ class MyCardsScreen extends ConsumerWidget {
       // حسابات مربوطة لم تعد في قائمة الحسابات (نادر) — لا نُسقطها.
       for (final entry in grouping.byAccount.entries) {
         if (accountName.containsKey(entry.key)) continue;
-        sections.add(const _SectionHeader(title: 'حساب'));
+        sections.add(_SectionHeader(title: context.l10n.cardAccountWord));
         for (final card in entry.value) {
           sections.add(_CardRow(
             card: card,
@@ -124,7 +125,7 @@ class MyCardsScreen extends ConsumerWidget {
       ];
       final unassigned = [...unassignedBase, ...unassignedExtras];
       if (unassigned.isNotEmpty) {
-        sections.add(const _SectionHeader(title: 'غير مخصّصة'));
+        sections.add(_SectionHeader(title: context.l10n.cardUnassigned));
         for (final card in unassigned) {
           sections.add(_CardRow(
             card: card,
@@ -141,15 +142,15 @@ class MyCardsScreen extends ConsumerWidget {
         child: Row(
           children: [
             IconButton(
-              tooltip: 'رجوع',
+              tooltip: context.l10n.cardBack,
               icon: Icon(AppLucideIcons.arrowLeft, color: c.textMain, size: 20),
               onPressed: () => Navigator.of(context).maybePop(),
             ),
-            Text('كل البطاقات', style: AppTypography.title1(c.textMain)),
+            Text(context.l10n.cardAllCards, style: AppTypography.title1(c.textMain)),
             const Spacer(),
             IconButton(
               icon: Icon(AppLucideIcons.plus, color: c.cta, size: 24),
-              tooltip: 'إضافة بطاقة',
+              tooltip: context.l10n.cardAddCard,
               onPressed: () => showCardForm(context, ref),
             ),
           ],
@@ -180,10 +181,10 @@ class MyCardsScreen extends ConsumerWidget {
           children: [
             Icon(AppLucideIcons.creditCard, size: 48, color: c.textLight),
             const SizedBox(height: AppSpacing.s4),
-            Text('لا توجد بطاقات بعد', style: AppTypography.title2(c.textMain)),
+            Text(context.l10n.cardEmptyTitle, style: AppTypography.title2(c.textMain)),
             const SizedBox(height: AppSpacing.s2),
             Text(
-              'البطاقات بتظهر تلقائيًا من رسائل البنك، وتقدر تضيف بطاقة بتصميمك.',
+              context.l10n.cardEmptyBody,
               textAlign: TextAlign.center,
               style: AppTypography.subhead(c.textLight),
             ),
@@ -191,7 +192,7 @@ class MyCardsScreen extends ConsumerWidget {
             FilledButton.icon(
               onPressed: () => showCardForm(context, ref),
               icon: const Icon(AppLucideIcons.plus),
-              label: const Text('أضف بطاقة'),
+              label: Text(context.l10n.cardAddCardCta),
             ),
           ],
         ),
@@ -286,7 +287,7 @@ class _CardRow extends ConsumerWidget {
                       onPressed: () => _edit(context, ref),
                       icon: Icon(AppLucideIcons.pencil,
                           color: Colors.white.withValues(alpha: 0.9), size: 18),
-                      tooltip: 'تعديل',
+                      tooltip: context.l10n.cardEdit,
                       visualDensity: VisualDensity.compact,
                       padding: EdgeInsets.zero,
                       constraints: const BoxConstraints(),
@@ -307,14 +308,14 @@ class _CardRow extends ConsumerWidget {
                 // فمساحة ثابتة + Spacer كانت بتطفح خارج الكارت.
                 Row(
                   children: [
-                    Expanded(child: _flow('داخل', card.totalIn, c.success)),
+                    Expanded(child: _flow(context.l10n.cardIn, card.totalIn, c.success)),
                     const SizedBox(width: AppSpacing.s3),
                     Expanded(
-                      child: _flow('خارج', card.totalOut,
+                      child: _flow(context.l10n.cardOut, card.totalOut,
                           Colors.white.withValues(alpha: 0.95)),
                     ),
                     const SizedBox(width: AppSpacing.s3),
-                    Expanded(child: _flow('الصافي', net, Colors.white)),
+                    Expanded(child: _flow(context.l10n.rptNet, net, Colors.white)),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.s4),
@@ -323,7 +324,7 @@ class _CardRow extends ConsumerWidget {
                     Expanded(
                       child: _action(
                         icon: AppLucideIcons.plus,
-                        label: 'إضافة عملية',
+                        label: context.l10n.cardAddTx,
                         onTap: () => ManualTransactionSheet.show(
                           context,
                           cardLast4: card.last4,
@@ -334,7 +335,7 @@ class _CardRow extends ConsumerWidget {
                     Expanded(
                       child: _action(
                         icon: AppLucideIcons.link,
-                        label: 'اربط عملية موجودة',
+                        label: context.l10n.cardLinkExistingTx,
                         onTap: () => _showAttachSheet(context, card.last4),
                       ),
                     ),
@@ -490,7 +491,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('اربط عملية بـ •••• $last4',
+                    Text(context.l10n.cardLinkTxTo(last4),
                         style: AppTypography.title2(c.textMain)),
                     const SizedBox(height: AppSpacing.s3),
                     TextField(
@@ -499,7 +500,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                       onChanged: _onQueryChanged,
                       decoration: InputDecoration(
                         isDense: true,
-                        hintText: 'ابحث بالاسم أو المبلغ',
+                        hintText: context.l10n.cardSearchHint,
                         prefixIcon: const Icon(AppLucideIcons.search, size: 20),
                         filled: true,
                         fillColor: c.surface2.withValues(alpha: 0.45),
@@ -517,7 +518,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                     ? const Center(child: CircularProgressIndicator())
                     : items.isEmpty
                         ? Center(
-                            child: Text('لا توجد عمليات',
+                            child: Text(context.l10n.cardNoTx,
                                 style: AppTypography.subhead(c.textLight)))
                         : ListView.builder(
                             controller: controller,
@@ -526,7 +527,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                               final tx = items[i];
                               final linked = tx.cardLast4 == last4;
                               return ListTile(
-                                title: Text(tx.rawMerchant ?? 'عملية',
+                                title: Text(tx.rawMerchant ?? context.l10n.txnTransactionWord,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: AppTypography.body(c.textMain)),
@@ -563,7 +564,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                                         if (context.mounted) {
                                           Navigator.of(context).pop();
                                           AppToast.show(context,
-                                              'اتربطت العملية بـ •••• $last4');
+                                              context.l10n.cardTxLinkedTo(last4));
                                         }
                                       },
                               );

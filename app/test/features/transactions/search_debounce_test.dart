@@ -17,11 +17,17 @@ import 'package:money_companion/features/common/category_catalog.dart';
 import 'package:money_companion/features/transactions/transactions_providers.dart';
 import 'package:money_companion/features/transactions/transactions_screen.dart';
 import 'package:money_companion/core/utils/app_lucide_icons.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 Widget _host(ProviderContainer c) => UncontrolledProviderScope(
       container: c,
       child: MaterialApp(
         theme: AppTheme.light, // provides the AppColors theme extension
+        // The field reads its hint from the ARB now, so the delegates are no
+        // longer optional scaffolding — without them the widget throws.
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('ar'),
         home: const Scaffold(body: TransactionSearchField()),
       ),
     );

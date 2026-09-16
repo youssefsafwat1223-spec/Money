@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -84,9 +85,20 @@ void main() {
         File('lib/features/reports/reports_screen.dart').readAsStringSync();
 
     test('gross, refunds and net are each labelled', () {
-      expect(screen, contains('إجمالي المصروفات'));
-      expect(screen, contains('المرتجعات'));
-      expect(screen, contains('الصافي'));
+      // The three labels now ship from the ARB, so that is where the contract
+      // is asserted — in both languages, since three figures that must
+      // reconcile are just as easy to misread in English.
+      for (final lang in ['ar', 'en']) {
+        final arb = _arb(lang);
+        for (final k in ['rptTotalExpenses', 'rptRefunds', 'rptNet']) {
+          expect(arb[k], isA<String>().having((v) => v.trim(), k, isNotEmpty));
+        }
+      }
+      expect(_arb('ar')['rptTotalExpenses'], 'إجمالي المصروفات');
+      expect(_arb('en')['rptTotalExpenses'], 'Total expenses');
+      expect(screen, contains('context.l10n.rptTotalExpenses'));
+      expect(screen, contains('context.l10n.rptRefunds'));
+      expect(screen, contains('context.l10n.rptNet'));
     });
 
     test('the breakdown appears only when a refund exists', () {
@@ -95,8 +107,12 @@ void main() {
     });
 
     test('the headline says NET when refunds are present', () {
-      expect(screen, contains('صافي مصروف الفترة'),
+      expect(screen, contains('context.l10n.rptNetPeriodSpend'));
+      expect(_arb('ar')['rptNetPeriodSpend'], contains('صافي'),
           reason: 'calling a netted figure «مصروف» is what made it misleading');
+      expect(_arb('en')['rptNetPeriodSpend'], contains('Net'),
+          reason: 'the same figure is just as misleading in English if the '
+              'headline does not say it is netted');
     });
 
     test('the figures render through MoneyText, not a double', () {
@@ -106,3 +122,7 @@ void main() {
     });
   });
 }
+
+Map<String, dynamic> _arb(String lang) =>
+    jsonDecode(File('lib/l10n/app_$lang.arb').readAsStringSync())
+        as Map<String, dynamic>;

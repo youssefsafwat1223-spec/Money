@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../common/money_text.dart';
 import '../../domain/finance/goal_pacing.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
@@ -40,7 +41,7 @@ class GoalsScreen extends ConsumerWidget {
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const SkeletonList(rows: 4),
-        error: (error, _) => const Center(child: Text('حدث خطأ')),
+        error: (error, _) => Center(child: Text(context.l10n.txnError)),
         data: (goals) {
           final visibleGoals = goals
               .where((goal) =>
@@ -173,8 +174,9 @@ class _GoalCard extends StatelessWidget {
                         const SizedBox(height: 2),
                         Text(
                           remaining == 0
-                              ? 'اكتمل الهدف'
-                              : 'باقي ${Formatters.integer(remaining)} $currencyLabel للوصول',
+                              ? context.l10n.bdgGoalDone
+                              : context.l10n.goalRemainingToReach(
+                                  Formatters.integer(remaining), currencyLabel),
                           style: AppTypography.footnote(
                             remaining == 0 ? c.success : c.textLight,
                           ),
@@ -201,7 +203,7 @@ class _GoalCard extends StatelessWidget {
                               const SizedBox(width: 3),
                               Flexible(
                                 child: Text(
-                                  _goalDeadlineLabel(pacing.daysRemaining),
+                                  _goalDeadlineLabel(context, pacing.daysRemaining),
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: AppTypography.caption(c.textLight),
@@ -214,13 +216,13 @@ class _GoalCard extends StatelessWidget {
                               MoneyText(rate,
                                   style: AppTypography.caption(c.income)),
                               const SizedBox(width: 3),
-                              Text('/شهر',
+                              Text(context.l10n.goalPerMonth,
                                   style: AppTypography.caption(c.textLight)),
                             ],
                           ),
                         ] else if (pacing.isOverdue) ...[
                           const SizedBox(height: 3),
-                          Text('تجاوز الموعد المستهدف',
+                          Text(context.l10n.goalOverdue,
                               style: AppTypography.caption(c.warning)),
                         ],
                       ],
@@ -245,12 +247,14 @@ class _GoalCard extends StatelessWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      'مدخر ${Formatters.integer(goal.savedAmount)} $currencyLabel',
+                      context.l10n.goalSavedAmount(
+                          Formatters.integer(goal.savedAmount), currencyLabel),
                       style: AppTypography.caption(c.textSecondary),
                     ),
                   ),
                   Text(
-                    'الهدف ${Formatters.integer(goal.targetAmount)} $currencyLabel',
+                    context.l10n.goalTargetAmount(
+                        Formatters.integer(goal.targetAmount), currencyLabel),
                     style: AppTypography.caption(c.textSecondary),
                   ),
                 ],
@@ -282,8 +286,8 @@ class _GoalsHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final ratio = target == 0 ? 0 : (saved / target * 100).round();
     return CalmPageHeader(
-      title: 'الأهداف',
-      subtitle: 'إجمالي المدخر لكل أحلامك',
+      title: context.l10n.bdgTabGoals,
+      subtitle: context.l10n.goalTotalSavedAll,
       leading: Navigator.of(context).canPop()
           ? const BackButton(color: Colors.white)
           : null,
@@ -303,9 +307,9 @@ class _GoalsHeader extends StatelessWidget {
       amount: Formatters.amount(saved),
       currency: currencyLabel,
       metrics: [
-        CalmMetric(label: 'أهداف نشطة', value: '$count'),
-        CalmMetric(label: 'نسبة التقدم', value: '$ratio%'),
-        CalmMetric(label: 'المستهدف', value: Formatters.amount(target)),
+        CalmMetric(label: context.l10n.bdgStatActiveGoals, value: '$count'),
+        CalmMetric(label: context.l10n.bdgStatProgress, value: '$ratio%'),
+        CalmMetric(label: context.l10n.goalTargetLabel, value: Formatters.amount(target)),
       ],
     );
   }
@@ -326,14 +330,14 @@ class _EmptyGoalsCard extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.s6),
         child: Column(
           children: [
-            Text('أضف هدفك الأول وابدأ تعبئة الخزنة.',
+            Text(context.l10n.goalEmptyBody,
                 textAlign: TextAlign.center,
                 style: AppTypography.callout(c.textLight)),
             const SizedBox(height: AppSpacing.s4),
             FilledButton.icon(
               onPressed: onAdd,
               icon: const Icon(AppLucideIcons.plus),
-              label: const Text('إضافة هدف'),
+              label: Text(context.l10n.bdgAddGoal),
             ),
           ],
         ),
@@ -345,12 +349,8 @@ class _EmptyGoalsCard extends StatelessWidget {
 
 /// UX-025 — time to target, in the same voice Subscriptions already uses
 /// («بعد 3 يوم»), so the two surfaces read as one product.
-String _goalDeadlineLabel(int days) {
-  if (days == 0) return 'الموعد اليوم';
-  if (days == 1) return 'باقي يوم';
-  if (days == 2) return 'باقي يومان';
-  if (days < 11) return 'باقي $days أيام';
-  if (days < 60) return 'باقي $days يوم';
-  final months = (days / 30).round();
-  return months == 1 ? 'باقي شهر' : 'باقي $months شهر';
+String _goalDeadlineLabel(BuildContext context, int days) {
+  if (days == 0) return context.l10n.goalDueToday;
+  if (days < 60) return context.l10n.goalDaysLeft(days);
+  return context.l10n.goalMonthsLeft((days / 30).round());
 }

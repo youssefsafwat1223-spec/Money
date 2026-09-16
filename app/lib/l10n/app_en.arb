@@ -395,5 +395,833 @@
   "coachDashboardHelpTitle": "The guide is always there",
   "coachDashboardHelpBody": "“How to use Qirsh” lives in Settings, and you can replay this tour from there whenever you like.",
   "helpReplayTour": "Replay the guided tour",
-  "helpReplayTourDone": "The guided tour will appear again."
+  "helpReplayTourDone": "The guided tour will appear again.",
+  "setLoadingCountries": "Loading countries…",
+  "setLoadingCurrencies": "Loading currencies…",
+  "setCountry": "Country",
+  "setBaseCurrency": "Base currency",
+  "setName": "Name",
+  "setNameInApp": "Your name in the app",
+  "setAccountData": "Your account details",
+  "setMobileNumber": "Mobile number",
+  "setAddYourNumber": "Add your number",
+  "setAppearance": "Appearance",
+  "setAppearanceSub": "Light, dark, or match the system",
+  "setAccountsAndDues": "Your accounts and commitments",
+  "setSyncConflicts": "Sync conflicts",
+  "setSyncConflictsSub": "Items edited on more than one device — they need your decision",
+  "setAccountsWallets": "Accounts and wallets",
+  "setAccountsWalletsSub": "Multiple accounts, each in its own currency",
+  "setAllCards": "All cards",
+  "setAllCardsSub": "An overview of your cards grouped by account",
+  "setSubsAndBills": "Subscriptions and bills",
+  "setSubsAndBillsSub": "Your recurring commitments and due dates",
+  "setPlans": "Plans",
+  "setPlansSub": "A budget for a trip or occasion that tracks itself",
+  "setToolsAndSettings": "Tools and settings",
+  "setCategories": "Categories",
+  "setCategoriesSub": "Organise expenses, income and transfers",
+  "setAchievements": "Achievements and level",
+  "setAchievementsSub": "Badges and levels that encourage the habit of tracking",
+  "setCurrencyRepair": "Confirm the currency for budgets and goals",
+  "setCurrencyRepairSub": "Safely review the currency of older planning data",
+  "setAppleShortcut": "Apple Shortcut",
+  "setAppleShortcutSub": "Pass bank messages to Qirsh through Shortcuts",
+  "setRewardsAndSupport": "Rewards and support",
+  "setInviteFriends": "Invite friends",
+  "setInviteFriendsSub": "Share your invite code and earn ad-free reports",
+  "setAdPrivacyOptions": "Ad privacy options",
+  "setAdPrivacyOptionsSub": "Manage your advertising consent",
+  "setContactUs": "Contact us",
+  "setContactUsSub": "Technical support and answers to your questions",
+  "setAboutQirsh": "About Qirsh",
+  "setAboutQirshSub": "App information and version",
+  "setCaptureStatus": "Transaction capture",
+  "setCaptureStatusSub": "The status of bank messages and the Apple Shortcut",
+  "setConfirmCaptured": "Confirm captured transactions",
+  "setNotifyOnCapture": "Notify me when a transaction is captured",
+  "setHideOnLockScreen": "Hide sensitive details on the lock screen",
+  "setYourAlerts": "Your alerts",
+  "setQirshMessages": "Qirsh messages and tips",
+  "setBudget80Alert": "Alert at 80% of a budget",
+  "setBudgetOverAlert": "Alert when a budget is exceeded",
+  "setDailyReminder": "Daily reminder",
+  "setDailyReminderTime": "Every day at 10 PM",
+  "setWeeklyReport": "Weekly report",
+  "setBillReminders": "Subscription and bill reminders",
+  "setGoalCelebrations": "Goal celebrations",
+  "setAchievementAlerts": "Achievement alerts",
+  "setQuietHours": "Quiet hours",
+  "setDisabled": "Off",
+  "setEditQuietHours": "Edit quiet hours",
+  "setNotificationTools": "Notification tools",
+  "setTestNotifications": "Test Qirsh notifications",
+  "setTestNotificationsSub": "Send a test notification to this device",
+  "setMessageCentre": "Qirsh message centre",
+  "setMessageCentreSub": "Past notifications, campaigns and announcements",
+  "setDataTransfer": "Data transfer",
+  "setDataTransferSub": "Your financial data stays under your control",
+  "setImportFile": "Import a file",
+  "setImportFileSub": "A CSV from any app, or a ZIP exported by Qirsh",
+  "setExportCsv": "Export transactions as CSV",
+  "setExportCsvSub": "A simple file with all your transactions",
+  "setExportAll": "Export all Qirsh data",
+  "setExportAllSub": "A ZIP package you can move and restore",
+  "setSecurityPrivacy": "Security and privacy",
+  "setEncryptedDbPart1": "Your data on this device is kept in an encrypted database, ",
+  "setEncryptedDbPart2": "and its key is stored in the system keychain",
+  "setPrivacyAndData": "Privacy and data",
+  "setPrivacyAndDataSub": "Your data security and the privacy policy",
+  "setHideAmounts": "Hide amounts in the interface",
+  "setExitAndErase": "Sign out and erase data",
+  "setExitAndEraseSub": "Some of these actions cannot be undone",
+  "setStartOver": "Start over",
+  "setStartOverSub": "Erase local data but keep the account active",
+  "setSignOut": "Sign out",
+  "setDeleteAccount": "Delete my account and all my data",
+  "setDeleteAccountSub": "A final action that needs your confirmation",
+  "setTestNotificationSent": "We sent a test notification from Qirsh.",
+  "setTestNotificationFailed": "We could not send the test notification.",
+  "setUnsyncedData": "Data not saved to the cloud",
+  "setCancel": "Cancel",
+  "setSignOutDiscard": "Sign out and discard unsaved data",
+  "setUnsyncedCheckFailed": "We could not check for unsaved data. Please try again.",
+  "setSignOutFailed": "We could not sign out safely. Please try again.",
+  "setPhotoUpdated": "Photo updated.",
+  "setSave": "Save",
+  "setCategoriesSheetIntro": "Add or edit the categories that appear in transactions and reports.",
+  "setAddCategory": "Add a category",
+  "setExpenses": "Expenses",
+  "setIncome": "Income",
+  "setTransfers": "Transfers",
+  "setEditCategory": "Edit category",
+  "setCategoryName": "Category name",
+  "setIncomeCategory": "Income category",
+  "setIcon": "Icon",
+  "setColor": "Colour",
+  "setEnterCategoryName": "Enter a category name.",
+  "setSaveChanges": "Save changes",
+  "setAdd": "Add",
+  "setDeleteCategoryQ": "Delete this category?",
+  "setDeleteCategoryBody": "Its transactions move to “Other” or “Income”, and any linked budget is deleted.",
+  "setDelete": "Delete",
+  "setQuietHoursNote": "We defer scheduled notifications during this period to the first allowed time.",
+  "setStarts": "Starts",
+  "setEnds": "Ends",
+  "setAboutApp": "About the app",
+  "setAboutBody": "Qirsh tracks spending from bank messages and manual entry. You can move your financial data as CSV files or a ZIP package from the data and privacy section.",
+  "setOk": "OK",
+  "setSupportBody": "For support or feedback, copy the email and send us the problem details, your device type, and the steps to reproduce it.",
+  "setCopyEmail": "Copy email",
+  "setEraseAllQ": "Erase all data?",
+  "setEraseAllBody": "All your local data will be erased. This cannot be undone.",
+  "setErase": "Erase",
+  "setSettingsLoadFailed": "We could not load settings. Please try again shortly.",
+  "setSettings": "Settings",
+  "setBack": "Back",
+  "setThemeAuto": "Auto",
+  "setThemeLight": "Light",
+  "setThemeDark": "Dark",
+  "setEdit": "Edit",
+  "setAppLockFailed": "We could not turn on the lock. Make sure a passcode or biometric is set up on your device.",
+  "setAppLock": "App lock",
+  "setNoBankMessageYet": "We have not detected a bank message yet",
+  "setCaptureEnableFailed": "We could not turn on bank capture notifications",
+  "setNoBankMessagesRecently": "We have not received bank messages for a while",
+  "setBankCaptureStatus": "Bank message capture status",
+  "setCheck": "Check",
+  "setBackupFirst": "Take a backup first if you want to keep it.",
+  "setToday": "Today",
+  "bdgError": "Something went wrong",
+  "bdgTabBudgets": "Budgets",
+  "bdgTabHistory": "Budget history",
+  "bdgTabGoals": "Goals",
+  "bdgEmptyBudgetsTitle": "No budgets yet",
+  "bdgEmptyBudgetsBody": "Create your first daily, weekly or monthly budget to start tracking.",
+  "bdgEmptyGoalsTitle": "No goals yet",
+  "bdgEmptyGoalsBody": "Add a savings goal so Qirsh can track your progress alongside your budgets.",
+  "bdgAddGoal": "Add goal",
+  "bdgEmptyHistoryTitle": "The history is empty",
+  "bdgEmptyHistoryBody": "Pick a period that has budgets, or add a new budget — each day, week or month then appears here as its own record.",
+  "bdgAddBudget": "Add budget",
+  "bdgDeleteTitle": "Delete this budget?",
+  "bdgDeleteBody": "The budget limit will be deleted. Your transactions are not affected.",
+  "bdgDeleteFailed": "The budget could not be deleted right now.",
+  "bdgFilterAll": "All",
+  "bdgFilterDaily": "Daily",
+  "bdgFilterWeekly": "Weekly",
+  "bdgFilterMonthly": "Monthly",
+  "bdgFilterYearly": "Yearly",
+  "bdgStatHistoryCount": "Budgets on record",
+  "bdgStatTargetSavings": "Total target savings",
+  "bdgStatTotalBudgeted": "Total budgeted",
+  "bdgStatActiveGoals": "Active goals",
+  "bdgStatProgress": "Progress",
+  "bdgStatTotalSaved": "Total saved",
+  "bdgStateSafeF": "On track",
+  "bdgStateNear": "Close to limit",
+  "bdgStateOverF": "Over limit",
+  "bdgBudgetsWord": "Budgets",
+  "bdgUsageRate": "Usage",
+  "bdgActualSpend": "Actual spend",
+  "bdgBudgetWord": "Budget",
+  "bdgOver": "Over",
+  "bdgSafe": "On track",
+  "bdgAllExpenses": "All spending",
+  "bdgCategory": "Category",
+  "bdgSpent": "Spent",
+  "bdgRemaining": "Left",
+  "bdgLimit": "Limit",
+  "bdgSaved": "Saved",
+  "bdgPeriodCurrent": "Current period",
+  "bdgPeriodOver": "Period went over",
+  "bdgPeriodEnded": "Period ended",
+  "bdgRecordLive": "This record keeps updating until the period ends.",
+  "bdgRecordFinal": "This record is calculated from the actual transactions in this period.",
+  "bdgEditBudget": "Edit budget",
+  "bdgPeriodTransactions": "Transactions in this period",
+  "bdgNoConfirmedTx": "No confirmed transactions were recorded in this period.",
+  "bdgCountedOpenAll": "Included in the total — open Transactions to see them all.",
+  "bdgDailyBudget": "Daily budget",
+  "bdgWeeklyBudget": "Weekly budget",
+  "bdgYearlyBudget": "Yearly budget",
+  "bdgMonthlyBudget": "Monthly budget",
+  "bdgTransactionWord": "transaction",
+  "bdgGoalDone": "Goal reached",
+  "bdgEnvelopeTitle": "Split your income into envelopes",
+  "bdgEnvelopeBody": "Enter your salary and split it in one tap — Qirsh works out what you can spend each day",
+  "bdgMoreTxCounted": "{count} more transactions are included in the total — open Transactions to see them all.",
+  "@bdgMoreTxCounted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnError": "Something went wrong",
+  "txnTransactionWord": "transaction",
+  "txnFilterPending": "Filter: pending review",
+  "txnConfirmAll": "Confirm all",
+  "txnTabTransactions": "Transactions",
+  "txnTabBills": "Bills",
+  "txnEmptyPeriodTitle": "No transactions in this period",
+  "txnEmptyPeriodBody": "Change the period, or add a new bank message with the + button.",
+  "txnConfirmAllTitle": "Confirm every pending transaction?",
+  "txnConfirm": "Confirm",
+  "txnPickAccount": "Choose account",
+  "txnSearchHint": "Search by merchant, category, amount or currency",
+  "txnClearSearch": "Clear search",
+  "txnRangeToday": "Today",
+  "txnRangeThisWeek": "This week",
+  "txnRangeThisMonth": "This month",
+  "txnRangeLastMonth": "Last month",
+  "txnRange7": "Last 7 days",
+  "txnRange30": "Last 30 days",
+  "txnRange90": "Last 90 days",
+  "txnRangeThisYear": "This year",
+  "txnRangeLastYear": "Last year",
+  "txnRangeCustom": "Custom",
+  "txnPickRange": "Choose a period",
+  "txnFrom": "From",
+  "txnTo": "To",
+  "txnApplyCustomRange": "Apply custom period",
+  "txnKindAll": "All",
+  "txnKindExpense": "Expenses",
+  "txnKindIncome": "Income",
+  "txnKindTransfer": "Transfers",
+  "txnPendingReview": "Pending review",
+  "txnCategory": "Category",
+  "txnFilterByCategory": "Filter by category",
+  "txnAllCategories": "All categories",
+  "txnBillsSubs": "Subscriptions",
+  "txnBillsInstalments": "Instalments",
+  "txnAddSub": "Add subscription",
+  "txnAddInstalment": "Add instalment",
+  "txnLearnBills": "Learn more about bills",
+  "txnSubsEmptyTitle": "Your subscriptions, tracked automatically",
+  "txnInstEmptyTitle": "Your instalments, clear every month",
+  "txnSubsEmptyBody": "Add a subscription yourself, or let it be detected automatically from recurring transactions.",
+  "txnInstEmptyBody": "Add the instalment with its date and reminder so it appears in Bills before it is due.",
+  "txnSuggestionsTitle": "Suggestions from recurring transactions",
+  "txnHowSubsTitle": "How does Qirsh track subscriptions?",
+  "txnHowInstTitle": "How does Qirsh track instalments?",
+  "txnHowSubsBody": "Qirsh follows recurring patterns automatically, and you can also add a subscription yourself with its amount, renewal date and reminder.",
+  "txnHowInstBody": "Add the instalment yourself with its amount, due date and reminder. Remaining balance and instalment count come later.",
+  "txnTotalMonthlySubs": "Total monthly subscriptions",
+  "txnTotalMonthlyInst": "Total monthly instalments",
+  "txnActive": "Active",
+  "txnPerYear": "per year",
+  "txnDueToday": "Due today",
+  "txnPaused": "Paused",
+  "txnCancelled": "Cancelled",
+  "txnCycleWeekly": "Weekly",
+  "txnCycleMonthly": "Monthly",
+  "txnCycleYearly": "Yearly",
+  "txnTotalValueLabel": "Total value: ",
+  "txnPaidManuallyLabel": "Paid manually: ",
+  "txnAdd": "Add",
+  "txnBillsAndSubs": "Bills & subscriptions",
+  "txnPeriodSpendTotal": "Total spend this period",
+  "txnActiveMonthlySpend": "Total active monthly spend",
+  "txnTxForPeriod": "transactions this period",
+  "txnTotalSpent": "Total spent",
+  "txnActiveSub": "active subscription",
+  "txnRunningInst": "running instalment",
+  "txnYearlyTotal": "Yearly total",
+  "txnSmartInbox": "Smart review inbox",
+  "txnReviewTx": "Review transaction",
+  "txnHide": "Hide",
+  "txnSuspectTxPlural": "Possible duplicates",
+  "txnDismissAll": "Dismiss all",
+  "txnNoSuspectTx": "No possible duplicates",
+  "txnSimilarExists": "A similar transaction already exists",
+  "txnSimilarBody": "This transaction matches an existing one in amount, merchant and time.",
+  "txnTheNew": "New",
+  "txnNoClearMerchant": "No clear merchant",
+  "txnTheExisting": "Existing",
+  "txnDismissDuplicate": "Dismiss duplicate",
+  "txnSaveAsNew": "Save as new",
+  "txnEditTx": "Edit transaction",
+  "txnChangeCategory": "Change category",
+  "txnTimeInSms": "Transaction time in the SMS",
+  "txnTimeReceived": "Time the message arrived",
+  "txnDupBannerReview": "{count, plural, =1{1 possible duplicate} other{{count} possible duplicates}} — tap to review",
+  "@txnDupBannerReview": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnDismissAllDupesBody": "Every duplicate alert shown here will be removed. The transactions themselves are not affected, but you will not be able to review them from here again.",
+  "txnTimeSource": "Time source: {source}",
+  "@txnTimeSource": {
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "txnRecurredMonths": "{count, plural, =1{Recurred for 1 month} other{Recurred for {count} months}} · tap to enable",
+  "@txnRecurredMonths": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnConfirmAllBody": "{count, plural, =1{1 transaction will be confirmed with its current category.} other{{count} transactions will be confirmed with their current categories.}}",
+  "@txnConfirmAllBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnOverdueDays": "{days, plural, =1{1 day overdue} other{{days} days overdue}}",
+  "@txnOverdueDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "txnInDays": "{days, plural, =1{in 1 day} other{in {days} days}}",
+  "@txnInDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "txnPerInstalment": "{amount} / instalment",
+  "@txnPerInstalment": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "txnPaidOfTotal": "{paid} of {total} instalments paid",
+  "@txnPaidOfTotal": {
+    "placeholders": {
+      "paid": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "txnRemainingInstalments": "{count, plural, =1{1 left} other{{count} left}}",
+  "@txnRemainingInstalments": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnInterestRate": "Interest {rate}%",
+  "@txnInterestRate": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      }
+    }
+  },
+  "txnNextInstalment": "Next instalment: {due}",
+  "@txnNextInstalment": {
+    "placeholders": {
+      "due": {
+        "type": "String"
+      }
+    }
+  },
+  "txnEstPerMonth": "{amount} {currency}/mo",
+  "@txnEstPerMonth": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "txnSmartInboxCount": "Smart review inbox · {count}",
+  "@txnSmartInboxCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnDismissNAlerts": "{count, plural, =1{Dismiss 1 alert?} other{Dismiss {count} alerts?}}",
+  "@txnDismissNAlerts": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnDismissAllCount": "Dismiss all ({count})",
+  "@txnDismissAllCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "subsOverdue": "Overdue",
+  "subsToday": "Today",
+  "subsTabSubs": "Subscriptions ({count})",
+  "@subsTabSubs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "subsTabInst": "Instalments ({count})",
+  "@subsTabInst": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "subsMonthlyScoped": "Monthly subscriptions · {account}",
+  "@subsMonthlyScoped": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      }
+    }
+  },
+  "subsPerYearApprox": "≈ {amount}/yr",
+  "@subsPerYearApprox": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "subsTitle": "Subscriptions & bills",
+  "subsMonthlyTotal": "Monthly subscriptions",
+  "subsActiveSubs": "Active subscriptions",
+  "subsRunningInst": "Running instalments",
+  "subsMonthlyInstCommit": "Monthly instalment commitment",
+  "subsEmptyTitle": "All your subscriptions in one place",
+  "subsAutoDetected": "Detected automatically",
+  "subsAddNewSub": "Add a new subscription",
+  "subsMaybeUnused": "You may not be using this subscription",
+  "subsInstEmptyTitle": "Your instalments, clear before they fall due",
+  "subsInstEmptyBody": "Add the instalment with its amount, count and due date.",
+  "subsTotalInstDebt": "Total instalment debt",
+  "subsNearestInst": "Next instalment due",
+  "subsAddNewInst": "Add a new instalment",
+  "rptAnomalyPrivate": "Spending on {date} was higher than your usual pattern. Review it if you want to know why.",
+  "@rptAnomalyPrivate": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "rptAnomalyDetail": "On {date} you spent {amount}, which is above your daily average by {ratio}×.",
+  "@rptAnomalyDetail": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      },
+      "ratio": {
+        "type": "String"
+      }
+    }
+  },
+  "rptSpendLower": "You spent {percent}% less than the same period before.",
+  "@rptSpendLower": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "rptSpendHigher": "You spent {percent}% more than the same period before.",
+  "@rptSpendHigher": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "rptHighestDayBody": "The highest day in this period reached {amount}.",
+  "@rptHighestDayBody": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "rptTopCategoryHint": "Your biggest spend is on {category}. Watch that category first.",
+  "@rptTopCategoryHint": {
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "rptMerchantTxCount": "{count, plural, =1{1 transaction} other{{count} transactions}}",
+  "@rptMerchantTxCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "rptVsLastWeek": "{sign} {percent}% compared with last week",
+  "@rptVsLastWeek": {
+    "placeholders": {
+      "sign": {
+        "type": "String"
+      },
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "rptTopCategoryWeek": "Top category: {category}",
+  "@rptTopCategoryWeek": {
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "rptBestSavingDay": "Best saving day: {date} ({amount})",
+  "@rptBestSavingDay": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "rptTopMerchantWeek": "Top merchant: {name} ({amount})",
+  "@rptTopMerchantWeek": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "rptTabOverview": "Overview",
+  "rptTabTrends": "Trends",
+  "rptTabDetails": "Details",
+  "rptUnusualSpend": "Unusual spending",
+  "rptVsPrevPeriod": "Compared with the same period before",
+  "rptNeedPrevPeriod": "We still need an earlier period with spending in it to show the trend accurately.",
+  "rptHighestSpendDay": "Highest spending day",
+  "rptQuickTip": "Quick tip",
+  "rptAddMoreTx": "Add a few more transactions and the suggestions get sharper.",
+  "rptSelectedPeriod": "Selected period",
+  "rptNetPeriodSpend": "Net spend this period",
+  "rptSelectedPeriodSpend": "Spend in the selected period",
+  "rptTotalExpenses": "Total expenses",
+  "rptRefunds": "Refunds",
+  "rptNet": "Net",
+  "rptThisWeekUsage": "This week so far",
+  "rptAverage": "Average",
+  "rptHighest": "Highest",
+  "rptTotal": "Total",
+  "rptByCategory": "Your spending by category",
+  "rptByMerchant": "Your spending at merchants",
+  "rptTopMerchantsSub": "Where most of your money went this period",
+  "rptMerchantsEmpty": "The merchants you spend most at appear here once you have confirmed transactions.",
+  "rptIncludesRefund": " · includes refund ",
+  "rptInsightsTitle": "Insights & reports",
+  "rptInsightsSub": "Read your spending as daily trends, categories and merchants.",
+  "rptDailyAverage": "Daily average",
+  "rptHighestDay": "Highest day",
+  "rptWeekSummary": "This week in summary",
+  "bdgPeriodSubtitle": "{period} budget · {date}",
+  "@bdgPeriodSubtitle": {
+    "placeholders": {
+      "period": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "bdgPeriodSubtitleLive": "{period} budget · {date} · running",
+  "@bdgPeriodSubtitleLive": {
+    "placeholders": {
+      "period": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "bdgLatestOfTotal": "Latest {shown} of {total}",
+  "@bdgLatestOfTotal": {
+    "placeholders": {
+      "shown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "bdgRemainingPrefix": "Left ",
+  "bdgToReachSuffix": " {currency} to go",
+  "@bdgToReachSuffix": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "setUnsyncedLedger": "{count, plural, =1{1 transaction change} other{{count} transaction changes}}",
+  "@setUnsyncedLedger": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedPlanning": "{count, plural, =1{1 change to accounts/budgets/goals/bills} other{{count} changes to accounts/budgets/goals/bills}}",
+  "@setUnsyncedPlanning": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedInbox": "{count, plural, =1{1 item in your inbox} other{{count} items in your inbox}}",
+  "@setUnsyncedInbox": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedCards": "{count, plural, =1{1 card saved on this device only} other{{count} cards saved on this device only}}",
+  "@setUnsyncedCards": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedUnproven": "{count, plural, =1{1 financial record not yet uploaded to the cloud} other{{count} financial records not yet uploaded to the cloud}}",
+  "@setUnsyncedUnproven": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedConflicts": "{count, plural, =1{1 record with an unresolved conflict} other{{count} records with unresolved conflicts}}",
+  "@setUnsyncedConflicts": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setListSeparator": ", ",
+  "setUnsyncedSignOutBody": "You have data that was never uploaded to the cloud, and signing out will delete it: {list}. Take a backup first if you want to keep it.",
+  "@setUnsyncedSignOutBody": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "setGapDays": "{count, plural, =1{1 day ago} other{{count} days ago}}",
+  "@setGapDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setGapHours": "{count, plural, =1{1 hour ago} other{{count} hours ago}}",
+  "@setGapHours": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setGapToday": "Today",
+  "setLastCapture": "Last capture: {gap}",
+  "@setLastCapture": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "setApnsFailed": "APNs registration failed: {message}",
+  "@setApnsFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "setCheckShortcutStillOn": "{subtitle} — check the shortcut is still enabled",
+  "@setCheckShortcutStillOn": {
+    "placeholders": {
+      "subtitle": {
+        "type": "String"
+      }
+    }
+  },
+  "goalDueToday": "Due today",
+  "goalDaysLeft": "{days, plural, =1{1 day left} other{{days} days left}}",
+  "@goalDaysLeft": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "goalMonthsLeft": "{months, plural, =1{1 month left} other{{months} months left}}",
+  "@goalMonthsLeft": {
+    "placeholders": {
+      "months": {
+        "type": "int"
+      }
+    }
+  },
+  "goalRemainingToReach": "{amount} {currency} to go",
+  "@goalRemainingToReach": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "goalSavedAmount": "Saved {amount} {currency}",
+  "@goalSavedAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "goalTargetAmount": "Target {amount} {currency}",
+  "@goalTargetAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "goalPerMonth": "/mo",
+  "goalOverdue": "Past its target date",
+  "goalTotalSavedAll": "Total saved across all your goals",
+  "goalTargetLabel": "Target",
+  "goalEmptyBody": "Add your first goal and start filling the jar.",
+  "cardLinkTxTo": "Link a transaction to •••• {last4}",
+  "@cardLinkTxTo": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "cardTxLinkedTo": "Transaction linked to •••• {last4}",
+  "@cardTxLinkedTo": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "cardAccountWord": "Account",
+  "cardUnassigned": "Unassigned",
+  "cardBack": "Back",
+  "cardAllCards": "All cards",
+  "cardAddCard": "Add card",
+  "cardEmptyTitle": "No cards yet",
+  "cardEmptyBody": "Cards appear automatically from your bank messages, and you can add one of your own design.",
+  "cardAddCardCta": "Add a card",
+  "cardEdit": "Edit",
+  "cardIn": "In",
+  "cardOut": "Out",
+  "cardAddTx": "Add transaction",
+  "cardLinkExistingTx": "Link an existing transaction",
+  "cardSearchHint": "Search by name or amount",
+  "cardNoTx": "No transactions",
+  "accAddAccount": "Add account",
+  "accTitle": "Accounts & wallets",
+  "accSubtitle": "Each account in its own currency — cash, bank, wallet or card.",
+  "accDefault": "Default",
+  "accUnassignedCards": "Unassigned cards",
+  "accUnassignedCardsBody": "Cards that showed up in your messages but are not linked to an account yet."
 }

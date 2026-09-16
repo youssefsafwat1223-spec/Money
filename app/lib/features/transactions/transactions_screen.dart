@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/async_reload_safe.dart';
 import 'package:flutter/services.dart';
 
@@ -47,13 +48,6 @@ import 'transactions_providers.dart';
 import 'widgets/change_category_sheet.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 
-String _monthsLabel(int n) {
-  if (n == 1) return 'شهر';
-  if (n == 2) return 'شهرين';
-  if (n <= 10) return '$n أشهر';
-  return '$n شهراً';
-}
-
 class TransactionsScreen extends ConsumerWidget {
   const TransactionsScreen({super.key});
 
@@ -81,14 +75,14 @@ class TransactionsScreen extends ConsumerWidget {
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const SkeletonList(rows: 6),
-        error: (e, _) => const Center(child: Text('حدث خطأ')),
+        error: (e, _) => Center(child: Text(context.l10n.txnError)),
         data: (view) {
           // B2-C — date-section grouping is precomputed once in the provider
           // (view.sections), not re-grouped over every row on every build here.
           final sections = view.sections;
           Widget txRow(TransactionEntity tx) {
             final category = view.catalog.byId(tx.categoryId);
-            final title = tx.rawMerchant ?? category?.name ?? 'عملية';
+            final title = tx.rawMerchant ?? category?.name ?? context.l10n.txnTransactionWord;
             return AppTransactionRow(
               title: title,
               amount: tx.amount,
@@ -201,7 +195,7 @@ class TransactionsScreen extends ConsumerWidget {
                                                     color:
                                                         context.colors.accent),
                                                 const SizedBox(width: 6),
-                                                Text('تصفية: قيد المراجعة',
+                                                Text(context.l10n.txnFilterPending,
                                                     style:
                                                         AppTypography.caption(
                                                                 context.colors
@@ -237,7 +231,7 @@ class TransactionsScreen extends ConsumerWidget {
                                                   color:
                                                       context.colors.success),
                                               label: Text(
-                                                'تأكيد الكل',
+                                                context.l10n.txnConfirmAll,
                                                 style: AppTypography.caption(
                                                         context.colors.success)
                                                     .copyWith(
@@ -270,7 +264,7 @@ class TransactionsScreen extends ConsumerWidget {
                             ),
                             alignment: Alignment.center,
                             child: AppPillTabBar(
-                              tabs: const ['العمليات', 'الفواتير'],
+                              tabs: [context.l10n.txnTabTransactions, context.l10n.txnTabBills],
                               selectedIndex: tab,
                               onSelected: (value) => ref
                                   .read(transactionsPageTabProvider.notifier)
@@ -321,11 +315,11 @@ class TransactionsScreen extends ConsumerWidget {
                               }
                               final itemIndex = index - 4;
                               if (view.transactions.isEmpty) {
-                                return const AppEmptyState(
+                                return AppEmptyState(
                                   icon: AppLucideIcons.inbox,
-                                  title: 'لا توجد عمليات في هذه الفترة',
+                                  title: context.l10n.txnEmptyPeriodTitle,
                                   subtitle:
-                                      'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.',
+                                      context.l10n.txnEmptyPeriodBody,
                                 );
                               }
                               if (itemIndex >= sections.length) {
@@ -406,7 +400,7 @@ class TransactionsScreen extends ConsumerWidget {
                                 child:
                                     Center(child: CircularProgressIndicator()),
                               ),
-                              error: (error, _) => const Text('حدث خطأ'),
+                              error: (error, _) => Text(context.l10n.txnError),
                               data: (bills) => _BillsTab(
                                 view: bills,
                                 currencyLabel: currencyLabel,
@@ -442,16 +436,16 @@ class TransactionsScreen extends ConsumerWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('تأكيد كل العمليات المعلّقة؟'),
-        content: Text('هيتم تأكيد ${pending.length} عملية بتصنيفاتها الحالية.'),
+        title: Text(context.l10n.txnConfirmAllTitle),
+        content: Text(context.l10n.txnConfirmAllBody(pending.length)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('تأكيد'),
+            child: Text(context.l10n.txnConfirm),
           ),
         ],
       ),
@@ -523,7 +517,7 @@ class _ActiveAccountPicker extends ConsumerWidget {
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
-                  'اختار الحساب',
+                  context.l10n.txnPickAccount,
                   style: AppTypography.sectionTitle(c.textPrimary),
                 ),
               ),
@@ -615,7 +609,7 @@ class TransactionSearchFieldState
         isDense: true,
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        hintText: 'ابحث باسم متجر، تصنيف، مبلغ أو عملة',
+        hintText: context.l10n.txnSearchHint,
         hintStyle: TextStyle(fontSize: 14, color: c.textMuted),
         prefixIconConstraints:
             const BoxConstraints(minWidth: 40, minHeight: 40),
@@ -625,7 +619,7 @@ class TransactionSearchFieldState
         suffixIcon: query.isEmpty
             ? null
             : IconButton(
-                tooltip: 'مسح البحث',
+                tooltip: context.l10n.txnClearSearch,
                 padding: EdgeInsets.zero,
                 iconSize: 20,
                 onPressed: () {
@@ -667,17 +661,17 @@ class _DateRangeChips extends ConsumerWidget {
     );
   }
 
-  String _presetLabel(TransactionsDatePreset preset) => switch (preset) {
-        TransactionsDatePreset.today => 'اليوم',
-        TransactionsDatePreset.thisWeek => 'هذا الأسبوع',
-        TransactionsDatePreset.thisMonth => 'هذا الشهر',
-        TransactionsDatePreset.previousMonth => 'الشهر السابق',
-        TransactionsDatePreset.last7Days => 'آخر 7 أيام',
-        TransactionsDatePreset.last30Days => 'آخر 30 يوم',
-        TransactionsDatePreset.last90Days => 'آخر 90 يوم',
-        TransactionsDatePreset.thisYear => 'هذه السنة',
-        TransactionsDatePreset.previousYear => 'السنة الماضية',
-        TransactionsDatePreset.custom => 'مخصص',
+  String _presetLabel(BuildContext context, TransactionsDatePreset preset) => switch (preset) {
+        TransactionsDatePreset.today => context.l10n.txnRangeToday,
+        TransactionsDatePreset.thisWeek => context.l10n.txnRangeThisWeek,
+        TransactionsDatePreset.thisMonth => context.l10n.txnRangeThisMonth,
+        TransactionsDatePreset.previousMonth => context.l10n.txnRangeLastMonth,
+        TransactionsDatePreset.last7Days => context.l10n.txnRange7,
+        TransactionsDatePreset.last30Days => context.l10n.txnRange30,
+        TransactionsDatePreset.last90Days => context.l10n.txnRange90,
+        TransactionsDatePreset.thisYear => context.l10n.txnRangeThisYear,
+        TransactionsDatePreset.previousYear => context.l10n.txnRangeLastYear,
+        TransactionsDatePreset.custom => context.l10n.txnRangeCustom,
       };
 
   TransactionsDateRange _rangeForPreset(TransactionsDatePreset preset) {
@@ -699,7 +693,7 @@ class _DateRangeChips extends ConsumerWidget {
         builder: (context, setState) {
           final c = context.colors;
           return AppSheetScaffold(
-            title: 'اختار فترة العرض',
+            title: context.l10n.txnPickRange,
             scrollable: true,
             body: Padding(
               padding:
@@ -713,7 +707,7 @@ class _DateRangeChips extends ConsumerWidget {
                     children: [
                       for (final preset in TransactionsDatePreset.values)
                         ChoiceChip(
-                          label: Text(_presetLabel(preset)),
+                          label: Text(_presetLabel(context, preset)),
                           selected: current.preset == preset,
                           selectedColor: c.primary.withValues(alpha: 0.16),
                           onSelected: (_) {
@@ -743,7 +737,7 @@ class _DateRangeChips extends ConsumerWidget {
                         children: [
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('من'),
+                            title: Text(context.l10n.txnFrom),
                             subtitle: Text(Formatters.fullDate(from, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
@@ -759,7 +753,7 @@ class _DateRangeChips extends ConsumerWidget {
                           ),
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('إلى'),
+                            title: Text(context.l10n.txnTo),
                             subtitle: Text(Formatters.fullDate(to, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
@@ -798,7 +792,7 @@ class _DateRangeChips extends ConsumerWidget {
                             );
                             Navigator.of(context).pop();
                           },
-                    child: const Text('تطبيق الفترة المخصصة'),
+                    child: Text(context.l10n.txnApplyCustomRange),
                   ),
                   const SizedBox(height: AppSpacing.s4),
                 ],
@@ -839,10 +833,10 @@ class _KindFilterChips extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final filter = ref.watch(transactionKindFilterProvider);
     final items = {
-      TransactionKindFilter.all: 'الكل',
-      TransactionKindFilter.expenses: 'مصروفات',
-      TransactionKindFilter.income: 'دخل',
-      TransactionKindFilter.transfers: 'تحويلات',
+      TransactionKindFilter.all: context.l10n.txnKindAll,
+      TransactionKindFilter.expenses: context.l10n.txnKindExpense,
+      TransactionKindFilter.income: context.l10n.txnKindIncome,
+      TransactionKindFilter.transfers: context.l10n.txnKindTransfer,
     };
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -884,7 +878,7 @@ class _PendingFilterChip extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final active = ref.watch(transactionsPendingFilterProvider);
     return CalmChip(
-      label: 'قيد المراجعة',
+      label: context.l10n.txnPendingReview,
       selected: active,
       onTap: () => ref.read(transactionsPendingFilterProvider.notifier).state =
           !active,
@@ -928,7 +922,7 @@ class _CategoryFilterButton extends ConsumerWidget {
                   color: active ? c.cta : c.textSecondary),
               const SizedBox(width: 6),
               Text(
-                selected?.name ?? 'التصنيف',
+                selected?.name ?? context.l10n.txnCategory,
                 style: AppTypography.caption(active ? c.cta : c.textSecondary)
                     .copyWith(fontWeight: FontWeight.bold),
               ),
@@ -973,7 +967,7 @@ class _CategoryFilterSheet extends ConsumerWidget {
     // قايمة رأسية بدل شبكة حبوب مبعثرة: كل تصنيف في سطر بعرض واحد —
     // التايل، الاسم، وعلامة صح على المختار.
     return AppSheetScaffold(
-      title: 'تصفية حسب التصنيف',
+      title: context.l10n.txnFilterByCategory,
       scrollable: true,
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
@@ -987,7 +981,7 @@ class _CategoryFilterSheet extends ConsumerWidget {
           child: Column(
             children: [
               _CategoryFilterRow(
-                label: 'كل التصنيفات',
+                label: context.l10n.txnAllCategories,
                 selected: selectedId == null,
                 leading: AppAvatar.icon(
                   icon: AppLucideIcons.shapes,
@@ -1120,7 +1114,7 @@ class _BillsTabState extends State<_BillsTab> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AppPillTabBar(
-          tabs: const ['اشتراكات', 'أقساط'],
+          tabs: [context.l10n.txnBillsSubs, context.l10n.txnBillsInstalments],
           selectedIndex: _type == BillType.subscription ? 0 : 1,
           onSelected: (index) => setState(() {
             _type = index == 0 ? BillType.subscription : BillType.installment;
@@ -1133,7 +1127,7 @@ class _BillsTabState extends State<_BillsTab> {
             initialType: _type,
           ),
           icon: AppLucideIcons.plus,
-          label: _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
+          label: _type == BillType.subscription ? context.l10n.txnAddSub : context.l10n.txnAddInstalment,
           isPrimary: true,
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -1148,7 +1142,7 @@ class _BillsTabState extends State<_BillsTab> {
         TextButton.icon(
           onPressed: () => _showBillsHelp(context, _type),
           icon: const Icon(AppLucideIcons.helpCircle, size: 18),
-          label: const Text('اعرف أكثر عن الفواتير'),
+          label: Text(context.l10n.txnLearnBills),
         ),
         const SizedBox(height: AppSpacing.s3),
         if (bills.isEmpty)
@@ -1157,13 +1151,13 @@ class _BillsTabState extends State<_BillsTab> {
                 ? AppLucideIcons.repeat
                 : AppLucideIcons.receipt,
             title: _type == BillType.subscription
-                ? 'اشتراكاتك، متابعة تلقائية'
-                : 'أقساطك، واضحة كل شهر',
+                ? context.l10n.txnSubsEmptyTitle
+                : context.l10n.txnInstEmptyTitle,
             subtitle: _type == BillType.subscription
-                ? 'أضف اشتراكك يدويًا أو خليه يتكشف تلقائيًا من العمليات المتكررة.'
-                : 'أضف القسط بتاريخه وتنبيهه ليظهر في الفواتير قبل الاستحقاق.',
+                ? context.l10n.txnSubsEmptyBody
+                : context.l10n.txnInstEmptyBody,
             primaryLabel:
-                _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
+                _type == BillType.subscription ? context.l10n.txnAddSub : context.l10n.txnAddInstalment,
             onPrimary: () => BillFormSheet.show(
               context,
               initialType: _type,
@@ -1177,7 +1171,7 @@ class _BillsTabState extends State<_BillsTab> {
         if (_type == BillType.subscription &&
             widget.view.suggestions.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.s4),
-          const _DateHeader(label: 'اقتراحات من العمليات المتكررة'),
+          _DateHeader(label: context.l10n.txnSuggestionsTitle),
           for (final suggestion in widget.view.suggestions.take(3)) ...[
             _SuggestionCard(
               suggestion: suggestion,
@@ -1210,15 +1204,15 @@ class _BillsTabState extends State<_BillsTab> {
             children: [
               Text(
                 type == BillType.subscription
-                    ? 'كيف يتابع قِرش الاشتراكات؟'
-                    : 'كيف يتابع قِرش الأقساط؟',
+                    ? context.l10n.txnHowSubsTitle
+                    : context.l10n.txnHowInstTitle,
                 style: AppTypography.cardTitle(c.textMain),
               ),
               const SizedBox(height: AppSpacing.s3),
               Text(
                 type == BillType.subscription
-                    ? 'يتابع قِرش الأنماط المتكررة تلقائيًا، ويمكنك أيضًا إضافة اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.'
-                    : 'أضف القسط يدويًا بالمبلغ وتاريخ الاستحقاق والتنبيه. لاحقًا نضيف المتبقي وعدد الأقساط.',
+                    ? context.l10n.txnHowSubsBody
+                    : context.l10n.txnHowInstBody,
                 style: AppTypography.callout(c.textLight),
               ),
               const SizedBox(height: AppSpacing.s4),
@@ -1271,8 +1265,8 @@ class _BillsHero extends StatelessWidget {
             children: [
               Text(
                 isSubscription
-                    ? 'إجمالي الاشتراكات الشهرية'
-                    : 'إجمالي الأقساط الشهرية',
+                    ? context.l10n.txnTotalMonthlySubs
+                    : context.l10n.txnTotalMonthlyInst,
                 style: AppTypography.caption(c.onInk.withValues(alpha: 0.72)),
               ),
               const Spacer(),
@@ -1300,21 +1294,21 @@ class _BillsHero extends StatelessWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: _HeroMetric(value: '$activeCount', label: 'نشط'),
+                  child: _HeroMetric(value: '$activeCount', label: context.l10n.txnActive),
                 ),
                 _Divider(color: c.onInk.withValues(alpha: 0.25)),
                 Expanded(
                   child: _HeroMetric(
                     value:
                         '${Formatters.integer(monthlyTotal * 12)} $currencyLabel',
-                    label: 'سنويًا',
+                    label: context.l10n.txnPerYear,
                   ),
                 ),
                 if (isSubscription) ...[
                   _Divider(color: c.onInk.withValues(alpha: 0.25)),
                   Expanded(
                     child: _HeroMetric(
-                        value: '$nextThisWeek', label: 'هذا الأسبوع'),
+                        value: '$nextThisWeek', label: context.l10n.txnRangeThisWeek),
                   ),
                 ],
               ],
@@ -1376,19 +1370,19 @@ class _BillCard extends StatelessWidget {
 
     if (daysLeft < 0) {
       dueColor = c.danger;
-      dueLabel = 'متأخر ${daysLeft.abs()} يوم';
+      dueLabel = context.l10n.txnOverdueDays(daysLeft.abs());
       dueIcon = AppLucideIcons.alertTriangle;
     } else if (daysLeft == 0) {
       dueColor = c.danger;
-      dueLabel = 'مستحق اليوم';
+      dueLabel = context.l10n.txnDueToday;
       dueIcon = AppLucideIcons.alertCircle;
     } else if (daysLeft <= 3) {
       dueColor = c.accent;
-      dueLabel = 'بعد $daysLeft يوم';
+      dueLabel = context.l10n.txnInDays(daysLeft);
       dueIcon = AppLucideIcons.calendarClock;
     } else {
       dueColor = c.textLight;
-      dueLabel = 'بعد $daysLeft يوم';
+      dueLabel = context.l10n.txnInDays(daysLeft);
       dueIcon = AppLucideIcons.calendarDays;
     }
 
@@ -1399,15 +1393,15 @@ class _BillCard extends StatelessWidget {
         BillStatus.cancelled => c.textLight,
       };
       final statusLabel = switch (bill.status) {
-        BillStatus.active => 'نشط',
-        BillStatus.paused => 'متوقف',
-        BillStatus.cancelled => 'ملغي',
+        BillStatus.active => context.l10n.txnActive,
+        BillStatus.paused => context.l10n.txnPaused,
+        BillStatus.cancelled => context.l10n.txnCancelled,
       };
       final freqLabel = switch (bill.frequency) {
-        BillFrequency.weekly => 'أسبوعي',
-        BillFrequency.monthly => 'شهري',
-        BillFrequency.yearly => 'سنوي',
-        BillFrequency.custom => 'مخصص',
+        BillFrequency.weekly => context.l10n.txnCycleWeekly,
+        BillFrequency.monthly => context.l10n.txnCycleMonthly,
+        BillFrequency.yearly => context.l10n.txnCycleYearly,
+        BillFrequency.custom => context.l10n.txnRangeCustom,
       };
 
       return Container(
@@ -1549,7 +1543,7 @@ class _BillCard extends StatelessWidget {
                             style: AppTypography.bodyStrong(c.primary),
                           ),
                           Text(
-                            '$currLabel / قسط',
+                            context.l10n.txnPerInstalment(currLabel),
                             style: AppTypography.caption(c.textLight),
                           ),
                         ],
@@ -1561,12 +1555,12 @@ class _BillCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          '${bill.paidCount ?? 0} من ${bill.totalInstallments} قسط مدفوع',
+                          context.l10n.txnPaidOfTotal(bill.paidCount ?? 0, bill.totalInstallments ?? 0),
                           style: AppTypography.caption(c.textLight),
                         ),
                         const Spacer(),
                         Text(
-                          'متبقي $remaining قسط',
+                          context.l10n.txnRemainingInstalments(remaining),
                           style: AppTypography.caption(c.primary)
                               .copyWith(fontWeight: FontWeight.bold),
                         ),
@@ -1600,7 +1594,7 @@ class _BillCard extends StatelessWidget {
                       child: Row(
                         children: [
                           Text(
-                            'القيمة الكلية: ',
+                            context.l10n.txnTotalValueLabel,
                             style: AppTypography.caption(c.textLight),
                           ),
                           Text(
@@ -1620,7 +1614,7 @@ class _BillCard extends StatelessWidget {
                                     BorderRadius.circular(AppRadius.pill),
                               ),
                               child: Text(
-                                'فائدة ${(bill.interestRate! * 100).toStringAsFixed(1)}%',
+                                context.l10n.txnInterestRate((bill.interestRate! * 100).toStringAsFixed(1)),
                                 style: AppTypography.caption(c.accent)
                                     .copyWith(fontWeight: FontWeight.bold),
                               ),
@@ -1648,7 +1642,7 @@ class _BillCard extends StatelessWidget {
                               size: 16, color: c.success),
                           const SizedBox(width: 6),
                           Text(
-                            'مدفوع يدويًا: ',
+                            context.l10n.txnPaidManuallyLabel,
                             style: AppTypography.caption(c.textLight),
                           ),
                           Text(
@@ -1667,7 +1661,7 @@ class _BillCard extends StatelessWidget {
                       Icon(dueIcon, size: 14, color: dueColor),
                       const SizedBox(width: 4),
                       Text(
-                        'القسط القادم: $dueLabel',
+                        context.l10n.txnNextInstalment(dueLabel),
                         style: AppTypography.caption(dueColor).copyWith(
                             fontWeight:
                                 dueColor == c.danger ? FontWeight.bold : null),
@@ -1727,7 +1721,7 @@ class _SuggestionCard extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        'تكرر ${_monthsLabel(suggestion.monthsSeen)} · اضغط للتفعيل',
+                        context.l10n.txnRecurredMonths(suggestion.monthsSeen),
                         style: AppTypography.caption(c.textLight),
                       ),
                     ],
@@ -1738,7 +1732,9 @@ class _SuggestionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      '${Formatters.amount(suggestion.estimatedAmountMoney.toDouble())} $currencyLabel/شهر',
+                      context.l10n.txnEstPerMonth(
+                          Formatters.amount(suggestion.estimatedAmountMoney.toDouble()),
+                          currencyLabel),
                       style: AppTypography.caption(c.textMain).copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -1757,7 +1753,7 @@ class _SuggestionCard extends StatelessWidget {
                           Icon(AppLucideIcons.plus, size: 12, color: c.cta),
                           const SizedBox(width: 2),
                           Text(
-                            'إضافة',
+                            context.l10n.txnAdd,
                             style: AppTypography.caption(c.cta)
                                 .copyWith(fontWeight: FontWeight.bold),
                           ),
@@ -1870,9 +1866,9 @@ class _TransactionsHeader extends StatelessWidget {
     return CalmPageHeader(
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
-      title: tab == 0 ? 'العمليات' : 'الفواتير والاشتراكات',
+      title: tab == 0 ? context.l10n.txnTabTransactions : context.l10n.txnBillsAndSubs,
       subtitle:
-          tab == 0 ? 'إجمالي مصروفات الفترة' : 'إجمالي الصرف الشهري النشط',
+          tab == 0 ? context.l10n.txnPeriodSpendTotal : context.l10n.txnActiveMonthlySpend,
       leading: Navigator.of(context).canPop()
           ? const BackButton(color: Colors.white)
           : null,
@@ -1881,18 +1877,18 @@ class _TransactionsHeader extends StatelessWidget {
       currency: currencyLabel,
       metrics: tab == 0
           ? [
-              CalmMetric(label: 'عملية للفترة', value: '$transactionsCount'),
-              CalmMetric(label: 'قيد المراجعة', value: '$pendingCount'),
+              CalmMetric(label: context.l10n.txnTxForPeriod, value: '$transactionsCount'),
+              CalmMetric(label: context.l10n.txnPendingReview, value: '$pendingCount'),
               CalmMetric(
-                label: 'إجمالي المصروف',
+                label: context.l10n.txnTotalSpent,
                 value: '${Formatters.amount(expenseTotal)} $currencyLabel',
               ),
             ]
           : [
-              CalmMetric(label: 'اشتراك نشط', value: '$subsCount'),
-              CalmMetric(label: 'قسط جاري', value: '$instsCount'),
+              CalmMetric(label: context.l10n.txnActiveSub, value: '$subsCount'),
+              CalmMetric(label: context.l10n.txnRunningInst, value: '$instsCount'),
               CalmMetric(
-                label: 'المجموع سنوياً',
+                label: context.l10n.txnYearlyTotal,
                 value: '${Formatters.amount(monthlyTotal * 12)} $currencyLabel',
               ),
             ],
@@ -1928,7 +1924,7 @@ class _SmartInboxBanner extends ConsumerWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'صندوق المراجعة الذكي · ${items.length}',
+                  context.l10n.txnSmartInboxCount(items.length),
                   style: AppTypography.caption(c.textMain)
                       .copyWith(fontWeight: FontWeight.w700),
                 ),
@@ -1973,7 +1969,7 @@ class _SmartInboxSheet extends ConsumerWidget {
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
-                'صندوق المراجعة الذكي',
+                context.l10n.txnSmartInbox,
                 style: AppTypography.sectionTitle(context.colors.textMain),
               ),
             );
@@ -2016,11 +2012,11 @@ class _SmartInboxCard extends ConsumerWidget {
                     context,
                     item.transactionId!,
                   ),
-                  child: const Text('راجع العملية'),
+                  child: Text(context.l10n.txnReviewTx),
                 ),
               const Spacer(),
               IconButton(
-                tooltip: 'إخفاء',
+                tooltip: context.l10n.txnHide,
                 icon: const Icon(AppLucideIcons.x),
                 onPressed: () async {
                   await ref.read(smartInboxRepositoryProvider).dismiss(item.id);
@@ -2062,7 +2058,7 @@ class _SuspectedDuplicatesBanner extends ConsumerWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  '${dupes.length} ${dupes.length == 1 ? 'عملية مشبوهة' : 'عمليات مشبوهة'} — اضغط للمراجعة',
+                  context.l10n.txnDupBannerReview(dupes.length),
                   style: AppTypography.caption(c.accent)
                       .copyWith(fontWeight: FontWeight.w700),
                 ),
@@ -2124,7 +2120,7 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
             child: Row(
               children: [
                 Expanded(
-                  child: Text('عمليات مشبوهة',
+                  child: Text(context.l10n.txnSuspectTxPlural,
                       style: AppTypography.sectionTitle(c.textMain)),
                 ),
                 // NEW (Phase J §13) — «تجاهل الكل» dismissed the ENTIRE review
@@ -2143,19 +2139,16 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
                     final proceed = await showDialog<bool>(
                       context: context,
                       builder: (ctx) => AlertDialog(
-                        title: Text('تجاهل ${dupes.length} تنبيه؟'),
-                        content: const Text(
-                          'ستُزال كل تنبيهات التكرار المعروضة. العمليات نفسها '
-                          'لن تتأثر، لكن لا يمكن مراجعتها من هنا مرة أخرى.',
-                        ),
+                        title: Text(ctx.l10n.txnDismissNAlerts(dupes.length)),
+                        content: Text(ctx.l10n.txnDismissAllDupesBody),
                         actions: [
                           TextButton(
                             onPressed: () => Navigator.of(ctx).pop(false),
-                            child: const Text('إلغاء'),
+                            child: Text(context.l10n.commonCancel),
                           ),
                           TextButton(
                             onPressed: () => Navigator.of(ctx).pop(true),
-                            child: Text('تجاهل الكل',
+                            child: Text(context.l10n.txnDismissAll,
                                 style: TextStyle(color: ctx.colors.danger)),
                           ),
                         ],
@@ -2169,7 +2162,7 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
                     ref.invalidate(suspectedDuplicatesProvider);
                     if (context.mounted) Navigator.of(context).pop();
                   },
-                  child: Text('تجاهل الكل (${dupes.length})',
+                  child: Text(context.l10n.txnDismissAllCount(dupes.length),
                       style: AppTypography.caption(c.textMuted)),
                 ),
               ],
@@ -2178,7 +2171,7 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
           Expanded(
             child: dupes.isEmpty
                 ? Center(
-                    child: Text('لا توجد عمليات مشبوهة',
+                    child: Text(context.l10n.txnNoSuspectTx,
                         style: AppTypography.body(c.textMuted)),
                   )
                 : ListView.separated(
@@ -2225,7 +2218,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
-                  'عملية مشابهة موجودة',
+                  context.l10n.txnSimilarExists,
                   style: AppTypography.bodyStrong(c.textMain),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -2239,13 +2232,13 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'هذه العملية تشبه عملية موجودة بالمبلغ والتاجر والوقت نفسها.',
+            context.l10n.txnSimilarBody,
             style: AppTypography.caption(c.textMuted),
           ),
           const SizedBox(height: AppSpacing.s3),
           _DuplicateInfoRow(
-            label: 'الجديدة',
-            merchant: dupe.rawMerchant ?? 'بدون تاجر واضح',
+            label: context.l10n.txnTheNew,
+            merchant: dupe.rawMerchant ?? context.l10n.txnNoClearMerchant,
             amount: '${Formatters.amount(dupe.amount)} ${dupe.currency}',
             time:
                 '${Formatters.dateWithWeekday(timestamp, context)} · ${Formatters.time(timestamp)}',
@@ -2253,8 +2246,8 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
           if (existing != null) ...[
             const SizedBox(height: AppSpacing.s2),
             _DuplicateInfoRow(
-              label: 'الموجودة',
-              merchant: existing.rawMerchant ?? 'بدون تاجر واضح',
+              label: context.l10n.txnTheExisting,
+              merchant: existing.rawMerchant ?? context.l10n.txnNoClearMerchant,
               amount:
                   '${Formatters.amount(existing.amount)} ${existing.currency}',
               time:
@@ -2263,7 +2256,8 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
           ],
           const SizedBox(height: AppSpacing.s2),
           Text(
-            'مصدر الوقت: ${_timestampSourceLabel(dupe.comparisonTimestampSource)}',
+            context.l10n.txnTimeSource(
+                _timestampSourceLabel(context, dupe.comparisonTimestampSource)),
             style: AppTypography.caption(c.textMuted),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -2277,7 +2271,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
                     side: BorderSide(color: c.border.withValues(alpha: 0.5)),
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
-                  child: const Text('تجاهل التكرار'),
+                  child: Text(context.l10n.txnDismissDuplicate),
                 ),
               ),
               const SizedBox(width: AppSpacing.s3),
@@ -2287,7 +2281,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
                   style: FilledButton.styleFrom(
                     padding: const EdgeInsets.symmetric(vertical: 10),
                   ),
-                  child: const Text('احفظ كجديدة'),
+                  child: Text(context.l10n.txnSaveAsNew),
                 ),
               ),
             ],
@@ -2301,7 +2295,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
                       ? null
                       : () => _editExisting(context, ref, existing),
                   icon: const Icon(AppLucideIcons.pencil, size: 16),
-                  label: const Text('تعديل العملية'),
+                  label: Text(context.l10n.txnEditTx),
                 ),
               ),
               const SizedBox(width: AppSpacing.s2),
@@ -2311,7 +2305,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
                       ? null
                       : () => _changeCategory(context, ref, existing),
                   icon: const Icon(AppLucideIcons.shapes, size: 16),
-                  label: const Text('تغيير التصنيف'),
+                  label: Text(context.l10n.txnChangeCategory),
                 ),
               ),
             ],
@@ -2321,10 +2315,10 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
     );
   }
 
-  String _timestampSourceLabel(ComparisonTimestampSource? source) {
+  String _timestampSourceLabel(BuildContext context, ComparisonTimestampSource? source) {
     return source == ComparisonTimestampSource.smsBody
-        ? 'وقت العملية داخل SMS'
-        : 'وقت استلام الرسالة';
+        ? context.l10n.txnTimeInSms
+        : context.l10n.txnTimeReceived;
   }
 
   Future<void> _dismiss(WidgetRef ref) async {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../common/money_text.dart';
 import '../../domain/finance/money.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -41,7 +42,7 @@ class AccountsScreen extends ConsumerWidget {
             child: accountsAsync.when(
               skipLoadingOnReload: true,
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => const Center(child: Text('حدث خطأ')),
+              error: (e, _) => Center(child: Text(context.l10n.txnError)),
               data: (accounts) => ListView(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.gutter,
@@ -59,7 +60,7 @@ class AccountsScreen extends ConsumerWidget {
                   OutlinedButton.icon(
                     onPressed: () => showAccountForm(context, ref),
                     icon: const Icon(AppLucideIcons.plus),
-                    label: const Text('إضافة حساب'),
+                    label: Text(context.l10n.accAddAccount),
                     style: OutlinedButton.styleFrom(
                       minimumSize:
                           const Size.fromHeight(AppSpacing.buttonHeight),
@@ -150,8 +151,8 @@ class _AccountsHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CalmPageHeader(
-      title: 'الحسابات والمحافظ',
-      subtitle: 'كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.',
+      title: context.l10n.accTitle,
+      subtitle: context.l10n.accSubtitle,
       leading: Navigator.of(context).canPop()
           ? const BackButton(color: Colors.white)
           : null,
@@ -214,7 +215,7 @@ class _AccountCard extends ConsumerWidget {
                             color: c.primary.withValues(alpha: 0.12),
                             borderRadius: BorderRadius.circular(AppRadius.pill),
                           ),
-                          child: Text('افتراضي',
+                          child: Text(context.l10n.accDefault,
                               style: AppTypography.caption(c.primary)
                                   .copyWith(fontWeight: FontWeight.w700)),
                         ),
@@ -274,11 +275,11 @@ class _UnassignedCardsSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text('بطاقات غير مخصّصة',
+        Text(context.l10n.accUnassignedCards,
             style: AppTypography.sectionTitle(c.textMain)),
         const SizedBox(height: 2),
         Text(
-          'بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد.',
+          context.l10n.accUnassignedCardsBody,
           style: AppTypography.caption(c.textLight),
         ),
         const SizedBox(height: AppSpacing.s3),

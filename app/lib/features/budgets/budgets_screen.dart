@@ -13,6 +13,7 @@ import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/finance/money_format.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -56,7 +57,7 @@ class BudgetsScreen extends ConsumerWidget {
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const SkeletonList(rows: 4),
-        error: (error, _) => const Center(child: Text('حدث خطأ')),
+        error: (error, _) => Center(child: Text(context.l10n.bdgError)),
         data: (data) {
           final historyEntries = data.historyEntries;
           final rawBudgetEntries = tab == 1
@@ -185,10 +186,10 @@ class BudgetsScreen extends ConsumerWidget {
                               // الميزانيات» once you were inside it — the tab
                               // that got you there was the only thing that
                               // didn't say so.
-                              tabs: const [
-                                'الميزانيات',
-                                'سجل الميزانيات',
-                                'الأهداف'
+                              tabs: [
+                                context.l10n.bdgTabBudgets,
+                                context.l10n.bdgTabHistory,
+                                context.l10n.bdgTabGoals
                               ],
                               selectedIndex: tab,
                               onSelected: (value) => ref
@@ -223,9 +224,9 @@ class BudgetsScreen extends ConsumerWidget {
                             entries: data.snapshot.entries,
                             currencyLabel: currencyLabel,
                             showGlobalAccountLabel: false,
-                            emptyTitle: 'لا توجد ميزانيات',
+                            emptyTitle: context.l10n.bdgEmptyBudgetsTitle,
                             emptySubtitle:
-                                'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.',
+                                context.l10n.bdgEmptyBudgetsBody,
                           ),
                         ] else if (tab == 1) ...[
                           _HistoryPeriodFilterRow(ref: ref),
@@ -241,10 +242,10 @@ class BudgetsScreen extends ConsumerWidget {
                           if (data.goals.isEmpty)
                             AppEmptyState(
                               icon: AppLucideIcons.target,
-                              title: 'لا توجد أهداف',
+                              title: context.l10n.bdgEmptyGoalsTitle,
                               subtitle:
-                                  'أضف هدف ادخار ليتابع قِرش تقدمك إلى جانب ميزانياتك.',
-                              primaryLabel: 'إضافة هدف',
+                                  context.l10n.bdgEmptyGoalsBody,
+                              primaryLabel: context.l10n.bdgAddGoal,
                               onPrimary: () =>
                                   GoalFormScreen.showSheet(context),
                             )
@@ -277,10 +278,10 @@ class BudgetsScreen extends ConsumerWidget {
       return [
         AppEmptyState(
           icon: AppLucideIcons.history,
-          title: 'السجل فاضي',
+          title: context.l10n.bdgEmptyHistoryTitle,
           subtitle:
-              'اختار فترة فيها ميزانيات أو أضف ميزانية جديدة، وكل يوم/أسبوع/شهر هيظهر هنا كسجل منفصل.',
-          primaryLabel: 'إضافة ميزانية',
+              context.l10n.bdgEmptyHistoryBody,
+          primaryLabel: context.l10n.bdgAddBudget,
           onPrimary: () => BudgetFormScreen.showSheet(context),
         ),
       ];
@@ -341,7 +342,7 @@ class BudgetsScreen extends ConsumerWidget {
           icon: AppLucideIcons.pieChart,
           title: emptyTitle,
           subtitle: emptySubtitle,
-          primaryLabel: 'إضافة ميزانية',
+          primaryLabel: context.l10n.bdgAddBudget,
           onPrimary: () => BudgetFormScreen.showSheet(context),
         ),
       ];
@@ -375,15 +376,15 @@ class BudgetsScreen extends ConsumerWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('حذف الميزانية؟'),
-        content: const Text('سيُحذف سقف الميزانية. لن تتأثر العمليات نفسها.'),
+        title: Text(context.l10n.bdgDeleteTitle),
+        content: Text(context.l10n.bdgDeleteBody),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('إلغاء')),
+              child: Text(context.l10n.commonCancel)),
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('حذف')),
+              child: Text(context.l10n.setDelete)),
         ],
       ),
     );
@@ -398,7 +399,7 @@ class BudgetsScreen extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر حذف الميزانية الآن.')),
+        SnackBar(content: Text(context.l10n.bdgDeleteFailed)),
       );
     }
   }
@@ -451,11 +452,11 @@ class _HistoryPeriodFilterRow extends StatelessWidget {
     final c = context.colors;
     final selected = ref.watch(budgetsHistoryPeriodFilterProvider);
     final options = <(BudgetPeriod?, String)>[
-      (null, 'الكل'),
-      (BudgetPeriod.daily, 'يومي'),
-      (BudgetPeriod.weekly, 'أسبوعي'),
-      (BudgetPeriod.monthly, 'شهري'),
-      (BudgetPeriod.yearly, 'سنوي'),
+      (null, context.l10n.bdgFilterAll),
+      (BudgetPeriod.daily, context.l10n.bdgFilterDaily),
+      (BudgetPeriod.weekly, context.l10n.bdgFilterWeekly),
+      (BudgetPeriod.monthly, context.l10n.bdgFilterMonthly),
+      (BudgetPeriod.yearly, context.l10n.bdgFilterYearly),
     ];
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -578,32 +579,32 @@ class _BudgetsHeader extends StatelessWidget {
     final isGoals = tab == 2;
     final isAllLog = tab == 1;
     final title = switch (tab) {
-      1 => 'سجل الميزانيات',
-      2 => 'الأهداف',
-      _ => 'الميزانيات',
+      1 => context.l10n.bdgTabHistory,
+      2 => context.l10n.bdgTabGoals,
+      _ => context.l10n.bdgTabBudgets,
     };
     final totalLabel = switch (tab) {
-      1 => 'ميزانيات في السجل',
-      2 => 'مجموع المدخرات المستهدفة',
-      _ => 'إجمالي الميزانيات المرصودة',
+      1 => context.l10n.bdgStatHistoryCount,
+      2 => context.l10n.bdgStatTargetSavings,
+      _ => context.l10n.bdgStatTotalBudgeted,
     };
     final metrics = isGoals
         ? [
-            CalmMetric(label: 'أهداف نشطة', value: '$goalsCount'),
-            CalmMetric(label: 'نسبة التقدم', value: '$progress%'),
-            CalmMetric(label: 'إجمالي الادخار', value: formatMoney(saved)),
+            CalmMetric(label: context.l10n.bdgStatActiveGoals, value: '$goalsCount'),
+            CalmMetric(label: context.l10n.bdgStatProgress, value: '$progress%'),
+            CalmMetric(label: context.l10n.bdgStatTotalSaved, value: formatMoney(saved)),
           ]
         : isAllLog
             ? [
-                CalmMetric(label: 'آمنة', value: '$safeCount'),
-                CalmMetric(label: 'اقتربت', value: '$warningCount'),
-                CalmMetric(label: 'تجاوزت', value: '$overCount'),
+                CalmMetric(label: context.l10n.bdgStateSafeF, value: '$safeCount'),
+                CalmMetric(label: context.l10n.bdgStateNear, value: '$warningCount'),
+                CalmMetric(label: context.l10n.bdgStateOverF, value: '$overCount'),
               ]
             : [
-                CalmMetric(label: 'ميزانيات', value: '$budgetsCount'),
-                CalmMetric(label: 'نسبة الاستهلاك', value: '$usedRatio%'),
+                CalmMetric(label: context.l10n.bdgBudgetsWord, value: '$budgetsCount'),
+                CalmMetric(label: context.l10n.bdgUsageRate, value: '$usedRatio%'),
                 CalmMetric(
-                    label: 'المصروف الفعلي', value: formatMoney(usedAmount)),
+                    label: context.l10n.bdgActualSpend, value: formatMoney(usedAmount)),
               ];
     return CalmPageHeader(
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
@@ -617,7 +618,7 @@ class _BudgetsHeader extends StatelessWidget {
       amount: isAllLog
           ? '$budgetsCount'
           : formatMoney(isGoals ? target : limit),
-      currency: isAllLog ? 'ميزانية' : currencyLabel,
+      currency: isAllLog ? context.l10n.bdgBudgetWord : currencyLabel,
       metrics: metrics,
     );
   }
@@ -649,15 +650,15 @@ class _BudgetCard extends StatelessWidget {
     final isOver = entry.remaining.isNegative;
     final isGeneral = entry.budget.isAllExpenses;
     final statusLabel = isOver
-        ? 'تجاوز'
+        ? context.l10n.bdgOver
         : entry.ratio >= 0.8
-            ? 'اقتربت'
-            : 'آمن';
+            ? context.l10n.bdgStateNear
+            : context.l10n.bdgSafe;
     final periodLabel = switch (entry.budget.period) {
-      BudgetPeriod.daily => 'يومي',
-      BudgetPeriod.weekly => 'أسبوعي',
-      BudgetPeriod.monthly => 'شهري',
-      BudgetPeriod.yearly => 'سنوي',
+      BudgetPeriod.daily => context.l10n.bdgFilterDaily,
+      BudgetPeriod.weekly => context.l10n.bdgFilterWeekly,
+      BudgetPeriod.monthly => context.l10n.bdgFilterMonthly,
+      BudgetPeriod.yearly => context.l10n.bdgFilterYearly,
     };
     return AppCard(
       onTap: onTap,
@@ -689,7 +690,7 @@ class _BudgetCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      isGeneral ? 'كل المصروفات' : category?.name ?? 'تصنيف',
+                      isGeneral ? context.l10n.bdgAllExpenses : category?.name ?? context.l10n.bdgCategory,
                       style: AppTypography.cardTitle(c.textPrimary),
                     ),
                     const SizedBox(height: AppSpacing.s1),
@@ -699,7 +700,8 @@ class _BudgetCard extends StatelessWidget {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Text(
-                          'ميزانية $periodLabel · ${_budgetPeriodDateLabel(entry, context)}',
+                          context.l10n.bdgPeriodSubtitle(
+                              periodLabel, _budgetPeriodDateLabel(entry, context)),
                           style: AppTypography.footnote(c.textSecondary),
                         ),
                         if (accountName.isNotEmpty) ...[
@@ -753,7 +755,7 @@ class _BudgetCard extends StatelessWidget {
                             Icon(AppLucideIcons.trash2,
                                 size: 18, color: c.danger),
                             const SizedBox(width: 8),
-                            Text('حذف', style: TextStyle(color: c.danger)),
+                            Text(context.l10n.setDelete, style: TextStyle(color: c.danger)),
                           ],
                         ),
                       ),
@@ -797,7 +799,7 @@ class _BudgetCard extends StatelessWidget {
               children: [
                 Expanded(
                   child: _BudgetAmountTile(
-                    label: 'مصروف',
+                    label: context.l10n.bdgSpent,
                     amount: entry.spent,
                     currencyLabel: currencyLabel,
                     color: c.textPrimary,
@@ -806,7 +808,7 @@ class _BudgetCard extends StatelessWidget {
                 Container(width: 1, height: 34, color: c.border),
                 Expanded(
                   child: _BudgetAmountTile(
-                    label: isOver ? 'تجاوز' : 'باقي',
+                    label: isOver ? context.l10n.bdgOver : context.l10n.bdgRemaining,
                     amount: isOver ? -entry.remaining : entry.remaining,
                     currencyLabel: currencyLabel,
                     color: isOver ? c.danger : c.success,
@@ -815,7 +817,7 @@ class _BudgetCard extends StatelessWidget {
                 Container(width: 1, height: 34, color: c.border),
                 Expanded(
                   child: _BudgetAmountTile(
-                    label: 'الحد',
+                    label: context.l10n.bdgLimit,
                     // `budget.amount` is the legacy double field; `amountMoney`
                     // is the exact one, and it is what «مصروف» and «باقي» are
                     // derived from — so the three tiles reconcile by
@@ -882,16 +884,16 @@ class _BudgetHistoryRow extends StatelessWidget {
     final progressColor = c.budgetState(entry.ratio);
     final iconColor = category?.tileColor ?? progressColor;
     final periodLabel = switch (entry.budget.period) {
-      BudgetPeriod.daily => 'يومي',
-      BudgetPeriod.weekly => 'أسبوعي',
-      BudgetPeriod.monthly => 'شهري',
-      BudgetPeriod.yearly => 'سنوي',
+      BudgetPeriod.daily => context.l10n.bdgFilterDaily,
+      BudgetPeriod.weekly => context.l10n.bdgFilterWeekly,
+      BudgetPeriod.monthly => context.l10n.bdgFilterMonthly,
+      BudgetPeriod.yearly => context.l10n.bdgFilterYearly,
     };
-    final title = isGeneral ? 'كل المصروفات' : category?.name ?? 'تصنيف';
+    final title = isGeneral ? context.l10n.bdgAllExpenses : category?.name ?? context.l10n.bdgCategory;
     final dateLabel = _budgetPeriodDateLabel(entry, context);
     final subtitle = history.isCurrent
-        ? 'ميزانية $periodLabel · $dateLabel · جارية'
-        : 'ميزانية $periodLabel · $dateLabel';
+        ? context.l10n.bdgPeriodSubtitleLive(periodLabel, dateLabel)
+        : context.l10n.bdgPeriodSubtitle(periodLabel, dateLabel);
 
     // UX-001 — the label and the amount are kept apart so the amount can go
     // through MoneyText. Interpolating it into the sentence is what forced the
@@ -901,17 +903,17 @@ class _BudgetHistoryRow extends StatelessWidget {
     final Color resultColor;
     final IconData? resultIcon;
     if (history.isCurrent) {
-      resultLabel = isOver ? 'تجاوزت' : 'باقي';
+      resultLabel = isOver ? context.l10n.bdgStateOverF : context.l10n.bdgRemaining;
       resultAmount = isOver ? -entry.remaining : entry.remaining;
       resultColor = isOver ? c.danger : c.textSecondary;
       resultIcon = null;
     } else if (isOver) {
-      resultLabel = 'تجاوزت';
+      resultLabel = context.l10n.bdgStateOverF;
       resultAmount = -entry.remaining;
       resultColor = c.danger;
       resultIcon = AppLucideIcons.alertTriangle;
     } else {
-      resultLabel = 'وفّرت';
+      resultLabel = context.l10n.bdgSaved;
       resultAmount = entry.remaining;
       resultColor = c.success;
       resultIcon = AppLucideIcons.checkCircle;
@@ -1059,14 +1061,14 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
     final percent = (entry.ratio * 100).round();
     final isOver = entry.remaining.isNegative;
     final title = entry.budget.isAllExpenses
-        ? 'كل المصروفات'
-        : category?.name ?? 'ميزانية';
-    final periodLabel = _periodLabel(entry.budget.period.name);
+        ? context.l10n.bdgAllExpenses
+        : category?.name ?? context.l10n.bdgBudgetWord;
+    final periodLabel = _periodLabel(context, entry.budget.period.name);
     final statusLabel = history.isCurrent
-        ? 'الفترة الحالية'
+        ? context.l10n.bdgPeriodCurrent
         : isOver
-            ? 'فترة تجاوزت الحد'
-            : 'فترة منتهية';
+            ? context.l10n.bdgPeriodOver
+            : context.l10n.bdgPeriodEnded;
 
     return AppSheetScaffold(
       title: title,
@@ -1131,7 +1133,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                 children: [
                   Expanded(
                     child: _BudgetAmountTile(
-                      label: 'الحد',
+                      label: context.l10n.bdgLimit,
                       amount: entry.budget.amountMoney,
                       currencyLabel: currencyLabel,
                       color: c.textPrimary,
@@ -1140,7 +1142,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   Container(width: 1, height: 40, color: c.border),
                   Expanded(
                     child: _BudgetAmountTile(
-                      label: 'مصروف',
+                      label: context.l10n.bdgSpent,
                       amount: entry.spent,
                       currencyLabel: currencyLabel,
                       color: c.textPrimary,
@@ -1149,7 +1151,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   Container(width: 1, height: 40, color: c.border),
                   Expanded(
                     child: _BudgetAmountTile(
-                      label: isOver ? 'تجاوز' : 'باقي',
+                      label: isOver ? context.l10n.bdgOver : context.l10n.bdgRemaining,
                       amount: isOver ? -entry.remaining : entry.remaining,
                       currencyLabel: currencyLabel,
                       color: isOver ? c.danger : c.success,
@@ -1161,8 +1163,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
             const SizedBox(height: AppSpacing.s3),
             Text(
               history.isCurrent
-                  ? 'ما زال هذا السجل يُحدَّث حتى نهاية الفترة.'
-                  : 'هذا السجل محسوب من العمليات الفعلية داخل هذه الفترة.',
+                  ? context.l10n.bdgRecordLive
+                  : context.l10n.bdgRecordFinal,
               style: AppTypography.caption(c.textSecondary),
               textAlign: TextAlign.center,
             ),
@@ -1182,7 +1184,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   );
                 },
                 icon: Icon(AppLucideIcons.pencil, size: 16, color: c.textMain),
-                label: Text('تعديل الميزانية',
+                label: Text(context.l10n.bdgEditBudget,
                     style: AppTypography.subhead(c.textMain)),
               ),
             ),
@@ -1190,7 +1192,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('عمليات الفترة',
+                  child: Text(context.l10n.bdgPeriodTransactions,
                       style: AppTypography.bodyStrong(c.textPrimary)),
                 ),
                 // UX-003 / F-009 class — the list was capped at 20 rows with no
@@ -1202,7 +1204,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                 if (history.transactions.isNotEmpty)
                   Text(
                     history.transactions.length > _kPeriodTransactionLimit
-                        ? 'أحدث $_kPeriodTransactionLimit من ${history.transactions.length}'
+                        ? context.l10n.bdgLatestOfTotal(
+                            _kPeriodTransactionLimit, history.transactions.length)
                         : '${history.transactions.length}',
                     style: AppTypography.caption(c.textSecondary),
                   ),
@@ -1218,7 +1221,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   border: Border.all(color: c.border),
                 ),
                 child: Text(
-                  'لم تُسجَّل عمليات مؤكدة ضمن هذه الفترة.',
+                  context.l10n.bdgNoConfirmedTx,
                   style: AppTypography.caption(c.textSecondary),
                   textAlign: TextAlign.center,
                 ),
@@ -1234,8 +1237,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: AppSpacing.s2),
                   child: Text(
-                    'باقي ${history.transactions.length - _kPeriodTransactionLimit} عملية '
-                    'داخلة في الحساب — افتح «العمليات» لعرضها كلها.',
+                    context.l10n.bdgMoreTxCounted(
+                        history.transactions.length - _kPeriodTransactionLimit),
                     style: AppTypography.caption(c.textSecondary),
                     textAlign: TextAlign.center,
                   ),
@@ -1247,11 +1250,11 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
     );
   }
 
-  String _periodLabel(String period) => switch (period) {
-        'daily' => 'ميزانية يومية',
-        'weekly' => 'ميزانية أسبوعية',
-        'yearly' => 'ميزانية سنوية',
-        _ => 'ميزانية شهرية',
+  String _periodLabel(BuildContext context, String period) => switch (period) {
+        'daily' => context.l10n.bdgDailyBudget,
+        'weekly' => context.l10n.bdgWeeklyBudget,
+        'yearly' => context.l10n.bdgYearlyBudget,
+        _ => context.l10n.bdgMonthlyBudget,
       };
 
   String _dateRangeLabel(BuildContext context, DateTime start, DateTime end) {
@@ -1279,7 +1282,7 @@ class _BudgetTransactionRow extends StatelessWidget {
         ? tx.rawMerchant!.trim()
         : tx.note?.trim().isNotEmpty == true
             ? tx.note!.trim()
-            : 'عملية';
+            : context.l10n.bdgTransactionWord;
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.md),
       onTap: () => TransactionDetailsScreen.showSheet(context, tx.id),
@@ -1394,18 +1397,19 @@ class _GoalPlannerCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s3),
           if (remaining.isZero)
-            Text('اكتمل الهدف', style: AppTypography.caption(c.success))
+            Text(context.l10n.bdgGoalDone, style: AppTypography.caption(c.success))
           else
             Row(
               children: [
-                Text('باقي ', style: AppTypography.caption(c.textSecondary)),
+                Text(context.l10n.bdgRemainingPrefix,
+                    style: AppTypography.caption(c.textSecondary)),
                 Flexible(
                   child: MoneyText(
                     remaining,
                     style: AppTypography.caption(c.textSecondary),
                   ),
                 ),
-                Text(' $currencyLabel للوصول',
+                Text(context.l10n.bdgToReachSuffix(currencyLabel),
                     style: AppTypography.caption(c.textSecondary)),
               ],
             ),
@@ -1501,11 +1505,11 @@ class _AllocateIncomeButton extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('وزّع دخلك على المظاريف',
+                    Text(context.l10n.bdgEnvelopeTitle,
                         style: AppTypography.bodyStrong(c.onInk)),
                     const SizedBox(height: 2),
                     Text(
-                      'اكتب راتبك ووزّعه بضغطة — وقرش يحسبلك المتاح كل يوم',
+                      context.l10n.bdgEnvelopeBody,
                       style: AppTypography.caption(
                           c.onInk.withValues(alpha: 0.72)),
                     ),

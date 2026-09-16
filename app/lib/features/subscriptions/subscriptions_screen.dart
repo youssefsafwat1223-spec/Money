@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../domain/finance/money_format.dart';
 import 'package:flutter/services.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/theme/app_colors.dart';
@@ -23,11 +24,11 @@ import 'bill_details_sheet.dart';
 import 'bill_form_sheet.dart';
 import 'subscriptions_providers.dart';
 
-String _dueInLabel(DateTime due) {
+String _dueInLabel(BuildContext context, DateTime due) {
   final days = due.difference(DateTime.now()).inDays;
-  if (days < 0) return 'متأخر';
-  if (days == 0) return 'اليوم';
-  return 'بعد $days يوم';
+  if (days < 0) return context.l10n.subsOverdue;
+  if (days == 0) return context.l10n.subsToday;
+  return context.l10n.txnInDays(days);
 }
 
 class SubscriptionsScreen extends ConsumerWidget {
@@ -45,15 +46,15 @@ class SubscriptionsScreen extends ConsumerWidget {
       skipLoadingOnReload: true,
       loading: () => Scaffold(
         appBar: Navigator.of(context).canPop()
-            ? AppBar(title: const Text('الاشتراكات والفواتير'))
+            ? AppBar(title: Text(context.l10n.subsTitle))
             : null,
         body: const SkeletonList(rows: 4),
       ),
       error: (e, _) => Scaffold(
         appBar: Navigator.of(context).canPop()
-            ? AppBar(title: const Text('الاشتراكات والفواتير'))
+            ? AppBar(title: Text(context.l10n.subsTitle))
             : null,
-        body: const Center(child: Text('حدث خطأ')),
+        body: Center(child: Text(context.l10n.txnError)),
       ),
       data: (bills) {
         final subs =
@@ -121,8 +122,8 @@ class SubscriptionsScreen extends ConsumerWidget {
                                   animation: controller,
                                   builder: (context, _) => AppPillTabBar(
                                     tabs: [
-                                      'الاشتراكات (${subs.length})',
-                                      'الأقساط (${insts.length})',
+                                      context.l10n.subsTabSubs(subs.length),
+                                      context.l10n.subsTabInst(insts.length),
                                     ],
                                     selectedIndex: controller.index,
                                     onSelected: controller.animateTo,
@@ -206,7 +207,7 @@ class _BillsHeader extends StatelessWidget {
     return CalmPageHeader(
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
-      title: 'الاشتراكات والفواتير',
+      title: context.l10n.subsTitle,
       // UX-023 — name the metric for what it measures.
       //
       // It read «إجمالي الصرف الشهري» — "total monthly spend" — while the
@@ -224,8 +225,8 @@ class _BillsHeader extends StatelessWidget {
       // nowhere, so «الاشتراكات (1)» read as "you have one subscription"
       // rather than "one on this account". Same family as UX-007.
       subtitle: scopeAccountName == null
-          ? 'الاشتراكات الشهرية'
-          : 'الاشتراكات الشهرية · $scopeAccountName',
+          ? context.l10n.subsMonthlyTotal
+          : context.l10n.subsMonthlyScoped(scopeAccountName!),
       leading: Navigator.of(context).canPop()
           ? const BackButton(color: Colors.white)
           : null,
@@ -238,18 +239,18 @@ class _BillsHeader extends StatelessWidget {
       amount: formatMoney(monthly),
       currency: currency,
       metrics: [
-        CalmMetric(label: 'اشتراكات نشطة', value: '$subsCount'),
-        CalmMetric(label: 'أقساط جارية', value: '$instsCount'),
+        CalmMetric(label: context.l10n.subsActiveSubs, value: '$subsCount'),
+        CalmMetric(label: context.l10n.subsRunningInst, value: '$instsCount'),
         // The figure the header used to omit: what the installments actually
         // commit per month. Shown only when there is one, so the strip does not
         // carry a permanent «0.00».
         if (installmentMonthly.minorUnits > 0)
           CalmMetric(
-            label: 'التزام الأقساط شهرياً',
+            label: context.l10n.subsMonthlyInstCommit,
             value: formatMoney(installmentMonthly),
           ),
         CalmMetric(
-          label: 'سنوياً المجموع',
+          label: context.l10n.txnYearlyTotal,
           value: formatMoney(
             Money(monthly.minorUnits * 12, monthly.currency),
           ),
@@ -301,9 +302,9 @@ class _SubscriptionsTab extends StatelessWidget {
     if (bills.isEmpty && suggestions.isEmpty) {
       return _EmptyState(
         icon: AppLucideIcons.repeat,
-        title: 'اشتراكاتك في مكان واحد',
-        body: 'أضف اشتراكك يدويًا أو خليه يتكشف تلقائيًا لما يتكرر نفس الدفع.',
-        actionLabel: 'إضافة اشتراك',
+        title: context.l10n.subsEmptyTitle,
+        body: context.l10n.txnSubsEmptyBody,
+        actionLabel: context.l10n.txnAddSub,
         onAction: () =>
             BillFormSheet.show(context, initialType: BillType.subscription),
       );
@@ -319,7 +320,7 @@ class _SubscriptionsTab extends StatelessWidget {
             if (suggestions.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.s4),
               Text(
-                'مكتشفة تلقائياً',
+                context.l10n.subsAutoDetected,
                 style: AppTypography.caption(c.textLight)
                     .copyWith(letterSpacing: 1.4, fontWeight: FontWeight.w700),
               ),
@@ -340,7 +341,7 @@ class _SubscriptionsTab extends StatelessWidget {
               ),
               icon: Icon(AppLucideIcons.plus, color: c.cta),
               label: Text(
-                'إضافة اشتراك جديد',
+                context.l10n.subsAddNewSub,
                 style: AppTypography.bodyStrong(c.cta),
               ),
             ),
@@ -363,15 +364,15 @@ class _SubscriptionCard extends StatelessWidget {
       BillStatus.cancelled => c.textLight,
     };
     final statusLabel = switch (bill.status) {
-      BillStatus.active => 'نشط',
-      BillStatus.paused => 'متوقف',
-      BillStatus.cancelled => 'ملغي',
+      BillStatus.active => context.l10n.txnActive,
+      BillStatus.paused => context.l10n.txnPaused,
+      BillStatus.cancelled => context.l10n.txnCancelled,
     };
     final freqLabel = switch (bill.frequency) {
-      BillFrequency.weekly => 'أسبوعي',
-      BillFrequency.monthly => 'شهري',
-      BillFrequency.yearly => 'سنوي',
-      BillFrequency.custom => 'مخصص',
+      BillFrequency.weekly => context.l10n.txnCycleWeekly,
+      BillFrequency.monthly => context.l10n.txnCycleMonthly,
+      BillFrequency.yearly => context.l10n.txnCycleYearly,
+      BillFrequency.custom => context.l10n.txnRangeCustom,
     };
     final daysLeft = bill.nextDueDate.difference(DateTime.now()).inDays;
 
@@ -381,19 +382,19 @@ class _SubscriptionCard extends StatelessWidget {
 
     if (daysLeft < 0) {
       dueColor = c.danger;
-      dueLabel = 'متأخر ${daysLeft.abs()} يوم';
+      dueLabel = context.l10n.txnOverdueDays(daysLeft.abs());
       dueIcon = AppLucideIcons.alertTriangle;
     } else if (daysLeft == 0) {
       dueColor = c.danger;
-      dueLabel = 'مستحق اليوم';
+      dueLabel = context.l10n.txnDueToday;
       dueIcon = AppLucideIcons.alertCircle;
     } else if (daysLeft <= 3) {
       dueColor = c.accent;
-      dueLabel = 'بعد $daysLeft يوم';
+      dueLabel = context.l10n.txnInDays(daysLeft);
       dueIcon = AppLucideIcons.calendarClock;
     } else {
       dueColor = c.textLight;
-      dueLabel = 'بعد $daysLeft يوم';
+      dueLabel = context.l10n.txnInDays(daysLeft);
       dueIcon = AppLucideIcons.calendarDays;
     }
 
@@ -449,7 +450,7 @@ class _SubscriptionCard extends StatelessWidget {
                                 size: 12, color: c.warning),
                             const SizedBox(width: 3),
                             Text(
-                              'قد لا تستخدم هذا الاشتراك',
+                              context.l10n.subsMaybeUnused,
                               style: AppTypography.caption(c.warning),
                             ),
                           ],
@@ -483,7 +484,7 @@ class _SubscriptionCard extends StatelessWidget {
                     ),
                     if (bill.type == BillType.subscription)
                       Text(
-                        '≈ ${Formatters.amount(annualEquivalent(bill))}/سنة',
+                        context.l10n.subsPerYearApprox(Formatters.amount(annualEquivalent(bill))),
                         style: AppTypography.caption(c.textLight),
                       ),
                   ],
@@ -508,7 +509,7 @@ class _SubscriptionCard extends StatelessWidget {
                     Icon(AppLucideIcons.banknote, size: 16, color: c.success),
                     const SizedBox(width: 6),
                     Text(
-                      'مدفوع يدويًا: ',
+                      context.l10n.txnPaidManuallyLabel,
                       style: AppTypography.caption(c.textLight),
                     ),
                     Text(
@@ -526,13 +527,6 @@ class _SubscriptionCard extends StatelessWidget {
       ),
     );
   }
-}
-
-String _monthsLabel(int n) {
-  if (n == 1) return 'شهر';
-  if (n == 2) return 'شهرين';
-  if (n <= 10) return '$n أشهر';
-  return '$n شهراً';
 }
 
 class _SuggestionCard extends StatelessWidget {
@@ -567,7 +561,7 @@ class _SuggestionCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'تكرر ${_monthsLabel((item.monthsSeen as num).toInt())} · اضغط للتفعيل',
+                    context.l10n.txnRecurredMonths((item.monthsSeen as num).toInt()),
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],
@@ -578,7 +572,9 @@ class _SuggestionCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 Text(
-                  '${Formatters.amount((item.estimatedAmountMoney as Money).toDouble())} ${Currency.arabicLabel(baseCurrency)}/شهر',
+                  context.l10n.txnEstPerMonth(
+                          Formatters.amount((item.estimatedAmountMoney as Money).toDouble()),
+                          Currency.label(context, baseCurrency)),
                   style: AppTypography.caption(c.textMain).copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -597,7 +593,7 @@ class _SuggestionCard extends StatelessWidget {
                       Icon(AppLucideIcons.plus, size: 12, color: c.cta),
                       const SizedBox(width: 2),
                       Text(
-                        'إضافة',
+                        context.l10n.txnAdd,
                         style: AppTypography.caption(c.cta)
                             .copyWith(fontWeight: FontWeight.bold),
                       ),
@@ -625,9 +621,9 @@ class _InstallmentsTab extends StatelessWidget {
     if (bills.isEmpty) {
       return _EmptyState(
         icon: AppLucideIcons.repeat,
-        title: 'أقساطك، واضحة قبل ميعادها',
-        body: 'أضف القسط بالمبلغ والعدد وتاريخ الاستحقاق.',
-        actionLabel: 'إضافة قسط',
+        title: context.l10n.subsInstEmptyTitle,
+        body: context.l10n.subsInstEmptyBody,
+        actionLabel: context.l10n.txnAddInstalment,
         onAction: () =>
             BillFormSheet.show(context, initialType: BillType.installment),
       );
@@ -660,7 +656,7 @@ class _InstallmentsTab extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('إجمالي مديونية الأقساط',
+                    Text(context.l10n.subsTotalInstDebt,
                         style: AppTypography.caption(c.textLight)),
                     const SizedBox(height: 4),
                     Text(
@@ -670,13 +666,13 @@ class _InstallmentsTab extends StatelessWidget {
                     const SizedBox(height: AppSpacing.s3),
                     Row(
                       children: [
-                        _DebtStat(label: 'أقساط جارية', value: '$activeCount'),
+                        _DebtStat(label: context.l10n.subsRunningInst, value: '$activeCount'),
                         if (nearest != null) ...[
                           const SizedBox(width: AppSpacing.s4),
                           _DebtStat(
-                            label: 'أقرب قسط',
+                            label: context.l10n.subsNearestInst,
                             value:
-                                '${Formatters.amount(nearest.amount)} · ${_dueInLabel(nearest.nextDueDate)}',
+                                '${Formatters.amount(nearest.amount)} · ${_dueInLabel(context, nearest.nextDueDate)}',
                           ),
                         ],
                       ],
@@ -700,7 +696,7 @@ class _InstallmentsTab extends StatelessWidget {
               ),
               icon: Icon(AppLucideIcons.plus, color: c.cta),
               label: Text(
-                'إضافة قسط جديد',
+                context.l10n.subsAddNewInst,
                 style: AppTypography.bodyStrong(c.cta),
               ),
             ),
@@ -753,16 +749,16 @@ class _InstallmentCard extends StatelessWidget {
     final String dueLabel;
     if (daysLeft < 0) {
       dueColor = c.danger;
-      dueLabel = 'متأخر ${daysLeft.abs()} يوم';
+      dueLabel = context.l10n.txnOverdueDays(daysLeft.abs());
     } else if (daysLeft == 0) {
       dueColor = c.danger;
-      dueLabel = 'مستحق اليوم';
+      dueLabel = context.l10n.txnDueToday;
     } else if (daysLeft <= 3) {
       dueColor = c.accent;
-      dueLabel = 'بعد $daysLeft يوم';
+      dueLabel = context.l10n.txnInDays(daysLeft);
     } else {
       dueColor = c.textLight;
-      dueLabel = 'بعد $daysLeft يوم';
+      dueLabel = context.l10n.txnInDays(daysLeft);
     }
 
     return Padding(
@@ -807,7 +803,7 @@ class _InstallmentCard extends StatelessWidget {
                       style: AppTypography.bodyStrong(c.primary),
                     ),
                     Text(
-                      '$currLabel / قسط',
+                      context.l10n.txnPerInstalment(currLabel),
                       style: AppTypography.caption(c.textLight),
                     ),
                   ],
@@ -819,12 +815,12 @@ class _InstallmentCard extends StatelessWidget {
               Row(
                 children: [
                   Text(
-                    '${bill.paidCount ?? 0} من ${bill.totalInstallments} قسط مدفوع',
+                    context.l10n.txnPaidOfTotal(bill.paidCount ?? 0, bill.totalInstallments ?? 0),
                     style: AppTypography.caption(c.textLight),
                   ),
                   const Spacer(),
                   Text(
-                    'متبقي $remaining قسط',
+                    context.l10n.txnRemainingInstalments(remaining),
                     style: AppTypography.caption(c.primary)
                         .copyWith(fontWeight: FontWeight.bold),
                   ),
@@ -858,7 +854,7 @@ class _InstallmentCard extends StatelessWidget {
                 child: Row(
                   children: [
                     Text(
-                      'القيمة الكلية: ',
+                      context.l10n.txnTotalValueLabel,
                       style: AppTypography.caption(c.textLight),
                     ),
                     Text(
@@ -877,7 +873,7 @@ class _InstallmentCard extends StatelessWidget {
                           borderRadius: BorderRadius.circular(AppRadius.pill),
                         ),
                         child: Text(
-                          'فائدة ${(bill.interestRate! * 100).toStringAsFixed(1)}%',
+                          context.l10n.txnInterestRate((bill.interestRate! * 100).toStringAsFixed(1)),
                           style: AppTypography.caption(c.accent)
                               .copyWith(fontWeight: FontWeight.bold),
                         ),
@@ -904,7 +900,7 @@ class _InstallmentCard extends StatelessWidget {
                     Icon(AppLucideIcons.banknote, size: 16, color: c.success),
                     const SizedBox(width: 6),
                     Text(
-                      'مدفوع يدويًا: ',
+                      context.l10n.txnPaidManuallyLabel,
                       style: AppTypography.caption(c.textLight),
                     ),
                     Text(
@@ -923,7 +919,7 @@ class _InstallmentCard extends StatelessWidget {
                 Icon(AppLucideIcons.calendarDays, size: 14, color: dueColor),
                 const SizedBox(width: 4),
                 Text(
-                  'القسط القادم: $dueLabel',
+                  context.l10n.txnNextInstalment(dueLabel),
                   style: AppTypography.caption(dueColor).copyWith(
                       fontWeight:
                           dueColor == c.danger ? FontWeight.bold : null),

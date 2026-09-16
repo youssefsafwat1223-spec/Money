@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -218,24 +219,41 @@ void main() {
     });
 
     test('UX-026 — the ambiguous tab names its domain', () {
-      final src =
-          File('lib/features/budgets/budgets_screen.dart').readAsStringSync();
-      expect(src, contains("'سجل الميزانيات'"));
-      expect(src.contains("tabs: const ['الميزانيات', 'السجل', 'الأهداف']"),
-          isFalse);
+      // The copy now lives in the ARB, so that is where the contract is
+      // asserted — and it holds the English tab to the same standard.
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      expect(ar['bdgTabHistory'], 'سجل الميزانيات');
+      expect(ar['bdgTabHistory'], isNot('السجل'),
+          reason: 'a bare «السجل» does not say a record OF WHAT');
+      expect(en['bdgTabHistory'], contains('history'));
+      expect(en['bdgTabHistory'], isNot('History'),
+          reason: 'the English tab must name its domain too');
     });
   });
 
   group('UX-028 / UX-029 / UX-030 — Settings', () {
     final src =
         File('lib/features/settings/settings_screen.dart').readAsStringSync();
+    // Settings copy moved into the ARB during the English localisation pass,
+    // so the source no longer carries these literals. The contract is about
+    // the COPY THAT SHIPS, which is now the ARB — and asserting there also
+    // covers English, which asserting the Dart never did.
+    final arAr = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+        as Map<String, dynamic>;
+    final enAr = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+        as Map<String, dynamic>;
 
     test('«الحساب» is no longer two different sections', () {
-      expect("'الحساب'".allMatches(src).length, 0,
+      expect(arAr.values.where((v) => v == 'الحساب').length, 0,
           reason: 'two unrelated groups shared one heading; both are now named '
               'for what they contain');
-      expect(src, contains("title: 'بيانات حسابك'"));
-      expect(src, contains("title: 'الخروج وحذف البيانات'"));
+      expect(arAr['setAccountData'], 'بيانات حسابك');
+      expect(arAr['setExitAndErase'], 'الخروج وحذف البيانات');
+      // The same split must exist in English, or the fix is Arabic-only.
+      expect(enAr['setAccountData'], isNot(enAr['setExitAndErase']));
     });
 
     test('the Reports duplicate route is gone from Settings', () {
@@ -249,13 +267,17 @@ void main() {
     });
 
     test('the ten-entry hub is split into destinations and configuration', () {
-      expect(src.contains("title: 'إدارة أموالك'"), isFalse);
-      expect(src, contains("title: 'حساباتك والتزاماتك'"));
-      expect(src, contains("title: 'أدوات وإعدادات'"));
+      expect(arAr.values.contains('إدارة أموالك'), isFalse);
+      expect(arAr['setAccountsAndDues'], 'حساباتك والتزاماتك');
+      expect(arAr['setToolsAndSettings'], 'أدوات وإعدادات');
+      expect(enAr['setAccountsAndDues'], isNotNull);
+      expect(enAr['setToolsAndSettings'], isNotNull);
     });
 
     test('UX-030 — the encryption claim is made, and is TRUE', () {
-      expect(src, contains('قاعدة بيانات مشفّرة'));
+      expect(arAr['setEncryptedDbPart1'], contains('قاعدة بيانات مشفّرة'));
+      expect(enAr['setEncryptedDbPart1'], contains('encrypted database'),
+          reason: 'the claim must be made in both languages, not just Arabic');
       // The claim must be verifiable, not marketing. Both halves are asserted
       // against the code that implements them.
       final db = File('lib/data/db/app_database.dart').readAsStringSync();
@@ -416,7 +438,13 @@ void main() {
     });
 
     test('the sheet offers an action, not just a read-only view', () {
-      expect(src, contains('تعديل الميزانية'));
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      expect(ar['bdgEditBudget'], 'تعديل الميزانية');
+      expect(en['bdgEditBudget'], 'Edit budget');
+      expect(src, contains('context.l10n.bdgEditBudget'));
       expect(src, contains('budgetId: entry.budget.id'));
     });
   });
@@ -479,8 +507,18 @@ void main() {
         .readAsStringSync();
 
     test('it now states how many it will dismiss', () {
-      expect(src, contains(r"'تجاهل الكل (${dupes.length})'"));
-      expect(src, contains(r"'تجاهل ${dupes.length} تنبيه؟'"));
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      // The count must survive into BOTH languages — an English user facing a
+      // bulk delete needs the number just as much as an Arabic one.
+      for (final m in [ar, en]) {
+        expect(m['txnDismissAllCount'], contains('{count}'));
+        expect(m['txnDismissNAlerts'], contains('{count}'));
+      }
+      expect(src, contains('txnDismissAllCount(dupes.length)'));
+      expect(src, contains('txnDismissNAlerts(dupes.length)'));
     });
 
     test('it is confirmed before anything is deleted', () {
@@ -493,9 +531,17 @@ void main() {
     });
 
     test('it says what is and is NOT affected', () {
-      expect(src, contains('العمليات نفسها '),
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      expect(ar['txnDismissAllDupesBody'], contains('العمليات نفسها'),
           reason: 'it discards duplicate FLAGS, not transactions — the '
               'difference is the whole reason the action is acceptable at all');
+      expect(en['txnDismissAllDupesBody'], contains('not affected'),
+          reason: 'the same reassurance must reach an English user, or the '
+              'bulk action is unguarded for them');
+      expect(src, contains('txnDismissAllDupesBody'));
     });
   });
 

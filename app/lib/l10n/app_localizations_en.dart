@@ -1154,4 +1154,1511 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get helpReplayTourDone => 'The guided tour will appear again.';
+
+  @override
+  String get setLoadingCountries => 'Loading countries…';
+
+  @override
+  String get setLoadingCurrencies => 'Loading currencies…';
+
+  @override
+  String get setCountry => 'Country';
+
+  @override
+  String get setBaseCurrency => 'Base currency';
+
+  @override
+  String get setName => 'Name';
+
+  @override
+  String get setNameInApp => 'Your name in the app';
+
+  @override
+  String get setAccountData => 'Your account details';
+
+  @override
+  String get setMobileNumber => 'Mobile number';
+
+  @override
+  String get setAddYourNumber => 'Add your number';
+
+  @override
+  String get setAppearance => 'Appearance';
+
+  @override
+  String get setAppearanceSub => 'Light, dark, or match the system';
+
+  @override
+  String get setAccountsAndDues => 'Your accounts and commitments';
+
+  @override
+  String get setSyncConflicts => 'Sync conflicts';
+
+  @override
+  String get setSyncConflictsSub =>
+      'Items edited on more than one device — they need your decision';
+
+  @override
+  String get setAccountsWallets => 'Accounts and wallets';
+
+  @override
+  String get setAccountsWalletsSub =>
+      'Multiple accounts, each in its own currency';
+
+  @override
+  String get setAllCards => 'All cards';
+
+  @override
+  String get setAllCardsSub => 'An overview of your cards grouped by account';
+
+  @override
+  String get setSubsAndBills => 'Subscriptions and bills';
+
+  @override
+  String get setSubsAndBillsSub => 'Your recurring commitments and due dates';
+
+  @override
+  String get setPlans => 'Plans';
+
+  @override
+  String get setPlansSub =>
+      'A budget for a trip or occasion that tracks itself';
+
+  @override
+  String get setToolsAndSettings => 'Tools and settings';
+
+  @override
+  String get setCategories => 'Categories';
+
+  @override
+  String get setCategoriesSub => 'Organise expenses, income and transfers';
+
+  @override
+  String get setAchievements => 'Achievements and level';
+
+  @override
+  String get setAchievementsSub =>
+      'Badges and levels that encourage the habit of tracking';
+
+  @override
+  String get setCurrencyRepair => 'Confirm the currency for budgets and goals';
+
+  @override
+  String get setCurrencyRepairSub =>
+      'Safely review the currency of older planning data';
+
+  @override
+  String get setAppleShortcut => 'Apple Shortcut';
+
+  @override
+  String get setAppleShortcutSub =>
+      'Pass bank messages to Qirsh through Shortcuts';
+
+  @override
+  String get setRewardsAndSupport => 'Rewards and support';
+
+  @override
+  String get setInviteFriends => 'Invite friends';
+
+  @override
+  String get setInviteFriendsSub =>
+      'Share your invite code and earn ad-free reports';
+
+  @override
+  String get setAdPrivacyOptions => 'Ad privacy options';
+
+  @override
+  String get setAdPrivacyOptionsSub => 'Manage your advertising consent';
+
+  @override
+  String get setContactUs => 'Contact us';
+
+  @override
+  String get setContactUsSub =>
+      'Technical support and answers to your questions';
+
+  @override
+  String get setAboutQirsh => 'About Qirsh';
+
+  @override
+  String get setAboutQirshSub => 'App information and version';
+
+  @override
+  String get setCaptureStatus => 'Transaction capture';
+
+  @override
+  String get setCaptureStatusSub =>
+      'The status of bank messages and the Apple Shortcut';
+
+  @override
+  String get setConfirmCaptured => 'Confirm captured transactions';
+
+  @override
+  String get setNotifyOnCapture => 'Notify me when a transaction is captured';
+
+  @override
+  String get setHideOnLockScreen => 'Hide sensitive details on the lock screen';
+
+  @override
+  String get setYourAlerts => 'Your alerts';
+
+  @override
+  String get setQirshMessages => 'Qirsh messages and tips';
+
+  @override
+  String get setBudget80Alert => 'Alert at 80% of a budget';
+
+  @override
+  String get setBudgetOverAlert => 'Alert when a budget is exceeded';
+
+  @override
+  String get setDailyReminder => 'Daily reminder';
+
+  @override
+  String get setDailyReminderTime => 'Every day at 10 PM';
+
+  @override
+  String get setWeeklyReport => 'Weekly report';
+
+  @override
+  String get setBillReminders => 'Subscription and bill reminders';
+
+  @override
+  String get setGoalCelebrations => 'Goal celebrations';
+
+  @override
+  String get setAchievementAlerts => 'Achievement alerts';
+
+  @override
+  String get setQuietHours => 'Quiet hours';
+
+  @override
+  String get setDisabled => 'Off';
+
+  @override
+  String get setEditQuietHours => 'Edit quiet hours';
+
+  @override
+  String get setNotificationTools => 'Notification tools';
+
+  @override
+  String get setTestNotifications => 'Test Qirsh notifications';
+
+  @override
+  String get setTestNotificationsSub =>
+      'Send a test notification to this device';
+
+  @override
+  String get setMessageCentre => 'Qirsh message centre';
+
+  @override
+  String get setMessageCentreSub =>
+      'Past notifications, campaigns and announcements';
+
+  @override
+  String get setDataTransfer => 'Data transfer';
+
+  @override
+  String get setDataTransferSub =>
+      'Your financial data stays under your control';
+
+  @override
+  String get setImportFile => 'Import a file';
+
+  @override
+  String get setImportFileSub =>
+      'A CSV from any app, or a ZIP exported by Qirsh';
+
+  @override
+  String get setExportCsv => 'Export transactions as CSV';
+
+  @override
+  String get setExportCsvSub => 'A simple file with all your transactions';
+
+  @override
+  String get setExportAll => 'Export all Qirsh data';
+
+  @override
+  String get setExportAllSub => 'A ZIP package you can move and restore';
+
+  @override
+  String get setSecurityPrivacy => 'Security and privacy';
+
+  @override
+  String get setEncryptedDbPart1 =>
+      'Your data on this device is kept in an encrypted database, ';
+
+  @override
+  String get setEncryptedDbPart2 =>
+      'and its key is stored in the system keychain';
+
+  @override
+  String get setPrivacyAndData => 'Privacy and data';
+
+  @override
+  String get setPrivacyAndDataSub =>
+      'Your data security and the privacy policy';
+
+  @override
+  String get setHideAmounts => 'Hide amounts in the interface';
+
+  @override
+  String get setExitAndErase => 'Sign out and erase data';
+
+  @override
+  String get setExitAndEraseSub => 'Some of these actions cannot be undone';
+
+  @override
+  String get setStartOver => 'Start over';
+
+  @override
+  String get setStartOverSub => 'Erase local data but keep the account active';
+
+  @override
+  String get setSignOut => 'Sign out';
+
+  @override
+  String get setDeleteAccount => 'Delete my account and all my data';
+
+  @override
+  String get setDeleteAccountSub =>
+      'A final action that needs your confirmation';
+
+  @override
+  String get setTestNotificationSent =>
+      'We sent a test notification from Qirsh.';
+
+  @override
+  String get setTestNotificationFailed =>
+      'We could not send the test notification.';
+
+  @override
+  String get setUnsyncedData => 'Data not saved to the cloud';
+
+  @override
+  String get setCancel => 'Cancel';
+
+  @override
+  String get setSignOutDiscard => 'Sign out and discard unsaved data';
+
+  @override
+  String get setUnsyncedCheckFailed =>
+      'We could not check for unsaved data. Please try again.';
+
+  @override
+  String get setSignOutFailed =>
+      'We could not sign out safely. Please try again.';
+
+  @override
+  String get setPhotoUpdated => 'Photo updated.';
+
+  @override
+  String get setSave => 'Save';
+
+  @override
+  String get setCategoriesSheetIntro =>
+      'Add or edit the categories that appear in transactions and reports.';
+
+  @override
+  String get setAddCategory => 'Add a category';
+
+  @override
+  String get setExpenses => 'Expenses';
+
+  @override
+  String get setIncome => 'Income';
+
+  @override
+  String get setTransfers => 'Transfers';
+
+  @override
+  String get setEditCategory => 'Edit category';
+
+  @override
+  String get setCategoryName => 'Category name';
+
+  @override
+  String get setIncomeCategory => 'Income category';
+
+  @override
+  String get setIcon => 'Icon';
+
+  @override
+  String get setColor => 'Colour';
+
+  @override
+  String get setEnterCategoryName => 'Enter a category name.';
+
+  @override
+  String get setSaveChanges => 'Save changes';
+
+  @override
+  String get setAdd => 'Add';
+
+  @override
+  String get setDeleteCategoryQ => 'Delete this category?';
+
+  @override
+  String get setDeleteCategoryBody =>
+      'Its transactions move to “Other” or “Income”, and any linked budget is deleted.';
+
+  @override
+  String get setDelete => 'Delete';
+
+  @override
+  String get setQuietHoursNote =>
+      'We defer scheduled notifications during this period to the first allowed time.';
+
+  @override
+  String get setStarts => 'Starts';
+
+  @override
+  String get setEnds => 'Ends';
+
+  @override
+  String get setAboutApp => 'About the app';
+
+  @override
+  String get setAboutBody =>
+      'Qirsh tracks spending from bank messages and manual entry. You can move your financial data as CSV files or a ZIP package from the data and privacy section.';
+
+  @override
+  String get setOk => 'OK';
+
+  @override
+  String get setSupportBody =>
+      'For support or feedback, copy the email and send us the problem details, your device type, and the steps to reproduce it.';
+
+  @override
+  String get setCopyEmail => 'Copy email';
+
+  @override
+  String get setEraseAllQ => 'Erase all data?';
+
+  @override
+  String get setEraseAllBody =>
+      'All your local data will be erased. This cannot be undone.';
+
+  @override
+  String get setErase => 'Erase';
+
+  @override
+  String get setSettingsLoadFailed =>
+      'We could not load settings. Please try again shortly.';
+
+  @override
+  String get setSettings => 'Settings';
+
+  @override
+  String get setBack => 'Back';
+
+  @override
+  String get setThemeAuto => 'Auto';
+
+  @override
+  String get setThemeLight => 'Light';
+
+  @override
+  String get setThemeDark => 'Dark';
+
+  @override
+  String get setEdit => 'Edit';
+
+  @override
+  String get setAppLockFailed =>
+      'We could not turn on the lock. Make sure a passcode or biometric is set up on your device.';
+
+  @override
+  String get setAppLock => 'App lock';
+
+  @override
+  String get setNoBankMessageYet => 'We have not detected a bank message yet';
+
+  @override
+  String get setCaptureEnableFailed =>
+      'We could not turn on bank capture notifications';
+
+  @override
+  String get setNoBankMessagesRecently =>
+      'We have not received bank messages for a while';
+
+  @override
+  String get setBankCaptureStatus => 'Bank message capture status';
+
+  @override
+  String get setCheck => 'Check';
+
+  @override
+  String get setBackupFirst => 'Take a backup first if you want to keep it.';
+
+  @override
+  String get setToday => 'Today';
+
+  @override
+  String get bdgError => 'Something went wrong';
+
+  @override
+  String get bdgTabBudgets => 'Budgets';
+
+  @override
+  String get bdgTabHistory => 'Budget history';
+
+  @override
+  String get bdgTabGoals => 'Goals';
+
+  @override
+  String get bdgEmptyBudgetsTitle => 'No budgets yet';
+
+  @override
+  String get bdgEmptyBudgetsBody =>
+      'Create your first daily, weekly or monthly budget to start tracking.';
+
+  @override
+  String get bdgEmptyGoalsTitle => 'No goals yet';
+
+  @override
+  String get bdgEmptyGoalsBody =>
+      'Add a savings goal so Qirsh can track your progress alongside your budgets.';
+
+  @override
+  String get bdgAddGoal => 'Add goal';
+
+  @override
+  String get bdgEmptyHistoryTitle => 'The history is empty';
+
+  @override
+  String get bdgEmptyHistoryBody =>
+      'Pick a period that has budgets, or add a new budget — each day, week or month then appears here as its own record.';
+
+  @override
+  String get bdgAddBudget => 'Add budget';
+
+  @override
+  String get bdgDeleteTitle => 'Delete this budget?';
+
+  @override
+  String get bdgDeleteBody =>
+      'The budget limit will be deleted. Your transactions are not affected.';
+
+  @override
+  String get bdgDeleteFailed => 'The budget could not be deleted right now.';
+
+  @override
+  String get bdgFilterAll => 'All';
+
+  @override
+  String get bdgFilterDaily => 'Daily';
+
+  @override
+  String get bdgFilterWeekly => 'Weekly';
+
+  @override
+  String get bdgFilterMonthly => 'Monthly';
+
+  @override
+  String get bdgFilterYearly => 'Yearly';
+
+  @override
+  String get bdgStatHistoryCount => 'Budgets on record';
+
+  @override
+  String get bdgStatTargetSavings => 'Total target savings';
+
+  @override
+  String get bdgStatTotalBudgeted => 'Total budgeted';
+
+  @override
+  String get bdgStatActiveGoals => 'Active goals';
+
+  @override
+  String get bdgStatProgress => 'Progress';
+
+  @override
+  String get bdgStatTotalSaved => 'Total saved';
+
+  @override
+  String get bdgStateSafeF => 'On track';
+
+  @override
+  String get bdgStateNear => 'Close to limit';
+
+  @override
+  String get bdgStateOverF => 'Over limit';
+
+  @override
+  String get bdgBudgetsWord => 'Budgets';
+
+  @override
+  String get bdgUsageRate => 'Usage';
+
+  @override
+  String get bdgActualSpend => 'Actual spend';
+
+  @override
+  String get bdgBudgetWord => 'Budget';
+
+  @override
+  String get bdgOver => 'Over';
+
+  @override
+  String get bdgSafe => 'On track';
+
+  @override
+  String get bdgAllExpenses => 'All spending';
+
+  @override
+  String get bdgCategory => 'Category';
+
+  @override
+  String get bdgSpent => 'Spent';
+
+  @override
+  String get bdgRemaining => 'Left';
+
+  @override
+  String get bdgLimit => 'Limit';
+
+  @override
+  String get bdgSaved => 'Saved';
+
+  @override
+  String get bdgPeriodCurrent => 'Current period';
+
+  @override
+  String get bdgPeriodOver => 'Period went over';
+
+  @override
+  String get bdgPeriodEnded => 'Period ended';
+
+  @override
+  String get bdgRecordLive =>
+      'This record keeps updating until the period ends.';
+
+  @override
+  String get bdgRecordFinal =>
+      'This record is calculated from the actual transactions in this period.';
+
+  @override
+  String get bdgEditBudget => 'Edit budget';
+
+  @override
+  String get bdgPeriodTransactions => 'Transactions in this period';
+
+  @override
+  String get bdgNoConfirmedTx =>
+      'No confirmed transactions were recorded in this period.';
+
+  @override
+  String get bdgCountedOpenAll =>
+      'Included in the total — open Transactions to see them all.';
+
+  @override
+  String get bdgDailyBudget => 'Daily budget';
+
+  @override
+  String get bdgWeeklyBudget => 'Weekly budget';
+
+  @override
+  String get bdgYearlyBudget => 'Yearly budget';
+
+  @override
+  String get bdgMonthlyBudget => 'Monthly budget';
+
+  @override
+  String get bdgTransactionWord => 'transaction';
+
+  @override
+  String get bdgGoalDone => 'Goal reached';
+
+  @override
+  String get bdgEnvelopeTitle => 'Split your income into envelopes';
+
+  @override
+  String get bdgEnvelopeBody =>
+      'Enter your salary and split it in one tap — Qirsh works out what you can spend each day';
+
+  @override
+  String bdgMoreTxCounted(int count) {
+    return '$count more transactions are included in the total — open Transactions to see them all.';
+  }
+
+  @override
+  String get txnError => 'Something went wrong';
+
+  @override
+  String get txnTransactionWord => 'transaction';
+
+  @override
+  String get txnFilterPending => 'Filter: pending review';
+
+  @override
+  String get txnConfirmAll => 'Confirm all';
+
+  @override
+  String get txnTabTransactions => 'Transactions';
+
+  @override
+  String get txnTabBills => 'Bills';
+
+  @override
+  String get txnEmptyPeriodTitle => 'No transactions in this period';
+
+  @override
+  String get txnEmptyPeriodBody =>
+      'Change the period, or add a new bank message with the + button.';
+
+  @override
+  String get txnConfirmAllTitle => 'Confirm every pending transaction?';
+
+  @override
+  String get txnConfirm => 'Confirm';
+
+  @override
+  String get txnPickAccount => 'Choose account';
+
+  @override
+  String get txnSearchHint =>
+      'Search by merchant, category, amount or currency';
+
+  @override
+  String get txnClearSearch => 'Clear search';
+
+  @override
+  String get txnRangeToday => 'Today';
+
+  @override
+  String get txnRangeThisWeek => 'This week';
+
+  @override
+  String get txnRangeThisMonth => 'This month';
+
+  @override
+  String get txnRangeLastMonth => 'Last month';
+
+  @override
+  String get txnRange7 => 'Last 7 days';
+
+  @override
+  String get txnRange30 => 'Last 30 days';
+
+  @override
+  String get txnRange90 => 'Last 90 days';
+
+  @override
+  String get txnRangeThisYear => 'This year';
+
+  @override
+  String get txnRangeLastYear => 'Last year';
+
+  @override
+  String get txnRangeCustom => 'Custom';
+
+  @override
+  String get txnPickRange => 'Choose a period';
+
+  @override
+  String get txnFrom => 'From';
+
+  @override
+  String get txnTo => 'To';
+
+  @override
+  String get txnApplyCustomRange => 'Apply custom period';
+
+  @override
+  String get txnKindAll => 'All';
+
+  @override
+  String get txnKindExpense => 'Expenses';
+
+  @override
+  String get txnKindIncome => 'Income';
+
+  @override
+  String get txnKindTransfer => 'Transfers';
+
+  @override
+  String get txnPendingReview => 'Pending review';
+
+  @override
+  String get txnCategory => 'Category';
+
+  @override
+  String get txnFilterByCategory => 'Filter by category';
+
+  @override
+  String get txnAllCategories => 'All categories';
+
+  @override
+  String get txnBillsSubs => 'Subscriptions';
+
+  @override
+  String get txnBillsInstalments => 'Instalments';
+
+  @override
+  String get txnAddSub => 'Add subscription';
+
+  @override
+  String get txnAddInstalment => 'Add instalment';
+
+  @override
+  String get txnLearnBills => 'Learn more about bills';
+
+  @override
+  String get txnSubsEmptyTitle => 'Your subscriptions, tracked automatically';
+
+  @override
+  String get txnInstEmptyTitle => 'Your instalments, clear every month';
+
+  @override
+  String get txnSubsEmptyBody =>
+      'Add a subscription yourself, or let it be detected automatically from recurring transactions.';
+
+  @override
+  String get txnInstEmptyBody =>
+      'Add the instalment with its date and reminder so it appears in Bills before it is due.';
+
+  @override
+  String get txnSuggestionsTitle => 'Suggestions from recurring transactions';
+
+  @override
+  String get txnHowSubsTitle => 'How does Qirsh track subscriptions?';
+
+  @override
+  String get txnHowInstTitle => 'How does Qirsh track instalments?';
+
+  @override
+  String get txnHowSubsBody =>
+      'Qirsh follows recurring patterns automatically, and you can also add a subscription yourself with its amount, renewal date and reminder.';
+
+  @override
+  String get txnHowInstBody =>
+      'Add the instalment yourself with its amount, due date and reminder. Remaining balance and instalment count come later.';
+
+  @override
+  String get txnTotalMonthlySubs => 'Total monthly subscriptions';
+
+  @override
+  String get txnTotalMonthlyInst => 'Total monthly instalments';
+
+  @override
+  String get txnActive => 'Active';
+
+  @override
+  String get txnPerYear => 'per year';
+
+  @override
+  String get txnDueToday => 'Due today';
+
+  @override
+  String get txnPaused => 'Paused';
+
+  @override
+  String get txnCancelled => 'Cancelled';
+
+  @override
+  String get txnCycleWeekly => 'Weekly';
+
+  @override
+  String get txnCycleMonthly => 'Monthly';
+
+  @override
+  String get txnCycleYearly => 'Yearly';
+
+  @override
+  String get txnTotalValueLabel => 'Total value: ';
+
+  @override
+  String get txnPaidManuallyLabel => 'Paid manually: ';
+
+  @override
+  String get txnAdd => 'Add';
+
+  @override
+  String get txnBillsAndSubs => 'Bills & subscriptions';
+
+  @override
+  String get txnPeriodSpendTotal => 'Total spend this period';
+
+  @override
+  String get txnActiveMonthlySpend => 'Total active monthly spend';
+
+  @override
+  String get txnTxForPeriod => 'transactions this period';
+
+  @override
+  String get txnTotalSpent => 'Total spent';
+
+  @override
+  String get txnActiveSub => 'active subscription';
+
+  @override
+  String get txnRunningInst => 'running instalment';
+
+  @override
+  String get txnYearlyTotal => 'Yearly total';
+
+  @override
+  String get txnSmartInbox => 'Smart review inbox';
+
+  @override
+  String get txnReviewTx => 'Review transaction';
+
+  @override
+  String get txnHide => 'Hide';
+
+  @override
+  String get txnSuspectTxPlural => 'Possible duplicates';
+
+  @override
+  String get txnDismissAll => 'Dismiss all';
+
+  @override
+  String get txnNoSuspectTx => 'No possible duplicates';
+
+  @override
+  String get txnSimilarExists => 'A similar transaction already exists';
+
+  @override
+  String get txnSimilarBody =>
+      'This transaction matches an existing one in amount, merchant and time.';
+
+  @override
+  String get txnTheNew => 'New';
+
+  @override
+  String get txnNoClearMerchant => 'No clear merchant';
+
+  @override
+  String get txnTheExisting => 'Existing';
+
+  @override
+  String get txnDismissDuplicate => 'Dismiss duplicate';
+
+  @override
+  String get txnSaveAsNew => 'Save as new';
+
+  @override
+  String get txnEditTx => 'Edit transaction';
+
+  @override
+  String get txnChangeCategory => 'Change category';
+
+  @override
+  String get txnTimeInSms => 'Transaction time in the SMS';
+
+  @override
+  String get txnTimeReceived => 'Time the message arrived';
+
+  @override
+  String txnDupBannerReview(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count possible duplicates',
+      one: '1 possible duplicate',
+    );
+    return '$_temp0 — tap to review';
+  }
+
+  @override
+  String get txnDismissAllDupesBody =>
+      'Every duplicate alert shown here will be removed. The transactions themselves are not affected, but you will not be able to review them from here again.';
+
+  @override
+  String txnTimeSource(String source) {
+    return 'Time source: $source';
+  }
+
+  @override
+  String txnRecurredMonths(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Recurred for $count months',
+      one: 'Recurred for 1 month',
+    );
+    return '$_temp0 · tap to enable';
+  }
+
+  @override
+  String txnConfirmAllBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other:
+          '$count transactions will be confirmed with their current categories.',
+      one: '1 transaction will be confirmed with its current category.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnOverdueDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days overdue',
+      one: '1 day overdue',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnInDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'in $days days',
+      one: 'in 1 day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnPerInstalment(String amount) {
+    return '$amount / instalment';
+  }
+
+  @override
+  String txnPaidOfTotal(int paid, int total) {
+    return '$paid of $total instalments paid';
+  }
+
+  @override
+  String txnRemainingInstalments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count left',
+      one: '1 left',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnInterestRate(String rate) {
+    return 'Interest $rate%';
+  }
+
+  @override
+  String txnNextInstalment(String due) {
+    return 'Next instalment: $due';
+  }
+
+  @override
+  String txnEstPerMonth(String amount, String currency) {
+    return '$amount $currency/mo';
+  }
+
+  @override
+  String txnSmartInboxCount(int count) {
+    return 'Smart review inbox · $count';
+  }
+
+  @override
+  String txnDismissNAlerts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Dismiss $count alerts?',
+      one: 'Dismiss 1 alert?',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnDismissAllCount(int count) {
+    return 'Dismiss all ($count)';
+  }
+
+  @override
+  String get subsOverdue => 'Overdue';
+
+  @override
+  String get subsToday => 'Today';
+
+  @override
+  String subsTabSubs(int count) {
+    return 'Subscriptions ($count)';
+  }
+
+  @override
+  String subsTabInst(int count) {
+    return 'Instalments ($count)';
+  }
+
+  @override
+  String subsMonthlyScoped(String account) {
+    return 'Monthly subscriptions · $account';
+  }
+
+  @override
+  String subsPerYearApprox(String amount) {
+    return '≈ $amount/yr';
+  }
+
+  @override
+  String get subsTitle => 'Subscriptions & bills';
+
+  @override
+  String get subsMonthlyTotal => 'Monthly subscriptions';
+
+  @override
+  String get subsActiveSubs => 'Active subscriptions';
+
+  @override
+  String get subsRunningInst => 'Running instalments';
+
+  @override
+  String get subsMonthlyInstCommit => 'Monthly instalment commitment';
+
+  @override
+  String get subsEmptyTitle => 'All your subscriptions in one place';
+
+  @override
+  String get subsAutoDetected => 'Detected automatically';
+
+  @override
+  String get subsAddNewSub => 'Add a new subscription';
+
+  @override
+  String get subsMaybeUnused => 'You may not be using this subscription';
+
+  @override
+  String get subsInstEmptyTitle =>
+      'Your instalments, clear before they fall due';
+
+  @override
+  String get subsInstEmptyBody =>
+      'Add the instalment with its amount, count and due date.';
+
+  @override
+  String get subsTotalInstDebt => 'Total instalment debt';
+
+  @override
+  String get subsNearestInst => 'Next instalment due';
+
+  @override
+  String get subsAddNewInst => 'Add a new instalment';
+
+  @override
+  String rptAnomalyPrivate(String date) {
+    return 'Spending on $date was higher than your usual pattern. Review it if you want to know why.';
+  }
+
+  @override
+  String rptAnomalyDetail(String date, String amount, String ratio) {
+    return 'On $date you spent $amount, which is above your daily average by $ratio×.';
+  }
+
+  @override
+  String rptSpendLower(int percent) {
+    return 'You spent $percent% less than the same period before.';
+  }
+
+  @override
+  String rptSpendHigher(int percent) {
+    return 'You spent $percent% more than the same period before.';
+  }
+
+  @override
+  String rptHighestDayBody(String amount) {
+    return 'The highest day in this period reached $amount.';
+  }
+
+  @override
+  String rptTopCategoryHint(String category) {
+    return 'Your biggest spend is on $category. Watch that category first.';
+  }
+
+  @override
+  String rptMerchantTxCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transactions',
+      one: '1 transaction',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String rptVsLastWeek(String sign, String percent) {
+    return '$sign $percent% compared with last week';
+  }
+
+  @override
+  String rptTopCategoryWeek(String category) {
+    return 'Top category: $category';
+  }
+
+  @override
+  String rptBestSavingDay(String date, String amount) {
+    return 'Best saving day: $date ($amount)';
+  }
+
+  @override
+  String rptTopMerchantWeek(String name, String amount) {
+    return 'Top merchant: $name ($amount)';
+  }
+
+  @override
+  String get rptTabOverview => 'Overview';
+
+  @override
+  String get rptTabTrends => 'Trends';
+
+  @override
+  String get rptTabDetails => 'Details';
+
+  @override
+  String get rptUnusualSpend => 'Unusual spending';
+
+  @override
+  String get rptVsPrevPeriod => 'Compared with the same period before';
+
+  @override
+  String get rptNeedPrevPeriod =>
+      'We still need an earlier period with spending in it to show the trend accurately.';
+
+  @override
+  String get rptHighestSpendDay => 'Highest spending day';
+
+  @override
+  String get rptQuickTip => 'Quick tip';
+
+  @override
+  String get rptAddMoreTx =>
+      'Add a few more transactions and the suggestions get sharper.';
+
+  @override
+  String get rptSelectedPeriod => 'Selected period';
+
+  @override
+  String get rptNetPeriodSpend => 'Net spend this period';
+
+  @override
+  String get rptSelectedPeriodSpend => 'Spend in the selected period';
+
+  @override
+  String get rptTotalExpenses => 'Total expenses';
+
+  @override
+  String get rptRefunds => 'Refunds';
+
+  @override
+  String get rptNet => 'Net';
+
+  @override
+  String get rptThisWeekUsage => 'This week so far';
+
+  @override
+  String get rptAverage => 'Average';
+
+  @override
+  String get rptHighest => 'Highest';
+
+  @override
+  String get rptTotal => 'Total';
+
+  @override
+  String get rptByCategory => 'Your spending by category';
+
+  @override
+  String get rptByMerchant => 'Your spending at merchants';
+
+  @override
+  String get rptTopMerchantsSub => 'Where most of your money went this period';
+
+  @override
+  String get rptMerchantsEmpty =>
+      'The merchants you spend most at appear here once you have confirmed transactions.';
+
+  @override
+  String get rptIncludesRefund => ' · includes refund ';
+
+  @override
+  String get rptInsightsTitle => 'Insights & reports';
+
+  @override
+  String get rptInsightsSub =>
+      'Read your spending as daily trends, categories and merchants.';
+
+  @override
+  String get rptDailyAverage => 'Daily average';
+
+  @override
+  String get rptHighestDay => 'Highest day';
+
+  @override
+  String get rptWeekSummary => 'This week in summary';
+
+  @override
+  String bdgPeriodSubtitle(String period, String date) {
+    return '$period budget · $date';
+  }
+
+  @override
+  String bdgPeriodSubtitleLive(String period, String date) {
+    return '$period budget · $date · running';
+  }
+
+  @override
+  String bdgLatestOfTotal(int shown, int total) {
+    return 'Latest $shown of $total';
+  }
+
+  @override
+  String get bdgRemainingPrefix => 'Left ';
+
+  @override
+  String bdgToReachSuffix(String currency) {
+    return ' $currency to go';
+  }
+
+  @override
+  String setUnsyncedLedger(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transaction changes',
+      one: '1 transaction change',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedPlanning(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count changes to accounts/budgets/goals/bills',
+      one: '1 change to accounts/budgets/goals/bills',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedInbox(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items in your inbox',
+      one: '1 item in your inbox',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedCards(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count cards saved on this device only',
+      one: '1 card saved on this device only',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedUnproven(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count financial records not yet uploaded to the cloud',
+      one: '1 financial record not yet uploaded to the cloud',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedConflicts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count records with unresolved conflicts',
+      one: '1 record with an unresolved conflict',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get setListSeparator => ', ';
+
+  @override
+  String setUnsyncedSignOutBody(String list) {
+    return 'You have data that was never uploaded to the cloud, and signing out will delete it: $list. Take a backup first if you want to keep it.';
+  }
+
+  @override
+  String setGapDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count days ago',
+      one: '1 day ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setGapHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count hours ago',
+      one: '1 hour ago',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get setGapToday => 'Today';
+
+  @override
+  String setLastCapture(String gap) {
+    return 'Last capture: $gap';
+  }
+
+  @override
+  String setApnsFailed(String message) {
+    return 'APNs registration failed: $message';
+  }
+
+  @override
+  String setCheckShortcutStillOn(String subtitle) {
+    return '$subtitle — check the shortcut is still enabled';
+  }
+
+  @override
+  String get goalDueToday => 'Due today';
+
+  @override
+  String goalDaysLeft(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days left',
+      one: '1 day left',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String goalMonthsLeft(int months) {
+    String _temp0 = intl.Intl.pluralLogic(
+      months,
+      locale: localeName,
+      other: '$months months left',
+      one: '1 month left',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String goalRemainingToReach(String amount, String currency) {
+    return '$amount $currency to go';
+  }
+
+  @override
+  String goalSavedAmount(String amount, String currency) {
+    return 'Saved $amount $currency';
+  }
+
+  @override
+  String goalTargetAmount(String amount, String currency) {
+    return 'Target $amount $currency';
+  }
+
+  @override
+  String get goalPerMonth => '/mo';
+
+  @override
+  String get goalOverdue => 'Past its target date';
+
+  @override
+  String get goalTotalSavedAll => 'Total saved across all your goals';
+
+  @override
+  String get goalTargetLabel => 'Target';
+
+  @override
+  String get goalEmptyBody => 'Add your first goal and start filling the jar.';
+
+  @override
+  String cardLinkTxTo(String last4) {
+    return 'Link a transaction to •••• $last4';
+  }
+
+  @override
+  String cardTxLinkedTo(String last4) {
+    return 'Transaction linked to •••• $last4';
+  }
+
+  @override
+  String get cardAccountWord => 'Account';
+
+  @override
+  String get cardUnassigned => 'Unassigned';
+
+  @override
+  String get cardBack => 'Back';
+
+  @override
+  String get cardAllCards => 'All cards';
+
+  @override
+  String get cardAddCard => 'Add card';
+
+  @override
+  String get cardEmptyTitle => 'No cards yet';
+
+  @override
+  String get cardEmptyBody =>
+      'Cards appear automatically from your bank messages, and you can add one of your own design.';
+
+  @override
+  String get cardAddCardCta => 'Add a card';
+
+  @override
+  String get cardEdit => 'Edit';
+
+  @override
+  String get cardIn => 'In';
+
+  @override
+  String get cardOut => 'Out';
+
+  @override
+  String get cardAddTx => 'Add transaction';
+
+  @override
+  String get cardLinkExistingTx => 'Link an existing transaction';
+
+  @override
+  String get cardSearchHint => 'Search by name or amount';
+
+  @override
+  String get cardNoTx => 'No transactions';
+
+  @override
+  String get accAddAccount => 'Add account';
+
+  @override
+  String get accTitle => 'Accounts & wallets';
+
+  @override
+  String get accSubtitle =>
+      'Each account in its own currency — cash, bank, wallet or card.';
+
+  @override
+  String get accDefault => 'Default';
+
+  @override
+  String get accUnassignedCards => 'Unassigned cards';
+
+  @override
+  String get accUnassignedCardsBody =>
+      'Cards that showed up in your messages but are not linked to an account yet.';
 }

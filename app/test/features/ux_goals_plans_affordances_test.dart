@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -20,12 +21,19 @@ void main() {
       expect(screen, contains('_goalDeadlineLabel'));
       expect(screen, contains('MoneyText(rate'),
           reason: 'R-8 — a required contribution is money');
-      expect(screen, contains('/شهر'));
+      // The copy moved to the ARB; assert it there so English is covered too.
+      expect(screen, contains('context.l10n.goalPerMonth'));
+      expect(_arb('ar')['goalPerMonth'], '/شهر');
+      expect(_arb('en')['goalPerMonth'], '/mo');
     });
 
     test('an overdue goal says so instead of showing a fictional rate', () {
       expect(screen, contains('pacing.isOverdue'));
-      expect(screen, contains('تجاوز الموعد المستهدف'));
+      expect(screen, contains('context.l10n.goalOverdue'));
+      expect(_arb('ar')['goalOverdue'], 'تجاوز الموعد المستهدف');
+      expect(_arb('en')['goalOverdue'], contains('target date'),
+          reason: 'an English user must be told the goal is overdue too, or '
+              'the fictional-rate bug is simply untranslated');
     });
 
     test('the deadline reached the PDF export before it reached the app', () {
@@ -73,3 +81,7 @@ void main() {
     });
   });
 }
+
+Map<String, dynamic> _arb(String lang) =>
+    jsonDecode(File('lib/l10n/app_$lang.arb').readAsStringSync())
+        as Map<String, dynamic>;

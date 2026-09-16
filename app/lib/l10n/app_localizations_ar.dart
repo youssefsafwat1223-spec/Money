@@ -1137,4 +1137,1536 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get helpReplayTourDone => 'ستظهر الجولة التعريفية من جديد.';
+
+  @override
+  String get setLoadingCountries => 'تحميل الدول...';
+
+  @override
+  String get setLoadingCurrencies => 'تحميل العملات...';
+
+  @override
+  String get setCountry => 'الدولة';
+
+  @override
+  String get setBaseCurrency => 'العملة الأساسية';
+
+  @override
+  String get setName => 'الاسم';
+
+  @override
+  String get setNameInApp => 'اسمك في التطبيق';
+
+  @override
+  String get setAccountData => 'بيانات حسابك';
+
+  @override
+  String get setMobileNumber => 'رقم الموبايل';
+
+  @override
+  String get setAddYourNumber => 'أضف رقمك';
+
+  @override
+  String get setAppearance => 'المظهر';
+
+  @override
+  String get setAppearanceSub => 'فاتح، داكن، أو حسب النظام';
+
+  @override
+  String get setAccountsAndDues => 'حساباتك والتزاماتك';
+
+  @override
+  String get setSyncConflicts => 'تعارضات المزامنة';
+
+  @override
+  String get setSyncConflictsSub =>
+      'عناصر عُدّلت على أكثر من جهاز — بحاجة لقرارك';
+
+  @override
+  String get setAccountsWallets => 'الحسابات والمحافظ';
+
+  @override
+  String get setAccountsWalletsSub => 'حسابات متعددة، كل واحد بعملته الخاصة';
+
+  @override
+  String get setAllCards => 'كل البطاقات';
+
+  @override
+  String get setAllCardsSub => 'نظرة عامة على بطاقاتك مجمّعة حسب الحساب';
+
+  @override
+  String get setSubsAndBills => 'الاشتراكات والفواتير';
+
+  @override
+  String get setSubsAndBillsSub => 'التزاماتك الدورية ومواعيد السداد';
+
+  @override
+  String get setPlans => 'الخطط';
+
+  @override
+  String get setPlansSub => 'ميزانية رحلة أو مناسبة تتابع نفسها';
+
+  @override
+  String get setToolsAndSettings => 'أدوات وإعدادات';
+
+  @override
+  String get setCategories => 'التصنيفات';
+
+  @override
+  String get setCategoriesSub => 'نظم المصروفات والدخل والتحويلات';
+
+  @override
+  String get setAchievements => 'الإنجازات والمستوى';
+
+  @override
+  String get setAchievementsSub => 'شارات ومستويات تشجع عادة المتابعة';
+
+  @override
+  String get setCurrencyRepair => 'تأكيد عملة الميزانيات والأهداف';
+
+  @override
+  String get setCurrencyRepairSub => 'راجع عملة بيانات التخطيط القديمة بأمان';
+
+  @override
+  String get setAppleShortcut => 'اختصار آبل';
+
+  @override
+  String get setAppleShortcutSub => 'مرر رسائل البنك إلى قرش عبر Shortcuts';
+
+  @override
+  String get setRewardsAndSupport => 'المكافآت والدعم';
+
+  @override
+  String get setInviteFriends => 'دعوة الأصدقاء';
+
+  @override
+  String get setInviteFriendsSub => 'شارك رمز دعوتك واكسب تقارير بدون إعلانات';
+
+  @override
+  String get setAdPrivacyOptions => 'خيارات خصوصية الإعلانات';
+
+  @override
+  String get setAdPrivacyOptionsSub => 'إدارة موافقتك على الإعلانات';
+
+  @override
+  String get setContactUs => 'تواصل معنا';
+
+  @override
+  String get setContactUsSub => 'الدعم الفني والإجابة على استفساراتك';
+
+  @override
+  String get setAboutQirsh => 'عن قرش';
+
+  @override
+  String get setAboutQirshSub => 'معلومات التطبيق والإصدار';
+
+  @override
+  String get setCaptureStatus => 'رصد العمليات';
+
+  @override
+  String get setCaptureStatusSub => 'حالة الربط مع رسائل البنك واختصار آبل';
+
+  @override
+  String get setConfirmCaptured => 'تأكيد العمليات الملتقطة';
+
+  @override
+  String get setNotifyOnCapture => 'إشعار عند التقاط عملية';
+
+  @override
+  String get setHideOnLockScreen => 'إخفاء التفاصيل الحساسة على شاشة القفل';
+
+  @override
+  String get setYourAlerts => 'تنبيهاتك';
+
+  @override
+  String get setQirshMessages => 'رسائل ونصائح قرش';
+
+  @override
+  String get setBudget80Alert => 'تنبيه 80% من الميزانية';
+
+  @override
+  String get setBudgetOverAlert => 'تنبيه تجاوز الميزانية';
+
+  @override
+  String get setDailyReminder => 'التذكير اليومي';
+
+  @override
+  String get setDailyReminderTime => 'كل يوم الساعة 10 مساءً';
+
+  @override
+  String get setWeeklyReport => 'التقرير الأسبوعي';
+
+  @override
+  String get setBillReminders => 'تذكير الاشتراكات والفواتير';
+
+  @override
+  String get setGoalCelebrations => 'احتفالات الأهداف';
+
+  @override
+  String get setAchievementAlerts => 'تنبيهات الإنجازات';
+
+  @override
+  String get setQuietHours => 'ساعات الهدوء';
+
+  @override
+  String get setDisabled => 'معطّل';
+
+  @override
+  String get setEditQuietHours => 'تعديل وقت الهدوء';
+
+  @override
+  String get setNotificationTools => 'أدوات الإشعارات';
+
+  @override
+  String get setTestNotifications => 'اختبار إشعارات قرش';
+
+  @override
+  String get setTestNotificationsSub => 'أرسل إشعارًا تجريبيًا إلى هذا الجهاز';
+
+  @override
+  String get setMessageCentre => 'مركز رسائل قرش';
+
+  @override
+  String get setMessageCentreSub => 'الإشعارات والحملات والإعلانات السابقة';
+
+  @override
+  String get setDataTransfer => 'نقل البيانات';
+
+  @override
+  String get setDataTransferSub => 'بياناتك المالية تظل تحت سيطرتك';
+
+  @override
+  String get setImportFile => 'استيراد ملف';
+
+  @override
+  String get setImportFileSub => 'CSV من أي تطبيق أو ZIP صادر من قرش';
+
+  @override
+  String get setExportCsv => 'تصدير العمليات CSV';
+
+  @override
+  String get setExportCsvSub => 'ملف بسيط لكل عملياتك';
+
+  @override
+  String get setExportAll => 'تصدير كل بيانات قرش';
+
+  @override
+  String get setExportAllSub => 'حزمة ZIP قابلة للنقل والاستعادة';
+
+  @override
+  String get setSecurityPrivacy => 'الأمان والخصوصية';
+
+  @override
+  String get setEncryptedDbPart1 =>
+      'بياناتك على الجهاز مخزّنة بقاعدة بيانات مشفّرة، ';
+
+  @override
+  String get setEncryptedDbPart2 => 'ومفتاحها محفوظ في خزنة النظام';
+
+  @override
+  String get setPrivacyAndData => 'الخصوصية والبيانات';
+
+  @override
+  String get setPrivacyAndDataSub => 'أمان بياناتك وسياسة الخصوصية';
+
+  @override
+  String get setHideAmounts => 'إخفاء الأرقام في الواجهة';
+
+  @override
+  String get setExitAndErase => 'الخروج وحذف البيانات';
+
+  @override
+  String get setExitAndEraseSub => 'إجراءات لا يمكن التراجع عن بعضها';
+
+  @override
+  String get setStartOver => 'ابدأ من جديد';
+
+  @override
+  String get setStartOverSub => 'امسح البيانات المحلية مع إبقاء الحساب نشطًا';
+
+  @override
+  String get setSignOut => 'تسجيل الخروج';
+
+  @override
+  String get setDeleteAccount => 'حذف الحساب وكل بياناتي';
+
+  @override
+  String get setDeleteAccountSub => 'إجراء نهائي يتطلب تأكيدك';
+
+  @override
+  String get setTestNotificationSent => 'أرسلنا إشعاراً تجريبياً من قرش.';
+
+  @override
+  String get setTestNotificationFailed => 'تعذّر إرسال الإشعار التجريبي.';
+
+  @override
+  String get setUnsyncedData => 'بيانات غير محفوظة سحابيًا';
+
+  @override
+  String get setCancel => 'إلغاء';
+
+  @override
+  String get setSignOutDiscard => 'تسجيل الخروج وحذف غير المحفوظ';
+
+  @override
+  String get setUnsyncedCheckFailed =>
+      'تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.';
+
+  @override
+  String get setSignOutFailed => 'تعذّر تسجيل الخروج بأمان. حاول مجدداً.';
+
+  @override
+  String get setPhotoUpdated => 'تم تحديث الصورة.';
+
+  @override
+  String get setSave => 'حفظ';
+
+  @override
+  String get setCategoriesSheetIntro =>
+      'أضف أو عدّل التصنيفات التي تظهر في العمليات والتقارير.';
+
+  @override
+  String get setAddCategory => 'إضافة تصنيف';
+
+  @override
+  String get setExpenses => 'مصروفات';
+
+  @override
+  String get setIncome => 'دخل';
+
+  @override
+  String get setTransfers => 'تحويلات';
+
+  @override
+  String get setEditCategory => 'تعديل تصنيف';
+
+  @override
+  String get setCategoryName => 'اسم التصنيف';
+
+  @override
+  String get setIncomeCategory => 'تصنيف دخل';
+
+  @override
+  String get setIcon => 'الأيقونة';
+
+  @override
+  String get setColor => 'اللون';
+
+  @override
+  String get setEnterCategoryName => 'اكتب اسم التصنيف.';
+
+  @override
+  String get setSaveChanges => 'حفظ التعديلات';
+
+  @override
+  String get setAdd => 'إضافة';
+
+  @override
+  String get setDeleteCategoryQ => 'حذف التصنيف؟';
+
+  @override
+  String get setDeleteCategoryBody =>
+      'سيتم نقل عملياته إلى «أخرى» أو «دخل»، وحذف أي ميزانية مرتبطة به.';
+
+  @override
+  String get setDelete => 'حذف';
+
+  @override
+  String get setQuietHoursNote =>
+      'نؤجل الإشعارات المجدولة خلال هذه الفترة لأول وقت مسموح.';
+
+  @override
+  String get setStarts => 'تبدأ';
+
+  @override
+  String get setEnds => 'تنتهي';
+
+  @override
+  String get setAboutApp => 'عن التطبيق';
+
+  @override
+  String get setAboutBody =>
+      'قرش لتتبع المصروفات من رسائل البنك والإدخال اليدوي. يمكنك نقل بياناتك المالية كملفات CSV أو حزمة ZIP من قسم البيانات والخصوصية.';
+
+  @override
+  String get setOk => 'تمام';
+
+  @override
+  String get setSupportBody =>
+      'للدعم أو الملاحظات انسخ البريد وأرسل لنا تفاصيل المشكلة، نوع الجهاز، وخطوات تكرارها.';
+
+  @override
+  String get setCopyEmail => 'نسخ البريد';
+
+  @override
+  String get setEraseAllQ => 'مسح جميع البيانات؟';
+
+  @override
+  String get setEraseAllBody =>
+      'سيتم مسح جميع بياناتك المحلية. لا يمكن التراجع.';
+
+  @override
+  String get setErase => 'مسح';
+
+  @override
+  String get setSettingsLoadFailed =>
+      'تعذر تحميل الإعدادات. حاول مرة أخرى بعد قليل.';
+
+  @override
+  String get setSettings => 'الإعدادات';
+
+  @override
+  String get setBack => 'رجوع';
+
+  @override
+  String get setThemeAuto => 'تلقائي';
+
+  @override
+  String get setThemeLight => 'فاتح';
+
+  @override
+  String get setThemeDark => 'داكن';
+
+  @override
+  String get setEdit => 'تعديل';
+
+  @override
+  String get setAppLockFailed =>
+      'تعذر تفعيل القفل. تأكد من إعداد بصمة أو رمز للجهاز.';
+
+  @override
+  String get setAppLock => 'قفل التطبيق';
+
+  @override
+  String get setNoBankMessageYet => 'لم نرصد أي رسالة بنكية بعد';
+
+  @override
+  String get setCaptureEnableFailed => 'تعذّر تفعيل إشعارات رصد البنك';
+
+  @override
+  String get setNoBankMessagesRecently => 'لم نستقبل رسائل بنكية منذ فترة';
+
+  @override
+  String get setBankCaptureStatus => 'حالة رصد رسائل البنك';
+
+  @override
+  String get setCheck => 'تحقق';
+
+  @override
+  String get setBackupFirst => 'خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.';
+
+  @override
+  String get setToday => 'اليوم';
+
+  @override
+  String get bdgError => 'حدث خطأ';
+
+  @override
+  String get bdgTabBudgets => 'الميزانيات';
+
+  @override
+  String get bdgTabHistory => 'سجل الميزانيات';
+
+  @override
+  String get bdgTabGoals => 'الأهداف';
+
+  @override
+  String get bdgEmptyBudgetsTitle => 'لا توجد ميزانيات';
+
+  @override
+  String get bdgEmptyBudgetsBody =>
+      'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.';
+
+  @override
+  String get bdgEmptyGoalsTitle => 'لا توجد أهداف';
+
+  @override
+  String get bdgEmptyGoalsBody =>
+      'أضف هدف ادخار ليتابع قِرش تقدمك إلى جانب ميزانياتك.';
+
+  @override
+  String get bdgAddGoal => 'إضافة هدف';
+
+  @override
+  String get bdgEmptyHistoryTitle => 'السجل فارغ';
+
+  @override
+  String get bdgEmptyHistoryBody =>
+      'اختر فترة تحتوي على ميزانيات أو أضف ميزانية جديدة، وسيظهر كل يوم/أسبوع/شهر هنا كسجلّ منفصل.';
+
+  @override
+  String get bdgAddBudget => 'إضافة ميزانية';
+
+  @override
+  String get bdgDeleteTitle => 'حذف الميزانية؟';
+
+  @override
+  String get bdgDeleteBody => 'سيُحذف سقف الميزانية. لن تتأثر العمليات نفسها.';
+
+  @override
+  String get bdgDeleteFailed => 'تعذّر حذف الميزانية الآن.';
+
+  @override
+  String get bdgFilterAll => 'الكل';
+
+  @override
+  String get bdgFilterDaily => 'يومي';
+
+  @override
+  String get bdgFilterWeekly => 'أسبوعي';
+
+  @override
+  String get bdgFilterMonthly => 'شهري';
+
+  @override
+  String get bdgFilterYearly => 'سنوي';
+
+  @override
+  String get bdgStatHistoryCount => 'ميزانيات في السجل';
+
+  @override
+  String get bdgStatTargetSavings => 'مجموع المدخرات المستهدفة';
+
+  @override
+  String get bdgStatTotalBudgeted => 'إجمالي الميزانيات المرصودة';
+
+  @override
+  String get bdgStatActiveGoals => 'أهداف نشطة';
+
+  @override
+  String get bdgStatProgress => 'نسبة التقدم';
+
+  @override
+  String get bdgStatTotalSaved => 'إجمالي الادخار';
+
+  @override
+  String get bdgStateSafeF => 'آمنة';
+
+  @override
+  String get bdgStateNear => 'اقتربت';
+
+  @override
+  String get bdgStateOverF => 'تجاوزت';
+
+  @override
+  String get bdgBudgetsWord => 'ميزانيات';
+
+  @override
+  String get bdgUsageRate => 'نسبة الاستهلاك';
+
+  @override
+  String get bdgActualSpend => 'المصروف الفعلي';
+
+  @override
+  String get bdgBudgetWord => 'ميزانية';
+
+  @override
+  String get bdgOver => 'تجاوز';
+
+  @override
+  String get bdgSafe => 'آمن';
+
+  @override
+  String get bdgAllExpenses => 'كل المصروفات';
+
+  @override
+  String get bdgCategory => 'تصنيف';
+
+  @override
+  String get bdgSpent => 'مصروف';
+
+  @override
+  String get bdgRemaining => 'باقي';
+
+  @override
+  String get bdgLimit => 'الحد';
+
+  @override
+  String get bdgSaved => 'وفّرت';
+
+  @override
+  String get bdgPeriodCurrent => 'الفترة الحالية';
+
+  @override
+  String get bdgPeriodOver => 'فترة تجاوزت الحد';
+
+  @override
+  String get bdgPeriodEnded => 'فترة منتهية';
+
+  @override
+  String get bdgRecordLive => 'ما زال هذا السجل يُحدَّث حتى نهاية الفترة.';
+
+  @override
+  String get bdgRecordFinal =>
+      'هذا السجل محسوب من العمليات الفعلية داخل هذه الفترة.';
+
+  @override
+  String get bdgEditBudget => 'تعديل الميزانية';
+
+  @override
+  String get bdgPeriodTransactions => 'عمليات الفترة';
+
+  @override
+  String get bdgNoConfirmedTx => 'لم تُسجَّل عمليات مؤكدة ضمن هذه الفترة.';
+
+  @override
+  String get bdgCountedOpenAll =>
+      'داخلة في الحساب — افتح «العمليات» لعرضها كلها.';
+
+  @override
+  String get bdgDailyBudget => 'ميزانية يومية';
+
+  @override
+  String get bdgWeeklyBudget => 'ميزانية أسبوعية';
+
+  @override
+  String get bdgYearlyBudget => 'ميزانية سنوية';
+
+  @override
+  String get bdgMonthlyBudget => 'ميزانية شهرية';
+
+  @override
+  String get bdgTransactionWord => 'عملية';
+
+  @override
+  String get bdgGoalDone => 'اكتمل الهدف';
+
+  @override
+  String get bdgEnvelopeTitle => 'وزّع دخلك على المظاريف';
+
+  @override
+  String get bdgEnvelopeBody =>
+      'اكتب راتبك ووزّعه بضغطة — و«قِرش» يحسب لك المتاح كل يوم';
+
+  @override
+  String bdgMoreTxCounted(int count) {
+    return 'باقي $count عملية داخلة في الحساب — افتح «العمليات» لعرضها كلها.';
+  }
+
+  @override
+  String get txnError => 'حدث خطأ';
+
+  @override
+  String get txnTransactionWord => 'عملية';
+
+  @override
+  String get txnFilterPending => 'تصفية: قيد المراجعة';
+
+  @override
+  String get txnConfirmAll => 'تأكيد الكل';
+
+  @override
+  String get txnTabTransactions => 'العمليات';
+
+  @override
+  String get txnTabBills => 'الفواتير';
+
+  @override
+  String get txnEmptyPeriodTitle => 'لا توجد عمليات في هذه الفترة';
+
+  @override
+  String get txnEmptyPeriodBody =>
+      'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.';
+
+  @override
+  String get txnConfirmAllTitle => 'تأكيد كل العمليات المعلّقة؟';
+
+  @override
+  String get txnConfirm => 'تأكيد';
+
+  @override
+  String get txnPickAccount => 'اختر الحساب';
+
+  @override
+  String get txnSearchHint => 'ابحث باسم متجر، تصنيف، مبلغ أو عملة';
+
+  @override
+  String get txnClearSearch => 'مسح البحث';
+
+  @override
+  String get txnRangeToday => 'اليوم';
+
+  @override
+  String get txnRangeThisWeek => 'هذا الأسبوع';
+
+  @override
+  String get txnRangeThisMonth => 'هذا الشهر';
+
+  @override
+  String get txnRangeLastMonth => 'الشهر السابق';
+
+  @override
+  String get txnRange7 => 'آخر 7 أيام';
+
+  @override
+  String get txnRange30 => 'آخر 30 يومًا';
+
+  @override
+  String get txnRange90 => 'آخر 90 يومًا';
+
+  @override
+  String get txnRangeThisYear => 'هذه السنة';
+
+  @override
+  String get txnRangeLastYear => 'السنة الماضية';
+
+  @override
+  String get txnRangeCustom => 'مخصص';
+
+  @override
+  String get txnPickRange => 'اختر فترة العرض';
+
+  @override
+  String get txnFrom => 'من';
+
+  @override
+  String get txnTo => 'إلى';
+
+  @override
+  String get txnApplyCustomRange => 'تطبيق الفترة المخصصة';
+
+  @override
+  String get txnKindAll => 'الكل';
+
+  @override
+  String get txnKindExpense => 'مصروفات';
+
+  @override
+  String get txnKindIncome => 'دخل';
+
+  @override
+  String get txnKindTransfer => 'تحويلات';
+
+  @override
+  String get txnPendingReview => 'قيد المراجعة';
+
+  @override
+  String get txnCategory => 'التصنيف';
+
+  @override
+  String get txnFilterByCategory => 'تصفية حسب التصنيف';
+
+  @override
+  String get txnAllCategories => 'كل التصنيفات';
+
+  @override
+  String get txnBillsSubs => 'اشتراكات';
+
+  @override
+  String get txnBillsInstalments => 'أقساط';
+
+  @override
+  String get txnAddSub => 'إضافة اشتراك';
+
+  @override
+  String get txnAddInstalment => 'إضافة قسط';
+
+  @override
+  String get txnLearnBills => 'اعرف أكثر عن الفواتير';
+
+  @override
+  String get txnSubsEmptyTitle => 'اشتراكاتك، متابعة تلقائية';
+
+  @override
+  String get txnInstEmptyTitle => 'أقساطك، واضحة كل شهر';
+
+  @override
+  String get txnSubsEmptyBody =>
+      'أضف اشتراكك يدويًا أو دعه يُكتشف تلقائيًا من العمليات المتكررة.';
+
+  @override
+  String get txnInstEmptyBody =>
+      'أضف القسط بتاريخه وتنبيهه ليظهر في الفواتير قبل الاستحقاق.';
+
+  @override
+  String get txnSuggestionsTitle => 'اقتراحات من العمليات المتكررة';
+
+  @override
+  String get txnHowSubsTitle => 'كيف يتابع قِرش الاشتراكات؟';
+
+  @override
+  String get txnHowInstTitle => 'كيف يتابع قِرش الأقساط؟';
+
+  @override
+  String get txnHowSubsBody =>
+      'يتابع قِرش الأنماط المتكررة تلقائيًا، ويمكنك أيضًا إضافة اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.';
+
+  @override
+  String get txnHowInstBody =>
+      'أضف القسط يدويًا بالمبلغ وتاريخ الاستحقاق والتنبيه. لاحقًا نضيف المتبقي وعدد الأقساط.';
+
+  @override
+  String get txnTotalMonthlySubs => 'إجمالي الاشتراكات الشهرية';
+
+  @override
+  String get txnTotalMonthlyInst => 'إجمالي الأقساط الشهرية';
+
+  @override
+  String get txnActive => 'نشط';
+
+  @override
+  String get txnPerYear => 'سنويًا';
+
+  @override
+  String get txnDueToday => 'مستحق اليوم';
+
+  @override
+  String get txnPaused => 'متوقف';
+
+  @override
+  String get txnCancelled => 'ملغي';
+
+  @override
+  String get txnCycleWeekly => 'أسبوعي';
+
+  @override
+  String get txnCycleMonthly => 'شهري';
+
+  @override
+  String get txnCycleYearly => 'سنوي';
+
+  @override
+  String get txnTotalValueLabel => 'القيمة الكلية: ';
+
+  @override
+  String get txnPaidManuallyLabel => 'مدفوع يدويًا: ';
+
+  @override
+  String get txnAdd => 'إضافة';
+
+  @override
+  String get txnBillsAndSubs => 'الفواتير والاشتراكات';
+
+  @override
+  String get txnPeriodSpendTotal => 'إجمالي مصروفات الفترة';
+
+  @override
+  String get txnActiveMonthlySpend => 'إجمالي الصرف الشهري النشط';
+
+  @override
+  String get txnTxForPeriod => 'عملية للفترة';
+
+  @override
+  String get txnTotalSpent => 'إجمالي المصروف';
+
+  @override
+  String get txnActiveSub => 'اشتراك نشط';
+
+  @override
+  String get txnRunningInst => 'قسط جاري';
+
+  @override
+  String get txnYearlyTotal => 'المجموع سنويًا';
+
+  @override
+  String get txnSmartInbox => 'صندوق المراجعة الذكي';
+
+  @override
+  String get txnReviewTx => 'راجع العملية';
+
+  @override
+  String get txnHide => 'إخفاء';
+
+  @override
+  String get txnSuspectTxPlural => 'عمليات مشبوهة';
+
+  @override
+  String get txnDismissAll => 'تجاهل الكل';
+
+  @override
+  String get txnNoSuspectTx => 'لا توجد عمليات مشبوهة';
+
+  @override
+  String get txnSimilarExists => 'عملية مشابهة موجودة';
+
+  @override
+  String get txnSimilarBody =>
+      'هذه العملية تشبه عملية موجودة بالمبلغ والتاجر والوقت نفسها.';
+
+  @override
+  String get txnTheNew => 'الجديدة';
+
+  @override
+  String get txnNoClearMerchant => 'بدون تاجر واضح';
+
+  @override
+  String get txnTheExisting => 'الموجودة';
+
+  @override
+  String get txnDismissDuplicate => 'تجاهل التكرار';
+
+  @override
+  String get txnSaveAsNew => 'احفظ كجديدة';
+
+  @override
+  String get txnEditTx => 'تعديل العملية';
+
+  @override
+  String get txnChangeCategory => 'تغيير التصنيف';
+
+  @override
+  String get txnTimeInSms => 'وقت العملية داخل SMS';
+
+  @override
+  String get txnTimeReceived => 'وقت استلام الرسالة';
+
+  @override
+  String txnDupBannerReview(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عملية مشبوهة',
+      many: '$count عملية مشبوهة',
+      few: '$count عمليات مشبوهة',
+      two: 'عمليتان مشبوهتان',
+      one: 'عملية مشبوهة واحدة',
+    );
+    return '$_temp0 — اضغط للمراجعة';
+  }
+
+  @override
+  String get txnDismissAllDupesBody =>
+      'ستُزال كل تنبيهات التكرار المعروضة. العمليات نفسها لن تتأثر، لكن لا يمكن مراجعتها من هنا مرة أخرى.';
+
+  @override
+  String txnTimeSource(String source) {
+    return 'مصدر الوقت: $source';
+  }
+
+  @override
+  String txnRecurredMonths(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تكرر $count شهرًا',
+      many: 'تكرر $count شهرًا',
+      few: 'تكرر $count أشهر',
+      two: 'تكرر شهرين',
+      one: 'تكرر شهرًا واحدًا',
+    );
+    return '$_temp0 · اضغط للتفعيل';
+  }
+
+  @override
+  String txnConfirmAllBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'سيتم تأكيد $count عملية بتصنيفاتها الحالية.',
+      many: 'سيتم تأكيد $count عملية بتصنيفاتها الحالية.',
+      few: 'سيتم تأكيد $count عمليات بتصنيفاتها الحالية.',
+      two: 'سيتم تأكيد عمليتين بتصنيفيهما الحاليين.',
+      one: 'سيتم تأكيد عملية واحدة بتصنيفها الحالي.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnOverdueDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'متأخر $days يومًا',
+      many: 'متأخر $days يومًا',
+      few: 'متأخر $days أيام',
+      two: 'متأخر يومين',
+      one: 'متأخر يومًا واحدًا',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnInDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'بعد $days يومًا',
+      many: 'بعد $days يومًا',
+      few: 'بعد $days أيام',
+      two: 'بعد يومين',
+      one: 'بعد يوم واحد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnPerInstalment(String amount) {
+    return '$amount / قسط';
+  }
+
+  @override
+  String txnPaidOfTotal(int paid, int total) {
+    return '$paid من $total قسط مدفوع';
+  }
+
+  @override
+  String txnRemainingInstalments(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'متبقٍ $count قسط',
+      many: 'متبقٍ $count قسطًا',
+      few: 'متبقٍ $count أقساط',
+      two: 'متبقٍ قسطان',
+      one: 'متبقٍ قسط واحد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnInterestRate(String rate) {
+    return 'فائدة $rate%';
+  }
+
+  @override
+  String txnNextInstalment(String due) {
+    return 'القسط القادم: $due';
+  }
+
+  @override
+  String txnEstPerMonth(String amount, String currency) {
+    return '$amount $currency/شهر';
+  }
+
+  @override
+  String txnSmartInboxCount(int count) {
+    return 'صندوق المراجعة الذكي · $count';
+  }
+
+  @override
+  String txnDismissNAlerts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تجاهل $count تنبيه؟',
+      many: 'تجاهل $count تنبيهًا؟',
+      few: 'تجاهل $count تنبيهات؟',
+      two: 'تجاهل تنبيهين؟',
+      one: 'تجاهل تنبيهًا واحدًا؟',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String txnDismissAllCount(int count) {
+    return 'تجاهل الكل ($count)';
+  }
+
+  @override
+  String get subsOverdue => 'متأخر';
+
+  @override
+  String get subsToday => 'اليوم';
+
+  @override
+  String subsTabSubs(int count) {
+    return 'الاشتراكات ($count)';
+  }
+
+  @override
+  String subsTabInst(int count) {
+    return 'الأقساط ($count)';
+  }
+
+  @override
+  String subsMonthlyScoped(String account) {
+    return 'الاشتراكات الشهرية · $account';
+  }
+
+  @override
+  String subsPerYearApprox(String amount) {
+    return '≈ $amount/سنة';
+  }
+
+  @override
+  String get subsTitle => 'الاشتراكات والفواتير';
+
+  @override
+  String get subsMonthlyTotal => 'الاشتراكات الشهرية';
+
+  @override
+  String get subsActiveSubs => 'اشتراكات نشطة';
+
+  @override
+  String get subsRunningInst => 'أقساط جارية';
+
+  @override
+  String get subsMonthlyInstCommit => 'التزام الأقساط شهريًا';
+
+  @override
+  String get subsEmptyTitle => 'اشتراكاتك في مكان واحد';
+
+  @override
+  String get subsAutoDetected => 'مكتشفة تلقائيًا';
+
+  @override
+  String get subsAddNewSub => 'إضافة اشتراك جديد';
+
+  @override
+  String get subsMaybeUnused => 'قد لا تستخدم هذا الاشتراك';
+
+  @override
+  String get subsInstEmptyTitle => 'أقساطك، واضحة قبل ميعادها';
+
+  @override
+  String get subsInstEmptyBody => 'أضف القسط بالمبلغ والعدد وتاريخ الاستحقاق.';
+
+  @override
+  String get subsTotalInstDebt => 'إجمالي مديونية الأقساط';
+
+  @override
+  String get subsNearestInst => 'أقرب قسط';
+
+  @override
+  String get subsAddNewInst => 'إضافة قسط جديد';
+
+  @override
+  String rptAnomalyPrivate(String date) {
+    return 'في يوم $date كان الصرف أعلى من نمطك المعتاد. راجعه إن أردت معرفة السبب.';
+  }
+
+  @override
+  String rptAnomalyDetail(String date, String amount, String ratio) {
+    return 'في يوم $date صرفت $amount، وهو أعلى من متوسطك اليومي $ratio×.';
+  }
+
+  @override
+  String rptSpendLower(int percent) {
+    return 'صرفك أقل $percent% من نفس الفترة السابقة.';
+  }
+
+  @override
+  String rptSpendHigher(int percent) {
+    return 'صرفك أعلى $percent% من نفس الفترة السابقة.';
+  }
+
+  @override
+  String rptHighestDayBody(String amount) {
+    return 'أعلى يوم في الفترة وصل إلى $amount.';
+  }
+
+  @override
+  String rptTopCategoryHint(String category) {
+    return 'أكبر إنفاق لديك على $category. راقب هذا التصنيف أولًا.';
+  }
+
+  @override
+  String rptMerchantTxCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عملية',
+      many: '$count عملية',
+      few: '$count عمليات',
+      two: 'عمليتان',
+      one: 'عملية واحدة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String rptVsLastWeek(String sign, String percent) {
+    return '$sign $percent% مقارنة بالأسبوع الماضي';
+  }
+
+  @override
+  String rptTopCategoryWeek(String category) {
+    return 'أكثر فئة صرفًا: $category';
+  }
+
+  @override
+  String rptBestSavingDay(String date, String amount) {
+    return 'أفضل يوم توفيرًا: $date ($amount)';
+  }
+
+  @override
+  String rptTopMerchantWeek(String name, String amount) {
+    return 'أكثر متجر صرفًا: $name ($amount)';
+  }
+
+  @override
+  String get rptTabOverview => 'نظرة عامة';
+
+  @override
+  String get rptTabTrends => 'الاتجاهات';
+
+  @override
+  String get rptTabDetails => 'التفاصيل';
+
+  @override
+  String get rptUnusualSpend => 'صرف غير معتاد';
+
+  @override
+  String get rptVsPrevPeriod => 'مقارنة بنفس الفترة السابقة';
+
+  @override
+  String get rptNeedPrevPeriod =>
+      'ما زلنا نحتاج فترة سابقة فيها إنفاق لعرض الاتجاه بدقة.';
+
+  @override
+  String get rptHighestSpendDay => 'أعلى يوم صرف';
+
+  @override
+  String get rptQuickTip => 'اقتراح سريع';
+
+  @override
+  String get rptAddMoreTx => 'ابدأ بإضافة عمليات أكثر لنقدّم اقتراحات أوضح.';
+
+  @override
+  String get rptSelectedPeriod => 'الفترة المختارة';
+
+  @override
+  String get rptNetPeriodSpend => 'صافي مصروف الفترة';
+
+  @override
+  String get rptSelectedPeriodSpend => 'مصروف الفترة المختارة';
+
+  @override
+  String get rptTotalExpenses => 'إجمالي المصروفات';
+
+  @override
+  String get rptRefunds => 'المرتجعات';
+
+  @override
+  String get rptNet => 'الصافي';
+
+  @override
+  String get rptThisWeekUsage => 'استهلاك الأسبوع الحالي';
+
+  @override
+  String get rptAverage => 'المتوسط';
+
+  @override
+  String get rptHighest => 'الأعلى';
+
+  @override
+  String get rptTotal => 'الإجمالي';
+
+  @override
+  String get rptByCategory => 'استهلاكك بالتصنيفات';
+
+  @override
+  String get rptByMerchant => 'مصروفاتك في المتاجر';
+
+  @override
+  String get rptTopMerchantsSub => 'أكبر أماكن الصرف في الفترة';
+
+  @override
+  String get rptMerchantsEmpty =>
+      'ستظهر هنا أكثر المتاجر صرفاً بعد إضافة عمليات مؤكدة.';
+
+  @override
+  String get rptIncludesRefund => ' · شامل مرتجع ';
+
+  @override
+  String get rptInsightsTitle => 'الرؤى والتقارير';
+
+  @override
+  String get rptInsightsSub => 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.';
+
+  @override
+  String get rptDailyAverage => 'متوسط يومي';
+
+  @override
+  String get rptHighestDay => 'أعلى يوم';
+
+  @override
+  String get rptWeekSummary => 'ملخص الأسبوع';
+
+  @override
+  String bdgPeriodSubtitle(String period, String date) {
+    return 'ميزانية $period · $date';
+  }
+
+  @override
+  String bdgPeriodSubtitleLive(String period, String date) {
+    return 'ميزانية $period · $date · جارية';
+  }
+
+  @override
+  String bdgLatestOfTotal(int shown, int total) {
+    return 'أحدث $shown من $total';
+  }
+
+  @override
+  String get bdgRemainingPrefix => 'باقي ';
+
+  @override
+  String bdgToReachSuffix(String currency) {
+    return ' $currency للوصول';
+  }
+
+  @override
+  String setUnsyncedLedger(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count تغيير في المعاملات',
+      many: '$count تغييرًا في المعاملات',
+      few: '$count تغييرات في المعاملات',
+      two: 'تغييران في المعاملات',
+      one: 'تغيير واحد في المعاملات',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedPlanning(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count تغيير في الحسابات/الميزانيات/الأهداف/الفواتير',
+      many: '$count تغييرًا في الحسابات/الميزانيات/الأهداف/الفواتير',
+      few: '$count تغييرات في الحسابات/الميزانيات/الأهداف/الفواتير',
+      two: 'تغييران في الحسابات/الميزانيات/الأهداف/الفواتير',
+      one: 'تغيير واحد في الحسابات/الميزانيات/الأهداف/الفواتير',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedInbox(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عنصر في صندوق الوارد',
+      many: '$count عنصرًا في صندوق الوارد',
+      few: '$count عناصر في صندوق الوارد',
+      two: 'عنصران في صندوق الوارد',
+      one: 'عنصر واحد في صندوق الوارد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedCards(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count بطاقة محفوظة على هذا الجهاز فقط',
+      many: '$count بطاقة محفوظة على هذا الجهاز فقط',
+      few: '$count بطاقات محفوظة على هذا الجهاز فقط',
+      two: 'بطاقتان محفوظتان على هذا الجهاز فقط',
+      one: 'بطاقة واحدة محفوظة على هذا الجهاز فقط',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedUnproven(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count سجل مالي لم يُرفع للسحابة بعد',
+      many: '$count سجلًا ماليًا لم يُرفع للسحابة بعد',
+      few: '$count سجلات مالية لم تُرفع للسحابة بعد',
+      two: 'سجلان ماليان لم يُرفعا للسحابة بعد',
+      one: 'سجل مالي واحد لم يُرفع للسحابة بعد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setUnsyncedConflicts(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count سجل به تعارض لم يُحلّ',
+      many: '$count سجلًا به تعارض لم يُحلّ',
+      few: '$count سجلات بها تعارض لم يُحلّ',
+      two: 'سجلان بهما تعارض لم يُحلّ',
+      one: 'سجل واحد به تعارض لم يُحلّ',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get setListSeparator => '، ';
+
+  @override
+  String setUnsyncedSignOutBody(String list) {
+    return 'لديك بيانات لم تُرفع للسحابة وسيحذفها تسجيل الخروج: $list. خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.';
+  }
+
+  @override
+  String setGapDays(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'منذ $count يوم',
+      many: 'منذ $count يومًا',
+      few: 'منذ $count أيام',
+      two: 'منذ يومين',
+      one: 'منذ يوم واحد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setGapHours(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'منذ $count ساعة',
+      many: 'منذ $count ساعة',
+      few: 'منذ $count ساعات',
+      two: 'منذ ساعتين',
+      one: 'منذ ساعة واحدة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get setGapToday => 'اليوم';
+
+  @override
+  String setLastCapture(String gap) {
+    return 'آخر عملية رصد: $gap';
+  }
+
+  @override
+  String setApnsFailed(String message) {
+    return 'فشل تسجيل APNs: $message';
+  }
+
+  @override
+  String setCheckShortcutStillOn(String subtitle) {
+    return '$subtitle — تأكد أن الاختصار لا يزال مفعّلًا';
+  }
+
+  @override
+  String get goalDueToday => 'الموعد اليوم';
+
+  @override
+  String goalDaysLeft(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'باقي $days يوم',
+      many: 'باقي $days يومًا',
+      few: 'باقي $days أيام',
+      two: 'باقي يومان',
+      one: 'باقي يوم واحد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String goalMonthsLeft(int months) {
+    String _temp0 = intl.Intl.pluralLogic(
+      months,
+      locale: localeName,
+      other: 'باقي $months شهر',
+      many: 'باقي $months شهرًا',
+      few: 'باقي $months أشهر',
+      two: 'باقي شهران',
+      one: 'باقي شهر واحد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String goalRemainingToReach(String amount, String currency) {
+    return 'باقي $amount $currency للوصول';
+  }
+
+  @override
+  String goalSavedAmount(String amount, String currency) {
+    return 'مدخر $amount $currency';
+  }
+
+  @override
+  String goalTargetAmount(String amount, String currency) {
+    return 'الهدف $amount $currency';
+  }
+
+  @override
+  String get goalPerMonth => '/شهر';
+
+  @override
+  String get goalOverdue => 'تجاوز الموعد المستهدف';
+
+  @override
+  String get goalTotalSavedAll => 'إجمالي المدخر لكل أحلامك';
+
+  @override
+  String get goalTargetLabel => 'المستهدف';
+
+  @override
+  String get goalEmptyBody => 'أضف هدفك الأول وابدأ تعبئة الخزنة.';
+
+  @override
+  String cardLinkTxTo(String last4) {
+    return 'اربط عملية بـ •••• $last4';
+  }
+
+  @override
+  String cardTxLinkedTo(String last4) {
+    return 'تم ربط العملية بـ •••• $last4';
+  }
+
+  @override
+  String get cardAccountWord => 'حساب';
+
+  @override
+  String get cardUnassigned => 'غير مخصّصة';
+
+  @override
+  String get cardBack => 'رجوع';
+
+  @override
+  String get cardAllCards => 'كل البطاقات';
+
+  @override
+  String get cardAddCard => 'إضافة بطاقة';
+
+  @override
+  String get cardEmptyTitle => 'لا توجد بطاقات بعد';
+
+  @override
+  String get cardEmptyBody =>
+      'تظهر البطاقات تلقائيًا من رسائل البنك، ويمكنك إضافة بطاقة بتصميمك.';
+
+  @override
+  String get cardAddCardCta => 'أضف بطاقة';
+
+  @override
+  String get cardEdit => 'تعديل';
+
+  @override
+  String get cardIn => 'داخل';
+
+  @override
+  String get cardOut => 'خارج';
+
+  @override
+  String get cardAddTx => 'إضافة عملية';
+
+  @override
+  String get cardLinkExistingTx => 'اربط عملية موجودة';
+
+  @override
+  String get cardSearchHint => 'ابحث بالاسم أو المبلغ';
+
+  @override
+  String get cardNoTx => 'لا توجد عمليات';
+
+  @override
+  String get accAddAccount => 'إضافة حساب';
+
+  @override
+  String get accTitle => 'الحسابات والمحافظ';
+
+  @override
+  String get accSubtitle =>
+      'كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.';
+
+  @override
+  String get accDefault => 'افتراضي';
+
+  @override
+  String get accUnassignedCards => 'بطاقات غير مخصّصة';
+
+  @override
+  String get accUnassignedCardsBody =>
+      'بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد.';
 }

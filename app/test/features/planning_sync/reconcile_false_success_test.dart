@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:drift/native.dart';
@@ -211,11 +212,18 @@ void main() {
       // The contract is "surface and require explicit confirmation", never
       // "block forever". The flow offers cancel OR discard-and-sign-out.
       expect(inv.hasPendingUserData, isTrue);
-      final settings =
-          File('lib/features/settings/settings_screen.dart').readAsStringSync();
-      expect(settings, contains('تسجيل الخروج وحذف غير المحفوظ'),
+      // The copy moved into the ARB with the English localisation pass. The
+      // contract — that a deliberate way forward is OFFERED — is about the
+      // shipped strings, and now holds in both languages.
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      expect(ar['setSignOutDiscard'], 'تسجيل الخروج وحذف غير المحفوظ',
           reason: 'the user must still be able to proceed deliberately');
-      expect(settings, contains('إلغاء'));
+      expect(ar['setCancel'], 'إلغاء');
+      expect(en['setSignOutDiscard'], isNotNull);
+      expect(en['setCancel'], isNotNull);
     });
   });
 

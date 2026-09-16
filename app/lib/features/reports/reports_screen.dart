@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../common/money_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/async_reload_safe.dart';
 
 import '../../core/di/app_providers.dart';
@@ -47,7 +48,7 @@ class ReportsScreen extends ConsumerWidget {
         body: async.when(
           skipLoadingOnReload: true,
           loading: () => const SkeletonList(rows: 4),
-          error: (e, _) => const Center(child: Text('حدث خطأ')),
+          error: (e, _) => Center(child: Text(context.l10n.txnError)),
           data: (bundle) {
             final section = bundle.monthly;
             return SafeArea(
@@ -107,10 +108,10 @@ class ReportsScreen extends ConsumerWidget {
                                   return AnimatedBuilder(
                                     animation: controller,
                                     builder: (context, _) => AppPillTabBar(
-                                      tabs: const [
-                                        'نظرة عامة',
-                                        'الاتجاهات',
-                                        'التفاصيل',
+                                      tabs: [
+                                        context.l10n.rptTabOverview,
+                                        context.l10n.rptTabTrends,
+                                        context.l10n.rptTabDetails,
                                       ],
                                       selectedIndex: controller.index,
                                       onSelected: controller.animateTo,
@@ -272,10 +273,14 @@ class _TrendsTab extends StatelessWidget {
             if (anomaly != null) ...[
               _InsightCard(
                 icon: AppLucideIcons.alertTriangle,
-                title: 'صرف غير معتاد',
+                title: context.l10n.rptUnusualSpend,
                 body: privacyMode
-                    ? 'في يوم ${_dateLabel(anomaly.day)} كان الصرف أعلى من نمطك المعتاد. راجعه لو حابب تفهم السبب.'
-                    : 'في يوم ${_dateLabel(anomaly.day)} صرفت ${_money(anomaly.total, currencyLabel: currencyLabel, privacyMode: false)}، وهو أعلى من متوسطك اليومي ${anomaly.ratio.toStringAsFixed(1)}×.',
+                    ? context.l10n.rptAnomalyPrivate(_dateLabel(anomaly.day))
+                    : context.l10n.rptAnomalyDetail(
+                        _dateLabel(anomaly.day),
+                        _money(anomaly.total,
+                            currencyLabel: currencyLabel, privacyMode: false),
+                        anomaly.ratio.toStringAsFixed(1)),
                 color: c.danger,
               ),
               const SizedBox(height: AppSpacing.s4),
@@ -284,29 +289,31 @@ class _TrendsTab extends StatelessWidget {
               icon: delta == null || delta <= 0
                   ? AppLucideIcons.trendingDown
                   : AppLucideIcons.trendingUp,
-              title: 'مقارنة بنفس الفترة السابقة',
+              title: context.l10n.rptVsPrevPeriod,
               body: delta == null
-                  ? 'ما زلنا نحتاج فترة سابقة فيها إنفاق لعرض الاتجاه بدقة.'
+                  ? context.l10n.rptNeedPrevPeriod
                   : delta <= 0
-                      ? 'صرفك أقل ${(delta.abs() * 100).round()}% من نفس الفترة السابقة.'
-                      : 'صرفك أعلى ${(delta.abs() * 100).round()}% من نفس الفترة السابقة.',
+                      ? context.l10n.rptSpendLower((delta.abs() * 100).round())
+                      : context.l10n.rptSpendHigher((delta.abs() * 100).round()),
               color: delta == null || delta <= 0 ? c.success : c.danger,
             ),
             const SizedBox(height: AppSpacing.s4),
             _InsightCard(
               icon: AppLucideIcons.shapes,
-              title: 'أعلى يوم صرف',
+              title: context.l10n.rptHighestSpendDay,
               body:
-                  'أعلى يوم في الفترة وصل إلى ${_money(section.highestDaily, currencyLabel: currencyLabel, privacyMode: privacyMode)}.',
+                  context.l10n.rptHighestDayBody(_money(section.highestDaily,
+                      currencyLabel: currencyLabel, privacyMode: privacyMode)),
               color: c.primary,
             ),
             const SizedBox(height: AppSpacing.s4),
             _InsightCard(
               icon: AppLucideIcons.sun,
-              title: 'اقتراح سريع',
+              title: context.l10n.rptQuickTip,
               body: section.topCategories.isEmpty
-                  ? 'ابدأ بإضافة عمليات أكثر لنقدّم اقتراحات أوضح.'
-                  : 'أكبر إنفاق لديك على ${section.topCategories.first.category.name}. راقب هذا التصنيف أولًا.',
+                  ? context.l10n.rptAddMoreTx
+                  : context.l10n.rptTopCategoryHint(
+                      section.topCategories.first.category.name),
               color: c.cta,
             ),
           ],
@@ -368,14 +375,14 @@ class _PeriodCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('الفترة المختارة', style: AppTypography.subhead(c.textLight)),
+          Text(context.l10n.rptSelectedPeriod, style: AppTypography.subhead(c.textLight)),
           const SizedBox(height: AppSpacing.s2),
           Text(
               _money(section.total,
                   currencyLabel: currencyLabel, privacyMode: privacyMode),
               style: AppTypography.amountHero(c.textMain)),
           Text(
-              section.hasRefunds ? 'صافي مصروف الفترة' : 'مصروف الفترة المختارة',
+              section.hasRefunds ? context.l10n.rptNetPeriodSpend : context.l10n.rptSelectedPeriodSpend,
               style: AppTypography.caption(c.textLight)),
           // UX-022 — explain the netting instead of asking the user to trust it.
           //
@@ -399,14 +406,14 @@ class _PeriodCard extends StatelessWidget {
               child: Column(
                 children: [
                   _RefundLine(
-                    label: 'إجمالي المصروفات',
+                    label: context.l10n.rptTotalExpenses,
                     amount: section.grossExpense,
                     currencyLabel: currencyLabel,
                     privacyMode: privacyMode,
                   ),
                   const SizedBox(height: 4),
                   _RefundLine(
-                    label: 'المرتجعات',
+                    label: context.l10n.rptRefunds,
                     amount: section.refunds,
                     currencyLabel: currencyLabel,
                     privacyMode: privacyMode,
@@ -415,7 +422,7 @@ class _PeriodCard extends StatelessWidget {
                   ),
                   const Divider(height: AppSpacing.s3),
                   _RefundLine(
-                    label: 'الصافي',
+                    label: context.l10n.rptNet,
                     amount: section.total,
                     currencyLabel: currencyLabel,
                     privacyMode: privacyMode,
@@ -450,10 +457,10 @@ class _WeeklySpendCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const _VisualSectionTitle(
+          _VisualSectionTitle(
             icon: AppLucideIcons.barChart3,
-            title: 'استهلاك الأسبوع الحالي',
-            subtitle: 'آخر 7 أيام',
+            title: context.l10n.rptThisWeekUsage,
+            subtitle: context.l10n.txnRange7,
           ),
           const SizedBox(height: AppSpacing.s4),
           WeeklyCapsuleBarChart(
@@ -469,21 +476,21 @@ class _WeeklySpendCard extends StatelessWidget {
             children: [
               Expanded(
                 child: _MiniMetric(
-                  label: 'المتوسط',
+                  label: context.l10n.rptAverage,
                   value: _money(section.averageDaily,
                       currencyLabel: currencyLabel, privacyMode: privacyMode),
                 ),
               ),
               Expanded(
                 child: _MiniMetric(
-                  label: 'الأعلى',
+                  label: context.l10n.rptHighest,
                   value: _money(section.highestDaily,
                       currencyLabel: currencyLabel, privacyMode: privacyMode),
                 ),
               ),
               Expanded(
                 child: _MiniMetric(
-                  label: 'الإجمالي',
+                  label: context.l10n.rptTotal,
                   value: _money(section.total,
                       currencyLabel: currencyLabel, privacyMode: privacyMode),
                 ),
@@ -526,7 +533,7 @@ class _CategoryDistributionCard extends StatelessWidget {
         children: [
           _VisualSectionTitle(
             icon: AppLucideIcons.pieChart,
-            title: 'استهلاكك بالتصنيفات',
+            title: context.l10n.rptByCategory,
             subtitle: _money(section.total,
                 currencyLabel: currencyLabel, privacyMode: privacyMode),
           ),
@@ -596,14 +603,14 @@ class _MerchantRankingCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _VisualSectionTitle(
+          _VisualSectionTitle(
             icon: AppLucideIcons.store,
-            title: 'مصروفاتك في المتاجر',
-            subtitle: 'أكبر أماكن الصرف في الفترة',
+            title: context.l10n.rptByMerchant,
+            subtitle: context.l10n.rptTopMerchantsSub,
           ),
           const SizedBox(height: AppSpacing.s3),
           if (section.topMerchants.isEmpty)
-            Text('ستظهر هنا أكثر المتاجر صرفاً بعد إضافة عمليات مؤكدة.',
+            Text(context.l10n.rptMerchantsEmpty,
                 style: AppTypography.caption(c.textLight))
           else
             for (final merchant in section.topMerchants.take(8)) ...[
@@ -796,10 +803,10 @@ class _MerchantBarRow extends StatelessWidget {
                 const SizedBox(height: 3),
                 Row(
                   children: [
-                    Text('${merchant.count} عملية',
+                    Text(context.l10n.rptMerchantTxCount(merchant.count),
                         style: AppTypography.caption(c.textLight)),
                     if (merchant.hasRefunds && !privacyMode) ...[
-                      Text(' · شامل مرتجع ',
+                      Text(context.l10n.rptIncludesRefund,
                           style: AppTypography.caption(c.textLight)),
                       MoneyText(
                         merchant.refunds!,
@@ -905,8 +912,8 @@ class _ReportsHeader extends StatelessWidget {
     return CalmPageHeader(
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
-      title: 'الرؤى والتقارير',
-      subtitle: 'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.',
+      title: context.l10n.rptInsightsTitle,
+      subtitle: context.l10n.rptInsightsSub,
       leading: Navigator.of(context).canPop()
           ? const BackButton(color: Colors.white)
           : null,
@@ -916,12 +923,12 @@ class _ReportsHeader extends StatelessWidget {
       currency: privacyMode ? '' : currencyLabel,
       metrics: [
         CalmMetric(
-          label: 'متوسط يومي',
+          label: context.l10n.rptDailyAverage,
           value: _money(section.averageDaily,
               currencyLabel: currencyLabel, privacyMode: privacyMode),
         ),
         CalmMetric(
-          label: 'أعلى يوم',
+          label: context.l10n.rptHighestDay,
           value: _money(section.highestDaily,
               currencyLabel: currencyLabel, privacyMode: privacyMode),
         ),
@@ -947,7 +954,8 @@ class _WeeklyInsightCard extends StatelessWidget {
     final deltaColor = (delta ?? 0) < 0 ? c.success : c.danger;
     final deltaText = delta == null
         ? null
-        : '$deltaSign ${(delta.abs() * 100).toStringAsFixed(0)}% مقارنة بالأسبوع الماضي';
+        : context.l10n.rptVsLastWeek(
+            deltaSign, (delta.abs() * 100).toStringAsFixed(0));
 
     final bestDay = weekly.bestSavingsDay;
     final topCat = weekly.topCategory;
@@ -965,21 +973,22 @@ class _WeeklyInsightCard extends StatelessWidget {
       if (topCat != null)
         (
           AppLucideIcons.shapes,
-          'أكثر فئة صرفًا: ${topCat.category.name}',
+          context.l10n.rptTopCategoryWeek(topCat.category.name),
           c.cta,
         ),
       if (bestDay != null)
         (
           AppLucideIcons.star,
-          'أفضل يوم توفيرًا: ${bestDay.day.day}/${bestDay.day.month} '
-              '(${Formatters.amount(bestDay.total.toDouble())} $currencyLabel)',
+          context.l10n.rptBestSavingDay(
+              '${bestDay.day.day}/${bestDay.day.month}',
+              '${Formatters.amount(bestDay.total.toDouble())} $currencyLabel'),
           c.success,
         ),
       if (topMerchant != null)
         (
           AppLucideIcons.store,
-          'أكثر متجر صرفًا: ${topMerchant.name} '
-              '(${Formatters.amount(topMerchant.total.toDouble())} $currencyLabel)',
+          context.l10n.rptTopMerchantWeek(topMerchant.name,
+              '${Formatters.amount(topMerchant.total.toDouble())} $currencyLabel'),
           c.textMuted,
         ),
     ];
@@ -990,7 +999,7 @@ class _WeeklyInsightCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('ملخص الأسبوع', style: AppTypography.bodyStrong(c.textMain)),
+          Text(context.l10n.rptWeekSummary, style: AppTypography.bodyStrong(c.textMain)),
           const SizedBox(height: AppSpacing.s3),
           ...insights.map(
             (item) => Padding(

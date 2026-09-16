@@ -511,5 +511,833 @@
   "coachDashboardHelpTitle": "الدليل متاح دائمًا",
   "coachDashboardHelpBody": "تجد «كيف تستخدم قِرش» في الإعدادات في أي وقت، ويمكنك إعادة هذه الجولة من هناك.",
   "helpReplayTour": "إعادة الجولة التعريفية",
-  "helpReplayTourDone": "ستظهر الجولة التعريفية من جديد."
+  "helpReplayTourDone": "ستظهر الجولة التعريفية من جديد.",
+  "setLoadingCountries": "تحميل الدول...",
+  "setLoadingCurrencies": "تحميل العملات...",
+  "setCountry": "الدولة",
+  "setBaseCurrency": "العملة الأساسية",
+  "setName": "الاسم",
+  "setNameInApp": "اسمك في التطبيق",
+  "setAccountData": "بيانات حسابك",
+  "setMobileNumber": "رقم الموبايل",
+  "setAddYourNumber": "أضف رقمك",
+  "setAppearance": "المظهر",
+  "setAppearanceSub": "فاتح، داكن، أو حسب النظام",
+  "setAccountsAndDues": "حساباتك والتزاماتك",
+  "setSyncConflicts": "تعارضات المزامنة",
+  "setSyncConflictsSub": "عناصر عُدّلت على أكثر من جهاز — بحاجة لقرارك",
+  "setAccountsWallets": "الحسابات والمحافظ",
+  "setAccountsWalletsSub": "حسابات متعددة، كل واحد بعملته الخاصة",
+  "setAllCards": "كل البطاقات",
+  "setAllCardsSub": "نظرة عامة على بطاقاتك مجمّعة حسب الحساب",
+  "setSubsAndBills": "الاشتراكات والفواتير",
+  "setSubsAndBillsSub": "التزاماتك الدورية ومواعيد السداد",
+  "setPlans": "الخطط",
+  "setPlansSub": "ميزانية رحلة أو مناسبة تتابع نفسها",
+  "setToolsAndSettings": "أدوات وإعدادات",
+  "setCategories": "التصنيفات",
+  "setCategoriesSub": "نظم المصروفات والدخل والتحويلات",
+  "setAchievements": "الإنجازات والمستوى",
+  "setAchievementsSub": "شارات ومستويات تشجع عادة المتابعة",
+  "setCurrencyRepair": "تأكيد عملة الميزانيات والأهداف",
+  "setCurrencyRepairSub": "راجع عملة بيانات التخطيط القديمة بأمان",
+  "setAppleShortcut": "اختصار آبل",
+  "setAppleShortcutSub": "مرر رسائل البنك إلى قرش عبر Shortcuts",
+  "setRewardsAndSupport": "المكافآت والدعم",
+  "setInviteFriends": "دعوة الأصدقاء",
+  "setInviteFriendsSub": "شارك رمز دعوتك واكسب تقارير بدون إعلانات",
+  "setAdPrivacyOptions": "خيارات خصوصية الإعلانات",
+  "setAdPrivacyOptionsSub": "إدارة موافقتك على الإعلانات",
+  "setContactUs": "تواصل معنا",
+  "setContactUsSub": "الدعم الفني والإجابة على استفساراتك",
+  "setAboutQirsh": "عن قرش",
+  "setAboutQirshSub": "معلومات التطبيق والإصدار",
+  "setCaptureStatus": "رصد العمليات",
+  "setCaptureStatusSub": "حالة الربط مع رسائل البنك واختصار آبل",
+  "setConfirmCaptured": "تأكيد العمليات الملتقطة",
+  "setNotifyOnCapture": "إشعار عند التقاط عملية",
+  "setHideOnLockScreen": "إخفاء التفاصيل الحساسة على شاشة القفل",
+  "setYourAlerts": "تنبيهاتك",
+  "setQirshMessages": "رسائل ونصائح قرش",
+  "setBudget80Alert": "تنبيه 80% من الميزانية",
+  "setBudgetOverAlert": "تنبيه تجاوز الميزانية",
+  "setDailyReminder": "التذكير اليومي",
+  "setDailyReminderTime": "كل يوم الساعة 10 مساءً",
+  "setWeeklyReport": "التقرير الأسبوعي",
+  "setBillReminders": "تذكير الاشتراكات والفواتير",
+  "setGoalCelebrations": "احتفالات الأهداف",
+  "setAchievementAlerts": "تنبيهات الإنجازات",
+  "setQuietHours": "ساعات الهدوء",
+  "setDisabled": "معطّل",
+  "setEditQuietHours": "تعديل وقت الهدوء",
+  "setNotificationTools": "أدوات الإشعارات",
+  "setTestNotifications": "اختبار إشعارات قرش",
+  "setTestNotificationsSub": "أرسل إشعارًا تجريبيًا إلى هذا الجهاز",
+  "setMessageCentre": "مركز رسائل قرش",
+  "setMessageCentreSub": "الإشعارات والحملات والإعلانات السابقة",
+  "setDataTransfer": "نقل البيانات",
+  "setDataTransferSub": "بياناتك المالية تظل تحت سيطرتك",
+  "setImportFile": "استيراد ملف",
+  "setImportFileSub": "CSV من أي تطبيق أو ZIP صادر من قرش",
+  "setExportCsv": "تصدير العمليات CSV",
+  "setExportCsvSub": "ملف بسيط لكل عملياتك",
+  "setExportAll": "تصدير كل بيانات قرش",
+  "setExportAllSub": "حزمة ZIP قابلة للنقل والاستعادة",
+  "setSecurityPrivacy": "الأمان والخصوصية",
+  "setEncryptedDbPart1": "بياناتك على الجهاز مخزّنة بقاعدة بيانات مشفّرة، ",
+  "setEncryptedDbPart2": "ومفتاحها محفوظ في خزنة النظام",
+  "setPrivacyAndData": "الخصوصية والبيانات",
+  "setPrivacyAndDataSub": "أمان بياناتك وسياسة الخصوصية",
+  "setHideAmounts": "إخفاء الأرقام في الواجهة",
+  "setExitAndErase": "الخروج وحذف البيانات",
+  "setExitAndEraseSub": "إجراءات لا يمكن التراجع عن بعضها",
+  "setStartOver": "ابدأ من جديد",
+  "setStartOverSub": "امسح البيانات المحلية مع إبقاء الحساب نشطًا",
+  "setSignOut": "تسجيل الخروج",
+  "setDeleteAccount": "حذف الحساب وكل بياناتي",
+  "setDeleteAccountSub": "إجراء نهائي يتطلب تأكيدك",
+  "setTestNotificationSent": "أرسلنا إشعاراً تجريبياً من قرش.",
+  "setTestNotificationFailed": "تعذّر إرسال الإشعار التجريبي.",
+  "setUnsyncedData": "بيانات غير محفوظة سحابيًا",
+  "setCancel": "إلغاء",
+  "setSignOutDiscard": "تسجيل الخروج وحذف غير المحفوظ",
+  "setUnsyncedCheckFailed": "تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.",
+  "setSignOutFailed": "تعذّر تسجيل الخروج بأمان. حاول مجدداً.",
+  "setPhotoUpdated": "تم تحديث الصورة.",
+  "setSave": "حفظ",
+  "setCategoriesSheetIntro": "أضف أو عدّل التصنيفات التي تظهر في العمليات والتقارير.",
+  "setAddCategory": "إضافة تصنيف",
+  "setExpenses": "مصروفات",
+  "setIncome": "دخل",
+  "setTransfers": "تحويلات",
+  "setEditCategory": "تعديل تصنيف",
+  "setCategoryName": "اسم التصنيف",
+  "setIncomeCategory": "تصنيف دخل",
+  "setIcon": "الأيقونة",
+  "setColor": "اللون",
+  "setEnterCategoryName": "اكتب اسم التصنيف.",
+  "setSaveChanges": "حفظ التعديلات",
+  "setAdd": "إضافة",
+  "setDeleteCategoryQ": "حذف التصنيف؟",
+  "setDeleteCategoryBody": "سيتم نقل عملياته إلى «أخرى» أو «دخل»، وحذف أي ميزانية مرتبطة به.",
+  "setDelete": "حذف",
+  "setQuietHoursNote": "نؤجل الإشعارات المجدولة خلال هذه الفترة لأول وقت مسموح.",
+  "setStarts": "تبدأ",
+  "setEnds": "تنتهي",
+  "setAboutApp": "عن التطبيق",
+  "setAboutBody": "قرش لتتبع المصروفات من رسائل البنك والإدخال اليدوي. يمكنك نقل بياناتك المالية كملفات CSV أو حزمة ZIP من قسم البيانات والخصوصية.",
+  "setOk": "تمام",
+  "setSupportBody": "للدعم أو الملاحظات انسخ البريد وأرسل لنا تفاصيل المشكلة، نوع الجهاز، وخطوات تكرارها.",
+  "setCopyEmail": "نسخ البريد",
+  "setEraseAllQ": "مسح جميع البيانات؟",
+  "setEraseAllBody": "سيتم مسح جميع بياناتك المحلية. لا يمكن التراجع.",
+  "setErase": "مسح",
+  "setSettingsLoadFailed": "تعذر تحميل الإعدادات. حاول مرة أخرى بعد قليل.",
+  "setSettings": "الإعدادات",
+  "setBack": "رجوع",
+  "setThemeAuto": "تلقائي",
+  "setThemeLight": "فاتح",
+  "setThemeDark": "داكن",
+  "setEdit": "تعديل",
+  "setAppLockFailed": "تعذر تفعيل القفل. تأكد من إعداد بصمة أو رمز للجهاز.",
+  "setAppLock": "قفل التطبيق",
+  "setNoBankMessageYet": "لم نرصد أي رسالة بنكية بعد",
+  "setCaptureEnableFailed": "تعذّر تفعيل إشعارات رصد البنك",
+  "setNoBankMessagesRecently": "لم نستقبل رسائل بنكية منذ فترة",
+  "setBankCaptureStatus": "حالة رصد رسائل البنك",
+  "setCheck": "تحقق",
+  "setBackupFirst": "خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.",
+  "setToday": "اليوم",
+  "bdgError": "حدث خطأ",
+  "bdgTabBudgets": "الميزانيات",
+  "bdgTabHistory": "سجل الميزانيات",
+  "bdgTabGoals": "الأهداف",
+  "bdgEmptyBudgetsTitle": "لا توجد ميزانيات",
+  "bdgEmptyBudgetsBody": "أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.",
+  "bdgEmptyGoalsTitle": "لا توجد أهداف",
+  "bdgEmptyGoalsBody": "أضف هدف ادخار ليتابع قِرش تقدمك إلى جانب ميزانياتك.",
+  "bdgAddGoal": "إضافة هدف",
+  "bdgEmptyHistoryTitle": "السجل فارغ",
+  "bdgEmptyHistoryBody": "اختر فترة تحتوي على ميزانيات أو أضف ميزانية جديدة، وسيظهر كل يوم/أسبوع/شهر هنا كسجلّ منفصل.",
+  "bdgAddBudget": "إضافة ميزانية",
+  "bdgDeleteTitle": "حذف الميزانية؟",
+  "bdgDeleteBody": "سيُحذف سقف الميزانية. لن تتأثر العمليات نفسها.",
+  "bdgDeleteFailed": "تعذّر حذف الميزانية الآن.",
+  "bdgFilterAll": "الكل",
+  "bdgFilterDaily": "يومي",
+  "bdgFilterWeekly": "أسبوعي",
+  "bdgFilterMonthly": "شهري",
+  "bdgFilterYearly": "سنوي",
+  "bdgStatHistoryCount": "ميزانيات في السجل",
+  "bdgStatTargetSavings": "مجموع المدخرات المستهدفة",
+  "bdgStatTotalBudgeted": "إجمالي الميزانيات المرصودة",
+  "bdgStatActiveGoals": "أهداف نشطة",
+  "bdgStatProgress": "نسبة التقدم",
+  "bdgStatTotalSaved": "إجمالي الادخار",
+  "bdgStateSafeF": "آمنة",
+  "bdgStateNear": "اقتربت",
+  "bdgStateOverF": "تجاوزت",
+  "bdgBudgetsWord": "ميزانيات",
+  "bdgUsageRate": "نسبة الاستهلاك",
+  "bdgActualSpend": "المصروف الفعلي",
+  "bdgBudgetWord": "ميزانية",
+  "bdgOver": "تجاوز",
+  "bdgSafe": "آمن",
+  "bdgAllExpenses": "كل المصروفات",
+  "bdgCategory": "تصنيف",
+  "bdgSpent": "مصروف",
+  "bdgRemaining": "باقي",
+  "bdgLimit": "الحد",
+  "bdgSaved": "وفّرت",
+  "bdgPeriodCurrent": "الفترة الحالية",
+  "bdgPeriodOver": "فترة تجاوزت الحد",
+  "bdgPeriodEnded": "فترة منتهية",
+  "bdgRecordLive": "ما زال هذا السجل يُحدَّث حتى نهاية الفترة.",
+  "bdgRecordFinal": "هذا السجل محسوب من العمليات الفعلية داخل هذه الفترة.",
+  "bdgEditBudget": "تعديل الميزانية",
+  "bdgPeriodTransactions": "عمليات الفترة",
+  "bdgNoConfirmedTx": "لم تُسجَّل عمليات مؤكدة ضمن هذه الفترة.",
+  "bdgCountedOpenAll": "داخلة في الحساب — افتح «العمليات» لعرضها كلها.",
+  "bdgDailyBudget": "ميزانية يومية",
+  "bdgWeeklyBudget": "ميزانية أسبوعية",
+  "bdgYearlyBudget": "ميزانية سنوية",
+  "bdgMonthlyBudget": "ميزانية شهرية",
+  "bdgTransactionWord": "عملية",
+  "bdgGoalDone": "اكتمل الهدف",
+  "bdgEnvelopeTitle": "وزّع دخلك على المظاريف",
+  "bdgEnvelopeBody": "اكتب راتبك ووزّعه بضغطة — و«قِرش» يحسب لك المتاح كل يوم",
+  "bdgMoreTxCounted": "باقي {count} عملية داخلة في الحساب — افتح «العمليات» لعرضها كلها.",
+  "@bdgMoreTxCounted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnError": "حدث خطأ",
+  "txnTransactionWord": "عملية",
+  "txnFilterPending": "تصفية: قيد المراجعة",
+  "txnConfirmAll": "تأكيد الكل",
+  "txnTabTransactions": "العمليات",
+  "txnTabBills": "الفواتير",
+  "txnEmptyPeriodTitle": "لا توجد عمليات في هذه الفترة",
+  "txnEmptyPeriodBody": "غيّر الفترة أو أضف رسالة بنك جديدة من زر +.",
+  "txnConfirmAllTitle": "تأكيد كل العمليات المعلّقة؟",
+  "txnConfirm": "تأكيد",
+  "txnPickAccount": "اختر الحساب",
+  "txnSearchHint": "ابحث باسم متجر، تصنيف، مبلغ أو عملة",
+  "txnClearSearch": "مسح البحث",
+  "txnRangeToday": "اليوم",
+  "txnRangeThisWeek": "هذا الأسبوع",
+  "txnRangeThisMonth": "هذا الشهر",
+  "txnRangeLastMonth": "الشهر السابق",
+  "txnRange7": "آخر 7 أيام",
+  "txnRange30": "آخر 30 يومًا",
+  "txnRange90": "آخر 90 يومًا",
+  "txnRangeThisYear": "هذه السنة",
+  "txnRangeLastYear": "السنة الماضية",
+  "txnRangeCustom": "مخصص",
+  "txnPickRange": "اختر فترة العرض",
+  "txnFrom": "من",
+  "txnTo": "إلى",
+  "txnApplyCustomRange": "تطبيق الفترة المخصصة",
+  "txnKindAll": "الكل",
+  "txnKindExpense": "مصروفات",
+  "txnKindIncome": "دخل",
+  "txnKindTransfer": "تحويلات",
+  "txnPendingReview": "قيد المراجعة",
+  "txnCategory": "التصنيف",
+  "txnFilterByCategory": "تصفية حسب التصنيف",
+  "txnAllCategories": "كل التصنيفات",
+  "txnBillsSubs": "اشتراكات",
+  "txnBillsInstalments": "أقساط",
+  "txnAddSub": "إضافة اشتراك",
+  "txnAddInstalment": "إضافة قسط",
+  "txnLearnBills": "اعرف أكثر عن الفواتير",
+  "txnSubsEmptyTitle": "اشتراكاتك، متابعة تلقائية",
+  "txnInstEmptyTitle": "أقساطك، واضحة كل شهر",
+  "txnSubsEmptyBody": "أضف اشتراكك يدويًا أو دعه يُكتشف تلقائيًا من العمليات المتكررة.",
+  "txnInstEmptyBody": "أضف القسط بتاريخه وتنبيهه ليظهر في الفواتير قبل الاستحقاق.",
+  "txnSuggestionsTitle": "اقتراحات من العمليات المتكررة",
+  "txnHowSubsTitle": "كيف يتابع قِرش الاشتراكات؟",
+  "txnHowInstTitle": "كيف يتابع قِرش الأقساط؟",
+  "txnHowSubsBody": "يتابع قِرش الأنماط المتكررة تلقائيًا، ويمكنك أيضًا إضافة اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.",
+  "txnHowInstBody": "أضف القسط يدويًا بالمبلغ وتاريخ الاستحقاق والتنبيه. لاحقًا نضيف المتبقي وعدد الأقساط.",
+  "txnTotalMonthlySubs": "إجمالي الاشتراكات الشهرية",
+  "txnTotalMonthlyInst": "إجمالي الأقساط الشهرية",
+  "txnActive": "نشط",
+  "txnPerYear": "سنويًا",
+  "txnDueToday": "مستحق اليوم",
+  "txnPaused": "متوقف",
+  "txnCancelled": "ملغي",
+  "txnCycleWeekly": "أسبوعي",
+  "txnCycleMonthly": "شهري",
+  "txnCycleYearly": "سنوي",
+  "txnTotalValueLabel": "القيمة الكلية: ",
+  "txnPaidManuallyLabel": "مدفوع يدويًا: ",
+  "txnAdd": "إضافة",
+  "txnBillsAndSubs": "الفواتير والاشتراكات",
+  "txnPeriodSpendTotal": "إجمالي مصروفات الفترة",
+  "txnActiveMonthlySpend": "إجمالي الصرف الشهري النشط",
+  "txnTxForPeriod": "عملية للفترة",
+  "txnTotalSpent": "إجمالي المصروف",
+  "txnActiveSub": "اشتراك نشط",
+  "txnRunningInst": "قسط جاري",
+  "txnYearlyTotal": "المجموع سنويًا",
+  "txnSmartInbox": "صندوق المراجعة الذكي",
+  "txnReviewTx": "راجع العملية",
+  "txnHide": "إخفاء",
+  "txnSuspectTxPlural": "عمليات مشبوهة",
+  "txnDismissAll": "تجاهل الكل",
+  "txnNoSuspectTx": "لا توجد عمليات مشبوهة",
+  "txnSimilarExists": "عملية مشابهة موجودة",
+  "txnSimilarBody": "هذه العملية تشبه عملية موجودة بالمبلغ والتاجر والوقت نفسها.",
+  "txnTheNew": "الجديدة",
+  "txnNoClearMerchant": "بدون تاجر واضح",
+  "txnTheExisting": "الموجودة",
+  "txnDismissDuplicate": "تجاهل التكرار",
+  "txnSaveAsNew": "احفظ كجديدة",
+  "txnEditTx": "تعديل العملية",
+  "txnChangeCategory": "تغيير التصنيف",
+  "txnTimeInSms": "وقت العملية داخل SMS",
+  "txnTimeReceived": "وقت استلام الرسالة",
+  "txnDupBannerReview": "{count, plural, =1{عملية مشبوهة واحدة} =2{عمليتان مشبوهتان} few{{count} عمليات مشبوهة} many{{count} عملية مشبوهة} other{{count} عملية مشبوهة}} — اضغط للمراجعة",
+  "@txnDupBannerReview": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnDismissAllDupesBody": "ستُزال كل تنبيهات التكرار المعروضة. العمليات نفسها لن تتأثر، لكن لا يمكن مراجعتها من هنا مرة أخرى.",
+  "txnTimeSource": "مصدر الوقت: {source}",
+  "@txnTimeSource": {
+    "placeholders": {
+      "source": {
+        "type": "String"
+      }
+    }
+  },
+  "txnRecurredMonths": "{count, plural, =1{تكرر شهرًا واحدًا} =2{تكرر شهرين} few{تكرر {count} أشهر} many{تكرر {count} شهرًا} other{تكرر {count} شهرًا}} · اضغط للتفعيل",
+  "@txnRecurredMonths": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnConfirmAllBody": "{count, plural, =1{سيتم تأكيد عملية واحدة بتصنيفها الحالي.} =2{سيتم تأكيد عمليتين بتصنيفيهما الحاليين.} few{سيتم تأكيد {count} عمليات بتصنيفاتها الحالية.} many{سيتم تأكيد {count} عملية بتصنيفاتها الحالية.} other{سيتم تأكيد {count} عملية بتصنيفاتها الحالية.}}",
+  "@txnConfirmAllBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnOverdueDays": "{days, plural, =1{متأخر يومًا واحدًا} =2{متأخر يومين} few{متأخر {days} أيام} many{متأخر {days} يومًا} other{متأخر {days} يومًا}}",
+  "@txnOverdueDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "txnInDays": "{days, plural, =1{بعد يوم واحد} =2{بعد يومين} few{بعد {days} أيام} many{بعد {days} يومًا} other{بعد {days} يومًا}}",
+  "@txnInDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "txnPerInstalment": "{amount} / قسط",
+  "@txnPerInstalment": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "txnPaidOfTotal": "{paid} من {total} قسط مدفوع",
+  "@txnPaidOfTotal": {
+    "placeholders": {
+      "paid": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "txnRemainingInstalments": "{count, plural, =1{متبقٍ قسط واحد} =2{متبقٍ قسطان} few{متبقٍ {count} أقساط} many{متبقٍ {count} قسطًا} other{متبقٍ {count} قسط}}",
+  "@txnRemainingInstalments": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnInterestRate": "فائدة {rate}%",
+  "@txnInterestRate": {
+    "placeholders": {
+      "rate": {
+        "type": "String"
+      }
+    }
+  },
+  "txnNextInstalment": "القسط القادم: {due}",
+  "@txnNextInstalment": {
+    "placeholders": {
+      "due": {
+        "type": "String"
+      }
+    }
+  },
+  "txnEstPerMonth": "{amount} {currency}/شهر",
+  "@txnEstPerMonth": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "txnSmartInboxCount": "صندوق المراجعة الذكي · {count}",
+  "@txnSmartInboxCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnDismissNAlerts": "{count, plural, =1{تجاهل تنبيهًا واحدًا؟} =2{تجاهل تنبيهين؟} few{تجاهل {count} تنبيهات؟} many{تجاهل {count} تنبيهًا؟} other{تجاهل {count} تنبيه؟}}",
+  "@txnDismissNAlerts": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "txnDismissAllCount": "تجاهل الكل ({count})",
+  "@txnDismissAllCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "subsOverdue": "متأخر",
+  "subsToday": "اليوم",
+  "subsTabSubs": "الاشتراكات ({count})",
+  "@subsTabSubs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "subsTabInst": "الأقساط ({count})",
+  "@subsTabInst": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "subsMonthlyScoped": "الاشتراكات الشهرية · {account}",
+  "@subsMonthlyScoped": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      }
+    }
+  },
+  "subsPerYearApprox": "≈ {amount}/سنة",
+  "@subsPerYearApprox": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "subsTitle": "الاشتراكات والفواتير",
+  "subsMonthlyTotal": "الاشتراكات الشهرية",
+  "subsActiveSubs": "اشتراكات نشطة",
+  "subsRunningInst": "أقساط جارية",
+  "subsMonthlyInstCommit": "التزام الأقساط شهريًا",
+  "subsEmptyTitle": "اشتراكاتك في مكان واحد",
+  "subsAutoDetected": "مكتشفة تلقائيًا",
+  "subsAddNewSub": "إضافة اشتراك جديد",
+  "subsMaybeUnused": "قد لا تستخدم هذا الاشتراك",
+  "subsInstEmptyTitle": "أقساطك، واضحة قبل ميعادها",
+  "subsInstEmptyBody": "أضف القسط بالمبلغ والعدد وتاريخ الاستحقاق.",
+  "subsTotalInstDebt": "إجمالي مديونية الأقساط",
+  "subsNearestInst": "أقرب قسط",
+  "subsAddNewInst": "إضافة قسط جديد",
+  "rptAnomalyPrivate": "في يوم {date} كان الصرف أعلى من نمطك المعتاد. راجعه إن أردت معرفة السبب.",
+  "@rptAnomalyPrivate": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "rptAnomalyDetail": "في يوم {date} صرفت {amount}، وهو أعلى من متوسطك اليومي {ratio}×.",
+  "@rptAnomalyDetail": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      },
+      "ratio": {
+        "type": "String"
+      }
+    }
+  },
+  "rptSpendLower": "صرفك أقل {percent}% من نفس الفترة السابقة.",
+  "@rptSpendLower": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "rptSpendHigher": "صرفك أعلى {percent}% من نفس الفترة السابقة.",
+  "@rptSpendHigher": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "rptHighestDayBody": "أعلى يوم في الفترة وصل إلى {amount}.",
+  "@rptHighestDayBody": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "rptTopCategoryHint": "أكبر إنفاق لديك على {category}. راقب هذا التصنيف أولًا.",
+  "@rptTopCategoryHint": {
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "rptMerchantTxCount": "{count, plural, =1{عملية واحدة} =2{عمليتان} few{{count} عمليات} many{{count} عملية} other{{count} عملية}}",
+  "@rptMerchantTxCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "rptVsLastWeek": "{sign} {percent}% مقارنة بالأسبوع الماضي",
+  "@rptVsLastWeek": {
+    "placeholders": {
+      "sign": {
+        "type": "String"
+      },
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
+  "rptTopCategoryWeek": "أكثر فئة صرفًا: {category}",
+  "@rptTopCategoryWeek": {
+    "placeholders": {
+      "category": {
+        "type": "String"
+      }
+    }
+  },
+  "rptBestSavingDay": "أفضل يوم توفيرًا: {date} ({amount})",
+  "@rptBestSavingDay": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "rptTopMerchantWeek": "أكثر متجر صرفًا: {name} ({amount})",
+  "@rptTopMerchantWeek": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "rptTabOverview": "نظرة عامة",
+  "rptTabTrends": "الاتجاهات",
+  "rptTabDetails": "التفاصيل",
+  "rptUnusualSpend": "صرف غير معتاد",
+  "rptVsPrevPeriod": "مقارنة بنفس الفترة السابقة",
+  "rptNeedPrevPeriod": "ما زلنا نحتاج فترة سابقة فيها إنفاق لعرض الاتجاه بدقة.",
+  "rptHighestSpendDay": "أعلى يوم صرف",
+  "rptQuickTip": "اقتراح سريع",
+  "rptAddMoreTx": "ابدأ بإضافة عمليات أكثر لنقدّم اقتراحات أوضح.",
+  "rptSelectedPeriod": "الفترة المختارة",
+  "rptNetPeriodSpend": "صافي مصروف الفترة",
+  "rptSelectedPeriodSpend": "مصروف الفترة المختارة",
+  "rptTotalExpenses": "إجمالي المصروفات",
+  "rptRefunds": "المرتجعات",
+  "rptNet": "الصافي",
+  "rptThisWeekUsage": "استهلاك الأسبوع الحالي",
+  "rptAverage": "المتوسط",
+  "rptHighest": "الأعلى",
+  "rptTotal": "الإجمالي",
+  "rptByCategory": "استهلاكك بالتصنيفات",
+  "rptByMerchant": "مصروفاتك في المتاجر",
+  "rptTopMerchantsSub": "أكبر أماكن الصرف في الفترة",
+  "rptMerchantsEmpty": "ستظهر هنا أكثر المتاجر صرفاً بعد إضافة عمليات مؤكدة.",
+  "rptIncludesRefund": " · شامل مرتجع ",
+  "rptInsightsTitle": "الرؤى والتقارير",
+  "rptInsightsSub": "اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.",
+  "rptDailyAverage": "متوسط يومي",
+  "rptHighestDay": "أعلى يوم",
+  "rptWeekSummary": "ملخص الأسبوع",
+  "bdgPeriodSubtitle": "ميزانية {period} · {date}",
+  "@bdgPeriodSubtitle": {
+    "placeholders": {
+      "period": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "bdgPeriodSubtitleLive": "ميزانية {period} · {date} · جارية",
+  "@bdgPeriodSubtitleLive": {
+    "placeholders": {
+      "period": {
+        "type": "String"
+      },
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "bdgLatestOfTotal": "أحدث {shown} من {total}",
+  "@bdgLatestOfTotal": {
+    "placeholders": {
+      "shown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "bdgRemainingPrefix": "باقي ",
+  "bdgToReachSuffix": " {currency} للوصول",
+  "@bdgToReachSuffix": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "setUnsyncedLedger": "{count, plural, =1{تغيير واحد في المعاملات} =2{تغييران في المعاملات} few{{count} تغييرات في المعاملات} many{{count} تغييرًا في المعاملات} other{{count} تغيير في المعاملات}}",
+  "@setUnsyncedLedger": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedPlanning": "{count, plural, =1{تغيير واحد في الحسابات/الميزانيات/الأهداف/الفواتير} =2{تغييران في الحسابات/الميزانيات/الأهداف/الفواتير} few{{count} تغييرات في الحسابات/الميزانيات/الأهداف/الفواتير} many{{count} تغييرًا في الحسابات/الميزانيات/الأهداف/الفواتير} other{{count} تغيير في الحسابات/الميزانيات/الأهداف/الفواتير}}",
+  "@setUnsyncedPlanning": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedInbox": "{count, plural, =1{عنصر واحد في صندوق الوارد} =2{عنصران في صندوق الوارد} few{{count} عناصر في صندوق الوارد} many{{count} عنصرًا في صندوق الوارد} other{{count} عنصر في صندوق الوارد}}",
+  "@setUnsyncedInbox": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedCards": "{count, plural, =1{بطاقة واحدة محفوظة على هذا الجهاز فقط} =2{بطاقتان محفوظتان على هذا الجهاز فقط} few{{count} بطاقات محفوظة على هذا الجهاز فقط} many{{count} بطاقة محفوظة على هذا الجهاز فقط} other{{count} بطاقة محفوظة على هذا الجهاز فقط}}",
+  "@setUnsyncedCards": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedUnproven": "{count, plural, =1{سجل مالي واحد لم يُرفع للسحابة بعد} =2{سجلان ماليان لم يُرفعا للسحابة بعد} few{{count} سجلات مالية لم تُرفع للسحابة بعد} many{{count} سجلًا ماليًا لم يُرفع للسحابة بعد} other{{count} سجل مالي لم يُرفع للسحابة بعد}}",
+  "@setUnsyncedUnproven": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setUnsyncedConflicts": "{count, plural, =1{سجل واحد به تعارض لم يُحلّ} =2{سجلان بهما تعارض لم يُحلّ} few{{count} سجلات بها تعارض لم يُحلّ} many{{count} سجلًا به تعارض لم يُحلّ} other{{count} سجل به تعارض لم يُحلّ}}",
+  "@setUnsyncedConflicts": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setListSeparator": "، ",
+  "setUnsyncedSignOutBody": "لديك بيانات لم تُرفع للسحابة وسيحذفها تسجيل الخروج: {list}. خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.",
+  "@setUnsyncedSignOutBody": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "setGapDays": "{count, plural, =1{منذ يوم واحد} =2{منذ يومين} few{منذ {count} أيام} many{منذ {count} يومًا} other{منذ {count} يوم}}",
+  "@setGapDays": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setGapHours": "{count, plural, =1{منذ ساعة واحدة} =2{منذ ساعتين} few{منذ {count} ساعات} many{منذ {count} ساعة} other{منذ {count} ساعة}}",
+  "@setGapHours": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "setGapToday": "اليوم",
+  "setLastCapture": "آخر عملية رصد: {gap}",
+  "@setLastCapture": {
+    "placeholders": {
+      "gap": {
+        "type": "String"
+      }
+    }
+  },
+  "setApnsFailed": "فشل تسجيل APNs: {message}",
+  "@setApnsFailed": {
+    "placeholders": {
+      "message": {
+        "type": "String"
+      }
+    }
+  },
+  "setCheckShortcutStillOn": "{subtitle} — تأكد أن الاختصار لا يزال مفعّلًا",
+  "@setCheckShortcutStillOn": {
+    "placeholders": {
+      "subtitle": {
+        "type": "String"
+      }
+    }
+  },
+  "goalDueToday": "الموعد اليوم",
+  "goalDaysLeft": "{days, plural, =1{باقي يوم واحد} =2{باقي يومان} few{باقي {days} أيام} many{باقي {days} يومًا} other{باقي {days} يوم}}",
+  "@goalDaysLeft": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "goalMonthsLeft": "{months, plural, =1{باقي شهر واحد} =2{باقي شهران} few{باقي {months} أشهر} many{باقي {months} شهرًا} other{باقي {months} شهر}}",
+  "@goalMonthsLeft": {
+    "placeholders": {
+      "months": {
+        "type": "int"
+      }
+    }
+  },
+  "goalRemainingToReach": "باقي {amount} {currency} للوصول",
+  "@goalRemainingToReach": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "goalSavedAmount": "مدخر {amount} {currency}",
+  "@goalSavedAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "goalTargetAmount": "الهدف {amount} {currency}",
+  "@goalTargetAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "goalPerMonth": "/شهر",
+  "goalOverdue": "تجاوز الموعد المستهدف",
+  "goalTotalSavedAll": "إجمالي المدخر لكل أحلامك",
+  "goalTargetLabel": "المستهدف",
+  "goalEmptyBody": "أضف هدفك الأول وابدأ تعبئة الخزنة.",
+  "cardLinkTxTo": "اربط عملية بـ •••• {last4}",
+  "@cardLinkTxTo": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "cardTxLinkedTo": "تم ربط العملية بـ •••• {last4}",
+  "@cardTxLinkedTo": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "cardAccountWord": "حساب",
+  "cardUnassigned": "غير مخصّصة",
+  "cardBack": "رجوع",
+  "cardAllCards": "كل البطاقات",
+  "cardAddCard": "إضافة بطاقة",
+  "cardEmptyTitle": "لا توجد بطاقات بعد",
+  "cardEmptyBody": "تظهر البطاقات تلقائيًا من رسائل البنك، ويمكنك إضافة بطاقة بتصميمك.",
+  "cardAddCardCta": "أضف بطاقة",
+  "cardEdit": "تعديل",
+  "cardIn": "داخل",
+  "cardOut": "خارج",
+  "cardAddTx": "إضافة عملية",
+  "cardLinkExistingTx": "اربط عملية موجودة",
+  "cardSearchHint": "ابحث بالاسم أو المبلغ",
+  "cardNoTx": "لا توجد عمليات",
+  "accAddAccount": "إضافة حساب",
+  "accTitle": "الحسابات والمحافظ",
+  "accSubtitle": "كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.",
+  "accDefault": "افتراضي",
+  "accUnassignedCards": "بطاقات غير مخصّصة",
+  "accUnassignedCardsBody": "بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد."
 }

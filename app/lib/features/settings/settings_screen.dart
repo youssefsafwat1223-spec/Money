@@ -90,7 +90,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return '${country.flagEmoji} ${country.nameAr}';
       }
     }
-    return loading ? 'تحميل الدول...' : s.country;
+    return loading ? context.l10n.setLoadingCountries : s.country;
   }
 
   String _currencyLabel(
@@ -101,7 +101,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         return '${currency.code} · ${currency.nameAr}';
       }
     }
-    return loading ? 'تحميل العملات...' : s.currency;
+    return loading ? context.l10n.setLoadingCurrencies : s.currency;
   }
 
   void _editCountry(
@@ -114,7 +114,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _showSettingsPicker(
       context,
       ref,
-      title: 'الدولة',
+      title: context.l10n.setCountry,
       current: settings.country.toUpperCase(),
       values: _countryValues(countries),
       save: (value) async {
@@ -137,7 +137,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _showSettingsPicker(
       context,
       ref,
-      title: 'العملة الأساسية',
+      title: context.l10n.setBaseCurrency,
       current: settings.currency.toUpperCase(),
       values: _currencyValuesForCountry(settings.country, currencies),
       save: (value) async {
@@ -227,8 +227,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       : () => _showProfileTextSheet(
                             context,
                             ref,
-                            title: 'الاسم',
-                            label: 'اسمك في التطبيق',
+                            title: context.l10n.setName,
+                            label: context.l10n.setNameInApp,
                             initialValue: settings.displayName ?? '',
                             apply: (value) =>
                                 settings.copyWith(displayName: value.trim()),
@@ -252,21 +252,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         _Section(
                           // UX-028 — the other «الحساب». This group is profile
                           // data, so it says so.
-                          title: 'بيانات حسابك',
+                          title: context.l10n.setAccountData,
                           children: [
                             _NavTile(
                               icon: AppLucideIcons.smartphone,
-                              title: 'رقم الموبايل',
+                              title: context.l10n.setMobileNumber,
                               subtitle:
                                   (settings.phoneNumber?.trim().isNotEmpty ??
                                           false)
                                       ? settings.phoneNumber!.trim()
-                                      : 'أضف رقمك',
+                                      : context.l10n.setAddYourNumber,
                               onTap: () => _showProfileTextSheet(
                                 context,
                                 ref,
-                                title: 'رقم الموبايل',
-                                label: 'رقم الموبايل',
+                                title: context.l10n.setMobileNumber,
+                                label: context.l10n.setMobileNumber,
                                 keyboardType: TextInputType.phone,
                                 initialValue: settings.phoneNumber ?? '',
                                 apply: (value) => settings.copyWith(
@@ -275,7 +275,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                             _NavTile(
                               icon: AppLucideIcons.flag,
-                              title: 'الدولة',
+                              title: context.l10n.setCountry,
                               subtitle: _countryLabel(settings, countries,
                                   countriesAsync.isLoading),
                               onTap: countries.isEmpty
@@ -285,7 +285,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                             ),
                             _NavTile(
                               icon: AppLucideIcons.banknote,
-                              title: 'العملة الأساسية',
+                              title: context.l10n.setBaseCurrency,
                               subtitle: _currencyLabel(settings, currencies,
                                   currenciesAsync.isLoading),
                               onTap: currencies.isEmpty
@@ -328,8 +328,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         PremiumMotion(
             delay: const Duration(milliseconds: 40),
             child: _Section(
-              title: 'المظهر',
-              description: 'فاتح، داكن، أو حسب النظام',
+              title: context.l10n.setAppearance,
+              description: context.l10n.setAppearanceSub,
               children: [
                 _ThemeModeSelector(
                   value: ref.watch(themeModeProvider),
@@ -362,7 +362,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             // are split from the configuration entries so ten undifferentiated
             // rows stop reading as a second navigation bar.
             child: _Section(
-              title: 'حساباتك والتزاماتك',
+              title: context.l10n.setAccountsAndDues,
               children: [
                 // MALI-022: surface unresolved multi-device conflicts so they
                 // are no longer stuck/invisible. Shown only when some exist.
@@ -370,32 +370,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     .isNotEmpty)
                   _NavTile(
                     icon: AppLucideIcons.cloudOff,
-                    title: 'تعارضات المزامنة',
-                    subtitle: 'عناصر عُدّلت على أكثر من جهاز — بحاجة لقرارك',
+                    title: context.l10n.setSyncConflicts,
+                    subtitle: context.l10n.setSyncConflictsSub,
                     onTap: () => PlanningConflictsSheet.show(context),
                   ),
                 _NavTile(
                   icon: AppLucideIcons.wallet,
-                  title: 'الحسابات والمحافظ',
-                  subtitle: 'حسابات متعددة، كل واحد بعملته الخاصة',
+                  title: context.l10n.setAccountsWallets,
+                  subtitle: context.l10n.setAccountsWalletsSub,
                   onTap: () => context.push('/accounts'),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.creditCard,
-                  title: 'كل البطاقات',
-                  subtitle: 'نظرة عامة على بطاقاتك مجمّعة حسب الحساب',
+                  title: context.l10n.setAllCards,
+                  subtitle: context.l10n.setAllCardsSub,
                   onTap: () => MyCardsScreen.open(context),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.receipt,
-                  title: 'الاشتراكات والفواتير',
-                  subtitle: 'التزاماتك الدورية ومواعيد السداد',
+                  title: context.l10n.setSubsAndBills,
+                  subtitle: context.l10n.setSubsAndBillsSub,
                   onTap: () => context.push('/subscriptions'),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.luggage,
-                  title: 'الخطط',
-                  subtitle: 'ميزانية رحلة أو مناسبة تتابع نفسها',
+                  title: context.l10n.setPlans,
+                  subtitle: context.l10n.setPlansSub,
                   onTap: () => PlansScreen.open(context),
                 ),
               ],
@@ -404,32 +404,32 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         PremiumMotion(
             delay: const Duration(milliseconds: 100),
             child: _Section(
-              title: 'أدوات وإعدادات',
+              title: context.l10n.setToolsAndSettings,
               children: [
                 _NavTile(
                   icon: AppLucideIcons.inbox,
-                  title: 'التصنيفات',
-                  subtitle: 'نظم المصروفات والدخل والتحويلات',
+                  title: context.l10n.setCategories,
+                  subtitle: context.l10n.setCategoriesSub,
                   onTap: () => _showCategoriesSheet(context, ref),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.trophy,
-                  title: 'الإنجازات والمستوى',
-                  subtitle: 'شارات ومستويات تشجع عادة المتابعة',
+                  title: context.l10n.setAchievements,
+                  subtitle: context.l10n.setAchievementsSub,
                   onTap: () => context.push('/achievements'),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.arrowLeftRight,
-                  title: 'تأكيد عملة الميزانيات والأهداف',
-                  subtitle: 'راجع عملة بيانات التخطيط القديمة بأمان',
+                  title: context.l10n.setCurrencyRepair,
+                  subtitle: context.l10n.setCurrencyRepairSub,
                   onTap: () =>
                       context.push('/settings/planning-currency-repair'),
                 ),
                 if (Platform.isIOS)
                   _NavTile(
                     icon: AppLucideIcons.share,
-                    title: 'اختصار آبل',
-                    subtitle: 'مرر رسائل البنك إلى قرش عبر Shortcuts',
+                    title: context.l10n.setAppleShortcut,
+                    subtitle: context.l10n.setAppleShortcutSub,
                     onTap: () => showIosShortcutSheet(context),
                   ),
               ],
@@ -438,7 +438,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         PremiumMotion(
             delay: const Duration(milliseconds: 120),
             child: _Section(
-              title: 'المكافآت والدعم',
+              title: context.l10n.setRewardsAndSupport,
               children: [
                 // Referral discovery is gated by enable_referrals (R3). When the
                 // flag is off the tile is hidden — no referral functionality is
@@ -446,8 +446,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 if (ref.watch(referralsEnabledProvider))
                   _NavTile(
                     icon: AppLucideIcons.gift,
-                    title: 'دعوة الأصدقاء',
-                    subtitle: 'شارك رمز دعوتك واكسب تقارير بدون إعلانات',
+                    title: context.l10n.setInviteFriends,
+                    subtitle: context.l10n.setInviteFriendsSub,
                     onTap: () => context.push('/referrals'),
                   ),
                 // Ads privacy (R4 §11): shown only when UMP requires privacy
@@ -457,21 +457,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     false)
                   _NavTile(
                     icon: Icons.privacy_tip_outlined,
-                    title: 'خيارات خصوصية الإعلانات',
-                    subtitle: 'إدارة موافقتك على الإعلانات',
+                    title: context.l10n.setAdPrivacyOptions,
+                    subtitle: context.l10n.setAdPrivacyOptionsSub,
                     onTap: () =>
                         ref.read(adConsentServiceProvider).showPrivacyOptions(),
                   ),
                 _NavTile(
                   icon: AppLucideIcons.receipt,
-                  title: 'تواصل معنا',
-                  subtitle: 'الدعم الفني والإجابة على استفساراتك',
+                  title: context.l10n.setContactUs,
+                  subtitle: context.l10n.setContactUsSub,
                   onTap: () => _showContactSupport(context),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.info,
-                  title: 'عن قرش',
-                  subtitle: 'معلومات التطبيق والإصدار',
+                  title: context.l10n.setAboutQirsh,
+                  subtitle: context.l10n.setAboutQirshSub,
                   onTap: () => _showAboutApp(context),
                 ),
               ],
@@ -496,8 +496,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           PremiumMotion(
               delay: const Duration(milliseconds: 80),
               child: _Section(
-                title: 'رصد العمليات',
-                description: 'حالة الربط مع رسائل البنك واختصار آبل',
+                title: context.l10n.setCaptureStatus,
+                description: context.l10n.setCaptureStatusSub,
                 children: [
                   captureHealthAsync.dataOr(
                     (status) => _CaptureHealthTile(status: status),
@@ -519,7 +519,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   // description of what the app implements and declares.
                   _TrustNoticeTile(text: context.l10n.smsCaptureTrustNotice),
                   _SwitchTile(
-                    title: 'تأكيد العمليات الملتقطة',
+                    title: context.l10n.setConfirmCaptured,
                     icon: AppLucideIcons.messageSquare,
                     value: prefs.captureReview,
                     onChanged: (value) => _savePrefs(
@@ -528,7 +528,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'إشعار عند التقاط عملية',
+                    title: context.l10n.setNotifyOnCapture,
                     icon: AppLucideIcons.bellRing,
                     iconColor: c.cta,
                     value: prefs.captureLight,
@@ -539,7 +539,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   ),
                   // MALI-019 §6 — lock-screen privacy.
                   _SwitchTile(
-                    title: 'إخفاء التفاصيل الحساسة على شاشة القفل',
+                    title: context.l10n.setHideOnLockScreen,
                     icon: AppLucideIcons.lock,
                     value: prefs.hideLockScreenContent,
                     onChanged: (value) => _savePrefs(
@@ -553,10 +553,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           PremiumMotion(
               delay: const Duration(milliseconds: 100),
               child: _Section(
-                title: 'تنبيهاتك',
+                title: context.l10n.setYourAlerts,
                 children: [
                   _SwitchTile(
-                    title: 'رسائل ونصائح قرش',
+                    title: context.l10n.setQirshMessages,
                     icon: AppLucideIcons.megaphone,
                     value: prefs.marketingMessages,
                     onChanged: (value) => _savePrefs(
@@ -565,7 +565,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'تنبيه 80% من الميزانية',
+                    title: context.l10n.setBudget80Alert,
                     icon: AppLucideIcons.alertTriangle,
                     iconColor: c.accent,
                     value: prefs.budgetWarning,
@@ -575,7 +575,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'تنبيه تجاوز الميزانية',
+                    title: context.l10n.setBudgetOverAlert,
                     icon: AppLucideIcons.alertCircle,
                     iconColor: c.danger,
                     value: prefs.budgetOver,
@@ -585,8 +585,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'التذكير اليومي',
-                    subtitle: 'كل يوم الساعة 10 مساءً',
+                    title: context.l10n.setDailyReminder,
+                    subtitle: context.l10n.setDailyReminderTime,
                     icon: AppLucideIcons.bell,
                     value: prefs.dailyReminder,
                     onChanged: (value) => _savePrefs(
@@ -595,7 +595,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'التقرير الأسبوعي',
+                    title: context.l10n.setWeeklyReport,
                     icon: AppLucideIcons.lineChart,
                     value: prefs.weeklyReport,
                     onChanged: (value) => _savePrefs(
@@ -604,7 +604,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'تذكير الاشتراكات والفواتير',
+                    title: context.l10n.setBillReminders,
                     icon: AppLucideIcons.calendarCheck,
                     iconColor: c.cta,
                     value: prefs.subscriptionReminder,
@@ -614,7 +614,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'احتفالات الأهداف',
+                    title: context.l10n.setGoalCelebrations,
                     icon: AppLucideIcons.flag,
                     iconColor: c.success,
                     value: prefs.goalMilestone,
@@ -624,7 +624,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: 'تنبيهات الإنجازات',
+                    title: context.l10n.setAchievementAlerts,
                     icon: AppLucideIcons.trophy,
                     iconColor: c.success,
                     value: prefs.achievements,
@@ -636,10 +636,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   _SwitchTile(
                     icon: AppLucideIcons.moon,
                     iconColor: c.textMuted,
-                    title: 'ساعات الهدوء',
+                    title: context.l10n.setQuietHours,
                     subtitle: prefs.quietHoursEnabled
                         ? '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00'
-                        : 'معطّل',
+                        : context.l10n.setDisabled,
                     value: prefs.quietHoursEnabled,
                     onChanged: (value) => _savePrefs(
                       ref,
@@ -649,7 +649,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   if (prefs.quietHoursEnabled)
                     _NavTile(
                       icon: AppLucideIcons.clock,
-                      title: 'تعديل وقت الهدوء',
+                      title: context.l10n.setEditQuietHours,
                       subtitle:
                           '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00',
                       onTap: () => _showQuietHoursSheet(context, ref, prefs),
@@ -660,18 +660,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           PremiumMotion(
               delay: const Duration(milliseconds: 120),
               child: _Section(
-                title: 'أدوات الإشعارات',
+                title: context.l10n.setNotificationTools,
                 children: [
                   _NavTile(
                     icon: AppLucideIcons.bellPlus,
-                    title: 'اختبار إشعارات قرش',
-                    subtitle: 'أرسل إشعارًا تجريبيًا إلى هذا الجهاز',
+                    title: context.l10n.setTestNotifications,
+                    subtitle: context.l10n.setTestNotificationsSub,
                     onTap: () => _sendTestNotification(context),
                   ),
                   _NavTile(
                     icon: AppLucideIcons.inbox,
-                    title: 'مركز رسائل قرش',
-                    subtitle: 'الإشعارات والحملات والإعلانات السابقة',
+                    title: context.l10n.setMessageCentre,
+                    subtitle: context.l10n.setMessageCentreSub,
                     onTap: () => context.push('/announcements'),
                   ),
                 ],
@@ -692,26 +692,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         PremiumMotion(
             delay: const Duration(milliseconds: 80),
             child: _Section(
-              title: 'نقل البيانات',
-              description: 'بياناتك المالية تظل تحت سيطرتك',
+              title: context.l10n.setDataTransfer,
+              description: context.l10n.setDataTransferSub,
               children: [
                 _NavTile(
                   icon: AppLucideIcons.folderOpen,
-                  title: 'استيراد ملف',
-                  subtitle: 'CSV من أي تطبيق أو ZIP صادر من قرش',
+                  title: context.l10n.setImportFile,
+                  subtitle: context.l10n.setImportFileSub,
                   onTap: () => context.push('/data-transfer?intent=import'),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.table,
-                  title: 'تصدير العمليات CSV',
-                  subtitle: 'ملف بسيط لكل عملياتك',
+                  title: context.l10n.setExportCsv,
+                  subtitle: context.l10n.setExportCsvSub,
                   onTap: () =>
                       context.push('/data-transfer?intent=transactions'),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.archive,
-                  title: 'تصدير كل بيانات قرش',
-                  subtitle: 'حزمة ZIP قابلة للنقل والاستعادة',
+                  title: context.l10n.setExportAll,
+                  subtitle: context.l10n.setExportAllSub,
                   onTap: () => context.push('/data-transfer?intent=package'),
                 ),
               ],
@@ -720,7 +720,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         PremiumMotion(
             delay: const Duration(milliseconds: 100),
             child: _Section(
-              title: 'الأمان والخصوصية',
+              title: context.l10n.setSecurityPrivacy,
               // UX-030 — the strongest TRUE privacy claim the product can make
               // was never made anywhere in the UI. The local database is opened
               // with `PRAGMA cipher = 'sqlcipher'` and a key held in the
@@ -732,8 +732,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               // stating carefully: it claims local-database encryption, which
               // is what the code does — not end-to-end encryption, which it
               // does not.
-              description: 'بياناتك على الجهاز مخزّنة بقاعدة بيانات مشفّرة، '
-                  'ومفتاحها محفوظ في خزنة النظام',
+              description: context.l10n.setEncryptedDbPart1 +
+                  context.l10n.setEncryptedDbPart2,
               children: [
                 _NavTile(
                   icon: AppLucideIcons.helpCircle,
@@ -743,13 +743,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 ),
                 _NavTile(
                   icon: AppLucideIcons.heartPulse,
-                  title: 'الخصوصية والبيانات',
-                  subtitle: 'أمان بياناتك وسياسة الخصوصية',
+                  title: context.l10n.setPrivacyAndData,
+                  subtitle: context.l10n.setPrivacyAndDataSub,
                   onTap: () => context.push('/privacy'),
                 ),
                 settingsAsync.dataOr(
                   (settings) => _SwitchTile(
-                    title: 'إخفاء الأرقام في الواجهة',
+                    title: context.l10n.setHideAmounts,
                     icon: AppLucideIcons.eyeOff,
                     value: settings.privacyModeEnabled,
                     onChanged: (value) async {
@@ -776,26 +776,26 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             // and again here for the destructive group. Two unrelated groups
             // under an identical name. This one is named for what it does.
             child: _Section(
-              title: 'الخروج وحذف البيانات',
-              description: 'إجراءات لا يمكن التراجع عن بعضها',
+              title: context.l10n.setExitAndErase,
+              description: context.l10n.setExitAndEraseSub,
               children: [
                 _NavTile(
                   icon: AppLucideIcons.repeat,
-                  title: 'ابدأ من جديد',
-                  subtitle: 'امسح البيانات المحلية مع إبقاء الحساب نشطًا',
+                  title: context.l10n.setStartOver,
+                  subtitle: context.l10n.setStartOverSub,
                   onTap: () => _confirmReset(context, ref),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.logOut,
                   iconColor: c.danger,
-                  title: 'تسجيل الخروج',
+                  title: context.l10n.setSignOut,
                   onTap: () => _signOut(context, ref),
                 ),
                 _NavTile(
                   icon: AppLucideIcons.trash2,
                   iconColor: c.danger,
-                  title: 'حذف الحساب وكل بياناتي',
-                  subtitle: 'إجراء نهائي يتطلب تأكيدك',
+                  title: context.l10n.setDeleteAccount,
+                  subtitle: context.l10n.setDeleteAccountSub,
                   onTap: () => context.push('/privacy'),
                 ),
               ],
@@ -841,8 +841,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       SnackBar(
         content: Text(
           sent
-              ? 'أرسلنا إشعاراً تجريبياً من قرش.'
-              : 'تعذّر إرسال الإشعار التجريبي.',
+              ? context.l10n.setTestNotificationSent
+              : context.l10n.setTestNotificationFailed,
         ),
       ),
     );
@@ -870,16 +870,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         final proceed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('بيانات غير محفوظة سحابيًا'),
-            content: Text(_unsyncedSignOutMessage(pending)),
+            title: Text(context.l10n.setUnsyncedData),
+            content: Text(_unsyncedSignOutMessage(context, pending)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('إلغاء'),
+                child: Text(context.l10n.setCancel),
               ),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('تسجيل الخروج وحذف غير المحفوظ'),
+                child: Text(context.l10n.setSignOutDiscard),
               ),
             ],
           ),
@@ -891,9 +891,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // must not silently wipe. Surface it and abort so the user can retry.
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content:
-                Text('تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.'),
+                Text(context.l10n.setUnsyncedCheckFailed),
           ),
         );
       }
@@ -904,8 +904,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     } catch (_) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تعذّر تسجيل الخروج بأمان. حاول مجدداً.'),
+          SnackBar(
+            content: Text(context.l10n.setSignOutFailed),
           ),
         );
       }
@@ -1001,7 +1001,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _refreshSettingsDependents(ref);
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم تحديث الصورة.')),
+      SnackBar(content: Text(context.l10n.setPhotoUpdated)),
     );
   }
 
@@ -1057,7 +1057,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     _refreshSettingsDependents(ref);
                     if (context.mounted) Navigator.of(context).pop();
                   },
-                  child: const Text('حفظ'),
+                  child: Text(context.l10n.setSave),
                 ),
               ),
             ],
@@ -1107,14 +1107,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               RadioListTile<String>(
                 value: entry.key,
                 groupValue: current,
-                secondary: title == 'الدولة'
+                secondary: title == context.l10n.setCountry
                     ? _FlagAvatar(code: entry.key.toLowerCase(), size: 32)
                     : null,
                 title: Text(
                   entry.value,
                   style: AppTypography.bodyStrong(c.textMain),
                 ),
-                subtitle: title == 'الدولة'
+                subtitle: title == context.l10n.setCountry
                     ? Text(
                         entry.key.toUpperCase(),
                         style: AppTypography.caption(c.textLight),
@@ -1171,34 +1171,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               AppSpacing.s6,
             ),
             children: [
-              Text('التصنيفات', style: AppTypography.sectionTitle(c.textMain)),
+              Text(context.l10n.setCategories, style: AppTypography.sectionTitle(c.textMain)),
               Text(
-                'أضف أو عدّل التصنيفات التي تظهر في العمليات والتقارير.',
+                context.l10n.setCategoriesSheetIntro,
                 style: AppTypography.callout(c.textLight),
               ),
               const SizedBox(height: AppSpacing.s3),
               FilledButton.icon(
                 onPressed: () => _showCategoryForm(context, ref),
                 icon: const Icon(AppLucideIcons.plus),
-                label: const Text('إضافة تصنيف'),
+                label: Text(context.l10n.setAddCategory),
               ),
               const SizedBox(height: AppSpacing.s3),
               _CategoryGroup(
-                title: 'مصروفات',
+                title: context.l10n.setExpenses,
                 items: expenses,
                 onEdit: (item) => _showCategoryForm(context, ref, item: item),
                 onDelete: (item) => _deleteCategory(context, ref, item),
               ),
               const SizedBox(height: AppSpacing.s3),
               _CategoryGroup(
-                title: 'دخل',
+                title: context.l10n.setIncome,
                 items: income,
                 onEdit: (item) => _showCategoryForm(context, ref, item: item),
                 onDelete: (item) => _deleteCategory(context, ref, item),
               ),
               const SizedBox(height: AppSpacing.s3),
               _CategoryGroup(
-                title: 'تحويلات',
+                title: context.l10n.setTransfers,
                 items: transfers,
                 onEdit: (item) => _showCategoryForm(context, ref, item: item),
                 onDelete: (item) => _deleteCategory(context, ref, item),
@@ -1268,15 +1268,15 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: ListView(
               children: [
                 Text(
-                  isEditing ? 'تعديل تصنيف' : 'إضافة تصنيف',
+                  isEditing ? context.l10n.setEditCategory : context.l10n.setAddCategory,
                   style: AppTypography.sectionTitle(c.textMain),
                 ),
                 const SizedBox(height: AppSpacing.s3),
                 TextField(
                   controller: name,
-                  decoration: const InputDecoration(
-                    labelText: 'اسم التصنيف',
-                    prefixIcon: Icon(AppLucideIcons.tag),
+                  decoration: InputDecoration(
+                    labelText: context.l10n.setCategoryName,
+                    prefixIcon: const Icon(AppLucideIcons.tag),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s3),
@@ -1284,14 +1284,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   contentPadding: EdgeInsets.zero,
                   value: isIncome,
                   onChanged: (value) => setState(() => isIncome = value),
-                  title: const Text('تصنيف دخل'),
+                  title: Text(context.l10n.setIncomeCategory),
                 ),
                 const SizedBox(height: AppSpacing.s3),
                 DropdownButtonFormField<String>(
                   value: icon,
-                  decoration: const InputDecoration(
-                    labelText: 'الأيقونة',
-                    prefixIcon: Icon(AppLucideIcons.smile),
+                  decoration: InputDecoration(
+                    labelText: context.l10n.setIcon,
+                    prefixIcon: const Icon(AppLucideIcons.smile),
                   ),
                   items: icons
                       .map(
@@ -1313,9 +1313,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 const SizedBox(height: AppSpacing.s3),
                 DropdownButtonFormField<String>(
                   value: color,
-                  decoration: const InputDecoration(
-                    labelText: 'اللون',
-                    prefixIcon: Icon(AppLucideIcons.palette),
+                  decoration: InputDecoration(
+                    labelText: context.l10n.setColor,
+                    prefixIcon: const Icon(AppLucideIcons.palette),
                   ),
                   items: colors
                       .map(
@@ -1342,7 +1342,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     final title = name.text.trim();
                     if (title.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('اكتب اسم التصنيف.')),
+                        SnackBar(content: Text(context.l10n.setEnterCategoryName)),
                       );
                       return;
                     }
@@ -1370,7 +1370,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     _refreshCategoryDependents(ref);
                     if (context.mounted) Navigator.of(context).pop();
                   },
-                  child: Text(isEditing ? 'حفظ التعديلات' : 'إضافة'),
+                  child: Text(isEditing ? context.l10n.setSaveChanges : context.l10n.setAdd),
                 ),
               ],
             ),
@@ -1390,18 +1390,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('حذف التصنيف؟'),
-        content: const Text(
-          'سيتم نقل عملياته إلى «أخرى» أو «دخل»، وحذف أي ميزانية مرتبطة به.',
+        title: Text(context.l10n.setDeleteCategoryQ),
+        content: Text(
+          context.l10n.setDeleteCategoryBody,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.setCancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('حذف'),
+            child: Text(context.l10n.setDelete),
           ),
         ],
       ),
@@ -1443,11 +1443,11 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text('ساعات الهدوء',
+                Text(context.l10n.setQuietHours,
                     style: AppTypography.sectionTitle(c.textMain)),
                 const SizedBox(height: AppSpacing.s2),
                 Text(
-                  'نؤجل الإشعارات المجدولة خلال هذه الفترة لأول وقت مسموح.',
+                  context.l10n.setQuietHoursNote,
                   style: AppTypography.callout(c.textLight),
                 ),
                 const SizedBox(height: AppSpacing.s3),
@@ -1455,7 +1455,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   children: [
                     Expanded(
                       child: _HourPicker(
-                        label: 'تبدأ',
+                        label: context.l10n.setStarts,
                         value: start,
                         onChanged: (value) => setState(() => start = value),
                       ),
@@ -1463,7 +1463,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     const SizedBox(width: AppSpacing.s3),
                     Expanded(
                       child: _HourPicker(
-                        label: 'تنتهي',
+                        label: context.l10n.setEnds,
                         value: end,
                         onChanged: (value) => setState(() => end = value),
                       ),
@@ -1490,7 +1490,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ),
                     ),
                     child: Text(
-                      'حفظ',
+                      context.l10n.setSave,
                       style: AppTypography.bodyStrong(c.onInk),
                     ),
                   ),
@@ -1506,20 +1506,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   void _showAboutApp(BuildContext context) {
     _showInfoSheet(
       context,
-      title: 'عن التطبيق',
+      title: context.l10n.setAboutApp,
       body:
-          'قرش لتتبع المصروفات من رسائل البنك والإدخال اليدوي. يمكنك نقل بياناتك المالية كملفات CSV أو حزمة ZIP من قسم البيانات والخصوصية.',
-      actionLabel: 'تمام',
+          context.l10n.setAboutBody,
+      actionLabel: context.l10n.setOk,
     );
   }
 
   void _showContactSupport(BuildContext context) {
     _showInfoSheet(
       context,
-      title: 'تواصل معنا',
+      title: context.l10n.setContactUs,
       body:
-          'للدعم أو الملاحظات انسخ البريد وأرسل لنا تفاصيل المشكلة، نوع الجهاز، وخطوات تكرارها.',
-      actionLabel: 'نسخ البريد',
+          context.l10n.setSupportBody,
+      actionLabel: context.l10n.setCopyEmail,
       onAction: () async {
         await Clipboard.setData(
           const ClipboardData(text: 'support@money-companion.app'),
@@ -1585,16 +1585,16 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('مسح جميع البيانات؟'),
-        content: const Text('سيتم مسح جميع بياناتك المحلية. لا يمكن التراجع.'),
+        title: Text(context.l10n.setEraseAllQ),
+        content: Text(context.l10n.setEraseAllBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.setCancel),
           ),
           TextButton(
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('مسح'),
+            child: Text(context.l10n.setErase),
           ),
         ],
       ),
@@ -1644,7 +1644,7 @@ class _SettingsErrorState extends StatelessWidget {
           const SizedBox(width: AppSpacing.s3),
           Expanded(
             child: Text(
-              'تعذر تحميل الإعدادات. حاول مرة أخرى بعد قليل.',
+              context.l10n.setSettingsLoadFailed,
               style: AppTypography.body(c.textMain),
             ),
           ),
@@ -1683,11 +1683,11 @@ class _SettingsHeader extends StatelessWidget {
     return CalmPageHeader(
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
-      title: 'الإعدادات',
+      title: context.l10n.setSettings,
       leading: onBack == null
           ? null
           : IconButton(
-              tooltip: 'رجوع',
+              tooltip: context.l10n.setBack,
               onPressed: onBack,
               padding: EdgeInsets.zero,
               visualDensity: VisualDensity.compact,
@@ -1834,11 +1834,12 @@ class _ThemeModeSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = context.l10n;
     final c = context.colors;
-    const options = <(ThemeMode, IconData, String)>[
-      (ThemeMode.system, AppLucideIcons.monitor, 'تلقائي'),
-      (ThemeMode.light, AppLucideIcons.sun, 'فاتح'),
-      (ThemeMode.dark, AppLucideIcons.moon, 'داكن'),
+    final options = <(ThemeMode, IconData, String)>[
+      (ThemeMode.system, AppLucideIcons.monitor, l10n.setThemeAuto),
+      (ThemeMode.light, AppLucideIcons.sun, l10n.setThemeLight),
+      (ThemeMode.dark, AppLucideIcons.moon, l10n.setThemeDark),
     ];
     return Padding(
       padding: const EdgeInsets.all(AppSpacing.s3),
@@ -1941,13 +1942,13 @@ class _CategoryGroup extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          tooltip: 'تعديل',
+                          tooltip: context.l10n.setEdit,
                           onPressed: () => onEdit(items[i]),
                           icon: const Icon(AppLucideIcons.pencil),
                         ),
                         if (items[i].entity.sort >= 0)
                           IconButton(
-                            tooltip: 'حذف',
+                            tooltip: context.l10n.setDelete,
                             onPressed: () => onDelete(items[i]),
                             icon: Icon(AppLucideIcons.trash2, color: c.danger),
                           ),
@@ -2032,8 +2033,8 @@ class _AppLockTileState extends State<_AppLockTile> {
     });
     if (!ok) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('تعذر تفعيل القفل. تأكد من إعداد بصمة أو رمز للجهاز.'),
+        SnackBar(
+          content: Text(context.l10n.setAppLockFailed),
         ),
       );
     }
@@ -2043,7 +2044,7 @@ class _AppLockTileState extends State<_AppLockTile> {
   Widget build(BuildContext context) {
     final c = context.colors;
     return _SwitchTile(
-      title: 'قفل التطبيق',
+      title: context.l10n.setAppLock,
       icon: AppLucideIcons.lock,
       iconColor: c.primary,
       value: _enabled,
@@ -2129,6 +2130,7 @@ class _SmsAutoCaptureTile extends ConsumerWidget {
     }
 
     Future<void> onChanged(bool wanted) async {
+      final l10n = context.l10n;
       final service = AndroidSmsCaptureService.instance;
       if (!wanted) {
         // Off is immediate and does NOT revoke the OS permission — that is the
@@ -2234,25 +2236,25 @@ class _CaptureHealthTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final subtitle = status.lastCaptureAt == null
-        ? 'لم نرصد أي رسالة بنكية بعد'
-        : 'آخر عملية رصد: ${_captureGapLabel(status.gap!)}';
+        ? context.l10n.setNoBankMessageYet
+        : context.l10n.setLastCapture(_captureGapLabel(context, status.gap!));
     final apnsFailure = status.apnsRegistrationFailure;
     final color = status.shouldNudge ? c.accent : c.success;
     final title = apnsFailure != null
-        ? 'تعذّر تفعيل إشعارات رصد البنك'
+        ? context.l10n.setCaptureEnableFailed
         : status.shouldNudge
-            ? 'لم نستقبل رسائل بنكية منذ فترة'
-            : 'حالة رصد رسائل البنك';
+            ? context.l10n.setNoBankMessagesRecently
+            : context.l10n.setBankCaptureStatus;
     final statusSubtitle = apnsFailure != null
-        ? 'فشل تسجيل APNs: ${apnsFailure.message}'
+        ? context.l10n.setApnsFailed(apnsFailure.message)
         : status.shouldNudge
-            ? '$subtitle — تأكد أن الاختصار لا يزال مفعّلاً'
+            ? context.l10n.setCheckShortcutStillOn(subtitle)
             : subtitle;
     final Widget? trailing = status.shouldNudge
         ? TextButton(
             onPressed:
                 Platform.isIOS ? () => showIosShortcutSheet(context) : null,
-            child: const Text('تحقق'),
+            child: Text(context.l10n.setCheck),
           )
         : null;
     return ListTile(
@@ -2270,43 +2272,36 @@ class _CaptureHealthTile extends StatelessWidget {
 }
 
 /// MALI-053n: precise "what will be lost" text for the sign-out discard dialog.
-String _unsyncedSignOutMessage(UnsyncedInventory inv) {
+String _unsyncedSignOutMessage(BuildContext context, UnsyncedInventory inv) {
+  final l10n = context.l10n;
   final parts = <String>[];
   if (inv.ledgerOutbox > 0) {
-    parts.add('${inv.ledgerOutbox} تغيير في المعاملات');
+    parts.add(l10n.setUnsyncedLedger(inv.ledgerOutbox));
   }
   if (inv.planningOutbox > 0) {
-    parts.add(
-      '${inv.planningOutbox} تغيير في الحسابات/الميزانيات/الأهداف/الفواتير',
-    );
+    parts.add(l10n.setUnsyncedPlanning(inv.planningOutbox));
   }
   if (inv.smartInboxPending > 0) {
-    parts.add('${inv.smartInboxPending} عنصر في صندوق الوارد');
+    parts.add(l10n.setUnsyncedInbox(inv.smartInboxPending));
   }
   if (inv.localOnlyCards > 0) {
-    parts.add('${inv.localOnlyCards} بطاقة محفوظة على هذا الجهاز فقط');
+    parts.add(l10n.setUnsyncedCards(inv.localOnlyCards));
   }
   // Audit H-3: rows that never reached the cloud and are not even queued —
   // previously invisible here, so sign-out destroyed them without a word.
   if (inv.unprovenFinancialRows > 0) {
-    parts.add('${inv.unprovenFinancialRows} سجل مالي لم يُرفع للسحابة بعد');
+    parts.add(l10n.setUnsyncedUnproven(inv.unprovenFinancialRows));
   }
   if (inv.unresolvedConflicts > 0) {
-    parts.add('${inv.unresolvedConflicts} سجل به تعارض لم يُحلّ');
+    parts.add(l10n.setUnsyncedConflicts(inv.unresolvedConflicts));
   }
-  final list = parts.join('، ');
-  return 'لديك بيانات لم تُرفع للسحابة وسيحذفها تسجيل الخروج: $list. '
-      'خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.';
+  return l10n.setUnsyncedSignOutBody(parts.join(l10n.setListSeparator));
 }
 
-String _captureGapLabel(Duration gap) {
-  if (gap.inDays >= 1) {
-    return 'منذ ${gap.inDays} ${gap.inDays == 1 ? 'يوم' : 'أيام'}';
-  }
-  if (gap.inHours >= 1) {
-    return 'منذ ${gap.inHours} ${gap.inHours == 1 ? 'ساعة' : 'ساعات'}';
-  }
-  return 'اليوم';
+String _captureGapLabel(BuildContext context, Duration gap) {
+  if (gap.inDays >= 1) return context.l10n.setGapDays(gap.inDays);
+  if (gap.inHours >= 1) return context.l10n.setGapHours(gap.inHours);
+  return context.l10n.setGapToday;
 }
 
 class _SwitchTile extends StatelessWidget {

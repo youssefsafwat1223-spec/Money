@@ -2124,6 +2124,2472 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'ستظهر الجولة التعريفية من جديد.'**
   String get helpReplayTourDone;
+
+  /// No description provided for @setLoadingCountries.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحميل الدول...'**
+  String get setLoadingCountries;
+
+  /// No description provided for @setLoadingCurrencies.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحميل العملات...'**
+  String get setLoadingCurrencies;
+
+  /// No description provided for @setCountry.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدولة'**
+  String get setCountry;
+
+  /// No description provided for @setBaseCurrency.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملة الأساسية'**
+  String get setBaseCurrency;
+
+  /// No description provided for @setName.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاسم'**
+  String get setName;
+
+  /// No description provided for @setNameInApp.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسمك في التطبيق'**
+  String get setNameInApp;
+
+  /// No description provided for @setAccountData.
+  ///
+  /// In ar, this message translates to:
+  /// **'بيانات حسابك'**
+  String get setAccountData;
+
+  /// No description provided for @setMobileNumber.
+  ///
+  /// In ar, this message translates to:
+  /// **'رقم الموبايل'**
+  String get setMobileNumber;
+
+  /// No description provided for @setAddYourNumber.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف رقمك'**
+  String get setAddYourNumber;
+
+  /// No description provided for @setAppearance.
+  ///
+  /// In ar, this message translates to:
+  /// **'المظهر'**
+  String get setAppearance;
+
+  /// No description provided for @setAppearanceSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'فاتح، داكن، أو حسب النظام'**
+  String get setAppearanceSub;
+
+  /// No description provided for @setAccountsAndDues.
+  ///
+  /// In ar, this message translates to:
+  /// **'حساباتك والتزاماتك'**
+  String get setAccountsAndDues;
+
+  /// No description provided for @setSyncConflicts.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعارضات المزامنة'**
+  String get setSyncConflicts;
+
+  /// No description provided for @setSyncConflictsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'عناصر عُدّلت على أكثر من جهاز — بحاجة لقرارك'**
+  String get setSyncConflictsSub;
+
+  /// No description provided for @setAccountsWallets.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحسابات والمحافظ'**
+  String get setAccountsWallets;
+
+  /// No description provided for @setAccountsWalletsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'حسابات متعددة، كل واحد بعملته الخاصة'**
+  String get setAccountsWalletsSub;
+
+  /// No description provided for @setAllCards.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل البطاقات'**
+  String get setAllCards;
+
+  /// No description provided for @setAllCardsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'نظرة عامة على بطاقاتك مجمّعة حسب الحساب'**
+  String get setAllCardsSub;
+
+  /// No description provided for @setSubsAndBills.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات والفواتير'**
+  String get setSubsAndBills;
+
+  /// No description provided for @setSubsAndBillsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'التزاماتك الدورية ومواعيد السداد'**
+  String get setSubsAndBillsSub;
+
+  /// No description provided for @setPlans.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخطط'**
+  String get setPlans;
+
+  /// No description provided for @setPlansSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية رحلة أو مناسبة تتابع نفسها'**
+  String get setPlansSub;
+
+  /// No description provided for @setToolsAndSettings.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدوات وإعدادات'**
+  String get setToolsAndSettings;
+
+  /// No description provided for @setCategories.
+  ///
+  /// In ar, this message translates to:
+  /// **'التصنيفات'**
+  String get setCategories;
+
+  /// No description provided for @setCategoriesSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'نظم المصروفات والدخل والتحويلات'**
+  String get setCategoriesSub;
+
+  /// No description provided for @setAchievements.
+  ///
+  /// In ar, this message translates to:
+  /// **'الإنجازات والمستوى'**
+  String get setAchievements;
+
+  /// No description provided for @setAchievementsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'شارات ومستويات تشجع عادة المتابعة'**
+  String get setAchievementsSub;
+
+  /// No description provided for @setCurrencyRepair.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد عملة الميزانيات والأهداف'**
+  String get setCurrencyRepair;
+
+  /// No description provided for @setCurrencyRepairSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'راجع عملة بيانات التخطيط القديمة بأمان'**
+  String get setCurrencyRepairSub;
+
+  /// No description provided for @setAppleShortcut.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختصار آبل'**
+  String get setAppleShortcut;
+
+  /// No description provided for @setAppleShortcutSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'مرر رسائل البنك إلى قرش عبر Shortcuts'**
+  String get setAppleShortcutSub;
+
+  /// No description provided for @setRewardsAndSupport.
+  ///
+  /// In ar, this message translates to:
+  /// **'المكافآت والدعم'**
+  String get setRewardsAndSupport;
+
+  /// No description provided for @setInviteFriends.
+  ///
+  /// In ar, this message translates to:
+  /// **'دعوة الأصدقاء'**
+  String get setInviteFriends;
+
+  /// No description provided for @setInviteFriendsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'شارك رمز دعوتك واكسب تقارير بدون إعلانات'**
+  String get setInviteFriendsSub;
+
+  /// No description provided for @setAdPrivacyOptions.
+  ///
+  /// In ar, this message translates to:
+  /// **'خيارات خصوصية الإعلانات'**
+  String get setAdPrivacyOptions;
+
+  /// No description provided for @setAdPrivacyOptionsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'إدارة موافقتك على الإعلانات'**
+  String get setAdPrivacyOptionsSub;
+
+  /// No description provided for @setContactUs.
+  ///
+  /// In ar, this message translates to:
+  /// **'تواصل معنا'**
+  String get setContactUs;
+
+  /// No description provided for @setContactUsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدعم الفني والإجابة على استفساراتك'**
+  String get setContactUsSub;
+
+  /// No description provided for @setAboutQirsh.
+  ///
+  /// In ar, this message translates to:
+  /// **'عن قرش'**
+  String get setAboutQirsh;
+
+  /// No description provided for @setAboutQirshSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'معلومات التطبيق والإصدار'**
+  String get setAboutQirshSub;
+
+  /// No description provided for @setCaptureStatus.
+  ///
+  /// In ar, this message translates to:
+  /// **'رصد العمليات'**
+  String get setCaptureStatus;
+
+  /// No description provided for @setCaptureStatusSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'حالة الربط مع رسائل البنك واختصار آبل'**
+  String get setCaptureStatusSub;
+
+  /// No description provided for @setConfirmCaptured.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد العمليات الملتقطة'**
+  String get setConfirmCaptured;
+
+  /// No description provided for @setNotifyOnCapture.
+  ///
+  /// In ar, this message translates to:
+  /// **'إشعار عند التقاط عملية'**
+  String get setNotifyOnCapture;
+
+  /// No description provided for @setHideOnLockScreen.
+  ///
+  /// In ar, this message translates to:
+  /// **'إخفاء التفاصيل الحساسة على شاشة القفل'**
+  String get setHideOnLockScreen;
+
+  /// No description provided for @setYourAlerts.
+  ///
+  /// In ar, this message translates to:
+  /// **'تنبيهاتك'**
+  String get setYourAlerts;
+
+  /// No description provided for @setQirshMessages.
+  ///
+  /// In ar, this message translates to:
+  /// **'رسائل ونصائح قرش'**
+  String get setQirshMessages;
+
+  /// No description provided for @setBudget80Alert.
+  ///
+  /// In ar, this message translates to:
+  /// **'تنبيه 80% من الميزانية'**
+  String get setBudget80Alert;
+
+  /// No description provided for @setBudgetOverAlert.
+  ///
+  /// In ar, this message translates to:
+  /// **'تنبيه تجاوز الميزانية'**
+  String get setBudgetOverAlert;
+
+  /// No description provided for @setDailyReminder.
+  ///
+  /// In ar, this message translates to:
+  /// **'التذكير اليومي'**
+  String get setDailyReminder;
+
+  /// No description provided for @setDailyReminderTime.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل يوم الساعة 10 مساءً'**
+  String get setDailyReminderTime;
+
+  /// No description provided for @setWeeklyReport.
+  ///
+  /// In ar, this message translates to:
+  /// **'التقرير الأسبوعي'**
+  String get setWeeklyReport;
+
+  /// No description provided for @setBillReminders.
+  ///
+  /// In ar, this message translates to:
+  /// **'تذكير الاشتراكات والفواتير'**
+  String get setBillReminders;
+
+  /// No description provided for @setGoalCelebrations.
+  ///
+  /// In ar, this message translates to:
+  /// **'احتفالات الأهداف'**
+  String get setGoalCelebrations;
+
+  /// No description provided for @setAchievementAlerts.
+  ///
+  /// In ar, this message translates to:
+  /// **'تنبيهات الإنجازات'**
+  String get setAchievementAlerts;
+
+  /// No description provided for @setQuietHours.
+  ///
+  /// In ar, this message translates to:
+  /// **'ساعات الهدوء'**
+  String get setQuietHours;
+
+  /// No description provided for @setDisabled.
+  ///
+  /// In ar, this message translates to:
+  /// **'معطّل'**
+  String get setDisabled;
+
+  /// No description provided for @setEditQuietHours.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل وقت الهدوء'**
+  String get setEditQuietHours;
+
+  /// No description provided for @setNotificationTools.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدوات الإشعارات'**
+  String get setNotificationTools;
+
+  /// No description provided for @setTestNotifications.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختبار إشعارات قرش'**
+  String get setTestNotifications;
+
+  /// No description provided for @setTestNotificationsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'أرسل إشعارًا تجريبيًا إلى هذا الجهاز'**
+  String get setTestNotificationsSub;
+
+  /// No description provided for @setMessageCentre.
+  ///
+  /// In ar, this message translates to:
+  /// **'مركز رسائل قرش'**
+  String get setMessageCentre;
+
+  /// No description provided for @setMessageCentreSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'الإشعارات والحملات والإعلانات السابقة'**
+  String get setMessageCentreSub;
+
+  /// No description provided for @setDataTransfer.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقل البيانات'**
+  String get setDataTransfer;
+
+  /// No description provided for @setDataTransferSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك المالية تظل تحت سيطرتك'**
+  String get setDataTransferSub;
+
+  /// No description provided for @setImportFile.
+  ///
+  /// In ar, this message translates to:
+  /// **'استيراد ملف'**
+  String get setImportFile;
+
+  /// No description provided for @setImportFileSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'CSV من أي تطبيق أو ZIP صادر من قرش'**
+  String get setImportFileSub;
+
+  /// No description provided for @setExportCsv.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصدير العمليات CSV'**
+  String get setExportCsv;
+
+  /// No description provided for @setExportCsvSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف بسيط لكل عملياتك'**
+  String get setExportCsvSub;
+
+  /// No description provided for @setExportAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصدير كل بيانات قرش'**
+  String get setExportAll;
+
+  /// No description provided for @setExportAllSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'حزمة ZIP قابلة للنقل والاستعادة'**
+  String get setExportAllSub;
+
+  /// No description provided for @setSecurityPrivacy.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأمان والخصوصية'**
+  String get setSecurityPrivacy;
+
+  /// No description provided for @setEncryptedDbPart1.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك على الجهاز مخزّنة بقاعدة بيانات مشفّرة، '**
+  String get setEncryptedDbPart1;
+
+  /// No description provided for @setEncryptedDbPart2.
+  ///
+  /// In ar, this message translates to:
+  /// **'ومفتاحها محفوظ في خزنة النظام'**
+  String get setEncryptedDbPart2;
+
+  /// No description provided for @setPrivacyAndData.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخصوصية والبيانات'**
+  String get setPrivacyAndData;
+
+  /// No description provided for @setPrivacyAndDataSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'أمان بياناتك وسياسة الخصوصية'**
+  String get setPrivacyAndDataSub;
+
+  /// No description provided for @setHideAmounts.
+  ///
+  /// In ar, this message translates to:
+  /// **'إخفاء الأرقام في الواجهة'**
+  String get setHideAmounts;
+
+  /// No description provided for @setExitAndErase.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخروج وحذف البيانات'**
+  String get setExitAndErase;
+
+  /// No description provided for @setExitAndEraseSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجراءات لا يمكن التراجع عن بعضها'**
+  String get setExitAndEraseSub;
+
+  /// No description provided for @setStartOver.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ من جديد'**
+  String get setStartOver;
+
+  /// No description provided for @setStartOverSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'امسح البيانات المحلية مع إبقاء الحساب نشطًا'**
+  String get setStartOverSub;
+
+  /// No description provided for @setSignOut.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الخروج'**
+  String get setSignOut;
+
+  /// No description provided for @setDeleteAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الحساب وكل بياناتي'**
+  String get setDeleteAccount;
+
+  /// No description provided for @setDeleteAccountSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجراء نهائي يتطلب تأكيدك'**
+  String get setDeleteAccountSub;
+
+  /// No description provided for @setTestNotificationSent.
+  ///
+  /// In ar, this message translates to:
+  /// **'أرسلنا إشعاراً تجريبياً من قرش.'**
+  String get setTestNotificationSent;
+
+  /// No description provided for @setTestNotificationFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر إرسال الإشعار التجريبي.'**
+  String get setTestNotificationFailed;
+
+  /// No description provided for @setUnsyncedData.
+  ///
+  /// In ar, this message translates to:
+  /// **'بيانات غير محفوظة سحابيًا'**
+  String get setUnsyncedData;
+
+  /// No description provided for @setCancel.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلغاء'**
+  String get setCancel;
+
+  /// No description provided for @setSignOutDiscard.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الخروج وحذف غير المحفوظ'**
+  String get setSignOutDiscard;
+
+  /// No description provided for @setUnsyncedCheckFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.'**
+  String get setUnsyncedCheckFailed;
+
+  /// No description provided for @setSignOutFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تسجيل الخروج بأمان. حاول مجدداً.'**
+  String get setSignOutFailed;
+
+  /// No description provided for @setPhotoUpdated.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تحديث الصورة.'**
+  String get setPhotoUpdated;
+
+  /// No description provided for @setSave.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ'**
+  String get setSave;
+
+  /// No description provided for @setCategoriesSheetIntro.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف أو عدّل التصنيفات التي تظهر في العمليات والتقارير.'**
+  String get setCategoriesSheetIntro;
+
+  /// No description provided for @setAddCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة تصنيف'**
+  String get setAddCategory;
+
+  /// No description provided for @setExpenses.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروفات'**
+  String get setExpenses;
+
+  /// No description provided for @setIncome.
+  ///
+  /// In ar, this message translates to:
+  /// **'دخل'**
+  String get setIncome;
+
+  /// No description provided for @setTransfers.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحويلات'**
+  String get setTransfers;
+
+  /// No description provided for @setEditCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل تصنيف'**
+  String get setEditCategory;
+
+  /// No description provided for @setCategoryName.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسم التصنيف'**
+  String get setCategoryName;
+
+  /// No description provided for @setIncomeCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصنيف دخل'**
+  String get setIncomeCategory;
+
+  /// No description provided for @setIcon.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأيقونة'**
+  String get setIcon;
+
+  /// No description provided for @setColor.
+  ///
+  /// In ar, this message translates to:
+  /// **'اللون'**
+  String get setColor;
+
+  /// No description provided for @setEnterCategoryName.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب اسم التصنيف.'**
+  String get setEnterCategoryName;
+
+  /// No description provided for @setSaveChanges.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ التعديلات'**
+  String get setSaveChanges;
+
+  /// No description provided for @setAdd.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة'**
+  String get setAdd;
+
+  /// No description provided for @setDeleteCategoryQ.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف التصنيف؟'**
+  String get setDeleteCategoryQ;
+
+  /// No description provided for @setDeleteCategoryBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيتم نقل عملياته إلى «أخرى» أو «دخل»، وحذف أي ميزانية مرتبطة به.'**
+  String get setDeleteCategoryBody;
+
+  /// No description provided for @setDelete.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف'**
+  String get setDelete;
+
+  /// No description provided for @setQuietHoursNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'نؤجل الإشعارات المجدولة خلال هذه الفترة لأول وقت مسموح.'**
+  String get setQuietHoursNote;
+
+  /// No description provided for @setStarts.
+  ///
+  /// In ar, this message translates to:
+  /// **'تبدأ'**
+  String get setStarts;
+
+  /// No description provided for @setEnds.
+  ///
+  /// In ar, this message translates to:
+  /// **'تنتهي'**
+  String get setEnds;
+
+  /// No description provided for @setAboutApp.
+  ///
+  /// In ar, this message translates to:
+  /// **'عن التطبيق'**
+  String get setAboutApp;
+
+  /// No description provided for @setAboutBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'قرش لتتبع المصروفات من رسائل البنك والإدخال اليدوي. يمكنك نقل بياناتك المالية كملفات CSV أو حزمة ZIP من قسم البيانات والخصوصية.'**
+  String get setAboutBody;
+
+  /// No description provided for @setOk.
+  ///
+  /// In ar, this message translates to:
+  /// **'تمام'**
+  String get setOk;
+
+  /// No description provided for @setSupportBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'للدعم أو الملاحظات انسخ البريد وأرسل لنا تفاصيل المشكلة، نوع الجهاز، وخطوات تكرارها.'**
+  String get setSupportBody;
+
+  /// No description provided for @setCopyEmail.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسخ البريد'**
+  String get setCopyEmail;
+
+  /// No description provided for @setEraseAllQ.
+  ///
+  /// In ar, this message translates to:
+  /// **'مسح جميع البيانات؟'**
+  String get setEraseAllQ;
+
+  /// No description provided for @setEraseAllBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيتم مسح جميع بياناتك المحلية. لا يمكن التراجع.'**
+  String get setEraseAllBody;
+
+  /// No description provided for @setErase.
+  ///
+  /// In ar, this message translates to:
+  /// **'مسح'**
+  String get setErase;
+
+  /// No description provided for @setSettingsLoadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تحميل الإعدادات. حاول مرة أخرى بعد قليل.'**
+  String get setSettingsLoadFailed;
+
+  /// No description provided for @setSettings.
+  ///
+  /// In ar, this message translates to:
+  /// **'الإعدادات'**
+  String get setSettings;
+
+  /// No description provided for @setBack.
+  ///
+  /// In ar, this message translates to:
+  /// **'رجوع'**
+  String get setBack;
+
+  /// No description provided for @setThemeAuto.
+  ///
+  /// In ar, this message translates to:
+  /// **'تلقائي'**
+  String get setThemeAuto;
+
+  /// No description provided for @setThemeLight.
+  ///
+  /// In ar, this message translates to:
+  /// **'فاتح'**
+  String get setThemeLight;
+
+  /// No description provided for @setThemeDark.
+  ///
+  /// In ar, this message translates to:
+  /// **'داكن'**
+  String get setThemeDark;
+
+  /// No description provided for @setEdit.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل'**
+  String get setEdit;
+
+  /// No description provided for @setAppLockFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تفعيل القفل. تأكد من إعداد بصمة أو رمز للجهاز.'**
+  String get setAppLockFailed;
+
+  /// No description provided for @setAppLock.
+  ///
+  /// In ar, this message translates to:
+  /// **'قفل التطبيق'**
+  String get setAppLock;
+
+  /// No description provided for @setNoBankMessageYet.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم نرصد أي رسالة بنكية بعد'**
+  String get setNoBankMessageYet;
+
+  /// No description provided for @setCaptureEnableFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تفعيل إشعارات رصد البنك'**
+  String get setCaptureEnableFailed;
+
+  /// No description provided for @setNoBankMessagesRecently.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم نستقبل رسائل بنكية منذ فترة'**
+  String get setNoBankMessagesRecently;
+
+  /// No description provided for @setBankCaptureStatus.
+  ///
+  /// In ar, this message translates to:
+  /// **'حالة رصد رسائل البنك'**
+  String get setBankCaptureStatus;
+
+  /// No description provided for @setCheck.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحقق'**
+  String get setCheck;
+
+  /// No description provided for @setBackupFirst.
+  ///
+  /// In ar, this message translates to:
+  /// **'خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.'**
+  String get setBackupFirst;
+
+  /// No description provided for @setToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'اليوم'**
+  String get setToday;
+
+  /// No description provided for @bdgError.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدث خطأ'**
+  String get bdgError;
+
+  /// No description provided for @bdgTabBudgets.
+  ///
+  /// In ar, this message translates to:
+  /// **'الميزانيات'**
+  String get bdgTabBudgets;
+
+  /// No description provided for @bdgTabHistory.
+  ///
+  /// In ar, this message translates to:
+  /// **'سجل الميزانيات'**
+  String get bdgTabHistory;
+
+  /// No description provided for @bdgTabGoals.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأهداف'**
+  String get bdgTabGoals;
+
+  /// No description provided for @bdgEmptyBudgetsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد ميزانيات'**
+  String get bdgEmptyBudgetsTitle;
+
+  /// No description provided for @bdgEmptyBudgetsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنشئ أول ميزانية يومية أو أسبوعية أو شهرية لتبدأ المتابعة.'**
+  String get bdgEmptyBudgetsBody;
+
+  /// No description provided for @bdgEmptyGoalsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد أهداف'**
+  String get bdgEmptyGoalsTitle;
+
+  /// No description provided for @bdgEmptyGoalsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف هدف ادخار ليتابع قِرش تقدمك إلى جانب ميزانياتك.'**
+  String get bdgEmptyGoalsBody;
+
+  /// No description provided for @bdgAddGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة هدف'**
+  String get bdgAddGoal;
+
+  /// No description provided for @bdgEmptyHistoryTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'السجل فارغ'**
+  String get bdgEmptyHistoryTitle;
+
+  /// No description provided for @bdgEmptyHistoryBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر فترة تحتوي على ميزانيات أو أضف ميزانية جديدة، وسيظهر كل يوم/أسبوع/شهر هنا كسجلّ منفصل.'**
+  String get bdgEmptyHistoryBody;
+
+  /// No description provided for @bdgAddBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة ميزانية'**
+  String get bdgAddBudget;
+
+  /// No description provided for @bdgDeleteTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الميزانية؟'**
+  String get bdgDeleteTitle;
+
+  /// No description provided for @bdgDeleteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيُحذف سقف الميزانية. لن تتأثر العمليات نفسها.'**
+  String get bdgDeleteBody;
+
+  /// No description provided for @bdgDeleteFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حذف الميزانية الآن.'**
+  String get bdgDeleteFailed;
+
+  /// No description provided for @bdgFilterAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'الكل'**
+  String get bdgFilterAll;
+
+  /// No description provided for @bdgFilterDaily.
+  ///
+  /// In ar, this message translates to:
+  /// **'يومي'**
+  String get bdgFilterDaily;
+
+  /// No description provided for @bdgFilterWeekly.
+  ///
+  /// In ar, this message translates to:
+  /// **'أسبوعي'**
+  String get bdgFilterWeekly;
+
+  /// No description provided for @bdgFilterMonthly.
+  ///
+  /// In ar, this message translates to:
+  /// **'شهري'**
+  String get bdgFilterMonthly;
+
+  /// No description provided for @bdgFilterYearly.
+  ///
+  /// In ar, this message translates to:
+  /// **'سنوي'**
+  String get bdgFilterYearly;
+
+  /// No description provided for @bdgStatHistoryCount.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانيات في السجل'**
+  String get bdgStatHistoryCount;
+
+  /// No description provided for @bdgStatTargetSavings.
+  ///
+  /// In ar, this message translates to:
+  /// **'مجموع المدخرات المستهدفة'**
+  String get bdgStatTargetSavings;
+
+  /// No description provided for @bdgStatTotalBudgeted.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي الميزانيات المرصودة'**
+  String get bdgStatTotalBudgeted;
+
+  /// No description provided for @bdgStatActiveGoals.
+  ///
+  /// In ar, this message translates to:
+  /// **'أهداف نشطة'**
+  String get bdgStatActiveGoals;
+
+  /// No description provided for @bdgStatProgress.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسبة التقدم'**
+  String get bdgStatProgress;
+
+  /// No description provided for @bdgStatTotalSaved.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي الادخار'**
+  String get bdgStatTotalSaved;
+
+  /// No description provided for @bdgStateSafeF.
+  ///
+  /// In ar, this message translates to:
+  /// **'آمنة'**
+  String get bdgStateSafeF;
+
+  /// No description provided for @bdgStateNear.
+  ///
+  /// In ar, this message translates to:
+  /// **'اقتربت'**
+  String get bdgStateNear;
+
+  /// No description provided for @bdgStateOverF.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاوزت'**
+  String get bdgStateOverF;
+
+  /// No description provided for @bdgBudgetsWord.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانيات'**
+  String get bdgBudgetsWord;
+
+  /// No description provided for @bdgUsageRate.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسبة الاستهلاك'**
+  String get bdgUsageRate;
+
+  /// No description provided for @bdgActualSpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'المصروف الفعلي'**
+  String get bdgActualSpend;
+
+  /// No description provided for @bdgBudgetWord.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية'**
+  String get bdgBudgetWord;
+
+  /// No description provided for @bdgOver.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاوز'**
+  String get bdgOver;
+
+  /// No description provided for @bdgSafe.
+  ///
+  /// In ar, this message translates to:
+  /// **'آمن'**
+  String get bdgSafe;
+
+  /// No description provided for @bdgAllExpenses.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل المصروفات'**
+  String get bdgAllExpenses;
+
+  /// No description provided for @bdgCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصنيف'**
+  String get bdgCategory;
+
+  /// No description provided for @bdgSpent.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروف'**
+  String get bdgSpent;
+
+  /// No description provided for @bdgRemaining.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقي'**
+  String get bdgRemaining;
+
+  /// No description provided for @bdgLimit.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحد'**
+  String get bdgLimit;
+
+  /// No description provided for @bdgSaved.
+  ///
+  /// In ar, this message translates to:
+  /// **'وفّرت'**
+  String get bdgSaved;
+
+  /// No description provided for @bdgPeriodCurrent.
+  ///
+  /// In ar, this message translates to:
+  /// **'الفترة الحالية'**
+  String get bdgPeriodCurrent;
+
+  /// No description provided for @bdgPeriodOver.
+  ///
+  /// In ar, this message translates to:
+  /// **'فترة تجاوزت الحد'**
+  String get bdgPeriodOver;
+
+  /// No description provided for @bdgPeriodEnded.
+  ///
+  /// In ar, this message translates to:
+  /// **'فترة منتهية'**
+  String get bdgPeriodEnded;
+
+  /// No description provided for @bdgRecordLive.
+  ///
+  /// In ar, this message translates to:
+  /// **'ما زال هذا السجل يُحدَّث حتى نهاية الفترة.'**
+  String get bdgRecordLive;
+
+  /// No description provided for @bdgRecordFinal.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذا السجل محسوب من العمليات الفعلية داخل هذه الفترة.'**
+  String get bdgRecordFinal;
+
+  /// No description provided for @bdgEditBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل الميزانية'**
+  String get bdgEditBudget;
+
+  /// No description provided for @bdgPeriodTransactions.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمليات الفترة'**
+  String get bdgPeriodTransactions;
+
+  /// No description provided for @bdgNoConfirmedTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم تُسجَّل عمليات مؤكدة ضمن هذه الفترة.'**
+  String get bdgNoConfirmedTx;
+
+  /// No description provided for @bdgCountedOpenAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'داخلة في الحساب — افتح «العمليات» لعرضها كلها.'**
+  String get bdgCountedOpenAll;
+
+  /// No description provided for @bdgDailyBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية يومية'**
+  String get bdgDailyBudget;
+
+  /// No description provided for @bdgWeeklyBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية أسبوعية'**
+  String get bdgWeeklyBudget;
+
+  /// No description provided for @bdgYearlyBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية سنوية'**
+  String get bdgYearlyBudget;
+
+  /// No description provided for @bdgMonthlyBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية شهرية'**
+  String get bdgMonthlyBudget;
+
+  /// No description provided for @bdgTransactionWord.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملية'**
+  String get bdgTransactionWord;
+
+  /// No description provided for @bdgGoalDone.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتمل الهدف'**
+  String get bdgGoalDone;
+
+  /// No description provided for @bdgEnvelopeTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'وزّع دخلك على المظاريف'**
+  String get bdgEnvelopeTitle;
+
+  /// No description provided for @bdgEnvelopeBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب راتبك ووزّعه بضغطة — و«قِرش» يحسب لك المتاح كل يوم'**
+  String get bdgEnvelopeBody;
+
+  /// No description provided for @bdgMoreTxCounted.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقي {count} عملية داخلة في الحساب — افتح «العمليات» لعرضها كلها.'**
+  String bdgMoreTxCounted(int count);
+
+  /// No description provided for @txnError.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدث خطأ'**
+  String get txnError;
+
+  /// No description provided for @txnTransactionWord.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملية'**
+  String get txnTransactionWord;
+
+  /// No description provided for @txnFilterPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصفية: قيد المراجعة'**
+  String get txnFilterPending;
+
+  /// No description provided for @txnConfirmAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد الكل'**
+  String get txnConfirmAll;
+
+  /// No description provided for @txnTabTransactions.
+  ///
+  /// In ar, this message translates to:
+  /// **'العمليات'**
+  String get txnTabTransactions;
+
+  /// No description provided for @txnTabBills.
+  ///
+  /// In ar, this message translates to:
+  /// **'الفواتير'**
+  String get txnTabBills;
+
+  /// No description provided for @txnEmptyPeriodTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات في هذه الفترة'**
+  String get txnEmptyPeriodTitle;
+
+  /// No description provided for @txnEmptyPeriodBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'غيّر الفترة أو أضف رسالة بنك جديدة من زر +.'**
+  String get txnEmptyPeriodBody;
+
+  /// No description provided for @txnConfirmAllTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد كل العمليات المعلّقة؟'**
+  String get txnConfirmAllTitle;
+
+  /// No description provided for @txnConfirm.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد'**
+  String get txnConfirm;
+
+  /// No description provided for @txnPickAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر الحساب'**
+  String get txnPickAccount;
+
+  /// No description provided for @txnSearchHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابحث باسم متجر، تصنيف، مبلغ أو عملة'**
+  String get txnSearchHint;
+
+  /// No description provided for @txnClearSearch.
+  ///
+  /// In ar, this message translates to:
+  /// **'مسح البحث'**
+  String get txnClearSearch;
+
+  /// No description provided for @txnRangeToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'اليوم'**
+  String get txnRangeToday;
+
+  /// No description provided for @txnRangeThisWeek.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذا الأسبوع'**
+  String get txnRangeThisWeek;
+
+  /// No description provided for @txnRangeThisMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذا الشهر'**
+  String get txnRangeThisMonth;
+
+  /// No description provided for @txnRangeLastMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'الشهر السابق'**
+  String get txnRangeLastMonth;
+
+  /// No description provided for @txnRange7.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر 7 أيام'**
+  String get txnRange7;
+
+  /// No description provided for @txnRange30.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر 30 يومًا'**
+  String get txnRange30;
+
+  /// No description provided for @txnRange90.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر 90 يومًا'**
+  String get txnRange90;
+
+  /// No description provided for @txnRangeThisYear.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه السنة'**
+  String get txnRangeThisYear;
+
+  /// No description provided for @txnRangeLastYear.
+  ///
+  /// In ar, this message translates to:
+  /// **'السنة الماضية'**
+  String get txnRangeLastYear;
+
+  /// No description provided for @txnRangeCustom.
+  ///
+  /// In ar, this message translates to:
+  /// **'مخصص'**
+  String get txnRangeCustom;
+
+  /// No description provided for @txnPickRange.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر فترة العرض'**
+  String get txnPickRange;
+
+  /// No description provided for @txnFrom.
+  ///
+  /// In ar, this message translates to:
+  /// **'من'**
+  String get txnFrom;
+
+  /// No description provided for @txnTo.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلى'**
+  String get txnTo;
+
+  /// No description provided for @txnApplyCustomRange.
+  ///
+  /// In ar, this message translates to:
+  /// **'تطبيق الفترة المخصصة'**
+  String get txnApplyCustomRange;
+
+  /// No description provided for @txnKindAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'الكل'**
+  String get txnKindAll;
+
+  /// No description provided for @txnKindExpense.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروفات'**
+  String get txnKindExpense;
+
+  /// No description provided for @txnKindIncome.
+  ///
+  /// In ar, this message translates to:
+  /// **'دخل'**
+  String get txnKindIncome;
+
+  /// No description provided for @txnKindTransfer.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحويلات'**
+  String get txnKindTransfer;
+
+  /// No description provided for @txnPendingReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيد المراجعة'**
+  String get txnPendingReview;
+
+  /// No description provided for @txnCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'التصنيف'**
+  String get txnCategory;
+
+  /// No description provided for @txnFilterByCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصفية حسب التصنيف'**
+  String get txnFilterByCategory;
+
+  /// No description provided for @txnAllCategories.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل التصنيفات'**
+  String get txnAllCategories;
+
+  /// No description provided for @txnBillsSubs.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراكات'**
+  String get txnBillsSubs;
+
+  /// No description provided for @txnBillsInstalments.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقساط'**
+  String get txnBillsInstalments;
+
+  /// No description provided for @txnAddSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة اشتراك'**
+  String get txnAddSub;
+
+  /// No description provided for @txnAddInstalment.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة قسط'**
+  String get txnAddInstalment;
+
+  /// No description provided for @txnLearnBills.
+  ///
+  /// In ar, this message translates to:
+  /// **'اعرف أكثر عن الفواتير'**
+  String get txnLearnBills;
+
+  /// No description provided for @txnSubsEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراكاتك، متابعة تلقائية'**
+  String get txnSubsEmptyTitle;
+
+  /// No description provided for @txnInstEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقساطك، واضحة كل شهر'**
+  String get txnInstEmptyTitle;
+
+  /// No description provided for @txnSubsEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف اشتراكك يدويًا أو دعه يُكتشف تلقائيًا من العمليات المتكررة.'**
+  String get txnSubsEmptyBody;
+
+  /// No description provided for @txnInstEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف القسط بتاريخه وتنبيهه ليظهر في الفواتير قبل الاستحقاق.'**
+  String get txnInstEmptyBody;
+
+  /// No description provided for @txnSuggestionsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اقتراحات من العمليات المتكررة'**
+  String get txnSuggestionsTitle;
+
+  /// No description provided for @txnHowSubsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'كيف يتابع قِرش الاشتراكات؟'**
+  String get txnHowSubsTitle;
+
+  /// No description provided for @txnHowInstTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'كيف يتابع قِرش الأقساط؟'**
+  String get txnHowInstTitle;
+
+  /// No description provided for @txnHowSubsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'يتابع قِرش الأنماط المتكررة تلقائيًا، ويمكنك أيضًا إضافة اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.'**
+  String get txnHowSubsBody;
+
+  /// No description provided for @txnHowInstBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف القسط يدويًا بالمبلغ وتاريخ الاستحقاق والتنبيه. لاحقًا نضيف المتبقي وعدد الأقساط.'**
+  String get txnHowInstBody;
+
+  /// No description provided for @txnTotalMonthlySubs.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي الاشتراكات الشهرية'**
+  String get txnTotalMonthlySubs;
+
+  /// No description provided for @txnTotalMonthlyInst.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي الأقساط الشهرية'**
+  String get txnTotalMonthlyInst;
+
+  /// No description provided for @txnActive.
+  ///
+  /// In ar, this message translates to:
+  /// **'نشط'**
+  String get txnActive;
+
+  /// No description provided for @txnPerYear.
+  ///
+  /// In ar, this message translates to:
+  /// **'سنويًا'**
+  String get txnPerYear;
+
+  /// No description provided for @txnDueToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'مستحق اليوم'**
+  String get txnDueToday;
+
+  /// No description provided for @txnPaused.
+  ///
+  /// In ar, this message translates to:
+  /// **'متوقف'**
+  String get txnPaused;
+
+  /// No description provided for @txnCancelled.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملغي'**
+  String get txnCancelled;
+
+  /// No description provided for @txnCycleWeekly.
+  ///
+  /// In ar, this message translates to:
+  /// **'أسبوعي'**
+  String get txnCycleWeekly;
+
+  /// No description provided for @txnCycleMonthly.
+  ///
+  /// In ar, this message translates to:
+  /// **'شهري'**
+  String get txnCycleMonthly;
+
+  /// No description provided for @txnCycleYearly.
+  ///
+  /// In ar, this message translates to:
+  /// **'سنوي'**
+  String get txnCycleYearly;
+
+  /// No description provided for @txnTotalValueLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'القيمة الكلية: '**
+  String get txnTotalValueLabel;
+
+  /// No description provided for @txnPaidManuallyLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'مدفوع يدويًا: '**
+  String get txnPaidManuallyLabel;
+
+  /// No description provided for @txnAdd.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة'**
+  String get txnAdd;
+
+  /// No description provided for @txnBillsAndSubs.
+  ///
+  /// In ar, this message translates to:
+  /// **'الفواتير والاشتراكات'**
+  String get txnBillsAndSubs;
+
+  /// No description provided for @txnPeriodSpendTotal.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي مصروفات الفترة'**
+  String get txnPeriodSpendTotal;
+
+  /// No description provided for @txnActiveMonthlySpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي الصرف الشهري النشط'**
+  String get txnActiveMonthlySpend;
+
+  /// No description provided for @txnTxForPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملية للفترة'**
+  String get txnTxForPeriod;
+
+  /// No description provided for @txnTotalSpent.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي المصروف'**
+  String get txnTotalSpent;
+
+  /// No description provided for @txnActiveSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراك نشط'**
+  String get txnActiveSub;
+
+  /// No description provided for @txnRunningInst.
+  ///
+  /// In ar, this message translates to:
+  /// **'قسط جاري'**
+  String get txnRunningInst;
+
+  /// No description provided for @txnYearlyTotal.
+  ///
+  /// In ar, this message translates to:
+  /// **'المجموع سنويًا'**
+  String get txnYearlyTotal;
+
+  /// No description provided for @txnSmartInbox.
+  ///
+  /// In ar, this message translates to:
+  /// **'صندوق المراجعة الذكي'**
+  String get txnSmartInbox;
+
+  /// No description provided for @txnReviewTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'راجع العملية'**
+  String get txnReviewTx;
+
+  /// No description provided for @txnHide.
+  ///
+  /// In ar, this message translates to:
+  /// **'إخفاء'**
+  String get txnHide;
+
+  /// No description provided for @txnSuspectTxPlural.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمليات مشبوهة'**
+  String get txnSuspectTxPlural;
+
+  /// No description provided for @txnDismissAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاهل الكل'**
+  String get txnDismissAll;
+
+  /// No description provided for @txnNoSuspectTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات مشبوهة'**
+  String get txnNoSuspectTx;
+
+  /// No description provided for @txnSimilarExists.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملية مشابهة موجودة'**
+  String get txnSimilarExists;
+
+  /// No description provided for @txnSimilarBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه العملية تشبه عملية موجودة بالمبلغ والتاجر والوقت نفسها.'**
+  String get txnSimilarBody;
+
+  /// No description provided for @txnTheNew.
+  ///
+  /// In ar, this message translates to:
+  /// **'الجديدة'**
+  String get txnTheNew;
+
+  /// No description provided for @txnNoClearMerchant.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون تاجر واضح'**
+  String get txnNoClearMerchant;
+
+  /// No description provided for @txnTheExisting.
+  ///
+  /// In ar, this message translates to:
+  /// **'الموجودة'**
+  String get txnTheExisting;
+
+  /// No description provided for @txnDismissDuplicate.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاهل التكرار'**
+  String get txnDismissDuplicate;
+
+  /// No description provided for @txnSaveAsNew.
+  ///
+  /// In ar, this message translates to:
+  /// **'احفظ كجديدة'**
+  String get txnSaveAsNew;
+
+  /// No description provided for @txnEditTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل العملية'**
+  String get txnEditTx;
+
+  /// No description provided for @txnChangeCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيير التصنيف'**
+  String get txnChangeCategory;
+
+  /// No description provided for @txnTimeInSms.
+  ///
+  /// In ar, this message translates to:
+  /// **'وقت العملية داخل SMS'**
+  String get txnTimeInSms;
+
+  /// No description provided for @txnTimeReceived.
+  ///
+  /// In ar, this message translates to:
+  /// **'وقت استلام الرسالة'**
+  String get txnTimeReceived;
+
+  /// No description provided for @txnDupBannerReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{عملية مشبوهة واحدة} =2{عمليتان مشبوهتان} few{{count} عمليات مشبوهة} many{{count} عملية مشبوهة} other{{count} عملية مشبوهة}} — اضغط للمراجعة'**
+  String txnDupBannerReview(int count);
+
+  /// No description provided for @txnDismissAllDupesBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستُزال كل تنبيهات التكرار المعروضة. العمليات نفسها لن تتأثر، لكن لا يمكن مراجعتها من هنا مرة أخرى.'**
+  String get txnDismissAllDupesBody;
+
+  /// No description provided for @txnTimeSource.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصدر الوقت: {source}'**
+  String txnTimeSource(String source);
+
+  /// No description provided for @txnRecurredMonths.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{تكرر شهرًا واحدًا} =2{تكرر شهرين} few{تكرر {count} أشهر} many{تكرر {count} شهرًا} other{تكرر {count} شهرًا}} · اضغط للتفعيل'**
+  String txnRecurredMonths(int count);
+
+  /// No description provided for @txnConfirmAllBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{سيتم تأكيد عملية واحدة بتصنيفها الحالي.} =2{سيتم تأكيد عمليتين بتصنيفيهما الحاليين.} few{سيتم تأكيد {count} عمليات بتصنيفاتها الحالية.} many{سيتم تأكيد {count} عملية بتصنيفاتها الحالية.} other{سيتم تأكيد {count} عملية بتصنيفاتها الحالية.}}'**
+  String txnConfirmAllBody(int count);
+
+  /// No description provided for @txnOverdueDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'{days, plural, =1{متأخر يومًا واحدًا} =2{متأخر يومين} few{متأخر {days} أيام} many{متأخر {days} يومًا} other{متأخر {days} يومًا}}'**
+  String txnOverdueDays(int days);
+
+  /// No description provided for @txnInDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'{days, plural, =1{بعد يوم واحد} =2{بعد يومين} few{بعد {days} أيام} many{بعد {days} يومًا} other{بعد {days} يومًا}}'**
+  String txnInDays(int days);
+
+  /// No description provided for @txnPerInstalment.
+  ///
+  /// In ar, this message translates to:
+  /// **'{amount} / قسط'**
+  String txnPerInstalment(String amount);
+
+  /// No description provided for @txnPaidOfTotal.
+  ///
+  /// In ar, this message translates to:
+  /// **'{paid} من {total} قسط مدفوع'**
+  String txnPaidOfTotal(int paid, int total);
+
+  /// No description provided for @txnRemainingInstalments.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{متبقٍ قسط واحد} =2{متبقٍ قسطان} few{متبقٍ {count} أقساط} many{متبقٍ {count} قسطًا} other{متبقٍ {count} قسط}}'**
+  String txnRemainingInstalments(int count);
+
+  /// No description provided for @txnInterestRate.
+  ///
+  /// In ar, this message translates to:
+  /// **'فائدة {rate}%'**
+  String txnInterestRate(String rate);
+
+  /// No description provided for @txnNextInstalment.
+  ///
+  /// In ar, this message translates to:
+  /// **'القسط القادم: {due}'**
+  String txnNextInstalment(String due);
+
+  /// No description provided for @txnEstPerMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'{amount} {currency}/شهر'**
+  String txnEstPerMonth(String amount, String currency);
+
+  /// No description provided for @txnSmartInboxCount.
+  ///
+  /// In ar, this message translates to:
+  /// **'صندوق المراجعة الذكي · {count}'**
+  String txnSmartInboxCount(int count);
+
+  /// No description provided for @txnDismissNAlerts.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{تجاهل تنبيهًا واحدًا؟} =2{تجاهل تنبيهين؟} few{تجاهل {count} تنبيهات؟} many{تجاهل {count} تنبيهًا؟} other{تجاهل {count} تنبيه؟}}'**
+  String txnDismissNAlerts(int count);
+
+  /// No description provided for @txnDismissAllCount.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاهل الكل ({count})'**
+  String txnDismissAllCount(int count);
+
+  /// No description provided for @subsOverdue.
+  ///
+  /// In ar, this message translates to:
+  /// **'متأخر'**
+  String get subsOverdue;
+
+  /// No description provided for @subsToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'اليوم'**
+  String get subsToday;
+
+  /// No description provided for @subsTabSubs.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات ({count})'**
+  String subsTabSubs(int count);
+
+  /// No description provided for @subsTabInst.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأقساط ({count})'**
+  String subsTabInst(int count);
+
+  /// No description provided for @subsMonthlyScoped.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات الشهرية · {account}'**
+  String subsMonthlyScoped(String account);
+
+  /// No description provided for @subsPerYearApprox.
+  ///
+  /// In ar, this message translates to:
+  /// **'≈ {amount}/سنة'**
+  String subsPerYearApprox(String amount);
+
+  /// No description provided for @subsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات والفواتير'**
+  String get subsTitle;
+
+  /// No description provided for @subsMonthlyTotal.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات الشهرية'**
+  String get subsMonthlyTotal;
+
+  /// No description provided for @subsActiveSubs.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراكات نشطة'**
+  String get subsActiveSubs;
+
+  /// No description provided for @subsRunningInst.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقساط جارية'**
+  String get subsRunningInst;
+
+  /// No description provided for @subsMonthlyInstCommit.
+  ///
+  /// In ar, this message translates to:
+  /// **'التزام الأقساط شهريًا'**
+  String get subsMonthlyInstCommit;
+
+  /// No description provided for @subsEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراكاتك في مكان واحد'**
+  String get subsEmptyTitle;
+
+  /// No description provided for @subsAutoDetected.
+  ///
+  /// In ar, this message translates to:
+  /// **'مكتشفة تلقائيًا'**
+  String get subsAutoDetected;
+
+  /// No description provided for @subsAddNewSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة اشتراك جديد'**
+  String get subsAddNewSub;
+
+  /// No description provided for @subsMaybeUnused.
+  ///
+  /// In ar, this message translates to:
+  /// **'قد لا تستخدم هذا الاشتراك'**
+  String get subsMaybeUnused;
+
+  /// No description provided for @subsInstEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقساطك، واضحة قبل ميعادها'**
+  String get subsInstEmptyTitle;
+
+  /// No description provided for @subsInstEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف القسط بالمبلغ والعدد وتاريخ الاستحقاق.'**
+  String get subsInstEmptyBody;
+
+  /// No description provided for @subsTotalInstDebt.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي مديونية الأقساط'**
+  String get subsTotalInstDebt;
+
+  /// No description provided for @subsNearestInst.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقرب قسط'**
+  String get subsNearestInst;
+
+  /// No description provided for @subsAddNewInst.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة قسط جديد'**
+  String get subsAddNewInst;
+
+  /// No description provided for @rptAnomalyPrivate.
+  ///
+  /// In ar, this message translates to:
+  /// **'في يوم {date} كان الصرف أعلى من نمطك المعتاد. راجعه إن أردت معرفة السبب.'**
+  String rptAnomalyPrivate(String date);
+
+  /// No description provided for @rptAnomalyDetail.
+  ///
+  /// In ar, this message translates to:
+  /// **'في يوم {date} صرفت {amount}، وهو أعلى من متوسطك اليومي {ratio}×.'**
+  String rptAnomalyDetail(String date, String amount, String ratio);
+
+  /// No description provided for @rptSpendLower.
+  ///
+  /// In ar, this message translates to:
+  /// **'صرفك أقل {percent}% من نفس الفترة السابقة.'**
+  String rptSpendLower(int percent);
+
+  /// No description provided for @rptSpendHigher.
+  ///
+  /// In ar, this message translates to:
+  /// **'صرفك أعلى {percent}% من نفس الفترة السابقة.'**
+  String rptSpendHigher(int percent);
+
+  /// No description provided for @rptHighestDayBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى يوم في الفترة وصل إلى {amount}.'**
+  String rptHighestDayBody(String amount);
+
+  /// No description provided for @rptTopCategoryHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'أكبر إنفاق لديك على {category}. راقب هذا التصنيف أولًا.'**
+  String rptTopCategoryHint(String category);
+
+  /// No description provided for @rptMerchantTxCount.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{عملية واحدة} =2{عمليتان} few{{count} عمليات} many{{count} عملية} other{{count} عملية}}'**
+  String rptMerchantTxCount(int count);
+
+  /// No description provided for @rptVsLastWeek.
+  ///
+  /// In ar, this message translates to:
+  /// **'{sign} {percent}% مقارنة بالأسبوع الماضي'**
+  String rptVsLastWeek(String sign, String percent);
+
+  /// No description provided for @rptTopCategoryWeek.
+  ///
+  /// In ar, this message translates to:
+  /// **'أكثر فئة صرفًا: {category}'**
+  String rptTopCategoryWeek(String category);
+
+  /// No description provided for @rptBestSavingDay.
+  ///
+  /// In ar, this message translates to:
+  /// **'أفضل يوم توفيرًا: {date} ({amount})'**
+  String rptBestSavingDay(String date, String amount);
+
+  /// No description provided for @rptTopMerchantWeek.
+  ///
+  /// In ar, this message translates to:
+  /// **'أكثر متجر صرفًا: {name} ({amount})'**
+  String rptTopMerchantWeek(String name, String amount);
+
+  /// No description provided for @rptTabOverview.
+  ///
+  /// In ar, this message translates to:
+  /// **'نظرة عامة'**
+  String get rptTabOverview;
+
+  /// No description provided for @rptTabTrends.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاتجاهات'**
+  String get rptTabTrends;
+
+  /// No description provided for @rptTabDetails.
+  ///
+  /// In ar, this message translates to:
+  /// **'التفاصيل'**
+  String get rptTabDetails;
+
+  /// No description provided for @rptUnusualSpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'صرف غير معتاد'**
+  String get rptUnusualSpend;
+
+  /// No description provided for @rptVsPrevPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'مقارنة بنفس الفترة السابقة'**
+  String get rptVsPrevPeriod;
+
+  /// No description provided for @rptNeedPrevPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'ما زلنا نحتاج فترة سابقة فيها إنفاق لعرض الاتجاه بدقة.'**
+  String get rptNeedPrevPeriod;
+
+  /// No description provided for @rptHighestSpendDay.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى يوم صرف'**
+  String get rptHighestSpendDay;
+
+  /// No description provided for @rptQuickTip.
+  ///
+  /// In ar, this message translates to:
+  /// **'اقتراح سريع'**
+  String get rptQuickTip;
+
+  /// No description provided for @rptAddMoreTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ بإضافة عمليات أكثر لنقدّم اقتراحات أوضح.'**
+  String get rptAddMoreTx;
+
+  /// No description provided for @rptSelectedPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'الفترة المختارة'**
+  String get rptSelectedPeriod;
+
+  /// No description provided for @rptNetPeriodSpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'صافي مصروف الفترة'**
+  String get rptNetPeriodSpend;
+
+  /// No description provided for @rptSelectedPeriodSpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروف الفترة المختارة'**
+  String get rptSelectedPeriodSpend;
+
+  /// No description provided for @rptTotalExpenses.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي المصروفات'**
+  String get rptTotalExpenses;
+
+  /// No description provided for @rptRefunds.
+  ///
+  /// In ar, this message translates to:
+  /// **'المرتجعات'**
+  String get rptRefunds;
+
+  /// No description provided for @rptNet.
+  ///
+  /// In ar, this message translates to:
+  /// **'الصافي'**
+  String get rptNet;
+
+  /// No description provided for @rptThisWeekUsage.
+  ///
+  /// In ar, this message translates to:
+  /// **'استهلاك الأسبوع الحالي'**
+  String get rptThisWeekUsage;
+
+  /// No description provided for @rptAverage.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتوسط'**
+  String get rptAverage;
+
+  /// No description provided for @rptHighest.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأعلى'**
+  String get rptHighest;
+
+  /// No description provided for @rptTotal.
+  ///
+  /// In ar, this message translates to:
+  /// **'الإجمالي'**
+  String get rptTotal;
+
+  /// No description provided for @rptByCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'استهلاكك بالتصنيفات'**
+  String get rptByCategory;
+
+  /// No description provided for @rptByMerchant.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروفاتك في المتاجر'**
+  String get rptByMerchant;
+
+  /// No description provided for @rptTopMerchantsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'أكبر أماكن الصرف في الفترة'**
+  String get rptTopMerchantsSub;
+
+  /// No description provided for @rptMerchantsEmpty.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستظهر هنا أكثر المتاجر صرفاً بعد إضافة عمليات مؤكدة.'**
+  String get rptMerchantsEmpty;
+
+  /// No description provided for @rptIncludesRefund.
+  ///
+  /// In ar, this message translates to:
+  /// **' · شامل مرتجع '**
+  String get rptIncludesRefund;
+
+  /// No description provided for @rptInsightsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرؤى والتقارير'**
+  String get rptInsightsTitle;
+
+  /// No description provided for @rptInsightsSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'اقرأ صرفك كاتجاهات يومية وتصنيفات ومتاجر.'**
+  String get rptInsightsSub;
+
+  /// No description provided for @rptDailyAverage.
+  ///
+  /// In ar, this message translates to:
+  /// **'متوسط يومي'**
+  String get rptDailyAverage;
+
+  /// No description provided for @rptHighestDay.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى يوم'**
+  String get rptHighestDay;
+
+  /// No description provided for @rptWeekSummary.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملخص الأسبوع'**
+  String get rptWeekSummary;
+
+  /// No description provided for @bdgPeriodSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية {period} · {date}'**
+  String bdgPeriodSubtitle(String period, String date);
+
+  /// No description provided for @bdgPeriodSubtitleLive.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية {period} · {date} · جارية'**
+  String bdgPeriodSubtitleLive(String period, String date);
+
+  /// No description provided for @bdgLatestOfTotal.
+  ///
+  /// In ar, this message translates to:
+  /// **'أحدث {shown} من {total}'**
+  String bdgLatestOfTotal(int shown, int total);
+
+  /// No description provided for @bdgRemainingPrefix.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقي '**
+  String get bdgRemainingPrefix;
+
+  /// No description provided for @bdgToReachSuffix.
+  ///
+  /// In ar, this message translates to:
+  /// **' {currency} للوصول'**
+  String bdgToReachSuffix(String currency);
+
+  /// No description provided for @setUnsyncedLedger.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{تغيير واحد في المعاملات} =2{تغييران في المعاملات} few{{count} تغييرات في المعاملات} many{{count} تغييرًا في المعاملات} other{{count} تغيير في المعاملات}}'**
+  String setUnsyncedLedger(int count);
+
+  /// No description provided for @setUnsyncedPlanning.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{تغيير واحد في الحسابات/الميزانيات/الأهداف/الفواتير} =2{تغييران في الحسابات/الميزانيات/الأهداف/الفواتير} few{{count} تغييرات في الحسابات/الميزانيات/الأهداف/الفواتير} many{{count} تغييرًا في الحسابات/الميزانيات/الأهداف/الفواتير} other{{count} تغيير في الحسابات/الميزانيات/الأهداف/الفواتير}}'**
+  String setUnsyncedPlanning(int count);
+
+  /// No description provided for @setUnsyncedInbox.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{عنصر واحد في صندوق الوارد} =2{عنصران في صندوق الوارد} few{{count} عناصر في صندوق الوارد} many{{count} عنصرًا في صندوق الوارد} other{{count} عنصر في صندوق الوارد}}'**
+  String setUnsyncedInbox(int count);
+
+  /// No description provided for @setUnsyncedCards.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{بطاقة واحدة محفوظة على هذا الجهاز فقط} =2{بطاقتان محفوظتان على هذا الجهاز فقط} few{{count} بطاقات محفوظة على هذا الجهاز فقط} many{{count} بطاقة محفوظة على هذا الجهاز فقط} other{{count} بطاقة محفوظة على هذا الجهاز فقط}}'**
+  String setUnsyncedCards(int count);
+
+  /// No description provided for @setUnsyncedUnproven.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{سجل مالي واحد لم يُرفع للسحابة بعد} =2{سجلان ماليان لم يُرفعا للسحابة بعد} few{{count} سجلات مالية لم تُرفع للسحابة بعد} many{{count} سجلًا ماليًا لم يُرفع للسحابة بعد} other{{count} سجل مالي لم يُرفع للسحابة بعد}}'**
+  String setUnsyncedUnproven(int count);
+
+  /// No description provided for @setUnsyncedConflicts.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{سجل واحد به تعارض لم يُحلّ} =2{سجلان بهما تعارض لم يُحلّ} few{{count} سجلات بها تعارض لم يُحلّ} many{{count} سجلًا به تعارض لم يُحلّ} other{{count} سجل به تعارض لم يُحلّ}}'**
+  String setUnsyncedConflicts(int count);
+
+  /// No description provided for @setListSeparator.
+  ///
+  /// In ar, this message translates to:
+  /// **'، '**
+  String get setListSeparator;
+
+  /// No description provided for @setUnsyncedSignOutBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لديك بيانات لم تُرفع للسحابة وسيحذفها تسجيل الخروج: {list}. خُذ نسخة احتياطية أولًا إن أردت الاحتفاظ بها.'**
+  String setUnsyncedSignOutBody(String list);
+
+  /// No description provided for @setGapDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{منذ يوم واحد} =2{منذ يومين} few{منذ {count} أيام} many{منذ {count} يومًا} other{منذ {count} يوم}}'**
+  String setGapDays(int count);
+
+  /// No description provided for @setGapHours.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{منذ ساعة واحدة} =2{منذ ساعتين} few{منذ {count} ساعات} many{منذ {count} ساعة} other{منذ {count} ساعة}}'**
+  String setGapHours(int count);
+
+  /// No description provided for @setGapToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'اليوم'**
+  String get setGapToday;
+
+  /// No description provided for @setLastCapture.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر عملية رصد: {gap}'**
+  String setLastCapture(String gap);
+
+  /// No description provided for @setApnsFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل تسجيل APNs: {message}'**
+  String setApnsFailed(String message);
+
+  /// No description provided for @setCheckShortcutStillOn.
+  ///
+  /// In ar, this message translates to:
+  /// **'{subtitle} — تأكد أن الاختصار لا يزال مفعّلًا'**
+  String setCheckShortcutStillOn(String subtitle);
+
+  /// No description provided for @goalDueToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'الموعد اليوم'**
+  String get goalDueToday;
+
+  /// No description provided for @goalDaysLeft.
+  ///
+  /// In ar, this message translates to:
+  /// **'{days, plural, =1{باقي يوم واحد} =2{باقي يومان} few{باقي {days} أيام} many{باقي {days} يومًا} other{باقي {days} يوم}}'**
+  String goalDaysLeft(int days);
+
+  /// No description provided for @goalMonthsLeft.
+  ///
+  /// In ar, this message translates to:
+  /// **'{months, plural, =1{باقي شهر واحد} =2{باقي شهران} few{باقي {months} أشهر} many{باقي {months} شهرًا} other{باقي {months} شهر}}'**
+  String goalMonthsLeft(int months);
+
+  /// No description provided for @goalRemainingToReach.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقي {amount} {currency} للوصول'**
+  String goalRemainingToReach(String amount, String currency);
+
+  /// No description provided for @goalSavedAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'مدخر {amount} {currency}'**
+  String goalSavedAmount(String amount, String currency);
+
+  /// No description provided for @goalTargetAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'الهدف {amount} {currency}'**
+  String goalTargetAmount(String amount, String currency);
+
+  /// No description provided for @goalPerMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'/شهر'**
+  String get goalPerMonth;
+
+  /// No description provided for @goalOverdue.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاوز الموعد المستهدف'**
+  String get goalOverdue;
+
+  /// No description provided for @goalTotalSavedAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي المدخر لكل أحلامك'**
+  String get goalTotalSavedAll;
+
+  /// No description provided for @goalTargetLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'المستهدف'**
+  String get goalTargetLabel;
+
+  /// No description provided for @goalEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف هدفك الأول وابدأ تعبئة الخزنة.'**
+  String get goalEmptyBody;
+
+  /// No description provided for @cardLinkTxTo.
+  ///
+  /// In ar, this message translates to:
+  /// **'اربط عملية بـ •••• {last4}'**
+  String cardLinkTxTo(String last4);
+
+  /// No description provided for @cardTxLinkedTo.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم ربط العملية بـ •••• {last4}'**
+  String cardTxLinkedTo(String last4);
+
+  /// No description provided for @cardAccountWord.
+  ///
+  /// In ar, this message translates to:
+  /// **'حساب'**
+  String get cardAccountWord;
+
+  /// No description provided for @cardUnassigned.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مخصّصة'**
+  String get cardUnassigned;
+
+  /// No description provided for @cardBack.
+  ///
+  /// In ar, this message translates to:
+  /// **'رجوع'**
+  String get cardBack;
+
+  /// No description provided for @cardAllCards.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل البطاقات'**
+  String get cardAllCards;
+
+  /// No description provided for @cardAddCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة بطاقة'**
+  String get cardAddCard;
+
+  /// No description provided for @cardEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد بطاقات بعد'**
+  String get cardEmptyTitle;
+
+  /// No description provided for @cardEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'تظهر البطاقات تلقائيًا من رسائل البنك، ويمكنك إضافة بطاقة بتصميمك.'**
+  String get cardEmptyBody;
+
+  /// No description provided for @cardAddCardCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف بطاقة'**
+  String get cardAddCardCta;
+
+  /// No description provided for @cardEdit.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل'**
+  String get cardEdit;
+
+  /// No description provided for @cardIn.
+  ///
+  /// In ar, this message translates to:
+  /// **'داخل'**
+  String get cardIn;
+
+  /// No description provided for @cardOut.
+  ///
+  /// In ar, this message translates to:
+  /// **'خارج'**
+  String get cardOut;
+
+  /// No description provided for @cardAddTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة عملية'**
+  String get cardAddTx;
+
+  /// No description provided for @cardLinkExistingTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'اربط عملية موجودة'**
+  String get cardLinkExistingTx;
+
+  /// No description provided for @cardSearchHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابحث بالاسم أو المبلغ'**
+  String get cardSearchHint;
+
+  /// No description provided for @cardNoTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات'**
+  String get cardNoTx;
+
+  /// No description provided for @accAddAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة حساب'**
+  String get accAddAccount;
+
+  /// No description provided for @accTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحسابات والمحافظ'**
+  String get accTitle;
+
+  /// No description provided for @accSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.'**
+  String get accSubtitle;
+
+  /// No description provided for @accDefault.
+  ///
+  /// In ar, this message translates to:
+  /// **'افتراضي'**
+  String get accDefault;
+
+  /// No description provided for @accUnassignedCards.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقات غير مخصّصة'**
+  String get accUnassignedCards;
+
+  /// No description provided for @accUnassignedCardsBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد.'**
+  String get accUnassignedCardsBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
