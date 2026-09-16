@@ -161,7 +161,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
     // explicit mixed-currency rule the finding asked for.
     final planCurrencyCode = widget.existing?.currency ??
         (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
-    final currency = Currency.arabicLabel(planCurrencyCode);
+    final currency = Currency.label(context, planCurrencyCode);
 
     return AppSheetScaffold(
       title: widget.existing == null ? 'خطة جديدة' : 'تعديل الخطة',
@@ -232,7 +232,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
               for (final account in accounts)
                 FilterChip(
                   label: Text(
-                      '${account.name} · ${Currency.arabicLabel(account.currency)}'),
+                      '${account.name} · ${Currency.label(context, account.currency)}'),
                   selected: _accountIds.contains(account.id),
                   onSelected: (v) => setState(() {
                     if (v) {

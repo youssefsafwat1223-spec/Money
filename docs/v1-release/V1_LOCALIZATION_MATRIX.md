@@ -1,4 +1,15 @@
 # V1 Localization Matrix
+
+> **SUPERSEDED, 2026-09-17.** The "ship Arabic-first / do not claim English"
+> recommendation in §2 below is **WITHDRAWN**. The owner has confirmed the V1
+> product contract is Arabic (MSA) **+ English**, and English remains an OPEN
+> requirement. The counts here are also stale — ARB keys went 338 → 930 and
+> routes rendering Arabic under `en` went 15/19 → 10/19.
+>
+> Current state: **`V1_LOCALIZATION_MATRIX_2026-09-17.md`**.
+>
+> Kept unedited as the record of what was measured on 2026-09-15/16.
+
 Measured 2026-09-15 against HEAD. Counts are Arabic string literals in
 widget-bearing files (the user-facing surface) versus `l10n.*` references.
 ## 0. Runtime evidence — added 2026-09-16

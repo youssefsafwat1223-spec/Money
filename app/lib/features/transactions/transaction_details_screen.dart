@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -38,23 +39,29 @@ class TransactionDetailsScreen extends ConsumerWidget {
 
   final String transactionId;
 
-  static const _typeLabels = {
-    TransactionTypeEntity.payment: 'شراء',
-    TransactionTypeEntity.withdrawal: 'سحب نقدي',
-    TransactionTypeEntity.transfer: 'تحويل',
-    TransactionTypeEntity.refund: 'استرداد',
-    TransactionTypeEntity.income: 'دخل',
-    TransactionTypeEntity.unknown: 'غير محدد',
-  };
+  // Was a `static const` map. Localized copy cannot be const, and a lookup
+  // table that is built once at class-load would freeze whichever language
+  // happened to be active then.
+  static String _typeLabel(BuildContext context, TransactionTypeEntity type) =>
+      switch (type) {
+        TransactionTypeEntity.payment => context.l10n.txdTypePurchase,
+        TransactionTypeEntity.withdrawal => context.l10n.txdTypeCashWithdrawal,
+        TransactionTypeEntity.transfer => context.l10n.txdTypeTransfer,
+        TransactionTypeEntity.refund => context.l10n.txdTypeRefund,
+        TransactionTypeEntity.income => context.l10n.txnKindIncome,
+        TransactionTypeEntity.unknown => context.l10n.txdTypeUnknown,
+      };
 
-  static const _sourceLabels = {
-    TransactionSourceEntity.bank: 'بنك',
-    TransactionSourceEntity.card: 'بطاقة',
-    TransactionSourceEntity.wallet: 'محفظة',
-    TransactionSourceEntity.unknown: 'غير محدد',
-    TransactionSourceEntity.aiParsed: 'ذكاء اصطناعي',
-    TransactionSourceEntity.imported: 'ملف مستورد',
-  };
+  static String _sourceLabel(
+          BuildContext context, TransactionSourceEntity source) =>
+      switch (source) {
+        TransactionSourceEntity.bank => context.l10n.accTypeBank,
+        TransactionSourceEntity.card => context.l10n.txdSourceCard,
+        TransactionSourceEntity.wallet => context.l10n.accTypeWallet,
+        TransactionSourceEntity.unknown => context.l10n.txdTypeUnknown,
+        TransactionSourceEntity.aiParsed => context.l10n.txdSourceAi,
+        TransactionSourceEntity.imported => context.l10n.txdSourceImport,
+      };
 
   static Future<void> showSheet(BuildContext context, String transactionId) {
     return showModalBottomSheet<void>(
@@ -104,11 +111,11 @@ class _TransactionDetailsContent extends ConsumerWidget {
       loading: () => _buildScaffold(
           context, c, const Center(child: CircularProgressIndicator())),
       error: (e, _) =>
-          _buildScaffold(context, c, const Center(child: Text('حدث خطأ'))),
+          _buildScaffold(context, c, Center(child: Text(context.l10n.txnError))),
       data: (tx) {
         if (tx == null) {
           return _buildScaffold(
-              context, c, const Center(child: Text('العملية غير موجودة')));
+              context, c, Center(child: Text(context.l10n.txdNotFound)));
         }
 
         final category = catalog?.byId(tx.categoryId);
@@ -116,19 +123,19 @@ class _TransactionDetailsContent extends ConsumerWidget {
         final amountColor = isDebit ? c.danger : c.success;
         final merchantTitle = tx.rawMerchant?.trim().isNotEmpty == true
             ? tx.rawMerchant!.trim()
-            : category?.name ?? 'عملية';
+            : category?.name ?? context.l10n.txnTransactionWord;
         final statusColor = switch (tx.status) {
           TransactionStatus.confirmed => c.success,
           TransactionStatus.pending => c.accent,
           TransactionStatus.ignored => c.textMuted,
         };
         final statusLabel = switch (tx.status) {
-          TransactionStatus.confirmed => 'مؤكدة',
-          TransactionStatus.pending => 'تحتاج مراجعة',
-          TransactionStatus.ignored => 'متجاهلة',
+          TransactionStatus.confirmed => context.l10n.txdConfirmed,
+          TransactionStatus.pending => context.l10n.txdNeedsReview,
+          TransactionStatus.ignored => context.l10n.txdIgnored,
         };
         final editButton = IconButton(
-          tooltip: 'تعديل العملية',
+          tooltip: context.l10n.txnEditTx,
           onPressed: () => ManualTransactionSheet.show(
             context,
             transaction: tx,
@@ -177,7 +184,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                         suffix:
                             (tx.amountMoney.isZero && tx.foreignMoney != null)
                                 ? ' ${tx.foreignCurrency}'
-                                : ' ${Currency.arabicLabel(tx.currency)}',
+                                : ' ${Currency.label(context, tx.currency)}',
                         style: AppTypography.amountHero(amountColor),
                       ),
                     ),
@@ -207,7 +214,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       const SizedBox(height: AppSpacing.s3),
                       AppButton(
                         label:
-                            'أضف القيمة بـ ${Currency.arabicLabel(tx.currency)}',
+                            context.l10n.txdAddValueIn(Currency.label(context, tx.currency)),
                         onPressed: () => _promptForPrice(context, ref, tx),
                         isPrimary: true,
                         height: 42,
@@ -224,7 +231,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                   Expanded(
                     child: _QuickAction(
                       icon: AppLucideIcons.pencil,
-                      label: 'تعديل',
+                      label: context.l10n.cardEdit,
                       onTap: () =>
                           ManualTransactionSheet.show(context, transaction: tx),
                     ),
@@ -234,7 +241,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     Expanded(
                       child: _QuickAction(
                         icon: AppLucideIcons.shapes,
-                        label: 'تغيير التصنيف',
+                        label: context.l10n.txnChangeCategory,
                         onTap: () =>
                             showChangeCategorySheet(context, tx, catalog),
                       ),
@@ -251,20 +258,20 @@ class _TransactionDetailsContent extends ConsumerWidget {
                   children: [
                     _buildDetailRow(
                       context,
-                      'التصنيف',
-                      category?.name ?? 'غير مصنّف',
+                      context.l10n.txnCategory,
+                      category?.name ?? context.l10n.txdUncategorised,
                     ),
                     _divider(c),
                     _buildDetailRow(
                       context,
-                      'النوع',
-                      TransactionDetailsScreen._typeLabels[tx.type] ?? '—',
+                      context.l10n.txdType,
+                      TransactionDetailsScreen._typeLabel(context, tx.type),
                     ),
                     _divider(c),
                     _buildDetailRow(
                       context,
-                      'المصدر',
-                      TransactionDetailsScreen._sourceLabels[tx.source] ?? '—',
+                      context.l10n.txdSource,
+                      TransactionDetailsScreen._sourceLabel(context, tx.source),
                     ),
                     // UX-034 — the account and the card were compressed into
                     // one «المصدر» line («بطاقة · 1234») with the account
@@ -279,15 +286,15 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     _divider(c),
                     _buildDetailRow(
                       context,
-                      'الحساب',
+                      context.l10n.commonAccountDefinite,
                       _accountName(ref, tx.accountId),
                     ),
                     _divider(c),
                     _buildDetailRow(
                       context,
-                      'البطاقة',
+                      context.l10n.txdCard,
                       tx.cardLast4 == null
-                          ? 'بدون بطاقة'
+                          ? context.l10n.txdNoCard
                           : '•••• ${tx.cardLast4}',
                       trailing: TextButton(
                         onPressed: () => _editCard(context, ref, tx),
@@ -296,22 +303,22 @@ class _TransactionDetailsContent extends ConsumerWidget {
                           minimumSize: const Size(0, 0),
                           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                         ),
-                        child: Text('تغيير',
+                        child: Text(context.l10n.txdChange,
                             style: AppTypography.footnote(c.cta)),
                       ),
                     ),
                     _divider(c),
                     _buildDetailRow(
                       context,
-                      'العملة',
-                      Currency.arabicLabel(tx.currency),
+                      context.l10n.dtxCurrency,
+                      Currency.label(context, tx.currency),
                     ),
                     if (tx.foreignAmount != null &&
                         tx.foreignCurrency != null) ...[
                       _divider(c),
                       _buildDetailRow(
                         context,
-                        'بالعملة الأصلية',
+                        context.l10n.txdOriginalCurrency,
                         '${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency!}',
                       ),
                     ],
@@ -319,7 +326,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       _divider(c),
                       _buildDetailRow(
                         context,
-                        'الرصيد بعد',
+                        context.l10n.txdBalanceAfter,
                         '${Formatters.amount(tx.balanceAfter!)} ${tx.currency}',
                       ),
                     ],
@@ -327,7 +334,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       _divider(c),
                       _buildDetailRow(
                         context,
-                        'ملاحظة',
+                        context.l10n.txdNote,
                         tx.note!,
                       ),
                     ],
@@ -335,8 +342,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       _divider(c),
                       _buildDetailRow(
                         context,
-                        'الحالة',
-                        _pendingLabel(tx.createdAt),
+                        context.l10n.txdStatus,
+                        _pendingLabel(context, tx.createdAt),
                         isPending: true,
                       ),
                     ],
@@ -351,7 +358,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     .copyWith(dividerColor: Colors.transparent),
                 child: ExpansionTile(
                   tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-                  title: Text('النص الأصلي',
+                  title: Text(context.l10n.txdOriginalText,
                       style: AppTypography.subhead(c.textSecondary)),
                   collapsedIconColor: c.textSecondary,
                   iconColor: c.primary,
@@ -379,8 +386,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     icon: const Icon(AppLucideIcons.badgeCheck),
                     label: Text(
                       tx.status == TransactionStatus.ignored
-                          ? 'تأكيد العملية المتجاهلة'
-                          : 'تأكيد العملية',
+                          ? context.l10n.txdConfirmIgnored
+                          : context.l10n.txdConfirmTx,
                     ),
                   ),
                 ),
@@ -389,7 +396,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
               TextButton.icon(
                 onPressed: () => _confirmDelete(context, ref, tx.id),
                 icon: Icon(AppLucideIcons.trash2, color: c.danger),
-                label: Text('حذف العملية',
+                label: Text(context.l10n.txdDeleteTx,
                     style: AppTypography.bodyStrong(c.danger)),
               ),
             ],
@@ -397,7 +404,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
         );
 
         return _buildScaffold(context, c, body,
-            title: 'تفاصيل العملية', trailing: editButton);
+            title: context.l10n.txdTitle, trailing: editButton);
       },
     );
   }
@@ -445,8 +452,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
         builder: (sheetContext) {
           final sc = sheetContext.colors;
           return AppSheetScaffold(
-            title: 'بطاقة العملية',
-            subtitle: 'تغيير البطاقة لا ينقل العملية إلى حساب آخر.',
+            title: context.l10n.txdCardSheetTitle,
+            subtitle: context.l10n.txdCardSheetNote,
             scrollable: true,
             body: Padding(
               padding:
@@ -470,7 +477,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       padding: const EdgeInsets.symmetric(
                           vertical: AppSpacing.s3),
                       child: Text(
-                        'لا توجد بطاقات مسجّلة على هذا الحساب.',
+                        context.l10n.txdNoCardsOnAccount,
                         style: AppTypography.caption(sc.textSecondary),
                         textAlign: TextAlign.center,
                       ),
@@ -478,10 +485,10 @@ class _TransactionDetailsContent extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.s2),
                   ListTile(
                     leading: Icon(AppLucideIcons.unlink, color: sc.textLight),
-                    title: Text('بدون بطاقة',
+                    title: Text(context.l10n.txdNoCard,
                         style: AppTypography.subhead(sc.textMain)),
                     subtitle: Text(
-                      'العملية تفضل في نفس الحساب وفي كل تقاريرك.',
+                      context.l10n.txdStaysInAccount,
                       style: AppTypography.caption(sc.textSecondary),
                     ),
                     trailing: tx.cardLast4 == null
@@ -516,8 +523,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(next == null
-            ? 'أُزيلت البطاقة. ما زالت العملية في الحساب نفسه.'
-            : 'رُبطت بالبطاقة •••• $next. الحساب كما هو.'),
+            ? context.l10n.txdCardRemoved
+            : context.l10n.txdLinkedToCard(next)),
       ),
     );
   }
@@ -530,7 +537,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
     ref.invalidate(dashboardDataProvider);
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم تأكيد العملية.')),
+      SnackBar(content: Text(context.l10n.txdConfirmedToast)),
     );
   }
 
@@ -539,16 +546,16 @@ class _TransactionDetailsContent extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('حذف العملية؟'),
-        content: const Text('ستُحذف من تقاريرك ورصيدك. لا يمكن التراجع عن ذلك.'),
+        title: Text(context.l10n.txdDeleteTitle),
+        content: Text(context.l10n.txdDeleteBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text('حذف', style: TextStyle(color: ctx.colors.danger)),
+            child: Text(context.l10n.setDelete, style: TextStyle(color: ctx.colors.danger)),
           ),
         ],
       ),
@@ -585,10 +592,10 @@ class _TransactionDetailsContent extends ConsumerWidget {
       {String? title, Widget? trailing}) {
     if (isSheet) {
       return AppSheetScaffold(
-        title: title ?? 'تفاصيل العملية',
+        title: title ?? context.l10n.txdTitle,
         trailing: trailing,
         leading: IconButton(
-          tooltip: 'إغلاق',
+          tooltip: context.l10n.annClose,
           onPressed: () => Navigator.of(context).pop(),
           icon: Icon(AppLucideIcons.x, color: c.textSecondary),
         ),
@@ -598,7 +605,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
     } else {
       return AppScreenScaffold(
         header: AppHeader(
-          title: title ?? 'تفاصيل العملية',
+          title: title ?? context.l10n.txdTitle,
           action: trailing,
           showBack: true,
         ),
@@ -607,11 +614,10 @@ class _TransactionDetailsContent extends ConsumerWidget {
     }
   }
 
-  String _pendingLabel(DateTime createdAt) {
+  String _pendingLabel(BuildContext context, DateTime createdAt) {
     final days = DateTime.now().difference(createdAt).inDays;
-    if (days == 0) return 'غير مؤكدة · اليوم';
-    if (days == 1) return 'غير مؤكدة · منذ يوم';
-    return 'غير مؤكدة · منذ $days أيام';
+    if (days == 0) return context.l10n.txdPendingToday;
+    return context.l10n.txdPendingDays(days);
   }
 
   /// Prompts for the home-currency value of a foreign spend that is still
@@ -625,13 +631,13 @@ class _TransactionDetailsContent extends ConsumerWidget {
     final value = await showDialog<Money>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('القيمة بالريال'),
+        title: Text(context.l10n.txdValueIn(Currency.label(context, tx.currency))),
         content: TextField(
           controller: controller,
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
-            labelText: 'المبلغ بـ ${Currency.arabicLabel(tx.currency)}',
+            labelText: context.l10n.txdAmountIn(Currency.label(context, tx.currency)),
             hintText: '${Formatters.amount(tx.foreignAmount ?? 0)} '
                 '${tx.foreignCurrency ?? ''}',
           ),
@@ -639,7 +645,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () {
@@ -650,7 +656,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                 Navigator.of(ctx).pop();
               }
             },
-            child: const Text('حفظ'),
+            child: Text(context.l10n.txdSave),
           ),
         ],
       ),

@@ -39,7 +39,7 @@ class ReportsScreen extends ConsumerWidget {
           data: (settings) => settings.privacyModeEnabled,
           orElse: () => false,
         );
-    final currencyLabel = Currency.arabicLabel(
+    final currencyLabel = Currency.label(context, 
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
 
     return DefaultTabController(

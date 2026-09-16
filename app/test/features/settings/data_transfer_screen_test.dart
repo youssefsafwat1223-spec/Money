@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/features/settings/data_transfer_screen.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
   testWidgets('shows the three portability entry points and privacy warning',
@@ -11,7 +12,11 @@ void main() {
     await tester.pumpWidget(ProviderScope(
       overrides: [accountsProvider.overrideWith((ref) async => const [])],
       child:
-          MaterialApp(theme: AppTheme.light, home: const DataTransferScreen()),
+          MaterialApp(
+            localizationsDelegates: AppL10n.localizationsDelegates,
+            supportedLocales: AppL10n.supportedLocales,
+            locale: const Locale('ar'),
+            theme: AppTheme.light, home: const DataTransferScreen()),
     ));
     await tester.pump();
 
@@ -26,6 +31,9 @@ void main() {
     bool? confirmed;
     await tester.pumpWidget(
       MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('ar'),
         theme: AppTheme.light,
         home: Builder(
           builder: (context) => Scaffold(

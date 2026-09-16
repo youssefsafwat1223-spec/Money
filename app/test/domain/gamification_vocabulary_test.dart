@@ -65,12 +65,29 @@ void main() {
       }
     });
 
-    test('every key is unique and every key has an Arabic name', () {
+    test('every key is unique and named in BOTH languages', () {
       final keys = AchievementCatalog.all.map((a) => a.key).toList();
       expect(keys.toSet().length, keys.length, reason: 'duplicate key');
       for (final a in AchievementCatalog.all) {
         expect(a.nameAr.trim(), isNotEmpty, reason: '${a.key} has no name');
+        // A badge added with only an Arabic name would show Arabic in the
+        // English build, which is how the whole set got there in the first
+        // place.
+        expect(a.nameEn.trim(), isNotEmpty,
+            reason: '${a.key} has no English name');
+        expect(a.name('en'), a.nameEn);
+        expect(a.name('ar'), a.nameAr);
       }
+    });
+
+    test('a stored row resolves to the English name by key', () {
+      // Persisted rows carry only `nameAr`; the English name is recovered
+      // through the key, so old rows do not have to be migrated.
+      const d = AchievementCatalog.firstTransaction;
+      expect(AchievementCatalog.displayName(d.key, d.nameAr, 'en'), d.nameEn);
+      expect(AchievementCatalog.displayName(d.key, d.nameAr, 'ar'), d.nameAr);
+      // An unknown key falls back to what was stored rather than blanking.
+      expect(AchievementCatalog.displayName('not_a_key', 'محفوظ', 'en'), 'محفوظ');
     });
 
     test('the server award list is asserted against the migration itself', () {

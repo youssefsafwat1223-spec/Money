@@ -10,6 +10,7 @@ import 'package:money_companion/engine/parser/card_network.dart';
 import 'package:money_companion/features/cards/cards_providers.dart';
 import 'package:money_companion/features/cards/my_cards_screen.dart';
 import 'package:money_companion/domain/finance/money.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 AccountEntity _account(String id, String name) => AccountEntity(
       id: id,
@@ -39,6 +40,11 @@ Widget _app(CardGrouping grouping, List<AccountEntity> accounts) {
     ],
     child: MaterialApp(
       theme: AppTheme.light,
+      // The screen reads its copy from the ARB now, so the delegates are part
+      // of the contract under test, not optional scaffolding.
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: const Locale('ar'),
       home: const Directionality(
         textDirection: TextDirection.rtl,
         child: MyCardsScreen(),

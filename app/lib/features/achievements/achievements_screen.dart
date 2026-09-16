@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/l10n_ext.dart';
+import '../../domain/entities/achievement_catalog.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -19,7 +21,7 @@ class AchievementsScreen extends ConsumerWidget {
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const SkeletonList(rows: 5),
-        error: (error, _) => const Center(child: Text('حدث خطأ')),
+        error: (error, _) => Center(child: Text(context.l10n.txnError)),
         data: (data) {
           final c = context.colors;
           final nextThreshold = data.nextLevelThreshold;
@@ -41,11 +43,11 @@ class AchievementsScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('المستوى الحالي',
+                      Text(context.l10n.achCurrentLevel,
                           style: AppTypography.callout(c.textLight)),
                       const SizedBox(height: AppSpacing.s1),
                       Text(
-                        _levelName(data.xpLevel.levelKey),
+                        _levelName(context, data.xpLevel.levelKey),
                         style: AppTypography.title2(c.textMain),
                       ),
                       const SizedBox(height: AppSpacing.s3),
@@ -67,7 +69,7 @@ class AchievementsScreen extends ConsumerWidget {
                       ),
                       const SizedBox(height: AppSpacing.s5),
                       Text(
-                        'السلسلة الحالية: ${data.streak.currentStreak} يوم',
+                        context.l10n.achCurrentStreak(data.streak.currentStreak),
                         style: AppTypography.bodyStrong(c.textMain),
                       ),
                       const SizedBox(height: AppSpacing.s5),
@@ -140,7 +142,11 @@ class AchievementsScreen extends ConsumerWidget {
                                     ),
                                     const SizedBox(height: AppSpacing.s3),
                                     Text(
-                                      item.nameAr,
+                                      AchievementCatalog.displayName(
+                                          item.key,
+                                          item.nameAr,
+                                          Localizations.localeOf(context)
+                                              .languageCode),
                                       style: AppTypography.subhead(unlocked
                                               ? c.textMain
                                               : c.textLight)
@@ -150,7 +156,7 @@ class AchievementsScreen extends ConsumerWidget {
                                     ),
                                     const SizedBox(height: 4),
                                     Text(
-                                      unlocked ? 'تم الفتح' : 'قيد التقدّم',
+                                      unlocked ? context.l10n.achUnlocked : context.l10n.achInProgress,
                                       style: AppTypography.caption(unlocked
                                           ? c.success
                                           : c.textLight.withValues(alpha: 0.7)),
@@ -190,19 +196,19 @@ class AchievementsScreen extends ConsumerWidget {
     );
   }
 
-  String _levelName(String levelKey) {
+  String _levelName(BuildContext context, String levelKey) {
     switch (levelKey) {
       case 'organized':
-        return 'منظّم';
+        return context.l10n.achLevelOrganised;
       case 'smart_saver':
-        return 'موفّر ذكي';
+        return context.l10n.achLevelSmartSaver;
       case 'financial_expert':
-        return 'خبير مالي';
+        return context.l10n.achLevelExpert;
       case 'saving_legend':
-        return 'أسطورة الادخار';
+        return context.l10n.achLevelLegend;
       case 'beginner':
       default:
-        return 'مبتدئ';
+        return context.l10n.achLevelBeginner;
     }
   }
 }
@@ -221,16 +227,16 @@ class _AchievementsHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CalmPageHeader(
-      title: 'الإنجازات',
-      subtitle: 'شارات ومستويات تشجعك تكمل عادة المتابعة.',
+      title: context.l10n.achTitle,
+      subtitle: context.l10n.achSubtitle,
       leading: Navigator.of(context).canPop()
           ? const BackButton(color: Colors.white)
           : null,
       amount: '$level',
-      currency: 'المستوى',
+      currency: context.l10n.achLevel,
       metrics: [
-        CalmMetric(label: 'إجمالي الـ XP', value: '$xp'),
-        CalmMetric(label: 'سلسلة المتابعة', value: '$streak يوم'),
+        CalmMetric(label: context.l10n.achTotalXp, value: '$xp'),
+        CalmMetric(label: context.l10n.achStreak, value: context.l10n.achStreakDays(streak)),
       ],
     );
   }

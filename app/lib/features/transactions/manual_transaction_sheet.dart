@@ -406,7 +406,7 @@ class _ManualTransactionSheetState
                             ],
                             Flexible(
                               child: Text(
-                                '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                                '${account.name} · ${Currency.label(context, account.currency)}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),

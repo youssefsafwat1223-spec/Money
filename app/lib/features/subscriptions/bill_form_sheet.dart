@@ -266,7 +266,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     );
     if (dueDate.isBefore(todayStart)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختار تاريخ استحقاق قادم أو اليوم.')),
+        const SnackBar(content: Text('اختر تاريخ استحقاق قادمًا أو اليوم.')),
       );
       return;
     }
@@ -331,7 +331,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
           periodEnd: _manualPaymentPeriodEnd(bill),
           paidAt: _manualPaymentPaidAt,
           installmentIndex: _manualInstallmentIndex(bill),
-          note: 'مدفوع يدويًا من الفورم',
+          note: 'مدفوع يدويًا من النموذج',
         );
         await repo.createAndRecordPayment(bill: bill, payment: payment);
         saved = bill;
@@ -350,7 +350,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               periodEnd: _manualPaymentPeriodEnd(saved),
               paidAt: _manualPaymentPaidAt,
               installmentIndex: _manualInstallmentIndex(saved),
-              note: 'مدفوع يدويًا من الفورم',
+              note: 'مدفوع يدويًا من النموذج',
             ),
           );
         }
@@ -597,7 +597,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
             ],
             DropdownButtonFormField<BillFrequency>(
               value: _frequency,
-              decoration: const InputDecoration(labelText: 'كل قد إيه؟'),
+              decoration: const InputDecoration(labelText: 'كل كم؟'),
               items: BillFrequency.values
                   .map(
                     (frequency) => DropdownMenuItem(
@@ -615,7 +615,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                 controller: _customDaysController,
                 keyboardType: TextInputType.number,
                 inputFormatters: [_integerInputFormatter],
-                decoration: const InputDecoration(labelText: 'كل كام يوم؟'),
+                decoration: const InputDecoration(labelText: 'كل كم يوم؟'),
                 validator: (value) {
                   if (_frequency != BillFrequency.custom) return null;
                   final days = _parseIntegerInput(value ?? '');

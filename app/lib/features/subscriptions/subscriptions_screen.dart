@@ -96,7 +96,7 @@ class SubscriptionsScreen extends ConsumerWidget {
                             installmentMonthly: installmentMonthly,
                             subsCount: subs.length,
                             instsCount: insts.length,
-                            currency: Currency.arabicLabel(baseCur),
+                            currency: Currency.label(context, baseCur),
                             scopeAccountName: scopeAccount?.name,
                           ),
                         ],
@@ -479,7 +479,7 @@ class _SubscriptionCard extends StatelessWidget {
                       style: AppTypography.bodyStrong(c.textMain),
                     ),
                     Text(
-                      Currency.arabicLabel(bill.currency),
+                      Currency.label(context, bill.currency),
                       style: AppTypography.caption(c.textLight),
                     ),
                     if (bill.type == BillType.subscription)
@@ -513,7 +513,7 @@ class _SubscriptionCard extends StatelessWidget {
                       style: AppTypography.caption(c.textLight),
                     ),
                     Text(
-                      '${Formatters.amount(bill.safeManualPaidAmount)} ${Currency.arabicLabel(bill.currency)}',
+                      '${Formatters.amount(bill.safeManualPaidAmount)} ${Currency.label(context, bill.currency)}',
                       style: AppTypography.caption(c.success).copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -640,7 +640,7 @@ class _InstallmentsTab extends StatelessWidget {
       ..sort((a, b) => a.nextDueDate.compareTo(b.nextDueDate));
     final nearest = dueSoon.isEmpty ? null : dueSoon.first;
     final currency =
-        bills.isEmpty ? 'SAR' : Currency.arabicLabel(bills.first.currency);
+        bills.isEmpty ? 'SAR' : Currency.label(context, bills.first.currency);
 
     return MeltTail(
         startAt: 64,
@@ -743,7 +743,7 @@ class _InstallmentCard extends StatelessWidget {
     final progress = bill.installmentProgress;
     final remaining = bill.remainingInstallments;
     final daysLeft = bill.nextDueDate.difference(DateTime.now()).inDays;
-    final currLabel = Currency.arabicLabel(bill.currency);
+    final currLabel = Currency.label(context, bill.currency);
 
     final Color dueColor;
     final String dueLabel;

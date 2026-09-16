@@ -54,21 +54,21 @@ class PrivacyScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.s6),
                 _PrivacyCard(
                   icon: AppLucideIcons.fileText,
-                  title: 'سياسة الخصوصية',
+                  title: context.l10n.privPolicy,
                   onTap: () => _openExternalLink(context, _privacyPolicyUrl),
                 ),
                 _PrivacyCard(
                   icon: AppLucideIcons.gavel,
-                  title: 'الشروط والأحكام',
+                  title: context.l10n.privTerms,
                   onTap: () => _openExternalLink(context, _termsUrl),
                 ),
                 _PrivacyCard(
                   icon: AppLucideIcons.arrowUpDown,
-                  title: 'نقل واستيراد بياناتي',
+                  title: context.l10n.privTransferMyData,
                   onTap: () => context.push('/data-transfer'),
                 ),
                 const SizedBox(height: AppSpacing.s5),
-                Text('معالجة البيانات',
+                Text(context.l10n.privDataProcessing,
                     style: AppTypography.subhead(c.textMain)),
                 const SizedBox(height: AppSpacing.s2),
                 ref.watch(userSettingsProvider).maybeWhen(
@@ -76,10 +76,9 @@ class PrivacyScreen extends ConsumerWidget {
                         children: [
                           _ConsentSwitchCard(
                             icon: AppLucideIcons.cloud,
-                            title: 'المعالجة السحابية والمزامنة',
+                            title: context.l10n.privCloudProcessing,
                             subtitle:
-                                'رفع رسائل البنك الملتقطة ومزامنة بياناتك مع خوادمنا. '
-                                'إيقافها يعطّل الالتقاط التلقائي والمزامنة، ويُبقي الإدخال اليدوي يعمل على جهازك.',
+                                context.l10n.privCloudProcessingBody,
                             value: settings.cloudProcessingEnabled,
                             onChanged: (value) => _setConsent(
                               ref,
@@ -94,16 +93,14 @@ class PrivacyScreen extends ConsumerWidget {
                           ),
                           _ConsentSwitchCard(
                             icon: AppLucideIcons.sparkles,
-                            title: 'التحليل بالذكاء الاصطناعي',
+                            title: context.l10n.privAiAnalysis,
                             subtitle:
                                 // The code is AI-FIRST (`_tryAiParseFirst`): with
                                 // this AND cloud processing on, EVERY captured
                                 // message is sent, not only unfamiliar ones.
                                 // The old copy said "unfamiliar messages", which
                                 // understated it.
-                                'لما تشغّله مع المعالجة السحابية، بتتبعت نسخة منقّاة من كل رسالة بنكية '
-                                'إلى نماذج ذكاء اصطناعي سحابية لقراءتها وتصنيفها. '
-                                'إيقافه يقتصر التحليل على القواعد المحلية على جهازك.',
+                                context.l10n.privAiAnalysisBody,
                             value: settings.aiConsentGranted,
                             onChanged: (value) => _setConsent(
                               ref,
@@ -145,7 +142,7 @@ class PrivacyScreen extends ConsumerWidget {
                       orElse: () => const SizedBox.shrink(),
                     ),
                 const SizedBox(height: AppSpacing.s5),
-                Text('منطقة خطرة', style: AppTypography.subhead(c.danger)),
+                Text(context.l10n.privDangerZone, style: AppTypography.subhead(c.danger)),
                 const SizedBox(height: AppSpacing.s2),
                 ref.watch(accountDeletionStatusProvider).maybeWhen(
                       data: (status) => status.isPending
@@ -160,7 +157,7 @@ class PrivacyScreen extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.s2),
                 _PrivacyCard(
                   icon: AppLucideIcons.trash2,
-                  title: 'حذف الحساب وكل بياناتي',
+                  title: context.l10n.privDeleteAccountAll,
                   onTap: () => _confirmDelete(context, ref),
                   danger: true,
                 ),
@@ -201,7 +198,7 @@ class PrivacyScreen extends ConsumerWidget {
     final opened = await launchUrl(url, mode: LaunchMode.externalApplication);
     if (!opened && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذر فتح الرابط الآن.')),
+        SnackBar(content: Text(context.l10n.privLinkFailed)),
       );
     }
   }
@@ -210,18 +207,15 @@ class PrivacyScreen extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('حذف الحساب؟'),
-        content: const Text(
-            'سيتم جدولة حذف حسابك وكل بياناتك (العمليات، الأهداف، الميزانيات، النسخ الاحتياطي) '
-            'نهائياً بعد 30 يوماً. يمكنك التراجع عن الحذف خلال هذه المدة من نفس الشاشة قبل تسجيل '
-            'الدخول مرة أخرى. سيتم تسجيل خروجك من هذا الجهاز الآن.'),
+        title: Text(context.l10n.privDeleteAccountTitle),
+        content: Text(context.l10n.privDeleteAccountBody),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('إلغاء')),
+              child: Text(context.l10n.commonCancel)),
           TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('حذف الحساب')),
+              child: Text(context.l10n.privDeleteAccount)),
         ],
       ),
     );
@@ -233,7 +227,7 @@ class PrivacyScreen extends ConsumerWidget {
       if (context.mounted) {
         final message = error is RepoException
             ? repoExceptionMessage(error)
-            : 'تعذّر جدولة الحذف الآن. حاول مجدداً.';
+            : context.l10n.privScheduleFailed;
         AppToast.show(context, message);
       }
       return;
@@ -257,15 +251,15 @@ class PrivacyScreen extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('إلغاء حذف الحساب؟'),
-        content: const Text('سيبقى حسابك وبياناتك كما هي.'),
+        title: Text(context.l10n.privCancelDeleteTitle),
+        content: Text(context.l10n.privCancelDeleteBody),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('تراجع')),
+              child: Text(context.l10n.privKeepAccount)),
           TextButton(
               onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('إلغاء الحذف')),
+              child: Text(context.l10n.privCancelDeletion)),
         ],
       ),
     );
@@ -277,7 +271,7 @@ class PrivacyScreen extends ConsumerWidget {
       if (!context.mounted) return;
       final message = error is RepoException
           ? repoExceptionMessage(error)
-          : 'تعذّر إلغاء الحذف الآن. حاول مجدداً.';
+          : context.l10n.privCancelFailed;
       AppToast.show(context, message);
     }
   }
@@ -309,14 +303,14 @@ class _PendingDeletionCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text('حسابك مجدول للحذف بتاريخ $label',
+          Text(context.l10n.privScheduledForDeletion(label),
               style: AppTypography.bodyStrong(c.danger)),
           const SizedBox(height: AppSpacing.s2),
           Align(
             alignment: AlignmentDirectional.centerStart,
             child: TextButton(
               onPressed: onCancel,
-              child: const Text('إلغاء الحذف'),
+              child: Text(context.l10n.privCancelDeletion),
             ),
           ),
         ],
@@ -360,7 +354,7 @@ class _PrivacyHeader extends StatelessWidget {
               ],
               Expanded(
                 child: Text(
-                  'الخصوصية والبيانات',
+                  context.l10n.privTitle,
                   style: AppTypography.title1(c.textMain)
                       .copyWith(fontWeight: FontWeight.bold),
                 ),
@@ -369,7 +363,7 @@ class _PrivacyHeader extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'رسائل البنك التي تشاركها عبر الاختصار تُعالج بنص مُعقّم على خادم قرش وبمساعدة الذكاء الاصطناعي. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.',
+            context.l10n.privIntro,
             style: AppTypography.caption(c.textMuted),
           ),
         ],

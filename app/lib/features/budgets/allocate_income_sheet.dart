@@ -183,7 +183,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
   Widget build(BuildContext context) {
     final c = context.colors;
     final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
-    final currency = Currency.arabicLabel(
+    final currency = Currency.label(context, 
       ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR',
     );
     final income = _income();

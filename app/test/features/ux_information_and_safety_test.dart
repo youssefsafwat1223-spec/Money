@@ -205,9 +205,15 @@ void main() {
       final src = File('lib/features/announcements/announcements_screen.dart')
           .readAsStringSync();
       expect(src, contains('dateLabel(context)'));
-      expect(src, contains("'من \$date'"),
+      expect(src, contains('context.l10n.annFromDate(date)'),
           reason: 'a campaign/announcement `sortAt` is validFrom — when it '
               'STARTED being shown — not when it was delivered');
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      expect(ar['annFromDate'], 'من {date}');
+      expect(en['annFromDate'], 'From {date}');
     });
 
     test('UX-015 — the card source is stated in customer language', () {
@@ -247,7 +253,15 @@ void main() {
         as Map<String, dynamic>;
 
     test('«الحساب» is no longer two different sections', () {
-      expect(arAr.values.where((v) => v == 'الحساب').length, 0,
+      // Scoped to Settings' own keys. A bare «الحساب» is a perfectly good ROW
+      // LABEL elsewhere (transaction details names the account a transaction
+      // belongs to); the finding was about two SECTION HEADINGS in this one
+      // screen sharing a name, and that is what this guards.
+      final settingsHeadings = {
+        for (final e in arAr.entries)
+          if (e.key.startsWith('set')) e.key: e.value
+      };
+      expect(settingsHeadings.values.where((v) => v == 'الحساب').length, 0,
           reason: 'two unrelated groups shared one heading; both are now named '
               'for what they contain');
       expect(arAr['setAccountData'], 'بيانات حسابك');
@@ -488,7 +502,9 @@ void main() {
       // writes `existing.currency`. Editing an EGP plan on a SAR base labelled
       // the field «ريال» while storing EGP.
       expect(src, contains('widget.existing?.currency ??'));
-      expect(src, contains('Currency.arabicLabel(planCurrencyCode)'));
+      // `arabicLabel` is now the Arabic HALF of a locale-aware pair; the screen
+      // must go through `label`, or an English user reads «ريال».
+      expect(src, contains('Currency.label(context, planCurrencyCode)'));
     });
 
     test('the save path and the label read the SAME source', () {
@@ -549,20 +565,37 @@ void main() {
     final src = File('lib/features/transactions/transaction_details_screen.dart')
         .readAsStringSync();
 
+    final arArb = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+        as Map<String, dynamic>;
+    final enArb = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+        as Map<String, dynamic>;
+
     test('they are separate labelled rows, not one «المصدر» string', () {
       expect(src.contains(r"${tx.cardLast4 != null ? ' · ${tx.cardLast4}' : ''}"),
           isFalse);
-      expect(src, contains("'الحساب'"));
-      expect(src, contains("'البطاقة'"));
+      expect(src, contains('context.l10n.commonAccountDefinite'));
+      expect(src, contains('context.l10n.txdCard'));
+      expect(arArb['commonAccountDefinite'], 'الحساب');
+      expect(arArb['txdCard'], 'البطاقة');
+      expect(enArb['commonAccountDefinite'], 'Account');
+      expect(enArb['txdCard'], 'Card');
     });
 
     test('«بدون بطاقة» exists as an explicit action', () {
-      expect(src, contains('بدون بطاقة'));
+      expect(src, contains('context.l10n.txdNoCard'));
+      expect(arArb['txdNoCard'], 'بدون بطاقة');
+      expect(enArb['txdNoCard'], 'No card');
     });
 
     test('the consequence is STATED, because the finding requires it', () {
-      expect(src, contains('تغيير البطاقة لا ينقل العملية إلى حساب آخر'));
-      expect(src, contains('ما زالت العملية في الحساب نفسه'));
+      // The consequence is the whole reason the action is safe to offer. It
+      // must be stated in whichever language the user is reading.
+      expect(arArb['txdCardSheetNote'],
+          contains('تغيير البطاقة لا ينقل العملية إلى حساب آخر'));
+      expect(arArb['txdCardRemoved'], contains('ما زالت العملية في الحساب نفسه'));
+      expect(enArb['txdCardSheetNote'],
+          contains('does not move the transaction to another account'));
+      expect(enArb['txdCardRemoved'], contains('still in the same account'));
     });
 
     test('and the stated consequence is true of the repository', () {

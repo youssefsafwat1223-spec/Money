@@ -163,7 +163,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     final c = context.colors;
     _seedInitialState();
     final recommended = _recommendedDailyAmount();
-    final cur = Currency.arabicLabel(
+    final cur = Currency.label(context, 
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
     return Form(
       key: _formKey,

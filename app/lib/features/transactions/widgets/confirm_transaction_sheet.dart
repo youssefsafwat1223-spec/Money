@@ -210,7 +210,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                 children: [
                   Text(
                     'عملية بعملة مختلفة (${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency}). '
-                    'اكتب قيمتها بـ ${Currency.arabicLabel(tx.currency)} لتُحتسب — أو اتركها وعدّلها لاحقًا عند وصول المبلغ المخصوم.',
+                    'اكتب قيمتها بـ ${Currency.label(context, tx.currency)} لتُحتسب — أو اتركها وعدّلها لاحقًا عند وصول المبلغ المخصوم.',
                     style: AppTypography.caption(c.textMain),
                   ),
                   const SizedBox(height: AppSpacing.s2),
@@ -220,7 +220,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                         const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
                       labelText:
-                          'القيمة بـ ${Currency.arabicLabel(tx.currency)}',
+                          'القيمة بـ ${Currency.label(context, tx.currency)}',
                       filled: true,
                       fillColor: c.surface2.withValues(alpha: 0.5),
                       border: OutlineInputBorder(
@@ -354,7 +354,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                           DropdownMenuItem(
                             value: account.id,
                             child: Text(
-                              '${account.name} · ${Currency.arabicLabel(account.currency)}',
+                              '${account.name} · ${Currency.label(context, account.currency)}',
                             ),
                           ),
                       ],

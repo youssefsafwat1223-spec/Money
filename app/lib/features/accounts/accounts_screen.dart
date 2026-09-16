@@ -131,7 +131,7 @@ class _CurrencyTotals extends StatelessWidget {
                   ),
                   const SizedBox(width: 3),
                   Text(
-                    Currency.arabicLabel(e.key),
+                    Currency.label(context, e.key),
                     style: AppTypography.caption(
                       e.value < 0 ? c.warning : c.primary,
                     ),
@@ -224,7 +224,7 @@ class _AccountCard extends ConsumerWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${accountTypeLabel(account.type)} · ${Currency.arabicLabel(account.currency)} (${account.currency})',
+                    '${accountTypeLabel(context, account.type)} · ${Currency.label(context, account.currency)} (${account.currency})',
                     style: AppTypography.caption(c.textLight),
                   ),
                   // UX-013 — the balance was the one thing this screen never
@@ -246,7 +246,7 @@ class _AccountCard extends ConsumerWidget {
                         ),
                         const SizedBox(width: 4),
                         Text(
-                          Currency.arabicLabel(account.currency),
+                          Currency.label(context, account.currency),
                           style: AppTypography.caption(c.textLight),
                         ),
                       ],

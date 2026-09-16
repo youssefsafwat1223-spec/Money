@@ -23,6 +23,16 @@ def main(dart, mapping_path):
         added = 0
         for key, ar, en in M:
             if key in arb:
+                # Reusing an existing key is fine ONLY if it says the same
+                # thing. If it does not, the rewrite silently swaps shipped
+                # copy for different words — «الحساب» became «حساب» this way
+                # before this check existed.
+                existing = arb[key]
+                intended = ar if idx == 1 else en
+                if existing != intended:
+                    raise SystemExit(
+                        f"REFUSING: key {key!r} already means {existing!r}, "
+                        f"not {intended!r} in {path}. Use a distinct key.")
                 continue
             arb[key] = ar if idx == 1 else en
             added += 1

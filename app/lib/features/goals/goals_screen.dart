@@ -34,7 +34,7 @@ class GoalsScreen extends ConsumerWidget {
     final async = ref.watch(goalsListProvider);
     final displayCurrency =
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
-    final currencyLabel = Currency.arabicLabel(displayCurrency);
+    final currencyLabel = Currency.label(context, displayCurrency);
 
     return Scaffold(
       backgroundColor: context.colors.bg,
@@ -90,7 +90,7 @@ class GoalsScreen extends ConsumerWidget {
                       for (final goal in visibleGoals) ...[
                         _GoalCard(
                           goal: goal,
-                          currencyLabel: Currency.arabicLabel(goal.currency),
+                          currencyLabel: Currency.label(context, goal.currency),
                         ),
                         const SizedBox(height: AppSpacing.s4),
                       ],

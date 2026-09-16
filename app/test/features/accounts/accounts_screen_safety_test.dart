@@ -8,6 +8,7 @@ import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/features/accounts/accounts_screen.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _AccountRepository implements AccountRepository {
   final createCompleter = Completer<AccountEntity>();
@@ -42,6 +43,11 @@ Widget _app(_AccountRepository repository) {
     ],
     child: MaterialApp(
       theme: AppTheme.light,
+      // The screen reads its copy from the ARB now, so the delegates are part
+      // of the contract under test, not optional scaffolding.
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: const Locale('ar'),
       home: const Directionality(
         textDirection: TextDirection.rtl,
         child: AccountsScreen(),

@@ -2669,4 +2669,743 @@ class AppL10nAr extends AppL10n {
   @override
   String get accUnassignedCardsBody =>
       'بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد.';
+
+  @override
+  String achCurrentStreak(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days يوم',
+      many: '$days يومًا',
+      few: '$days أيام',
+      two: 'يومان',
+      one: 'يوم واحد',
+    );
+    return 'السلسلة الحالية: $_temp0';
+  }
+
+  @override
+  String achStreakDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days يوم',
+      many: '$days يومًا',
+      few: '$days أيام',
+      two: 'يومان',
+      one: 'يوم واحد',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String annFromDate(String date) {
+    return 'من $date';
+  }
+
+  @override
+  String pasteAnalysing(int processed, int total) {
+    return 'نحلّل $processed من $total';
+  }
+
+  @override
+  String pasteSummaryLine(int added, int duplicate, int review, int failed) {
+    return 'أُضيفت $added · مكرر $duplicate · يحتاج مراجعة $review · غير مفهوم $failed';
+  }
+
+  @override
+  String pasteAnalysedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'تم تحليل $count رسالة من اللصق.',
+      many: 'تم تحليل $count رسالة من اللصق.',
+      few: 'تم تحليل $count رسائل من اللصق.',
+      two: 'تم تحليل رسالتين من اللصق.',
+      one: 'تم تحليل رسالة واحدة من اللصق.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get achCurrentLevel => 'المستوى الحالي';
+
+  @override
+  String get achUnlocked => 'تم الفتح';
+
+  @override
+  String get achInProgress => 'قيد التقدّم';
+
+  @override
+  String get achLevelOrganised => 'منظّم';
+
+  @override
+  String get achLevelSmartSaver => 'موفّر ذكي';
+
+  @override
+  String get achLevelExpert => 'خبير مالي';
+
+  @override
+  String get achLevelLegend => 'أسطورة الادخار';
+
+  @override
+  String get achLevelBeginner => 'مبتدئ';
+
+  @override
+  String get achTitle => 'الإنجازات';
+
+  @override
+  String get achSubtitle => 'شارات ومستويات تشجعك تكمل عادة المتابعة.';
+
+  @override
+  String get achLevel => 'المستوى';
+
+  @override
+  String get achTotalXp => 'إجمالي الـ XP';
+
+  @override
+  String get achStreak => 'سلسلة المتابعة';
+
+  @override
+  String get annTitle => 'مركز رسائل قرش';
+
+  @override
+  String get annSubtitle =>
+      'تاريخ إشعارات قرش، الحملات، والإعلانات في مكان واحد.';
+
+  @override
+  String get annClose => 'إغلاق';
+
+  @override
+  String get annLoading => 'تحميل مركز الرسائل...';
+
+  @override
+  String get annLoadFailed => 'تعذر تحميل الرسائل';
+
+  @override
+  String get annTryAgainSoon => 'حاول مرة أخرى بعد لحظات.';
+
+  @override
+  String get annRetry => 'إعادة المحاولة';
+
+  @override
+  String get annEmpty => 'لا توجد رسائل بعد';
+
+  @override
+  String get annEmptyBody =>
+      'أي إشعار من قِرش أو إعلان من الإدارة سيظهر هنا تلقائيًا.';
+
+  @override
+  String get annNotificationSent => 'إشعار مرسل';
+
+  @override
+  String get annOpen => 'فتح';
+
+  @override
+  String get annInAppCampaign => 'حملة داخل التطبيق';
+
+  @override
+  String get annFromQirsh => 'إعلان من قرش';
+
+  @override
+  String get privCloudProcessingBody =>
+      'رفع رسائل البنك الملتقطة ومزامنة بياناتك مع خوادمنا. إيقافها يعطّل الالتقاط التلقائي والمزامنة، ويُبقي الإدخال اليدوي يعمل على جهازك.';
+
+  @override
+  String get privAiAnalysisBody =>
+      'عند تشغيله مع المعالجة السحابية، تُرسَل نسخة منقّاة من كل رسالة بنكية إلى نماذج ذكاء اصطناعي سحابية لقراءتها وتصنيفها. إيقافه يقتصر التحليل على القواعد المحلية على جهازك.';
+
+  @override
+  String get privDeleteAccountBody =>
+      'سيتم جدولة حذف حسابك وكل بياناتك (العمليات، الأهداف، الميزانيات، النسخ الاحتياطي) نهائيًا بعد 30 يومًا. يمكنك التراجع عن الحذف خلال هذه المدة من نفس الشاشة قبل تسجيل الدخول مرة أخرى. سيتم تسجيل خروجك من هذا الجهاز الآن.';
+
+  @override
+  String privScheduledForDeletion(String date) {
+    return 'حسابك مجدول للحذف بتاريخ $date';
+  }
+
+  @override
+  String get privPolicy => 'سياسة الخصوصية';
+
+  @override
+  String get privTerms => 'الشروط والأحكام';
+
+  @override
+  String get privTransferMyData => 'نقل واستيراد بياناتي';
+
+  @override
+  String get privDataProcessing => 'معالجة البيانات';
+
+  @override
+  String get privCloudProcessing => 'المعالجة السحابية والمزامنة';
+
+  @override
+  String get privAiAnalysis => 'التحليل بالذكاء الاصطناعي';
+
+  @override
+  String get privDangerZone => 'منطقة خطرة';
+
+  @override
+  String get privDeleteAccountAll => 'حذف الحساب وكل بياناتي';
+
+  @override
+  String get privLinkFailed => 'تعذر فتح الرابط الآن.';
+
+  @override
+  String get privDeleteAccountTitle => 'حذف الحساب؟';
+
+  @override
+  String get privDeleteAccount => 'حذف الحساب';
+
+  @override
+  String get privScheduleFailed => 'تعذّر جدولة الحذف الآن. حاول مجدداً.';
+
+  @override
+  String get privCancelDeleteTitle => 'إلغاء حذف الحساب؟';
+
+  @override
+  String get privCancelDeleteBody => 'سيبقى حسابك وبياناتك كما هي.';
+
+  @override
+  String get privKeepAccount => 'تراجع';
+
+  @override
+  String get privCancelDeletion => 'إلغاء الحذف';
+
+  @override
+  String get privCancelFailed => 'تعذّر إلغاء الحذف الآن. حاول مجدداً.';
+
+  @override
+  String get privTitle => 'الخصوصية والبيانات';
+
+  @override
+  String get privIntro =>
+      'رسائل البنك التي تشاركها عبر الاختصار تُعالج بنص مُعقّم على خادم قرش وبمساعدة الذكاء الاصطناعي. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.';
+
+  @override
+  String dtxPreviewRows(int rows, String format) {
+    return '$rows سجل • $format';
+  }
+
+  @override
+  String get dtxQirshPackage => 'حزمة قِرش';
+
+  @override
+  String dtxImportDupesAsNew(int count) {
+    return 'استيراد $count عملية مشابهة كعمليات جديدة';
+  }
+
+  @override
+  String dtxAdded(int count) {
+    return 'تمت الإضافة: $count';
+  }
+
+  @override
+  String dtxDuplicates(int count) {
+    return 'مكرر: $count';
+  }
+
+  @override
+  String dtxQuarantined(int count) {
+    return 'معزول للحماية: $count';
+  }
+
+  @override
+  String dtxFailed(int count) {
+    return 'فشل: $count';
+  }
+
+  @override
+  String get dtxScanFailed => 'تعذر فحص الملف. تأكد أنه CSV أو ZIP صالح.';
+
+  @override
+  String get dtxImportFailed =>
+      'تعذر إكمال الاستيراد. لم تُحذف أي بيانات غير مؤكدة.';
+
+  @override
+  String get dtxReadFailed => 'تعذر قراءة البيانات وتجهيز ملف التصدير.';
+
+  @override
+  String get dtxSaveFailed => 'تعذر حفظ ملف التصدير مؤقتًا على الجهاز.';
+
+  @override
+  String get dtxZipShareText => 'ملف بيانات قرش المالية. احتفظ به في مكان خاص.';
+
+  @override
+  String get dtxCsvShareText => 'تصدير عمليات قرش بصيغة CSV.';
+
+  @override
+  String get dtxShareSheetFailed =>
+      'تم تجهيز الملف، لكن تعذر فتح نافذة المشاركة. حاول مرة أخرى.';
+
+  @override
+  String get dtxTitle => 'نقل البيانات';
+
+  @override
+  String get dtxSubtitle =>
+      'استورد بياناتك أو احتفظ بنسخة قابلة للنقل. تتم معاينة الملف على جهازك قبل أي كتابة.';
+
+  @override
+  String get dtxImportFile => 'استيراد ملف';
+
+  @override
+  String get dtxImportFileSub => 'CSV من أي تطبيق أو ZIP صادر من قرش';
+
+  @override
+  String get dtxExportCsv => 'تصدير العمليات CSV';
+
+  @override
+  String get dtxExportCsvSub => 'ملف واحد متوافق مع Excel وتطبيقات الميزانية';
+
+  @override
+  String get dtxExportZip => 'تصدير كل بيانات قرش ZIP';
+
+  @override
+  String get dtxExportZipSub => 'الحسابات والعمليات والميزانيات والخطط المالية';
+
+  @override
+  String get dtxRestoreOld => 'استعادة نسخة قديمة';
+
+  @override
+  String get dtxRestoreOldSub =>
+      'متاح مؤقتاً للنسخ المشفرة التي أنشأتها سابقاً';
+
+  @override
+  String get dtxExportNotice =>
+      'ملفات التصدير لا تحتوي رسائل البنك الخام أو بيانات الدخول أو رموز الأجهزة. ملف ZIP غير محمي بكلمة مرور؛ خزّنه في مكان خاص.';
+
+  @override
+  String get dtxReplace => 'استبدال';
+
+  @override
+  String get dtxConfirmReplace => 'تأكيد الاستبدال';
+
+  @override
+  String dtxReplaceBody(String word) {
+    return 'سيتم إخفاء بياناتك المالية الحالية واستبدالها بمحتوى حزمة قِرش. اكتب «$word» للمتابعة.';
+  }
+
+  @override
+  String dtxTypeReplace(String word) {
+    return 'اكتب $word';
+  }
+
+  @override
+  String get dtxImportPreview => 'معاينة الاستيراد';
+
+  @override
+  String get dtxColDate => 'عمود التاريخ';
+
+  @override
+  String get dtxColAmount => 'عمود المبلغ';
+
+  @override
+  String get dtxDefaultAccount => 'الحساب الافتراضي';
+
+  @override
+  String get dtxDebit => 'الخصم (Debit)';
+
+  @override
+  String get dtxCredit => 'الإيداع (Credit)';
+
+  @override
+  String get dtxCurrency => 'العملة';
+
+  @override
+  String get dtxMerchantDesc => 'التاجر / الوصف';
+
+  @override
+  String get dtxNotes => 'الملاحظات';
+
+  @override
+  String get dtxTxType => 'نوع العملية';
+
+  @override
+  String get dtxDateFormat => 'صيغة التاريخ';
+
+  @override
+  String get dtxDateAuto => 'تلقائية';
+
+  @override
+  String get dtxDateDMY => 'يوم / شهر / سنة';
+
+  @override
+  String get dtxDateMDY => 'شهر / يوم / سنة';
+
+  @override
+  String get dtxDateYMD => 'سنة / شهر / يوم';
+
+  @override
+  String get dtxWillCreate =>
+      'عند التأكيد، سيُنشئ قرش الحسابات والتصنيفات غير الموجودة الواردة في الملف.';
+
+  @override
+  String get dtxMerge => 'دمج';
+
+  @override
+  String get dtxConfirmImport => 'تأكيد الاستيراد';
+
+  @override
+  String get dtxImportDone => 'اكتمل الاستيراد';
+
+  @override
+  String get dtxCacheRepair =>
+      'تم الحفظ على الخادم، وسيُصلح قرش الكاش المحلي تلقائياً.';
+
+  @override
+  String get pasteTitle => 'ألصق رسالة البنك';
+
+  @override
+  String get pasteAlreadyExists => 'العملية موجودة بالفعل، فتحناها للمراجعة.';
+
+  @override
+  String get pasteAlreadyRecorded => 'هذه العملية مسجّلة بالفعل.';
+
+  @override
+  String get pasteSimilarNeedsReview => 'عملية مشابهة موجودة وتحتاج مراجعة.';
+
+  @override
+  String get pasteAiOffline =>
+      'الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.';
+
+  @override
+  String get pasteUnreadableOnDevice =>
+      'تعذّرت قراءة الرسالة على الجهاز — أضِفها يدويًا.';
+
+  @override
+  String get pasteNotATransaction => 'تعذّرت قراءتها كعملية — أضِفها يدويًا.';
+
+  @override
+  String get pasteNothingToOpen => 'لا توجد عملية لفتحها لهذه الرسالة.';
+
+  @override
+  String get pasteHint =>
+      'يمكنك لصق رسالة واحدة أو عدة رسائل، وسيجري تحليل كل رسالة على حدة.';
+
+  @override
+  String get pasteFromClipboard => 'لصق من الحافظة';
+
+  @override
+  String get pasteAnalyse => 'حلّل الرسائل';
+
+  @override
+  String get pasteNeedsReview => 'يحتاج مراجعة';
+
+  @override
+  String get pasteAdded => 'أُضيفت';
+
+  @override
+  String get pasteDuplicate => 'مكرر';
+
+  @override
+  String get pasteSimilar => 'مشابهة للمراجعة';
+
+  @override
+  String get pasteNotUnderstood => 'غير مفهوم';
+
+  @override
+  String get pasteSummary => 'ملخص الرسائل';
+
+  @override
+  String get pasteReview => 'راجع';
+
+  @override
+  String get accTypeCash => 'نقدي';
+
+  @override
+  String get accTypeBank => 'بنك';
+
+  @override
+  String get accTypeWallet => 'محفظة';
+
+  @override
+  String get accTypeCreditCard => 'بطاقة ائتمانية';
+
+  @override
+  String txdValueIn(String currency) {
+    return 'القيمة بـ $currency';
+  }
+
+  @override
+  String txdAmountIn(String currency) {
+    return 'المبلغ بـ $currency';
+  }
+
+  @override
+  String txdAddValueIn(String currency) {
+    return 'أضف القيمة بـ $currency';
+  }
+
+  @override
+  String get txdPendingToday => 'غير مؤكدة · اليوم';
+
+  @override
+  String txdPendingDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: 'منذ $days يوم',
+      many: 'منذ $days يومًا',
+      few: 'منذ $days أيام',
+      two: 'منذ يومين',
+      one: 'منذ يوم',
+    );
+    return 'غير مؤكدة · $_temp0';
+  }
+
+  @override
+  String txdLinkedToCard(String last4) {
+    return 'رُبطت بالبطاقة •••• $last4. الحساب كما هو.';
+  }
+
+  @override
+  String get txdTypePurchase => 'شراء';
+
+  @override
+  String get txdTypeCashWithdrawal => 'سحب نقدي';
+
+  @override
+  String get txdTypeTransfer => 'تحويل';
+
+  @override
+  String get txdTypeRefund => 'استرداد';
+
+  @override
+  String get txdTypeUnknown => 'غير محدد';
+
+  @override
+  String get txdSourceCard => 'بطاقة';
+
+  @override
+  String get txdSourceAi => 'ذكاء اصطناعي';
+
+  @override
+  String get txdSourceImport => 'ملف مستورد';
+
+  @override
+  String get txdNotFound => 'العملية غير موجودة';
+
+  @override
+  String get txdConfirmed => 'مؤكدة';
+
+  @override
+  String get txdNeedsReview => 'تحتاج مراجعة';
+
+  @override
+  String get txdIgnored => 'متجاهلة';
+
+  @override
+  String get txdUncategorised => 'غير مصنّف';
+
+  @override
+  String get txdType => 'النوع';
+
+  @override
+  String get txdSource => 'المصدر';
+
+  @override
+  String get txdCard => 'البطاقة';
+
+  @override
+  String get txdNoCard => 'بدون بطاقة';
+
+  @override
+  String get txdChange => 'تغيير';
+
+  @override
+  String get txdOriginalCurrency => 'بالعملة الأصلية';
+
+  @override
+  String get txdBalanceAfter => 'الرصيد بعد';
+
+  @override
+  String get txdNote => 'ملاحظة';
+
+  @override
+  String get txdStatus => 'الحالة';
+
+  @override
+  String get txdOriginalText => 'النص الأصلي';
+
+  @override
+  String get txdConfirmIgnored => 'تأكيد العملية المتجاهلة';
+
+  @override
+  String get txdConfirmTx => 'تأكيد العملية';
+
+  @override
+  String get txdDeleteTx => 'حذف العملية';
+
+  @override
+  String get txdTitle => 'تفاصيل العملية';
+
+  @override
+  String get txdCardSheetTitle => 'بطاقة العملية';
+
+  @override
+  String get txdCardSheetNote => 'تغيير البطاقة لا ينقل العملية إلى حساب آخر.';
+
+  @override
+  String get txdNoCardsOnAccount => 'لا توجد بطاقات مسجّلة على هذا الحساب.';
+
+  @override
+  String get txdStaysInAccount => 'العملية تظل في نفس الحساب وفي كل تقاريرك.';
+
+  @override
+  String get txdCardRemoved =>
+      'أُزيلت البطاقة. ما زالت العملية في الحساب نفسه.';
+
+  @override
+  String get txdConfirmedToast => 'تم تأكيد العملية.';
+
+  @override
+  String get txdDeleteTitle => 'حذف العملية؟';
+
+  @override
+  String get txdDeleteBody =>
+      'ستُحذف من تقاريرك ورصيدك. لا يمكن التراجع عن ذلك.';
+
+  @override
+  String get txdSave => 'حفظ';
+
+  @override
+  String accWillDetachTx(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عملية',
+      many: '$count عملية',
+      few: '$count عمليات',
+      two: 'عمليتان',
+      one: 'عملية واحدة',
+    );
+    return 'ستُفصل $_temp0';
+  }
+
+  @override
+  String accWillArchiveCards(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count بطاقة',
+      many: '$count بطاقة',
+      few: '$count بطاقات',
+      two: 'بطاقتان',
+      one: 'بطاقة واحدة',
+    );
+    return 'تُؤرشف $_temp0';
+  }
+
+  @override
+  String accWillArchiveBudgets(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count ميزانية',
+      many: '$count ميزانية',
+      few: '$count ميزانيات',
+      two: 'ميزانيتان',
+      one: 'ميزانية واحدة',
+    );
+    return 'تُؤرشف $_temp0';
+  }
+
+  @override
+  String accDetachedTx(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عملية',
+      many: '$count عملية',
+      few: '$count عمليات',
+      two: 'عمليتان',
+      one: 'عملية واحدة',
+    );
+    return 'فُصلت $_temp0';
+  }
+
+  @override
+  String accArchivedCards(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count بطاقة مؤرشفة',
+      many: '$count بطاقة مؤرشفة',
+      few: '$count بطاقات مؤرشفة',
+      two: 'بطاقتان مؤرشفتان',
+      one: 'بطاقة واحدة مؤرشفة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accReassignedGoals(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count هدف مُنقول',
+      many: '$count هدفًا مُنقولًا',
+      few: '$count أهداف مُنقولة',
+      two: 'هدفان مُنقولان',
+      one: 'هدف واحد مُنقول',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accArchivedGoals(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count هدف مؤرشف',
+      many: '$count هدفًا مؤرشفًا',
+      few: '$count أهداف مؤرشفة',
+      two: 'هدفان مؤرشفان',
+      one: 'هدف واحد مؤرشف',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accReassignedSubs(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count اشتراك مُنقول',
+      many: '$count اشتراكًا مُنقولًا',
+      few: '$count اشتراكات مُنقولة',
+      two: 'اشتراكان مُنقولان',
+      one: 'اشتراك واحد مُنقول',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accArchivedSubs(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count اشتراك مؤرشف',
+      many: '$count اشتراكًا مؤرشفًا',
+      few: '$count اشتراكات مؤرشفة',
+      two: 'اشتراكان مؤرشفان',
+      one: 'اشتراك واحد مؤرشف',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accDeletedSummary(String summary) {
+    return 'تم حذف الحساب — $summary.';
+  }
+
+  @override
+  String get pasteFieldHint =>
+      'الصق نص رسالة البنك هنا...\nيمكنك لصق عدة رسائل متتالية.';
+
+  @override
+  String get commonAccountDefinite => 'الحساب';
+
+  @override
+  String get commonOpenImperative => 'افتح';
 }

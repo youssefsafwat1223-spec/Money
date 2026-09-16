@@ -10,6 +10,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/features/accounts/account_form_sheet.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -74,6 +75,9 @@ Future<void> _openAccountForm(
         activeCurrenciesProvider.overrideWith((_) async => _currencies()),
       ],
       child: MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('ar'),
         theme: AppTheme.light,
         home: _Opener(account),
       ),

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -96,6 +97,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   }
 
   Future<void> _pickFile() async {
+    final l10n = context.l10n;
     if (_busy) return;
     setState(() => _busy = true);
     try {
@@ -122,13 +124,14 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     } on DataPortabilityException catch (error) {
       _message(error.message);
     } catch (_) {
-      _message('تعذر فحص الملف. تأكد أنه CSV أو ZIP صالح.');
+      _message(l10n.dtxScanFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   Future<void> _runImport() async {
+    final l10n = context.l10n;
     final preview = _preview;
     if (preview == null || _busy) return;
     if (_mode == ImportMode.replace && !await _confirmReplace()) return;
@@ -141,7 +144,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     } on DataPortabilityException catch (error) {
       _message(error.message);
     } catch (_) {
-      _message('تعذر إكمال الاستيراد. لم تُحذف أي بيانات غير مؤكدة.');
+      _message(l10n.dtxImportFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -152,6 +155,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
   }
 
   Future<void> _export({required bool fullPackage}) async {
+    final l10n = context.l10n;
     if (_busy) return;
     setState(() => _busy = true);
     ManagedExport? export;
@@ -168,7 +172,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       return;
     } catch (error, stackTrace) {
       _logExportFailure('prepare', error, stackTrace);
-      _message('تعذر قراءة البيانات وتجهيز ملف التصدير.');
+      _message(l10n.dtxReadFailed);
       if (mounted) setState(() => _busy = false);
       return;
     }
@@ -185,7 +189,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       );
     } catch (error, stackTrace) {
       _logExportFailure('write', error, stackTrace);
-      _message('تعذر حفظ ملف التصدير مؤقتًا على الجهاز.');
+      _message(l10n.dtxSaveFailed);
       if (mounted) setState(() => _busy = false);
       return;
     }
@@ -207,8 +211,8 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         ],
         subject: fullPackage ? 'Qirsh financial data' : 'Qirsh transactions',
         text: fullPackage
-            ? 'ملف بيانات قرش المالية. احتفظ به في مكان خاص.'
-            : 'تصدير عمليات قرش بصيغة CSV.',
+            ? context.l10n.dtxZipShareText
+            : context.l10n.dtxCsvShareText,
         sharePositionOrigin: shareOrigin,
         fileNameOverrides: [export.shareName],
       );
@@ -216,7 +220,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       // MALI-065n: no clipboard fallback for full ledger/package — surface the
       // failure and let the user retry sharing.
       _logExportFailure('share', error, stackTrace);
-      _message('تم تجهيز الملف، لكن تعذر فتح نافذة المشاركة. حاول مرة أخرى.');
+      _message(l10n.dtxShareSheetFailed);
     } finally {
       // Delete on success, cancel, AND failure (the share outcome is unknown).
       await store.dispose(export);
@@ -252,40 +256,40 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     final colors = context.colors;
     return Scaffold(
       backgroundColor: colors.bg,
-      appBar: const AppHeader(title: 'نقل البيانات'),
+      appBar: AppHeader(title: context.l10n.dtxTitle),
       body: Stack(
         children: [
           ListView(
             padding: const EdgeInsets.all(AppSpacing.gutter),
             children: [
               Text(
-                'استورد بياناتك أو احتفظ بنسخة قابلة للنقل. تتم معاينة الملف على جهازك قبل أي كتابة.',
+                context.l10n.dtxSubtitle,
                 style: AppTypography.body(colors.textSecondary),
               ),
               const SizedBox(height: AppSpacing.s5),
               _ActionTile(
                 icon: AppLucideIcons.folderOpen,
-                title: 'استيراد ملف',
-                subtitle: 'CSV من أي تطبيق أو ZIP صادر من قرش',
+                title: context.l10n.dtxImportFile,
+                subtitle: context.l10n.dtxImportFileSub,
                 onTap: _pickFile,
               ),
               _ActionTile(
                 icon: AppLucideIcons.table,
-                title: 'تصدير العمليات CSV',
-                subtitle: 'ملف واحد متوافق مع Excel وتطبيقات الميزانية',
+                title: context.l10n.dtxExportCsv,
+                subtitle: context.l10n.dtxExportCsvSub,
                 onTap: () => _export(fullPackage: false),
               ),
               _ActionTile(
                 icon: AppLucideIcons.archive,
-                title: 'تصدير كل بيانات قرش ZIP',
-                subtitle: 'الحسابات والعمليات والميزانيات والخطط المالية',
+                title: context.l10n.dtxExportZip,
+                subtitle: context.l10n.dtxExportZipSub,
                 onTap: () => _export(fullPackage: true),
               ),
               if (_legacyBackupExists)
                 _ActionTile(
                   icon: AppLucideIcons.rotateCcw,
-                  title: 'استعادة نسخة قديمة',
-                  subtitle: 'متاح مؤقتاً للنسخ المشفرة التي أنشأتها سابقاً',
+                  title: context.l10n.dtxRestoreOld,
+                  subtitle: context.l10n.dtxRestoreOldSub,
                   onTap: () => context.push('/backup/restore'),
                 ),
               if (_preview != null) ...[
@@ -305,7 +309,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
               ],
               const SizedBox(height: AppSpacing.s8),
               Text(
-                'ملفات التصدير لا تحتوي رسائل البنك الخام أو بيانات الدخول أو رموز الأجهزة. ملف ZIP غير محمي بكلمة مرور؛ خزّنه في مكان خاص.',
+                context.l10n.dtxExportNotice,
                 style: AppTypography.caption(colors.textSecondary),
               ),
             ],
@@ -352,19 +356,19 @@ class _ReplaceConfirmationDialogState
   }
 
   void _confirm() {
-    Navigator.of(context).pop(_controller.text.trim() == 'استبدال');
+    Navigator.of(context).pop(_controller.text.trim() == context.l10n.dtxReplace);
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('تأكيد الاستبدال'),
+      title: Text(context.l10n.dtxConfirmReplace),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Text(
-            'سيتم إخفاء بياناتك المالية الحالية واستبدالها بمحتوى حزمة قرش. اكتب «استبدال» للمتابعة.',
+          Text(
+            context.l10n.dtxReplaceBody(context.l10n.dtxReplace),
           ),
           const SizedBox(height: 16),
           TextField(
@@ -372,18 +376,19 @@ class _ReplaceConfirmationDialogState
             autofocus: true,
             textInputAction: TextInputAction.done,
             onSubmitted: (_) => _confirm(),
-            decoration: const InputDecoration(labelText: 'اكتب استبدال'),
+            decoration: InputDecoration(
+                labelText: context.l10n.dtxTypeReplace(context.l10n.dtxReplace)),
           ),
         ],
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('إلغاء'),
+          child: Text(context.l10n.commonCancel),
         ),
         FilledButton(
           onPressed: _confirm,
-          child: const Text('تأكيد'),
+          child: Text(context.l10n.txnConfirm),
         ),
       ],
     );
@@ -451,11 +456,15 @@ class _PreviewPanel extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text('معاينة الاستيراد',
+            Text(context.l10n.dtxImportPreview,
                 style: AppTypography.headline(colors.textMain)),
             const SizedBox(height: 8),
             Text(
-                '${preview.totalRows} سجل • ${preview.format == ImportFormat.qirshPackage ? 'حزمة قرش' : 'CSV'}'),
+                context.l10n.dtxPreviewRows(
+                    preview.totalRows,
+                    preview.format == ImportFormat.qirshPackage
+                        ? context.l10n.dtxQirshPackage
+                        : 'CSV')),
             if (preview.format == ImportFormat.qirshPackage) ...[
               const SizedBox(height: 8),
               for (final entry in preview.tableCounts.entries)
@@ -465,7 +474,7 @@ class _PreviewPanel extends StatelessWidget {
                 preview.mapping != null) ...[
               const SizedBox(height: 16),
               _MappingField(
-                label: 'عمود التاريخ',
+                label: context.l10n.dtxColDate,
                 value: preview.mapping!.dateColumn,
                 headers: preview.headers,
                 onChanged: (value) => onPreviewChanged(
@@ -473,7 +482,7 @@ class _PreviewPanel extends StatelessWidget {
                 ),
               ),
               _MappingField(
-                label: 'عمود المبلغ',
+                label: context.l10n.dtxColAmount,
                 value: preview.mapping!.amountColumn,
                 headers: preview.headers,
                 onChanged: (value) => onPreviewChanged(
@@ -484,7 +493,7 @@ class _PreviewPanel extends StatelessWidget {
                 DropdownButtonFormField<String>(
                   value: preview.defaultAccountId,
                   decoration:
-                      const InputDecoration(labelText: 'الحساب الافتراضي'),
+                      InputDecoration(labelText: context.l10n.dtxDefaultAccount),
                   items: [
                     for (final account in accounts)
                       DropdownMenuItem<String>(
@@ -497,7 +506,7 @@ class _PreviewPanel extends StatelessWidget {
                   ),
                 ),
               _OptionalMappingField(
-                label: 'الخصم (Debit)',
+                label: context.l10n.dtxDebit,
                 value: preview.mapping!.debitColumn,
                 headers: preview.headers,
                 onChanged: (value) => onPreviewChanged(
@@ -505,7 +514,7 @@ class _PreviewPanel extends StatelessWidget {
                 ),
               ),
               _OptionalMappingField(
-                label: 'الإيداع (Credit)',
+                label: context.l10n.dtxCredit,
                 value: preview.mapping!.creditColumn,
                 headers: preview.headers,
                 onChanged: (value) => onPreviewChanged(
@@ -515,32 +524,32 @@ class _PreviewPanel extends StatelessWidget {
               for (final spec
                   in <(String, String?, CsvColumnMapping Function(String))>[
                 (
-                  'العملة',
+                  context.l10n.dtxCurrency,
                   preview.mapping!.currencyColumn,
                   (value) => preview.mapping!.copyWith(currencyColumn: value)
                 ),
                 (
-                  'الحساب',
+                  context.l10n.commonAccountDefinite,
                   preview.mapping!.accountColumn,
                   (value) => preview.mapping!.copyWith(accountColumn: value)
                 ),
                 (
-                  'التاجر / الوصف',
+                  context.l10n.dtxMerchantDesc,
                   preview.mapping!.merchantColumn,
                   (value) => preview.mapping!.copyWith(merchantColumn: value)
                 ),
                 (
-                  'التصنيف',
+                  context.l10n.txnCategory,
                   preview.mapping!.categoryColumn,
                   (value) => preview.mapping!.copyWith(categoryColumn: value)
                 ),
                 (
-                  'الملاحظات',
+                  context.l10n.dtxNotes,
                   preview.mapping!.noteColumn,
                   (value) => preview.mapping!.copyWith(noteColumn: value)
                 ),
                 (
-                  'نوع العملية',
+                  context.l10n.dtxTxType,
                   preview.mapping!.typeColumn,
                   (value) => preview.mapping!.copyWith(typeColumn: value)
                 ),
@@ -555,21 +564,21 @@ class _PreviewPanel extends StatelessWidget {
                 ),
               DropdownButtonFormField<ImportDateFormat>(
                 value: preview.mapping!.dateFormat,
-                decoration: const InputDecoration(labelText: 'صيغة التاريخ'),
-                items: const [
+                decoration: InputDecoration(labelText: context.l10n.dtxDateFormat),
+                items: [
                   DropdownMenuItem(
                       value: ImportDateFormat.automatic,
-                      child: Text('تلقائية')),
+                      child: Text(context.l10n.dtxDateAuto)),
                   DropdownMenuItem(
                       value: ImportDateFormat.dayMonthYear,
-                      child: Text('يوم / شهر / سنة')),
+                      child: Text(context.l10n.dtxDateDMY)),
                   DropdownMenuItem(
                       value: ImportDateFormat.monthDayYear,
-                      child: Text('شهر / يوم / سنة')),
+                      child: Text(context.l10n.dtxDateMDY)),
                   DropdownMenuItem(
                       value: ImportDateFormat.yearMonthDay,
-                      child: Text('سنة / شهر / يوم')),
-                  DropdownMenuItem(
+                      child: Text(context.l10n.dtxDateYMD)),
+                  const DropdownMenuItem(
                       value: ImportDateFormat.iso8601, child: Text('ISO-8601')),
                 ],
                 onChanged: (value) {
@@ -584,7 +593,7 @@ class _PreviewPanel extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
                   child: Text(
-                    'عند التأكيد، سيُنشئ قرش الحسابات والتصنيفات غير الموجودة الواردة في الملف.',
+                    context.l10n.dtxWillCreate,
                     style: AppTypography.caption(colors.textSecondary),
                   ),
                 ),
@@ -592,7 +601,8 @@ class _PreviewPanel extends StatelessWidget {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(
-                      'استيراد ${preview.duplicateRecordIds.length} عملية مشابهة كعمليات جديدة'),
+                      context.l10n.dtxImportDupesAsNew(
+                          preview.duplicateRecordIds.length)),
                   value: preview.confirmedDuplicateRecordIds.length ==
                       preview.duplicateRecordIds.length,
                   onChanged: (enabled) => onPreviewChanged(preview.copyWith(
@@ -604,10 +614,10 @@ class _PreviewPanel extends StatelessWidget {
             if (preview.canReplace) ...[
               const SizedBox(height: 16),
               SegmentedButton<ImportMode>(
-                segments: const [
-                  ButtonSegment(value: ImportMode.merge, label: Text('دمج')),
+                segments: [
+                  ButtonSegment(value: ImportMode.merge, label: Text(context.l10n.dtxMerge)),
                   ButtonSegment(
-                      value: ImportMode.replace, label: Text('استبدال')),
+                      value: ImportMode.replace, label: Text(context.l10n.dtxReplace)),
                 ],
                 selected: {mode},
                 onSelectionChanged: (value) => onModeChanged(value.first),
@@ -632,7 +642,7 @@ class _PreviewPanel extends StatelessWidget {
             FilledButton.icon(
               onPressed: preview.hasErrors ? null : onImport,
               icon: const Icon(AppLucideIcons.download),
-              label: const Text('تأكيد الاستيراد'),
+              label: Text(context.l10n.dtxConfirmImport),
             ),
           ],
         ),
@@ -703,16 +713,16 @@ class _ResultPanel extends StatelessWidget {
   Widget build(BuildContext context) => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text('اكتمل الاستيراد',
+          Text(context.l10n.dtxImportDone,
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          Text('تمت الإضافة: ${result.imported}'),
-          Text('مكرر: ${result.duplicates}'),
-          Text('معزول للحماية: ${result.skipped}'),
-          Text('فشل: ${result.failed}'),
+          Text(context.l10n.dtxAdded(result.imported)),
+          Text(context.l10n.dtxDuplicates(result.duplicates)),
+          Text(context.l10n.dtxQuarantined(result.skipped)),
+          Text(context.l10n.dtxFailed(result.failed)),
           if (result.cacheRepairPending)
-            const Text(
-                'تم الحفظ على الخادم، وسيُصلح قرش الكاش المحلي تلقائياً.'),
+            Text(
+                context.l10n.dtxCacheRepair),
         ],
       );
 }

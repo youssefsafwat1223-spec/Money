@@ -69,7 +69,7 @@ class _AccountPicker extends ConsumerWidget {
     );
     return GlassSelector(
       icon: AppLucideIcons.walletCards,
-      label: '${account.name} · ${Currency.arabicLabel(account.currency)}',
+      label: '${account.name} · ${Currency.label(context, account.currency)}',
       onTap: () => _showAccountSheet(context, ref, account.id),
     );
   }
@@ -115,7 +115,7 @@ class _AccountPicker extends ConsumerWidget {
                     color: account.id == currentId ? c.cta : c.textMuted,
                   ),
                   title: Text(account.name),
-                  subtitle: Text(Currency.arabicLabel(account.currency)),
+                  subtitle: Text(Currency.label(context, account.currency)),
                   trailing: account.id == currentId
                       ? Icon(AppLucideIcons.checkCircle, color: c.cta)
                       : null,

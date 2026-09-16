@@ -114,6 +114,7 @@ void main() {
 
     final failures = <String>[];
     final arabicSurvivors = <String, int>{};
+    final survivingText = <String, List<String>>{};
     final visited = <String, int>{'ar': 0, 'en': 0};
     final arabicScript = RegExp(r'[؀-ۿ]');
 
@@ -148,8 +149,14 @@ void main() {
         visited[lang] = visited[lang]! + 1;
         if (lang == 'en') {
           final arabic =
-              visibleText(tester).where(arabicScript.hasMatch).length;
-          if (arabic > 0) arabicSurvivors[route] = arabic;
+              visibleText(tester).where(arabicScript.hasMatch).toList();
+          if (arabic.isNotEmpty) {
+            arabicSurvivors[route] = arabic.length;
+            // A count says how much is left; the strings say WHERE. Without
+            // them each round of closure is a guess at which widget produced
+            // which leftover.
+            survivingText[route] = arabic.toSet().toList();
+          }
         }
         await binding.takeScreenshot('$lang-${route.replaceAll("/", "_")}');
       }
@@ -170,6 +177,11 @@ void main() {
       ..sort((a, b) => b.value.compareTo(a.value));
     for (final e in worst.take(20)) {
       debugPrint('[BILINGUAL]   ${e.key}: ${e.value} Arabic strings');
+    }
+    for (final e in worst) {
+      for (final t in survivingText[e.key] ?? const <String>[]) {
+        debugPrint('[BILINGUAL-TEXT] ${e.key} :: ${t.replaceAll("\n", " ⏎ ")}');
+      }
     }
 
     expect(failures, isEmpty,

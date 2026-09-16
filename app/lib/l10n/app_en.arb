@@ -1223,5 +1223,411 @@
   "accSubtitle": "Each account in its own currency — cash, bank, wallet or card.",
   "accDefault": "Default",
   "accUnassignedCards": "Unassigned cards",
-  "accUnassignedCardsBody": "Cards that showed up in your messages but are not linked to an account yet."
+  "accUnassignedCardsBody": "Cards that showed up in your messages but are not linked to an account yet.",
+  "achCurrentStreak": "Current streak: {days, plural, =1{1 day} other{{days} days}}",
+  "@achCurrentStreak": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "achStreakDays": "{days, plural, =1{1 day} other{{days} days}}",
+  "@achStreakDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "annFromDate": "From {date}",
+  "@annFromDate": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "pasteAnalysing": "Analysing {processed} of {total}",
+  "@pasteAnalysing": {
+    "placeholders": {
+      "processed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "pasteSummaryLine": "Added {added} · duplicate {duplicate} · needs review {review} · not understood {failed}",
+  "@pasteSummaryLine": {
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "duplicate": {
+        "type": "int"
+      },
+      "review": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "pasteAnalysedCount": "{count, plural, =1{Analysed 1 pasted message.} other{Analysed {count} pasted messages.}}",
+  "@pasteAnalysedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "achCurrentLevel": "Current level",
+  "achUnlocked": "Unlocked",
+  "achInProgress": "In progress",
+  "achLevelOrganised": "Organised",
+  "achLevelSmartSaver": "Smart saver",
+  "achLevelExpert": "Money expert",
+  "achLevelLegend": "Savings legend",
+  "achLevelBeginner": "Beginner",
+  "achTitle": "Achievements",
+  "achSubtitle": "Badges and levels to keep the tracking habit going.",
+  "achLevel": "Level",
+  "achTotalXp": "Total XP",
+  "achStreak": "Streak",
+  "annTitle": "Qirsh message centre",
+  "annSubtitle": "Your Qirsh notifications, campaigns and announcements in one place.",
+  "annClose": "Close",
+  "annLoading": "Loading the message centre…",
+  "annLoadFailed": "Could not load your messages",
+  "annTryAgainSoon": "Try again in a moment.",
+  "annRetry": "Try again",
+  "annEmpty": "No messages yet",
+  "annEmptyBody": "Any notification from Qirsh, or announcement from us, shows up here automatically.",
+  "annNotificationSent": "Notification sent",
+  "annOpen": "Open",
+  "annInAppCampaign": "In-app campaign",
+  "annFromQirsh": "Announcement from Qirsh",
+  "privCloudProcessingBody": "Uploads captured bank messages and syncs your data with our servers. Turning it off disables automatic capture and sync; manual entry keeps working on your device.",
+  "privAiAnalysisBody": "With cloud processing on, a sanitised copy of EVERY bank message is sent to cloud AI models to be read and categorised. Turning it off limits analysis to the local rules on your device.",
+  "privDeleteAccountBody": "Your account and all your data (transactions, goals, budgets, backups) will be scheduled for permanent deletion after 30 days. You can undo the deletion from this same screen at any point before then, by signing in again. You will be signed out on this device now.",
+  "privScheduledForDeletion": "Your account is scheduled for deletion on {date}",
+  "@privScheduledForDeletion": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "privPolicy": "Privacy policy",
+  "privTerms": "Terms & conditions",
+  "privTransferMyData": "Move or import my data",
+  "privDataProcessing": "Data processing",
+  "privCloudProcessing": "Cloud processing & sync",
+  "privAiAnalysis": "AI analysis",
+  "privDangerZone": "Danger zone",
+  "privDeleteAccountAll": "Delete my account and all my data",
+  "privLinkFailed": "That link could not be opened right now.",
+  "privDeleteAccountTitle": "Delete your account?",
+  "privDeleteAccount": "Delete account",
+  "privScheduleFailed": "The deletion could not be scheduled right now. Please try again.",
+  "privCancelDeleteTitle": "Cancel the account deletion?",
+  "privCancelDeleteBody": "Your account and data stay exactly as they are.",
+  "privKeepAccount": "Go back",
+  "privCancelDeletion": "Cancel deletion",
+  "privCancelFailed": "The deletion could not be cancelled right now. Please try again.",
+  "privTitle": "Privacy & data",
+  "privIntro": "Bank messages you share through the shortcut are processed as sanitised text on the Qirsh server, with help from AI. You can export or import your financial data from the Data transfer screen.",
+  "dtxPreviewRows": "{rows} records • {format}",
+  "@dtxPreviewRows": {
+    "placeholders": {
+      "rows": {
+        "type": "int"
+      },
+      "format": {
+        "type": "String"
+      }
+    }
+  },
+  "dtxQirshPackage": "Qirsh package",
+  "dtxImportDupesAsNew": "Import {count} similar transactions as new ones",
+  "@dtxImportDupesAsNew": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxAdded": "Added: {count}",
+  "@dtxAdded": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxDuplicates": "Duplicates: {count}",
+  "@dtxDuplicates": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxQuarantined": "Quarantined for safety: {count}",
+  "@dtxQuarantined": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxFailed": "Failed: {count}",
+  "@dtxFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxScanFailed": "The file could not be scanned. Check that it is a valid CSV or ZIP.",
+  "dtxImportFailed": "The import could not be completed. No unconfirmed data was deleted.",
+  "dtxReadFailed": "Your data could not be read to prepare the export file.",
+  "dtxSaveFailed": "The export file could not be saved temporarily on this device.",
+  "dtxZipShareText": "Your Qirsh financial data file. Keep it somewhere private.",
+  "dtxCsvShareText": "Qirsh transactions exported as CSV.",
+  "dtxShareSheetFailed": "The file is ready, but the share sheet could not be opened. Please try again.",
+  "dtxTitle": "Data transfer",
+  "dtxSubtitle": "Import your data, or keep a portable copy. The file is previewed on your device before anything is written.",
+  "dtxImportFile": "Import a file",
+  "dtxImportFileSub": "A CSV from any app, or a ZIP exported by Qirsh",
+  "dtxExportCsv": "Export transactions (CSV)",
+  "dtxExportCsvSub": "One file that works with Excel and budgeting apps",
+  "dtxExportZip": "Export all Qirsh data (ZIP)",
+  "dtxExportZipSub": "Accounts, transactions, budgets and financial plans",
+  "dtxRestoreOld": "Restore an older backup",
+  "dtxRestoreOldSub": "Temporarily available for encrypted backups you made earlier",
+  "dtxExportNotice": "Export files contain no raw bank messages, no credentials and no device tokens. The ZIP is not password-protected, so store it somewhere private.",
+  "dtxReplace": "Replace",
+  "dtxConfirmReplace": "Confirm the replacement",
+  "dtxReplaceBody": "Your current financial data will be hidden and replaced by the contents of the Qirsh package. Type «{word}» to continue.",
+  "dtxTypeReplace": "Type {word}",
+  "dtxImportPreview": "Import preview",
+  "dtxColDate": "Date column",
+  "dtxColAmount": "Amount column",
+  "dtxDefaultAccount": "Default account",
+  "dtxDebit": "Debit",
+  "dtxCredit": "Credit",
+  "dtxCurrency": "Currency",
+  "dtxMerchantDesc": "Merchant / description",
+  "dtxNotes": "Notes",
+  "dtxTxType": "Transaction type",
+  "dtxDateFormat": "Date format",
+  "dtxDateAuto": "Automatic",
+  "dtxDateDMY": "Day / month / year",
+  "dtxDateMDY": "Month / day / year",
+  "dtxDateYMD": "Year / month / day",
+  "dtxWillCreate": "On confirmation, Qirsh will create any accounts and categories in the file that do not exist yet.",
+  "dtxMerge": "Merge",
+  "dtxConfirmImport": "Confirm the import",
+  "dtxImportDone": "Import complete",
+  "dtxCacheRepair": "Saved on the server; Qirsh will repair the local cache automatically.",
+  "pasteTitle": "Paste a bank message",
+  "pasteAlreadyExists": "That transaction already exists — we opened it for review.",
+  "pasteAlreadyRecorded": "This transaction is already recorded.",
+  "pasteSimilarNeedsReview": "A similar transaction exists and needs reviewing.",
+  "pasteAiOffline": "AI is not connected in this build — run the app with Supabase keys.",
+  "pasteUnreadableOnDevice": "The message could not be read on this device — add it manually.",
+  "pasteNotATransaction": "It could not be read as a transaction — add it manually.",
+  "pasteNothingToOpen": "There is no transaction to open for this message.",
+  "pasteHint": "You can paste one message or several — each is analysed on its own.",
+  "pasteFromClipboard": "Paste from clipboard",
+  "pasteAnalyse": "Analyse messages",
+  "pasteNeedsReview": "Needs review",
+  "pasteAdded": "Added",
+  "pasteDuplicate": "Duplicate",
+  "pasteSimilar": "Similar — review",
+  "pasteNotUnderstood": "Not understood",
+  "pasteSummary": "Message summary",
+  "pasteReview": "Review",
+  "accTypeCash": "Cash",
+  "accTypeBank": "Bank",
+  "accTypeWallet": "Wallet",
+  "accTypeCreditCard": "Credit card",
+  "txdValueIn": "Value in {currency}",
+  "@txdValueIn": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "txdAmountIn": "Amount in {currency}",
+  "@txdAmountIn": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "txdAddValueIn": "Add the value in {currency}",
+  "@txdAddValueIn": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "txdPendingToday": "Unconfirmed · today",
+  "txdPendingDays": "Unconfirmed · {days, plural, =1{1 day ago} other{{days} days ago}}",
+  "@txdPendingDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "txdLinkedToCard": "Linked to card •••• {last4}. The account is unchanged.",
+  "@txdLinkedToCard": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "txdTypePurchase": "Purchase",
+  "txdTypeCashWithdrawal": "Cash withdrawal",
+  "txdTypeTransfer": "Transfer",
+  "txdTypeRefund": "Refund",
+  "txdTypeUnknown": "Unspecified",
+  "txdSourceCard": "Card",
+  "txdSourceAi": "AI",
+  "txdSourceImport": "Imported file",
+  "txdNotFound": "That transaction no longer exists",
+  "txdConfirmed": "Confirmed",
+  "txdNeedsReview": "Needs review",
+  "txdIgnored": "Ignored",
+  "txdUncategorised": "Uncategorised",
+  "txdType": "Type",
+  "txdSource": "Source",
+  "txdCard": "Card",
+  "txdNoCard": "No card",
+  "txdChange": "Change",
+  "txdOriginalCurrency": "In the original currency",
+  "txdBalanceAfter": "Balance after",
+  "txdNote": "Note",
+  "txdStatus": "Status",
+  "txdOriginalText": "Original text",
+  "txdConfirmIgnored": "Confirm this ignored transaction",
+  "txdConfirmTx": "Confirm transaction",
+  "txdDeleteTx": "Delete transaction",
+  "txdTitle": "Transaction details",
+  "txdCardSheetTitle": "Card on this transaction",
+  "txdCardSheetNote": "Changing the card does not move the transaction to another account.",
+  "txdNoCardsOnAccount": "No cards are registered on this account.",
+  "txdStaysInAccount": "The transaction stays in the same account, and in all your reports.",
+  "txdCardRemoved": "Card removed. The transaction is still in the same account.",
+  "txdConfirmedToast": "Transaction confirmed.",
+  "txdDeleteTitle": "Delete this transaction?",
+  "txdDeleteBody": "It will be removed from your reports and your balance. This cannot be undone.",
+  "txdSave": "Save",
+  "accWillDetachTx": "{count, plural, =1{1 transaction will be detached} other{{count} transactions will be detached}}",
+  "@accWillDetachTx": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accWillArchiveCards": "{count, plural, =1{1 card will be archived} other{{count} cards will be archived}}",
+  "@accWillArchiveCards": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accWillArchiveBudgets": "{count, plural, =1{1 budget will be archived} other{{count} budgets will be archived}}",
+  "@accWillArchiveBudgets": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accDetachedTx": "{count, plural, =1{1 transaction detached} other{{count} transactions detached}}",
+  "@accDetachedTx": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accArchivedCards": "{count, plural, =1{1 card archived} other{{count} cards archived}}",
+  "@accArchivedCards": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accReassignedGoals": "{count, plural, =1{1 goal moved} other{{count} goals moved}}",
+  "@accReassignedGoals": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accArchivedGoals": "{count, plural, =1{1 goal archived} other{{count} goals archived}}",
+  "@accArchivedGoals": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accReassignedSubs": "{count, plural, =1{1 subscription moved} other{{count} subscriptions moved}}",
+  "@accReassignedSubs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accArchivedSubs": "{count, plural, =1{1 subscription archived} other{{count} subscriptions archived}}",
+  "@accArchivedSubs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accDeletedSummary": "Account deleted — {summary}.",
+  "@accDeletedSummary": {
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      }
+    }
+  },
+  "pasteFieldHint": "Paste the bank message text here…\nYou can paste several messages in a row.",
+  "commonAccountDefinite": "Account",
+  "commonOpenImperative": "Open",
+  "@dtxReplaceBody": {
+    "placeholders": {
+      "word": {
+        "type": "String"
+      }
+    }
+  },
+  "@dtxTypeReplace": {
+    "placeholders": {
+      "word": {
+        "type": "String"
+      }
+    }
+  }
 }

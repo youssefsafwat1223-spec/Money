@@ -4590,6 +4590,1092 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد.'**
   String get accUnassignedCardsBody;
+
+  /// No description provided for @achCurrentStreak.
+  ///
+  /// In ar, this message translates to:
+  /// **'السلسلة الحالية: {days, plural, =1{يوم واحد} =2{يومان} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}'**
+  String achCurrentStreak(int days);
+
+  /// No description provided for @achStreakDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'{days, plural, =1{يوم واحد} =2{يومان} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}'**
+  String achStreakDays(int days);
+
+  /// No description provided for @annFromDate.
+  ///
+  /// In ar, this message translates to:
+  /// **'من {date}'**
+  String annFromDate(String date);
+
+  /// No description provided for @pasteAnalysing.
+  ///
+  /// In ar, this message translates to:
+  /// **'نحلّل {processed} من {total}'**
+  String pasteAnalysing(int processed, int total);
+
+  /// No description provided for @pasteSummaryLine.
+  ///
+  /// In ar, this message translates to:
+  /// **'أُضيفت {added} · مكرر {duplicate} · يحتاج مراجعة {review} · غير مفهوم {failed}'**
+  String pasteSummaryLine(int added, int duplicate, int review, int failed);
+
+  /// No description provided for @pasteAnalysedCount.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{تم تحليل رسالة واحدة من اللصق.} =2{تم تحليل رسالتين من اللصق.} few{تم تحليل {count} رسائل من اللصق.} many{تم تحليل {count} رسالة من اللصق.} other{تم تحليل {count} رسالة من اللصق.}}'**
+  String pasteAnalysedCount(int count);
+
+  /// No description provided for @achCurrentLevel.
+  ///
+  /// In ar, this message translates to:
+  /// **'المستوى الحالي'**
+  String get achCurrentLevel;
+
+  /// No description provided for @achUnlocked.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم الفتح'**
+  String get achUnlocked;
+
+  /// No description provided for @achInProgress.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيد التقدّم'**
+  String get achInProgress;
+
+  /// No description provided for @achLevelOrganised.
+  ///
+  /// In ar, this message translates to:
+  /// **'منظّم'**
+  String get achLevelOrganised;
+
+  /// No description provided for @achLevelSmartSaver.
+  ///
+  /// In ar, this message translates to:
+  /// **'موفّر ذكي'**
+  String get achLevelSmartSaver;
+
+  /// No description provided for @achLevelExpert.
+  ///
+  /// In ar, this message translates to:
+  /// **'خبير مالي'**
+  String get achLevelExpert;
+
+  /// No description provided for @achLevelLegend.
+  ///
+  /// In ar, this message translates to:
+  /// **'أسطورة الادخار'**
+  String get achLevelLegend;
+
+  /// No description provided for @achLevelBeginner.
+  ///
+  /// In ar, this message translates to:
+  /// **'مبتدئ'**
+  String get achLevelBeginner;
+
+  /// No description provided for @achTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الإنجازات'**
+  String get achTitle;
+
+  /// No description provided for @achSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'شارات ومستويات تشجعك تكمل عادة المتابعة.'**
+  String get achSubtitle;
+
+  /// No description provided for @achLevel.
+  ///
+  /// In ar, this message translates to:
+  /// **'المستوى'**
+  String get achLevel;
+
+  /// No description provided for @achTotalXp.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي الـ XP'**
+  String get achTotalXp;
+
+  /// No description provided for @achStreak.
+  ///
+  /// In ar, this message translates to:
+  /// **'سلسلة المتابعة'**
+  String get achStreak;
+
+  /// No description provided for @annTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'مركز رسائل قرش'**
+  String get annTitle;
+
+  /// No description provided for @annSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تاريخ إشعارات قرش، الحملات، والإعلانات في مكان واحد.'**
+  String get annSubtitle;
+
+  /// No description provided for @annClose.
+  ///
+  /// In ar, this message translates to:
+  /// **'إغلاق'**
+  String get annClose;
+
+  /// No description provided for @annLoading.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحميل مركز الرسائل...'**
+  String get annLoading;
+
+  /// No description provided for @annLoadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تحميل الرسائل'**
+  String get annLoadFailed;
+
+  /// No description provided for @annTryAgainSoon.
+  ///
+  /// In ar, this message translates to:
+  /// **'حاول مرة أخرى بعد لحظات.'**
+  String get annTryAgainSoon;
+
+  /// No description provided for @annRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة المحاولة'**
+  String get annRetry;
+
+  /// No description provided for @annEmpty.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد رسائل بعد'**
+  String get annEmpty;
+
+  /// No description provided for @annEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أي إشعار من قِرش أو إعلان من الإدارة سيظهر هنا تلقائيًا.'**
+  String get annEmptyBody;
+
+  /// No description provided for @annNotificationSent.
+  ///
+  /// In ar, this message translates to:
+  /// **'إشعار مرسل'**
+  String get annNotificationSent;
+
+  /// No description provided for @annOpen.
+  ///
+  /// In ar, this message translates to:
+  /// **'فتح'**
+  String get annOpen;
+
+  /// No description provided for @annInAppCampaign.
+  ///
+  /// In ar, this message translates to:
+  /// **'حملة داخل التطبيق'**
+  String get annInAppCampaign;
+
+  /// No description provided for @annFromQirsh.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعلان من قرش'**
+  String get annFromQirsh;
+
+  /// No description provided for @privCloudProcessingBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'رفع رسائل البنك الملتقطة ومزامنة بياناتك مع خوادمنا. إيقافها يعطّل الالتقاط التلقائي والمزامنة، ويُبقي الإدخال اليدوي يعمل على جهازك.'**
+  String get privCloudProcessingBody;
+
+  /// No description provided for @privAiAnalysisBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'عند تشغيله مع المعالجة السحابية، تُرسَل نسخة منقّاة من كل رسالة بنكية إلى نماذج ذكاء اصطناعي سحابية لقراءتها وتصنيفها. إيقافه يقتصر التحليل على القواعد المحلية على جهازك.'**
+  String get privAiAnalysisBody;
+
+  /// No description provided for @privDeleteAccountBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيتم جدولة حذف حسابك وكل بياناتك (العمليات، الأهداف، الميزانيات، النسخ الاحتياطي) نهائيًا بعد 30 يومًا. يمكنك التراجع عن الحذف خلال هذه المدة من نفس الشاشة قبل تسجيل الدخول مرة أخرى. سيتم تسجيل خروجك من هذا الجهاز الآن.'**
+  String get privDeleteAccountBody;
+
+  /// No description provided for @privScheduledForDeletion.
+  ///
+  /// In ar, this message translates to:
+  /// **'حسابك مجدول للحذف بتاريخ {date}'**
+  String privScheduledForDeletion(String date);
+
+  /// No description provided for @privPolicy.
+  ///
+  /// In ar, this message translates to:
+  /// **'سياسة الخصوصية'**
+  String get privPolicy;
+
+  /// No description provided for @privTerms.
+  ///
+  /// In ar, this message translates to:
+  /// **'الشروط والأحكام'**
+  String get privTerms;
+
+  /// No description provided for @privTransferMyData.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقل واستيراد بياناتي'**
+  String get privTransferMyData;
+
+  /// No description provided for @privDataProcessing.
+  ///
+  /// In ar, this message translates to:
+  /// **'معالجة البيانات'**
+  String get privDataProcessing;
+
+  /// No description provided for @privCloudProcessing.
+  ///
+  /// In ar, this message translates to:
+  /// **'المعالجة السحابية والمزامنة'**
+  String get privCloudProcessing;
+
+  /// No description provided for @privAiAnalysis.
+  ///
+  /// In ar, this message translates to:
+  /// **'التحليل بالذكاء الاصطناعي'**
+  String get privAiAnalysis;
+
+  /// No description provided for @privDangerZone.
+  ///
+  /// In ar, this message translates to:
+  /// **'منطقة خطرة'**
+  String get privDangerZone;
+
+  /// No description provided for @privDeleteAccountAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الحساب وكل بياناتي'**
+  String get privDeleteAccountAll;
+
+  /// No description provided for @privLinkFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر فتح الرابط الآن.'**
+  String get privLinkFailed;
+
+  /// No description provided for @privDeleteAccountTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الحساب؟'**
+  String get privDeleteAccountTitle;
+
+  /// No description provided for @privDeleteAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الحساب'**
+  String get privDeleteAccount;
+
+  /// No description provided for @privScheduleFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر جدولة الحذف الآن. حاول مجدداً.'**
+  String get privScheduleFailed;
+
+  /// No description provided for @privCancelDeleteTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلغاء حذف الحساب؟'**
+  String get privCancelDeleteTitle;
+
+  /// No description provided for @privCancelDeleteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيبقى حسابك وبياناتك كما هي.'**
+  String get privCancelDeleteBody;
+
+  /// No description provided for @privKeepAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'تراجع'**
+  String get privKeepAccount;
+
+  /// No description provided for @privCancelDeletion.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلغاء الحذف'**
+  String get privCancelDeletion;
+
+  /// No description provided for @privCancelFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر إلغاء الحذف الآن. حاول مجدداً.'**
+  String get privCancelFailed;
+
+  /// No description provided for @privTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخصوصية والبيانات'**
+  String get privTitle;
+
+  /// No description provided for @privIntro.
+  ///
+  /// In ar, this message translates to:
+  /// **'رسائل البنك التي تشاركها عبر الاختصار تُعالج بنص مُعقّم على خادم قرش وبمساعدة الذكاء الاصطناعي. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.'**
+  String get privIntro;
+
+  /// No description provided for @dtxPreviewRows.
+  ///
+  /// In ar, this message translates to:
+  /// **'{rows} سجل • {format}'**
+  String dtxPreviewRows(int rows, String format);
+
+  /// No description provided for @dtxQirshPackage.
+  ///
+  /// In ar, this message translates to:
+  /// **'حزمة قِرش'**
+  String get dtxQirshPackage;
+
+  /// No description provided for @dtxImportDupesAsNew.
+  ///
+  /// In ar, this message translates to:
+  /// **'استيراد {count} عملية مشابهة كعمليات جديدة'**
+  String dtxImportDupesAsNew(int count);
+
+  /// No description provided for @dtxAdded.
+  ///
+  /// In ar, this message translates to:
+  /// **'تمت الإضافة: {count}'**
+  String dtxAdded(int count);
+
+  /// No description provided for @dtxDuplicates.
+  ///
+  /// In ar, this message translates to:
+  /// **'مكرر: {count}'**
+  String dtxDuplicates(int count);
+
+  /// No description provided for @dtxQuarantined.
+  ///
+  /// In ar, this message translates to:
+  /// **'معزول للحماية: {count}'**
+  String dtxQuarantined(int count);
+
+  /// No description provided for @dtxFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل: {count}'**
+  String dtxFailed(int count);
+
+  /// No description provided for @dtxScanFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر فحص الملف. تأكد أنه CSV أو ZIP صالح.'**
+  String get dtxScanFailed;
+
+  /// No description provided for @dtxImportFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر إكمال الاستيراد. لم تُحذف أي بيانات غير مؤكدة.'**
+  String get dtxImportFailed;
+
+  /// No description provided for @dtxReadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر قراءة البيانات وتجهيز ملف التصدير.'**
+  String get dtxReadFailed;
+
+  /// No description provided for @dtxSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر حفظ ملف التصدير مؤقتًا على الجهاز.'**
+  String get dtxSaveFailed;
+
+  /// No description provided for @dtxZipShareText.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف بيانات قرش المالية. احتفظ به في مكان خاص.'**
+  String get dtxZipShareText;
+
+  /// No description provided for @dtxCsvShareText.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصدير عمليات قرش بصيغة CSV.'**
+  String get dtxCsvShareText;
+
+  /// No description provided for @dtxShareSheetFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تجهيز الملف، لكن تعذر فتح نافذة المشاركة. حاول مرة أخرى.'**
+  String get dtxShareSheetFailed;
+
+  /// No description provided for @dtxTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقل البيانات'**
+  String get dtxTitle;
+
+  /// No description provided for @dtxSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'استورد بياناتك أو احتفظ بنسخة قابلة للنقل. تتم معاينة الملف على جهازك قبل أي كتابة.'**
+  String get dtxSubtitle;
+
+  /// No description provided for @dtxImportFile.
+  ///
+  /// In ar, this message translates to:
+  /// **'استيراد ملف'**
+  String get dtxImportFile;
+
+  /// No description provided for @dtxImportFileSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'CSV من أي تطبيق أو ZIP صادر من قرش'**
+  String get dtxImportFileSub;
+
+  /// No description provided for @dtxExportCsv.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصدير العمليات CSV'**
+  String get dtxExportCsv;
+
+  /// No description provided for @dtxExportCsvSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف واحد متوافق مع Excel وتطبيقات الميزانية'**
+  String get dtxExportCsvSub;
+
+  /// No description provided for @dtxExportZip.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصدير كل بيانات قرش ZIP'**
+  String get dtxExportZip;
+
+  /// No description provided for @dtxExportZipSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحسابات والعمليات والميزانيات والخطط المالية'**
+  String get dtxExportZipSub;
+
+  /// No description provided for @dtxRestoreOld.
+  ///
+  /// In ar, this message translates to:
+  /// **'استعادة نسخة قديمة'**
+  String get dtxRestoreOld;
+
+  /// No description provided for @dtxRestoreOldSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'متاح مؤقتاً للنسخ المشفرة التي أنشأتها سابقاً'**
+  String get dtxRestoreOldSub;
+
+  /// No description provided for @dtxExportNotice.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملفات التصدير لا تحتوي رسائل البنك الخام أو بيانات الدخول أو رموز الأجهزة. ملف ZIP غير محمي بكلمة مرور؛ خزّنه في مكان خاص.'**
+  String get dtxExportNotice;
+
+  /// No description provided for @dtxReplace.
+  ///
+  /// In ar, this message translates to:
+  /// **'استبدال'**
+  String get dtxReplace;
+
+  /// No description provided for @dtxConfirmReplace.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد الاستبدال'**
+  String get dtxConfirmReplace;
+
+  /// No description provided for @dtxReplaceBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيتم إخفاء بياناتك المالية الحالية واستبدالها بمحتوى حزمة قِرش. اكتب «{word}» للمتابعة.'**
+  String dtxReplaceBody(String word);
+
+  /// No description provided for @dtxTypeReplace.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب {word}'**
+  String dtxTypeReplace(String word);
+
+  /// No description provided for @dtxImportPreview.
+  ///
+  /// In ar, this message translates to:
+  /// **'معاينة الاستيراد'**
+  String get dtxImportPreview;
+
+  /// No description provided for @dtxColDate.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمود التاريخ'**
+  String get dtxColDate;
+
+  /// No description provided for @dtxColAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمود المبلغ'**
+  String get dtxColAmount;
+
+  /// No description provided for @dtxDefaultAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحساب الافتراضي'**
+  String get dtxDefaultAccount;
+
+  /// No description provided for @dtxDebit.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخصم (Debit)'**
+  String get dtxDebit;
+
+  /// No description provided for @dtxCredit.
+  ///
+  /// In ar, this message translates to:
+  /// **'الإيداع (Credit)'**
+  String get dtxCredit;
+
+  /// No description provided for @dtxCurrency.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملة'**
+  String get dtxCurrency;
+
+  /// No description provided for @dtxMerchantDesc.
+  ///
+  /// In ar, this message translates to:
+  /// **'التاجر / الوصف'**
+  String get dtxMerchantDesc;
+
+  /// No description provided for @dtxNotes.
+  ///
+  /// In ar, this message translates to:
+  /// **'الملاحظات'**
+  String get dtxNotes;
+
+  /// No description provided for @dtxTxType.
+  ///
+  /// In ar, this message translates to:
+  /// **'نوع العملية'**
+  String get dtxTxType;
+
+  /// No description provided for @dtxDateFormat.
+  ///
+  /// In ar, this message translates to:
+  /// **'صيغة التاريخ'**
+  String get dtxDateFormat;
+
+  /// No description provided for @dtxDateAuto.
+  ///
+  /// In ar, this message translates to:
+  /// **'تلقائية'**
+  String get dtxDateAuto;
+
+  /// No description provided for @dtxDateDMY.
+  ///
+  /// In ar, this message translates to:
+  /// **'يوم / شهر / سنة'**
+  String get dtxDateDMY;
+
+  /// No description provided for @dtxDateMDY.
+  ///
+  /// In ar, this message translates to:
+  /// **'شهر / يوم / سنة'**
+  String get dtxDateMDY;
+
+  /// No description provided for @dtxDateYMD.
+  ///
+  /// In ar, this message translates to:
+  /// **'سنة / شهر / يوم'**
+  String get dtxDateYMD;
+
+  /// No description provided for @dtxWillCreate.
+  ///
+  /// In ar, this message translates to:
+  /// **'عند التأكيد، سيُنشئ قرش الحسابات والتصنيفات غير الموجودة الواردة في الملف.'**
+  String get dtxWillCreate;
+
+  /// No description provided for @dtxMerge.
+  ///
+  /// In ar, this message translates to:
+  /// **'دمج'**
+  String get dtxMerge;
+
+  /// No description provided for @dtxConfirmImport.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد الاستيراد'**
+  String get dtxConfirmImport;
+
+  /// No description provided for @dtxImportDone.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتمل الاستيراد'**
+  String get dtxImportDone;
+
+  /// No description provided for @dtxCacheRepair.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم الحفظ على الخادم، وسيُصلح قرش الكاش المحلي تلقائياً.'**
+  String get dtxCacheRepair;
+
+  /// No description provided for @pasteTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ألصق رسالة البنك'**
+  String get pasteTitle;
+
+  /// No description provided for @pasteAlreadyExists.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملية موجودة بالفعل، فتحناها للمراجعة.'**
+  String get pasteAlreadyExists;
+
+  /// No description provided for @pasteAlreadyRecorded.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه العملية مسجّلة بالفعل.'**
+  String get pasteAlreadyRecorded;
+
+  /// No description provided for @pasteSimilarNeedsReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملية مشابهة موجودة وتحتاج مراجعة.'**
+  String get pasteSimilarNeedsReview;
+
+  /// No description provided for @pasteAiOffline.
+  ///
+  /// In ar, this message translates to:
+  /// **'الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.'**
+  String get pasteAiOffline;
+
+  /// No description provided for @pasteUnreadableOnDevice.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت قراءة الرسالة على الجهاز — أضِفها يدويًا.'**
+  String get pasteUnreadableOnDevice;
+
+  /// No description provided for @pasteNotATransaction.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت قراءتها كعملية — أضِفها يدويًا.'**
+  String get pasteNotATransaction;
+
+  /// No description provided for @pasteNothingToOpen.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عملية لفتحها لهذه الرسالة.'**
+  String get pasteNothingToOpen;
+
+  /// No description provided for @pasteHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'يمكنك لصق رسالة واحدة أو عدة رسائل، وسيجري تحليل كل رسالة على حدة.'**
+  String get pasteHint;
+
+  /// No description provided for @pasteFromClipboard.
+  ///
+  /// In ar, this message translates to:
+  /// **'لصق من الحافظة'**
+  String get pasteFromClipboard;
+
+  /// No description provided for @pasteAnalyse.
+  ///
+  /// In ar, this message translates to:
+  /// **'حلّل الرسائل'**
+  String get pasteAnalyse;
+
+  /// No description provided for @pasteNeedsReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'يحتاج مراجعة'**
+  String get pasteNeedsReview;
+
+  /// No description provided for @pasteAdded.
+  ///
+  /// In ar, this message translates to:
+  /// **'أُضيفت'**
+  String get pasteAdded;
+
+  /// No description provided for @pasteDuplicate.
+  ///
+  /// In ar, this message translates to:
+  /// **'مكرر'**
+  String get pasteDuplicate;
+
+  /// No description provided for @pasteSimilar.
+  ///
+  /// In ar, this message translates to:
+  /// **'مشابهة للمراجعة'**
+  String get pasteSimilar;
+
+  /// No description provided for @pasteNotUnderstood.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مفهوم'**
+  String get pasteNotUnderstood;
+
+  /// No description provided for @pasteSummary.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملخص الرسائل'**
+  String get pasteSummary;
+
+  /// No description provided for @pasteReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'راجع'**
+  String get pasteReview;
+
+  /// No description provided for @accTypeCash.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقدي'**
+  String get accTypeCash;
+
+  /// No description provided for @accTypeBank.
+  ///
+  /// In ar, this message translates to:
+  /// **'بنك'**
+  String get accTypeBank;
+
+  /// No description provided for @accTypeWallet.
+  ///
+  /// In ar, this message translates to:
+  /// **'محفظة'**
+  String get accTypeWallet;
+
+  /// No description provided for @accTypeCreditCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقة ائتمانية'**
+  String get accTypeCreditCard;
+
+  /// No description provided for @txdValueIn.
+  ///
+  /// In ar, this message translates to:
+  /// **'القيمة بـ {currency}'**
+  String txdValueIn(String currency);
+
+  /// No description provided for @txdAmountIn.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ بـ {currency}'**
+  String txdAmountIn(String currency);
+
+  /// No description provided for @txdAddValueIn.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف القيمة بـ {currency}'**
+  String txdAddValueIn(String currency);
+
+  /// No description provided for @txdPendingToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مؤكدة · اليوم'**
+  String get txdPendingToday;
+
+  /// No description provided for @txdPendingDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مؤكدة · {days, plural, =1{منذ يوم} =2{منذ يومين} few{منذ {days} أيام} many{منذ {days} يومًا} other{منذ {days} يوم}}'**
+  String txdPendingDays(int days);
+
+  /// No description provided for @txdLinkedToCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'رُبطت بالبطاقة •••• {last4}. الحساب كما هو.'**
+  String txdLinkedToCard(String last4);
+
+  /// No description provided for @txdTypePurchase.
+  ///
+  /// In ar, this message translates to:
+  /// **'شراء'**
+  String get txdTypePurchase;
+
+  /// No description provided for @txdTypeCashWithdrawal.
+  ///
+  /// In ar, this message translates to:
+  /// **'سحب نقدي'**
+  String get txdTypeCashWithdrawal;
+
+  /// No description provided for @txdTypeTransfer.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحويل'**
+  String get txdTypeTransfer;
+
+  /// No description provided for @txdTypeRefund.
+  ///
+  /// In ar, this message translates to:
+  /// **'استرداد'**
+  String get txdTypeRefund;
+
+  /// No description provided for @txdTypeUnknown.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير محدد'**
+  String get txdTypeUnknown;
+
+  /// No description provided for @txdSourceCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقة'**
+  String get txdSourceCard;
+
+  /// No description provided for @txdSourceAi.
+  ///
+  /// In ar, this message translates to:
+  /// **'ذكاء اصطناعي'**
+  String get txdSourceAi;
+
+  /// No description provided for @txdSourceImport.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف مستورد'**
+  String get txdSourceImport;
+
+  /// No description provided for @txdNotFound.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملية غير موجودة'**
+  String get txdNotFound;
+
+  /// No description provided for @txdConfirmed.
+  ///
+  /// In ar, this message translates to:
+  /// **'مؤكدة'**
+  String get txdConfirmed;
+
+  /// No description provided for @txdNeedsReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحتاج مراجعة'**
+  String get txdNeedsReview;
+
+  /// No description provided for @txdIgnored.
+  ///
+  /// In ar, this message translates to:
+  /// **'متجاهلة'**
+  String get txdIgnored;
+
+  /// No description provided for @txdUncategorised.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مصنّف'**
+  String get txdUncategorised;
+
+  /// No description provided for @txdType.
+  ///
+  /// In ar, this message translates to:
+  /// **'النوع'**
+  String get txdType;
+
+  /// No description provided for @txdSource.
+  ///
+  /// In ar, this message translates to:
+  /// **'المصدر'**
+  String get txdSource;
+
+  /// No description provided for @txdCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'البطاقة'**
+  String get txdCard;
+
+  /// No description provided for @txdNoCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون بطاقة'**
+  String get txdNoCard;
+
+  /// No description provided for @txdChange.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيير'**
+  String get txdChange;
+
+  /// No description provided for @txdOriginalCurrency.
+  ///
+  /// In ar, this message translates to:
+  /// **'بالعملة الأصلية'**
+  String get txdOriginalCurrency;
+
+  /// No description provided for @txdBalanceAfter.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرصيد بعد'**
+  String get txdBalanceAfter;
+
+  /// No description provided for @txdNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملاحظة'**
+  String get txdNote;
+
+  /// No description provided for @txdStatus.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحالة'**
+  String get txdStatus;
+
+  /// No description provided for @txdOriginalText.
+  ///
+  /// In ar, this message translates to:
+  /// **'النص الأصلي'**
+  String get txdOriginalText;
+
+  /// No description provided for @txdConfirmIgnored.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد العملية المتجاهلة'**
+  String get txdConfirmIgnored;
+
+  /// No description provided for @txdConfirmTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد العملية'**
+  String get txdConfirmTx;
+
+  /// No description provided for @txdDeleteTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف العملية'**
+  String get txdDeleteTx;
+
+  /// No description provided for @txdTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفاصيل العملية'**
+  String get txdTitle;
+
+  /// No description provided for @txdCardSheetTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقة العملية'**
+  String get txdCardSheetTitle;
+
+  /// No description provided for @txdCardSheetNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيير البطاقة لا ينقل العملية إلى حساب آخر.'**
+  String get txdCardSheetNote;
+
+  /// No description provided for @txdNoCardsOnAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد بطاقات مسجّلة على هذا الحساب.'**
+  String get txdNoCardsOnAccount;
+
+  /// No description provided for @txdStaysInAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملية تظل في نفس الحساب وفي كل تقاريرك.'**
+  String get txdStaysInAccount;
+
+  /// No description provided for @txdCardRemoved.
+  ///
+  /// In ar, this message translates to:
+  /// **'أُزيلت البطاقة. ما زالت العملية في الحساب نفسه.'**
+  String get txdCardRemoved;
+
+  /// No description provided for @txdConfirmedToast.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تأكيد العملية.'**
+  String get txdConfirmedToast;
+
+  /// No description provided for @txdDeleteTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف العملية؟'**
+  String get txdDeleteTitle;
+
+  /// No description provided for @txdDeleteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستُحذف من تقاريرك ورصيدك. لا يمكن التراجع عن ذلك.'**
+  String get txdDeleteBody;
+
+  /// No description provided for @txdSave.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ'**
+  String get txdSave;
+
+  /// No description provided for @accWillDetachTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستُفصل {count, plural, =1{عملية واحدة} =2{عمليتان} few{{count} عمليات} many{{count} عملية} other{{count} عملية}}'**
+  String accWillDetachTx(int count);
+
+  /// No description provided for @accWillArchiveCards.
+  ///
+  /// In ar, this message translates to:
+  /// **'تُؤرشف {count, plural, =1{بطاقة واحدة} =2{بطاقتان} few{{count} بطاقات} many{{count} بطاقة} other{{count} بطاقة}}'**
+  String accWillArchiveCards(int count);
+
+  /// No description provided for @accWillArchiveBudgets.
+  ///
+  /// In ar, this message translates to:
+  /// **'تُؤرشف {count, plural, =1{ميزانية واحدة} =2{ميزانيتان} few{{count} ميزانيات} many{{count} ميزانية} other{{count} ميزانية}}'**
+  String accWillArchiveBudgets(int count);
+
+  /// No description provided for @accDetachedTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'فُصلت {count, plural, =1{عملية واحدة} =2{عمليتان} few{{count} عمليات} many{{count} عملية} other{{count} عملية}}'**
+  String accDetachedTx(int count);
+
+  /// No description provided for @accArchivedCards.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{بطاقة واحدة مؤرشفة} =2{بطاقتان مؤرشفتان} few{{count} بطاقات مؤرشفة} many{{count} بطاقة مؤرشفة} other{{count} بطاقة مؤرشفة}}'**
+  String accArchivedCards(int count);
+
+  /// No description provided for @accReassignedGoals.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{هدف واحد مُنقول} =2{هدفان مُنقولان} few{{count} أهداف مُنقولة} many{{count} هدفًا مُنقولًا} other{{count} هدف مُنقول}}'**
+  String accReassignedGoals(int count);
+
+  /// No description provided for @accArchivedGoals.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{هدف واحد مؤرشف} =2{هدفان مؤرشفان} few{{count} أهداف مؤرشفة} many{{count} هدفًا مؤرشفًا} other{{count} هدف مؤرشف}}'**
+  String accArchivedGoals(int count);
+
+  /// No description provided for @accReassignedSubs.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{اشتراك واحد مُنقول} =2{اشتراكان مُنقولان} few{{count} اشتراكات مُنقولة} many{{count} اشتراكًا مُنقولًا} other{{count} اشتراك مُنقول}}'**
+  String accReassignedSubs(int count);
+
+  /// No description provided for @accArchivedSubs.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{اشتراك واحد مؤرشف} =2{اشتراكان مؤرشفان} few{{count} اشتراكات مؤرشفة} many{{count} اشتراكًا مؤرشفًا} other{{count} اشتراك مؤرشف}}'**
+  String accArchivedSubs(int count);
+
+  /// No description provided for @accDeletedSummary.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم حذف الحساب — {summary}.'**
+  String accDeletedSummary(String summary);
+
+  /// No description provided for @pasteFieldHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'الصق نص رسالة البنك هنا...\nيمكنك لصق عدة رسائل متتالية.'**
+  String get pasteFieldHint;
+
+  /// No description provided for @commonAccountDefinite.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحساب'**
+  String get commonAccountDefinite;
+
+  /// No description provided for @commonOpenImperative.
+  ///
+  /// In ar, this message translates to:
+  /// **'افتح'**
+  String get commonOpenImperative;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

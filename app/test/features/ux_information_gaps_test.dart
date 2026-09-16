@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -47,10 +48,20 @@ void main() {
           reason: 'it measured active subscriptions only, while the counters '
               'beneath it also announced installments');
       // UX-024 later made this conditional — the subtitle now also names the
-      // account the list is scoped to — so both branches are asserted rather
-      // than the single literal that used to be there.
-      expect(source, contains("'الاشتراكات الشهرية'"));
-      expect(source, contains("'الاشتراكات الشهرية · \$scopeAccountName'"));
+      // account the list is scoped to — so both branches are asserted. The
+      // copy lives in the ARB now, so the claim is checked in BOTH languages:
+      // an English header that still said "total" would be the same defect.
+      expect(source, contains('context.l10n.subsMonthlyTotal'));
+      expect(source, contains('context.l10n.subsMonthlyScoped(scopeAccountName!)'));
+      expect(_arb('ar')['subsMonthlyTotal'], 'الاشتراكات الشهرية');
+      expect(_arb('ar')['subsMonthlyScoped'], 'الاشتراكات الشهرية · {account}');
+      expect(_arb('en')['subsMonthlyTotal'], 'Monthly subscriptions');
+      expect(_arb('en')['subsMonthlyScoped'], 'Monthly subscriptions · {account}');
+      for (final lang in ['ar', 'en']) {
+        expect(_arb(lang)['subsMonthlyTotal'],
+            isNot(anyOf(contains('إجمالي'), contains('Total'))),
+            reason: 'naming it a total is the defect UX-023 recorded');
+      }
     });
 
     test('the calculation is untouched', () {
@@ -63,7 +74,10 @@ void main() {
 
     test('the installment obligation is surfaced as its own line', () {
       expect(source, contains('installmentMonthly'));
-      expect(source, contains('التزام الأقساط شهرياً'));
+      expect(source, contains('context.l10n.subsMonthlyInstCommit'));
+      expect(_arb('ar')['subsMonthlyInstCommit'], 'التزام الأقساط شهريًا');
+      expect(_arb('en')['subsMonthlyInstCommit'],
+          'Monthly instalment commitment');
     });
 
     test('the installment total filters to ACTIVE explicitly', () {
@@ -84,3 +98,7 @@ void main() {
     });
   });
 }
+
+Map<String, dynamic> _arb(String lang) =>
+    jsonDecode(File('lib/l10n/app_$lang.arb').readAsStringSync())
+        as Map<String, dynamic>;

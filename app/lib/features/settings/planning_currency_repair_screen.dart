@@ -145,7 +145,7 @@ class _PlanningCurrencyRepairScreenState
           icon: AppLucideIcons.lightbulb,
           title: 'الاقتراح الافتراضي',
           message: '${data.proposedCurrency} — '
-              '${Currency.arabicLabel(data.proposedCurrency)}\n'
+              '${Currency.label(context, data.proposedCurrency)}\n'
               'هذا اقتراح من عملتك الحالية فقط، وليس قراراً محفوظاً حتى تؤكده.',
         ),
         const SizedBox(height: AppSpacing.s5),
@@ -566,7 +566,7 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
               for (final code in currencies)
                 DropdownMenuItem(
                   value: code,
-                  child: Text('$code — ${Currency.arabicLabel(code)}'),
+                  child: Text('$code — ${Currency.label(context, code)}'),
                 ),
             ],
             onChanged: enabled

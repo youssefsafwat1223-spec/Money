@@ -297,7 +297,7 @@ class _CapsuleBar extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.s1),
         Text(
-          _weekdayLabel(day.day),
+          Formatters.weekdayShort(context, day.day),
           style: AppTypography.caption(c.textMuted).copyWith(fontSize: 10),
           maxLines: 1,
         ),
@@ -305,18 +305,6 @@ class _CapsuleBar extends StatelessWidget {
     );
   }
 
-  String _weekdayLabel(DateTime day) {
-    const labels = [
-      'الإثنين',
-      'الثلاثاء',
-      'الأربعاء',
-      'الخميس',
-      'الجمعة',
-      'السبت',
-      'الأحد',
-    ];
-    return labels[day.weekday - 1];
-  }
 }
 
 class _Donut extends StatelessWidget {

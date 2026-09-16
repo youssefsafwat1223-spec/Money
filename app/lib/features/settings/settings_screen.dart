@@ -82,12 +82,18 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return local.replaceAll('.', ' ').replaceAll('_', ' ');
   }
 
+  /// The catalog carries `name_en` for every country and currency — the sync
+  /// pulls it and the DAO stores it. Only the render discarded it, which is why
+  /// the English build said «الريال السعودي».
+  String _catalogName(String ar, String en) =>
+      Localizations.localeOf(context).languageCode == 'en' ? en : ar;
+
   String _countryLabel(
       UserSettingsEntity s, List<RemoteCountry> countries, bool loading) {
     final code = s.country.toUpperCase();
     for (final country in countries) {
       if (country.code.toUpperCase() == code) {
-        return '${country.flagEmoji} ${country.nameAr}';
+        return '${country.flagEmoji} ${_catalogName(country.nameAr, country.nameEn)}';
       }
     }
     return loading ? context.l10n.setLoadingCountries : s.country;
@@ -98,7 +104,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final code = s.currency.toUpperCase();
     for (final currency in currencies) {
       if (currency.code.toUpperCase() == code) {
-        return '${currency.code} · ${currency.nameAr}';
+        return '${currency.code} · ${_catalogName(currency.nameAr, currency.nameEn)}';
       }
     }
     return loading ? context.l10n.setLoadingCurrencies : s.currency;
@@ -931,7 +937,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return {
       for (final country in countries)
         country.code.toUpperCase():
-            '${country.flagEmoji} ${country.nameAr} · ${country.phonePrefix}',
+            '${country.flagEmoji} ${_catalogName(country.nameAr, country.nameEn)}'
+                ' · ${country.phonePrefix}',
     };
   }
 
@@ -947,7 +954,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     return {
       for (final currency in source)
         currency.code.toUpperCase():
-            '${currency.code.toUpperCase()} · ${currency.nameAr} · ${currency.symbol}',
+            '${currency.code.toUpperCase()}'
+                ' · ${_catalogName(currency.nameAr, currency.nameEn)}'
+                ' · ${currency.symbol}',
     };
   }
 

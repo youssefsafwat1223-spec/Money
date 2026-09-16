@@ -9,6 +9,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/planning_currency_repair.dart';
 import 'package:money_companion/features/settings/planning_currency_repair_providers.dart';
 import 'package:money_companion/features/settings/planning_currency_repair_screen.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _MemoryDatabaseKeyStore implements DatabaseKeyStore {
   @override
@@ -82,6 +83,9 @@ void main() {
       ProviderScope(
         overrides: overrides(proposedCurrency: proposedCurrency),
         child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          locale: const Locale('ar'),
           theme: AppTheme.light,
           home: const PlanningCurrencyRepairScreen(),
         ),
@@ -254,6 +258,9 @@ void main() {
       ProviderScope(
         overrides: overrides(),
         child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          locale: const Locale('ar'),
           theme: AppTheme.light,
           home: Builder(
             builder: (context) => Scaffold(

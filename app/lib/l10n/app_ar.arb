@@ -1339,5 +1339,411 @@
   "accSubtitle": "كل حساب بعملته الخاصة — نقدي، بنك، محفظة أو بطاقة.",
   "accDefault": "افتراضي",
   "accUnassignedCards": "بطاقات غير مخصّصة",
-  "accUnassignedCardsBody": "بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد."
+  "accUnassignedCardsBody": "بطاقات ظهرت في رسائلك لكنها غير مرتبطة بحساب بعد.",
+  "achCurrentStreak": "السلسلة الحالية: {days, plural, =1{يوم واحد} =2{يومان} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}",
+  "@achCurrentStreak": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "achStreakDays": "{days, plural, =1{يوم واحد} =2{يومان} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}",
+  "@achStreakDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "annFromDate": "من {date}",
+  "@annFromDate": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "pasteAnalysing": "نحلّل {processed} من {total}",
+  "@pasteAnalysing": {
+    "placeholders": {
+      "processed": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "pasteSummaryLine": "أُضيفت {added} · مكرر {duplicate} · يحتاج مراجعة {review} · غير مفهوم {failed}",
+  "@pasteSummaryLine": {
+    "placeholders": {
+      "added": {
+        "type": "int"
+      },
+      "duplicate": {
+        "type": "int"
+      },
+      "review": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "pasteAnalysedCount": "{count, plural, =1{تم تحليل رسالة واحدة من اللصق.} =2{تم تحليل رسالتين من اللصق.} few{تم تحليل {count} رسائل من اللصق.} many{تم تحليل {count} رسالة من اللصق.} other{تم تحليل {count} رسالة من اللصق.}}",
+  "@pasteAnalysedCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "achCurrentLevel": "المستوى الحالي",
+  "achUnlocked": "تم الفتح",
+  "achInProgress": "قيد التقدّم",
+  "achLevelOrganised": "منظّم",
+  "achLevelSmartSaver": "موفّر ذكي",
+  "achLevelExpert": "خبير مالي",
+  "achLevelLegend": "أسطورة الادخار",
+  "achLevelBeginner": "مبتدئ",
+  "achTitle": "الإنجازات",
+  "achSubtitle": "شارات ومستويات تشجعك تكمل عادة المتابعة.",
+  "achLevel": "المستوى",
+  "achTotalXp": "إجمالي الـ XP",
+  "achStreak": "سلسلة المتابعة",
+  "annTitle": "مركز رسائل قرش",
+  "annSubtitle": "تاريخ إشعارات قرش، الحملات، والإعلانات في مكان واحد.",
+  "annClose": "إغلاق",
+  "annLoading": "تحميل مركز الرسائل...",
+  "annLoadFailed": "تعذر تحميل الرسائل",
+  "annTryAgainSoon": "حاول مرة أخرى بعد لحظات.",
+  "annRetry": "إعادة المحاولة",
+  "annEmpty": "لا توجد رسائل بعد",
+  "annEmptyBody": "أي إشعار من قِرش أو إعلان من الإدارة سيظهر هنا تلقائيًا.",
+  "annNotificationSent": "إشعار مرسل",
+  "annOpen": "فتح",
+  "annInAppCampaign": "حملة داخل التطبيق",
+  "annFromQirsh": "إعلان من قرش",
+  "privCloudProcessingBody": "رفع رسائل البنك الملتقطة ومزامنة بياناتك مع خوادمنا. إيقافها يعطّل الالتقاط التلقائي والمزامنة، ويُبقي الإدخال اليدوي يعمل على جهازك.",
+  "privAiAnalysisBody": "عند تشغيله مع المعالجة السحابية، تُرسَل نسخة منقّاة من كل رسالة بنكية إلى نماذج ذكاء اصطناعي سحابية لقراءتها وتصنيفها. إيقافه يقتصر التحليل على القواعد المحلية على جهازك.",
+  "privDeleteAccountBody": "سيتم جدولة حذف حسابك وكل بياناتك (العمليات، الأهداف، الميزانيات، النسخ الاحتياطي) نهائيًا بعد 30 يومًا. يمكنك التراجع عن الحذف خلال هذه المدة من نفس الشاشة قبل تسجيل الدخول مرة أخرى. سيتم تسجيل خروجك من هذا الجهاز الآن.",
+  "privScheduledForDeletion": "حسابك مجدول للحذف بتاريخ {date}",
+  "@privScheduledForDeletion": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "privPolicy": "سياسة الخصوصية",
+  "privTerms": "الشروط والأحكام",
+  "privTransferMyData": "نقل واستيراد بياناتي",
+  "privDataProcessing": "معالجة البيانات",
+  "privCloudProcessing": "المعالجة السحابية والمزامنة",
+  "privAiAnalysis": "التحليل بالذكاء الاصطناعي",
+  "privDangerZone": "منطقة خطرة",
+  "privDeleteAccountAll": "حذف الحساب وكل بياناتي",
+  "privLinkFailed": "تعذر فتح الرابط الآن.",
+  "privDeleteAccountTitle": "حذف الحساب؟",
+  "privDeleteAccount": "حذف الحساب",
+  "privScheduleFailed": "تعذّر جدولة الحذف الآن. حاول مجدداً.",
+  "privCancelDeleteTitle": "إلغاء حذف الحساب؟",
+  "privCancelDeleteBody": "سيبقى حسابك وبياناتك كما هي.",
+  "privKeepAccount": "تراجع",
+  "privCancelDeletion": "إلغاء الحذف",
+  "privCancelFailed": "تعذّر إلغاء الحذف الآن. حاول مجدداً.",
+  "privTitle": "الخصوصية والبيانات",
+  "privIntro": "رسائل البنك التي تشاركها عبر الاختصار تُعالج بنص مُعقّم على خادم قرش وبمساعدة الذكاء الاصطناعي. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.",
+  "dtxPreviewRows": "{rows} سجل • {format}",
+  "@dtxPreviewRows": {
+    "placeholders": {
+      "rows": {
+        "type": "int"
+      },
+      "format": {
+        "type": "String"
+      }
+    }
+  },
+  "dtxQirshPackage": "حزمة قِرش",
+  "dtxImportDupesAsNew": "استيراد {count} عملية مشابهة كعمليات جديدة",
+  "@dtxImportDupesAsNew": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxAdded": "تمت الإضافة: {count}",
+  "@dtxAdded": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxDuplicates": "مكرر: {count}",
+  "@dtxDuplicates": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxQuarantined": "معزول للحماية: {count}",
+  "@dtxQuarantined": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxFailed": "فشل: {count}",
+  "@dtxFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "dtxScanFailed": "تعذر فحص الملف. تأكد أنه CSV أو ZIP صالح.",
+  "dtxImportFailed": "تعذر إكمال الاستيراد. لم تُحذف أي بيانات غير مؤكدة.",
+  "dtxReadFailed": "تعذر قراءة البيانات وتجهيز ملف التصدير.",
+  "dtxSaveFailed": "تعذر حفظ ملف التصدير مؤقتًا على الجهاز.",
+  "dtxZipShareText": "ملف بيانات قرش المالية. احتفظ به في مكان خاص.",
+  "dtxCsvShareText": "تصدير عمليات قرش بصيغة CSV.",
+  "dtxShareSheetFailed": "تم تجهيز الملف، لكن تعذر فتح نافذة المشاركة. حاول مرة أخرى.",
+  "dtxTitle": "نقل البيانات",
+  "dtxSubtitle": "استورد بياناتك أو احتفظ بنسخة قابلة للنقل. تتم معاينة الملف على جهازك قبل أي كتابة.",
+  "dtxImportFile": "استيراد ملف",
+  "dtxImportFileSub": "CSV من أي تطبيق أو ZIP صادر من قرش",
+  "dtxExportCsv": "تصدير العمليات CSV",
+  "dtxExportCsvSub": "ملف واحد متوافق مع Excel وتطبيقات الميزانية",
+  "dtxExportZip": "تصدير كل بيانات قرش ZIP",
+  "dtxExportZipSub": "الحسابات والعمليات والميزانيات والخطط المالية",
+  "dtxRestoreOld": "استعادة نسخة قديمة",
+  "dtxRestoreOldSub": "متاح مؤقتاً للنسخ المشفرة التي أنشأتها سابقاً",
+  "dtxExportNotice": "ملفات التصدير لا تحتوي رسائل البنك الخام أو بيانات الدخول أو رموز الأجهزة. ملف ZIP غير محمي بكلمة مرور؛ خزّنه في مكان خاص.",
+  "dtxReplace": "استبدال",
+  "dtxConfirmReplace": "تأكيد الاستبدال",
+  "dtxReplaceBody": "سيتم إخفاء بياناتك المالية الحالية واستبدالها بمحتوى حزمة قِرش. اكتب «{word}» للمتابعة.",
+  "dtxTypeReplace": "اكتب {word}",
+  "dtxImportPreview": "معاينة الاستيراد",
+  "dtxColDate": "عمود التاريخ",
+  "dtxColAmount": "عمود المبلغ",
+  "dtxDefaultAccount": "الحساب الافتراضي",
+  "dtxDebit": "الخصم (Debit)",
+  "dtxCredit": "الإيداع (Credit)",
+  "dtxCurrency": "العملة",
+  "dtxMerchantDesc": "التاجر / الوصف",
+  "dtxNotes": "الملاحظات",
+  "dtxTxType": "نوع العملية",
+  "dtxDateFormat": "صيغة التاريخ",
+  "dtxDateAuto": "تلقائية",
+  "dtxDateDMY": "يوم / شهر / سنة",
+  "dtxDateMDY": "شهر / يوم / سنة",
+  "dtxDateYMD": "سنة / شهر / يوم",
+  "dtxWillCreate": "عند التأكيد، سيُنشئ قرش الحسابات والتصنيفات غير الموجودة الواردة في الملف.",
+  "dtxMerge": "دمج",
+  "dtxConfirmImport": "تأكيد الاستيراد",
+  "dtxImportDone": "اكتمل الاستيراد",
+  "dtxCacheRepair": "تم الحفظ على الخادم، وسيُصلح قرش الكاش المحلي تلقائياً.",
+  "pasteTitle": "ألصق رسالة البنك",
+  "pasteAlreadyExists": "العملية موجودة بالفعل، فتحناها للمراجعة.",
+  "pasteAlreadyRecorded": "هذه العملية مسجّلة بالفعل.",
+  "pasteSimilarNeedsReview": "عملية مشابهة موجودة وتحتاج مراجعة.",
+  "pasteAiOffline": "الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.",
+  "pasteUnreadableOnDevice": "تعذّرت قراءة الرسالة على الجهاز — أضِفها يدويًا.",
+  "pasteNotATransaction": "تعذّرت قراءتها كعملية — أضِفها يدويًا.",
+  "pasteNothingToOpen": "لا توجد عملية لفتحها لهذه الرسالة.",
+  "pasteHint": "يمكنك لصق رسالة واحدة أو عدة رسائل، وسيجري تحليل كل رسالة على حدة.",
+  "pasteFromClipboard": "لصق من الحافظة",
+  "pasteAnalyse": "حلّل الرسائل",
+  "pasteNeedsReview": "يحتاج مراجعة",
+  "pasteAdded": "أُضيفت",
+  "pasteDuplicate": "مكرر",
+  "pasteSimilar": "مشابهة للمراجعة",
+  "pasteNotUnderstood": "غير مفهوم",
+  "pasteSummary": "ملخص الرسائل",
+  "pasteReview": "راجع",
+  "accTypeCash": "نقدي",
+  "accTypeBank": "بنك",
+  "accTypeWallet": "محفظة",
+  "accTypeCreditCard": "بطاقة ائتمانية",
+  "txdValueIn": "القيمة بـ {currency}",
+  "@txdValueIn": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "txdAmountIn": "المبلغ بـ {currency}",
+  "@txdAmountIn": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "txdAddValueIn": "أضف القيمة بـ {currency}",
+  "@txdAddValueIn": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "txdPendingToday": "غير مؤكدة · اليوم",
+  "txdPendingDays": "غير مؤكدة · {days, plural, =1{منذ يوم} =2{منذ يومين} few{منذ {days} أيام} many{منذ {days} يومًا} other{منذ {days} يوم}}",
+  "@txdPendingDays": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "txdLinkedToCard": "رُبطت بالبطاقة •••• {last4}. الحساب كما هو.",
+  "@txdLinkedToCard": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "txdTypePurchase": "شراء",
+  "txdTypeCashWithdrawal": "سحب نقدي",
+  "txdTypeTransfer": "تحويل",
+  "txdTypeRefund": "استرداد",
+  "txdTypeUnknown": "غير محدد",
+  "txdSourceCard": "بطاقة",
+  "txdSourceAi": "ذكاء اصطناعي",
+  "txdSourceImport": "ملف مستورد",
+  "txdNotFound": "العملية غير موجودة",
+  "txdConfirmed": "مؤكدة",
+  "txdNeedsReview": "تحتاج مراجعة",
+  "txdIgnored": "متجاهلة",
+  "txdUncategorised": "غير مصنّف",
+  "txdType": "النوع",
+  "txdSource": "المصدر",
+  "txdCard": "البطاقة",
+  "txdNoCard": "بدون بطاقة",
+  "txdChange": "تغيير",
+  "txdOriginalCurrency": "بالعملة الأصلية",
+  "txdBalanceAfter": "الرصيد بعد",
+  "txdNote": "ملاحظة",
+  "txdStatus": "الحالة",
+  "txdOriginalText": "النص الأصلي",
+  "txdConfirmIgnored": "تأكيد العملية المتجاهلة",
+  "txdConfirmTx": "تأكيد العملية",
+  "txdDeleteTx": "حذف العملية",
+  "txdTitle": "تفاصيل العملية",
+  "txdCardSheetTitle": "بطاقة العملية",
+  "txdCardSheetNote": "تغيير البطاقة لا ينقل العملية إلى حساب آخر.",
+  "txdNoCardsOnAccount": "لا توجد بطاقات مسجّلة على هذا الحساب.",
+  "txdStaysInAccount": "العملية تظل في نفس الحساب وفي كل تقاريرك.",
+  "txdCardRemoved": "أُزيلت البطاقة. ما زالت العملية في الحساب نفسه.",
+  "txdConfirmedToast": "تم تأكيد العملية.",
+  "txdDeleteTitle": "حذف العملية؟",
+  "txdDeleteBody": "ستُحذف من تقاريرك ورصيدك. لا يمكن التراجع عن ذلك.",
+  "txdSave": "حفظ",
+  "accWillDetachTx": "ستُفصل {count, plural, =1{عملية واحدة} =2{عمليتان} few{{count} عمليات} many{{count} عملية} other{{count} عملية}}",
+  "@accWillDetachTx": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accWillArchiveCards": "تُؤرشف {count, plural, =1{بطاقة واحدة} =2{بطاقتان} few{{count} بطاقات} many{{count} بطاقة} other{{count} بطاقة}}",
+  "@accWillArchiveCards": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accWillArchiveBudgets": "تُؤرشف {count, plural, =1{ميزانية واحدة} =2{ميزانيتان} few{{count} ميزانيات} many{{count} ميزانية} other{{count} ميزانية}}",
+  "@accWillArchiveBudgets": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accDetachedTx": "فُصلت {count, plural, =1{عملية واحدة} =2{عمليتان} few{{count} عمليات} many{{count} عملية} other{{count} عملية}}",
+  "@accDetachedTx": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accArchivedCards": "{count, plural, =1{بطاقة واحدة مؤرشفة} =2{بطاقتان مؤرشفتان} few{{count} بطاقات مؤرشفة} many{{count} بطاقة مؤرشفة} other{{count} بطاقة مؤرشفة}}",
+  "@accArchivedCards": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accReassignedGoals": "{count, plural, =1{هدف واحد مُنقول} =2{هدفان مُنقولان} few{{count} أهداف مُنقولة} many{{count} هدفًا مُنقولًا} other{{count} هدف مُنقول}}",
+  "@accReassignedGoals": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accArchivedGoals": "{count, plural, =1{هدف واحد مؤرشف} =2{هدفان مؤرشفان} few{{count} أهداف مؤرشفة} many{{count} هدفًا مؤرشفًا} other{{count} هدف مؤرشف}}",
+  "@accArchivedGoals": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accReassignedSubs": "{count, plural, =1{اشتراك واحد مُنقول} =2{اشتراكان مُنقولان} few{{count} اشتراكات مُنقولة} many{{count} اشتراكًا مُنقولًا} other{{count} اشتراك مُنقول}}",
+  "@accReassignedSubs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accArchivedSubs": "{count, plural, =1{اشتراك واحد مؤرشف} =2{اشتراكان مؤرشفان} few{{count} اشتراكات مؤرشفة} many{{count} اشتراكًا مؤرشفًا} other{{count} اشتراك مؤرشف}}",
+  "@accArchivedSubs": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "accDeletedSummary": "تم حذف الحساب — {summary}.",
+  "@accDeletedSummary": {
+    "placeholders": {
+      "summary": {
+        "type": "String"
+      }
+    }
+  },
+  "pasteFieldHint": "الصق نص رسالة البنك هنا...\nيمكنك لصق عدة رسائل متتالية.",
+  "commonAccountDefinite": "الحساب",
+  "commonOpenImperative": "افتح",
+  "@dtxReplaceBody": {
+    "placeholders": {
+      "word": {
+        "type": "String"
+      }
+    }
+  },
+  "@dtxTypeReplace": {
+    "placeholders": {
+      "word": {
+        "type": "String"
+      }
+    }
+  }
 }

@@ -168,7 +168,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     final selectedAccount = _selectedAccount(accounts);
     final baseCurrency = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
     final currencyLabel =
-        Currency.arabicLabel(selectedAccount?.currency ?? baseCurrency);
+        Currency.label(context, selectedAccount?.currency ?? baseCurrency);
 
     return budgetAsync.when(
       skipLoadingOnReload: true,

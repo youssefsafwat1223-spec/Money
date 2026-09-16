@@ -19,6 +19,7 @@ import '../common/widgets.dart';
 import 'account_form_sheet.dart';
 import 'accounts_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../transactions/transaction_details_screen.dart';
 
 /// تفاصيل حساب: بطاقاته المُكتشفة بثقة داخله + آخر عملياته. المسار `/account/:id`.
 class AccountDetailScreen extends ConsumerWidget {
@@ -116,6 +117,8 @@ class AccountDetailScreen extends ConsumerWidget {
                     TransactionRow(
                       transaction: tx,
                       category: catalog?.byId(tx.categoryId),
+                      onTap: () => TransactionDetailsScreen.showSheet(
+                          context, tx.id),
                     ),
                 ],
               );
@@ -160,7 +163,7 @@ class _AccountHeaderCard extends StatelessWidget {
                     style: AppTypography.bodyStrong(c.textMain)),
                 const SizedBox(height: 2),
                 Text(
-                  '${accountTypeLabel(account.type)} · ${Currency.arabicLabel(account.currency)} (${account.currency})',
+                  '${accountTypeLabel(context, account.type)} · ${Currency.arabicLabel(account.currency)} (${account.currency})',
                   style: AppTypography.caption(c.textLight),
                 ),
               ],

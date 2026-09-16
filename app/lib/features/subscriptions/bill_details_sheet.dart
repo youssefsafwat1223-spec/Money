@@ -58,7 +58,7 @@ class BillDetailsSheet extends ConsumerWidget {
         );
     final paymentsAsync = ref.watch(billPaymentsProvider(currentBill.id));
     final isInstallment = currentBill.type == BillType.installment;
-    final currLabel = Currency.arabicLabel(currentBill.currency);
+    final currLabel = Currency.label(context, currentBill.currency);
     final accountName = ref.watch(accountsProvider).dataOrWhen(
           data: (accounts) {
             final matches = accounts
@@ -349,7 +349,7 @@ class BillDetailsSheet extends ConsumerWidget {
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
                     labelText: 'المبلغ',
-                    suffixText: Currency.arabicLabel(bill.currency),
+                    suffixText: Currency.label(context, bill.currency),
                   ),
                 ),
                 if (canPayFull) ...[
@@ -358,7 +358,7 @@ class BillDetailsSheet extends ConsumerWidget {
                     contentPadding: EdgeInsets.zero,
                     value: payFull,
                     title: Text(
-                      'سدّد المتبقي بالكامل (${Formatters.amount(remainingAmount)} ${Currency.arabicLabel(bill.currency)})',
+                      'سدّد المتبقي بالكامل (${Formatters.amount(remainingAmount)} ${Currency.label(context, bill.currency)})',
                       style: AppTypography.caption(context.colors.textMain),
                     ),
                     onChanged: busy || attempt.payment != null
@@ -680,7 +680,7 @@ class _BillPaymentRow extends ConsumerWidget {
           ),
           const SizedBox(width: AppSpacing.s2),
           Text(
-            '${Formatters.amount(payment.amount)} ${Currency.arabicLabel(payment.currency)}',
+            '${Formatters.amount(payment.amount)} ${Currency.label(context, payment.currency)}',
             style: AppTypography.caption(c.success).copyWith(
               fontWeight: FontWeight.w700,
             ),
@@ -747,7 +747,7 @@ class _BillTransactionRow extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.s2),
             Text(
-              '${Formatters.amount(tx.amount)} ${Currency.arabicLabel(tx.currency)}',
+              '${Formatters.amount(tx.amount)} ${Currency.label(context, tx.currency)}',
               style: AppTypography.caption(c.textPrimary)
                   .copyWith(fontWeight: FontWeight.w700),
             ),

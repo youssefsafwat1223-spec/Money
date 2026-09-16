@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/di/app_providers.dart';
@@ -42,14 +43,14 @@ class AnnouncementsScreen extends ConsumerWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'مركز رسائل قرش',
+                    context.l10n.annTitle,
                     // Mockup `.tophead .h1`: 24px w600, tight tracking.
                     style: AppTypography.calmTitle(c.textPrimary)
                         .copyWith(fontSize: 24, letterSpacing: -0.5),
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'تاريخ إشعارات قرش، الحملات، والإعلانات في مكان واحد.',
+                    context.l10n.annSubtitle,
                     // Mockup `.hsub`: 13px secondary.
                     style: AppTypography.caption(c.textSecondary)
                         .copyWith(fontSize: 13, fontWeight: FontWeight.w400),
@@ -58,7 +59,7 @@ class AnnouncementsScreen extends ConsumerWidget {
               ),
             ),
             IconButton(
-              tooltip: 'إغلاق',
+              tooltip: context.l10n.annClose,
               onPressed: () => Navigator.of(context).maybePop(),
               icon: const Icon(AppLucideIcons.x),
             ),
@@ -67,11 +68,11 @@ class AnnouncementsScreen extends ConsumerWidget {
       ),
       body: prefsAsync.when(
         skipLoadingOnReload: true,
-        loading: () => const AppLoadingState(label: 'تحميل مركز الرسائل...'),
+        loading: () => AppLoadingState(label: context.l10n.annLoading),
         error: (_, __) => AppErrorState(
-          title: 'تعذر تحميل الرسائل',
-          description: 'حاول مرة أخرى بعد لحظات.',
-          retryLabel: 'إعادة المحاولة',
+          title: context.l10n.annLoadFailed,
+          description: context.l10n.annTryAgainSoon,
+          retryLabel: context.l10n.annRetry,
           onRetry: () => ref.invalidate(notificationPreferencesProvider),
         ),
         data: (prefs) {
@@ -81,17 +82,17 @@ class AnnouncementsScreen extends ConsumerWidget {
               .toList();
           final campaigns = campaignsAsync.valueOrNull ?? const [];
           final items = <_MessageItem>[
-            ...history.map(_MessageItem.fromHistory),
-            ...campaigns.map(_MessageItem.fromCampaign),
-            ...announcements.map(_MessageItem.fromAnnouncement),
+            ...history.map((e) => _MessageItem.fromHistory(context, e)),
+            ...campaigns.map((e) => _MessageItem.fromCampaign(context, e)),
+            ...announcements.map((e) => _MessageItem.fromAnnouncement(context, e)),
           ]..sort((a, b) => b.sortAt.compareTo(a.sortAt));
 
           if (items.isEmpty) {
-            return const AppEmptyState(
+            return AppEmptyState(
               icon: AppLucideIcons.bell,
-              title: 'لا توجد رسائل بعد',
+              title: context.l10n.annEmpty,
               subtitle:
-                  'أي إشعار من قرش أو إعلان من الإدارة هيظهر هنا تلقائياً.',
+                  context.l10n.annEmptyBody,
             );
           }
 
@@ -203,7 +204,7 @@ class _MessageCard extends ConsumerWidget {
               if (item.dismissible)
                 TextButton(
                   onPressed: () => _dismiss(ref, item),
-                  child: const Text('إخفاء'),
+                  child: Text(context.l10n.txnHide),
                 ),
             ],
           ),
@@ -280,50 +281,54 @@ class _MessageItem {
       _MessageSource.history => date,
       _MessageSource.campaign ||
       _MessageSource.announcement =>
-        'من $date',
+        context.l10n.annFromDate(date),
     };
   }
 
-  static _MessageItem fromHistory(NotificationHistoryEntry entry) {
+  static _MessageItem fromHistory(BuildContext context, NotificationHistoryEntry entry) {
     return _MessageItem(
       id: entry.id,
       source: _MessageSource.history,
       title: entry.title,
       body: entry.body,
-      badge: 'إشعار مرسل',
+      badge: context.l10n.annNotificationSent,
       sortAt: entry.sentAt,
       icon: AppLucideIcons.bellRing,
       accent: (c) => c.primary,
       route: entry.route,
-      actionLabel: entry.route == null ? null : 'فتح',
+      actionLabel: entry.route == null ? null : context.l10n.annOpen,
       dismissible: true,
     );
   }
 
-  static _MessageItem fromCampaign(RemoteGrowthCampaign campaign) {
+  static _MessageItem fromCampaign(
+      BuildContext context, RemoteGrowthCampaign campaign) {
+    final en = Localizations.localeOf(context).languageCode == 'en';
     return _MessageItem(
       id: campaign.id,
       source: _MessageSource.campaign,
-      title: campaign.titleAr,
-      body: campaign.bodyAr ?? '',
-      badge: 'حملة داخل التطبيق',
+      title: en ? campaign.titleEn : campaign.titleAr,
+      body: (en ? campaign.bodyEn : campaign.bodyAr) ?? '',
+      badge: context.l10n.annInAppCampaign,
       sortAt: campaign.validFrom,
       icon: AppLucideIcons.megaphone,
       accent: (c) => c.cta,
       route: campaign.actionRoute,
       url: campaign.actionUrl,
-      actionLabel: campaign.actionLabelAr,
+      actionLabel: en ? campaign.actionLabelEn : campaign.actionLabelAr,
       dismissible: campaign.isDismissible,
     );
   }
 
-  static _MessageItem fromAnnouncement(RemoteAnnouncement announcement) {
+  static _MessageItem fromAnnouncement(
+      BuildContext context, RemoteAnnouncement announcement) {
+    final en = Localizations.localeOf(context).languageCode == 'en';
     return _MessageItem(
       id: announcement.id,
       source: _MessageSource.announcement,
-      title: announcement.titleAr,
-      body: announcement.bodyAr ?? '',
-      badge: 'إعلان من قرش',
+      title: en ? announcement.titleEn : announcement.titleAr,
+      body: (en ? announcement.bodyEn : announcement.bodyAr) ?? '',
+      badge: context.l10n.annFromQirsh,
       sortAt: announcement.validFrom,
       icon: AppLucideIcons.badgeAlert,
       accent: (c) => switch (announcement.severity) {

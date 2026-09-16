@@ -2661,4 +2661,721 @@ class AppL10nEn extends AppL10n {
   @override
   String get accUnassignedCardsBody =>
       'Cards that showed up in your messages but are not linked to an account yet.';
+
+  @override
+  String achCurrentStreak(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days',
+      one: '1 day',
+    );
+    return 'Current streak: $_temp0';
+  }
+
+  @override
+  String achStreakDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days',
+      one: '1 day',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String annFromDate(String date) {
+    return 'From $date';
+  }
+
+  @override
+  String pasteAnalysing(int processed, int total) {
+    return 'Analysing $processed of $total';
+  }
+
+  @override
+  String pasteSummaryLine(int added, int duplicate, int review, int failed) {
+    return 'Added $added · duplicate $duplicate · needs review $review · not understood $failed';
+  }
+
+  @override
+  String pasteAnalysedCount(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'Analysed $count pasted messages.',
+      one: 'Analysed 1 pasted message.',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get achCurrentLevel => 'Current level';
+
+  @override
+  String get achUnlocked => 'Unlocked';
+
+  @override
+  String get achInProgress => 'In progress';
+
+  @override
+  String get achLevelOrganised => 'Organised';
+
+  @override
+  String get achLevelSmartSaver => 'Smart saver';
+
+  @override
+  String get achLevelExpert => 'Money expert';
+
+  @override
+  String get achLevelLegend => 'Savings legend';
+
+  @override
+  String get achLevelBeginner => 'Beginner';
+
+  @override
+  String get achTitle => 'Achievements';
+
+  @override
+  String get achSubtitle =>
+      'Badges and levels to keep the tracking habit going.';
+
+  @override
+  String get achLevel => 'Level';
+
+  @override
+  String get achTotalXp => 'Total XP';
+
+  @override
+  String get achStreak => 'Streak';
+
+  @override
+  String get annTitle => 'Qirsh message centre';
+
+  @override
+  String get annSubtitle =>
+      'Your Qirsh notifications, campaigns and announcements in one place.';
+
+  @override
+  String get annClose => 'Close';
+
+  @override
+  String get annLoading => 'Loading the message centre…';
+
+  @override
+  String get annLoadFailed => 'Could not load your messages';
+
+  @override
+  String get annTryAgainSoon => 'Try again in a moment.';
+
+  @override
+  String get annRetry => 'Try again';
+
+  @override
+  String get annEmpty => 'No messages yet';
+
+  @override
+  String get annEmptyBody =>
+      'Any notification from Qirsh, or announcement from us, shows up here automatically.';
+
+  @override
+  String get annNotificationSent => 'Notification sent';
+
+  @override
+  String get annOpen => 'Open';
+
+  @override
+  String get annInAppCampaign => 'In-app campaign';
+
+  @override
+  String get annFromQirsh => 'Announcement from Qirsh';
+
+  @override
+  String get privCloudProcessingBody =>
+      'Uploads captured bank messages and syncs your data with our servers. Turning it off disables automatic capture and sync; manual entry keeps working on your device.';
+
+  @override
+  String get privAiAnalysisBody =>
+      'With cloud processing on, a sanitised copy of EVERY bank message is sent to cloud AI models to be read and categorised. Turning it off limits analysis to the local rules on your device.';
+
+  @override
+  String get privDeleteAccountBody =>
+      'Your account and all your data (transactions, goals, budgets, backups) will be scheduled for permanent deletion after 30 days. You can undo the deletion from this same screen at any point before then, by signing in again. You will be signed out on this device now.';
+
+  @override
+  String privScheduledForDeletion(String date) {
+    return 'Your account is scheduled for deletion on $date';
+  }
+
+  @override
+  String get privPolicy => 'Privacy policy';
+
+  @override
+  String get privTerms => 'Terms & conditions';
+
+  @override
+  String get privTransferMyData => 'Move or import my data';
+
+  @override
+  String get privDataProcessing => 'Data processing';
+
+  @override
+  String get privCloudProcessing => 'Cloud processing & sync';
+
+  @override
+  String get privAiAnalysis => 'AI analysis';
+
+  @override
+  String get privDangerZone => 'Danger zone';
+
+  @override
+  String get privDeleteAccountAll => 'Delete my account and all my data';
+
+  @override
+  String get privLinkFailed => 'That link could not be opened right now.';
+
+  @override
+  String get privDeleteAccountTitle => 'Delete your account?';
+
+  @override
+  String get privDeleteAccount => 'Delete account';
+
+  @override
+  String get privScheduleFailed =>
+      'The deletion could not be scheduled right now. Please try again.';
+
+  @override
+  String get privCancelDeleteTitle => 'Cancel the account deletion?';
+
+  @override
+  String get privCancelDeleteBody =>
+      'Your account and data stay exactly as they are.';
+
+  @override
+  String get privKeepAccount => 'Go back';
+
+  @override
+  String get privCancelDeletion => 'Cancel deletion';
+
+  @override
+  String get privCancelFailed =>
+      'The deletion could not be cancelled right now. Please try again.';
+
+  @override
+  String get privTitle => 'Privacy & data';
+
+  @override
+  String get privIntro =>
+      'Bank messages you share through the shortcut are processed as sanitised text on the Qirsh server, with help from AI. You can export or import your financial data from the Data transfer screen.';
+
+  @override
+  String dtxPreviewRows(int rows, String format) {
+    return '$rows records • $format';
+  }
+
+  @override
+  String get dtxQirshPackage => 'Qirsh package';
+
+  @override
+  String dtxImportDupesAsNew(int count) {
+    return 'Import $count similar transactions as new ones';
+  }
+
+  @override
+  String dtxAdded(int count) {
+    return 'Added: $count';
+  }
+
+  @override
+  String dtxDuplicates(int count) {
+    return 'Duplicates: $count';
+  }
+
+  @override
+  String dtxQuarantined(int count) {
+    return 'Quarantined for safety: $count';
+  }
+
+  @override
+  String dtxFailed(int count) {
+    return 'Failed: $count';
+  }
+
+  @override
+  String get dtxScanFailed =>
+      'The file could not be scanned. Check that it is a valid CSV or ZIP.';
+
+  @override
+  String get dtxImportFailed =>
+      'The import could not be completed. No unconfirmed data was deleted.';
+
+  @override
+  String get dtxReadFailed =>
+      'Your data could not be read to prepare the export file.';
+
+  @override
+  String get dtxSaveFailed =>
+      'The export file could not be saved temporarily on this device.';
+
+  @override
+  String get dtxZipShareText =>
+      'Your Qirsh financial data file. Keep it somewhere private.';
+
+  @override
+  String get dtxCsvShareText => 'Qirsh transactions exported as CSV.';
+
+  @override
+  String get dtxShareSheetFailed =>
+      'The file is ready, but the share sheet could not be opened. Please try again.';
+
+  @override
+  String get dtxTitle => 'Data transfer';
+
+  @override
+  String get dtxSubtitle =>
+      'Import your data, or keep a portable copy. The file is previewed on your device before anything is written.';
+
+  @override
+  String get dtxImportFile => 'Import a file';
+
+  @override
+  String get dtxImportFileSub =>
+      'A CSV from any app, or a ZIP exported by Qirsh';
+
+  @override
+  String get dtxExportCsv => 'Export transactions (CSV)';
+
+  @override
+  String get dtxExportCsvSub =>
+      'One file that works with Excel and budgeting apps';
+
+  @override
+  String get dtxExportZip => 'Export all Qirsh data (ZIP)';
+
+  @override
+  String get dtxExportZipSub =>
+      'Accounts, transactions, budgets and financial plans';
+
+  @override
+  String get dtxRestoreOld => 'Restore an older backup';
+
+  @override
+  String get dtxRestoreOldSub =>
+      'Temporarily available for encrypted backups you made earlier';
+
+  @override
+  String get dtxExportNotice =>
+      'Export files contain no raw bank messages, no credentials and no device tokens. The ZIP is not password-protected, so store it somewhere private.';
+
+  @override
+  String get dtxReplace => 'Replace';
+
+  @override
+  String get dtxConfirmReplace => 'Confirm the replacement';
+
+  @override
+  String dtxReplaceBody(String word) {
+    return 'Your current financial data will be hidden and replaced by the contents of the Qirsh package. Type «$word» to continue.';
+  }
+
+  @override
+  String dtxTypeReplace(String word) {
+    return 'Type $word';
+  }
+
+  @override
+  String get dtxImportPreview => 'Import preview';
+
+  @override
+  String get dtxColDate => 'Date column';
+
+  @override
+  String get dtxColAmount => 'Amount column';
+
+  @override
+  String get dtxDefaultAccount => 'Default account';
+
+  @override
+  String get dtxDebit => 'Debit';
+
+  @override
+  String get dtxCredit => 'Credit';
+
+  @override
+  String get dtxCurrency => 'Currency';
+
+  @override
+  String get dtxMerchantDesc => 'Merchant / description';
+
+  @override
+  String get dtxNotes => 'Notes';
+
+  @override
+  String get dtxTxType => 'Transaction type';
+
+  @override
+  String get dtxDateFormat => 'Date format';
+
+  @override
+  String get dtxDateAuto => 'Automatic';
+
+  @override
+  String get dtxDateDMY => 'Day / month / year';
+
+  @override
+  String get dtxDateMDY => 'Month / day / year';
+
+  @override
+  String get dtxDateYMD => 'Year / month / day';
+
+  @override
+  String get dtxWillCreate =>
+      'On confirmation, Qirsh will create any accounts and categories in the file that do not exist yet.';
+
+  @override
+  String get dtxMerge => 'Merge';
+
+  @override
+  String get dtxConfirmImport => 'Confirm the import';
+
+  @override
+  String get dtxImportDone => 'Import complete';
+
+  @override
+  String get dtxCacheRepair =>
+      'Saved on the server; Qirsh will repair the local cache automatically.';
+
+  @override
+  String get pasteTitle => 'Paste a bank message';
+
+  @override
+  String get pasteAlreadyExists =>
+      'That transaction already exists — we opened it for review.';
+
+  @override
+  String get pasteAlreadyRecorded => 'This transaction is already recorded.';
+
+  @override
+  String get pasteSimilarNeedsReview =>
+      'A similar transaction exists and needs reviewing.';
+
+  @override
+  String get pasteAiOffline =>
+      'AI is not connected in this build — run the app with Supabase keys.';
+
+  @override
+  String get pasteUnreadableOnDevice =>
+      'The message could not be read on this device — add it manually.';
+
+  @override
+  String get pasteNotATransaction =>
+      'It could not be read as a transaction — add it manually.';
+
+  @override
+  String get pasteNothingToOpen =>
+      'There is no transaction to open for this message.';
+
+  @override
+  String get pasteHint =>
+      'You can paste one message or several — each is analysed on its own.';
+
+  @override
+  String get pasteFromClipboard => 'Paste from clipboard';
+
+  @override
+  String get pasteAnalyse => 'Analyse messages';
+
+  @override
+  String get pasteNeedsReview => 'Needs review';
+
+  @override
+  String get pasteAdded => 'Added';
+
+  @override
+  String get pasteDuplicate => 'Duplicate';
+
+  @override
+  String get pasteSimilar => 'Similar — review';
+
+  @override
+  String get pasteNotUnderstood => 'Not understood';
+
+  @override
+  String get pasteSummary => 'Message summary';
+
+  @override
+  String get pasteReview => 'Review';
+
+  @override
+  String get accTypeCash => 'Cash';
+
+  @override
+  String get accTypeBank => 'Bank';
+
+  @override
+  String get accTypeWallet => 'Wallet';
+
+  @override
+  String get accTypeCreditCard => 'Credit card';
+
+  @override
+  String txdValueIn(String currency) {
+    return 'Value in $currency';
+  }
+
+  @override
+  String txdAmountIn(String currency) {
+    return 'Amount in $currency';
+  }
+
+  @override
+  String txdAddValueIn(String currency) {
+    return 'Add the value in $currency';
+  }
+
+  @override
+  String get txdPendingToday => 'Unconfirmed · today';
+
+  @override
+  String txdPendingDays(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days ago',
+      one: '1 day ago',
+    );
+    return 'Unconfirmed · $_temp0';
+  }
+
+  @override
+  String txdLinkedToCard(String last4) {
+    return 'Linked to card •••• $last4. The account is unchanged.';
+  }
+
+  @override
+  String get txdTypePurchase => 'Purchase';
+
+  @override
+  String get txdTypeCashWithdrawal => 'Cash withdrawal';
+
+  @override
+  String get txdTypeTransfer => 'Transfer';
+
+  @override
+  String get txdTypeRefund => 'Refund';
+
+  @override
+  String get txdTypeUnknown => 'Unspecified';
+
+  @override
+  String get txdSourceCard => 'Card';
+
+  @override
+  String get txdSourceAi => 'AI';
+
+  @override
+  String get txdSourceImport => 'Imported file';
+
+  @override
+  String get txdNotFound => 'That transaction no longer exists';
+
+  @override
+  String get txdConfirmed => 'Confirmed';
+
+  @override
+  String get txdNeedsReview => 'Needs review';
+
+  @override
+  String get txdIgnored => 'Ignored';
+
+  @override
+  String get txdUncategorised => 'Uncategorised';
+
+  @override
+  String get txdType => 'Type';
+
+  @override
+  String get txdSource => 'Source';
+
+  @override
+  String get txdCard => 'Card';
+
+  @override
+  String get txdNoCard => 'No card';
+
+  @override
+  String get txdChange => 'Change';
+
+  @override
+  String get txdOriginalCurrency => 'In the original currency';
+
+  @override
+  String get txdBalanceAfter => 'Balance after';
+
+  @override
+  String get txdNote => 'Note';
+
+  @override
+  String get txdStatus => 'Status';
+
+  @override
+  String get txdOriginalText => 'Original text';
+
+  @override
+  String get txdConfirmIgnored => 'Confirm this ignored transaction';
+
+  @override
+  String get txdConfirmTx => 'Confirm transaction';
+
+  @override
+  String get txdDeleteTx => 'Delete transaction';
+
+  @override
+  String get txdTitle => 'Transaction details';
+
+  @override
+  String get txdCardSheetTitle => 'Card on this transaction';
+
+  @override
+  String get txdCardSheetNote =>
+      'Changing the card does not move the transaction to another account.';
+
+  @override
+  String get txdNoCardsOnAccount => 'No cards are registered on this account.';
+
+  @override
+  String get txdStaysInAccount =>
+      'The transaction stays in the same account, and in all your reports.';
+
+  @override
+  String get txdCardRemoved =>
+      'Card removed. The transaction is still in the same account.';
+
+  @override
+  String get txdConfirmedToast => 'Transaction confirmed.';
+
+  @override
+  String get txdDeleteTitle => 'Delete this transaction?';
+
+  @override
+  String get txdDeleteBody =>
+      'It will be removed from your reports and your balance. This cannot be undone.';
+
+  @override
+  String get txdSave => 'Save';
+
+  @override
+  String accWillDetachTx(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transactions will be detached',
+      one: '1 transaction will be detached',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accWillArchiveCards(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count cards will be archived',
+      one: '1 card will be archived',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accWillArchiveBudgets(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count budgets will be archived',
+      one: '1 budget will be archived',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accDetachedTx(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transactions detached',
+      one: '1 transaction detached',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accArchivedCards(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count cards archived',
+      one: '1 card archived',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accReassignedGoals(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count goals moved',
+      one: '1 goal moved',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accArchivedGoals(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count goals archived',
+      one: '1 goal archived',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accReassignedSubs(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count subscriptions moved',
+      one: '1 subscription moved',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accArchivedSubs(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count subscriptions archived',
+      one: '1 subscription archived',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String accDeletedSummary(String summary) {
+    return 'Account deleted — $summary.';
+  }
+
+  @override
+  String get pasteFieldHint =>
+      'Paste the bank message text here…\nYou can paste several messages in a row.';
+
+  @override
+  String get commonAccountDefinite => 'Account';
+
+  @override
+  String get commonOpenImperative => 'Open';
 }

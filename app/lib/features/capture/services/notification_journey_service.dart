@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/usecases/user_settings_usecases.dart';
 import 'local_notification_service.dart';
@@ -43,6 +44,10 @@ class NotificationJourneyService {
     }
 
     final profile = await _readProfile();
+    // Same source `localeProvider` reads, so a notification speaks the
+    // language the app is actually in.
+    final lang =
+        (await DriftUserSettingsRepository(_database).getSettings()).language;
     final candidates = _journeysFor(profile, preferences.inboxState, now);
     for (final journey in candidates) {
       preferences = await _loadPreferences();
@@ -52,8 +57,8 @@ class NotificationJourneyService {
       }
       await _localNotifications.showMarketingNotification(
         id: journey.notificationId,
-        title: journey.title,
-        body: journey.body,
+        title: journey.titleIn(lang),
+        body: journey.bodyIn(lang),
         preferences: preferences,
         route: journey.route,
       );
@@ -62,8 +67,8 @@ class NotificationJourneyService {
                 NotificationHistoryEntry(
                   id: journey.id,
                   kind: 'journey',
-                  title: journey.title,
-                  body: journey.body,
+                  title: journey.titleIn(lang),
+                  body: journey.bodyIn(lang),
                   route: journey.route,
                   sentAt: now,
                 ),
@@ -147,8 +152,11 @@ class NotificationJourneyService {
         const _JourneyCandidate(
           id: 'welcome',
           notificationId: 94001,
-          title: 'أهلاً بك في قرش',
-          body: 'خلّينا نجهز التقاط رسائل البنك ونبدأ نرتب مصاريفك تلقائياً.',
+          title: 'أهلًا بك في قِرش',
+          body: 'لنجهّز التقاط رسائل البنك ونبدأ ترتيب مصاريفك تلقائيًا.',
+          titleEn: 'Welcome to Qirsh',
+          bodyEn: 'Let us set up bank-message capture and start sorting your '
+              'spending automatically.',
           route: '/settings',
         ),
       if (profile.transactionCount == 0 &&
@@ -157,8 +165,11 @@ class NotificationJourneyService {
         const _JourneyCandidate(
           id: 'shortcut_reminder',
           notificationId: 94002,
-          title: 'خطوة واحدة وقرش يبدأ يشتغل',
+          title: 'خطوة واحدة ويبدأ قِرش العمل',
           body: 'اربط اختصار الرسائل لتسجيل مصاريفك دون إدخال يدوي.',
+          titleEn: 'One step and Qirsh starts working',
+          bodyEn: 'Connect the Messages shortcut to record your spending '
+              'without typing it in.',
           route: '/settings',
         ),
       if (profile.transactionCount >= 1 &&
@@ -166,8 +177,11 @@ class NotificationJourneyService {
         const _JourneyCandidate(
           id: 'first_transaction',
           notificationId: 94003,
-          title: 'أول عملية اتسجلت',
-          body: 'قرش بدأ يفهم نمط مصاريفك. راجع التصنيف وخليه أذكى.',
+          title: 'سُجّلت أول عملية',
+          body: 'بدأ قِرش يفهم نمط مصاريفك. راجع التصنيف لجعله أدق.',
+          titleEn: 'Your first transaction is in',
+          bodyEn: 'Qirsh is starting to learn how you spend. Check the category '
+              'to make it sharper.',
           route: '/transactions',
         ),
       if (profile.transactionCount >= 3 &&
@@ -175,8 +189,11 @@ class NotificationJourneyService {
         const _JourneyCandidate(
           id: 'three_transactions',
           notificationId: 94004,
-          title: 'قرش بدأ يلتقط الصورة',
+          title: 'بدأت الصورة تتّضح',
           body: 'افتح لوحة التحكم واطّلع على أول قراءة حقيقية لمصاريفك.',
+          titleEn: 'The picture is taking shape',
+          bodyEn: 'Open the dashboard for the first real read on your '
+              'spending.',
           route: '/dashboard',
         ),
       if (profile.transactionCount > 0 &&
@@ -187,6 +204,9 @@ class NotificationJourneyService {
           notificationId: 94005,
           title: 'ملخصك الأول جاهز',
           body: 'اطّلع على أكثر تصنيف استهلك ميزانيتك هذا الأسبوع.',
+          titleEn: 'Your first summary is ready',
+          bodyEn: 'See which category took the most of your budget this '
+              'week.',
           route: '/reports',
         ),
     ];
@@ -276,6 +296,8 @@ class _JourneyCandidate {
     required this.notificationId,
     required this.title,
     required this.body,
+    required this.titleEn,
+    required this.bodyEn,
     required this.route,
   });
 
@@ -283,7 +305,12 @@ class _JourneyCandidate {
   final int notificationId;
   final String title;
   final String body;
+  final String titleEn;
+  final String bodyEn;
   final String route;
+
+  String titleIn(String languageCode) => languageCode == 'en' ? titleEn : title;
+  String bodyIn(String languageCode) => languageCode == 'en' ? bodyEn : body;
 }
 
 class _MarketingDecision {

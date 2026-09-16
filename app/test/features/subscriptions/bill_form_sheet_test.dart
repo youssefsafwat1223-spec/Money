@@ -108,7 +108,7 @@ void main() {
     await _submit(tester);
 
     expect(repository.saveCalls, 0);
-    expect(find.text('اختار تاريخ استحقاق قادم أو اليوم.'), findsOneWidget);
+    expect(find.text('اختر تاريخ استحقاق قادمًا أو اليوم.'), findsOneWidget);
   });
 
   testWidgets('today due date is accepted', (tester) async {

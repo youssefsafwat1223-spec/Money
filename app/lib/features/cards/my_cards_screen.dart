@@ -308,14 +308,14 @@ class _CardRow extends ConsumerWidget {
                 // فمساحة ثابتة + Spacer كانت بتطفح خارج الكارت.
                 Row(
                   children: [
-                    Expanded(child: _flow(context.l10n.cardIn, card.totalIn, c.success)),
+                    Expanded(child: _flow(context, context.l10n.cardIn, card.totalIn, c.success)),
                     const SizedBox(width: AppSpacing.s3),
                     Expanded(
-                      child: _flow(context.l10n.cardOut, card.totalOut,
+                      child: _flow(context, context.l10n.cardOut, card.totalOut,
                           Colors.white.withValues(alpha: 0.95)),
                     ),
                     const SizedBox(width: AppSpacing.s3),
-                    Expanded(child: _flow(context.l10n.rptNet, net, Colors.white)),
+                    Expanded(child: _flow(context, context.l10n.rptNet, net, Colors.white)),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.s4),
@@ -372,11 +372,11 @@ class _CardRow extends ConsumerWidget {
     );
   }
 
-  Widget _flow(String label, Money value, Color color) {
+  Widget _flow(BuildContext context, String label, Money value, Color color) {
     // MALI-074n: exponent-correct amount + the card's own currency label
     // (totals are per-currency; zero summaries use their display authority).
     final money = formatMoneyAmount(value.toDouble(), value.currency);
-    final text = '$money ${Currency.arabicLabel(value.currency)}';
+    final text = '$money ${Currency.label(context, value.currency)}';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -19,12 +20,13 @@ import 'account_deletion_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
 
-String accountTypeLabel(AccountType type) => switch (type) {
-      AccountType.cash => 'نقدي',
-      AccountType.bank => 'بنك',
-      AccountType.wallet => 'محفظة',
+String accountTypeLabel(BuildContext context, AccountType type) =>
+    switch (type) {
+      AccountType.cash => context.l10n.accTypeCash,
+      AccountType.bank => context.l10n.accTypeBank,
+      AccountType.wallet => context.l10n.accTypeWallet,
       // نعيد استخدام قيمة enum card لتعني «بطاقة ائتمانية» في الواجهة فقط.
-      AccountType.card => 'بطاقة ائتمانية',
+      AccountType.card => context.l10n.accTypeCreditCard,
     };
 
 IconData accountTypeIcon(AccountType type) => switch (type) {
@@ -339,7 +341,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('حذف الحساب'),
-            content: Text(_impactSummary(impact)),
+            content: Text(_impactSummary(context, impact)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
@@ -375,7 +377,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       deleted = true;
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_resultSummary(result))),
+          SnackBar(content: Text(_resultSummary(context, result))),
         );
       }
     } on StateError {
@@ -417,27 +419,29 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     if (mounted) Navigator.of(context).pop();
   }
 
-  String _impactSummary(AccountDeletionImpact i) {
-    final parts = <String>['ستُفصل ${i.transactionsToDetach} عملية'];
-    if (i.cardsToArchive > 0) parts.add('تُؤرشف ${i.cardsToArchive} بطاقة');
+  String _impactSummary(BuildContext context, AccountDeletionImpact i) {
+    final l10n = context.l10n;
+    final parts = <String>[l10n.accWillDetachTx(i.transactionsToDetach)];
+    if (i.cardsToArchive > 0) parts.add(l10n.accWillArchiveCards(i.cardsToArchive));
     if (i.budgetsToArchive > 0) {
-      parts.add('تُؤرشف ${i.budgetsToArchive} ميزانية');
+      parts.add(l10n.accWillArchiveBudgets(i.budgetsToArchive));
     }
-    return '${parts.join('، ')}.';
+    return '${parts.join(l10n.setListSeparator)}.';
   }
 
-  String _resultSummary(AccountDeletionResult r) {
-    final parts = <String>['فُصلت ${r.transactionsDetached} عملية'];
-    if (r.cardsArchived > 0) parts.add('${r.cardsArchived} بطاقة مؤرشفة');
-    if (r.goalsReassigned > 0) parts.add('${r.goalsReassigned} هدف مُنقول');
-    if (r.goalsArchived > 0) parts.add('${r.goalsArchived} هدف مؤرشف');
+  String _resultSummary(BuildContext context, AccountDeletionResult r) {
+    final l10n = context.l10n;
+    final parts = <String>[l10n.accDetachedTx(r.transactionsDetached)];
+    if (r.cardsArchived > 0) parts.add(l10n.accArchivedCards(r.cardsArchived));
+    if (r.goalsReassigned > 0) parts.add(l10n.accReassignedGoals(r.goalsReassigned));
+    if (r.goalsArchived > 0) parts.add(l10n.accArchivedGoals(r.goalsArchived));
     if (r.subscriptionsReassigned > 0) {
-      parts.add('${r.subscriptionsReassigned} اشتراك مُنقول');
+      parts.add(l10n.accReassignedSubs(r.subscriptionsReassigned));
     }
     if (r.subscriptionsArchived > 0) {
-      parts.add('${r.subscriptionsArchived} اشتراك مؤرشف');
+      parts.add(l10n.accArchivedSubs(r.subscriptionsArchived));
     }
-    return 'تم حذف الحساب — ${parts.join('، ')}.';
+    return l10n.accDeletedSummary(parts.join(l10n.setListSeparator));
   }
 
   @override
@@ -485,7 +489,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
               children: [
                 for (final type in AccountType.values)
                   ChoiceChip(
-                    label: Text(accountTypeLabel(type)),
+                    label: Text(accountTypeLabel(context, type)),
                     avatar: Icon(accountTypeIcon(type), size: 16),
                     selected: _type == type,
                     selectedColor: c.primary.withValues(alpha: 0.16),
@@ -509,7 +513,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
                 for (final code in currencies)
                   DropdownMenuItem(
                     value: code,
-                    child: Text('$code — ${Currency.arabicLabel(code)}'),
+                    child: Text('$code — ${Currency.label(context, code)}'),
                   ),
               ],
               onChanged: _busy || currencyLocked

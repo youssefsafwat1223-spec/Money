@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
@@ -90,7 +91,7 @@ class _ManualPasteSheet extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      Text('ألصق رسالة البنك',
+                      Text(context.l10n.pasteTitle,
                           style: AppTypography.title2(c.textMain)),
                       const Spacer(),
                       IconButton(
@@ -175,7 +176,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     }
     if (widget.onTransactionAdded != null) {
       if (mounted) {
-        showTopInfo(context, 'العملية موجودة بالفعل، فتحناها للمراجعة.');
+        showTopInfo(context, context.l10n.pasteAlreadyExists);
         Navigator.of(context).pop();
       }
       widget.onTransactionAdded!(tx.id);
@@ -256,14 +257,14 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
         if (existing != null) {
           await _openDuplicate(existing, feeNotice);
         } else {
-          showTopError(context, 'هذه العملية مسجّلة بالفعل.');
+          showTopError(context, context.l10n.pasteAlreadyRecorded);
         }
       case AddTransactionOutcome.suspiciousDuplicate:
         refreshTransactions(ref);
         ref.invalidate(dashboardDataProvider);
         final existing = addResult.transaction;
         if (existing == null) {
-          showTopError(context, 'عملية مشابهة موجودة وتحتاج مراجعة.');
+          showTopError(context, context.l10n.pasteSimilarNeedsReview);
           return;
         }
         final dupe = await ref
@@ -273,14 +274,14 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
         if (dupe != null) {
           await showSuspectedDuplicateReviewSheet(context, dupe);
         } else {
-          showTopError(context, 'عملية مشابهة موجودة وتحتاج مراجعة.');
+          showTopError(context, context.l10n.pasteSimilarNeedsReview);
         }
       case AddTransactionOutcome.notTransaction:
         if (!SupabaseConfig.isConfigured) {
           showTopError(context,
-              'الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.');
+              context.l10n.pasteAiOffline);
         } else {
-          showTopError(context, _unreadableMessage(addResult.aiFailureReason));
+          showTopError(context, _unreadableMessage(context, addResult.aiFailureReason));
         }
     }
   }
@@ -294,7 +295,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
   /// the DEFAULT install — AI consent is `unset` until the user grants it —
   /// read "فشل الذكاء الاصطناعي: consent_off": an internal identifier, and a
   /// claim that something failed when nothing had run.
-  static String _unreadableMessage(String? reason) {
+  static String _unreadableMessage(BuildContext context, String? reason) {
     const notAttempted = {
       'no_ai_client',
       'consent_off',
@@ -305,9 +306,9 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     if (reason != null && notAttempted.contains(reason)) {
       // Local reading only — say so instead of blaming a service that was
       // never asked.
-      return 'ما قدرناش نقرأ الرسالة على الجهاز — ضيفها يدوياً.';
+      return context.l10n.pasteUnreadableOnDevice;
     }
-    return 'ما قدرنا نقرأها كعملية — ضيفها يدوياً.';
+    return context.l10n.pasteNotATransaction;
   }
 
   Future<void> _openBatchItem(
@@ -317,7 +318,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     final result = item.addResult;
     final tx = result.transaction;
     if (tx == null) {
-      showTopError(context, 'لا توجد عملية لفتحها لهذه الرسالة.');
+      showTopError(context, context.l10n.pasteNothingToOpen);
       return;
     }
     final feeNotice = feeNoticeFor(result.secondary);
@@ -387,7 +388,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            'ممكن تلصق رسالة واحدة أو كذا رسالة، وكل رسالة هتتحلل لوحدها.',
+            context.l10n.pasteHint,
             style: AppTypography.caption(c.textMuted),
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -397,7 +398,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
             maxLines: 8,
             style: AppTypography.body(c.textMain),
             decoration: InputDecoration(
-              hintText: 'الصق نص رسالة البنك هنا...\nممكن كذا رسالة ورا بعض.',
+              hintText: context.l10n.pasteFieldHint,
               filled: true,
               fillColor: isDark
                   ? Colors.white.withValues(alpha: 0.05)
@@ -420,7 +421,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
           OutlinedButton.icon(
             onPressed: _pasteFromClipboard,
             icon: const Icon(AppLucideIcons.clipboardPaste, size: 18),
-            label: const Text('لصق من الحافظة'),
+            label: Text(context.l10n.pasteFromClipboard),
             style: OutlinedButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
               side: BorderSide(color: c.border.withValues(alpha: 0.5)),
@@ -455,7 +456,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2.5, color: Colors.white),
                     )
-                  : Text('حلّل الرسائل',
+                  : Text(context.l10n.pasteAnalyse,
                       style: AppTypography.bodyStrong(Colors.white)),
             ),
           ),
@@ -464,7 +465,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     );
     if (!widget.fullScreen) return content;
     return Scaffold(
-      appBar: const AppHeader(title: 'ألصق رسالة البنك'),
+      appBar: AppHeader(title: context.l10n.pasteTitle),
       body: content,
     );
   }
@@ -500,13 +501,14 @@ class _PasteBatchItem {
         : firstLine;
   }
 
-  String statusLabel({Set<String> confirmedIds = const {}}) {
+  String statusLabel(BuildContext context,
+      {Set<String> confirmedIds = const {}}) {
     return switch (addResult.outcome) {
       AddTransactionOutcome.added =>
-        needsReview(confirmedIds: confirmedIds) ? 'محتاج مراجعة' : 'اتضاف',
-      AddTransactionOutcome.duplicate => 'مكرر',
-      AddTransactionOutcome.suspiciousDuplicate => 'شبيه للمراجعة',
-      AddTransactionOutcome.notTransaction => 'غير مفهوم',
+        needsReview(confirmedIds: confirmedIds) ? context.l10n.pasteNeedsReview : context.l10n.pasteAdded,
+      AddTransactionOutcome.duplicate => context.l10n.pasteDuplicate,
+      AddTransactionOutcome.suspiciousDuplicate => context.l10n.pasteSimilar,
+      AddTransactionOutcome.notTransaction => context.l10n.pasteNotUnderstood,
     };
   }
 }
@@ -591,7 +593,7 @@ class _BatchProgressCard extends StatelessWidget {
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(
-                  busy ? 'بنحلل $processed من $total' : 'ملخص الرسائل',
+                  busy ? context.l10n.pasteAnalysing(processed, total) : context.l10n.pasteSummary,
                   style: AppTypography.subhead(c.textMain),
                 ),
               ),
@@ -607,7 +609,7 @@ class _BatchProgressCard extends StatelessWidget {
           ] else ...[
             const SizedBox(height: AppSpacing.s2),
             Text(
-              'اتضاف ${summary.added} · مكرر ${summary.duplicate} · محتاج مراجعة ${summary.review} · غير مفهوم ${summary.failed}',
+              context.l10n.pasteSummaryLine(summary.added, summary.duplicate, summary.review, summary.failed),
               style: AppTypography.caption(c.textMuted),
             ),
           ],
@@ -715,12 +717,12 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'ملخص الرسائل',
+                                context.l10n.pasteSummary,
                                 style: AppTypography.headline(c.textMain),
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                'تم تحليل ${widget.items.length} رسائل من اللصق.',
+                                context.l10n.pasteAnalysedCount(widget.items.length),
                                 style: AppTypography.caption(c.textMuted),
                               ),
                             ],
@@ -774,7 +776,7 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
                                 ),
                               )
                             : Text(
-                                'تأكيد',
+                                context.l10n.txnConfirm,
                                 style: AppTypography.bodyStrong(Colors.white),
                               ),
                       ),
@@ -855,8 +857,8 @@ class _BatchResultTile extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   amount == null
-                      ? item.statusLabel(confirmedIds: confirmedIds)
-                      : '${item.statusLabel(confirmedIds: confirmedIds)} · $amount',
+                      ? item.statusLabel(context, confirmedIds: confirmedIds)
+                      : '${item.statusLabel(context, confirmedIds: confirmedIds)} · $amount',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.caption(statusColor),
@@ -867,7 +869,7 @@ class _BatchResultTile extends StatelessWidget {
           const SizedBox(width: AppSpacing.s2),
           TextButton(
             onPressed: canOpen ? onOpen : null,
-            child: Text(needsReview ? 'راجع' : 'افتح'),
+            child: Text(needsReview ? context.l10n.pasteReview : context.l10n.commonOpenImperative),
           ),
         ],
       ),

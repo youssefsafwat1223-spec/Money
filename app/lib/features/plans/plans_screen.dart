@@ -120,7 +120,7 @@ class _PlanCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     final plan = progress.plan;
-    final currency = Currency.arabicLabel(plan.currency);
+    final currency = Currency.label(context, plan.currency);
     final barColor = progress.isOver
         ? c.danger
         : (progress.ratio >= 0.8 ? c.warning : c.success);
@@ -386,7 +386,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
           );
         }
         final plan = progress.plan;
-        final currency = Currency.arabicLabel(plan.currency);
+        final currency = Currency.label(context, plan.currency);
         return AppSheetScaffold(
           title: plan.name,
           subtitle:
@@ -525,7 +525,7 @@ class _PlanTransactionTile extends StatelessWidget {
             ),
           ),
           Text(
-            '${Formatters.amount(tx.amount)} ${Currency.arabicLabel(tx.currency)}',
+            '${Formatters.amount(tx.amount)} ${Currency.label(context, tx.currency)}',
             style: AppTypography.bodyStrong(c.danger),
           ),
         ],
@@ -623,7 +623,7 @@ Future<void> _showLinkTransactionSheet(
                             )
                           else
                             Text(
-                              '${Formatters.amount(tx.amount)} ${Currency.arabicLabel(tx.currency)}',
+                              '${Formatters.amount(tx.amount)} ${Currency.label(context, tx.currency)}',
                               style: AppTypography.caption(c.textSecondary),
                             ),
                         ],

@@ -51,7 +51,7 @@ class BudgetsScreen extends ConsumerWidget {
     final tab = ref.watch(budgetsPageTabProvider);
     final displayCurrency =
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
-    final currencyLabel = Currency.arabicLabel(displayCurrency);
+    final currencyLabel = Currency.label(context, displayCurrency);
 
     return Scaffold(
       body: async.when(
@@ -303,7 +303,7 @@ class BudgetsScreen extends ConsumerWidget {
         widgets.add(const SizedBox(height: AppSpacing.s2));
       }
       final entryCurrency =
-          _entryCurrencyLabel(data, history.progress, currencyLabel);
+          _entryCurrencyLabel(context, data, history.progress, currencyLabel);
       widgets.add(
         _BudgetHistoryRow(
           history: history,
@@ -356,7 +356,7 @@ class BudgetsScreen extends ConsumerWidget {
             entry.budget.accountId,
             showGlobalLabel: showGlobalAccountLabel,
           ),
-          currencyLabel: _entryCurrencyLabel(data, entry, currencyLabel),
+          currencyLabel: _entryCurrencyLabel(context, data, entry, currencyLabel),
           onTap: () => BudgetFormScreen.showSheet(
             context,
             budgetId: entry.budget.id,
@@ -405,6 +405,7 @@ class BudgetsScreen extends ConsumerWidget {
   }
 
   String _entryCurrencyLabel(
+    BuildContext context,
     BudgetsView data,
     BudgetProgressEntry entry,
     String fallback,
@@ -413,7 +414,7 @@ class BudgetsScreen extends ConsumerWidget {
     if (accountId == null) return fallback;
     for (final account in data.accounts) {
       if (account.id == accountId) {
-        return Currency.arabicLabel(account.currency);
+        return Currency.label(context, account.currency);
       }
     }
     return fallback;
@@ -1231,7 +1232,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   in history.transactions.take(_kPeriodTransactionLimit))
                 _BudgetTransactionRow(
                   tx: tx,
-                  currencyLabel: Currency.arabicLabel(tx.currency),
+                  currencyLabel: Currency.label(context, tx.currency),
                 ),
               if (history.transactions.length > _kPeriodTransactionLimit)
                 Padding(

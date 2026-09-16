@@ -57,13 +57,13 @@ class TransactionsScreen extends ConsumerWidget {
     final billsAsync = ref.watch(billsViewProvider);
     final tab = ref.watch(transactionsPageTabProvider);
     final pendingOnly = ref.watch(transactionsPendingFilterProvider);
-    final currencyLabel = Currency.arabicLabel(
+    final currencyLabel = Currency.label(context, 
         ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
     // MALI-047n: canonical period expense over the full dataset (not a fold of
     // loaded pages), single-currency for the active-account scope.
     final periodTotal = ref.watch(transactionsPeriodTotalProvider).valueOrNull;
     final periodExpense = periodTotal?.netExpense.toDouble() ?? 0.0;
-    final txHeaderCurrencyLabel = Currency.arabicLabel((periodTotal?.currency ??
+    final txHeaderCurrencyLabel = Currency.label(context, (periodTotal?.currency ??
             ref.watch(baseCurrencyProvider).valueOrNull ??
             'SAR')
         .toUpperCase());
@@ -86,7 +86,7 @@ class TransactionsScreen extends ConsumerWidget {
             return AppTransactionRow(
               title: title,
               amount: tx.amount,
-              currency: Currency.arabicLabel(tx.currency),
+              currency: Currency.label(context, tx.currency),
               subtitle:
                   '${Formatters.time(tx.occurredAt)} · ${category?.name ?? 'غير مصنّفة'}',
               categoryIconName: category?.iconName,
@@ -481,7 +481,7 @@ class _ActiveAccountPicker extends ConsumerWidget {
         );
         return GlassSelector(
           icon: AppLucideIcons.walletCards,
-          label: '${account.name} · ${Currency.arabicLabel(account.currency)}',
+          label: '${account.name} · ${Currency.label(context, account.currency)}',
           onTap: () => _showAccountSheet(context, ref, account.id),
         );
       },
@@ -530,7 +530,7 @@ class _ActiveAccountPicker extends ConsumerWidget {
                     color: account.id == currentId ? c.cta : c.textMuted,
                   ),
                   title: Text(account.name),
-                  subtitle: Text(Currency.arabicLabel(account.currency)),
+                  subtitle: Text(Currency.label(context, account.currency)),
                   trailing: account.id == currentId
                       ? Icon(AppLucideIcons.checkCircle, color: c.cta)
                       : null,
@@ -1362,7 +1362,7 @@ class _BillCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final daysLeft = bill.nextDueDate.difference(DateTime.now()).inDays;
-    final currLabel = Currency.arabicLabel(bill.currency);
+    final currLabel = Currency.label(context, bill.currency);
 
     final Color dueColor;
     final String dueLabel;
@@ -1476,7 +1476,7 @@ class _BillCard extends StatelessWidget {
                         style: AppTypography.bodyStrong(c.textMain),
                       ),
                       Text(
-                        Currency.arabicLabel(bill.currency),
+                        Currency.label(context, bill.currency),
                         style: AppTypography.caption(c.textLight),
                       ),
                     ],

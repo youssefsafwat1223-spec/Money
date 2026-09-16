@@ -71,6 +71,24 @@ class Formatters {
     'Sunday',
   ];
 
+  /// Short weekday for axis labels. English is abbreviated because a chart
+  /// tick has room for "Wed", not "Wednesday"; the Arabic forms are already
+  /// short and are left exactly as they render today.
+  static const List<String> _enWeekdaysShort = [
+    'Mon',
+    'Tue',
+    'Wed',
+    'Thu',
+    'Fri',
+    'Sat',
+    'Sun',
+  ];
+
+  static String weekdayShort(BuildContext context, DateTime d) =>
+      Localizations.localeOf(context).languageCode == 'en'
+          ? _enWeekdaysShort[d.weekday - 1]
+          : _arWeekdays[d.weekday - 1];
+
   /// "الثلاثاء، 21 مايو 2026" or "Tuesday, May 21, 2026"
   static String dateWithWeekday(DateTime dt, BuildContext context) {
     final d = dt.toLocal();
