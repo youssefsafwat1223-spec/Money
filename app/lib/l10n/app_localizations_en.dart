@@ -3378,4 +3378,392 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get commonOpenImperative => 'Open';
+
+  @override
+  String homeVsLastWeek(int percent) {
+    return '$percent% vs last week';
+  }
+
+  @override
+  String homePendingReviewTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transactions are waiting for your review',
+      one: '1 transaction is waiting for your review',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeWeekSpentMore(int percent) {
+    return 'Heads up — you spent $percent% more than last week. Check the category you spend most on.';
+  }
+
+  @override
+  String homeWeekSpentLess(int percent) {
+    return 'Nicely done — you spent $percent% less than last week. Keep it up and you will save more.';
+  }
+
+  @override
+  String homeShownTx(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transactions shown',
+      one: '1 transaction shown',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homePendingSuffix(String count) {
+    return '$count pending review';
+  }
+
+  @override
+  String homeGoalSaved(String amount) {
+    return 'Saved $amount';
+  }
+
+  @override
+  String homeGoalRemaining(String amount) {
+    return '$amount to go';
+  }
+
+  @override
+  String homeNeedPerMonth(String amount) {
+    return 'You need $amount a month';
+  }
+
+  @override
+  String homeArrivesOn(String date) {
+    return 'At your current rate you will get there $date';
+  }
+
+  @override
+  String homeLateBy(int months) {
+    String _temp0 = intl.Intl.pluralLogic(
+      months,
+      locale: localeName,
+      other: '$months months late',
+      one: '1 month late',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get homeSessionExpiredTitle => 'Please sign in again';
+
+  @override
+  String get homeSessionExpiredBody =>
+      'Your session has expired. Sign in to continue.';
+
+  @override
+  String get homeSignIn => 'Sign in';
+
+  @override
+  String get homeLoadFailed => 'The dashboard could not be loaded right now';
+
+  @override
+  String get homeLoadFailedBody =>
+      'Check your data, or pull to refresh and try again.';
+
+  @override
+  String get homeDailySpend => 'Daily spending';
+
+  @override
+  String get homeAllAccounts => 'All accounts';
+
+  @override
+  String get homeSetMonthlyBudget =>
+      'Set a monthly budget to track what is left';
+
+  @override
+  String get homeOverMonthBudget => 'You are over this month’s budget';
+
+  @override
+  String get homeSpendAboveUsual => 'Your spending is above usual';
+
+  @override
+  String get homeSteady => 'You are steady';
+
+  @override
+  String get homeReviewToStayAccurate =>
+      'Review them to keep your balances accurate';
+
+  @override
+  String get homeAvailableFromMonthBudget =>
+      'available from this month’s budget';
+
+  @override
+  String get homeNoTxTitle => 'No transactions yet';
+
+  @override
+  String get homeNoTxBody =>
+      'Paste the debit or deposit message from your bank and the AI will categorise it automatically, on your device.';
+
+  @override
+  String get homeMoneyFriend => 'Your money companion';
+
+  @override
+  String get homeTodaySpend => 'Spent today';
+
+  @override
+  String get homeWeekSpend => 'Spent this week';
+
+  @override
+  String get homeMonthSpend => 'Spent this month';
+
+  @override
+  String get homeVsYesterday => 'vs yesterday';
+
+  @override
+  String get homeVsLastWeekShort => 'vs last week';
+
+  @override
+  String get homeGreeting => 'Welcome 👋';
+
+  @override
+  String get homeTodayIncome => 'Income today';
+
+  @override
+  String get homeWeek => 'Week';
+
+  @override
+  String get homeMonth => 'Month';
+
+  @override
+  String get homeMonthlySpend => 'Monthly spending';
+
+  @override
+  String get homeBudget => 'Budget';
+
+  @override
+  String get homeManage => 'Manage';
+
+  @override
+  String get homeSubsAndInstalments => 'Subscriptions & instalments';
+
+  @override
+  String get homeNoBillsOnAccount =>
+      'No subscriptions or instalments on this account.';
+
+  @override
+  String get homeNoGoalsOnAccount => 'No goals on this account.';
+
+  @override
+  String get homeFinishSetup => 'Finish setting up Qirsh ✨';
+
+  @override
+  String get homeEnableBiometrics => 'Turn on biometric lock';
+
+  @override
+  String get homeAddSavingsGoal => 'Add a savings goal';
+
+  @override
+  String get homePlans => 'Plans';
+
+  @override
+  String get homeNoActivePlans => 'No active plans';
+
+  @override
+  String get homeCreatePlanHint =>
+      'Create a budget plan for a trip or an occasion';
+
+  @override
+  String get homeNewPlan => 'New plan';
+
+  @override
+  String get homeSavingsCorner => 'Savings corner';
+
+  @override
+  String homeCouponExpires(String date) {
+    return 'Expires $date';
+  }
+
+  @override
+  String homeDayAmountSemantics(String day, String amount) {
+    return '$day, $amount';
+  }
+
+  @override
+  String homeVsYesterdayValue(String value) {
+    return '$value vs yesterday';
+  }
+
+  @override
+  String homeExpectedPctOfMonth(int percent) {
+    return '$percent% of the month expected';
+  }
+
+  @override
+  String homeAheadPct(int percent) {
+    return '$percent% ahead';
+  }
+
+  @override
+  String homeBehindPct(int percent) {
+    return '$percent% behind';
+  }
+
+  @override
+  String get homeAtThisRatePrefix =>
+      'At this rate you will finish the month at ';
+
+  @override
+  String homeOverBudgetBy(String amount) {
+    return '$amount over your budget.';
+  }
+
+  @override
+  String homeNofM(int shown, int total) {
+    return '$shown of $total';
+  }
+
+  @override
+  String homeInDaysShort(int days) {
+    return 'in ${days}d';
+  }
+
+  @override
+  String homePerYearAmount(String amount, String currency) {
+    return '$amount $currency a year';
+  }
+
+  @override
+  String get homeNoBudgetsOnAccount => 'No budgets on this account.';
+
+  @override
+  String get homeActiveBudget => 'active budget';
+
+  @override
+  String get homePartnerOffers => 'Offers from Qirsh partners';
+
+  @override
+  String get homeAllCoupons => 'See all coupons';
+
+  @override
+  String get homeSpentToday => 'Spent today';
+
+  @override
+  String get homeSevenDayAverage => '7-day average';
+
+  @override
+  String get homeSetMonthlyBudgetShort => 'Set a monthly budget';
+
+  @override
+  String get homeAvailableToday => 'available today';
+
+  @override
+  String get homeTodayTransactions => 'Today’s transactions';
+
+  @override
+  String get homeTopThreeToday => 'Top 3 today';
+
+  @override
+  String get homeUncategorised => 'Uncategorised';
+
+  @override
+  String get homeNoMonthlyBudget =>
+      'No monthly budget — set one to see what you can spend';
+
+  @override
+  String get homeTopCategories => 'Top categories';
+
+  @override
+  String get homeSubsPerMonth => 'subscriptions a month';
+
+  @override
+  String get homeInstalmentsPerMonth => 'instalments a month';
+
+  @override
+  String get homeNextCharge => 'Next charge';
+
+  @override
+  String get homeChargeDatesThisMonth => 'Charge dates this month';
+
+  @override
+  String get homeInstalmentWord => 'instalment';
+
+  @override
+  String get homeNoTxInPeriod => 'No transactions in this period.';
+
+  @override
+  String get homeSwipeForMore =>
+      'Swipe for more · or “All” for the Transactions page';
+
+  @override
+  String gdSavedOfTarget(String saved, String target, String currency) {
+    return 'Saved $saved of $target $currency';
+  }
+
+  @override
+  String gdRemaining(String amount, String currency) {
+    return '$amount $currency to go';
+  }
+
+  @override
+  String gdRemainingWithDays(String amount, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days',
+      one: '1 day',
+    );
+    return '$amount to go · $_temp0';
+  }
+
+  @override
+  String gdRecommendedDaily(String amount, String currency) {
+    return 'Suggested: $amount $currency a day';
+  }
+
+  @override
+  String cdCardTitle(String last4) {
+    return 'Card •••• $last4';
+  }
+
+  @override
+  String get gdTitle => 'Goal details';
+
+  @override
+  String get gdAddToGoal => 'Add to goal';
+
+  @override
+  String get gdNotFound => 'That goal no longer exists';
+
+  @override
+  String get gdDeleteGoal => 'Delete goal';
+
+  @override
+  String get gdContributions => 'Contributions';
+
+  @override
+  String get gdNoContributions => 'No contributions yet.';
+
+  @override
+  String get gdDeleteTitle => 'Delete this goal?';
+
+  @override
+  String get gdDeleteBody =>
+      'The goal and all its contributions will be permanently deleted.';
+
+  @override
+  String get gdSaveFailed => 'The contribution could not be saved right now.';
+
+  @override
+  String get gdAddContribution => 'Add a contribution';
+
+  @override
+  String get bdgAmount => 'Amount';
+
+  @override
+  String get gdSaveContribution => 'Save contribution';
+
+  @override
+  String get cdCardTransactions => 'Transactions on this card';
+
+  @override
+  String get cdNoTxYet => 'No transactions yet';
 }

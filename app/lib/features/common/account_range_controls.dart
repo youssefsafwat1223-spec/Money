@@ -10,6 +10,7 @@ import '../../core/theme/widgets/glass_selector.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/account_entity.dart';
 import '../transactions/transactions_providers.dart';
@@ -153,7 +154,7 @@ class _DateRangeChips extends ConsumerWidget {
 
     return GlassSelector(
       icon: AppLucideIcons.calendarDays,
-      label: range.label,
+      label: range.labelIn(Localizations.localeOf(context).languageCode),
       onTap: () {
         HapticFeedback.selectionClick();
         _showRangeSheet(context, ref, range);
@@ -161,17 +162,18 @@ class _DateRangeChips extends ConsumerWidget {
     );
   }
 
-  String _label(TransactionsDatePreset preset) => switch (preset) {
-        TransactionsDatePreset.today => 'اليوم',
-        TransactionsDatePreset.thisWeek => 'هذا الأسبوع',
-        TransactionsDatePreset.thisMonth => 'هذا الشهر',
-        TransactionsDatePreset.previousMonth => 'الشهر السابق',
-        TransactionsDatePreset.last7Days => 'آخر 7 أيام',
-        TransactionsDatePreset.last30Days => 'آخر 30 يوم',
-        TransactionsDatePreset.last90Days => 'آخر 90 يوم',
-        TransactionsDatePreset.thisYear => 'هذه السنة',
-        TransactionsDatePreset.previousYear => 'السنة الماضية',
-        TransactionsDatePreset.custom => 'مخصص',
+  String _label(BuildContext context, TransactionsDatePreset preset) =>
+      switch (preset) {
+        TransactionsDatePreset.today => context.l10n.txnRangeToday,
+        TransactionsDatePreset.thisWeek => context.l10n.txnRangeThisWeek,
+        TransactionsDatePreset.thisMonth => context.l10n.txnRangeThisMonth,
+        TransactionsDatePreset.previousMonth => context.l10n.txnRangeLastMonth,
+        TransactionsDatePreset.last7Days => context.l10n.txnRange7,
+        TransactionsDatePreset.last30Days => context.l10n.txnRange30,
+        TransactionsDatePreset.last90Days => context.l10n.txnRange90,
+        TransactionsDatePreset.thisYear => context.l10n.txnRangeThisYear,
+        TransactionsDatePreset.previousYear => context.l10n.txnRangeLastYear,
+        TransactionsDatePreset.custom => context.l10n.txnRangeCustom,
       };
 
   TransactionsDateRange _rangeForPreset(TransactionsDatePreset preset) {
@@ -210,7 +212,7 @@ class _DateRangeChips extends ConsumerWidget {
                     children: [
                       for (final preset in TransactionsDatePreset.values)
                         ChoiceChip(
-                          label: Text(_label(preset)),
+                          label: Text(_label(context, preset)),
                           selected: current.preset == preset,
                           selectedColor: c.primary.withValues(alpha: 0.16),
                           onSelected: (_) {

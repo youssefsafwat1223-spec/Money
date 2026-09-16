@@ -2,14 +2,27 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-/// Architecture contract for the Home/Reports split: the Home screen's
-/// dependency graph must exclude the chart package and the shared chart widgets
-/// — all visual analytics (donut/bar/line) live only in Reports. A full
-/// widget-pump of DashboardScreen is impractical (its provider aggregates ~a
-/// dozen repositories), so this asserts the STRUCTURE (the file's `import`
-/// directives) rather than symbol spelling in the body: it is robust to
-/// renames/comments/formatting and catches the real regression — a chart being
-/// wired back into Home.
+/// Architecture contract for the Home/Reports split.
+///
+/// **Amended by the dashboard redesign — read this before "fixing" a failure.**
+/// The original rule was "no bars/donuts/lines on Home at all". That was
+/// superseded on purpose: Home's «المصروفات اليومية» card renders seven fixed
+/// day slots (`lib/features/dashboard/widgets/daily_spend_card.dart`).
+///
+/// What the contract actually protects is not "no rectangle may be drawn" — it
+/// is **ownership of the analytics layer**:
+///   * Reports owns `fl_chart` and the shared `spending_charts` widgets, and
+///     every interactive chart (axes, legends, tooltips, gestures, drill-down).
+///   * Home may render a bespoke, non-interactive, fixed-slot visual whose only
+///     job is to give ONE number its context — no axis, no legend, no tooltip.
+///
+/// The assertion is therefore unchanged in mechanism (Home must not *depend on*
+/// the chart package or the shared chart widgets); only its rationale moved.
+/// A full widget-pump of DashboardScreen is impractical (its provider aggregates
+/// ~a dozen repositories), so this asserts the STRUCTURE (the file's `import`
+/// directives) rather than symbol spelling in the body: robust to
+/// renames/comments/formatting, and it still catches the real regression — a
+/// Reports chart being wired back into Home.
 List<String> _imports(String path) {
   final directive = RegExp(r'''^\s*import\s+['"]([^'"]+)['"]''', multiLine: true);
   return directive

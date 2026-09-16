@@ -94,3 +94,83 @@ GoalPacing goalPacing({
     isOverdue: false,
   );
 }
+
+/// Where a goal lands at the user's OWN pace, as opposed to the pace its
+/// deadline demands.
+///
+/// [GoalPacing.requiredPerMonth] answers "what should I put in each month".
+/// This answers "what happens if I keep doing exactly what I am doing" — and
+/// the gap between the two is the only sentence a user can act on
+/// («هتوصل في مارس — متأخر شهرين»).
+class GoalProjection {
+  const GoalProjection({
+    required this.actualPerMonth,
+    required this.monthsToTarget,
+    required this.arrivesOn,
+    required this.monthsLate,
+  });
+
+  /// Observed contribution rate: saved ÷ months since the goal was created.
+  final Money actualPerMonth;
+
+  /// Whole months from now until the target is reached at [actualPerMonth].
+  /// Null when the rate is zero — an unbounded date is not a projection.
+  final int? monthsToTarget;
+
+  /// Projected arrival date; null whenever [monthsToTarget] is null.
+  final DateTime? arrivesOn;
+
+  /// Months past the deadline the projection lands on. Null when there is no
+  /// deadline or no projection; zero or negative means on time or early.
+  final int? monthsLate;
+
+  bool get isLate => (monthsLate ?? 0) > 0;
+}
+
+/// Projects a goal forward from the rate it has ACTUALLY been funded at.
+///
+/// Deliberately conservative:
+///   * a goal younger than a month is measured over one month, never over a
+///     fraction, so a three-day-old goal cannot report a fantastical rate;
+///   * a zero rate yields a null date rather than "never" — the UI should say
+///     "no contributions yet" instead of printing an infinity;
+///   * an already-met goal projects nothing.
+///
+/// [now] is injected for the same reason as in [goalPacing]: a figure that
+/// changes with wall-clock time inside a test is untestable by construction.
+GoalProjection goalProjection({
+  required Money target,
+  required Money saved,
+  required DateTime createdAt,
+  required DateTime? deadline,
+  required DateTime now,
+}) {
+  final elapsedDays = now.difference(createdAt).inDays;
+  final elapsedMonths = (elapsedDays / 30).floor().clamp(1, 1 << 30);
+  final ratePerMonth = Money(saved.minorUnits ~/ elapsedMonths, target.currency);
+
+  final remainingMinor = target.minorUnits - saved.minorUnits;
+  if (remainingMinor <= 0 || ratePerMonth.minorUnits <= 0) {
+    return GoalProjection(
+      actualPerMonth: ratePerMonth,
+      monthsToTarget: null,
+      arrivesOn: null,
+      monthsLate: null,
+    );
+  }
+
+  // Rounded UP: a partial month still has to be lived through.
+  final months =
+      (remainingMinor + ratePerMonth.minorUnits - 1) ~/ ratePerMonth.minorUnits;
+  final arrival = DateTime(now.year, now.month + months, now.day);
+
+  return GoalProjection(
+    actualPerMonth: ratePerMonth,
+    monthsToTarget: months,
+    arrivesOn: arrival,
+    monthsLate: deadline == null
+        ? null
+        : (arrival.year - deadline.year) * 12 +
+            (arrival.month - deadline.month),
+  );
+}

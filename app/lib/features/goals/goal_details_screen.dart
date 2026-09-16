@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../domain/finance/money_input.dart';
 
 import '../../core/di/app_providers.dart';
@@ -41,11 +42,11 @@ class GoalDetailsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: const AppHeader(title: 'تفاصيل الهدف'),
+      appBar: AppHeader(title: context.l10n.gdTitle),
       body: _GoalDetailsContent(goalId: goalId),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _showAddContributionSheet(context, ref, goalId),
-        label: const Text('أضف للهدف'),
+        label: Text(context.l10n.gdAddToGoal),
         icon: const Icon(AppLucideIcons.plus),
       ),
     );
@@ -93,7 +94,7 @@ class _GoalDetailsSheet extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Text('تفاصيل الهدف',
+                        Text(context.l10n.gdTitle,
                             style: AppTypography.sectionTitle(c.textMain)),
                         const Spacer(),
                         IconButton(
@@ -134,10 +135,10 @@ class _GoalDetailsContent extends ConsumerWidget {
     return async.when(
       skipLoadingOnReload: true,
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => const Center(child: Text('حدث خطأ')),
+      error: (error, _) => Center(child: Text(context.l10n.txnError)),
       data: (data) {
         if (data == null) {
-          return const Center(child: Text('الهدف غير موجود'));
+          return Center(child: Text(context.l10n.gdNotFound));
         }
         final c = context.colors;
         final cur = Currency.arabicLabel(
@@ -161,7 +162,8 @@ class _GoalDetailsContent extends ConsumerWidget {
             const SizedBox(height: AppSpacing.s2),
             Center(
               child: Text(
-                'وفّرت ${Formatters.integer(data.goal.savedAmount)} من ${Formatters.integer(data.goal.targetAmount)} $cur',
+                context.l10n.gdSavedOfTarget(Formatters.integer(data.goal.savedAmount),
+                    Formatters.integer(data.goal.targetAmount), cur),
                 style: AppTypography.subhead(c.textMain),
               ),
             ),
@@ -169,22 +171,33 @@ class _GoalDetailsContent extends ConsumerWidget {
             Center(
               child: Text(
                 data.daysRemaining == null
-                    ? 'باقي ${Formatters.integer(data.remainingAmount.toDouble())} $cur'
-                    : 'باقي ${Formatters.integer(data.remainingAmount.toDouble())} · ${data.daysRemaining} يوم',
+                    ? context.l10n.gdRemaining(
+                        Formatters.integer(data.remainingAmount.toDouble()), cur)
+                    : context.l10n.gdRemainingWithDays(
+                        Formatters.integer(data.remainingAmount.toDouble()),
+                        data.daysRemaining!),
                 style: AppTypography.callout(c.textLight),
               ),
             ),
             const SizedBox(height: AppSpacing.s2),
             Center(
               child: Text(
-                'موصى: ${Formatters.integer(data.recommendedDailyAmount.toDouble())} $cur يوميًا',
+                context.l10n.gdRecommendedDaily(
+                    Formatters.integer(data.recommendedDailyAmount.toDouble()), cur),
                 style: AppTypography.bodyStrong(c.primary),
               ),
             ),
-            if (sheetMode) ...[
-              const SizedBox(height: AppSpacing.s4),
-              Row(
-                children: [
+            // Add is gated on sheet mode because the full screen already has a
+            // FloatingActionButton for it; EDIT and DELETE are not, and used to
+            // be. `/goals/:id` builds this screen with the default
+            // `sheetMode: false`, so anyone arriving by deep link or direct
+            // navigation could add a contribution but could never edit or
+            // delete the goal — the list opens goals as a sheet, which is why
+            // it was never noticed.
+            const SizedBox(height: AppSpacing.s4),
+            Row(
+              children: [
+                if (sheetMode) ...[
                   Expanded(
                     child: SizedBox(
                       height: AppSpacing.buttonHeight,
@@ -192,7 +205,7 @@ class _GoalDetailsContent extends ConsumerWidget {
                         onPressed: () =>
                             _showAddContributionSheet(context, ref, goalId),
                         icon: const Icon(AppLucideIcons.plus),
-                        label: const Text('أضف للهدف'),
+                        label: Text(context.l10n.gdAddToGoal),
                         style: FilledButton.styleFrom(
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
@@ -202,48 +215,48 @@ class _GoalDetailsContent extends ConsumerWidget {
                     ),
                   ),
                   const SizedBox(width: AppSpacing.s2),
-                  Expanded(
-                    child: SizedBox(
-                      height: AppSpacing.buttonHeight,
-                      child: OutlinedButton.icon(
-                        onPressed: () => GoalFormScreen.showSheet(
-                          context,
-                          goal: data.goal,
-                        ),
-                        icon: const Icon(AppLucideIcons.pencil),
-                        label: const Text('تعديل'),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: c.border),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(16),
-                          ),
+                ],
+                Expanded(
+                  child: SizedBox(
+                    height: AppSpacing.buttonHeight,
+                    child: OutlinedButton.icon(
+                      onPressed: () => GoalFormScreen.showSheet(
+                        context,
+                        goal: data.goal,
+                      ),
+                      icon: const Icon(AppLucideIcons.pencil),
+                      label: Text(context.l10n.cardEdit),
+                      style: OutlinedButton.styleFrom(
+                        side: BorderSide(color: c.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(16),
                         ),
                       ),
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: AppSpacing.s3),
-              OutlinedButton.icon(
-                onPressed: () => _confirmDeleteGoal(context, ref, goalId),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: c.danger,
-                  side: BorderSide(color: c.danger),
-                  minimumSize: const Size.fromHeight(AppSpacing.buttonHeight),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
                 ),
-                icon: const Icon(AppLucideIcons.trash2),
-                label: const Text('حذف الهدف'),
+              ],
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            OutlinedButton.icon(
+              onPressed: () => _confirmDeleteGoal(context, ref, goalId),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: c.danger,
+                side: BorderSide(color: c.danger),
+                minimumSize: const Size.fromHeight(AppSpacing.buttonHeight),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                ),
               ),
-            ],
+              icon: const Icon(AppLucideIcons.trash2),
+              label: Text(context.l10n.gdDeleteGoal),
+            ),
             const SizedBox(height: AppSpacing.s4),
-            Text('المساهمات', style: AppTypography.sectionTitle(c.textMain)),
+            Text(context.l10n.gdContributions, style: AppTypography.sectionTitle(c.textMain)),
             const SizedBox(height: AppSpacing.s3),
             if (data.contributions.isEmpty)
               Text(
-                'لا توجد مساهمات بعد.',
+                context.l10n.gdNoContributions,
                 style: AppTypography.callout(c.textLight),
               )
             else
@@ -274,16 +287,16 @@ Future<void> _confirmDeleteGoal(
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('حذف الهدف؟'),
-      content: const Text('سيتم حذف الهدف ومساهماته نهائياً.'),
+      title: Text(context.l10n.gdDeleteTitle),
+      content: Text(context.l10n.gdDeleteBody),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('إلغاء'),
+          child: Text(context.l10n.commonCancel),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('حذف'),
+          child: Text(context.l10n.setDelete),
         ),
       ],
     ),
@@ -358,8 +371,8 @@ Future<void> _showAddContributionSheet(
             } catch (_) {
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('تعذّر حفظ المساهمة الآن.'),
+                SnackBar(
+                  content: Text(context.l10n.gdSaveFailed),
                 ),
               );
             } finally {
@@ -399,11 +412,11 @@ Future<void> _showAddContributionSheet(
                         padding: const EdgeInsets.symmetric(vertical: 12),
                         child: Row(
                           children: [
-                            Text('إضافة مساهمة',
+                            Text(context.l10n.gdAddContribution,
                                 style: AppTypography.sectionTitle(c.textMain)),
                             const Spacer(),
                             IconButton(
-                              tooltip: 'إغلاق',
+                              tooltip: context.l10n.annClose,
                               onPressed: () => Navigator.of(context).pop(),
                               icon: const Icon(AppLucideIcons.x),
                               style: IconButton.styleFrom(
@@ -420,7 +433,7 @@ Future<void> _showAddContributionSheet(
                             decimal: true),
                         style: AppTypography.body(c.textMain),
                         decoration: InputDecoration(
-                          labelText: 'المبلغ',
+                          labelText: context.l10n.bdgAmount,
                           suffixText: cur,
                           filled: true,
                           fillColor: isDark
@@ -446,7 +459,7 @@ Future<void> _showAddContributionSheet(
                         controller: noteController,
                         style: AppTypography.body(c.textMain),
                         decoration: InputDecoration(
-                          labelText: 'ملاحظة',
+                          labelText: context.l10n.txdNote,
                           filled: true,
                           fillColor: isDark
                               ? Colors.white.withValues(alpha: 0.05)
@@ -486,7 +499,7 @@ Future<void> _showAddContributionSheet(
                                     color: c.onInk,
                                   ),
                                 )
-                              : Text('حفظ المساهمة',
+                              : Text(context.l10n.gdSaveContribution,
                                   style: AppTypography.bodyStrong(c.onInk)),
                         ),
                       ),

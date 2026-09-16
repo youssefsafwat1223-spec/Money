@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/l10n_ext.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -17,6 +18,7 @@ import 'card_network_badge.dart';
 import 'card_theme.dart';
 import 'cards_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../transactions/transaction_details_screen.dart';
 
 /// شاشة تفاصيل البطاقة (بآخر 4 أرقام): بطاقة مُشتقّة من العمليات، تُفتح عبر
 /// المسار `/card/:last4`. كانت سابقًا bottom sheet زجاجية بارتفاع 86% —
@@ -31,7 +33,7 @@ class CardDetailsScreen extends ConsumerWidget {
     final c = context.colors;
     return Scaffold(
       backgroundColor: c.bg,
-      appBar: AppHeader(title: 'بطاقة •••• $last4'),
+      appBar: AppHeader(title: context.l10n.cdCardTitle(last4)),
       body: _CardDetailsContent(last4: last4),
     );
   }
@@ -78,7 +80,7 @@ class _CardDetailsContent extends ConsumerWidget {
               : displayCurrency,
         ),
         const SizedBox(height: AppSpacing.s4),
-        Text('عمليات هذه البطاقة',
+        Text(context.l10n.cdCardTransactions,
             style: AppTypography.sectionTitle(c.textMain)),
         const SizedBox(height: AppSpacing.s2),
         txAsync.when(
@@ -87,10 +89,10 @@ class _CardDetailsContent extends ConsumerWidget {
               child: Padding(
                   padding: EdgeInsets.all(AppSpacing.cardPadding),
                   child: CircularProgressIndicator())),
-          error: (e, _) => const Text('حدث خطأ'),
+          error: (e, _) => Text(context.l10n.txnError),
           data: (txns) {
             if (txns.isEmpty) {
-              return Text('لا توجد عمليات بعد',
+              return Text(context.l10n.cdNoTxYet,
                   style: AppTypography.callout(c.textLight));
             }
             return Column(
@@ -99,6 +101,8 @@ class _CardDetailsContent extends ConsumerWidget {
                   TransactionRow(
                     transaction: tx,
                     category: catalog?.byId(tx.categoryId),
+                    onTap: () => TransactionDetailsScreen.showSheet(
+                        context, tx.id),
                   ),
               ],
             );
@@ -166,9 +170,9 @@ class _CardHeader extends StatelessWidget {
           const SizedBox(height: AppSpacing.s5),
           Row(
             children: [
-              _flow('داخل', totalIn, c.success),
+              _flow(context, context.l10n.cardIn, totalIn, c.success),
               const SizedBox(width: AppSpacing.s6),
-              _flow('خارج', totalOut, Colors.white),
+              _flow(context, context.l10n.cardOut, totalOut, Colors.white),
             ],
           ),
         ],
@@ -176,7 +180,7 @@ class _CardHeader extends StatelessWidget {
     );
   }
 
-  Widget _flow(String label, Money value, Color color) {
+  Widget _flow(BuildContext context, String label, Money value, Color color) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -188,7 +192,7 @@ class _CardHeader extends StatelessWidget {
         const SizedBox(height: 2),
         Text(
             '${formatMoneyAmount(value.toDouble(), currency)} '
-            '${Currency.arabicLabel(currency)}',
+            '${Currency.label(context, currency)}',
             style: TextStyle(
                 color: color, fontSize: 17, fontWeight: FontWeight.w700)),
       ],

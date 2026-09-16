@@ -1945,7 +1945,7 @@ class _CategoryGroup extends StatelessWidget {
                       child:
                           Icon(items[i].icon, color: items[i].color, size: 18),
                     ),
-                    title: Text(items[i].nameAr),
+                    title: Text(items[i].name),
                     subtitle: Text(items[i].key),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,

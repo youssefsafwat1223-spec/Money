@@ -3408,4 +3408,397 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get commonOpenImperative => 'افتح';
+
+  @override
+  String homeVsLastWeek(int percent) {
+    return '$percent% عن الأسبوع الماضي';
+  }
+
+  @override
+  String homePendingReviewTitle(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عملية في انتظار مراجعتك',
+      many: '$count عملية في انتظار مراجعتك',
+      few: '$count عمليات في انتظار مراجعتك',
+      two: 'عمليتان في انتظار مراجعتك',
+      one: 'عملية واحدة في انتظار مراجعتك',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homeWeekSpentMore(int percent) {
+    return 'انتبه — إنفاقك أعلى بـ$percent% عن الأسبوع الماضي. راجع أكثر فئة تنفق فيها.';
+  }
+
+  @override
+  String homeWeekSpentLess(int percent) {
+    return 'أحسنت — إنفاقك أقل بـ$percent% عن الأسبوع الماضي. واصل على هذا النحو لتوفّر أكثر.';
+  }
+
+  @override
+  String homeShownTx(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عملية معروضة',
+      many: '$count عملية معروضة',
+      few: '$count عمليات معروضة',
+      two: 'عمليتان معروضتان',
+      one: 'عملية واحدة معروضة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String homePendingSuffix(String count) {
+    return '$count قيد المراجعة';
+  }
+
+  @override
+  String homeGoalSaved(String amount) {
+    return 'تم توفير $amount';
+  }
+
+  @override
+  String homeGoalRemaining(String amount) {
+    return 'باقي $amount';
+  }
+
+  @override
+  String homeNeedPerMonth(String amount) {
+    return 'يلزمك $amount شهريًا';
+  }
+
+  @override
+  String homeArrivesOn(String date) {
+    return 'بمعدلك الحالي ستصل $date';
+  }
+
+  @override
+  String homeLateBy(int months) {
+    String _temp0 = intl.Intl.pluralLogic(
+      months,
+      locale: localeName,
+      other: '$months شهرًا',
+      many: '$months شهرًا',
+      few: '$months أشهر',
+      two: 'شهرين',
+      one: 'شهرًا واحدًا',
+    );
+    return 'متأخر $_temp0';
+  }
+
+  @override
+  String get homeSessionExpiredTitle => 'الرجاء تسجيل الدخول مرة أخرى';
+
+  @override
+  String get homeSessionExpiredBody =>
+      'انتهت صلاحية الجلسة، سجّل دخولك للمتابعة.';
+
+  @override
+  String get homeSignIn => 'تسجيل الدخول';
+
+  @override
+  String get homeLoadFailed => 'تعذر تحميل لوحة التحكم الآن';
+
+  @override
+  String get homeLoadFailedBody => 'تحقق من البيانات أو حاول التحديث مرة أخرى.';
+
+  @override
+  String get homeDailySpend => 'المصروفات اليومية';
+
+  @override
+  String get homeAllAccounts => 'كل الحسابات';
+
+  @override
+  String get homeSetMonthlyBudget => 'حدّد ميزانية شهرية لتتابع المتاح';
+
+  @override
+  String get homeOverMonthBudget => 'تجاوزت ميزانية الشهر';
+
+  @override
+  String get homeSpendAboveUsual => 'مصروفك أعلى من المعتاد';
+
+  @override
+  String get homeSteady => 'وضعك مستقر';
+
+  @override
+  String get homeReviewToStayAccurate => 'راجعها لتبقى أرصدتك دقيقة';
+
+  @override
+  String get homeAvailableFromMonthBudget => 'متاح من ميزانية الشهر';
+
+  @override
+  String get homeNoTxTitle => 'لا توجد عمليات مضافة';
+
+  @override
+  String get homeNoTxBody =>
+      'ألصق رسالة الخصم أو الإيداع من البنك، وسيتكفل الذكاء الاصطناعي بتصنيفها تلقائيًا على جهازك.';
+
+  @override
+  String get homeMoneyFriend => 'صديق مالي';
+
+  @override
+  String get homeTodaySpend => 'مصروف اليوم';
+
+  @override
+  String get homeWeekSpend => 'مصروف الأسبوع';
+
+  @override
+  String get homeMonthSpend => 'مصروف الشهر';
+
+  @override
+  String get homeVsYesterday => 'عن أمس';
+
+  @override
+  String get homeVsLastWeekShort => 'عن الأسبوع الماضي';
+
+  @override
+  String get homeGreeting => 'مرحباً 👋';
+
+  @override
+  String get homeTodayIncome => 'دخل اليوم';
+
+  @override
+  String get homeWeek => 'الأسبوع';
+
+  @override
+  String get homeMonth => 'الشهر';
+
+  @override
+  String get homeMonthlySpend => 'المصروفات الشهرية';
+
+  @override
+  String get homeBudget => 'الميزانية';
+
+  @override
+  String get homeManage => 'إدارة';
+
+  @override
+  String get homeSubsAndInstalments => 'الاشتراكات والأقساط';
+
+  @override
+  String get homeNoBillsOnAccount =>
+      'لا توجد اشتراكات ولا أقساط على هذا الحساب.';
+
+  @override
+  String get homeNoGoalsOnAccount => 'لا توجد أهداف على هذا الحساب.';
+
+  @override
+  String get homeFinishSetup => 'أكمل إعداد قِرش ✨';
+
+  @override
+  String get homeEnableBiometrics => 'فعّل قفل البصمة';
+
+  @override
+  String get homeAddSavingsGoal => 'أضف هدف ادخار';
+
+  @override
+  String get homePlans => 'الخطط';
+
+  @override
+  String get homeNoActivePlans => 'لا توجد خطط نشطة';
+
+  @override
+  String get homeCreatePlanHint => 'أنشئ خطة ميزانية للسفر أو المناسبات';
+
+  @override
+  String get homeNewPlan => 'خطة جديدة';
+
+  @override
+  String get homeSavingsCorner => 'ركن التوفير';
+
+  @override
+  String homeCouponExpires(String date) {
+    return 'ينتهي $date';
+  }
+
+  @override
+  String homeDayAmountSemantics(String day, String amount) {
+    return '$day، $amount';
+  }
+
+  @override
+  String homeVsYesterdayValue(String value) {
+    return '$value عن أمس';
+  }
+
+  @override
+  String homeExpectedPctOfMonth(int percent) {
+    return 'المتوقع $percent% من الشهر';
+  }
+
+  @override
+  String homeAheadPct(int percent) {
+    return 'مسبّق $percent%';
+  }
+
+  @override
+  String homeBehindPct(int percent) {
+    return 'متأخر $percent%';
+  }
+
+  @override
+  String get homeAtThisRatePrefix => 'بهذا المعدل ستنهي الشهر على ';
+
+  @override
+  String homeOverBudgetBy(String amount) {
+    return 'أعلى بـ$amount عن ميزانيتك.';
+  }
+
+  @override
+  String homeNofM(int shown, int total) {
+    return '$shown من $total';
+  }
+
+  @override
+  String homeInDaysShort(int days) {
+    return 'بعد $days ي';
+  }
+
+  @override
+  String homePerYearAmount(String amount, String currency) {
+    return '$amount $currency سنويًا';
+  }
+
+  @override
+  String get homeNoBudgetsOnAccount => 'لا توجد ميزانيات على هذا الحساب.';
+
+  @override
+  String get homeActiveBudget => 'ميزانية نشطة';
+
+  @override
+  String get homePartnerOffers => 'عروض من شركاء قرش';
+
+  @override
+  String get homeAllCoupons => 'عرض كل الكوبونات';
+
+  @override
+  String get homeSpentToday => 'صرفت اليوم';
+
+  @override
+  String get homeSevenDayAverage => 'متوسط ٧ أيام';
+
+  @override
+  String get homeSetMonthlyBudgetShort => 'حدّد ميزانية شهرية';
+
+  @override
+  String get homeAvailableToday => 'متاح لليوم';
+
+  @override
+  String get homeTodayTransactions => 'عمليات اليوم';
+
+  @override
+  String get homeTopThreeToday => 'أعلى ٣ اليوم';
+
+  @override
+  String get homeUncategorised => 'غير مصنّفة';
+
+  @override
+  String get homeNoMonthlyBudget =>
+      'لا توجد ميزانية شهرية — حدّدها لتعرف المتاح';
+
+  @override
+  String get homeTopCategories => 'أكبر التصنيفات';
+
+  @override
+  String get homeSubsPerMonth => 'اشتراكات شهريًا';
+
+  @override
+  String get homeInstalmentsPerMonth => 'أقساط شهريًا';
+
+  @override
+  String get homeNextCharge => 'أقرب خصم';
+
+  @override
+  String get homeChargeDatesThisMonth => 'مواعيد الخصم خلال الشهر';
+
+  @override
+  String get homeInstalmentWord => 'قسط';
+
+  @override
+  String get homeNoTxInPeriod => 'لا توجد عمليات في هذه الفترة.';
+
+  @override
+  String get homeSwipeForMore =>
+      'اسحب لباقي العمليات · أو «الكل» لصفحة العمليات';
+
+  @override
+  String gdSavedOfTarget(String saved, String target, String currency) {
+    return 'وفّرت $saved من $target $currency';
+  }
+
+  @override
+  String gdRemaining(String amount, String currency) {
+    return 'باقي $amount $currency';
+  }
+
+  @override
+  String gdRemainingWithDays(String amount, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days يوم',
+      many: '$days يومًا',
+      few: '$days أيام',
+      two: 'يومان',
+      one: 'يوم واحد',
+    );
+    return 'باقي $amount · $_temp0';
+  }
+
+  @override
+  String gdRecommendedDaily(String amount, String currency) {
+    return 'موصى: $amount $currency يوميًا';
+  }
+
+  @override
+  String cdCardTitle(String last4) {
+    return 'بطاقة •••• $last4';
+  }
+
+  @override
+  String get gdTitle => 'تفاصيل الهدف';
+
+  @override
+  String get gdAddToGoal => 'أضف للهدف';
+
+  @override
+  String get gdNotFound => 'الهدف غير موجود';
+
+  @override
+  String get gdDeleteGoal => 'حذف الهدف';
+
+  @override
+  String get gdContributions => 'المساهمات';
+
+  @override
+  String get gdNoContributions => 'لا توجد مساهمات بعد.';
+
+  @override
+  String get gdDeleteTitle => 'حذف الهدف؟';
+
+  @override
+  String get gdDeleteBody => 'سيتم حذف الهدف ومساهماته نهائياً.';
+
+  @override
+  String get gdSaveFailed => 'تعذّر حفظ المساهمة الآن.';
+
+  @override
+  String get gdAddContribution => 'إضافة مساهمة';
+
+  @override
+  String get bdgAmount => 'المبلغ';
+
+  @override
+  String get gdSaveContribution => 'حفظ المساهمة';
+
+  @override
+  String get cdCardTransactions => 'عمليات هذه البطاقة';
+
+  @override
+  String get cdNoTxYet => 'لا توجد عمليات بعد';
 }

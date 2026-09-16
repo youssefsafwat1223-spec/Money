@@ -1629,5 +1629,311 @@
         "type": "String"
       }
     }
-  }
+  },
+  "homeVsLastWeek": "{percent}% vs last week",
+  "@homeVsLastWeek": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homePendingReviewTitle": "{count, plural, =1{1 transaction is waiting for your review} other{{count} transactions are waiting for your review}}",
+  "@homePendingReviewTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWeekSpentMore": "Heads up — you spent {percent}% more than last week. Check the category you spend most on.",
+  "@homeWeekSpentMore": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWeekSpentLess": "Nicely done — you spent {percent}% less than last week. Keep it up and you will save more.",
+  "@homeWeekSpentLess": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeShownTx": "{count, plural, =1{1 transaction shown} other{{count} transactions shown}}",
+  "@homeShownTx": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homePendingSuffix": "{count} pending review",
+  "@homePendingSuffix": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "homeGoalSaved": "Saved {amount}",
+  "@homeGoalSaved": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeGoalRemaining": "{amount} to go",
+  "@homeGoalRemaining": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeNeedPerMonth": "You need {amount} a month",
+  "@homeNeedPerMonth": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeArrivesOn": "At your current rate you will get there {date}",
+  "@homeArrivesOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "homeLateBy": "{months, plural, =1{1 month late} other{{months} months late}}",
+  "@homeLateBy": {
+    "placeholders": {
+      "months": {
+        "type": "int"
+      }
+    }
+  },
+  "homeSessionExpiredTitle": "Please sign in again",
+  "homeSessionExpiredBody": "Your session has expired. Sign in to continue.",
+  "homeSignIn": "Sign in",
+  "homeLoadFailed": "The dashboard could not be loaded right now",
+  "homeLoadFailedBody": "Check your data, or pull to refresh and try again.",
+  "homeDailySpend": "Daily spending",
+  "homeAllAccounts": "All accounts",
+  "homeSetMonthlyBudget": "Set a monthly budget to track what is left",
+  "homeOverMonthBudget": "You are over this month’s budget",
+  "homeSpendAboveUsual": "Your spending is above usual",
+  "homeSteady": "You are steady",
+  "homeReviewToStayAccurate": "Review them to keep your balances accurate",
+  "homeAvailableFromMonthBudget": "available from this month’s budget",
+  "homeNoTxTitle": "No transactions yet",
+  "homeNoTxBody": "Paste the debit or deposit message from your bank and the AI will categorise it automatically, on your device.",
+  "homeMoneyFriend": "Your money companion",
+  "homeTodaySpend": "Spent today",
+  "homeWeekSpend": "Spent this week",
+  "homeMonthSpend": "Spent this month",
+  "homeVsYesterday": "vs yesterday",
+  "homeVsLastWeekShort": "vs last week",
+  "homeGreeting": "Welcome 👋",
+  "homeTodayIncome": "Income today",
+  "homeWeek": "Week",
+  "homeMonth": "Month",
+  "homeMonthlySpend": "Monthly spending",
+  "homeBudget": "Budget",
+  "homeManage": "Manage",
+  "homeSubsAndInstalments": "Subscriptions & instalments",
+  "homeNoBillsOnAccount": "No subscriptions or instalments on this account.",
+  "homeNoGoalsOnAccount": "No goals on this account.",
+  "homeFinishSetup": "Finish setting up Qirsh ✨",
+  "homeEnableBiometrics": "Turn on biometric lock",
+  "homeAddSavingsGoal": "Add a savings goal",
+  "homePlans": "Plans",
+  "homeNoActivePlans": "No active plans",
+  "homeCreatePlanHint": "Create a budget plan for a trip or an occasion",
+  "homeNewPlan": "New plan",
+  "homeSavingsCorner": "Savings corner",
+  "homeCouponExpires": "Expires {date}",
+  "@homeCouponExpires": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "homeDayAmountSemantics": "{day}, {amount}",
+  "@homeDayAmountSemantics": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeVsYesterdayValue": "{value} vs yesterday",
+  "@homeVsYesterdayValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "homeExpectedPctOfMonth": "{percent}% of the month expected",
+  "@homeExpectedPctOfMonth": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeAheadPct": "{percent}% ahead",
+  "@homeAheadPct": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeBehindPct": "{percent}% behind",
+  "@homeBehindPct": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeAtThisRatePrefix": "At this rate you will finish the month at ",
+  "homeOverBudgetBy": "{amount} over your budget.",
+  "@homeOverBudgetBy": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeNofM": "{shown} of {total}",
+  "@homeNofM": {
+    "placeholders": {
+      "shown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "homeInDaysShort": "in {days}d",
+  "@homeInDaysShort": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "homePerYearAmount": "{amount} {currency} a year",
+  "@homePerYearAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "homeNoBudgetsOnAccount": "No budgets on this account.",
+  "homeActiveBudget": "active budget",
+  "homePartnerOffers": "Offers from Qirsh partners",
+  "homeAllCoupons": "See all coupons",
+  "homeSpentToday": "Spent today",
+  "homeSevenDayAverage": "7-day average",
+  "homeSetMonthlyBudgetShort": "Set a monthly budget",
+  "homeAvailableToday": "available today",
+  "homeTodayTransactions": "Today’s transactions",
+  "homeTopThreeToday": "Top 3 today",
+  "homeUncategorised": "Uncategorised",
+  "homeNoMonthlyBudget": "No monthly budget — set one to see what you can spend",
+  "homeTopCategories": "Top categories",
+  "homeSubsPerMonth": "subscriptions a month",
+  "homeInstalmentsPerMonth": "instalments a month",
+  "homeNextCharge": "Next charge",
+  "homeChargeDatesThisMonth": "Charge dates this month",
+  "homeInstalmentWord": "instalment",
+  "homeNoTxInPeriod": "No transactions in this period.",
+  "homeSwipeForMore": "Swipe for more · or “All” for the Transactions page",
+  "gdSavedOfTarget": "Saved {saved} of {target} {currency}",
+  "@gdSavedOfTarget": {
+    "placeholders": {
+      "saved": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "gdRemaining": "{amount} {currency} to go",
+  "@gdRemaining": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "gdRemainingWithDays": "{amount} to go · {days, plural, =1{1 day} other{{days} days}}",
+  "@gdRemainingWithDays": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "gdRecommendedDaily": "Suggested: {amount} {currency} a day",
+  "@gdRecommendedDaily": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "cdCardTitle": "Card •••• {last4}",
+  "@cdCardTitle": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "gdTitle": "Goal details",
+  "gdAddToGoal": "Add to goal",
+  "gdNotFound": "That goal no longer exists",
+  "gdDeleteGoal": "Delete goal",
+  "gdContributions": "Contributions",
+  "gdNoContributions": "No contributions yet.",
+  "gdDeleteTitle": "Delete this goal?",
+  "gdDeleteBody": "The goal and all its contributions will be permanently deleted.",
+  "gdSaveFailed": "The contribution could not be saved right now.",
+  "gdAddContribution": "Add a contribution",
+  "bdgAmount": "Amount",
+  "gdSaveContribution": "Save contribution",
+  "cdCardTransactions": "Transactions on this card",
+  "cdNoTxYet": "No transactions yet"
 }

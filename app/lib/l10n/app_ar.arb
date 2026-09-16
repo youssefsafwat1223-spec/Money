@@ -1745,5 +1745,311 @@
         "type": "String"
       }
     }
-  }
+  },
+  "homeVsLastWeek": "{percent}% عن الأسبوع الماضي",
+  "@homeVsLastWeek": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homePendingReviewTitle": "{count, plural, =1{عملية واحدة في انتظار مراجعتك} =2{عمليتان في انتظار مراجعتك} few{{count} عمليات في انتظار مراجعتك} many{{count} عملية في انتظار مراجعتك} other{{count} عملية في انتظار مراجعتك}}",
+  "@homePendingReviewTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWeekSpentMore": "انتبه — إنفاقك أعلى بـ{percent}% عن الأسبوع الماضي. راجع أكثر فئة تنفق فيها.",
+  "@homeWeekSpentMore": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWeekSpentLess": "أحسنت — إنفاقك أقل بـ{percent}% عن الأسبوع الماضي. واصل على هذا النحو لتوفّر أكثر.",
+  "@homeWeekSpentLess": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeShownTx": "{count, plural, =1{عملية واحدة معروضة} =2{عمليتان معروضتان} few{{count} عمليات معروضة} many{{count} عملية معروضة} other{{count} عملية معروضة}}",
+  "@homeShownTx": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homePendingSuffix": "{count} قيد المراجعة",
+  "@homePendingSuffix": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "homeGoalSaved": "تم توفير {amount}",
+  "@homeGoalSaved": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeGoalRemaining": "باقي {amount}",
+  "@homeGoalRemaining": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeNeedPerMonth": "يلزمك {amount} شهريًا",
+  "@homeNeedPerMonth": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeArrivesOn": "بمعدلك الحالي ستصل {date}",
+  "@homeArrivesOn": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "homeLateBy": "متأخر {months, plural, =1{شهرًا واحدًا} =2{شهرين} few{{months} أشهر} many{{months} شهرًا} other{{months} شهرًا}}",
+  "@homeLateBy": {
+    "placeholders": {
+      "months": {
+        "type": "int"
+      }
+    }
+  },
+  "homeSessionExpiredTitle": "الرجاء تسجيل الدخول مرة أخرى",
+  "homeSessionExpiredBody": "انتهت صلاحية الجلسة، سجّل دخولك للمتابعة.",
+  "homeSignIn": "تسجيل الدخول",
+  "homeLoadFailed": "تعذر تحميل لوحة التحكم الآن",
+  "homeLoadFailedBody": "تحقق من البيانات أو حاول التحديث مرة أخرى.",
+  "homeDailySpend": "المصروفات اليومية",
+  "homeAllAccounts": "كل الحسابات",
+  "homeSetMonthlyBudget": "حدّد ميزانية شهرية لتتابع المتاح",
+  "homeOverMonthBudget": "تجاوزت ميزانية الشهر",
+  "homeSpendAboveUsual": "مصروفك أعلى من المعتاد",
+  "homeSteady": "وضعك مستقر",
+  "homeReviewToStayAccurate": "راجعها لتبقى أرصدتك دقيقة",
+  "homeAvailableFromMonthBudget": "متاح من ميزانية الشهر",
+  "homeNoTxTitle": "لا توجد عمليات مضافة",
+  "homeNoTxBody": "ألصق رسالة الخصم أو الإيداع من البنك، وسيتكفل الذكاء الاصطناعي بتصنيفها تلقائيًا على جهازك.",
+  "homeMoneyFriend": "صديق مالي",
+  "homeTodaySpend": "مصروف اليوم",
+  "homeWeekSpend": "مصروف الأسبوع",
+  "homeMonthSpend": "مصروف الشهر",
+  "homeVsYesterday": "عن أمس",
+  "homeVsLastWeekShort": "عن الأسبوع الماضي",
+  "homeGreeting": "مرحباً 👋",
+  "homeTodayIncome": "دخل اليوم",
+  "homeWeek": "الأسبوع",
+  "homeMonth": "الشهر",
+  "homeMonthlySpend": "المصروفات الشهرية",
+  "homeBudget": "الميزانية",
+  "homeManage": "إدارة",
+  "homeSubsAndInstalments": "الاشتراكات والأقساط",
+  "homeNoBillsOnAccount": "لا توجد اشتراكات ولا أقساط على هذا الحساب.",
+  "homeNoGoalsOnAccount": "لا توجد أهداف على هذا الحساب.",
+  "homeFinishSetup": "أكمل إعداد قِرش ✨",
+  "homeEnableBiometrics": "فعّل قفل البصمة",
+  "homeAddSavingsGoal": "أضف هدف ادخار",
+  "homePlans": "الخطط",
+  "homeNoActivePlans": "لا توجد خطط نشطة",
+  "homeCreatePlanHint": "أنشئ خطة ميزانية للسفر أو المناسبات",
+  "homeNewPlan": "خطة جديدة",
+  "homeSavingsCorner": "ركن التوفير",
+  "homeCouponExpires": "ينتهي {date}",
+  "@homeCouponExpires": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "homeDayAmountSemantics": "{day}، {amount}",
+  "@homeDayAmountSemantics": {
+    "placeholders": {
+      "day": {
+        "type": "String"
+      },
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeVsYesterdayValue": "{value} عن أمس",
+  "@homeVsYesterdayValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "homeExpectedPctOfMonth": "المتوقع {percent}% من الشهر",
+  "@homeExpectedPctOfMonth": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeAheadPct": "مسبّق {percent}%",
+  "@homeAheadPct": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeBehindPct": "متأخر {percent}%",
+  "@homeBehindPct": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeAtThisRatePrefix": "بهذا المعدل ستنهي الشهر على ",
+  "homeOverBudgetBy": "أعلى بـ{amount} عن ميزانيتك.",
+  "@homeOverBudgetBy": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeNofM": "{shown} من {total}",
+  "@homeNofM": {
+    "placeholders": {
+      "shown": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "homeInDaysShort": "بعد {days} ي",
+  "@homeInDaysShort": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "homePerYearAmount": "{amount} {currency} سنويًا",
+  "@homePerYearAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "homeNoBudgetsOnAccount": "لا توجد ميزانيات على هذا الحساب.",
+  "homeActiveBudget": "ميزانية نشطة",
+  "homePartnerOffers": "عروض من شركاء قرش",
+  "homeAllCoupons": "عرض كل الكوبونات",
+  "homeSpentToday": "صرفت اليوم",
+  "homeSevenDayAverage": "متوسط ٧ أيام",
+  "homeSetMonthlyBudgetShort": "حدّد ميزانية شهرية",
+  "homeAvailableToday": "متاح لليوم",
+  "homeTodayTransactions": "عمليات اليوم",
+  "homeTopThreeToday": "أعلى ٣ اليوم",
+  "homeUncategorised": "غير مصنّفة",
+  "homeNoMonthlyBudget": "لا توجد ميزانية شهرية — حدّدها لتعرف المتاح",
+  "homeTopCategories": "أكبر التصنيفات",
+  "homeSubsPerMonth": "اشتراكات شهريًا",
+  "homeInstalmentsPerMonth": "أقساط شهريًا",
+  "homeNextCharge": "أقرب خصم",
+  "homeChargeDatesThisMonth": "مواعيد الخصم خلال الشهر",
+  "homeInstalmentWord": "قسط",
+  "homeNoTxInPeriod": "لا توجد عمليات في هذه الفترة.",
+  "homeSwipeForMore": "اسحب لباقي العمليات · أو «الكل» لصفحة العمليات",
+  "gdSavedOfTarget": "وفّرت {saved} من {target} {currency}",
+  "@gdSavedOfTarget": {
+    "placeholders": {
+      "saved": {
+        "type": "String"
+      },
+      "target": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "gdRemaining": "باقي {amount} {currency}",
+  "@gdRemaining": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "gdRemainingWithDays": "باقي {amount} · {days, plural, =1{يوم واحد} =2{يومان} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}",
+  "@gdRemainingWithDays": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "gdRecommendedDaily": "موصى: {amount} {currency} يوميًا",
+  "@gdRecommendedDaily": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "cdCardTitle": "بطاقة •••• {last4}",
+  "@cdCardTitle": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "gdTitle": "تفاصيل الهدف",
+  "gdAddToGoal": "أضف للهدف",
+  "gdNotFound": "الهدف غير موجود",
+  "gdDeleteGoal": "حذف الهدف",
+  "gdContributions": "المساهمات",
+  "gdNoContributions": "لا توجد مساهمات بعد.",
+  "gdDeleteTitle": "حذف الهدف؟",
+  "gdDeleteBody": "سيتم حذف الهدف ومساهماته نهائياً.",
+  "gdSaveFailed": "تعذّر حفظ المساهمة الآن.",
+  "gdAddContribution": "إضافة مساهمة",
+  "bdgAmount": "المبلغ",
+  "gdSaveContribution": "حفظ المساهمة",
+  "cdCardTransactions": "عمليات هذه البطاقة",
+  "cdNoTxYet": "لا توجد عمليات بعد"
 }

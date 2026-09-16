@@ -5676,6 +5676,606 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'افتح'**
   String get commonOpenImperative;
+
+  /// No description provided for @homeVsLastWeek.
+  ///
+  /// In ar, this message translates to:
+  /// **'{percent}% عن الأسبوع الماضي'**
+  String homeVsLastWeek(int percent);
+
+  /// No description provided for @homePendingReviewTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{عملية واحدة في انتظار مراجعتك} =2{عمليتان في انتظار مراجعتك} few{{count} عمليات في انتظار مراجعتك} many{{count} عملية في انتظار مراجعتك} other{{count} عملية في انتظار مراجعتك}}'**
+  String homePendingReviewTitle(int count);
+
+  /// No description provided for @homeWeekSpentMore.
+  ///
+  /// In ar, this message translates to:
+  /// **'انتبه — إنفاقك أعلى بـ{percent}% عن الأسبوع الماضي. راجع أكثر فئة تنفق فيها.'**
+  String homeWeekSpentMore(int percent);
+
+  /// No description provided for @homeWeekSpentLess.
+  ///
+  /// In ar, this message translates to:
+  /// **'أحسنت — إنفاقك أقل بـ{percent}% عن الأسبوع الماضي. واصل على هذا النحو لتوفّر أكثر.'**
+  String homeWeekSpentLess(int percent);
+
+  /// No description provided for @homeShownTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{عملية واحدة معروضة} =2{عمليتان معروضتان} few{{count} عمليات معروضة} many{{count} عملية معروضة} other{{count} عملية معروضة}}'**
+  String homeShownTx(int count);
+
+  /// No description provided for @homePendingSuffix.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count} قيد المراجعة'**
+  String homePendingSuffix(String count);
+
+  /// No description provided for @homeGoalSaved.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم توفير {amount}'**
+  String homeGoalSaved(String amount);
+
+  /// No description provided for @homeGoalRemaining.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقي {amount}'**
+  String homeGoalRemaining(String amount);
+
+  /// No description provided for @homeNeedPerMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'يلزمك {amount} شهريًا'**
+  String homeNeedPerMonth(String amount);
+
+  /// No description provided for @homeArrivesOn.
+  ///
+  /// In ar, this message translates to:
+  /// **'بمعدلك الحالي ستصل {date}'**
+  String homeArrivesOn(String date);
+
+  /// No description provided for @homeLateBy.
+  ///
+  /// In ar, this message translates to:
+  /// **'متأخر {months, plural, =1{شهرًا واحدًا} =2{شهرين} few{{months} أشهر} many{{months} شهرًا} other{{months} شهرًا}}'**
+  String homeLateBy(int months);
+
+  /// No description provided for @homeSessionExpiredTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرجاء تسجيل الدخول مرة أخرى'**
+  String get homeSessionExpiredTitle;
+
+  /// No description provided for @homeSessionExpiredBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'انتهت صلاحية الجلسة، سجّل دخولك للمتابعة.'**
+  String get homeSessionExpiredBody;
+
+  /// No description provided for @homeSignIn.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الدخول'**
+  String get homeSignIn;
+
+  /// No description provided for @homeLoadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تحميل لوحة التحكم الآن'**
+  String get homeLoadFailed;
+
+  /// No description provided for @homeLoadFailedBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحقق من البيانات أو حاول التحديث مرة أخرى.'**
+  String get homeLoadFailedBody;
+
+  /// No description provided for @homeDailySpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'المصروفات اليومية'**
+  String get homeDailySpend;
+
+  /// No description provided for @homeAllAccounts.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل الحسابات'**
+  String get homeAllAccounts;
+
+  /// No description provided for @homeSetMonthlyBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد ميزانية شهرية لتتابع المتاح'**
+  String get homeSetMonthlyBudget;
+
+  /// No description provided for @homeOverMonthBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاوزت ميزانية الشهر'**
+  String get homeOverMonthBudget;
+
+  /// No description provided for @homeSpendAboveUsual.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروفك أعلى من المعتاد'**
+  String get homeSpendAboveUsual;
+
+  /// No description provided for @homeSteady.
+  ///
+  /// In ar, this message translates to:
+  /// **'وضعك مستقر'**
+  String get homeSteady;
+
+  /// No description provided for @homeReviewToStayAccurate.
+  ///
+  /// In ar, this message translates to:
+  /// **'راجعها لتبقى أرصدتك دقيقة'**
+  String get homeReviewToStayAccurate;
+
+  /// No description provided for @homeAvailableFromMonthBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'متاح من ميزانية الشهر'**
+  String get homeAvailableFromMonthBudget;
+
+  /// No description provided for @homeNoTxTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات مضافة'**
+  String get homeNoTxTitle;
+
+  /// No description provided for @homeNoTxBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ألصق رسالة الخصم أو الإيداع من البنك، وسيتكفل الذكاء الاصطناعي بتصنيفها تلقائيًا على جهازك.'**
+  String get homeNoTxBody;
+
+  /// No description provided for @homeMoneyFriend.
+  ///
+  /// In ar, this message translates to:
+  /// **'صديق مالي'**
+  String get homeMoneyFriend;
+
+  /// No description provided for @homeTodaySpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروف اليوم'**
+  String get homeTodaySpend;
+
+  /// No description provided for @homeWeekSpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروف الأسبوع'**
+  String get homeWeekSpend;
+
+  /// No description provided for @homeMonthSpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروف الشهر'**
+  String get homeMonthSpend;
+
+  /// No description provided for @homeVsYesterday.
+  ///
+  /// In ar, this message translates to:
+  /// **'عن أمس'**
+  String get homeVsYesterday;
+
+  /// No description provided for @homeVsLastWeekShort.
+  ///
+  /// In ar, this message translates to:
+  /// **'عن الأسبوع الماضي'**
+  String get homeVsLastWeekShort;
+
+  /// No description provided for @homeGreeting.
+  ///
+  /// In ar, this message translates to:
+  /// **'مرحباً 👋'**
+  String get homeGreeting;
+
+  /// No description provided for @homeTodayIncome.
+  ///
+  /// In ar, this message translates to:
+  /// **'دخل اليوم'**
+  String get homeTodayIncome;
+
+  /// No description provided for @homeWeek.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأسبوع'**
+  String get homeWeek;
+
+  /// No description provided for @homeMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'الشهر'**
+  String get homeMonth;
+
+  /// No description provided for @homeMonthlySpend.
+  ///
+  /// In ar, this message translates to:
+  /// **'المصروفات الشهرية'**
+  String get homeMonthlySpend;
+
+  /// No description provided for @homeBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'الميزانية'**
+  String get homeBudget;
+
+  /// No description provided for @homeManage.
+  ///
+  /// In ar, this message translates to:
+  /// **'إدارة'**
+  String get homeManage;
+
+  /// No description provided for @homeSubsAndInstalments.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات والأقساط'**
+  String get homeSubsAndInstalments;
+
+  /// No description provided for @homeNoBillsOnAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد اشتراكات ولا أقساط على هذا الحساب.'**
+  String get homeNoBillsOnAccount;
+
+  /// No description provided for @homeNoGoalsOnAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد أهداف على هذا الحساب.'**
+  String get homeNoGoalsOnAccount;
+
+  /// No description provided for @homeFinishSetup.
+  ///
+  /// In ar, this message translates to:
+  /// **'أكمل إعداد قِرش ✨'**
+  String get homeFinishSetup;
+
+  /// No description provided for @homeEnableBiometrics.
+  ///
+  /// In ar, this message translates to:
+  /// **'فعّل قفل البصمة'**
+  String get homeEnableBiometrics;
+
+  /// No description provided for @homeAddSavingsGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف هدف ادخار'**
+  String get homeAddSavingsGoal;
+
+  /// No description provided for @homePlans.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخطط'**
+  String get homePlans;
+
+  /// No description provided for @homeNoActivePlans.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد خطط نشطة'**
+  String get homeNoActivePlans;
+
+  /// No description provided for @homeCreatePlanHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنشئ خطة ميزانية للسفر أو المناسبات'**
+  String get homeCreatePlanHint;
+
+  /// No description provided for @homeNewPlan.
+  ///
+  /// In ar, this message translates to:
+  /// **'خطة جديدة'**
+  String get homeNewPlan;
+
+  /// No description provided for @homeSavingsCorner.
+  ///
+  /// In ar, this message translates to:
+  /// **'ركن التوفير'**
+  String get homeSavingsCorner;
+
+  /// No description provided for @homeCouponExpires.
+  ///
+  /// In ar, this message translates to:
+  /// **'ينتهي {date}'**
+  String homeCouponExpires(String date);
+
+  /// No description provided for @homeDayAmountSemantics.
+  ///
+  /// In ar, this message translates to:
+  /// **'{day}، {amount}'**
+  String homeDayAmountSemantics(String day, String amount);
+
+  /// No description provided for @homeVsYesterdayValue.
+  ///
+  /// In ar, this message translates to:
+  /// **'{value} عن أمس'**
+  String homeVsYesterdayValue(String value);
+
+  /// No description provided for @homeExpectedPctOfMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتوقع {percent}% من الشهر'**
+  String homeExpectedPctOfMonth(int percent);
+
+  /// No description provided for @homeAheadPct.
+  ///
+  /// In ar, this message translates to:
+  /// **'مسبّق {percent}%'**
+  String homeAheadPct(int percent);
+
+  /// No description provided for @homeBehindPct.
+  ///
+  /// In ar, this message translates to:
+  /// **'متأخر {percent}%'**
+  String homeBehindPct(int percent);
+
+  /// No description provided for @homeAtThisRatePrefix.
+  ///
+  /// In ar, this message translates to:
+  /// **'بهذا المعدل ستنهي الشهر على '**
+  String get homeAtThisRatePrefix;
+
+  /// No description provided for @homeOverBudgetBy.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى بـ{amount} عن ميزانيتك.'**
+  String homeOverBudgetBy(String amount);
+
+  /// No description provided for @homeNofM.
+  ///
+  /// In ar, this message translates to:
+  /// **'{shown} من {total}'**
+  String homeNofM(int shown, int total);
+
+  /// No description provided for @homeInDaysShort.
+  ///
+  /// In ar, this message translates to:
+  /// **'بعد {days} ي'**
+  String homeInDaysShort(int days);
+
+  /// No description provided for @homePerYearAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'{amount} {currency} سنويًا'**
+  String homePerYearAmount(String amount, String currency);
+
+  /// No description provided for @homeNoBudgetsOnAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد ميزانيات على هذا الحساب.'**
+  String get homeNoBudgetsOnAccount;
+
+  /// No description provided for @homeActiveBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية نشطة'**
+  String get homeActiveBudget;
+
+  /// No description provided for @homePartnerOffers.
+  ///
+  /// In ar, this message translates to:
+  /// **'عروض من شركاء قرش'**
+  String get homePartnerOffers;
+
+  /// No description provided for @homeAllCoupons.
+  ///
+  /// In ar, this message translates to:
+  /// **'عرض كل الكوبونات'**
+  String get homeAllCoupons;
+
+  /// No description provided for @homeSpentToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'صرفت اليوم'**
+  String get homeSpentToday;
+
+  /// No description provided for @homeSevenDayAverage.
+  ///
+  /// In ar, this message translates to:
+  /// **'متوسط ٧ أيام'**
+  String get homeSevenDayAverage;
+
+  /// No description provided for @homeSetMonthlyBudgetShort.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد ميزانية شهرية'**
+  String get homeSetMonthlyBudgetShort;
+
+  /// No description provided for @homeAvailableToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'متاح لليوم'**
+  String get homeAvailableToday;
+
+  /// No description provided for @homeTodayTransactions.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمليات اليوم'**
+  String get homeTodayTransactions;
+
+  /// No description provided for @homeTopThreeToday.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى ٣ اليوم'**
+  String get homeTopThreeToday;
+
+  /// No description provided for @homeUncategorised.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير مصنّفة'**
+  String get homeUncategorised;
+
+  /// No description provided for @homeNoMonthlyBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد ميزانية شهرية — حدّدها لتعرف المتاح'**
+  String get homeNoMonthlyBudget;
+
+  /// No description provided for @homeTopCategories.
+  ///
+  /// In ar, this message translates to:
+  /// **'أكبر التصنيفات'**
+  String get homeTopCategories;
+
+  /// No description provided for @homeSubsPerMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراكات شهريًا'**
+  String get homeSubsPerMonth;
+
+  /// No description provided for @homeInstalmentsPerMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقساط شهريًا'**
+  String get homeInstalmentsPerMonth;
+
+  /// No description provided for @homeNextCharge.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقرب خصم'**
+  String get homeNextCharge;
+
+  /// No description provided for @homeChargeDatesThisMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'مواعيد الخصم خلال الشهر'**
+  String get homeChargeDatesThisMonth;
+
+  /// No description provided for @homeInstalmentWord.
+  ///
+  /// In ar, this message translates to:
+  /// **'قسط'**
+  String get homeInstalmentWord;
+
+  /// No description provided for @homeNoTxInPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات في هذه الفترة.'**
+  String get homeNoTxInPeriod;
+
+  /// No description provided for @homeSwipeForMore.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسحب لباقي العمليات · أو «الكل» لصفحة العمليات'**
+  String get homeSwipeForMore;
+
+  /// No description provided for @gdSavedOfTarget.
+  ///
+  /// In ar, this message translates to:
+  /// **'وفّرت {saved} من {target} {currency}'**
+  String gdSavedOfTarget(String saved, String target, String currency);
+
+  /// No description provided for @gdRemaining.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقي {amount} {currency}'**
+  String gdRemaining(String amount, String currency);
+
+  /// No description provided for @gdRemainingWithDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقي {amount} · {days, plural, =1{يوم واحد} =2{يومان} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}'**
+  String gdRemainingWithDays(String amount, int days);
+
+  /// No description provided for @gdRecommendedDaily.
+  ///
+  /// In ar, this message translates to:
+  /// **'موصى: {amount} {currency} يوميًا'**
+  String gdRecommendedDaily(String amount, String currency);
+
+  /// No description provided for @cdCardTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقة •••• {last4}'**
+  String cdCardTitle(String last4);
+
+  /// No description provided for @gdTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفاصيل الهدف'**
+  String get gdTitle;
+
+  /// No description provided for @gdAddToGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف للهدف'**
+  String get gdAddToGoal;
+
+  /// No description provided for @gdNotFound.
+  ///
+  /// In ar, this message translates to:
+  /// **'الهدف غير موجود'**
+  String get gdNotFound;
+
+  /// No description provided for @gdDeleteGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الهدف'**
+  String get gdDeleteGoal;
+
+  /// No description provided for @gdContributions.
+  ///
+  /// In ar, this message translates to:
+  /// **'المساهمات'**
+  String get gdContributions;
+
+  /// No description provided for @gdNoContributions.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد مساهمات بعد.'**
+  String get gdNoContributions;
+
+  /// No description provided for @gdDeleteTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الهدف؟'**
+  String get gdDeleteTitle;
+
+  /// No description provided for @gdDeleteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيتم حذف الهدف ومساهماته نهائياً.'**
+  String get gdDeleteBody;
+
+  /// No description provided for @gdSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حفظ المساهمة الآن.'**
+  String get gdSaveFailed;
+
+  /// No description provided for @gdAddContribution.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة مساهمة'**
+  String get gdAddContribution;
+
+  /// No description provided for @bdgAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ'**
+  String get bdgAmount;
+
+  /// No description provided for @gdSaveContribution.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ المساهمة'**
+  String get gdSaveContribution;
+
+  /// No description provided for @cdCardTransactions.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمليات هذه البطاقة'**
+  String get cdCardTransactions;
+
+  /// No description provided for @cdNoTxYet.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات بعد'**
+  String get cdNoTxYet;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

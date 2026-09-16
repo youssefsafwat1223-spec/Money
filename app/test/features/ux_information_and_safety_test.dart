@@ -375,12 +375,29 @@ void main() {
 
     test('each says which account has nothing, not just "empty"', () {
       // The QA paired this with UX-007: now that the chip names the active
-      // account, «على الحساب ده» is a sentence the user can act on.
-      expect(sections, contains('لا توجد ميزانيات على هذا الحساب.'));
-      expect(sections, contains('لا توجد أهداف على هذا الحساب.'));
-      // Subscriptions and instalments now share one section, so the sentence
-      // names both — still the account, still not a bare "empty".
-      expect(sections, contains('لا توجد اشتراكات ولا أقساط على هذا الحساب.'));
+      // account, "nothing on THIS account" is a sentence the user can act on.
+      // The copy ships from the ARB now, so the contract is asserted there —
+      // and in both languages, because a bare "empty" is just as useless in
+      // English as it was in Arabic.
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      const keys = [
+        'homeNoBudgetsOnAccount',
+        'homeNoGoalsOnAccount',
+        // Subscriptions and instalments share one section, so that sentence
+        // names both — still the account, still not a bare "empty".
+        'homeNoBillsOnAccount',
+      ];
+      for (final k in keys) {
+        expect(sections, contains('context.l10n.$k'),
+            reason: '$k must actually be rendered by a Home section');
+        expect(ar[k], contains('هذا الحساب'),
+            reason: '$k must name the account, not just say "empty"');
+        expect(en[k], contains('this account'),
+            reason: '$k must name the account in English too');
+      }
     });
 
     test('the sections a user OWNS survive a period with no transactions', () {

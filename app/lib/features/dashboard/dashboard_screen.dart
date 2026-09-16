@@ -25,18 +25,18 @@ import '../../core/theme/widgets/section_header.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/entities/goal_entity.dart';
-import '../../domain/entities/transaction_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../../domain/finance/daily_allowance.dart';
+import '../../domain/finance/goal_pacing.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/finance/hero_amount_size.dart';
 import '../../domain/finance/money_format.dart';
 import '../../core/security/app_lock_service.dart';
 import '../app/app_shell.dart';
-import '../cards/brand_mark.dart';
-import '../coupons/coupon_models.dart';
 import '../coupons/coupon_widgets.dart';
 import '../coupons/coupons_providers.dart';
 import '../goals/goals_providers.dart';
@@ -45,7 +45,6 @@ import '../plans/plans_providers.dart';
 import '../plans/plans_screen.dart';
 import '../common/app_empty_state.dart';
 import '../common/premium_loading.dart';
-import '../common/transaction_direction.dart';
 // hide SectionHeader — we use the Calm Capital archetype of the same name.
 import '../common/widgets.dart' hide SectionHeader;
 import '../settings/settings_providers.dart';
@@ -54,6 +53,12 @@ import '../transactions/transaction_details_screen.dart';
 import '../transactions/transactions_providers.dart';
 import 'dashboard_providers.dart';
 import 'home_sections_providers.dart';
+import 'widgets/budgets_card.dart';
+import 'widgets/coupons_corner.dart';
+import 'widgets/daily_spend_card.dart';
+import 'widgets/monthly_spend_card.dart';
+import 'widgets/obligations_card.dart';
+import 'widgets/transactions_panel.dart';
 
 /// Home — the Calm Capital flagship dashboard (docs/MALI_DESIGN_SYSTEM.md).
 ///
@@ -94,16 +99,16 @@ class DashboardScreen extends ConsumerWidget {
                 AppSession.instance.handleAuthRequiredFailure();
               });
               return _errorList(
-                title: 'الرجاء تسجيل الدخول مرة أخرى',
-                description: 'انتهت صلاحية الجلسة، سجّل دخولك للمتابعة.',
-                retryLabel: 'تسجيل الدخول',
+                title: context.l10n.homeSessionExpiredTitle,
+                description: context.l10n.homeSessionExpiredBody,
+                retryLabel: context.l10n.homeSignIn,
                 onRetry: () => AppSession.instance.handleAuthRequiredFailure(),
               );
             }
             return _errorList(
-              title: 'تعذر تحميل لوحة التحكم الآن',
-              description: 'تحقق من البيانات أو حاول التحديث مرة أخرى.',
-              retryLabel: 'إعادة المحاولة',
+              title: context.l10n.homeLoadFailed,
+              description: context.l10n.homeLoadFailedBody,
+              retryLabel: context.l10n.annRetry,
               onRetry: () => ref.invalidate(dashboardDataProvider),
             );
           },
@@ -172,38 +177,43 @@ class _HomeBody extends ConsumerWidget {
               const SizedBox(height: AppSpacing.s4),
               const AnnouncementBanner(),
               const _SetupNudgeCard(),
+              // The ledger-shaped sections go quiet when the period has no
+              // rows; everything the user OWNS — budgets, subscriptions,
+              // goals, plans — keeps rendering.
+              //
+              // This used to be one `data.isEmpty` gate around the whole body,
+              // so a range with no transactions hid the budgets the user set,
+              // the subscriptions they are still paying, and the goals they are
+              // still saving for. Those facts are not a function of the
+              // selected period, and hiding them read as the app losing data.
               if (data.isEmpty)
                 _empty(context)
               else ...[
+                const SizedBox(height: AppSpacing.s4),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  child: SectionHeader(title: context.l10n.homeDailySpend),
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                _dailySpend(context, ref),
+                const SizedBox(height: AppSpacing.s4),
                 _afterHero(context, ref),
-                _RecentSection(data: data, privacyMode: privacyMode),
-                // UX-010 — these three sections used to be omitted entirely
-                // when the selected account had nothing in them: «الأهداف»
-                // disappeared on مدى, «الميزانية» on الراجحي, with no header
-                // and no empty state. Switching accounts made whole sections
-                // vanish, which reads as breakage rather than "nothing here for
-                // this account".
-                //
-                // They now always render their header and say which of the two
-                // it is. This is the pairing the QA called for with UX-007 —
-                // now that the chip names the active account, "nothing on this
-                // account" is a sentence the user can act on.
-                //
-                // Note this branch is already inside `!data.isEmpty`: an
-                // account with no data at all still gets the whole-screen empty
-                // state rather than three empty section headers.
-                const SizedBox(height: AppSpacing.s4),
-                _BudgetSection(data: data),
-                const SizedBox(height: AppSpacing.s4),
-                _SubscriptionSection(privacyMode: privacyMode),
-                const SizedBox(height: AppSpacing.s4),
-                _GoalSection(
-                    goal: data.activeGoal, privacyMode: privacyMode),
-                const SizedBox(height: AppSpacing.s4),
-                const _PlansSection(),
-                const SizedBox(height: AppSpacing.s4),
-                const _DashboardCouponsRail(),
+                _TransactionsSection(data: data, privacyMode: privacyMode),
+                const SizedBox(height: AppSpacing.s6),
+                _MonthlySection(data: data, privacyMode: privacyMode),
               ],
+              // UX-010 — a section with nothing in it still renders its header
+              // and says which of the two it is, rather than vanishing.
+              const SizedBox(height: AppSpacing.s6),
+              _BudgetsSection(data: data, privacyMode: privacyMode),
+              const SizedBox(height: AppSpacing.s6),
+              _SubscriptionSection(privacyMode: privacyMode),
+              const SizedBox(height: AppSpacing.s6),
+              _GoalSection(goal: data.activeGoal, privacyMode: privacyMode),
+              const SizedBox(height: AppSpacing.s6),
+              const _PlansSection(),
+              const SizedBox(height: AppSpacing.s6),
+              const _DashboardCouponsRail(),
               const SizedBox(height: AppSpacing.s6),
             ],
           ),
@@ -219,7 +229,7 @@ class _HomeBody extends ConsumerWidget {
     final selectedId = ref.watch(dashboardAccountProvider);
     final String accountLabel;
     if (accounts == null || accounts.isEmpty) {
-      accountLabel = 'كل الحسابات';
+      accountLabel = context.l10n.homeAllAccounts;
     } else {
       final selected = accounts.firstWhere(
         (a) => a.id == selectedId,
@@ -236,14 +246,14 @@ class _HomeBody extends ConsumerWidget {
       // The currency stays as secondary context because Home totals are
       // per-currency and the two accounts may differ.
       accountLabel =
-          '${selected.name} · ${_currencyLabel(selected.currency)}';
+          '${selected.name} · ${_currencyLabel(context, selected.currency)}';
     }
     return Row(
       children: [
         Expanded(
           child: GlassSelector(
             icon: AppLucideIcons.calendarDays,
-            label: data.range.label,
+            label: data.range.labelIn(Localizations.localeOf(context).languageCode),
             onTap: () => _showRangeSheet(context, ref, data.range),
           ),
         ),
@@ -262,6 +272,28 @@ class _HomeBody extends ConsumerWidget {
     );
   }
 
+  // ── «المصروفات اليومية» ────────────────────────────────────────────────────
+
+  Widget _dailySpend(BuildContext context, WidgetRef ref) {
+    final logos = ref.watch(merchantLogosProvider).valueOrNull ??
+        const <String, String>{};
+    return DailySpendCard(
+      todaySpend: data.todaySpend,
+      lastSevenDays: data.lastSevenDays,
+      averageSevenDays: averageDailySpend(data.lastSevenDays, data.currency),
+      availableToday: data.availableToday,
+      todayVsYesterday: data.todayVsYesterday,
+      todayTransactions: data.todayTransactions,
+      todayIsTruncated: data.todayIsTruncated,
+      catalog: data.catalog,
+      currencyLabel: Currency.label(context, data.currency.toUpperCase()),
+      privacyMode: privacyMode,
+      merchantLogos: logos,
+      onTransactionTap: (tx) =>
+          TransactionDetailsScreen.showSheet(context, tx.id),
+    );
+  }
+
   // ── Below-hero context cards (attention + safe-to-spend + insight) ─────────
   // The balance + today's pulse now live in the blue zone ([_BlueZone]); these
   // supporting cards sit at the top of the content sheet.
@@ -272,7 +304,7 @@ class _HomeBody extends ConsumerWidget {
     final ratio = data.weekChangeRatio;
     final spentMore = ratio > 0.001;
     final trendText = (ratio.abs() > 0.001)
-        ? '${(ratio.abs() * 100).round()}% عن الأسبوع الماضي'
+        ? context.l10n.homeVsLastWeek((ratio.abs() * 100).round())
         : null;
 
     final hasBudget =
@@ -282,12 +314,12 @@ class _HomeBody extends ConsumerWidget {
     final over = hasBudget && data.monthlyBudgetRatio >= 1.0;
     final tight = hasBudget && data.monthlyBudgetRatio >= 0.8;
     final verdict = !hasBudget
-        ? 'حدّد ميزانية شهرية لتتابع المتاح'
+        ? context.l10n.homeSetMonthlyBudget
         : over
-            ? 'تجاوزت ميزانية الشهر'
+            ? context.l10n.homeOverMonthBudget
             : tight
-                ? 'مصروفك أعلى من المعتاد'
-                : 'وضعك مستقر';
+                ? context.l10n.homeSpendAboveUsual
+                : context.l10n.homeSteady;
     final ringColor = over ? c.danger : (tight ? c.warning : c.income);
 
     return Column(
@@ -297,8 +329,8 @@ class _HomeBody extends ConsumerWidget {
           AttentionCard(
             icon: AppLucideIcons.inbox,
             title:
-                '${data.pendingReviewCount} ${data.pendingReviewCount == 1 ? 'عملية' : 'عمليات'} في انتظار مراجعتك',
-            subtitle: 'راجعها عشان أرصدتك تفضل مظبوطة',
+                context.l10n.homePendingReviewTitle(data.pendingReviewCount),
+            subtitle: context.l10n.homeReviewToStayAccurate,
             onTap: () {
               HapticFeedback.selectionClick();
               ref.read(shellIndexProvider.notifier).state = 1;
@@ -335,7 +367,7 @@ class _HomeBody extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text('متاح من ميزانية الشهر',
+                    Text(context.l10n.homeAvailableFromMonthBudget,
                         style: AppTypography.caption(t.textOnCanvasMuted)),
                     const SizedBox(height: 2),
                     Text(verdict,
@@ -350,10 +382,10 @@ class _HomeBody extends ConsumerWidget {
         if (trendText != null) ...[
           const SizedBox(height: AppSpacing.s4),
           InsightCard(
-            label: 'ملخص الأسبوع',
+            label: context.l10n.rptWeekSummary,
             message: spentMore
-                ? 'انتبه — مصروفك أعلى بـ${(ratio.abs() * 100).round()}% عن الأسبوع اللي فات. راجع أكتر فئة بتصرف فيها.'
-                : 'أحسنت — مصروفك أقل بـ${(ratio.abs() * 100).round()}% عن الأسبوع اللي فات. كمّل كده وهتوفّر أكتر.',
+                ? context.l10n.homeWeekSpentMore((ratio.abs() * 100).round())
+                : context.l10n.homeWeekSpentLess((ratio.abs() * 100).round()),
           ),
         ],
         const SizedBox(height: AppSpacing.s4),
@@ -361,18 +393,18 @@ class _HomeBody extends ConsumerWidget {
     );
   }
 
-  Widget _empty(BuildContext context) => const Padding(
-        padding: EdgeInsets.only(top: AppSpacing.s5),
+  Widget _empty(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: AppSpacing.s5),
         child: AppEmptyState(
           icon: AppLucideIcons.receipt,
-          title: 'لا توجد عمليات مضافة',
+          title: context.l10n.homeNoTxTitle,
           subtitle:
-              'ألصق رسالة الخصم أو الإيداع من البنك، وسيتكفل الذكاء الاصطناعي بتصنيفها تلقائياً على جهازك.',
+              context.l10n.homeNoTxBody,
         ),
       );
 
-  String _currencyLabel(String currency) =>
-      Currency.arabicLabel(currency.toUpperCase());
+  String _currencyLabel(BuildContext context, String currency) =>
+      Currency.label(context, currency.toUpperCase());
 
   // ── Range sheet (preserved from the previous screen) ───────────────────────
 
@@ -391,7 +423,7 @@ class _HomeBody extends ConsumerWidget {
         builder: (context, setState) {
           final c = context.colors;
           return AppSheetScaffold(
-            title: 'اختار فترة العرض',
+            title: context.l10n.txnPickRange,
             scrollable: true,
             body: Padding(
               padding:
@@ -405,7 +437,7 @@ class _HomeBody extends ConsumerWidget {
                     children: [
                       for (final preset in TransactionsDatePreset.values)
                         ChoiceChip(
-                          label: Text(_presetLabel(preset)),
+                          label: Text(_presetLabel(context, preset)),
                           selected: current.preset == preset,
                           onSelected: (_) {
                             if (preset == TransactionsDatePreset.custom) {
@@ -437,7 +469,7 @@ class _HomeBody extends ConsumerWidget {
                         children: [
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('من'),
+                            title: Text(context.l10n.txnFrom),
                             subtitle: Text(Formatters.fullDate(from, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
@@ -455,7 +487,7 @@ class _HomeBody extends ConsumerWidget {
                           ),
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('إلى'),
+                            title: Text(context.l10n.txnTo),
                             subtitle: Text(Formatters.fullDate(to, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
@@ -488,7 +520,7 @@ class _HomeBody extends ConsumerWidget {
                       );
                       Navigator.of(context).pop();
                     },
-              child: const Text('تطبيق الفترة المخصصة'),
+              child: Text(context.l10n.txnApplyCustomRange),
             ),
           );
         },
@@ -496,17 +528,18 @@ class _HomeBody extends ConsumerWidget {
     );
   }
 
-  String _presetLabel(TransactionsDatePreset preset) => switch (preset) {
-        TransactionsDatePreset.today => 'اليوم',
-        TransactionsDatePreset.thisWeek => 'هذا الأسبوع',
-        TransactionsDatePreset.thisMonth => 'هذا الشهر',
-        TransactionsDatePreset.previousMonth => 'الشهر السابق',
-        TransactionsDatePreset.last7Days => 'آخر 7 أيام',
-        TransactionsDatePreset.last30Days => 'آخر 30 يوم',
-        TransactionsDatePreset.last90Days => 'آخر 90 يوم',
-        TransactionsDatePreset.thisYear => 'هذه السنة',
-        TransactionsDatePreset.previousYear => 'السنة الماضية',
-        TransactionsDatePreset.custom => 'مخصص',
+  String _presetLabel(BuildContext context, TransactionsDatePreset preset) =>
+      switch (preset) {
+        TransactionsDatePreset.today => context.l10n.txnRangeToday,
+        TransactionsDatePreset.thisWeek => context.l10n.txnRangeThisWeek,
+        TransactionsDatePreset.thisMonth => context.l10n.txnRangeThisMonth,
+        TransactionsDatePreset.previousMonth => context.l10n.txnRangeLastMonth,
+        TransactionsDatePreset.last7Days => context.l10n.txnRange7,
+        TransactionsDatePreset.last30Days => context.l10n.txnRange30,
+        TransactionsDatePreset.last90Days => context.l10n.txnRange90,
+        TransactionsDatePreset.thisYear => context.l10n.txnRangeThisYear,
+        TransactionsDatePreset.previousYear => context.l10n.txnRangeLastYear,
+        TransactionsDatePreset.custom => context.l10n.txnRangeCustom,
       };
 }
 
@@ -531,13 +564,13 @@ class _BlueZone extends ConsumerWidget {
   static const _income = Color(0xFF4ADE80);
   static const _expenseNet = Color(0xFFFCA5A5);
 
-  String _name() {
+  String _name(BuildContext context) {
     final n = displayName?.trim();
     if (n != null && n.isNotEmpty) return n;
     final email = AppSession.instance.email;
-    if (email == null || email.trim().isEmpty) return 'صديق مالي';
+    if (email == null || email.trim().isEmpty) return context.l10n.homeMoneyFriend;
     final local = email.split('@').first.trim();
-    if (local.isEmpty || local.toLowerCase() == 'user') return 'صديق مالي';
+    if (local.isEmpty || local.toLowerCase() == 'user') return context.l10n.homeMoneyFriend;
     return local.replaceAll(RegExp(r'[._]'), ' ');
   }
 
@@ -553,18 +586,38 @@ class _BlueZone extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final topPad = MediaQuery.paddingOf(context).top;
-    final name = _name();
+    final name = _name(context);
     final path = avatarPath?.trim();
     final file = (path == null || path.isEmpty) ? null : File(path);
     final hasImage = file != null && file.existsSync();
 
-    final heroValue = data.rangeExpense;
-    final ratio = data.weekChangeRatio;
-    final hasTrend = ratio.abs() > 0.001;
+    final period = ref.watch(heroPeriodProvider);
+    final heroValue = switch (period) {
+      HeroPeriod.day => data.todaySpend,
+      HeroPeriod.week => data.weekSpend,
+      HeroPeriod.month => data.spentThisMonth,
+    };
+    final heroLabel = switch (period) {
+      HeroPeriod.day => context.l10n.homeTodaySpend,
+      HeroPeriod.week => context.l10n.homeWeekSpend,
+      HeroPeriod.month => context.l10n.homeMonthSpend,
+    };
+    // The comparison shown is the one that period actually HAS. There is no
+    // calendar month-over-month aggregate on this provider — `savedThisMonth`
+    // compares against a window that follows the range filter, not the previous
+    // month — so the month tab shows no trend rather than a wrong one.
+    final ratio = switch (period) {
+      HeroPeriod.day => data.todayVsYesterday,
+      HeroPeriod.week => data.weekChangeRatio,
+      HeroPeriod.month => null,
+    };
+    final trendSuffix =
+        period == HeroPeriod.day ? context.l10n.homeVsYesterday : context.l10n.homeVsLastWeekShort;
+    final hasTrend = ratio != null && ratio.abs() > 0.001;
     final todayNet = data.todayIncome - data.todaySpend;
     String signed(Money value) =>
         '${value.isNegative ? '−' : '+'}${Formatters.amount((value.isNegative ? -value : value).toDouble())}';
-    final currencyLabel = Currency.arabicLabel(data.currency.toUpperCase());
+    final currencyLabel = Currency.label(context, data.currency.toUpperCase());
 
     final meltBg = _sheetBg(context);
     // الأزرق بيكمّل تحت حدود الهيرو (بيترسم قبل الشيت فبيفضل وراه): الذوبان
@@ -650,7 +703,7 @@ class _BlueZone extends ConsumerWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('مرحباً 👋',
+                        Text(context.l10n.homeGreeting,
                             style: AppTypography.footnote(
                                 Colors.white.withValues(alpha: 0.75))),
                         const SizedBox(height: 2),
@@ -686,11 +739,17 @@ class _BlueZone extends ConsumerWidget {
                   const _AddButton(),
                 ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
+              _PeriodSegments(
+                selected: period,
+                onSelect: (value) =>
+                    ref.read(heroPeriodProvider.notifier).state = value,
+              ),
+              const SizedBox(height: 14),
               // Financial hierarchy: label → amount (the clear focus) → trend.
               Row(
                 children: [
-                  Text('إجمالي المصروفات',
+                  Text(heroLabel,
                       style: AppTypography.caption(
                           Colors.white.withValues(alpha: 0.75))),
                   const SizedBox(width: 6),
@@ -737,7 +796,7 @@ class _BlueZone extends ConsumerWidget {
               }),
               if (hasTrend) ...[
                 const SizedBox(height: 9),
-                _trendChip(ratio),
+                _trendChip(ratio, trendSuffix),
               ],
               const SizedBox(height: 14),
               // Today's pulse — restrained glass chrome on the hero: translucent
@@ -762,21 +821,21 @@ class _BlueZone extends ConsumerWidget {
                 child: Row(
                   children: [
                     _pulseCell(
-                        'دخل اليوم',
+                        context.l10n.homeTodayIncome,
                         privacyMode
                             ? '••••'
                             : '+${Formatters.amount(data.todayIncome.toDouble())}',
                         _income),
                     _pulseDivider(),
                     _pulseCell(
-                        'مصروف اليوم',
+                        context.l10n.homeTodaySpend,
                         privacyMode
                             ? '••••'
                             : '−${Formatters.amount(data.todaySpend.toDouble())}',
                         Colors.white),
                     _pulseDivider(),
                     _pulseCell(
-                        'الصافي',
+                        context.l10n.rptNet,
                         privacyMode ? '••••' : signed(todayNet),
                         todayNet.isNegative ? _expenseNet : _income),
                   ],
@@ -791,7 +850,7 @@ class _BlueZone extends ConsumerWidget {
 
   /// Secondary weekly-comparison chip under the hero amount. Percentages are
   /// capped for display so an unusual spike can never break the layout.
-  Widget _trendChip(double ratio) {
+  Widget _trendChip(double ratio, String suffix) {
     final spentMore = ratio > 0;
     final pct = (ratio.abs() * 100).round();
     final label = pct > 999 ? '+999%' : '$pct%';
@@ -814,7 +873,7 @@ class _BlueZone extends ConsumerWidget {
               ),
               const SizedBox(width: 4),
               Text(
-                '$label عن الأسبوع الماضي',
+                '$label $suffix',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style:
@@ -873,6 +932,86 @@ class _BlueZone extends ConsumerWidget {
       );
 }
 
+/// The hero's اليوم / الأسبوع / الشهر switch.
+///
+/// Its own widget rather than the shared `SegmentedControl` for two reasons:
+/// it lives on the blue hero (white-on-blue, not the canvas palette), and the
+/// shared control is a bare `GestureDetector` with no button/selected
+/// semantics — which a primary control on the app's first screen cannot be.
+/// Each option here is a real [Semantics] button announcing its selected
+/// state, with a 44px touch target.
+class _PeriodSegments extends StatelessWidget {
+  const _PeriodSegments({required this.selected, required this.onSelect});
+
+  final HeroPeriod selected;
+  final ValueChanged<HeroPeriod> onSelect;
+
+  // Was a `static const` map. Localized copy cannot be const, and a table
+  // built once at class-load would freeze whichever language was active then.
+  static String _label(BuildContext context, HeroPeriod p) => switch (p) {
+        HeroPeriod.day => context.l10n.txnRangeToday,
+        HeroPeriod.week => context.l10n.homeWeek,
+        HeroPeriod.month => context.l10n.homeMonth,
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.16)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (final period in HeroPeriod.values)
+              _segment(period, _label(context, period), period == selected),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _segment(HeroPeriod period, String label, bool isSelected) {
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: label,
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () {
+          HapticFeedback.selectionClick();
+          onSelect(period);
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+          constraints: const BoxConstraints(minHeight: 38, minWidth: 62),
+          alignment: Alignment.center,
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: isSelected ? Colors.white : Colors.transparent,
+            borderRadius: BorderRadius.circular(AppRadius.pill),
+          ),
+          child: Text(
+            label,
+            style: AppTypography.caption(
+              isSelected
+                  ? AppBrandBlue.brand
+                  : Colors.white.withValues(alpha: 0.72),
+            ).copyWith(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 /// White add button in the blue zone — opens the add-transaction flow.
 class _AddButton extends StatelessWidget {
   const _AddButton();
@@ -927,254 +1066,141 @@ class _Sheet extends StatelessWidget {
   }
 }
 
-// ─── Recent transactions timeline ─────────────────────────────────────────────
+// ─── العمليات — القايمة كاملة بسكرول داخلي ────────────────────────────────────
 
-class _RecentSection extends ConsumerWidget {
-  const _RecentSection({required this.data, required this.privacyMode});
+class _TransactionsSection extends ConsumerWidget {
+  const _TransactionsSection({required this.data, required this.privacyMode});
+
   final DashboardData data;
   final bool privacyMode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final recent = data.recent.take(8).toList();
+    final t = MaliTokens.of(context);
     final logos = ref.watch(merchantLogosProvider).valueOrNull ??
         const <String, String>{};
+    final days = groupByDay(data.recent);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        const SizedBox(height: AppSpacing.s6),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: SectionHeader(
-            title: 'آخر العمليات',
-            trailing: 'الكل',
+            title: context.l10n.txnTabTransactions,
+            trailing: context.l10n.bdgFilterAll,
             onTrailingTap: () =>
                 ref.read(shellIndexProvider.notifier).state = 1,
           ),
         ),
-        const SizedBox(height: AppSpacing.s3),
-        // نفس بطاقة/صف صفحة العمليات بالظبط — عشان الصفّين يقروا واحد.
-        MaliCard(
-          style: MaliSurfaceStyle.floating,
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: recent.isEmpty
-              ? Padding(
-                  padding: const EdgeInsets.all(AppSpacing.cardPadding),
-                  child: Text('لا توجد عمليات بعد',
-                      textAlign: TextAlign.center,
-                      style: AppTypography.caption(
-                          MaliTokens.of(context).textOnCanvasMuted)),
-                )
-              : Column(
-                  children: [
-                    for (final tx in recent) _recentRow(context, tx, logos),
-                  ],
+        const SizedBox(height: AppSpacing.s2),
+        // The counter describes the SLICE this panel renders, not the ledger —
+        // `recent` is a bounded read, and «قيد المراجعة» is itself capped.
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  context.l10n.homeShownTx(data.recent.length) +
+                      (data.pendingReviewCount > 0
+                          ? ' · ${context.l10n.homePendingSuffix('${data.pendingReviewCount}'
+                              '${data.pendingReviewIsCapped ? '+' : ''}')}'
+                          : ''),
+                  style: AppTypography.micro(t.textOnCanvasMuted),
                 ),
+              ),
+              Text(
+                privacyMode
+                    ? '••••'
+                    : '${formatMoney(data.rangeExpense)} '
+                        '${Currency.label(context, data.currency.toUpperCase())}',
+                style: AppTypography.micro(t.textOnCanvasSecondary),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.s2),
+        TransactionsPanel(
+          days: days,
+          catalog: data.catalog,
+          privacyMode: privacyMode,
+          merchantLogos: logos,
+          onTap: (tx) => TransactionDetailsScreen.showSheet(context, tx.id),
         ),
       ],
     );
   }
-
-  Widget _recentRow(
-    BuildContext context,
-    TransactionEntity tx,
-    Map<String, String> logos,
-  ) {
-    final category = data.catalog.byId(tx.categoryId);
-    final title = tx.rawMerchant ?? category?.nameAr ?? 'عملية';
-    return AppTransactionRow(
-      title: title,
-      amount: tx.amount,
-      currency: Currency.arabicLabel(tx.currency),
-      subtitle:
-          '${Formatters.time(tx.occurredAt)} · ${category?.nameAr ?? 'غير مصنّفة'}',
-      categoryIconName: category?.iconName,
-      categoryColor: category?.color,
-      brandLogoUrl: BrandMark.logoFor(title, logos),
-      isPending: tx.status == TransactionStatus.pending,
-      isAi: tx.source == TransactionSourceEntity.aiParsed,
-      isDebit: transactionIsDebit(tx),
-      privacyMode: privacyMode,
-      horizontalPadding: 14,
-      onTap: () => TransactionDetailsScreen.showSheet(context, tx.id),
-    );
-  }
 }
 
-// ─── Budgets ──────────────────────────────────────────────────────────────────
+// ─── المصروفات الشهرية ────────────────────────────────────────────────────────
 
-class _BudgetSection extends ConsumerWidget {
-  const _BudgetSection({required this.data});
+class _MonthlySection extends ConsumerWidget {
+  const _MonthlySection({required this.data, required this.privacyMode});
+
   final DashboardData data;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.colors;
-    final entries = data.budgetProgress.toList();
-    Color toneOf(double ratio) =>
-        ratio >= 1.0 ? c.danger : (ratio >= 0.8 ? c.warning : c.income);
-    // UX-010 — «الميزانية» disappeared entirely on an account with no budget.
-    if (entries.isEmpty) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 4),
-            child: SectionHeader(
-              title: 'الميزانية',
-              trailing: 'إدارة',
-              onTrailingTap: () => context.push('/budgets'),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.s2),
-          const _SectionEmptyNote('مفيش ميزانيات على الحساب ده.'),
-        ],
-      );
-    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: SectionHeader(
-            title: 'الميزانية',
-            trailing: 'إدارة',
+            title: context.l10n.homeMonthlySpend,
+            trailing: context.l10n.homeBudget,
             onTrailingTap: () => context.push('/budgets'),
           ),
         ),
         const SizedBox(height: AppSpacing.s3),
-        if (entries.length == 1)
-          GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: () => context.push('/budgets'),
-            child: _BudgetWideCard(
-                entry: entries.first, tone: toneOf(entries.first.ratio)),
-          )
-        else
-          // صندوق واحد بارتفاع ثابت: الميزانيات بتتسكرول جوّاه بدل ما
-          // الصفحة تطول بعددها.
-          MaliCard(
-            style: MaliSurfaceStyle.floating,
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: _budgetBoxHeight),
-              child: ListView.builder(
-                shrinkWrap: true,
-                padding: EdgeInsets.zero,
-                itemCount: entries.length,
-                itemBuilder: (context, i) => _BudgetRow(
-                  entry: entries[i],
-                  tone: toneOf(entries[i].ratio),
-                ),
-              ),
-            ),
-          ),
+        MonthlySpendCard(
+          spent: data.spentThisMonth,
+          limit: data.monthlyBudgetLimit,
+          ratio: data.monthlyBudgetRatio,
+          monthElapsedRatio: data.monthElapsedRatio,
+          projectedMonthSpend: data.projectedMonthSpend,
+          categories: data.topCategories,
+          categoryCount: data.categoryCount,
+          currencyLabel: Currency.label(context, data.currency.toUpperCase()),
+          privacyMode: privacyMode,
+          onCategoryTap: () =>
+              ref.read(shellIndexProvider.notifier).state = 4,
+        ),
       ],
     );
   }
 }
 
-/// ارتفاع صندوق الميزانيات ≈ ٣ صفوف — أي حاجة زيادة بتتسكرول جوّاه.
-const double _budgetBoxHeight = 204;
+// ─── الميزانيات ───────────────────────────────────────────────────────────────
 
-/// صفّ ميزانية داخل الصندوق: حلقة + الاسم + المصروف/الحد.
-class _BudgetRow extends StatelessWidget {
-  const _BudgetRow({required this.entry, required this.tone});
-  final DashboardBudgetEntry entry;
-  final Color tone;
+class _BudgetsSection extends StatelessWidget {
+  const _BudgetsSection({required this.data, required this.privacyMode});
+
+  final DashboardData data;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
-    final t = MaliTokens.of(context);
-    final ratio = entry.limit.isZero || entry.limit.isNegative
-        ? null
-        : entry.ratio.clamp(0.0, 1.0);
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        onTap: () => context.push('/budgets'),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-          child: Row(
-            children: [
-              RingProgress(
-                value: ratio,
-                size: 44,
-                strokeWidth: 5,
-                color: tone,
-                child: Text(ratio == null ? '—' : '${(ratio * 100).round()}%',
-                    style: AppTypography.caption(t.textOnCanvasPrimary)),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(entry.label,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
-                    const SizedBox(height: 3),
-                    Text(
-                      '${Formatters.amount(entry.spent.toDouble())} / ${Formatters.amount(entry.limit.toDouble())}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(t.textOnCanvasSecondary),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: SectionHeader(
+            title: context.l10n.helpBudgetsTitle,
+            trailing: context.l10n.homeManage,
+            onTrailingTap: () => context.push('/budgets'),
           ),
         ),
-      ),
-    );
-  }
-}
-
-/// Full-width budget card used when there's only one budget — a ring + label +
-/// spent/limit, instead of a single ring floating in an empty rings row.
-class _BudgetWideCard extends StatelessWidget {
-  const _BudgetWideCard({required this.entry, required this.tone});
-  final DashboardBudgetEntry entry;
-  final Color tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = MaliTokens.of(context);
-    final ratio = entry.limit.isZero || entry.limit.isNegative
-        ? null
-        : entry.ratio.clamp(0.0, 1.0);
-    return MaliCard(
-      style: MaliSurfaceStyle.floating,
-      child: Row(
-        children: [
-          RingProgress(
-            value: ratio,
-            size: 84,
-            strokeWidth: 8,
-            color: tone,
-            child: Text(ratio == null ? '—' : '${(ratio * 100).round()}%',
-                style: AppTypography.subhead(t.textOnCanvasPrimary)),
-          ),
-          const SizedBox(width: 18),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(entry.label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
-                const SizedBox(height: 6),
-                Text(
-                  '${Formatters.amount(entry.spent.toDouble())} / ${Formatters.amount(entry.limit.toDouble())}',
-                  style: AppTypography.caption(t.textOnCanvasSecondary),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
+        const SizedBox(height: AppSpacing.s3),
+        BudgetsCard(
+          entries: data.budgetProgress,
+          privacyMode: privacyMode,
+          onTap: () => context.push('/budgets'),
+        ),
+      ],
     );
   }
 }
@@ -1187,175 +1213,57 @@ class _SubscriptionSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(homeSubscriptionsProvider);
-    return async.when(
-      skipLoadingOnReload: true,
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (subs) {
-        // UX-010 — an empty subscriptions list used to remove the section
-        // silently, so switching accounts made it vanish with no explanation.
-        if (subs.isEmpty) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 4),
-                child: SectionHeader(
-                  title: 'الاشتراكات',
-                  trailing: 'الكل',
-                  onTrailingTap: () => context.push('/subscriptions'),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s2),
-              const _SectionEmptyNote('مفيش اشتراكات على الحساب ده.'),
-            ],
-          );
-        }
-        final items = subs.take(6).toList();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: SectionHeader(
-                title: 'الاشتراكات',
-                trailing: 'الكل',
-                onTrailingTap: () => context.push('/subscriptions'),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            if (items.length == 1)
-              GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => context.push('/subscriptions'),
-                child:
-                    _SubWideCard(bill: items.first, privacyMode: privacyMode),
-              )
-            else
-              SizedBox(
-                height: 156,
-                child: ListView.separated(
-                  clipBehavior: Clip.none,
-                  scrollDirection: Axis.horizontal,
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, i) => GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () => context.push('/subscriptions'),
-                    child: _SubCard(bill: items[i], privacyMode: privacyMode),
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
+    final subs = ref.watch(homeSubscriptionsProvider).valueOrNull;
+    final insts = ref.watch(homeInstallmentsProvider).valueOrNull;
+    final currency = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
+    // valueOrNull, not `when`: a reload must not collapse the section to
+    // nothing and back — the previous render holds while the next one loads.
+    if (subs == null && insts == null) return const SizedBox.shrink();
 
-class _SubCard extends StatelessWidget {
-  const _SubCard({required this.bill, required this.privacyMode});
-  final BillEntity bill;
-  final bool privacyMode;
+    final subscriptions = subs ?? const <BillEntity>[];
+    final installments = insts ?? const <BillEntity>[];
 
-  @override
-  Widget build(BuildContext context) {
-    final t = MaliTokens.of(context);
-    final today = DateTime.now();
-    final days = bill.nextDueDate
-        .difference(DateTime(today.year, today.month, today.day))
-        .inDays;
-    final due = days < 0
-        ? 'متأخر ${days.abs()} يوم'
-        : days == 0
-            ? 'مستحق اليوم'
-            : 'بعد $days يوم';
-    return SizedBox(
-      width: 160,
-      child: MaliCard(
-        style: MaliSurfaceStyle.floating,
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            AppAvatar.brand(name: bill.name),
-            const Spacer(),
-            Text(bill.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.subhead(t.textOnCanvasPrimary)),
-            const SizedBox(height: 4),
-            Text(due,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: AppTypography.caption(t.textOnCanvasMuted)),
-            const SizedBox(height: 6),
-            Text(
-              privacyMode
-                  ? '••••'
-                  : '${Formatters.amount(bill.amount)} ${Currency.arabicLabel(bill.currency.toUpperCase())}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: AppTypography.bodyStrong(t.textOnCanvasPrimary),
-            ),
-          ],
-        ),
+    final header = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      child: SectionHeader(
+        title: context.l10n.homeSubsAndInstalments,
+        trailing: context.l10n.bdgFilterAll,
+        onTrailingTap: () => context.push('/subscriptions'),
       ),
     );
-  }
-}
 
-/// Full-width subscription card used when there's only one — avoids the empty
-/// gap a single narrow rail card leaves.
-class _SubWideCard extends StatelessWidget {
-  const _SubWideCard({required this.bill, required this.privacyMode});
-  final BillEntity bill;
-  final bool privacyMode;
-
-  @override
-  Widget build(BuildContext context) {
-    final t = MaliTokens.of(context);
-    final today = DateTime.now();
-    final days = bill.nextDueDate
-        .difference(DateTime(today.year, today.month, today.day))
-        .inDays;
-    final due = days < 0
-        ? 'متأخر ${days.abs()} يوم'
-        : days == 0
-            ? 'مستحق اليوم'
-            : 'بعد $days يوم';
-    return MaliCard(
-      style: MaliSurfaceStyle.floating,
-      child: Row(
+    // UX-010 — an empty list keeps its header and says so, rather than making
+    // the whole section disappear when the account changes.
+    if (subscriptions.isEmpty && installments.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          AppAvatar.brand(name: bill.name),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(bill.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
-                const SizedBox(height: 3),
-                Text(due, style: AppTypography.caption(t.textOnCanvasMuted)),
-              ],
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            privacyMode
-                ? '••••'
-                : '${Formatters.amount(bill.amount)} ${Currency.arabicLabel(bill.currency.toUpperCase())}',
-            style: AppTypography.bodyStrong(t.textOnCanvasPrimary),
-          ),
+          header,
+          const SizedBox(height: AppSpacing.s2),
+          _SectionEmptyNote(context.l10n.homeNoBillsOnAccount),
         ],
-      ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        header,
+        const SizedBox(height: AppSpacing.s3),
+        ObligationsCard(
+          subscriptions: subscriptions,
+          installments: installments,
+          displayCurrency: currency,
+          currencyLabel: Currency.label(context, currency.toUpperCase()),
+          privacyMode: privacyMode,
+          now: DateTime.now(),
+          onTap: (_) => context.push('/subscriptions'),
+        ),
+      ],
     );
   }
 }
+
 
 // ─── Goal ─────────────────────────────────────────────────────────────────────
 
@@ -1401,13 +1309,13 @@ class _GoalSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: SectionHeader(
-              title: 'الأهداف',
-              trailing: 'الكل',
+              title: context.l10n.bdgTabGoals,
+              trailing: context.l10n.bdgFilterAll,
               onTrailingTap: () => context.push('/goals'),
             ),
           ),
           const SizedBox(height: AppSpacing.s2),
-          const _SectionEmptyNote('مفيش أهداف على الحساب ده.'),
+          _SectionEmptyNote(context.l10n.homeNoGoalsOnAccount),
         ],
       );
     }
@@ -1420,8 +1328,8 @@ class _GoalSection extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 4),
           child: SectionHeader(
-            title: 'الأهداف',
-            trailing: 'الكل',
+            title: context.l10n.bdgTabGoals,
+            trailing: context.l10n.bdgFilterAll,
             onTrailingTap: () => context.push('/goals'),
           ),
         ),
@@ -1479,19 +1387,26 @@ class _GoalSection extends StatelessWidget {
                     Expanded(
                       child: Text(
                         privacyMode
-                            ? 'تم توفير ••••'
-                            : 'تم توفير ${Formatters.amount(goal.savedAmount)}',
+                            ? context.l10n.homeGoalSaved('••••')
+                            : context.l10n.homeGoalSaved(
+                                Formatters.amount(goal.savedAmount)),
                         style: AppTypography.caption(t.textOnCanvasSecondary),
                       ),
                     ),
                     Text(
                       privacyMode
-                          ? 'باقي ••••'
-                          : 'باقي ${Formatters.amount((goal.targetAmount - goal.savedAmount).clamp(0, double.infinity))}',
+                          ? context.l10n.homeGoalRemaining('••••')
+                          : context.l10n.homeGoalRemaining(Formatters.amount(
+                              (goal.targetAmount - goal.savedAmount)
+                                  .clamp(0, double.infinity))),
                       style: AppTypography.caption(t.textOnCanvasSecondary),
                     ),
                   ],
                 ),
+                // UX-025 continued — the rate the deadline DEMANDS, next to
+                // where the user's own rate actually lands. A goal with neither
+                // is a number; with both it is a plan they can correct.
+                ..._pacing(context, c, t, goal),
               ],
             ),
           ),
@@ -1499,6 +1414,72 @@ class _GoalSection extends StatelessWidget {
       ],
     );
   }
+
+  /// Renders the pacing line, or nothing when there is nothing honest to say
+  /// (no deadline, goal already met, or no contributions yet to project from).
+  List<Widget> _pacing(
+    BuildContext context,
+    AppColors c,
+    MaliTokens t,
+    GoalEntity goal,
+  ) {
+    final now = DateTime.now();
+    final pacing = goalPacing(
+      target: goal.targetMoney,
+      saved: goal.savedMoney,
+      deadline: goal.deadline,
+      now: now,
+    );
+    final projection = goalProjection(
+      target: goal.targetMoney,
+      saved: goal.savedMoney,
+      createdAt: goal.createdAt,
+      deadline: goal.deadline,
+      now: now,
+    );
+
+    final required = pacing.requiredPerMonth;
+    final arrival = projection.arrivesOn;
+    if (required == null && arrival == null) return const <Widget>[];
+
+    final parts = <String>[
+      if (required != null)
+        context.l10n.homeNeedPerMonth(
+            privacyMode ? '••••' : formatMoney(required)),
+      if (arrival != null)
+        context.l10n.homeArrivesOn(Formatters.monthYear(arrival, context)) +
+            (projection.isLate
+                ? ' — ${context.l10n.homeLateBy(projection.monthsLate!)}'
+                : ''),
+    ];
+
+    return [
+      const SizedBox(height: 9),
+      Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            projection.isLate
+                ? AppLucideIcons.alertTriangle
+                : AppLucideIcons.info,
+            size: 14,
+            color: projection.isLate ? c.warning : t.textOnCanvasMuted,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              parts.join(' · '),
+              style: AppTypography.caption(
+                projection.isLate ? c.warning : t.textOnCanvasSecondary,
+              ).copyWith(height: 1.5),
+            ),
+          ),
+        ],
+      ),
+    ];
+  }
+
+
 }
 
 // ─── Setup nudge ──────────────────────────────────────────────────────────────
@@ -1550,7 +1531,7 @@ class _SetupNudgeCard extends ConsumerWidget {
             Row(
               children: [
                 Expanded(
-                  child: Text('كمّل إعداد قرش ✨',
+                  child: Text(context.l10n.homeFinishSetup,
                       style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
                 ),
                 InkWell(
@@ -1569,14 +1550,14 @@ class _SetupNudgeCard extends ConsumerWidget {
                 if (!lockEnabled)
                   _SetupNudgeChip(
                     icon: AppLucideIcons.fingerprint,
-                    label: 'فعّل قفل البصمة',
+                    label: context.l10n.homeEnableBiometrics,
                     onTap: () =>
                         ref.read(shellIndexProvider.notifier).state = 3,
                   ),
                 if (!hasGoals)
                   _SetupNudgeChip(
                     icon: AppLucideIcons.piggyBank,
-                    label: 'أضف هدف ادخار',
+                    label: context.l10n.homeAddSavingsGoal,
                     onTap: () =>
                         ref.read(shellIndexProvider.notifier).state = 2,
                   ),
@@ -1642,8 +1623,8 @@ class _PlansSection extends ConsumerWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 4),
               child: SectionHeader(
-                title: 'الخطط',
-                trailing: 'الكل',
+                title: context.l10n.homePlans,
+                trailing: context.l10n.bdgFilterAll,
                 onTrailingTap: () => PlansScreen.open(context),
               ),
             ),
@@ -1657,11 +1638,11 @@ class _PlansSection extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('لا توجد خطط نشطة',
+                          Text(context.l10n.homeNoActivePlans,
                               style: AppTypography.bodyStrong(
                                   t.textOnCanvasPrimary)),
                           const SizedBox(height: 2),
-                          Text('أنشئ خطة ميزانية للسفر أو المناسبات',
+                          Text(context.l10n.homeCreatePlanHint,
                               style:
                                   AppTypography.caption(t.textOnCanvasMuted)),
                         ],
@@ -1675,7 +1656,7 @@ class _PlansSection extends ConsumerWidget {
                         padding: const EdgeInsets.symmetric(
                             horizontal: 14, vertical: 10),
                       ),
-                      child: const Text('خطة جديدة'),
+                      child: Text(context.l10n.homeNewPlan),
                     ),
                   ],
                 ),
@@ -1761,6 +1742,27 @@ class _PlanCard extends StatelessWidget {
                   style: AppTypography.caption(t.textOnCanvasMuted)),
             ],
           ),
+          // The number a plan is actually spent against, day to day. It was
+          // already computed (`PlanProgress.perDayLeft`) and never rendered.
+          // Zero days left or an exhausted budget yields zero, and a «0» here
+          // would read as an instruction rather than an absence — so the line
+          // is omitted instead.
+          if (!progress.perDayLeft.isZero) ...[
+            const SizedBox(height: AppSpacing.s2),
+            Row(
+              children: [
+                Icon(AppLucideIcons.wallet,
+                    size: 13, color: t.textOnCanvasMuted),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Text(
+                    'متاح ${formatMoney(progress.perDayLeft)} في اليوم لباقي الخطة',
+                    style: AppTypography.caption(t.textOnCanvasSecondary),
+                  ),
+                ),
+              ],
+            ),
+          ],
         ],
       ),
     );
@@ -1774,120 +1776,32 @@ class _DashboardCouponsRail extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final async = ref.watch(dashboardCouponsProvider);
-    return async.when(
-      skipLoadingOnReload: true,
-      loading: () => const SizedBox.shrink(),
-      error: (_, __) => const SizedBox.shrink(),
-      data: (offers) {
-        if (offers.isEmpty) return const SizedBox.shrink();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              child: SectionHeader(
-                title: 'كوبونات توفر عليك',
-                trailing: 'الكل',
-                onTrailingTap: () => context.push('/coupons'),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            if (offers.length == 1)
-              _HomeCouponCard(offer: offers.first, width: null)
-            else
-              SizedBox(
-                height: 132,
-                child: ListView.separated(
-                  clipBehavior: Clip.none,
-                  scrollDirection: Axis.horizontal,
-                  itemCount: offers.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, i) =>
-                      _HomeCouponCard(offer: offers[i]),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
+    final offers = ref.watch(dashboardCouponsProvider).valueOrNull;
+    // valueOrNull, not `when`: a reload must not blink the section away.
+    // Empty (or the feature flag off) renders nothing at all — an empty
+    // «ركن التوفير» header would advertise a section that has no content.
+    if (offers == null || offers.isEmpty) return const SizedBox.shrink();
+    final english = Localizations.localeOf(context).languageCode == 'en';
 
-class _HomeCouponCard extends ConsumerWidget {
-  const _HomeCouponCard({required this.offer, this.width = 230});
-  final CouponOffer offer;
-
-  /// null → fill the parent width (used when there's a single coupon).
-  final double? width;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.colors;
-    final t = MaliTokens.of(context);
-    final card = MaliCard(
-      style: MaliSurfaceStyle.floating,
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Row(
-            children: [
-              AppAvatar.brand(
-                  name: offer.partnerName, size: AppSpacing.avatarSm),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(offer.partnerName,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.caption(t.textOnCanvasMuted)),
-                    Text(offer.title(),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: AppTypography.bodyStrong(t.textOnCanvasPrimary)),
-                  ],
-                ),
-              ),
-            ],
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: SectionHeader(
+            title: context.l10n.homeSavingsCorner,
+            trailing: context.l10n.bdgFilterAll,
+            onTrailingTap: () => context.push('/coupons'),
           ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: c.cta.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.pill),
-                ),
-                child: Text(
-                  offer.code ?? offer.category.label(),
-                  style: AppTypography.caption(c.cta),
-                ),
-              ),
-              const Spacer(),
-              if (offer.validUntil != null)
-                Flexible(
-                  child: Text(
-                      Formatters.dateGroupLabel(offer.validUntil!, context),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.caption(t.textOnCanvasMuted)),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-    final sized = width == null ? card : SizedBox(width: width, child: card);
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: () => showCouponDetailsSheet(context, ref, offer),
-      child: sized,
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        CouponsCorner(
+          offers: offers,
+          preferEnglish: english,
+          onOpen: (offer) => showCouponDetailsSheet(context, ref, offer),
+          onSeeAll: () => context.push('/coupons'),
+        ),
+      ],
     );
   }
 }

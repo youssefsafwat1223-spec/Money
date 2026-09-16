@@ -128,18 +128,23 @@ class TransactionsDateRange {
   final DateTime from;
   final DateTime to;
 
-  String get label => switch (preset) {
-        TransactionsDatePreset.today => 'اليوم',
-        TransactionsDatePreset.thisWeek => 'هذا الأسبوع',
-        TransactionsDatePreset.thisMonth => 'هذا الشهر',
-        TransactionsDatePreset.previousMonth => 'الشهر السابق',
-        TransactionsDatePreset.last7Days => 'آخر 7 أيام',
-        TransactionsDatePreset.last30Days => 'آخر 30 يوم',
-        TransactionsDatePreset.last90Days => 'آخر 90 يوم',
-        TransactionsDatePreset.thisYear => 'هذه السنة',
-        TransactionsDatePreset.previousYear => 'السنة الماضية',
-        TransactionsDatePreset.custom => 'مخصص',
-      };
+  /// The range's label in the active language. A data class has no element
+  /// tree, so the caller passes the language it is rendering in.
+  String labelIn(String languageCode) {
+    final en = languageCode == 'en';
+    return switch (preset) {
+      TransactionsDatePreset.today => en ? 'Today' : 'اليوم',
+      TransactionsDatePreset.thisWeek => en ? 'This week' : 'هذا الأسبوع',
+      TransactionsDatePreset.thisMonth => en ? 'This month' : 'هذا الشهر',
+      TransactionsDatePreset.previousMonth => en ? 'Last month' : 'الشهر السابق',
+      TransactionsDatePreset.last7Days => en ? 'Last 7 days' : 'آخر 7 أيام',
+      TransactionsDatePreset.last30Days => en ? 'Last 30 days' : 'آخر 30 يومًا',
+      TransactionsDatePreset.last90Days => en ? 'Last 90 days' : 'آخر 90 يومًا',
+      TransactionsDatePreset.thisYear => en ? 'This year' : 'هذه السنة',
+      TransactionsDatePreset.previousYear => en ? 'Last year' : 'السنة الماضية',
+      TransactionsDatePreset.custom => en ? 'Custom' : 'مخصص',
+    };
+  }
 }
 
 TransactionsDateRange defaultTransactionsRange() {

@@ -49,24 +49,43 @@ String budgetContextText(
   BudgetProgressEntry? budget, {
   required String? categoryName,
   bool pending = false,
+  String languageCode = 'ar',
 }) {
-  if (pending) return 'عملية بانتظار التصنيف أو التأكيد';
-  if (budget == null) return 'لا توجد ميزانية محددة لهذه الفئة';
-  final name = categoryName ?? 'هذه الفئة';
+  final en = languageCode == 'en';
+  if (pending) {
+    return en
+        ? 'Waiting to be categorised or confirmed'
+        : 'عملية بانتظار التصنيف أو التأكيد';
+  }
+  if (budget == null) {
+    return en
+        ? 'No budget set for this category'
+        : 'لا توجد ميزانية محددة لهذه الفئة';
+  }
+  final name = categoryName ?? (en ? 'this category' : 'هذه الفئة');
   final currency = budget.budget.currency;
   if (budget.remaining.isNegative) {
-    return 'تجاوزت ميزانية $name بـ ${_plainMoney(-budget.remaining, currency)}';
+    final over = _plainMoney(-budget.remaining, currency, languageCode);
+    return en
+        ? 'Over the $name budget by $over'
+        : 'تجاوزت ميزانية $name بـ $over';
   }
   if (budget.ratio >= 0.5) {
-    return 'استخدمت ${(budget.ratio * 100).round()}% من ميزانية $name';
+    final pct = (budget.ratio * 100).round();
+    return en
+        ? 'You have used $pct% of the $name budget'
+        : 'استخدمت $pct% من ميزانية $name';
   }
-  return 'متبقي ${_plainMoney(budget.remaining, currency)} من ميزانية $name';
+  final left = _plainMoney(budget.remaining, currency, languageCode);
+  return en
+      ? '$left left of the $name budget'
+      : 'متبقي $left من ميزانية $name';
 }
 
-String _plainMoney(Money amount, String currency) {
+String _plainMoney(Money amount, String currency, String languageCode) {
   final suffix = currency.trim().isEmpty
       ? ''
-      : ' ${Currency.arabicLabel(currency.toUpperCase())}';
+      : ' ${Currency.labelFor(currency.toUpperCase(), languageCode)}';
   return '${Formatters.amount(amount.toDouble())}$suffix';
 }
 
@@ -218,6 +237,24 @@ final homeSubscriptionsProvider = FutureProvider<List<BillEntity>>((ref) async {
       .toList()
     ..sort((a, b) => a.nextDueDate.compareTo(b.nextDueDate));
   return active;
+});
+
+/// Active INSTALLMENTS, nearest instalment first.
+///
+/// Deliberately a second provider rather than a widened
+/// [homeSubscriptionsProvider]: an instalment is a finite debt with a
+/// remaining balance; a subscription is an open-ended recurring charge. The
+/// two normalize differently (`bill_metrics.dart`), so folding them into one
+/// list would make that provider's name a lie and would silently change the
+/// meaning of every total built from it.
+final homeInstallmentsProvider = FutureProvider<List<BillEntity>>((ref) async {
+  final bills = await ref.watch(savedBillsProvider.future);
+  return bills
+      .where((bill) =>
+          bill.type == BillType.installment &&
+          bill.status == BillStatus.active)
+      .toList()
+    ..sort((a, b) => a.nextDueDate.compareTo(b.nextDueDate));
 });
 
 /// Active goals prioritized for the Home preview: closest deadline first,

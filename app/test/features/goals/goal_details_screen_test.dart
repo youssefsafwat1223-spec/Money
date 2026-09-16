@@ -12,6 +12,7 @@ import 'package:money_companion/domain/repositories/goal_repository.dart';
 import 'package:money_companion/domain/usecases/save_goal_usecase.dart';
 import 'package:money_companion/features/goals/goal_details_screen.dart';
 import 'package:money_companion/features/goals/goals_providers.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _GoalRepository implements GoalRepository {
   _GoalRepository({this.addGate, this.throwOnAdd = false});
@@ -75,6 +76,9 @@ Widget _app(_GoalRepository repository) {
       goalDetailsProvider('goal-1').overrideWith((_) async => _details()),
     ],
     child: MaterialApp(
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: const Locale('ar'),
       theme: AppTheme.light,
       home: const GoalDetailsScreen(goalId: 'goal-1'),
     ),

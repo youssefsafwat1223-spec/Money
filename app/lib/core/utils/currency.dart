@@ -64,12 +64,15 @@ class Currency {
   /// reading a multi-currency ledger needs the code, not a translated noun.
   static String englishLabel(String code) => code.toUpperCase();
 
+  /// Locale-aware label for callers with no element tree — providers,
+  /// background isolates, report composition.
+  static String labelFor(String code, String languageCode) =>
+      languageCode == 'en' ? englishLabel(code) : arabicLabel(code);
+
   /// Locale-aware label. Mirrors `Formatters`' context-taking API so money
   /// reads in the same language as everything around it.
   static String label(BuildContext context, String code) =>
-      Localizations.localeOf(context).languageCode == 'en'
-          ? englishLabel(code)
-          : arabicLabel(code);
+      labelFor(code, Localizations.localeOf(context).languageCode);
 
   /// "1,240.00 SAR" / "1,240.00 ريال"
   static String moneyIn(BuildContext context, double amount, String code) =>

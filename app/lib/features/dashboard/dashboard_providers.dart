@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../core/i18n/locale_provider.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/budget_entity.dart';
 import '../../domain/entities/goal_entity.dart';
@@ -8,6 +9,7 @@ import '../../domain/entities/report_models.dart';
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/finance/account_scope.dart';
+import '../../domain/finance/daily_allowance.dart';
 import '../../domain/finance/period_comparison.dart';
 import '../../domain/finance/budget_period.dart';
 import '../../domain/finance/money.dart';
@@ -46,12 +48,27 @@ class CategorySlice {
     required this.percent,
     this.count = 0,
     this.refunds,
+    this.previousTotal,
   });
 
   final CategoryView category;
   final Money total;
   final double percent; // 0..1
   final int count;
+
+  /// The same category's total over the immediately preceding window of equal
+  /// length. Null when that window was not measured (Reports builds slices
+  /// without it), which is why [changeRatio] is nullable rather than zero.
+  final Money? previousTotal;
+
+  /// Change against [previousTotal], as a ratio. Null when there is nothing to
+  /// compare against — a category that did not exist last period has no
+  /// percentage change, and rendering "+100%" for it would be an invention.
+  double? get changeRatio {
+    final prev = previousTotal;
+    if (prev == null || prev.isZero || prev.isNegative) return null;
+    return (total - prev).toDouble() / prev.toDouble();
+  }
 
   /// UX-022 — the refund magnitude netted into [total], when there is one.
   /// تسوق displayed 1,700.00, which matched no transaction on the screen.
@@ -78,7 +95,11 @@ class DashboardData {
     required this.streak,
     required this.topCategories,
     required this.dailySpendTrend,
-    required this.weeklyDailySpend,
+    required this.lastSevenDays,
+    required this.todayTransactions,
+    required this.availableToday,
+    required this.monthElapsedRatio,
+    required this.categoryCount,
     required this.topMerchants,
     required this.recent,
     required this.catalog,
@@ -115,7 +136,36 @@ class DashboardData {
   final StreakEntity streak;
   final List<CategorySlice> topCategories;
   final List<double> dailySpendTrend;
-  final List<DailySpend> weeklyDailySpend;
+
+  /// Exactly seven ordered slots, oldest → today, gaps filled with zero.
+  ///
+  /// Was `weeklyDailySpend`, a Saturday→now window that had no consumer: on a
+  /// Saturday it held ONE day, which would have rendered a "last 7 days" chart
+  /// with a single bar. The window is now a rolling seven days, and the name
+  /// says so.
+  final List<DailySpend> lastSevenDays;
+
+  /// Today's rows, newest first — the source for «أعلى ٣ النهاردة».
+  ///
+  /// Sliced from the same bounded 50-row recency read the dashboard already
+  /// performs, so it costs no extra query. See [todayIsTruncated] for the
+  /// bound this places on the count.
+  final List<TransactionEntity> todayTransactions;
+
+  /// What is still available to spend today from the monthly budget.
+  /// Null when no monthly budget is set — the card must say so rather than
+  /// render a zero that looks like "you have nothing left".
+  final Money? availableToday;
+
+  /// How far through the calendar month we are, 0..1 — the "you should be
+  /// here" mark on the budget meter. Being at 75% of the budget on day 20 of
+  /// 31 is only meaningful next to the 65% the month itself has elapsed.
+  final double monthElapsedRatio;
+
+  /// Total categories with spend in the period. [topCategories] is a slice of
+  /// it, so a header can honestly say «٣ من ١٢» instead of implying it is all.
+  final int categoryCount;
+
   final List<MerchantSpend> topMerchants;
   final List<TransactionEntity> recent;
   final CategoryCatalog catalog;
@@ -141,8 +191,31 @@ class DashboardData {
   bool get hasMultipleCurrencies => currencyTotals.length > 1;
 
   bool get isEmpty => recent.isEmpty;
+
+  /// CAPPED at 3 — the pending query is `limit: 3`, so this is "at least N",
+  /// never the true pending total. Any label built from it must say so
+  /// («٣+»), otherwise the screen states a count it did not measure.
   int get pendingReviewCount => pendingReview.length;
+  bool get pendingReviewIsCapped => pendingReview.length >= 3;
   int get subscriptionsCount => subscriptions.length;
+
+  /// Net spend for the day before today, from [lastSevenDays].
+  Money get yesterdaySpend => lastSevenDays.length >= 2
+      ? lastSevenDays[lastSevenDays.length - 2].total
+      : Money.zero(currency);
+
+  /// Change in today's spend against yesterday, as a ratio. Null when
+  /// yesterday was zero — a percentage against nothing is not a comparison.
+  double? get todayVsYesterday {
+    final y = yesterdaySpend;
+    if (y.isZero || y.isNegative) return null;
+    return (todaySpend - y).toDouble() / y.toDouble();
+  }
+
+  /// True when today's rows may be incomplete: the dashboard reads the 50 most
+  /// recent transactions, so a day with 50+ of them is truncated and the count
+  /// must not be presented as exact.
+  bool get todayIsTruncated => todayTransactions.length >= 50;
 
   double get weekChangeRatio {
     if (previousWeekSpend.isZero) return weekSpend.isZero ? 0 : 1;
@@ -182,20 +255,42 @@ class DashboardData {
       .clamp(0, 100);
 
   /// تسمية الفترة للعرض: «اليوم» / «الأسبوع» / «الشهر».
-  String get budgetPeriodLabel => switch (budgetPeriod) {
-        BudgetPeriod.daily => 'اليوم',
-        BudgetPeriod.weekly => 'الأسبوع',
-        BudgetPeriod.monthly => 'الشهر',
-        BudgetPeriod.yearly => 'السنة',
-        null => 'الشهر',
-      };
+  String budgetPeriodLabelIn(String languageCode) {
+    final en = languageCode == 'en';
+    return switch (budgetPeriod) {
+      BudgetPeriod.daily => en ? 'Today' : 'اليوم',
+      BudgetPeriod.weekly => en ? 'This week' : 'الأسبوع',
+      BudgetPeriod.monthly => en ? 'This month' : 'الشهر',
+      BudgetPeriod.yearly => en ? 'This year' : 'السنة',
+      null => en ? 'This month' : 'الشهر',
+    };
+  }
 }
 
 /// الحساب المختار في الـ dashboard (null = الحساب الافتراضي الحالي).
 final dashboardAccountProvider = activeAccountIdProvider;
 
+/// The period the Home hero figure is showing.
+enum HeroPeriod { day, week, month }
+
+/// HOME-LOCAL on purpose — it must not be `transactionsDateRangeProvider`.
+///
+/// That provider is shared by Transactions (list + total), the bills view,
+/// Reports and Budgets. Wiring the hero's اليوم/الأسبوع/الشهر switch to it
+/// would mean tapping «اليوم» on Home silently resets the Transactions tab's
+/// paging and search, and re-scopes Reports and Budgets — a control changing
+/// four screens the user cannot see.
+///
+/// No new query is needed either way: `todaySpend`, `weekSpend` and
+/// `spentThisMonth` are all already on [DashboardData].
+final heroPeriodProvider =
+    StateProvider<HeroPeriod>((_) => HeroPeriod.month);
+
 final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   ref.watch(financialRevisionProvider);
+  // This provider composes a few display labels itself. It has no element
+  // tree, but it does have `ref`, so it reads the same locale the UI does.
+  final lang = ref.watch(localeProvider).languageCode;
   final txRepo = ref.watch(transactionRepositoryProvider);
   final goalRepo = ref.watch(goalRepositoryProvider);
   final budgetRepo = ref.watch(budgetRepositoryProvider);
@@ -366,13 +461,24 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       to: rangeEnd,
       currency: displayCurrency,
       accountId: accountId);
+  // The SAME breakdown over the immediately preceding window of equal length,
+  // so «مطاعم +18%» is a measured comparison rather than a guess. Both bounds
+  // were already computed for the period aggregates above.
+  final previousBreakdownFuture = txRepo.categoryBreakdown(
+      from: previousStart,
+      to: previousEnd,
+      currency: displayCurrency,
+      accountId: accountId);
   final dailySpendTrendFuture = txRepo.dailyExpenseTotals(
       from: rangeStart,
       to: rangeEnd,
       currency: displayCurrency,
       accountId: accountId);
-  final weeklyDailySpendFuture = txRepo.dailyExpenseTotals(
-    from: weekStart,
+  // Rolling seven days (today included), NOT the calendar week: the Home card
+  // renders seven fixed slots, and a Saturday-anchored window would hand it a
+  // single bar every Saturday.
+  final lastSevenDaysFuture = txRepo.dailyExpenseTotals(
+    from: today.subtract(const Duration(days: 6)),
     to: now,
     currency: displayCurrency,
     accountId: accountId,
@@ -393,7 +499,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     allBudgets,
     breakdown,
     dailySpendRows,
-    weeklyDailySpend,
+    lastSevenDayRows,
     topMerchants,
     recentRows,
     streak,
@@ -403,13 +509,16 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     allBudgetsFuture,
     breakdownFuture,
     dailySpendTrendFuture,
-    weeklyDailySpendFuture,
+    lastSevenDaysFuture,
     topMerchantsFuture,
     recentFuture,
     streakFuture,
     subscriptionsFuture,
     goalsFuture,
   ).wait;
+  // Awaited separately — the tuple `.wait` extension tops out at 9 elements.
+  // The future was started above, so this adds no serial wait.
+  final previousBreakdown = await previousBreakdownFuture;
   final activeBudgets = allBudgets.where((budget) {
     if (!budget.isActive) return false;
     if (budget.currency.toUpperCase() != displayCurrency.toUpperCase()) {
@@ -478,8 +587,8 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     return DashboardBudgetEntry(
       budgetId: budget.id,
       label: budget.isAllExpenses
-          ? 'كل المصروفات'
-          : (catView?.nameAr ?? 'ميزانية'),
+          ? (lang == 'en' ? 'All spending' : 'كل المصروفات')
+          : (catView?.name ?? (lang == 'en' ? 'Budget' : 'ميزانية')),
       spent: bSpent,
       limit: budget.amountMoney,
       ratio: bRatio,
@@ -492,8 +601,15 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
 
   final totalSpend =
       Money.sum(breakdown.map((item) => item.total), displayCurrency);
+  // Previous-window totals, keyed by category, so each slice can carry its own
+  // change. Keyed by the SAME id the current breakdown uses; a category absent
+  // last period simply has no entry, which yields a null delta rather than a
+  // fabricated «+100%».
+  final previousByCategory = <String, Money>{
+    for (final item in previousBreakdown) item.categoryId: item.total,
+  };
   final topCategories = <CategorySlice>[];
-  for (final item in breakdown.take(3)) {
+  for (final item in breakdown.take(5)) {
     final view =
         catalog.byId(item.categoryId) ?? catalog.byKey(item.categoryId);
     if (view == null) continue;
@@ -505,6 +621,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
             ? 0
             : item.total.toDouble() / totalSpend.toDouble(),
         count: item.count,
+        previousTotal: previousByCategory[item.categoryId],
       ),
     );
   }
@@ -518,6 +635,20 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
           tx.occurredAt.isBefore(rangeEnd))
       .take(10)
       .toList(growable: false);
+  // Today's rows come off the SAME bounded read — deliberately NOT filtered by
+  // the selected range, because «صرفت النهاردة» means today whatever period the
+  // user is browsing. `todaySpend` above is the exact aggregate; this slice
+  // only supplies the top-3 list (and is flagged truncated past 50 rows).
+  final todayTransactions = recentRows
+      .where((tx) =>
+          !tx.occurredAt.isBefore(today) &&
+          tx.currency.toUpperCase() == displayCurrency.toUpperCase())
+      .toList(growable: false);
+  final lastSevenDays = normalizeLastSevenDays(
+    rows: lastSevenDayRows,
+    today: today,
+    currency: displayCurrency,
+  );
   // الداشبورد يعرض عملة الحساب النشط فقط لتجنب جمع عملات مختلفة في رقم واحد.
   const currencyTotals = <CurrencyTotal>[];
   final subscriptions = subscriptionRows
@@ -571,7 +702,15 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     streak: streak,
     topCategories: topCategories,
     dailySpendTrend: dailySpendTrend,
-    weeklyDailySpend: weeklyDailySpend,
+    lastSevenDays: lastSevenDays,
+    todayTransactions: todayTransactions,
+    availableToday: dailyAllowance(
+      monthlyLimit: monthlyBudgetLimit,
+      spentThisMonth: thisMonthExpenses,
+      now: now,
+    ),
+    monthElapsedRatio: now.day / DateTime(now.year, now.month + 1, 0).day,
+    categoryCount: breakdown.length,
     topMerchants: topMerchants,
     recent: recent,
     catalog: catalog,

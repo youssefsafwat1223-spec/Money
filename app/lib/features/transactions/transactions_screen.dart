@@ -653,7 +653,7 @@ class _DateRangeChips extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     return GlassSelector(
       icon: AppLucideIcons.calendarDays,
-      label: range.label,
+      label: range.labelIn(Localizations.localeOf(context).languageCode),
       onTap: () {
         HapticFeedback.selectionClick();
         _showRangeSheet(context, ref, range);
