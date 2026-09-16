@@ -1142,7 +1142,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         return;
       case CapturedMessageDisposition.notifyOnly:
         final content = buildConfirmedCaptureContent(
-            result.addTransactionResult.transaction);
+            result.addTransactionResult.transaction,
+            lang: LocalNotificationService.instance.notificationLanguage);
         await LocalNotificationService.instance.showLightCaptureNotification(
           title: content.title,
           body: content.body,
@@ -1152,8 +1153,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       case CapturedMessageDisposition.requestConfirmation:
         final transaction = result.addTransactionResult.transaction;
         if (transaction == null) return;
-        final content =
-            buildReviewCaptureContent(result.addTransactionResult.transaction);
+        final content = buildReviewCaptureContent(
+            result.addTransactionResult.transaction,
+            lang: LocalNotificationService.instance.notificationLanguage);
         await LocalNotificationService.instance.showReviewNotification(
           transactionId: transaction.id,
           title: content.title,
@@ -1162,7 +1164,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         );
       case CapturedMessageDisposition.suspiciousDuplicate:
         final content = buildDuplicateCaptureContent(
-            result.addTransactionResult.transaction);
+            result.addTransactionResult.transaction,
+            lang: LocalNotificationService.instance.notificationLanguage);
         await LocalNotificationService.instance.showLightCaptureNotification(
           title: content.title,
           body: content.body,

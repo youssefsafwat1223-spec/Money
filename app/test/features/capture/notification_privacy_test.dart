@@ -8,18 +8,51 @@ void main() {
   group('redactedContentFor', () {
     test('every type yields generic content with no financial data', () {
       // A canary for each sensitive class the finding lists.
+      // Each canary stands for a VALUE that must never reach the lock screen:
+      // an amount, a merchant, a card tail, a bank, a balance, a salary, a
+      // goal NAME. The bare word 'goal' used to be in this list as a cheap
+      // catch-all — it only ever passed because the bodies were Arabic, and it
+      // fires on the English "goal update", which leaks nothing. Replaced with
+      // the thing it was actually guarding: a goal's name.
       const canaries = <String>[
         '512.34', 'STARBUCKS', 'ستاربكس', '4417', 'AlRajhi', 'نتفلكس',
-        'رصيد', 'الراتب', 'goal', 'Netflix',
+        'رصيد', 'الراتب', 'Netflix', 'رحلة الصيف', 'Summer trip',
       ];
-      for (final type in NotificationType.values) {
-        final (title, body) = LocalNotificationService.redactedContentFor(type);
-        expect(title.isNotEmpty, isTrue);
-        expect(body.isNotEmpty, isTrue);
-        for (final canary in canaries) {
-          expect(title.contains(canary), isFalse, reason: '$type title');
-          expect(body.contains(canary), isFalse, reason: '$type body');
+      // The guarantee is about the CONTRACT, not the wording, so it has to
+      // hold in every language the content can be emitted in. An English
+      // redaction string that leaked a merchant would be the same defect.
+      for (final lang in ['ar', 'en']) {
+        for (final type in NotificationType.values) {
+          final (title, body) = LocalNotificationService.redactedContentFor(
+              type,
+              languageCode: lang);
+          expect(title.isNotEmpty, isTrue, reason: '$type/$lang title');
+          expect(body.isNotEmpty, isTrue, reason: '$type/$lang body');
+          for (final canary in canaries) {
+            expect(title.contains(canary), isFalse, reason: '$type/$lang title');
+            expect(body.contains(canary), isFalse, reason: '$type/$lang body');
+          }
         }
+      }
+    });
+
+    test('the default is Arabic, so no caller silently changed language', () {
+      for (final type in NotificationType.values) {
+        expect(LocalNotificationService.redactedContentFor(type),
+            LocalNotificationService.redactedContentFor(type,
+                languageCode: 'ar'));
+      }
+    });
+
+    test('English is actually English, not Arabic wearing a flag', () {
+      final arabic = RegExp(r'[\u0600-\u06FF]');
+      for (final type in NotificationType.values) {
+        final (title, body) =
+            LocalNotificationService.redactedContentFor(type, languageCode: 'en');
+        // The brand name is exempt — «قرش» is a name, and the English build
+        // spells it "Qirsh", so neither string should carry Arabic script.
+        expect(arabic.hasMatch(title), isFalse, reason: '$type title: $title');
+        expect(arabic.hasMatch(body), isFalse, reason: '$type body: $body');
       }
     });
   });

@@ -20,16 +20,22 @@ class CaptureNotificationContent {
 CaptureNotificationContent buildConfirmedCaptureContent(
   TransactionEntity? tx, {
   DateTime? now,
+  String lang = 'ar',
 }) {
+  final en = lang == 'en';
   if (tx == null) {
-    return const CaptureNotificationContent(
-      title: 'تم التقاط العملية',
-      body: 'أضفنا العملية إلى سجلك.',
+    return CaptureNotificationContent(
+      title: en ? 'Transaction captured' : 'تم التقاط العملية',
+      body: en
+          ? 'We added it to your ledger.'
+          : 'أضفنا العملية إلى سجلك.',
     );
   }
   return CaptureNotificationContent(
-    title: 'تم رصد ${_typeTitle(tx.type)} ${_typeEmoji(tx.type)}',
-    body: _detailsBlock(tx, now: now),
+    title: en
+        ? '${_typeTitle(tx.type, lang)} detected ${_typeEmoji(tx.type)}'
+        : 'تم رصد ${_typeTitle(tx.type, lang)} ${_typeEmoji(tx.type)}',
+    body: _detailsBlock(tx, now: now, lang: lang),
   );
 }
 
@@ -37,16 +43,24 @@ CaptureNotificationContent buildConfirmedCaptureContent(
 CaptureNotificationContent buildReviewCaptureContent(
   TransactionEntity? tx, {
   DateTime? now,
+  String lang = 'ar',
 }) {
+  final en = lang == 'en';
   if (tx == null) {
-    return const CaptureNotificationContent(
-      title: 'أكّد العملية',
-      body: 'اضغط لمراجعة العملية وتأكيدها.',
+    return CaptureNotificationContent(
+      title: en ? 'Confirm this transaction' : 'أكّد العملية',
+      body: en
+          ? 'Tap to review and confirm it.'
+          : 'اضغط لمراجعة العملية وتأكيدها.',
     );
   }
   return CaptureNotificationContent(
-    title: 'أكّد ${_typeLabelDefinite(tx.type)} — ${_amountLine(tx)}',
-    body: '${_detailsBlock(tx, now: now)}\nاضغط للمراجعة والتأكيد.',
+    title: en
+        ? 'Confirm ${_typeLabelDefinite(tx.type, lang)} — ${_amountLine(tx)}'
+        : 'أكّد ${_typeLabelDefinite(tx.type, lang)} — ${_amountLine(tx)}',
+    body: en
+        ? '${_detailsBlock(tx, now: now, lang: lang)}\nTap to review and confirm.'
+        : '${_detailsBlock(tx, now: now, lang: lang)}\nاضغط للمراجعة والتأكيد.',
   );
 }
 
@@ -54,16 +68,22 @@ CaptureNotificationContent buildReviewCaptureContent(
 CaptureNotificationContent buildDuplicateCaptureContent(
   TransactionEntity? tx, {
   DateTime? now,
+  String lang = 'ar',
 }) {
+  final en = lang == 'en';
   if (tx == null) {
-    return const CaptureNotificationContent(
-      title: 'عملية مشابهة',
-      body: 'افتح قرش وراجع الـ Smart Inbox.',
+    return CaptureNotificationContent(
+      title: en ? 'Possible duplicate' : 'عملية مشابهة',
+      body: en
+          ? 'Open Qirsh and check the Smart Inbox.'
+          : 'افتح قِرش وراجع الـ Smart Inbox.',
     );
   }
   return CaptureNotificationContent(
-    title: 'عملية مشابهة ⚠️',
-    body: '${_detailsBlock(tx, now: now)}\nموجودة مسبقاً؟ اضغط للمراجعة.',
+    title: en ? 'Possible duplicate ⚠️' : 'عملية مشابهة ⚠️',
+    body: en
+        ? '${_detailsBlock(tx, now: now, lang: lang)}\nAlready recorded? Tap to review.'
+        : '${_detailsBlock(tx, now: now, lang: lang)}\nموجودة مسبقًا؟ اضغط للمراجعة.',
   );
 }
 
@@ -78,34 +98,38 @@ String _amountLine(TransactionEntity tx) {
 }
 
 /// قائمة التفاصيل — سطر لكل معلومة متاحة.
-String _detailsBlock(TransactionEntity tx, {DateTime? now}) {
-  final lines = <String>['المبلغ: ${_amountLine(tx)}'];
+String _detailsBlock(TransactionEntity tx, {DateTime? now, String lang = 'ar'}) {
+  final en = lang == 'en';
+  final lines = <String>[
+    '${en ? 'Amount' : 'المبلغ'}: ${_amountLine(tx)}'
+  ];
   if (tx.rawMerchant != null && tx.rawMerchant!.trim().isNotEmpty) {
-    final label = switch (tx.type) {
-      TransactionTypeEntity.income ||
-      TransactionTypeEntity.refund =>
-        'المصدر: ${tx.rawMerchant}',
-      _ => 'التاجر: ${tx.rawMerchant}',
+    final key = switch (tx.type) {
+      TransactionTypeEntity.income || TransactionTypeEntity.refund =>
+        en ? 'Source' : 'المصدر',
+      _ => en ? 'Merchant' : 'التاجر',
     };
-    lines.add(label);
+    lines.add('$key: ${tx.rawMerchant}');
   }
   if (tx.cardLast4 != null && tx.cardLast4!.isNotEmpty) {
-    lines.add('البطاقة: ****${tx.cardLast4}');
+    lines.add('${en ? 'Card' : 'البطاقة'}: ****${tx.cardLast4}');
   }
-  lines.add('الوقت: ${captureTimeLabel(tx.occurredAt, now: now)}');
-  final cat = captureCategoryLabel(tx.categoryId);
-  if (cat != null) lines.add('التصنيف: $cat');
+  lines.add('${en ? 'Time' : 'الوقت'}: '
+      '${captureTimeLabel(tx.occurredAt, now: now, lang: lang)}');
+  final cat = captureCategoryLabel(tx.categoryId, lang: lang);
+  if (cat != null) lines.add('${en ? 'Category' : 'التصنيف'}: $cat');
   return lines.join('\n');
 }
 
-String _typeTitle(TransactionTypeEntity type) {
+String _typeTitle(TransactionTypeEntity type, String lang) {
+  final en = lang == 'en';
   return switch (type) {
-    TransactionTypeEntity.income => 'إيداع',
-    TransactionTypeEntity.refund => 'استرداد',
-    TransactionTypeEntity.transfer => 'تحويل',
-    TransactionTypeEntity.withdrawal => 'سحب نقدي',
-    TransactionTypeEntity.payment => 'عملية شراء',
-    TransactionTypeEntity.unknown => 'عملية',
+    TransactionTypeEntity.income => en ? 'A deposit' : 'إيداع',
+    TransactionTypeEntity.refund => en ? 'A refund' : 'استرداد',
+    TransactionTypeEntity.transfer => en ? 'A transfer' : 'تحويل',
+    TransactionTypeEntity.withdrawal => en ? 'A cash withdrawal' : 'سحب نقدي',
+    TransactionTypeEntity.payment => en ? 'A purchase' : 'عملية شراء',
+    TransactionTypeEntity.unknown => en ? 'A transaction' : 'عملية',
   };
 }
 
@@ -120,14 +144,15 @@ String _typeEmoji(TransactionTypeEntity type) {
   };
 }
 
-String _typeLabelDefinite(TransactionTypeEntity type) {
+String _typeLabelDefinite(TransactionTypeEntity type, String lang) {
+  final en = lang == 'en';
   return switch (type) {
-    TransactionTypeEntity.income => 'الإيداع',
-    TransactionTypeEntity.refund => 'الاسترداد',
-    TransactionTypeEntity.transfer => 'التحويل',
-    TransactionTypeEntity.withdrawal => 'السحب',
-    TransactionTypeEntity.payment => 'الخصم',
-    TransactionTypeEntity.unknown => 'العملية',
+    TransactionTypeEntity.income => en ? 'the deposit' : 'الإيداع',
+    TransactionTypeEntity.refund => en ? 'the refund' : 'الاسترداد',
+    TransactionTypeEntity.transfer => en ? 'the transfer' : 'التحويل',
+    TransactionTypeEntity.withdrawal => en ? 'the withdrawal' : 'السحب',
+    TransactionTypeEntity.payment => en ? 'the charge' : 'الخصم',
+    TransactionTypeEntity.unknown => en ? 'the transaction' : 'العملية',
   };
 }
 
@@ -158,27 +183,30 @@ String fmtCaptureMoney(Money money) {
 }
 
 /// "اليوم 9:41 م" / "أمس 9:41 م" / "2/7 9:41 م" — بتوقيت الجهاز.
-String captureTimeLabel(DateTime occurredAt, {DateTime? now}) {
+String captureTimeLabel(DateTime occurredAt,
+    {DateTime? now, String lang = 'ar'}) {
+  final en = lang == 'en';
   final local = occurredAt.toLocal();
   final ref = (now ?? DateTime.now()).toLocal();
   final hour12 = local.hour % 12 == 0 ? 12 : local.hour % 12;
   final minute = local.minute.toString().padLeft(2, '0');
-  final suffix = local.hour < 12 ? 'ص' : 'م';
+  final suffix = local.hour < 12 ? (en ? 'AM' : 'ص') : (en ? 'PM' : 'م');
   final time = '$hour12:$minute $suffix';
   final sameDay = local.year == ref.year &&
       local.month == ref.month &&
       local.day == ref.day;
-  if (sameDay) return 'اليوم $time';
+  if (sameDay) return en ? 'Today $time' : 'اليوم $time';
   final yesterday = ref.subtract(const Duration(days: 1));
   final isYesterday = local.year == yesterday.year &&
       local.month == yesterday.month &&
       local.day == yesterday.day;
-  if (isYesterday) return 'أمس $time';
+  if (isYesterday) return en ? 'Yesterday $time' : 'أمس $time';
   return '${local.day}/${local.month} $time';
 }
 
 /// تسمية عربية للتصنيف بمفتاحه الثابت.
-String? captureCategoryLabel(String? key) {
+String? captureCategoryLabel(String? key, {String lang = 'ar'}) {
+  if (lang == 'en') return _captureCategoryLabelEn(key);
   return switch (key) {
     'restaurants' => 'مطاعم 🍔',
     'cafes' => 'مقاهي ☕',
@@ -204,6 +232,38 @@ String? captureCategoryLabel(String? key) {
     'pets' => 'حيوانات 🐾',
     'insurance' => 'تأمين 🛡️',
     'income' => 'دخل 💰',
+    _ => null,
+  };
+}
+
+/// The English half of `captureCategoryLabel`. Emoji are shared — they are not
+/// language.
+String? _captureCategoryLabelEn(String? key) {
+  return switch (key) {
+    'restaurants' => 'Restaurants 🍔',
+    'cafes' => 'Cafés ☕',
+    'groceries' => 'Groceries 🛒',
+    'transport' => 'Transport 🚗',
+    'fuel' => 'Fuel ⛽',
+    'bills' => 'Bills 📱',
+    'shopping' => 'Shopping 🛍',
+    'health' => 'Health 🏥',
+    'education' => 'Education 📚',
+    'entertainment' => 'Entertainment 🎬',
+    'subscriptions' => 'Subscriptions 📲',
+    'transfers' => 'Transfers 💸',
+    'cash' => 'Cash 💵',
+    'travel' => 'Travel ✈️',
+    'gifts' => 'Gifts 🎁',
+    'kids' => 'Kids 👶',
+    'home' => 'Home 🏠',
+    'maintenance' => 'Maintenance 🔧',
+    'fitness' => 'Fitness 💪',
+    'beauty' => 'Beauty 💅',
+    'charity' => 'Charity 🤲',
+    'pets' => 'Pets 🐾',
+    'insurance' => 'Insurance 🛡️',
+    'income' => 'Income 💰',
     _ => null,
   };
 }

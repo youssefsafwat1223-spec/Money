@@ -9,6 +9,7 @@ import 'features/app/app_boot_loader.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_controller.dart';
 import 'core/i18n/locale_provider.dart';
+import 'core/utils/l10n_ext.dart';
 
 /// جذر التطبيق. Arabic-first / RTL.
 class MoneyApp extends ConsumerWidget {
@@ -17,10 +18,12 @@ class MoneyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final activeLocale = ref.watch(localeProvider);
+    // Keeps lock-screen notification copy in the user's language.
+    ref.watch(notificationLanguageSyncProvider);
     final themeMode = ref.watch(themeModeProvider);
 
     return MaterialApp.router(
-      title: 'قرش',
+      onGenerateTitle: (context) => context.l10n.appTitle,
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
       darkTheme: AppTheme.dark,

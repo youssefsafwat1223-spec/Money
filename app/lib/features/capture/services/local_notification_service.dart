@@ -93,28 +93,69 @@ class LocalNotificationService {
   /// lock-screen content per type. Used by the local path; the APNs path honors
   /// the synced preference server-side (C6 coordination + edge policy). Public
   /// so the privacy guarantee is directly testable.
-  static (String, String) redactedContentFor(NotificationType type) {
+  static (String, String) redactedContentFor(NotificationType type,
+      {String languageCode = 'ar'}) {
+    // The brand name is the same in both — it is a name, not a word.
+    const brand = 'قرش';
+    const brandEn = 'Qirsh';
+    final en = languageCode == 'en';
+    final title = en ? brandEn : brand;
     switch (type) {
       case NotificationType.captureReview:
       case NotificationType.captureLight:
-        return ('قرش', 'عملية بحاجة إلى مراجعة — افتح التطبيق لعرض التفاصيل');
+        return (
+          title,
+          en
+              ? 'A transaction needs reviewing — open the app for details'
+              : 'عملية بحاجة إلى مراجعة — افتح التطبيق لعرض التفاصيل'
+        );
       case NotificationType.budgetWarning:
       case NotificationType.budgetOver:
-        return ('قرش', 'لديك تنبيه ميزانية — افتح التطبيق');
+        return (
+          title,
+          en ? 'You have a budget alert — open the app' : 'لديك تنبيه ميزانية — افتح التطبيق'
+        );
       case NotificationType.subscriptionReminder:
-        return ('قرش', 'لديك تذكير مالي — افتح التطبيق');
+        return (
+          title,
+          en ? 'You have a bill reminder — open the app' : 'لديك تذكير مالي — افتح التطبيق'
+        );
       case NotificationType.goalMilestone:
-        return ('قرش', 'لديك تحديث هدف — افتح التطبيق');
+        return (
+          title,
+          en ? 'You have a goal update — open the app' : 'لديك تحديث هدف — افتح التطبيق'
+        );
       case NotificationType.weeklyReport:
-        return ('قرش', 'تقريرك الأسبوعي جاهز — افتح التطبيق');
+        return (
+          title,
+          en ? 'Your weekly report is ready — open the app' : 'تقريرك الأسبوعي جاهز — افتح التطبيق'
+        );
       case NotificationType.achievements:
-        return ('قرش', 'لديك إنجاز جديد — افتح التطبيق');
+        return (
+          title,
+          en ? 'You have a new achievement — open the app' : 'لديك إنجاز جديد — افتح التطبيق'
+        );
       case NotificationType.dailyReminder:
-        return ('قرش', 'تذكير يومي — افتح التطبيق');
+        return (
+          title,
+          en ? 'Daily reminder — open the app' : 'تذكير يومي — افتح التطبيق'
+        );
       case NotificationType.marketing:
-        return ('قرش', 'لديك رسالة — افتح التطبيق');
+        return (
+          title,
+          en ? 'You have a message — open the app' : 'لديك رسالة — افتح التطبيق'
+        );
     }
   }
+
+  /// The language notifications are emitted in.
+  ///
+  /// A notification is raised from background isolates and callbacks that have
+  /// no element tree and often no repository handle, so the language is pushed
+  /// in once rather than pulled at every emit site. Bootstrap sets it from
+  /// settings and Settings updates it when the user switches language.
+  /// Defaults to Arabic, which is what every caller got before this existed.
+  String notificationLanguage = 'ar';
 
   static const String _reviewChannelId = 'capture_review';
   // v2 because Android keeps the original channel importance forever after it
@@ -705,7 +746,10 @@ class LocalNotificationService {
     // inside the app behind its lock. The tap payload is unchanged (opaque id).
     final bool redact = preferences.hideLockScreenContent;
     final (String shownTitle, String shownBody) =
-        redact ? redactedContentFor(notificationType) : (title, body);
+        redact
+            ? redactedContentFor(notificationType,
+                languageCode: notificationLanguage)
+            : (title, body);
 
     final decodedPayload = CaptureNotificationPayload.tryDecode(payload);
     final logId = await _createLog(

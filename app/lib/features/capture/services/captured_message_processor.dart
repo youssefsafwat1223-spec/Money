@@ -134,6 +134,10 @@ class CapturedMessageProcessor {
       );
       final notificationPreferences =
           await LoadNotificationPreferencesUseCase(settingsRepository).call();
+      // Background isolate: no providers, so the language comes straight from
+      // the settings row `localeProvider` reads in the UI.
+      final notificationLanguage =
+          (await settingsRepository.getSettings()).language;
       // في الـ background isolate لا يكون historyStore مضبوطاً من main —
       // نربطه هنا حتى تظهر إشعارات الالتقاط في شاشة الرسائل أيضاً.
       LocalNotificationService.instance.historyStore ??= (entry) async {
@@ -286,7 +290,8 @@ class CapturedMessageProcessor {
             break;
           case CapturedMessageDisposition.notifyOnly:
             final content = buildConfirmedCaptureContent(
-                result.addTransactionResult.transaction);
+                result.addTransactionResult.transaction,
+                lang: notificationLanguage);
             await LocalNotificationService.instance
                 .showLightCaptureNotification(
               title: content.title,
@@ -298,7 +303,8 @@ class CapturedMessageProcessor {
             final transaction = result.addTransactionResult.transaction;
             if (transaction != null) {
               final content = buildReviewCaptureContent(
-                  result.addTransactionResult.transaction);
+                  result.addTransactionResult.transaction,
+                  lang: notificationLanguage);
               await LocalNotificationService.instance.showReviewNotification(
                 transactionId: transaction.id,
                 title: content.title,
@@ -308,7 +314,8 @@ class CapturedMessageProcessor {
             }
           case CapturedMessageDisposition.suspiciousDuplicate:
             final content = buildDuplicateCaptureContent(
-                result.addTransactionResult.transaction);
+                result.addTransactionResult.transaction,
+                lang: notificationLanguage);
             await LocalNotificationService.instance
                 .showLightCaptureNotification(
               title: content.title,

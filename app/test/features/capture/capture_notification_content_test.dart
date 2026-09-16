@@ -135,7 +135,7 @@ void main() {
       expect(content.title, 'عملية مشابهة ⚠️');
       expect(content.body, contains('المبلغ: 150 SAR'));
       expect(content.body, contains('التاجر: AMAZON'));
-      expect(content.body, endsWith('موجودة مسبقاً؟ اضغط للمراجعة.'));
+      expect(content.body, endsWith('موجودة مسبقًا؟ اضغط للمراجعة.'));
     });
   });
 
@@ -162,5 +162,53 @@ void main() {
   test('fmtCaptureAmount trims whole numbers and keeps 2dp otherwise', () {
     expect(fmtCaptureAmount(150), '150');
     expect(fmtCaptureAmount(150.5), '150.50');
+  });
+
+
+  group('English capture content', () {
+    // The capture notification is the one the user sees most, and it is raised
+    // from a background isolate — the path least likely to be exercised by a
+    // widget test. Assert the English side explicitly.
+    test('every builder produces English when asked', () {
+      final arabic = RegExp(r'[\u0600-\u06FF]');
+      for (final build in [
+        buildConfirmedCaptureContent,
+        buildReviewCaptureContent,
+        buildDuplicateCaptureContent,
+      ]) {
+        final withTx = build(_tx(), now: _fixedNow, lang: 'en');
+        final withoutTx = build(null, lang: 'en');
+        for (final c in [withTx, withoutTx]) {
+          expect(c.title.trim(), isNotEmpty);
+          expect(c.body.trim(), isNotEmpty);
+        }
+        // `_tx()` carries an English merchant, so any Arabic left in the body
+        // is copy, not data.
+        expect(arabic.hasMatch(withoutTx.title), isFalse,
+            reason: 'title: ${withoutTx.title}');
+        expect(arabic.hasMatch(withoutTx.body), isFalse,
+            reason: 'body: ${withoutTx.body}');
+      }
+    });
+
+    test('Arabic remains the default, so no caller changed language silently',
+        () {
+      expect(buildConfirmedCaptureContent(_tx(), now: _fixedNow).title,
+          buildConfirmedCaptureContent(_tx(), now: _fixedNow, lang: 'ar').title);
+    });
+
+    test('the time label localizes its day words and meridiem', () {
+      final ar = captureTimeLabel(_fixedNow, now: _fixedNow);
+      final en = captureTimeLabel(_fixedNow, now: _fixedNow, lang: 'en');
+      expect(ar, startsWith('اليوم'));
+      expect(en, startsWith('Today'));
+      expect(en, anyOf(contains('AM'), contains('PM')));
+    });
+
+    test('category labels keep the emoji and change the word', () {
+      expect(captureCategoryLabel('restaurants'), 'مطاعم 🍔');
+      expect(captureCategoryLabel('restaurants', lang: 'en'), 'Restaurants 🍔');
+      expect(captureCategoryLabel('not_a_key', lang: 'en'), isNull);
+    });
   });
 }
