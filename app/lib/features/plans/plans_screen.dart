@@ -309,7 +309,7 @@ class _PlanCard extends ConsumerWidget {
       builder: (ctx) => AlertDialog(
         title: const Text('حذف الخطة؟'),
         content: Text(
-            'هتتشال خطة «${progress.plan.name}». العمليات نفسها مش هتتأثر.'),
+            'ستُحذف خطة «${progress.plan.name}». لن تتأثر العمليات نفسها.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),

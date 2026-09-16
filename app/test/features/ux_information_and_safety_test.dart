@@ -310,8 +310,20 @@ void main() {
 
   group('UX-010 — a section with nothing in it says so, it does not vanish',
       () {
+    // The dashboard redesign moved the budgets section into its own widget, so
+    // the empty copy no longer all lives in one file. The contract is about
+    // what Home RENDERS, not about which file holds the string — so the search
+    // spans Home plus the section widgets it composes.
     final home =
         File('lib/features/dashboard/dashboard_screen.dart').readAsStringSync();
+    final sections = [
+      home,
+      for (final f in Directory('lib/features/dashboard/widgets')
+          .listSync()
+          .whereType<File>()
+          .where((f) => f.path.endsWith('.dart')))
+        f.readAsStringSync(),
+    ].join('\n');
 
     test('none of the three account-scoped sections is conditionally omitted',
         () {
@@ -328,9 +340,30 @@ void main() {
     test('each says which account has nothing, not just "empty"', () {
       // The QA paired this with UX-007: now that the chip names the active
       // account, «على الحساب ده» is a sentence the user can act on.
-      expect(home, contains('مفيش ميزانيات على الحساب ده.'));
-      expect(home, contains('مفيش أهداف على الحساب ده.'));
-      expect(home, contains('مفيش اشتراكات على الحساب ده.'));
+      expect(sections, contains('لا توجد ميزانيات على هذا الحساب.'));
+      expect(sections, contains('لا توجد أهداف على هذا الحساب.'));
+      // Subscriptions and instalments now share one section, so the sentence
+      // names both — still the account, still not a bare "empty".
+      expect(sections, contains('لا توجد اشتراكات ولا أقساط على هذا الحساب.'));
+    });
+
+    test('the sections a user OWNS survive a period with no transactions', () {
+      // Regression guard for a defect this redesign fixed: the whole body used
+      // to sit behind `data.isEmpty`, so a range with no rows hid the budgets
+      // the user set, the subscriptions they still pay and the goals they are
+      // still saving for. Those are not a function of the selected period.
+      final body = home.split('if (data.isEmpty)').last;
+      final ledgerBranch = body.split('],').first;
+      for (final owned in [
+        '_BudgetsSection(',
+        '_SubscriptionSection(',
+        '_GoalSection(',
+        '_PlansSection(',
+      ]) {
+        expect(home, contains(owned));
+        expect(ledgerBranch.contains(owned), isFalse,
+            reason: '$owned must not sit inside the empty-ledger branch');
+      }
     });
 
     test('an account with NO data still gets the full-screen empty state', () {
@@ -437,7 +470,7 @@ void main() {
     });
 
     test('the mixed-currency rule is stated, not left to be discovered', () {
-      expect(src, contains('مش هيتحسب فيها'));
+      expect(src, contains('ولا يُحتسب فيها'));
     });
   });
 
@@ -483,7 +516,7 @@ void main() {
 
     test('the consequence is STATED, because the finding requires it', () {
       expect(src, contains('تغيير البطاقة لا ينقل العملية إلى حساب آخر'));
-      expect(src, contains('العملية لسه في نفس الحساب'));
+      expect(src, contains('ما زالت العملية في الحساب نفسه'));
     });
 
     test('and the stated consequence is true of the repository', () {

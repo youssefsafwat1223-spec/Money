@@ -180,7 +180,7 @@ class MyCardsScreen extends ConsumerWidget {
           children: [
             Icon(AppLucideIcons.creditCard, size: 48, color: c.textLight),
             const SizedBox(height: AppSpacing.s4),
-            Text('مفيش بطاقات لسه', style: AppTypography.title2(c.textMain)),
+            Text('لا توجد بطاقات بعد', style: AppTypography.title2(c.textMain)),
             const SizedBox(height: AppSpacing.s2),
             Text(
               'البطاقات بتظهر تلقائيًا من رسائل البنك، وتقدر تضيف بطاقة بتصميمك.',
@@ -517,7 +517,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                     ? const Center(child: CircularProgressIndicator())
                     : items.isEmpty
                         ? Center(
-                            child: Text('مفيش عمليات',
+                            child: Text('لا توجد عمليات',
                                 style: AppTypography.subhead(c.textLight)))
                         : ListView.builder(
                             controller: controller,

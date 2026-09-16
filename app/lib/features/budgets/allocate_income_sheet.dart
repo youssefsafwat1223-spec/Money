@@ -347,7 +347,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                   const SizedBox(height: AppSpacing.s2),
                   if (goals.isEmpty)
                     Text(
-                      'أنشئ هدف ادخار عشان نحوّلهالك تلقائياً كل شهر.',
+                      'أنشئ هدف ادخار لنحوّله تلقائيًا كل شهر.',
                       style: AppTypography.caption(c.textLight),
                     )
                   else

@@ -1160,7 +1160,7 @@ class _BillsTabState extends State<_BillsTab> {
                 : 'أقساطك، واضحة كل شهر',
             subtitle: _type == BillType.subscription
                 ? 'أضف اشتراكك يدويًا أو خليه يتكشف تلقائيًا من العمليات المتكررة.'
-                : 'أضف القسط بتاريخه وتنبيهه عشان يظهر في الفواتير قبل الاستحقاق.',
+                : 'أضف القسط بتاريخه وتنبيهه ليظهر في الفواتير قبل الاستحقاق.',
             primaryLabel:
                 _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
             onPrimary: () => BillFormSheet.show(
@@ -1209,14 +1209,14 @@ class _BillsTabState extends State<_BillsTab> {
             children: [
               Text(
                 type == BillType.subscription
-                    ? 'إزاي قرش يتابع الاشتراكات؟'
-                    : 'إزاي قرش يتابع الأقساط؟',
+                    ? 'كيف يتابع قِرش الاشتراكات؟'
+                    : 'كيف يتابع قِرش الأقساط؟',
                 style: AppTypography.cardTitle(c.textMain),
               ),
               const SizedBox(height: AppSpacing.s3),
               Text(
                 type == BillType.subscription
-                    ? 'قرش يتابع الأنماط المتكررة تلقائياً، وتقدر كمان تضيف اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.'
+                    ? 'يتابع قِرش الأنماط المتكررة تلقائيًا، ويمكنك أيضًا إضافة اشتراك يدويًا بالمبلغ وتاريخ التجديد والتنبيه.'
                     : 'أضف القسط يدويًا بالمبلغ وتاريخ الاستحقاق والتنبيه. لاحقًا نضيف المتبقي وعدد الأقساط.',
                 style: AppTypography.callout(c.textLight),
               ),
@@ -2144,8 +2144,8 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
                       builder: (ctx) => AlertDialog(
                         title: Text('تجاهل ${dupes.length} تنبيه؟'),
                         content: const Text(
-                          'هتتشال كل تنبيهات التكرار المعروضة. العمليات نفسها '
-                          'مش هتتأثر، لكن مش هينفع تراجعها من هنا تاني.',
+                          'ستُزال كل تنبيهات التكرار المعروضة. العمليات نفسها '
+                          'لن تتأثر، لكن لا يمكن مراجعتها من هنا مرة أخرى.',
                         ),
                         actions: [
                           TextButton(
@@ -2238,7 +2238,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            'العملية دي شبه عملية موجودة بنفس المبلغ والتاجر والوقت.',
+            'هذه العملية تشبه عملية موجودة بالمبلغ والتاجر والوقت نفسها.',
             style: AppTypography.caption(c.textMuted),
           ),
           const SizedBox(height: AppSpacing.s3),

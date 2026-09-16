@@ -48,7 +48,7 @@ String? feeNoticeFor(AddTransactionResult? secondary) {
     return null;
   }
   final fee = secondary!.transaction!;
-  return 'لقينا عمليتين في الرسالة: أضفنا كمان الرسوم/الضريبة '
+  return 'وجدنا عمليتين في الرسالة: أضفنا أيضًا الرسوم/الضريبة '
       '${fee.amount.toStringAsFixed(2)} ${fee.currency} (بعملة مختلفة).';
 }
 
@@ -106,7 +106,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
       return 'حلّلها الذكاء الاصطناعي — أكّد المبلغ والتصنيف.';
     }
     if (tx.parseConfidence < 0.92) {
-      return 'القراءة مش مؤكدة 100% — راجِع التفاصيل قبل التأكيد.';
+      return 'القراءة غير مؤكدة تمامًا — راجع التفاصيل قبل التأكيد.';
     }
     return 'راجِع التفاصيل قبل التأكيد.';
   }
@@ -210,7 +210,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                 children: [
                   Text(
                     'عملية بعملة مختلفة (${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency}). '
-                    'اكتب قيمتها بـ ${Currency.arabicLabel(tx.currency)} عشان تتحسب — أو سيبها واعدّلها بعدين لما يوصلك المبلغ المخصوم.',
+                    'اكتب قيمتها بـ ${Currency.arabicLabel(tx.currency)} لتُحتسب — أو اتركها وعدّلها لاحقًا عند وصول المبلغ المخصوم.',
                     style: AppTypography.caption(c.textMain),
                   ),
                   const SizedBox(height: AppSpacing.s2),

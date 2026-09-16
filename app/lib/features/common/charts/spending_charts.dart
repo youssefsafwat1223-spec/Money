@@ -53,7 +53,7 @@ class CategoryDonutChart extends StatelessWidget {
     if (slices.isEmpty) {
       return _EmptyChartCard(
         title: centerLabel,
-        body: 'أضف عمليات مؤكدة عشان يظهر توزيع التصنيفات هنا.',
+        body: 'أضف عمليات مؤكدة ليظهر توزيع التصنيفات هنا.',
       );
     }
 

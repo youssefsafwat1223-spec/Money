@@ -286,7 +286,7 @@ class _TrendsTab extends StatelessWidget {
                   : AppLucideIcons.trendingUp,
               title: 'مقارنة بنفس الفترة السابقة',
               body: delta == null
-                  ? 'لسه محتاجين فترة سابقة فيها صرف عشان نعرض الاتجاه بدقة.'
+                  ? 'ما زلنا نحتاج فترة سابقة فيها إنفاق لعرض الاتجاه بدقة.'
                   : delta <= 0
                       ? 'صرفك أقل ${(delta.abs() * 100).round()}% من نفس الفترة السابقة.'
                       : 'صرفك أعلى ${(delta.abs() * 100).round()}% من نفس الفترة السابقة.',
@@ -305,8 +305,8 @@ class _TrendsTab extends StatelessWidget {
               icon: AppLucideIcons.sun,
               title: 'اقتراح سريع',
               body: section.topCategories.isEmpty
-                  ? 'ابدأ بإضافة عمليات أكثر عشان نطلع اقتراحات أوضح.'
-                  : 'أكبر صرف عندك على ${section.topCategories.first.category.name}. راقب التصنيف ده أولاً.',
+                  ? 'ابدأ بإضافة عمليات أكثر لنقدّم اقتراحات أوضح.'
+                  : 'أكبر إنفاق لديك على ${section.topCategories.first.category.name}. راقب هذا التصنيف أولًا.',
               color: c.cta,
             ),
           ],

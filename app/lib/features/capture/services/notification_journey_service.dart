@@ -158,7 +158,7 @@ class NotificationJourneyService {
           id: 'shortcut_reminder',
           notificationId: 94002,
           title: 'خطوة واحدة وقرش يبدأ يشتغل',
-          body: 'اربط Shortcut الرسائل عشان نسجل مصاريفك بدون إدخال يدوي.',
+          body: 'اربط اختصار الرسائل لتسجيل مصاريفك دون إدخال يدوي.',
           route: '/settings',
         ),
       if (profile.transactionCount >= 1 &&
@@ -176,7 +176,7 @@ class NotificationJourneyService {
           id: 'three_transactions',
           notificationId: 94004,
           title: 'قرش بدأ يلتقط الصورة',
-          body: 'افتح الداشبورد وشوف أول قراءة حقيقية لمصاريفك.',
+          body: 'افتح لوحة التحكم واطّلع على أول قراءة حقيقية لمصاريفك.',
           route: '/dashboard',
         ),
       if (profile.transactionCount > 0 &&
@@ -186,7 +186,7 @@ class NotificationJourneyService {
           id: 'first_week_summary',
           notificationId: 94005,
           title: 'ملخصك الأول جاهز',
-          body: 'شوف أكثر تصنيف سحب من ميزانيتك هذا الأسبوع.',
+          body: 'اطّلع على أكثر تصنيف استهلك ميزانيتك هذا الأسبوع.',
           route: '/reports',
         ),
     ];

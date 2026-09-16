@@ -596,13 +596,13 @@ class _ArchetypesSection extends StatelessWidget {
           const AttentionCard(
             icon: AppLucideIcons.alertTriangle,
             title: '٣ عمليات في انتظار مراجعتك',
-            subtitle: 'راجعها عشان أرصدتك تفضل مظبوطة',
+            subtitle: 'راجعها لتبقى أرصدتك دقيقة',
           ),
           const SizedBox(height: AppSpacing.s3),
           const InsightCard(
             label: 'مساعد مالي',
             message:
-                'مصروفك على المطاعم أقل بـ18% عن الشهر اللي فات. لو كمّلت كده '
+                'إنفاقك على المطاعم أقل بـ18% عن الشهر الماضي. إذا واصلت على هذا النحو '
                 'هتوفّر 640 ريال آخر الشهر.',
             ctaText: 'التفاصيل',
           ),

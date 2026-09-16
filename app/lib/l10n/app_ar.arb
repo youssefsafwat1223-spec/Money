@@ -1,7 +1,7 @@
 {
   "@@locale": "ar",
   "appTitle": "قرش",
-  "setupHeaderTitle": "يلا نجهّز قِرش",
+  "setupHeaderTitle": "لنُجهّز قِرش",
   "setupHeaderSubtitle": "كام خطوة سريعة وتكون جاهز.",
   "setupStepLabel": "الخطوة {current} من {total}",
   "@setupStepLabel": {
@@ -17,7 +17,7 @@
   "setupCountryTitle": "دولتك وعملتك",
   "setupCountryBody": "بنستخدمها كعملة أساسية لحساباتك.",
   "setupNotificationsTitle": "فعّل الإشعارات",
-  "setupNotificationsBody": "عشان توصلك كل عملية فور حدوثها.",
+  "setupNotificationsBody": "لتصلك كل عملية فور حدوثها.",
   "setupNotificationsCta": "تفعيل",
   "setupCloudTitle": "المعالجة الذكية",
   "setupCloudBody": "يعالج قِرش رسائل البنك التي تشاركها عبر خادمه والذكاء الاصطناعي لتحويلها إلى عمليات وتقارير، بدون تخزين أرقامك الكاملة.",
@@ -46,7 +46,7 @@
   "setupShortcutCta": "ثبّتّه",
   "setupFinishCta": "ابدأ",
   "brandTagline": "فلوسك أوضح. قرارك أذكى.",
-  "brandContinueCta": "يلا نبدأ",
+  "brandContinueCta": "لنبدأ",
   "authTitle": "رحلتك المالية محفوظة",
   "authSubtitle": "سجّل دخولك لحماية بياناتك واستعادتها على أجهزتك.",
   "authTrustLocalEncryption": "تشفير محلي",
@@ -69,7 +69,7 @@
   "storySpendingTitle": "المصروفات الصغيرة بتفرق",
   "storySpendingBody": "المصروفات اليومية قد تبدو بسيطة،\nلكنها مع الوقت تصنع فرقًا كبيرًا.",
   "storySpendingHighlight": "ما لا تتابعه... يصعب عليك التحكم به",
-  "storySpendingSupporting": "قِرش يساعدك تشوف الصورة كاملة،\nوتفهم أين تذهب أموالك.",
+  "storySpendingSupporting": "يساعدك قِرش على رؤية الصورة كاملة،\nوفهم أين تذهب أموالك.",
   "storyContinueCta": "كمّل",
   "storyStartCta": "ابدأ مع قِرش",
   "storySkip": "تخطّي",
@@ -82,7 +82,7 @@
   "welcomeSubtitle": "صاحبك في فلوسك",
   "today": "اليوم",
   "yesterday": "أمس",
-  "welcomeDescription": "اعرف وين راحت فلوسك، ووفّر أوتوماتيكياً بطريقة ذكية وسهلة.",
+  "welcomeDescription": "اعرف أين تذهب أموالك، وادّخر تلقائيًا بطريقة ذكية وسهلة.",
   "secureOnDevice": "آمن · على جهازك",
   "effortless": "بدون مجهود",
   "noTyping": "لا تكتب — إحنا نفهمها لك",
@@ -99,7 +99,7 @@
   "howItWorks": "كيف يعمل؟",
   "smsToTx": "من رسالة بنك إلى عملية واضحة",
   "howItWorksDesc": "قرش يلتقط المعنى من الرسالة، ويحوّلها لتصنيف ومبلغ ومتجر بدون إدخال يدوي.",
-  "howItWorksNote1": "مش محتاج تختار بنكك — قرش يتعرّف عليه من نص الرسالة.",
+  "howItWorksNote1": "لا حاجة لاختيار مصرفك — يتعرّف قِرش عليه من نص الرسالة.",
   "howItWorksNote2": "لو ظهرت بطاقة جديدة، قرش يضيفها تلقائياً من آخر 4 أرقام.",
   "howItWorksNote3": "تقدر تراجع وتعدل أي عملية أو بطاقة من داخل التطبيق.",
   "messageFromBank": "رسالة من البنك",
@@ -145,7 +145,7 @@
   "gotIt": "تمام، فهمت",
   "laterAddManually": "لاحقاً، سأقوم بالإضافة يدوياً",
   "shortcutSetupGuide": "دليل إعداد الاختصار",
-  "doStepsOnceFromShortcuts": "اعمل الخطوات دي مرة واحدة من تطبيق Apple Shortcuts.",
+  "doStepsOnceFromShortcuts": "نفّذ هذه الخطوات مرة واحدة من تطبيق Apple Shortcuts.",
   "signInToStart": "سجّل دخولك للبدء",
   "signInSubtitle": "الدخول لتحديد هويتك ومزامنة إعداداتك فقط. بياناتك المالية تبقى آمنة على جهازك.",
   "noPassword": "بدون كلمة مرور",
@@ -184,10 +184,10 @@
   "continueWithoutAccount": "أكمل بدون حساب",
   "continueWithoutAccountSub": "بياناتك تبقى محلية على جهازك.",
   "smsPermissionRationaleTitle": "محتاجين إذن قراءة رسائل البنك بس",
-  "smsPermissionRationaleBody": "قِرش يقرأ رسائل البنك الواردة على جهازك عشان يسجّل عملياتك تلقائياً. مابيقراش رسائلك الشخصية، والتحليل بيتم على الجهاز افتراضياً — مافيش حاجة بتطلع منه غير لو شغّلت المعالجة السحابية بنفسك.",
+  "smsPermissionRationaleBody": "يقرأ قِرش رسائل المصرف الواردة على جهازك ليسجّل عملياتك تلقائيًا. لا يقرأ رسائلك الشخصية، ويتم التحليل على الجهاز افتراضيًا — لا يخرج منه شيء إلا إذا فعّلت المعالجة السحابية بنفسك.",
   "listeningTitle": "جاهزين — بنستنى رسالتك الأولى",
   "listeningSubtitle": "اعمل أي شراء بكارتك وهيظهر هنا تلقائياً.",
-  "pasteMessageInstead": "ألصق رسالة بنك بدلاً من كده",
+  "pasteMessageInstead": "ألصق رسالة مصرفية بدلًا من ذلك",
   "skipForNow": "تخطي الآن",
   "shortcutVerifyTitle": "خلينا نتأكد إن الاختصار شغّال",
   "shortcutVerifyBody": "ارجع لتطبيق Shortcuts وابعت نفسك رسالة فيها كلمة العملة، ثم ارجع هنا.",
@@ -195,11 +195,11 @@
   "recheckSetup": "راجع الإعداد",
   "filterKeywordsLabel": "كلمة المفتاح:",
   "firstTxTitle": "أول عملية اتسجّلت لوحدها!",
-  "firstTxTrustLine": "إنت معملتش حاجة — قرش قرأ رسالة بنكك وسجّلها.",
+  "firstTxTrustLine": "لم تفعل شيئًا — قرأ قِرش رسالة مصرفك وسجّلها.",
   "firstTxContinue": "تمام، كمّل",
   "firstTxNeedsCheck": "محتاجة تأكيد سريع",
-  "firstTxNeedsCheckSub": "قرش مش متأكد 100% — راجعها بسرعة.",
-  "wrongCategoryTap": "الفئة مش صح؟ اضغط لتغييرها",
+  "firstTxNeedsCheckSub": "قِرش غير متأكد تمامًا — راجعها سريعًا.",
+  "wrongCategoryTap": "التصنيف غير صحيح؟ اضغط لتغييره",
   "couponsTitle": "العروض",
   "couponsSubtitle": "عروض شركاء تساعدك توفر في مصروفاتك اليومية.",
   "couponsFilterAll": "الكل",
@@ -224,7 +224,7 @@
   "couponsOpenPartner": "فتح موقع الشريك",
   "couponsUseOffer": "احصل على العرض",
   "couponsOpenFailed": "تعذّر فتح الرابط",
-  "couponsOfferUnavailable": "العرض ده مش متاح دلوقتي",
+  "couponsOfferUnavailable": "هذا العرض غير متاح حاليًا",
   "couponsTerms": "الشروط",
   "couponsValidUntil": "ينتهي {date}",
   "@couponsValidUntil": {
@@ -272,7 +272,7 @@
       }
     }
   },
-  "couponsOffline": "دي آخر عروض متاحة عندك بدون إنترنت.",
+  "couponsOffline": "هذه آخر العروض المتاحة لديك دون اتصال.",
   "referralTitle": "دعوة الأصدقاء",
   "referralSubtitle": "ادعُ أصدقاءك بالرمز، ولما ينضمّوا ويأكّدوا حسابهم تكسب تقارير بدون إعلانات.",
   "referralYourCodeLabel": "رمز الدعوة",
@@ -315,7 +315,7 @@
       }
     }
   },
-  "referralRewardScopeNote": "المكافأة بتشيل إعلانات تصدير التقارير فقط — مش اشتراك بدون إعلانات لكل التطبيق.",
+  "referralRewardScopeNote": "تزيل المكافأة إعلانات تصدير التقارير فقط — وليست اشتراكًا بلا إعلانات لكامل التطبيق.",
   "referralRewardActiveUntil": "تقارير بدون إعلانات حتى {date}",
   "@referralRewardActiveUntil": {
     "placeholders": {
@@ -342,17 +342,17 @@
   "referralErrorSelfReferral": "لا يمكنك استخدام رمزك الخاص.",
   "referralErrorAlreadyReferred": "لقد استخدمت رمز دعوة من قبل.",
   "referralErrorNoActiveRule": "الدعوات غير متاحة حاليًا.",
-  "referralErrorIdentityUnverified": "أكمل تأكيد حسابك عشان تُحتسب دعوتك.",
+  "referralErrorIdentityUnverified": "أكمل تأكيد حسابك لتُحتسب دعوتك.",
   "referralErrorGeneric": "حصل خطأ، حاول تاني.",
   "smsDisclosureTitle": "قراءة رسائل البنك تلقائياً",
   "@smsDisclosureTitle": {
     "description": "Title of the Android prominent disclosure shown immediately before the RECEIVE_SMS system dialog."
   },
-  "smsDisclosureIntro": "عشان قِرش يسجّل مصاريفك تلقائياً، محتاج إذن قراءة الرسائل الواردة على جهازك.",
+  "smsDisclosureIntro": "ليسجّل قِرش مصاريفك تلقائيًا، يحتاج إذن قراءة الرسائل الواردة على جهازك.",
   "@smsDisclosureIntro": {
     "description": "Opening line of the SMS prominent disclosure."
   },
-  "smsDisclosureDetect": "قِرش يفحص الرسائل الواردة عشان يتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).",
+  "smsDisclosureDetect": "يفحص قِرش الرسائل الواردة ليتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).",
   "@smsDisclosureDetect": {
     "description": "Disclosure point: what Qirsh looks for in incoming messages."
   },
@@ -360,11 +360,11 @@
   "@smsDisclosureFilter": {
     "description": "Disclosure point: non-financial messages are discarded, not stored."
   },
-  "smsDisclosureOnDevice": "التحليل بيتم على جهازك افتراضياً. لو شغّلت المعالجة السحابية، بيتبعت نص منقّى (من غير أرقام البطاقات والحسابات والتليفونات) لسيرفرات قِرش.",
+  "smsDisclosureOnDevice": "يتم التحليل على جهازك افتراضيًا. وإذا فعّلت المعالجة السحابية، يُرسَل نص منقّى (دون أرقام البطاقات والحسابات والهواتف) إلى خوادم قِرش.",
   "@smsDisclosureOnDevice": {
     "description": "Disclosure point: parsing happens on-device."
   },
-  "smsDisclosureCloud": "المزامنة السحابية مقفولة افتراضياً، ولو شغّلتها بتبقى بموافقة منفصلة عن الإذن ده.",
+  "smsDisclosureCloud": "المزامنة السحابية مغلقة افتراضيًا، وإذا فعّلتها فذلك بموافقة منفصلة عن هذا الإذن.",
   "@smsDisclosureCloud": {
     "description": "Disclosure point: cloud sync is a separate, off-by-default consent."
   },
@@ -372,7 +372,7 @@
   "@smsDisclosureControl": {
     "description": "Disclosure point: how to turn the feature off or revoke the permission."
   },
-  "smsDisclosureDecline": "مش دلوقتي",
+  "smsDisclosureDecline": "ليس الآن",
   "@smsDisclosureDecline": {
     "description": "Decline button on the SMS prominent disclosure."
   },

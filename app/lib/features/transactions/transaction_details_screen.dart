@@ -470,7 +470,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       padding: const EdgeInsets.symmetric(
                           vertical: AppSpacing.s3),
                       child: Text(
-                        'مفيش بطاقات مسجّلة على الحساب ده.',
+                        'لا توجد بطاقات مسجّلة على هذا الحساب.',
                         style: AppTypography.caption(sc.textSecondary),
                         textAlign: TextAlign.center,
                       ),
@@ -516,8 +516,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(next == null
-            ? 'اتشالت البطاقة. العملية لسه في نفس الحساب.'
-            : 'اتربطت بالبطاقة •••• $next. الحساب زي ما هو.'),
+            ? 'أُزيلت البطاقة. ما زالت العملية في الحساب نفسه.'
+            : 'رُبطت بالبطاقة •••• $next. الحساب كما هو.'),
       ),
     );
   }
@@ -540,7 +540,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('حذف العملية؟'),
-        content: const Text('هتتشال من تقاريرك ورصيدك. مش هتقدر تتراجع.'),
+        content: const Text('ستُحذف من تقاريرك ورصيدك. لا يمكن التراجع عن ذلك.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),

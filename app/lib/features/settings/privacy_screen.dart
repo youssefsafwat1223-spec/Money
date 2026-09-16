@@ -101,7 +101,7 @@ class PrivacyScreen extends ConsumerWidget {
                                 // The old copy said "unfamiliar messages", which
                                 // understated it.
                                 'لما تشغّله مع المعالجة السحابية، بتتبعت نسخة منقّاة من كل رسالة بنكية '
-                                'لنماذج ذكاء اصطناعي سحابية عشان تتقرأ وتتصنّف. '
+                                'إلى نماذج ذكاء اصطناعي سحابية لقراءتها وتصنيفها. '
                                 'إيقافه يقتصر التحليل على القواعد المحلية على جهازك.',
                             value: settings.aiConsentGranted,
                             onChanged: (value) => _setConsent(

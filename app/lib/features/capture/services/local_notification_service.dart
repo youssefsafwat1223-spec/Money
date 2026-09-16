@@ -356,7 +356,7 @@ class LocalNotificationService {
         id: 99001,
         title: 'إشعار تجريبي من قرش',
         body:
-            'لو ظهر الإشعار ده، إذن إشعارات قرش شغال. ده لا يعني قراءة إشعارات البنك.',
+            'إذا ظهر هذا الإشعار فإن إذن إشعارات قِرش يعمل. لا يعني ذلك قراءة إشعارات المصرف.',
         notificationDetails: const NotificationDetails(
           android: AndroidNotificationDetails(
             _lightChannelId,

@@ -106,7 +106,7 @@ abstract class AppL10n {
   /// No description provided for @setupHeaderTitle.
   ///
   /// In ar, this message translates to:
-  /// **'يلا نجهّز قِرش'**
+  /// **'لنُجهّز قِرش'**
   String get setupHeaderTitle;
 
   /// No description provided for @setupHeaderSubtitle.
@@ -142,7 +142,7 @@ abstract class AppL10n {
   /// No description provided for @setupNotificationsBody.
   ///
   /// In ar, this message translates to:
-  /// **'عشان توصلك كل عملية فور حدوثها.'**
+  /// **'لتصلك كل عملية فور حدوثها.'**
   String get setupNotificationsBody;
 
   /// No description provided for @setupNotificationsCta.
@@ -274,7 +274,7 @@ abstract class AppL10n {
   /// No description provided for @brandContinueCta.
   ///
   /// In ar, this message translates to:
-  /// **'يلا نبدأ'**
+  /// **'لنبدأ'**
   String get brandContinueCta;
 
   /// No description provided for @authTitle.
@@ -412,7 +412,7 @@ abstract class AppL10n {
   /// No description provided for @storySpendingSupporting.
   ///
   /// In ar, this message translates to:
-  /// **'قِرش يساعدك تشوف الصورة كاملة،\nوتفهم أين تذهب أموالك.'**
+  /// **'يساعدك قِرش على رؤية الصورة كاملة،\nوفهم أين تذهب أموالك.'**
   String get storySpendingSupporting;
 
   /// No description provided for @storyContinueCta.
@@ -490,7 +490,7 @@ abstract class AppL10n {
   /// No description provided for @welcomeDescription.
   ///
   /// In ar, this message translates to:
-  /// **'اعرف وين راحت فلوسك، ووفّر أوتوماتيكياً بطريقة ذكية وسهلة.'**
+  /// **'اعرف أين تذهب أموالك، وادّخر تلقائيًا بطريقة ذكية وسهلة.'**
   String get welcomeDescription;
 
   /// No description provided for @secureOnDevice.
@@ -592,7 +592,7 @@ abstract class AppL10n {
   /// No description provided for @howItWorksNote1.
   ///
   /// In ar, this message translates to:
-  /// **'مش محتاج تختار بنكك — قرش يتعرّف عليه من نص الرسالة.'**
+  /// **'لا حاجة لاختيار مصرفك — يتعرّف قِرش عليه من نص الرسالة.'**
   String get howItWorksNote1;
 
   /// No description provided for @howItWorksNote2.
@@ -868,7 +868,7 @@ abstract class AppL10n {
   /// No description provided for @doStepsOnceFromShortcuts.
   ///
   /// In ar, this message translates to:
-  /// **'اعمل الخطوات دي مرة واحدة من تطبيق Apple Shortcuts.'**
+  /// **'نفّذ هذه الخطوات مرة واحدة من تطبيق Apple Shortcuts.'**
   String get doStepsOnceFromShortcuts;
 
   /// No description provided for @signInToStart.
@@ -1102,7 +1102,7 @@ abstract class AppL10n {
   /// No description provided for @smsPermissionRationaleBody.
   ///
   /// In ar, this message translates to:
-  /// **'قِرش يقرأ رسائل البنك الواردة على جهازك عشان يسجّل عملياتك تلقائياً. مابيقراش رسائلك الشخصية، والتحليل بيتم على الجهاز افتراضياً — مافيش حاجة بتطلع منه غير لو شغّلت المعالجة السحابية بنفسك.'**
+  /// **'يقرأ قِرش رسائل المصرف الواردة على جهازك ليسجّل عملياتك تلقائيًا. لا يقرأ رسائلك الشخصية، ويتم التحليل على الجهاز افتراضيًا — لا يخرج منه شيء إلا إذا فعّلت المعالجة السحابية بنفسك.'**
   String get smsPermissionRationaleBody;
 
   /// No description provided for @listeningTitle.
@@ -1120,7 +1120,7 @@ abstract class AppL10n {
   /// No description provided for @pasteMessageInstead.
   ///
   /// In ar, this message translates to:
-  /// **'ألصق رسالة بنك بدلاً من كده'**
+  /// **'ألصق رسالة مصرفية بدلًا من ذلك'**
   String get pasteMessageInstead;
 
   /// No description provided for @skipForNow.
@@ -1168,7 +1168,7 @@ abstract class AppL10n {
   /// No description provided for @firstTxTrustLine.
   ///
   /// In ar, this message translates to:
-  /// **'إنت معملتش حاجة — قرش قرأ رسالة بنكك وسجّلها.'**
+  /// **'لم تفعل شيئًا — قرأ قِرش رسالة مصرفك وسجّلها.'**
   String get firstTxTrustLine;
 
   /// No description provided for @firstTxContinue.
@@ -1186,13 +1186,13 @@ abstract class AppL10n {
   /// No description provided for @firstTxNeedsCheckSub.
   ///
   /// In ar, this message translates to:
-  /// **'قرش مش متأكد 100% — راجعها بسرعة.'**
+  /// **'قِرش غير متأكد تمامًا — راجعها سريعًا.'**
   String get firstTxNeedsCheckSub;
 
   /// No description provided for @wrongCategoryTap.
   ///
   /// In ar, this message translates to:
-  /// **'الفئة مش صح؟ اضغط لتغييرها'**
+  /// **'التصنيف غير صحيح؟ اضغط لتغييره'**
   String get wrongCategoryTap;
 
   /// No description provided for @couponsTitle.
@@ -1300,7 +1300,7 @@ abstract class AppL10n {
   /// No description provided for @couponsOfferUnavailable.
   ///
   /// In ar, this message translates to:
-  /// **'العرض ده مش متاح دلوقتي'**
+  /// **'هذا العرض غير متاح حاليًا'**
   String get couponsOfferUnavailable;
 
   /// No description provided for @couponsTerms.
@@ -1360,7 +1360,7 @@ abstract class AppL10n {
   /// No description provided for @couponsOffline.
   ///
   /// In ar, this message translates to:
-  /// **'دي آخر عروض متاحة عندك بدون إنترنت.'**
+  /// **'هذه آخر العروض المتاحة لديك دون اتصال.'**
   String get couponsOffline;
 
   /// No description provided for @referralTitle.
@@ -1432,7 +1432,7 @@ abstract class AppL10n {
   /// No description provided for @referralRewardScopeNote.
   ///
   /// In ar, this message translates to:
-  /// **'المكافأة بتشيل إعلانات تصدير التقارير فقط — مش اشتراك بدون إعلانات لكل التطبيق.'**
+  /// **'تزيل المكافأة إعلانات تصدير التقارير فقط — وليست اشتراكًا بلا إعلانات لكامل التطبيق.'**
   String get referralRewardScopeNote;
 
   /// No description provided for @referralRewardActiveUntil.
@@ -1552,7 +1552,7 @@ abstract class AppL10n {
   /// No description provided for @referralErrorIdentityUnverified.
   ///
   /// In ar, this message translates to:
-  /// **'أكمل تأكيد حسابك عشان تُحتسب دعوتك.'**
+  /// **'أكمل تأكيد حسابك لتُحتسب دعوتك.'**
   String get referralErrorIdentityUnverified;
 
   /// No description provided for @referralErrorGeneric.
@@ -1570,13 +1570,13 @@ abstract class AppL10n {
   /// Opening line of the SMS prominent disclosure.
   ///
   /// In ar, this message translates to:
-  /// **'عشان قِرش يسجّل مصاريفك تلقائياً، محتاج إذن قراءة الرسائل الواردة على جهازك.'**
+  /// **'ليسجّل قِرش مصاريفك تلقائيًا، يحتاج إذن قراءة الرسائل الواردة على جهازك.'**
   String get smsDisclosureIntro;
 
   /// Disclosure point: what Qirsh looks for in incoming messages.
   ///
   /// In ar, this message translates to:
-  /// **'قِرش يفحص الرسائل الواردة عشان يتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).'**
+  /// **'يفحص قِرش الرسائل الواردة ليتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).'**
   String get smsDisclosureDetect;
 
   /// Disclosure point: non-financial messages are discarded, not stored.
@@ -1588,13 +1588,13 @@ abstract class AppL10n {
   /// Disclosure point: parsing happens on-device.
   ///
   /// In ar, this message translates to:
-  /// **'التحليل بيتم على جهازك افتراضياً. لو شغّلت المعالجة السحابية، بيتبعت نص منقّى (من غير أرقام البطاقات والحسابات والتليفونات) لسيرفرات قِرش.'**
+  /// **'يتم التحليل على جهازك افتراضيًا. وإذا فعّلت المعالجة السحابية، يُرسَل نص منقّى (دون أرقام البطاقات والحسابات والهواتف) إلى خوادم قِرش.'**
   String get smsDisclosureOnDevice;
 
   /// Disclosure point: cloud sync is a separate, off-by-default consent.
   ///
   /// In ar, this message translates to:
-  /// **'المزامنة السحابية مقفولة افتراضياً، ولو شغّلتها بتبقى بموافقة منفصلة عن الإذن ده.'**
+  /// **'المزامنة السحابية مغلقة افتراضيًا، وإذا فعّلتها فذلك بموافقة منفصلة عن هذا الإذن.'**
   String get smsDisclosureCloud;
 
   /// Disclosure point: how to turn the feature off or revoke the permission.
@@ -1606,7 +1606,7 @@ abstract class AppL10n {
   /// Decline button on the SMS prominent disclosure.
   ///
   /// In ar, this message translates to:
-  /// **'مش دلوقتي'**
+  /// **'ليس الآن'**
   String get smsDisclosureDecline;
 
   /// Affirmative button that proceeds to the system permission dialog.

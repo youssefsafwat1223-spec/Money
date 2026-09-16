@@ -12,7 +12,7 @@ class AppL10nAr extends AppL10n {
   String get appTitle => 'قرش';
 
   @override
-  String get setupHeaderTitle => 'يلا نجهّز قِرش';
+  String get setupHeaderTitle => 'لنُجهّز قِرش';
 
   @override
   String get setupHeaderSubtitle => 'كام خطوة سريعة وتكون جاهز.';
@@ -32,7 +32,7 @@ class AppL10nAr extends AppL10n {
   String get setupNotificationsTitle => 'فعّل الإشعارات';
 
   @override
-  String get setupNotificationsBody => 'عشان توصلك كل عملية فور حدوثها.';
+  String get setupNotificationsBody => 'لتصلك كل عملية فور حدوثها.';
 
   @override
   String get setupNotificationsCta => 'تفعيل';
@@ -106,7 +106,7 @@ class AppL10nAr extends AppL10n {
   String get brandTagline => 'فلوسك أوضح. قرارك أذكى.';
 
   @override
-  String get brandContinueCta => 'يلا نبدأ';
+  String get brandContinueCta => 'لنبدأ';
 
   @override
   String get authTitle => 'رحلتك المالية محفوظة';
@@ -182,7 +182,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get storySpendingSupporting =>
-      'قِرش يساعدك تشوف الصورة كاملة،\nوتفهم أين تذهب أموالك.';
+      'يساعدك قِرش على رؤية الصورة كاملة،\nوفهم أين تذهب أموالك.';
 
   @override
   String get storyContinueCta => 'كمّل';
@@ -222,7 +222,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get welcomeDescription =>
-      'اعرف وين راحت فلوسك، ووفّر أوتوماتيكياً بطريقة ذكية وسهلة.';
+      'اعرف أين تذهب أموالك، وادّخر تلقائيًا بطريقة ذكية وسهلة.';
 
   @override
   String get secureOnDevice => 'آمن · على جهازك';
@@ -276,7 +276,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get howItWorksNote1 =>
-      'مش محتاج تختار بنكك — قرش يتعرّف عليه من نص الرسالة.';
+      'لا حاجة لاختيار مصرفك — يتعرّف قِرش عليه من نص الرسالة.';
 
   @override
   String get howItWorksNote2 =>
@@ -427,7 +427,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get doStepsOnceFromShortcuts =>
-      'اعمل الخطوات دي مرة واحدة من تطبيق Apple Shortcuts.';
+      'نفّذ هذه الخطوات مرة واحدة من تطبيق Apple Shortcuts.';
 
   @override
   String get signInToStart => 'سجّل دخولك للبدء';
@@ -555,7 +555,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smsPermissionRationaleBody =>
-      'قِرش يقرأ رسائل البنك الواردة على جهازك عشان يسجّل عملياتك تلقائياً. مابيقراش رسائلك الشخصية، والتحليل بيتم على الجهاز افتراضياً — مافيش حاجة بتطلع منه غير لو شغّلت المعالجة السحابية بنفسك.';
+      'يقرأ قِرش رسائل المصرف الواردة على جهازك ليسجّل عملياتك تلقائيًا. لا يقرأ رسائلك الشخصية، ويتم التحليل على الجهاز افتراضيًا — لا يخرج منه شيء إلا إذا فعّلت المعالجة السحابية بنفسك.';
 
   @override
   String get listeningTitle => 'جاهزين — بنستنى رسالتك الأولى';
@@ -564,7 +564,7 @@ class AppL10nAr extends AppL10n {
   String get listeningSubtitle => 'اعمل أي شراء بكارتك وهيظهر هنا تلقائياً.';
 
   @override
-  String get pasteMessageInstead => 'ألصق رسالة بنك بدلاً من كده';
+  String get pasteMessageInstead => 'ألصق رسالة مصرفية بدلًا من ذلك';
 
   @override
   String get skipForNow => 'تخطي الآن';
@@ -590,7 +590,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get firstTxTrustLine =>
-      'إنت معملتش حاجة — قرش قرأ رسالة بنكك وسجّلها.';
+      'لم تفعل شيئًا — قرأ قِرش رسالة مصرفك وسجّلها.';
 
   @override
   String get firstTxContinue => 'تمام، كمّل';
@@ -599,10 +599,10 @@ class AppL10nAr extends AppL10n {
   String get firstTxNeedsCheck => 'محتاجة تأكيد سريع';
 
   @override
-  String get firstTxNeedsCheckSub => 'قرش مش متأكد 100% — راجعها بسرعة.';
+  String get firstTxNeedsCheckSub => 'قِرش غير متأكد تمامًا — راجعها سريعًا.';
 
   @override
-  String get wrongCategoryTap => 'الفئة مش صح؟ اضغط لتغييرها';
+  String get wrongCategoryTap => 'التصنيف غير صحيح؟ اضغط لتغييره';
 
   @override
   String get couponsTitle => 'العروض';
@@ -658,7 +658,7 @@ class AppL10nAr extends AppL10n {
   String get couponsOpenFailed => 'تعذّر فتح الرابط';
 
   @override
-  String get couponsOfferUnavailable => 'العرض ده مش متاح دلوقتي';
+  String get couponsOfferUnavailable => 'هذا العرض غير متاح حاليًا';
 
   @override
   String get couponsTerms => 'الشروط';
@@ -698,7 +698,7 @@ class AppL10nAr extends AppL10n {
   }
 
   @override
-  String get couponsOffline => 'دي آخر عروض متاحة عندك بدون إنترنت.';
+  String get couponsOffline => 'هذه آخر العروض المتاحة لديك دون اتصال.';
 
   @override
   String get referralTitle => 'دعوة الأصدقاء';
@@ -744,7 +744,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get referralRewardScopeNote =>
-      'المكافأة بتشيل إعلانات تصدير التقارير فقط — مش اشتراك بدون إعلانات لكل التطبيق.';
+      'تزيل المكافأة إعلانات تصدير التقارير فقط — وليست اشتراكًا بلا إعلانات لكامل التطبيق.';
 
   @override
   String referralRewardActiveUntil(String date) {
@@ -808,7 +808,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get referralErrorIdentityUnverified =>
-      'أكمل تأكيد حسابك عشان تُحتسب دعوتك.';
+      'أكمل تأكيد حسابك لتُحتسب دعوتك.';
 
   @override
   String get referralErrorGeneric => 'حصل خطأ، حاول تاني.';
@@ -818,11 +818,11 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smsDisclosureIntro =>
-      'عشان قِرش يسجّل مصاريفك تلقائياً، محتاج إذن قراءة الرسائل الواردة على جهازك.';
+      'ليسجّل قِرش مصاريفك تلقائيًا، يحتاج إذن قراءة الرسائل الواردة على جهازك.';
 
   @override
   String get smsDisclosureDetect =>
-      'قِرش يفحص الرسائل الواردة عشان يتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).';
+      'يفحص قِرش الرسائل الواردة ليتعرّف على العمليات المالية (شراء، تحويل، سحب، إيداع).';
 
   @override
   String get smsDisclosureFilter =>
@@ -830,18 +830,18 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smsDisclosureOnDevice =>
-      'التحليل بيتم على جهازك افتراضياً. لو شغّلت المعالجة السحابية، بيتبعت نص منقّى (من غير أرقام البطاقات والحسابات والتليفونات) لسيرفرات قِرش.';
+      'يتم التحليل على جهازك افتراضيًا. وإذا فعّلت المعالجة السحابية، يُرسَل نص منقّى (دون أرقام البطاقات والحسابات والهواتف) إلى خوادم قِرش.';
 
   @override
   String get smsDisclosureCloud =>
-      'المزامنة السحابية مقفولة افتراضياً، ولو شغّلتها بتبقى بموافقة منفصلة عن الإذن ده.';
+      'المزامنة السحابية مغلقة افتراضيًا، وإذا فعّلتها فذلك بموافقة منفصلة عن هذا الإذن.';
 
   @override
   String get smsDisclosureControl =>
       'تقدر توقف القراءة التلقائية من إعدادات قِرش، أو تسحب الإذن من إعدادات الجهاز، في أي وقت.';
 
   @override
-  String get smsDisclosureDecline => 'مش دلوقتي';
+  String get smsDisclosureDecline => 'ليس الآن';
 
   @override
   String get smsDisclosureAccept => 'موافق، اطلب الإذن';

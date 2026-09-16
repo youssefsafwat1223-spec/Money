@@ -116,7 +116,7 @@ class GamificationSyncService {
           await LocalNotificationService.instance.showAchievementNotification(
             achievementKey: achievement.key,
             title: '🏆 إنجاز جديد: ${achievement.name}',
-            body: 'فتحت إنجازاً جديداً — افتح قرش وشوفه.',
+            body: 'فتحت إنجازًا جديدًا — افتح قِرش لتراه.',
             preferences: preferences,
           );
         }

@@ -221,7 +221,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
           // contributes nothing. Silence here is what made a mismatched
           // currency label look like a bug rather than a scope.
           Text(
-            'الخطة بتحسب عمليات $currency بس — أي حساب بعملة تانية مش هيتحسب فيها.',
+            'تحسب الخطة عمليات $currency فقط — ولا يُحتسب فيها أي حساب بعملة أخرى.',
             style: AppTypography.caption(c.textLight),
           ),
           const SizedBox(height: AppSpacing.s2),

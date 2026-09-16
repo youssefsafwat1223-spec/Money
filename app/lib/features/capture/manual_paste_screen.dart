@@ -317,7 +317,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     final result = item.addResult;
     final tx = result.transaction;
     if (tx == null) {
-      showTopError(context, 'مفيش عملية نفتحها للرسالة دي.');
+      showTopError(context, 'لا توجد عملية لفتحها لهذه الرسالة.');
       return;
     }
     final feeNotice = feeNoticeFor(result.secondary);

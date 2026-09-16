@@ -88,6 +88,6 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('مفيش بطاقات لسه'), findsOneWidget);
+    expect(find.text('لا توجد بطاقات بعد'), findsOneWidget);
   });
 }

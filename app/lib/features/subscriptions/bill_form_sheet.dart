@@ -455,7 +455,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                 labelText: _type == BillType.installment
                     ? 'مبلغ مدفوع يدويًا'
                     : 'مدفوع من الاشتراك يدويًا',
-                helperText: 'لو دفعت حاجة ومش ظهرت كعملية، سجلها هنا',
+                helperText: 'إذا دفعت مبلغًا ولم يظهر كعملية، سجّله هنا',
               ),
               validator: (value) {
                 final raw = value?.trim() ?? '';

@@ -249,8 +249,8 @@ class BillDetailsSheet extends ConsumerWidget {
                     ),
                     child: Text(
                       isInstallment
-                          ? 'لسه مفيش دفعات أقساط مسجلة يدويًا.'
-                          : 'لسه مفيش دفعات اشتراك مسجلة يدويًا.',
+                          ? 'لا توجد بعد دفعات أقساط مسجّلة يدويًا.'
+                          : 'لا توجد بعد دفعات اشتراك مسجّلة يدويًا.',
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.textSecondary),
                     ),
@@ -583,7 +583,7 @@ class _BillPaymentRow extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('حذف الدفعة؟'),
-        content: const Text('هيتحذف سجل الدفع اليدوي ده نهائياً.'),
+        content: const Text('سيُحذف سجل الدفع اليدوي هذا نهائيًا.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),

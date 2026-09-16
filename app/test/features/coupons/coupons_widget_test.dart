@@ -347,7 +347,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 300));
 
       expect(copied, isEmpty, reason: 'a stale offer never redeems');
-      expect(find.text('العرض ده مش متاح دلوقتي'), findsOneWidget);
+      expect(find.text('هذا العرض غير متاح حاليًا'), findsOneWidget);
       await _settle(tester);
     });
   });

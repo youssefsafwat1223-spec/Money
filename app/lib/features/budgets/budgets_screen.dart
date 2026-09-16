@@ -242,7 +242,7 @@ class BudgetsScreen extends ConsumerWidget {
                               icon: AppLucideIcons.target,
                               title: 'لا توجد أهداف',
                               subtitle:
-                                  'أضف هدف ادخار عشان قرش يتابع تقدمك جنب ميزانياتك.',
+                                  'أضف هدف ادخار ليتابع قِرش تقدمك إلى جانب ميزانياتك.',
                               primaryLabel: 'إضافة هدف',
                               onPrimary: () =>
                                   GoalFormScreen.showSheet(context),
@@ -375,7 +375,7 @@ class BudgetsScreen extends ConsumerWidget {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('حذف الميزانية؟'),
-        content: const Text('هيتشال سقف الميزانية. العمليات نفسها مش هتتأثر.'),
+        content: const Text('سيُحذف سقف الميزانية. لن تتأثر العمليات نفسها.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
@@ -1160,8 +1160,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
             const SizedBox(height: AppSpacing.s3),
             Text(
               history.isCurrent
-                  ? 'السجل ده لسه بيتحدث لحد نهاية الفترة.'
-                  : 'السجل ده محسوب من العمليات الفعلية داخل الفترة دي.',
+                  ? 'ما زال هذا السجل يُحدَّث حتى نهاية الفترة.'
+                  : 'هذا السجل محسوب من العمليات الفعلية داخل هذه الفترة.',
               style: AppTypography.caption(c.textSecondary),
               textAlign: TextAlign.center,
             ),
@@ -1217,7 +1217,7 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   border: Border.all(color: c.border),
                 ),
                 child: Text(
-                  'مفيش عمليات مؤكدة اتسجلت ضمن الفترة دي.',
+                  'لم تُسجَّل عمليات مؤكدة ضمن هذه الفترة.',
                   style: AppTypography.caption(c.textSecondary),
                   textAlign: TextAlign.center,
                 ),
