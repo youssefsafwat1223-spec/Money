@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/l10n_ext.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -97,7 +98,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
     if (_busy) return;
     final last4 = normalizeLast4(_last4.text);
     if (last4 == null) {
-      AppToast.show(context, 'أدخل آخر 4 أرقام صحيحة');
+      AppToast.show(context, context.l10n.cfEnterValidLast4);
       return;
     }
     setState(() => _busy = true);
@@ -142,12 +143,12 @@ class _CardFormState extends ConsumerState<_CardForm> {
       AppToast.show(
         context,
         e is ValidationRepoException && e.message == 'duplicate_card'
-            ? 'فيه بطاقة بنفس الأرقام في هذا الحساب'
+            ? context.l10n.cfDuplicateCard
             : repoExceptionMessage(e),
       );
     } catch (_) {
       if (!mounted) return;
-      AppToast.show(context, 'تعذّر حفظ البطاقة — حاول مجددًا.');
+      AppToast.show(context, context.l10n.cfSaveFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -160,18 +161,15 @@ class _CardFormState extends ConsumerState<_CardForm> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (_) => AlertDialog(
-        title: const Text('حذف البطاقة؟'),
-        content: const Text(
-          'حذف البطاقة لن يحذف عملياتها — تبقى محفوظة بأرقامها. '
-          'ممكن تظهر بطاقة تلقائية بنفس الأرقام لو وصلت رسالة جديدة.',
-        ),
+        title: Text(context.l10n.cfDeleteTitle),
+        content: Text(context.l10n.cfDeleteCardBody),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('إلغاء')),
+              child: Text(context.l10n.commonCancel)),
           TextButton(
               onPressed: () => Navigator.of(context).pop(true),
-              child: const Text('حذف')),
+              child: Text(context.l10n.setDelete)),
         ],
       ),
     );
@@ -182,7 +180,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
     } catch (_) {
       if (mounted) {
         setState(() => _busy = false);
-        AppToast.show(context, 'تعذّر حذف البطاقة — حاول مجددًا.');
+        AppToast.show(context, context.l10n.cfDeleteFailed);
       }
       return;
     }
@@ -213,11 +211,11 @@ class _CardFormState extends ConsumerState<_CardForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(editing ? 'تعديل بطاقة' : 'بطاقة جديدة',
+            Text(editing ? context.l10n.cfEditCard : context.l10n.cfNewCard,
                 style: AppTypography.title2(c.textMain)),
             if (editing && widget.card!.source == CardSource.auto) ...[
               const SizedBox(height: 4),
-              Text('مكتشفة تلقائيًا من رسائلك',
+              Text(context.l10n.cfAutoDetected,
                   style: AppTypography.caption(c.textLight)),
             ],
             const SizedBox(height: AppSpacing.s4),
@@ -227,9 +225,9 @@ class _CardFormState extends ConsumerState<_CardForm> {
               controller: _nickname,
               enabled: !_busy,
               style: AppTypography.body(c.textMain),
-              decoration: const InputDecoration(
-                labelText: 'اسم مختصر (اختياري)',
-                hintText: 'مثال: راتب، سفر',
+              decoration: InputDecoration(
+                labelText: context.l10n.cfShortNameOptional,
+                hintText: context.l10n.cfShortNameHint,
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
@@ -240,13 +238,13 @@ class _CardFormState extends ConsumerState<_CardForm> {
               maxLength: 4,
               onChanged: (_) => setState(() {}),
               style: AppTypography.body(c.textMain),
-              decoration: const InputDecoration(
-                labelText: 'آخر 4 أرقام',
+              decoration: InputDecoration(
+                labelText: context.l10n.cfLast4,
                 counterText: '',
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
-            Text('الشبكة', style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.cfNetwork, style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             DropdownButtonFormField<CardNetwork>(
               value: _network,
@@ -259,17 +257,17 @@ class _CardFormState extends ConsumerState<_CardForm> {
                   : (v) => setState(() => _network = v ?? CardNetwork.unknown),
             ),
             const SizedBox(height: AppSpacing.s4),
-            Text('التصميم', style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.cfDesign, style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             _themeRow(),
             const SizedBox(height: AppSpacing.s3),
-            Text('لون مميّز (اختياري)',
+            Text(context.l10n.cfAccentOptional,
                 style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             _accentRow(),
             if (accounts.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.s4),
-              Text('الحساب المرتبط', style: AppTypography.caption(c.textLight)),
+              Text(context.l10n.cfLinkedAccount, style: AppTypography.caption(c.textLight)),
               const SizedBox(height: AppSpacing.s2),
               _accountField(accounts),
             ],
@@ -285,7 +283,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
                       height: 22,
                       child: CircularProgressIndicator(
                           strokeWidth: 2.5, color: c.onInk))
-                  : Text(editing ? 'حفظ' : 'إضافة',
+                  : Text(editing ? context.l10n.txdSave : context.l10n.txnAdd,
                       style: AppTypography.bodyStrong(c.onInk)),
             ),
             if (editing) ...[
@@ -293,7 +291,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
               TextButton.icon(
                 onPressed: _busy ? null : _delete,
                 icon: Icon(AppLucideIcons.trash2, color: c.danger),
-                label: Text('حذف البطاقة', style: AppTypography.body(c.danger)),
+                label: Text(context.l10n.cfDeleteCard, style: AppTypography.body(c.danger)),
               ),
             ],
           ],
@@ -349,7 +347,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
       _themeSwatch(
         selected: _colorTheme == null,
         gradient: context.colors.primaryGradient,
-        label: 'افتراضي',
+        label: context.l10n.accDefault,
         onTap: () => setState(() => _colorTheme = null),
       ),
       for (final theme in kCardThemes)
@@ -469,9 +467,9 @@ class _CardFormState extends ConsumerState<_CardForm> {
     return DropdownButtonFormField<String?>(
       value: valid,
       items: [
-        const DropdownMenuItem<String?>(
+        DropdownMenuItem<String?>(
           value: null,
-          child: Text('بدون حساب'),
+          child: Text(context.l10n.cfNoAccount),
         ),
         for (final AccountEntity a in accounts)
           DropdownMenuItem<String?>(value: a.id, child: Text(a.name)),

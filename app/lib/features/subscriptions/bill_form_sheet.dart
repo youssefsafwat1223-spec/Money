@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/async_reload_safe.dart';
 
 import '../../core/di/app_providers.dart';
@@ -234,6 +235,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
   }
 
   Future<void> _save() async {
+    final l10n = context.l10n;
     if (_busy) return;
     final Money amountMoney;
     final Money? manualPaidMoney;
@@ -252,7 +254,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               : parseLocalizedMoney(totalPurchaseText, _currency);
     } on Exception {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('مبلغ غير صالح')),
+        SnackBar(content: Text(context.l10n.bfInvalidAmount)),
       );
       return;
     }
@@ -266,7 +268,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     );
     if (dueDate.isBefore(todayStart)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('اختر تاريخ استحقاق قادمًا أو اليوم.')),
+        SnackBar(content: Text(context.l10n.bfPickFutureDue)),
       );
       return;
     }
@@ -331,7 +333,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
           periodEnd: _manualPaymentPeriodEnd(bill),
           paidAt: _manualPaymentPaidAt,
           installmentIndex: _manualInstallmentIndex(bill),
-          note: 'مدفوع يدويًا من النموذج',
+          note: l10n.bfPaidFromForm,
         );
         await repo.createAndRecordPayment(bill: bill, payment: payment);
         saved = bill;
@@ -350,7 +352,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               periodEnd: _manualPaymentPeriodEnd(saved),
               paidAt: _manualPaymentPaidAt,
               installmentIndex: _manualInstallmentIndex(saved),
-              note: 'مدفوع يدويًا من النموذج',
+              note: l10n.bfPaidFromForm,
             ),
           );
         }
@@ -366,10 +368,10 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
       debugPrint('BillFormSheet._save error: $e\n$st');
       if (!mounted) return;
       final message = billSaved && needsManualPayment
-          ? 'تم حفظ الفاتورة، لكن فشل تسجيل الدفعة — أعد المحاولة بنفس البيانات.'
+          ? context.l10n.bfSavedButPaymentFailed
           : e is RepoException
               ? repoExceptionMessage(e)
-              : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
+              : context.l10n.bfSaveFailed;
       AppToast.show(context, message);
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -397,7 +399,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
       );
     }
     return AppSheetScaffold(
-      title: widget.bill == null ? 'إضافة فاتورة' : 'تعديل فاتورة',
+      title: widget.bill == null ? context.l10n.bfAddBill : context.l10n.bfEditBill,
       body: Form(
         key: _formKey,
         child: ListView(
@@ -413,15 +415,15 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               value: _type,
               values: const [BillType.subscription, BillType.installment],
               label: (value) =>
-                  value == BillType.subscription ? 'اشتراك' : 'قسط',
+                  value == BillType.subscription ? context.l10n.bfSubscription : context.l10n.bfInstalment,
               onChanged: (value) => setState(() => _type = value),
             ),
             const SizedBox(height: AppSpacing.s4),
             TextFormField(
               controller: _nameController,
-              decoration: const InputDecoration(labelText: 'اسم الفاتورة'),
+              decoration: InputDecoration(labelText: context.l10n.bfBillName),
               validator: (value) =>
-                  value == null || value.trim().isEmpty ? 'اكتب الاسم' : null,
+                  value == null || value.trim().isEmpty ? context.l10n.bfEnterName : null,
             ),
             const SizedBox(height: AppSpacing.s3),
             TextFormField(
@@ -431,16 +433,16 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               inputFormatters: [
                 _decimalInputFormatter,
               ],
-              decoration: const InputDecoration(labelText: 'المبلغ'),
+              decoration: InputDecoration(labelText: context.l10n.bdgAmount),
               validator: (value) {
                 final raw = value?.trim() ?? '';
-                if (raw.isEmpty) return 'اكتب مبلغ صحيح';
+                if (raw.isEmpty) return context.l10n.bfEnterValidAmount;
                 try {
                   return parseLocalizedMoney(raw, _currency).minorUnits <= 0
-                      ? 'اكتب مبلغ صحيح'
+                      ? context.l10n.bfEnterValidAmount
                       : null;
                 } on Exception {
-                  return 'اكتب مبلغ صحيح';
+                  return context.l10n.bfEnterValidAmount;
                 }
               },
             ),
@@ -454,19 +456,19 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               ],
               decoration: InputDecoration(
                 labelText: _type == BillType.installment
-                    ? 'مبلغ مدفوع يدويًا'
-                    : 'مدفوع من الاشتراك يدويًا',
-                helperText: 'إذا دفعت مبلغًا ولم يظهر كعملية، سجّله هنا',
+                    ? context.l10n.bfManuallyPaidAmount
+                    : context.l10n.bfPaidManuallyFromSub,
+                helperText: context.l10n.bfRecordManualHint,
               ),
               validator: (value) {
                 final raw = value?.trim() ?? '';
                 if (raw.isEmpty) return null;
                 try {
                   return parseLocalizedMoney(raw, _currency).minorUnits <= 0
-                      ? 'اكتب مبلغ أكبر من صفر'
+                      ? context.l10n.bfAmountAboveZero
                       : null;
                 } on Exception {
-                  return 'اكتب مبلغ أكبر من صفر';
+                  return context.l10n.bfAmountAboveZero;
                 }
               },
             ),
@@ -477,9 +479,9 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                       return TextFormField(
                         initialValue: _currency,
                         readOnly: true,
-                        decoration: const InputDecoration(
-                          labelText: 'عملة الحساب',
-                          prefixIcon: Icon(AppLucideIcons.wallet),
+                        decoration: InputDecoration(
+                          labelText: context.l10n.bfAccountCurrency,
+                          prefixIcon: const Icon(AppLucideIcons.wallet),
                         ),
                       );
                     }
@@ -489,9 +491,9 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                     return DropdownButtonFormField<String>(
                       value: value,
                       isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'الحساب',
-                        prefixIcon: Icon(AppLucideIcons.wallet),
+                      decoration: InputDecoration(
+                        labelText: context.l10n.commonAccountDefinite,
+                        prefixIcon: const Icon(AppLucideIcons.wallet),
                       ),
                       items: [
                         for (final account in accounts)
@@ -517,9 +519,9 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                   orElse: () => TextFormField(
                     initialValue: _currency,
                     readOnly: true,
-                    decoration: const InputDecoration(
-                      labelText: 'عملة الحساب',
-                      prefixIcon: Icon(AppLucideIcons.wallet),
+                    decoration: InputDecoration(
+                      labelText: context.l10n.bfAccountCurrency,
+                      prefixIcon: const Icon(AppLucideIcons.wallet),
                     ),
                   ),
                 ),
@@ -536,8 +538,8 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
             if (_type == BillType.installment) ...[
               TextFormField(
                 controller: _lenderController,
-                decoration: const InputDecoration(
-                    labelText: 'المقرض / الجهة (Tamara, بنك...)'),
+                decoration: InputDecoration(
+                    labelText: context.l10n.bfLender),
               ),
               const SizedBox(height: AppSpacing.s3),
               Row(
@@ -548,7 +550,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                       keyboardType: TextInputType.number,
                       inputFormatters: [_integerInputFormatter],
                       decoration:
-                          const InputDecoration(labelText: 'عدد الأقساط الكلي'),
+                          InputDecoration(labelText: context.l10n.bfTotalInstalments),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.s3),
@@ -558,7 +560,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                       keyboardType: TextInputType.number,
                       inputFormatters: [_integerInputFormatter],
                       decoration:
-                          const InputDecoration(labelText: 'المدفوع منها'),
+                          InputDecoration(labelText: context.l10n.bfPaidSoFar),
                     ),
                   ),
                 ],
@@ -574,8 +576,8 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                       inputFormatters: [
                         _decimalInputFormatter,
                       ],
-                      decoration: const InputDecoration(
-                          labelText: 'قيمة الشراء / القرض'),
+                      decoration: InputDecoration(
+                          labelText: context.l10n.bfPurchaseValue),
                     ),
                   ),
                   const SizedBox(width: AppSpacing.s3),
@@ -587,8 +589,8 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                       inputFormatters: [
                         _decimalInputFormatter,
                       ],
-                      decoration: const InputDecoration(
-                          labelText: 'الفائدة % (اختياري)', hintText: '0'),
+                      decoration: InputDecoration(
+                          labelText: context.l10n.bfInterestOptional, hintText: '0'),
                     ),
                   ),
                 ],
@@ -597,7 +599,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
             ],
             DropdownButtonFormField<BillFrequency>(
               value: _frequency,
-              decoration: const InputDecoration(labelText: 'كل كم؟'),
+              decoration: InputDecoration(labelText: context.l10n.bfHowOften),
               items: BillFrequency.values
                   .map(
                     (frequency) => DropdownMenuItem(
@@ -615,12 +617,12 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                 controller: _customDaysController,
                 keyboardType: TextInputType.number,
                 inputFormatters: [_integerInputFormatter],
-                decoration: const InputDecoration(labelText: 'كل كم يوم؟'),
+                decoration: InputDecoration(labelText: context.l10n.bfEveryHowManyDays),
                 validator: (value) {
                   if (_frequency != BillFrequency.custom) return null;
                   final days = _parseIntegerInput(value ?? '');
                   return days == null || days <= 0
-                      ? 'اكتب عدد أيام صحيح'
+                      ? context.l10n.bfEnterValidDays
                       : null;
                 },
               ),
@@ -628,7 +630,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
             const SizedBox(height: AppSpacing.s3),
             ListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('تاريخ الاستحقاق القادم'),
+              title: Text(context.l10n.bfNextDueDate),
               subtitle: Text(
                 '${_nextDueDate.day}/${_nextDueDate.month}/${_nextDueDate.year}',
               ),
@@ -639,13 +641,13 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               contentPadding: EdgeInsets.zero,
               value: _reminderOn,
               onChanged: (value) => setState(() => _reminderOn = value),
-              title: const Text('تفعيل التذكير'),
+              title: Text(context.l10n.bfEnableReminder),
             ),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
               value: _isConfirmed,
               onChanged: (value) => setState(() => _isConfirmed = value),
-              title: const Text('فاتورة مؤكدة'),
+              title: Text(context.l10n.bfConfirmedBill),
             ),
             const SizedBox(height: AppSpacing.s4),
             FilledButton(
@@ -660,7 +662,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                         color: Colors.white,
                       ),
                     )
-                  : const Text('حفظ'),
+                  : Text(context.l10n.txdSave),
             ),
           ],
         ),
@@ -669,16 +671,16 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
   }
 
   String _frequencyLabel(BillFrequency frequency) => switch (frequency) {
-        BillFrequency.weekly => 'أسبوعي',
-        BillFrequency.monthly => 'شهري',
-        BillFrequency.yearly => 'سنوي',
-        BillFrequency.custom => 'مخصص',
+        BillFrequency.weekly => context.l10n.txnCycleWeekly,
+        BillFrequency.monthly => context.l10n.txnCycleMonthly,
+        BillFrequency.yearly => context.l10n.txnCycleYearly,
+        BillFrequency.custom => context.l10n.txnRangeCustom,
       };
 
   String _statusLabel(BillStatus status) => switch (status) {
-        BillStatus.active => 'نشط',
-        BillStatus.paused => 'متوقف',
-        BillStatus.cancelled => 'ملغي',
+        BillStatus.active => context.l10n.txnActive,
+        BillStatus.paused => context.l10n.txnPaused,
+        BillStatus.cancelled => context.l10n.txnCancelled,
       };
 
   DateTime _manualPaymentPeriodStart(BillEntity bill) {
@@ -780,7 +782,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
     'Zoom',
   ];
 
-  static const _installments = [
+  static List<String> _installmentsIn(BuildContext context) => [
     'Tamara',
     'Tabby',
     'ValU',
@@ -796,29 +798,29 @@ class _BillServicePickerState extends State<_BillServicePicker> {
     'Khazna',
     'Postpay',
     'Cashew',
-    'قسط سيارة',
-    'إيجار',
-    'جوال',
-    'لابتوب',
-    'أثاث',
-    'تعليم',
-    'سفر',
-    'علاج',
-    'زواج',
-    'ذهب',
-    'أجهزة منزلية',
-    'كمبيوتر',
-  ];
+    context.l10n.bfPresetCarInstalment,
+    context.l10n.bfPresetRent,
+    context.l10n.bfPresetPhone,
+    context.l10n.bfPresetLaptop,
+    context.l10n.bfPresetFurniture,
+    context.l10n.bfPresetEducation,
+    context.l10n.bfPresetTravel,
+    context.l10n.bfPresetMedical,
+    context.l10n.bfPresetWedding,
+    context.l10n.bfPresetGold,
+    context.l10n.bfPresetAppliances,
+    context.l10n.bfPresetComputer,
+      ];
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final items =
-        (_type == BillType.subscription ? _subscriptions : _installments)
+        (_type == BillType.subscription ? _subscriptions : _installmentsIn(context))
             .where((item) => item.toLowerCase().contains(_query.toLowerCase()))
             .toList();
     return AppSheetScaffold(
-      title: _type == BillType.subscription ? 'إضافة اشتراك' : 'إضافة قسط',
+      title: _type == BillType.subscription ? context.l10n.txnAddSub : context.l10n.txnAddInstalment,
       body: ListView(
         padding: const EdgeInsets.fromLTRB(
           AppSpacing.gutter,
@@ -832,7 +834,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
             value: _type,
             values: const [BillType.subscription, BillType.installment],
             label: (value) =>
-                value == BillType.subscription ? 'اشتراكات' : 'أقساط',
+                value == BillType.subscription ? context.l10n.txnBillsSubs : context.l10n.txnBillsInstalments,
             onChanged: (value) => setState(() => _type = value),
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -840,8 +842,8 @@ class _BillServicePickerState extends State<_BillServicePicker> {
             onChanged: (value) => setState(() => _query = value),
             decoration: InputDecoration(
               hintText: _type == BillType.subscription
-                  ? 'ابحث عن خدمة...'
-                  : 'ابحث عن قسط...',
+                  ? context.l10n.bfSearchService
+                  : context.l10n.bfSearchInstalment,
               prefixIcon: const Icon(AppLucideIcons.search),
             ),
           ),
@@ -877,12 +879,12 @@ class _BillServicePickerState extends State<_BillServicePicker> {
                       children: [
                         Text(
                           _type == BillType.subscription
-                              ? 'اشتراك مخصص'
-                              : 'قسط مخصص',
+                              ? context.l10n.bfCustomSub
+                              : context.l10n.bfCustomInstalment,
                           style: AppTypography.bodyStrong(c.textMain),
                         ),
                         Text(
-                          'أضف الاسم والمبلغ والتكرار يدويًا',
+                          context.l10n.bfAddManuallyHint,
                           style: AppTypography.caption(c.textLight),
                         ),
                       ],
@@ -895,7 +897,7 @@ class _BillServicePickerState extends State<_BillServicePicker> {
           ),
           const SizedBox(height: AppSpacing.s5),
           Text(
-            'الأكثر استخدامًا',
+            context.l10n.bfMostUsed,
             style: AppTypography.caption(c.textLight).copyWith(
               letterSpacing: 1.6,
               fontWeight: FontWeight.w700,

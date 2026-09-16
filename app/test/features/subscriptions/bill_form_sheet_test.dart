@@ -9,6 +9,7 @@ import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/repositories/bill_repository.dart';
 import 'package:money_companion/features/subscriptions/bill_form_sheet.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _BillRepository implements BillRepository {
   var saveCalls = 0;
@@ -66,6 +67,9 @@ Widget _app(_BillRepository repository, BillEntity bill) {
       accountsProvider.overrideWith((_) async => const []),
     ],
     child: MaterialApp(
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: const Locale('ar'),
       theme: AppTheme.light,
       home: Scaffold(
         body: Align(

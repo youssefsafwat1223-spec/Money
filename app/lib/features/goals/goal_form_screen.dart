@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/finance/money_input.dart';
 
@@ -58,7 +59,7 @@ class _GoalFormScreenState extends ConsumerState<GoalFormScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppHeader(
-          title: widget.goal == null ? 'هدف جديد' : 'تعديل الهدف',
+          title: widget.goal == null ? context.l10n.gfNewGoal : context.l10n.gfEditGoal,
         ),
         body: _GoalFormContent(
           fullScreen: true,
@@ -100,7 +101,7 @@ class _GoalFormSheet extends StatelessWidget {
                   child: Row(
                     children: [
                       Text(
-                        goal == null ? 'هدف جديد' : 'تعديل الهدف',
+                        goal == null ? context.l10n.gfNewGoal : context.l10n.gfEditGoal,
                         style: AppTypography.title2(c.textMain),
                       ),
                       const Spacer(),
@@ -179,7 +180,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
             controller: _nameController,
             style: _alex(15, FontWeight.w700, 1.2, c.textMain),
             decoration: InputDecoration(
-              labelText: 'اسم الهدف',
+              labelText: context.l10n.gfGoalName,
               labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
               filled: true,
               fillColor: c.surface.withValues(alpha: 0.15),
@@ -199,7 +200,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               ),
             ),
             validator: (value) => (value == null || value.trim().isEmpty)
-                ? 'اكتب اسم الهدف'
+                ? context.l10n.gfEnterGoalName
                 : null,
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -208,7 +209,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             style: _alex(15, FontWeight.w700, 1.2, c.textMain),
             decoration: InputDecoration(
-              labelText: 'المبلغ المستهدف',
+              labelText: context.l10n.gfTargetAmount,
               labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
               suffixText: cur,
               suffixStyle: _alex(14, FontWeight.w700, 1.2, c.textMain),
@@ -233,7 +234,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
             validator: (value) {
               final amount = double.tryParse(value ?? '');
               if (amount == null || amount <= 0) {
-                return 'أدخل مبلغًا صحيحًا';
+                return context.l10n.gfEnterValidAmount;
               }
               return null;
             },
@@ -250,11 +251,11 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
               child: ListTile(
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-                title: Text('الموعد النهائي',
+                title: Text(context.l10n.gfDeadline,
                     style: _alex(14, FontWeight.w700, 1.2, c.textMain)),
                 subtitle: Text(
                   _deadline == null
-                      ? 'اختياري'
+                      ? context.l10n.gfOptional
                       : Formatters.fullDate(_deadline!, context),
                   style: _alex(12, FontWeight.w500, 1.2, c.textLight),
                 ),
@@ -288,8 +289,9 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                 Expanded(
                   child: Text(
                     recommended == null
-                        ? 'المبلغ الموصى به يظهر بعد اختيار التاريخ.'
-                        : 'المبلغ الموصى به: ${Formatters.integer(recommended)} $cur يوميًا لـ ${((_deadline!.difference(DateTime.now()).inDays))} يوم.',
+                        ? context.l10n.gfRecommendedAfterDate
+                        : context.l10n.gfRecommendedFor(Formatters.integer(recommended), cur,
+                        _deadline!.difference(DateTime.now()).inDays),
                     style: _alex(12, FontWeight.w700, 1.4,
                         recommended == null ? c.textLight : c.success),
                   ),
@@ -314,11 +316,11 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('ادخار تلقائي',
+                          Text(context.l10n.gfAutoSaving,
                               style:
                                   _alex(14, FontWeight.w700, 1.2, c.textMain)),
                           const SizedBox(height: 2),
-                          Text('قرش يضيف المبلغ للهدف كل فترة تلقائياً',
+                          Text(context.l10n.gfAutoSavingHint,
                               style:
                                   _alex(11, FontWeight.w600, 1.3, c.textLight)),
                         ],
@@ -340,7 +342,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                           keyboardType: const TextInputType.numberWithOptions(
                               decimal: true),
                           decoration: InputDecoration(
-                            labelText: 'المبلغ',
+                            labelText: context.l10n.bdgAmount,
                             suffixText: cur,
                             isDense: true,
                             border: OutlineInputBorder(
@@ -356,17 +358,17 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                           value: _autoSavePeriod,
                           isDense: true,
                           decoration: InputDecoration(
-                            labelText: 'التكرار',
+                            labelText: context.l10n.gfFrequency,
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide(color: c.border),
                             ),
                           ),
-                          items: const [
+                          items: [
                             DropdownMenuItem(
-                                value: 'weekly', child: Text('أسبوعي')),
+                                value: 'weekly', child: Text(context.l10n.txnCycleWeekly)),
                             DropdownMenuItem(
-                                value: 'monthly', child: Text('شهري')),
+                                value: 'monthly', child: Text(context.l10n.txnCycleMonthly)),
                           ],
                           onChanged: (v) =>
                               setState(() => _autoSavePeriod = v ?? 'monthly'),
@@ -381,7 +383,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
           const SizedBox(height: AppSpacing.s5),
           // زر النظام الأسود (ink) — بدل التدرّج الأزرق القديم بظلّه الكحلي.
           AppPrimaryButton(
-            label: widget.goal == null ? 'أنشئ الهدف' : 'حفظ التعديل',
+            label: widget.goal == null ? context.l10n.gfCreateGoal : context.l10n.gfSaveEdit,
             onTap: _submit,
             loading: _saving,
             height: 52,
@@ -460,8 +462,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
       );
       if (deadlineDate.isBefore(today)) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('اختار موعدًا نهائيًا قادمًا أو اليوم.')),
+          SnackBar(
+              content: Text(context.l10n.gfPickFutureDeadline)),
         );
         return;
       }
@@ -511,7 +513,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
       if (!mounted) return;
       final message = error is RepoException
           ? repoExceptionMessage(error)
-          : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
+          : context.l10n.bfSaveFailed;
       AppToast.show(context, message);
     } finally {
       if (mounted) setState(() => _saving = false);

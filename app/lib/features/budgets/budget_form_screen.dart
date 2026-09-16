@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../domain/finance/money.dart';
@@ -58,7 +59,7 @@ class _BudgetFormScreenState extends ConsumerState<BudgetFormScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppHeader(
-        title: widget.budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية',
+        title: widget.budgetId == null ? context.l10n.bfsNewBudget : context.l10n.bdgEditBudget,
       ),
       body: _BudgetFormContent(budgetId: widget.budgetId, fullScreen: true),
     );
@@ -98,7 +99,7 @@ class _BudgetFormSheet extends StatelessWidget {
                   child: Row(
                     children: [
                       Text(
-                        budgetId == null ? 'ميزانية جديدة' : 'تعديل الميزانية',
+                        budgetId == null ? context.l10n.bfsNewBudget : context.l10n.bdgEditBudget,
                         style: AppTypography.title2(c.textMain),
                       ),
                       const Spacer(),
@@ -173,12 +174,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     return budgetAsync.when(
       skipLoadingOnReload: true,
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => const Center(child: Text('حدث خطأ')),
+      error: (error, _) => Center(child: Text(context.l10n.txnError)),
       data: (budget) {
         return categoriesAsync.when(
           skipLoadingOnReload: true,
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => const Center(child: Text('حدث خطأ')),
+          error: (error, _) => Center(child: Text(context.l10n.txnError)),
           data: (catalog) {
             _seedInitialState(budget);
             return Form(
@@ -190,9 +191,9 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                   DropdownButtonFormField<String>(
                     value: _categoryId,
                     items: [
-                      const DropdownMenuItem<String>(
+                      DropdownMenuItem<String>(
                         value: BudgetEntity.allExpensesCategoryId,
-                        child: Text('كل المصروفات'),
+                        child: Text(context.l10n.bdgAllExpenses),
                       ),
                       for (final category in catalog.all.where(
                         (it) =>
@@ -210,7 +211,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                     },
                     style: _alex(14, FontWeight.w700, 1.2, c.textMain),
                     decoration: InputDecoration(
-                      labelText: 'التصنيف',
+                      labelText: context.l10n.txnCategory,
                       labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
                       filled: true,
                       fillColor: c.surface.withValues(alpha: 0.15),
@@ -231,7 +232,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                         borderSide: BorderSide(color: c.primary, width: 1.5),
                       ),
                     ),
-                    validator: (value) => value == null ? 'اختر تصنيفًا' : null,
+                    validator: (value) => value == null ? context.l10n.bfsPickCategory : null,
                   ),
                   const SizedBox(height: AppSpacing.s4),
                   TextFormField(
@@ -240,7 +241,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                         const TextInputType.numberWithOptions(decimal: true),
                     style: _alex(15, FontWeight.w700, 1.2, c.textMain),
                     decoration: InputDecoration(
-                      labelText: 'المبلغ',
+                      labelText: context.l10n.bdgAmount,
                       labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
                       suffixText: currencyLabel,
                       suffixStyle: _alex(14, FontWeight.w700, 1.2, c.textMain),
@@ -266,7 +267,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                     validator: (value) {
                       final amount = double.tryParse(value ?? '');
                       if (amount == null || amount <= 0) {
-                        return 'أدخل مبلغًا صحيحًا';
+                        return context.l10n.gfEnterValidAmount;
                       }
                       return null;
                     },
@@ -285,7 +286,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                       value: selectedAccount?.id,
                       style: _alex(14, FontWeight.w700, 1.2, c.textMain),
                       decoration: InputDecoration(
-                        labelText: 'الحساب',
+                        labelText: context.l10n.commonAccountDefinite,
                         labelStyle:
                             _alex(13, FontWeight.w700, 1.2, c.textLight),
                         filled: true,
@@ -338,7 +339,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                   const SizedBox(height: AppSpacing.s5),
                   // زر النظام الأسود (ink) — بدل التدرّج الأزرق القديم.
                   AppPrimaryButton(
-                    label: 'حفظ الميزانية',
+                    label: context.l10n.bfsSaveBudget,
                     onTap: () => _submit(budget),
                     loading: _saving,
                     height: 52,
@@ -358,7 +359,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                           ),
                         ),
                         child: Text(
-                          'حذف الميزانية',
+                          context.l10n.bdgDeleteBudget,
                           style: _alex(15, FontWeight.w700, 1.2, c.danger),
                         ),
                       ),
@@ -416,7 +417,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       if (!mounted) return;
       final message = error is RepoException
           ? repoExceptionMessage(error)
-          : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
+          : context.l10n.bfSaveFailed;
       AppToast.show(context, message);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -429,20 +430,20 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       context: context,
       builder: (context) => AlertDialog(
         backgroundColor: c.surface,
-        title: Text('حذف الميزانية؟',
+        title: Text(context.l10n.bdgDeleteTitle,
             style: _alex(18, FontWeight.w700, 1.2, c.textMain)),
-        content: Text('سيتم حذف هذه الميزانية نهائياً.',
+        content: Text(context.l10n.bfsDeleteBody,
             style: _alex(14, FontWeight.w500, 1.4, c.textLight)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: Text('إلغاء',
+            child: Text(context.l10n.commonCancel,
                 style: _alex(14, FontWeight.w700, 1.2, c.textLight)),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: FilledButton.styleFrom(backgroundColor: c.danger),
-            child: Text('حذف',
+            child: Text(context.l10n.setDelete,
                 style: _alex(14, FontWeight.w700, 1.2, Colors.white)),
           ),
         ],
@@ -585,10 +586,10 @@ class _BudgetSuggestionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final label = switch (period) {
-      BudgetPeriod.daily => 'يومية',
-      BudgetPeriod.weekly => 'أسبوعية',
-      BudgetPeriod.monthly => 'شهرية',
-      BudgetPeriod.yearly => 'سنوية',
+      BudgetPeriod.daily => context.l10n.bfsPeriodDaily,
+      BudgetPeriod.weekly => context.l10n.bfsPeriodWeekly,
+      BudgetPeriod.monthly => context.l10n.bfsPeriodMonthly,
+      BudgetPeriod.yearly => context.l10n.bfsPeriodYearly,
     };
     final value = amount?.toDecimalString();
     return Container(
@@ -618,10 +619,10 @@ class _BudgetSuggestionCard extends StatelessWidget {
           Expanded(
             child: Text(
               loading
-                  ? 'بنحسب اقتراح من آخر 30 يوم...'
+                  ? context.l10n.bfsComputingSuggestion
                   : value == null
-                      ? 'بعد ما تضيف عمليات أكثر، هنقترح ميزانية $label مناسبة.'
-                      : 'اقتراح ميزانية $label: $value',
+                      ? context.l10n.bfsSuggestAfterMoreTx(label)
+                      : context.l10n.bfsSuggestion(label, value),
               style: _alex(12, FontWeight.w700, 1.35, c.textMain),
             ),
           ),
@@ -629,7 +630,7 @@ class _BudgetSuggestionCard extends StatelessWidget {
             const SizedBox(width: AppSpacing.s2),
             TextButton(
               onPressed: onApply,
-              child: const Text('استخدمه'),
+              child: Text(context.l10n.bfsUseIt),
             ),
           ],
         ],
@@ -655,7 +656,7 @@ class _PeriodSelector extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'دورية الميزانية',
+          context.l10n.bfsBudgetPeriod,
           style: _alex(12, FontWeight.w700, 1.2, c.textLight),
         ),
         const SizedBox(height: 8),
@@ -668,10 +669,10 @@ class _PeriodSelector extends StatelessWidget {
           ),
           child: Row(
             children: [
-              _buildSegment(context, BudgetPeriod.daily, 'يومي'),
-              _buildSegment(context, BudgetPeriod.weekly, 'أسبوعي'),
-              _buildSegment(context, BudgetPeriod.monthly, 'شهري'),
-              _buildSegment(context, BudgetPeriod.yearly, 'سنوي'),
+              _buildSegment(context, BudgetPeriod.daily, context.l10n.bdgFilterDaily),
+              _buildSegment(context, BudgetPeriod.weekly, context.l10n.txnCycleWeekly),
+              _buildSegment(context, BudgetPeriod.monthly, context.l10n.txnCycleMonthly),
+              _buildSegment(context, BudgetPeriod.yearly, context.l10n.txnCycleYearly),
             ],
           ),
         ),

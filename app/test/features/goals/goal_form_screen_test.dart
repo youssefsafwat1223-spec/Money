@@ -12,6 +12,7 @@ import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/domain/repositories/goal_repository.dart';
 import 'package:money_companion/domain/usecases/save_goal_usecase.dart';
 import 'package:money_companion/features/goals/goal_form_screen.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _GoalRepository implements GoalRepository {
   _GoalRepository({this.saveGate, this.throwOnSave = false});
@@ -70,6 +71,9 @@ Widget _app(_GoalRepository repository, {GoalEntity? goal}) {
       baseCurrencyProvider.overrideWith((_) async => 'SAR'),
     ],
     child: MaterialApp(
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: const Locale('ar'),
       theme: AppTheme.light,
       home: GoalFormScreen(goal: goal),
     ),
@@ -166,6 +170,6 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(repository.saveCalls, 0);
-    expect(find.text('اختار موعدًا نهائيًا قادمًا أو اليوم.'), findsOneWidget);
+    expect(find.text('اختر موعدًا نهائيًا قادمًا أو اليوم.'), findsOneWidget);
   });
 }

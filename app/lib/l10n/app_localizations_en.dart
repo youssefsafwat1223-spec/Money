@@ -3766,4 +3766,451 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cdNoTxYet => 'No transactions yet';
+
+  @override
+  String get bfInvalidAmount => 'Invalid amount';
+
+  @override
+  String get bfPickFutureDue => 'Pick a due date that is today or later.';
+
+  @override
+  String get bfPaidFromForm => 'Paid manually from the form';
+
+  @override
+  String get bfSavedButPaymentFailed =>
+      'The bill was saved, but the payment could not be recorded — try again with the same details.';
+
+  @override
+  String get bfSaveFailed =>
+      'Something unexpected went wrong while saving. Please try again.';
+
+  @override
+  String get bfAddBill => 'Add bill';
+
+  @override
+  String get bfEditBill => 'Edit bill';
+
+  @override
+  String get bfSubscription => 'Subscription';
+
+  @override
+  String get bfInstalment => 'Instalment';
+
+  @override
+  String get bfBillName => 'Bill name';
+
+  @override
+  String get bfEnterName => 'Enter a name';
+
+  @override
+  String get bfEnterValidAmount => 'Enter a valid amount';
+
+  @override
+  String get bfManuallyPaidAmount => 'Amount paid manually';
+
+  @override
+  String get bfPaidManuallyFromSub => 'Paid manually against the subscription';
+
+  @override
+  String get bfRecordManualHint =>
+      'If you paid something and it never showed up as a transaction, record it here';
+
+  @override
+  String get bfAmountAboveZero => 'Enter an amount greater than zero';
+
+  @override
+  String get bfAccountCurrency => 'Account currency';
+
+  @override
+  String get bfLender => 'Lender / provider (Tamara, a bank…)';
+
+  @override
+  String get bfTotalInstalments => 'Total number of instalments';
+
+  @override
+  String get bfPaidSoFar => 'Paid so far';
+
+  @override
+  String get bfPurchaseValue => 'Purchase / loan value';
+
+  @override
+  String get bfInterestOptional => 'Interest % (optional)';
+
+  @override
+  String get bfHowOften => 'How often?';
+
+  @override
+  String get bfEveryHowManyDays => 'Every how many days?';
+
+  @override
+  String get bfEnterValidDays => 'Enter a valid number of days';
+
+  @override
+  String get bfNextDueDate => 'Next due date';
+
+  @override
+  String get bfEnableReminder => 'Turn on the reminder';
+
+  @override
+  String get bfConfirmedBill => 'Confirmed bill';
+
+  @override
+  String get bfPresetCarInstalment => 'Car instalment';
+
+  @override
+  String get bfPresetRent => 'Rent';
+
+  @override
+  String get bfPresetPhone => 'Phone';
+
+  @override
+  String get bfPresetLaptop => 'Laptop';
+
+  @override
+  String get bfPresetFurniture => 'Furniture';
+
+  @override
+  String get bfPresetEducation => 'Education';
+
+  @override
+  String get bfPresetTravel => 'Travel';
+
+  @override
+  String get bfPresetMedical => 'Medical';
+
+  @override
+  String get bfPresetWedding => 'Wedding';
+
+  @override
+  String get bfPresetGold => 'Gold';
+
+  @override
+  String get bfPresetAppliances => 'Home appliances';
+
+  @override
+  String get bfPresetComputer => 'Computer';
+
+  @override
+  String get bfSearchService => 'Search for a service…';
+
+  @override
+  String get bfSearchInstalment => 'Search for an instalment…';
+
+  @override
+  String get bfCustomSub => 'Custom subscription';
+
+  @override
+  String get bfCustomInstalment => 'Custom instalment';
+
+  @override
+  String get bfAddManuallyHint => 'Add the name, amount and frequency yourself';
+
+  @override
+  String get bfMostUsed => 'Most used';
+
+  @override
+  String get afVodafoneCash => 'Vodafone Cash';
+
+  @override
+  String get afOrangeCash => 'Orange Cash';
+
+  @override
+  String get afEtisalatCash => 'e& Cash';
+
+  @override
+  String get afWePay => 'WE Pay';
+
+  @override
+  String get afCurrencyLockedInUse =>
+      'The currency cannot be changed on an account that has a balance or transactions.';
+
+  @override
+  String get afUsageCheckFailed =>
+      'We could not check whether the account is in use, so the currency was not changed.';
+
+  @override
+  String get afEnterAccountName => 'Please enter an account name';
+
+  @override
+  String get afPaymentDayRange => 'The payment day must be between 1 and 31';
+
+  @override
+  String get afSaveFailed =>
+      'Something unexpected went wrong — your data is safe, please try again.';
+
+  @override
+  String get afDeleteAccount => 'Delete account';
+
+  @override
+  String get afDeletePrepFailed =>
+      'The deletion could not be prepared — please try again.';
+
+  @override
+  String get afCannotDeleteLast => 'You cannot delete your last account.';
+
+  @override
+  String get afNeedsExplicitDecision =>
+      'The deletion could not proceed — some items need an explicit decision first.';
+
+  @override
+  String get afDeleteFailed =>
+      'The account could not be deleted — please try again.';
+
+  @override
+  String get afEditAccount => 'Edit account';
+
+  @override
+  String get afNewAccount => 'New account';
+
+  @override
+  String get afAccountName => 'Account name';
+
+  @override
+  String get afAccountNameHint =>
+      'For example: Cash Egypt, Al Rajhi Bank, USD wallet';
+
+  @override
+  String get afCurrencyLockedShort =>
+      'The currency cannot be changed on an account in use';
+
+  @override
+  String get afDefaultAccountHint =>
+      'New transactions are recorded here automatically';
+
+  @override
+  String get afExcludeFromTotals => 'Exclude from totals';
+
+  @override
+  String get afOpeningBalance => 'Opening balance (optional)';
+
+  @override
+  String get afBankAccountNumber => 'Bank account number (optional)';
+
+  @override
+  String get afHelpsMatching => 'Helps match your bank messages';
+
+  @override
+  String get afCreditLimit => 'Credit limit (optional)';
+
+  @override
+  String get afAvailableBalance => 'Available balance (optional)';
+
+  @override
+  String get afPaymentDay => 'Payment day (1–31, optional)';
+
+  @override
+  String get afProvider => 'Provider';
+
+  @override
+  String get afUnspecified => 'Not set';
+
+  @override
+  String get afAdvancedOptions => 'Advanced options';
+
+  @override
+  String gfRecommendedFor(String amount, String currency, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days',
+      one: '1 day',
+    );
+    return 'Suggested: $amount $currency a day for $_temp0.';
+  }
+
+  @override
+  String bfsSuggestAfterMoreTx(String period) {
+    return 'Once you have added more transactions, we will suggest a $period budget that fits.';
+  }
+
+  @override
+  String bfsSuggestion(String period, String value) {
+    return 'Suggested $period budget: $value';
+  }
+
+  @override
+  String get cfDeleteCardBody =>
+      'Deleting the card does not delete its transactions — they stay, with their card number. A card with the same digits may reappear automatically if a new message arrives.';
+
+  @override
+  String get mtEnterValidAmount => 'Enter a valid amount.';
+
+  @override
+  String get mtPickCategory => 'Choose a category for the transaction.';
+
+  @override
+  String get mtSaveFailed => 'The transaction could not be saved right now.';
+
+  @override
+  String get mtDeleteBody =>
+      'It will be removed from your reports and budgets.';
+
+  @override
+  String get mtDeleteFailed =>
+      'The transaction could not be deleted right now.';
+
+  @override
+  String get mtConfirmFailed =>
+      'The transaction could not be confirmed right now.';
+
+  @override
+  String get mtAddManually => 'Add a transaction manually';
+
+  @override
+  String get mtCategoriesFailed => 'Categories could not be loaded';
+
+  @override
+  String get mtMerchantOptional => 'Merchant or source (optional)';
+
+  @override
+  String get mtNoteOptional => 'Note (optional)';
+
+  @override
+  String get mtSaveEdits => 'Save changes';
+
+  @override
+  String get mtAddTransaction => 'Add transaction';
+
+  @override
+  String get mtTxConfirmed => 'Transaction confirmed';
+
+  @override
+  String get cfEnterValidLast4 => 'Enter a valid last 4 digits';
+
+  @override
+  String get cfDuplicateCard =>
+      'A card with the same digits already exists on this account';
+
+  @override
+  String get cfSaveFailed => 'The card could not be saved — please try again.';
+
+  @override
+  String get cfDeleteTitle => 'Delete this card?';
+
+  @override
+  String get cfDeleteFailed =>
+      'The card could not be deleted — please try again.';
+
+  @override
+  String get cfEditCard => 'Edit card';
+
+  @override
+  String get cfNewCard => 'New card';
+
+  @override
+  String get cfAutoDetected => 'Detected automatically from your messages';
+
+  @override
+  String get cfShortNameOptional => 'Short name (optional)';
+
+  @override
+  String get cfShortNameHint => 'For example: Salary, Travel';
+
+  @override
+  String get cfLast4 => 'Last 4 digits';
+
+  @override
+  String get cfNetwork => 'Network';
+
+  @override
+  String get cfDesign => 'Design';
+
+  @override
+  String get cfAccentOptional => 'Accent colour (optional)';
+
+  @override
+  String get cfLinkedAccount => 'Linked account';
+
+  @override
+  String get cfDeleteCard => 'Delete card';
+
+  @override
+  String get cfNoAccount => 'No account';
+
+  @override
+  String get gfNewGoal => 'New goal';
+
+  @override
+  String get gfEditGoal => 'Edit goal';
+
+  @override
+  String get gfGoalName => 'Goal name';
+
+  @override
+  String get gfEnterGoalName => 'Enter a goal name';
+
+  @override
+  String get gfTargetAmount => 'Target amount';
+
+  @override
+  String get gfEnterValidAmount => 'Enter a valid amount';
+
+  @override
+  String get gfDeadline => 'Deadline';
+
+  @override
+  String get gfOptional => 'Optional';
+
+  @override
+  String get gfRecommendedAfterDate =>
+      'The suggested amount appears once you pick a date.';
+
+  @override
+  String get gfAutoSaving => 'Automatic saving';
+
+  @override
+  String get gfAutoSavingHint =>
+      'Qirsh adds the amount to the goal automatically, every period';
+
+  @override
+  String get gfFrequency => 'Frequency';
+
+  @override
+  String get gfCreateGoal => 'Create goal';
+
+  @override
+  String get gfSaveEdit => 'Save changes';
+
+  @override
+  String get gfPickFutureDeadline => 'Pick a deadline that is today or later.';
+
+  @override
+  String get bfsNewBudget => 'New budget';
+
+  @override
+  String get bfsPickCategory => 'Choose a category';
+
+  @override
+  String get bfsSaveBudget => 'Save budget';
+
+  @override
+  String get bfsDeleteBody => 'This budget will be permanently deleted.';
+
+  @override
+  String get bfsPeriodDaily => 'Daily';
+
+  @override
+  String get bfsPeriodWeekly => 'Weekly';
+
+  @override
+  String get bfsPeriodMonthly => 'Monthly';
+
+  @override
+  String get bfsPeriodYearly => 'Yearly';
+
+  @override
+  String get bfsComputingSuggestion =>
+      'Working out a suggestion from the last 30 days…';
+
+  @override
+  String get bfsUseIt => 'Use it';
+
+  @override
+  String get bfsBudgetPeriod => 'Budget period';
+
+  @override
+  String get bdgDeleteBudget => 'Delete budget';
+
+  @override
+  String get mtKindExpense => 'Expense';
 }

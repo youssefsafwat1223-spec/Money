@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/async_reload_safe.dart';
@@ -148,17 +149,17 @@ class _ManualTransactionSheetState
     try {
       amount = parseLocalizedMoney(_amount.text, normalizedCurrency);
     } on Exception {
-      _snack('اكتب مبلغًا صحيحًا.');
+      _snack(context.l10n.mtEnterValidAmount);
       return;
     }
     if (amount.minorUnits <= 0) {
-      _snack('اكتب مبلغًا صحيحًا.');
+      _snack(context.l10n.mtEnterValidAmount);
       return;
     }
     final categoryKey = _categoryKey ?? catalog.byId(_categoryId)?.key;
     final categoryId = _categoryId ?? catalog.byKey(_categoryKey)?.id;
     if (categoryKey == null && !_isEditing) {
-      _snack('اختر تصنيف العملية.');
+      _snack(context.l10n.mtPickCategory);
       return;
     }
 
@@ -210,7 +211,7 @@ class _ManualTransactionSheetState
     } on RepoException catch (e) {
       if (mounted) _snack(repoExceptionMessage(e));
     } catch (_) {
-      if (mounted) _snack('تعذر حفظ العملية الآن.');
+      if (mounted) _snack(context.l10n.mtSaveFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -222,16 +223,16 @@ class _ManualTransactionSheetState
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('حذف العملية؟'),
-        content: const Text('سيتم حذف العملية من التقارير والميزانيات.'),
+        title: Text(context.l10n.txdDeleteTitle),
+        content: Text(context.l10n.mtDeleteBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('حذف'),
+            child: Text(context.l10n.setDelete),
           ),
         ],
       ),
@@ -263,7 +264,7 @@ class _ManualTransactionSheetState
     } on RepoException catch (e) {
       if (mounted) _snack(repoExceptionMessage(e));
     } catch (_) {
-      if (mounted) _snack('تعذر حذف العملية الآن.');
+      if (mounted) _snack(context.l10n.mtDeleteFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -283,9 +284,9 @@ class _ManualTransactionSheetState
       refreshBudgets(ref);
       refreshAchievements(ref);
       ref.invalidate(dashboardDataProvider);
-      _snack('تم تأكيد العملية.');
+      _snack(context.l10n.txdConfirmedToast);
     } catch (_) {
-      if (mounted) _snack('تعذر تأكيد العملية الآن.');
+      if (mounted) _snack(context.l10n.mtConfirmFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -300,12 +301,12 @@ class _ManualTransactionSheetState
     final catalogAsync = ref.watch(categoryCatalogProvider);
 
     return AppSheetScaffold(
-      title: _isEditing ? 'تعديل العملية' : 'إضافة عملية يدويًا',
+      title: _isEditing ? context.l10n.txnEditTx : context.l10n.mtAddManually,
       body: catalogAsync.when(
         skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stackTrace) =>
-            const Center(child: Text('تعذر تحميل التصنيفات')),
+            Center(child: Text(context.l10n.mtCategoriesFailed)),
         data: (catalog) => _buildForm(context, catalog),
       ),
     );
@@ -341,18 +342,18 @@ class _ManualTransactionSheetState
               _categoryId = null;
             });
           },
-          options: const [
+          options: [
             SegmentOption(
                 value: TransactionTypeEntity.payment,
-                label: 'مصروف',
+                label: context.l10n.mtKindExpense,
                 icon: AppLucideIcons.minus),
             SegmentOption(
                 value: TransactionTypeEntity.income,
-                label: 'دخل',
+                label: context.l10n.txnKindIncome,
                 icon: AppLucideIcons.plus),
             SegmentOption(
                 value: TransactionTypeEntity.transfer,
-                label: 'تحويل',
+                label: context.l10n.txdTypeTransfer,
                 icon: AppLucideIcons.arrowLeftRight),
           ],
         ),
@@ -381,9 +382,9 @@ class _ManualTransactionSheetState
                 return DropdownButtonFormField<String>(
                   value: value,
                   isExpanded: true,
-                  decoration: const InputDecoration(
-                    labelText: 'الحساب',
-                    prefixIcon: Icon(AppLucideIcons.wallet),
+                  decoration: InputDecoration(
+                    labelText: context.l10n.commonAccountDefinite,
+                    prefixIcon: const Icon(AppLucideIcons.wallet),
                   ),
                   items: [
                     for (final account in accounts)
@@ -430,9 +431,9 @@ class _ManualTransactionSheetState
         const SizedBox(height: AppSpacing.s3),
         DropdownButtonFormField<String>(
           value: _categoryKey ?? catalog.byId(_categoryId)?.key,
-          decoration: const InputDecoration(
-            labelText: 'التصنيف',
-            prefixIcon: Icon(AppLucideIcons.shapes),
+          decoration: InputDecoration(
+            labelText: context.l10n.txnCategory,
+            prefixIcon: const Icon(AppLucideIcons.shapes),
           ),
           items: categories
               .map(
@@ -459,9 +460,9 @@ class _ManualTransactionSheetState
         const SizedBox(height: AppSpacing.s3),
         TextField(
           controller: _merchant,
-          decoration: const InputDecoration(
-            labelText: 'المتجر أو المصدر (اختياري)',
-            prefixIcon: Icon(AppLucideIcons.store),
+          decoration: InputDecoration(
+            labelText: context.l10n.mtMerchantOptional,
+            prefixIcon: const Icon(AppLucideIcons.store),
           ),
         ),
         const SizedBox(height: AppSpacing.s3),
@@ -477,9 +478,9 @@ class _ManualTransactionSheetState
           controller: _note,
           minLines: 2,
           maxLines: 4,
-          decoration: const InputDecoration(
-            labelText: 'ملاحظة (اختياري)',
-            prefixIcon: Icon(AppLucideIcons.fileText),
+          decoration: InputDecoration(
+            labelText: context.l10n.mtNoteOptional,
+            prefixIcon: const Icon(AppLucideIcons.fileText),
           ),
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -492,7 +493,7 @@ class _ManualTransactionSheetState
                   child: CircularProgressIndicator(strokeWidth: 2),
                 )
               : const Icon(AppLucideIcons.check),
-          label: Text(_isEditing ? 'حفظ التعديلات' : 'إضافة العملية'),
+          label: Text(_isEditing ? context.l10n.mtSaveEdits : context.l10n.mtAddTransaction),
         ),
         if (_isEditing) ...[
           const SizedBox(height: AppSpacing.s2),
@@ -508,15 +509,15 @@ class _ManualTransactionSheetState
             ),
             label: Text(
               widget.transaction!.status == TransactionStatus.confirmed
-                  ? 'العملية مؤكدة'
-                  : 'تأكيد العملية',
+                  ? context.l10n.mtTxConfirmed
+                  : context.l10n.txdConfirmTx,
             ),
           ),
           const SizedBox(height: AppSpacing.s2),
           OutlinedButton.icon(
             onPressed: _busy ? null : _delete,
             icon: Icon(AppLucideIcons.trash2, color: c.danger),
-            label: Text('حذف العملية', style: TextStyle(color: c.danger)),
+            label: Text(context.l10n.txdDeleteTx, style: TextStyle(color: c.danger)),
             style: OutlinedButton.styleFrom(
               side: BorderSide(color: c.danger),
             ),
@@ -550,7 +551,7 @@ class _AmountField extends StatelessWidget {
     return Column(
       children: [
         Text(
-          'المبلغ',
+          context.l10n.bdgAmount,
           style: AppTypography.subhead(c.textSecondary)
               .copyWith(fontSize: 12.5, fontWeight: FontWeight.w500),
         ),

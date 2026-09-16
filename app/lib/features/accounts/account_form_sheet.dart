@@ -37,12 +37,15 @@ IconData accountTypeIcon(AccountType type) => switch (type) {
     };
 
 /// مزوّدو المحافظ الإلكترونية الشائعون (key → label).
-const Map<String, String> _walletProviders = {
-  'vodafone_cash': 'فودافون كاش',
-  'orange_cash': 'أورنج كاش',
-  'etisalat_cash': 'e& كاش',
-  'we_pay': 'وي باي',
-};
+///
+/// A function rather than a `const` map: the labels come from the ARB now, so
+/// the language has to be resolved when the form builds, not at class-load.
+Map<String, String> _walletProviders(BuildContext context) => {
+      'vodafone_cash': context.l10n.afVodafoneCash,
+      'orange_cash': context.l10n.afOrangeCash,
+      'etisalat_cash': context.l10n.afEtisalatCash,
+      'we_pay': context.l10n.afWePay,
+    };
 
 Future<void> showAccountForm(
   BuildContext context,
@@ -144,8 +147,8 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
 
   void _showCurrencyChangeBlocked() {
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('لا يمكن تغيير عملة حساب يحتوي على رصيد أو عمليات.'),
+      SnackBar(
+        content: Text(context.l10n.afCurrencyLockedInUse),
       ),
     );
   }
@@ -178,9 +181,9 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
+          SnackBar(
             content: Text(
-              'تعذر التحقق من استخدام الحساب؛ لم يتم تغيير العملة.',
+              context.l10n.afUsageCheckFailed,
             ),
           ),
         );
@@ -194,7 +197,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     final name = _name.text.trim();
     if (name.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('الرجاء إدخال اسم الحساب')),
+        SnackBar(content: Text(context.l10n.afEnterAccountName)),
       );
       return;
     }
@@ -204,7 +207,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
         dueDay != null &&
         (dueDay < 1 || dueDay > 31)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('يوم السداد يجب أن يكون بين 1 و31')),
+        SnackBar(content: Text(context.l10n.afPaymentDayRange)),
       );
       return;
     }
@@ -243,7 +246,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           : null;
     } on Exception {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('مبلغ غير صالح')),
+        SnackBar(content: Text(context.l10n.bfInvalidAmount)),
       );
       return;
     }
@@ -308,8 +311,8 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('حدث خطأ غير متوقع — بياناتك محفوظة، حاول مجددًا.'),
+        SnackBar(
+          content: Text(context.l10n.afSaveFailed),
         ),
       );
     } finally {
@@ -340,16 +343,16 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
         final confirmed = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('حذف الحساب'),
+            title: Text(context.l10n.afDeleteAccount),
             content: Text(_impactSummary(context, impact)),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('إلغاء'),
+                child: Text(context.l10n.commonCancel),
               ),
               FilledButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('حذف'),
+                child: Text(context.l10n.setDelete),
               ),
             ],
           ),
@@ -361,7 +364,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تعذّر تحضير الحذف — حاول مجددًا.')),
+          SnackBar(content: Text(context.l10n.afDeletePrepFailed)),
         );
       }
     }
@@ -383,14 +386,14 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     } on StateError {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('لا يمكن حذف آخر حساب.')),
+          SnackBar(content: Text(context.l10n.afCannotDeleteLast)),
         );
       }
     } on AccountDeletionBlocked {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('تعذّر الحذف — بعض العناصر تحتاج قرارًا صريحًا.'),
+          SnackBar(
+            content: Text(context.l10n.afNeedsExplicitDecision),
           ),
         );
       }
@@ -399,14 +402,14 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
         AppToast.show(
           context,
           e is ValidationRepoException && e.message.contains('last_account')
-              ? 'لا يمكن حذف آخر حساب.'
+              ? context.l10n.afCannotDeleteLast
               : repoExceptionMessage(e),
         );
       }
     } catch (_) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('تعذّر حذف الحساب — حاول مجددًا.')),
+          SnackBar(content: Text(context.l10n.afDeleteFailed)),
         );
       }
     } finally {
@@ -471,17 +474,17 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(editing ? 'تعديل حساب' : 'حساب جديد',
+            Text(editing ? context.l10n.afEditAccount : context.l10n.afNewAccount,
                 style: AppTypography.title2(c.textMain)),
             const SizedBox(height: AppSpacing.s4),
             _field(
               key: const ValueKey('account-name-field'),
               controller: _name,
-              label: 'اسم الحساب',
-              hint: 'مثال: كاش مصر، بنك الراجحي، محفظة USD',
+              label: context.l10n.afAccountName,
+              hint: context.l10n.afAccountNameHint,
             ),
             const SizedBox(height: AppSpacing.s3),
-            Text('النوع', style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.txdType, style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             Wrap(
               spacing: 8,
@@ -499,7 +502,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
               ],
             ),
             const SizedBox(height: AppSpacing.s4),
-            Text('العملة', style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.dtxCurrency, style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             DropdownButtonFormField<String>(
               key: const ValueKey('account-currency-field'),
@@ -507,7 +510,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
               isExpanded: true,
               decoration: InputDecoration(
                 helperText:
-                    currencyLocked ? 'لا يمكن تغيير عملة حساب مستخدم' : null,
+                    currencyLocked ? context.l10n.afCurrencyLockedShort : null,
               ),
               items: [
                 for (final code in currencies)
@@ -535,9 +538,9 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
                   onChanged: _busy || widget.account?.isDefault == true
                       ? null
                       : (v) => setState(() => _isDefault = v),
-                  title: Text('الحساب الافتراضي',
+                  title: Text(context.l10n.dtxDefaultAccount,
                       style: AppTypography.body(c.textMain)),
-                  subtitle: Text('العمليات الجديدة تتسجّل هنا تلقائيًا',
+                  subtitle: Text(context.l10n.afDefaultAccountHint,
                       style: AppTypography.caption(c.textLight)),
                   activeColor: c.primary,
                 ),
@@ -547,7 +550,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
                   onChanged: _busy
                       ? null
                       : (v) => setState(() => _excludeFromTotals = v),
-                  title: Text('استبعاد من الإجماليات',
+                  title: Text(context.l10n.afExcludeFromTotals,
                       style: AppTypography.body(c.textMain)),
                   activeColor: c.primary,
                 ),
@@ -566,7 +569,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
                       height: 22,
                       child: CircularProgressIndicator(
                           strokeWidth: 2.5, color: c.onInk))
-                  : Text(editing ? 'حفظ' : 'إضافة',
+                  : Text(editing ? context.l10n.txdSave : context.l10n.txnAdd,
                       style: AppTypography.bodyStrong(c.onInk)),
             ),
             if (editing && !widget.account!.isDefault) ...[
@@ -574,7 +577,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
               TextButton.icon(
                 onPressed: _busy ? null : _delete,
                 icon: Icon(AppLucideIcons.trash2, color: c.danger),
-                label: Text('حذف الحساب', style: AppTypography.body(c.danger)),
+                label: Text(context.l10n.afDeleteAccount, style: AppTypography.body(c.danger)),
               ),
             ],
           ],
@@ -591,13 +594,13 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           const SizedBox(height: AppSpacing.s3),
           _field(
               controller: _startingBalance,
-              label: 'الرصيد الافتتاحي (اختياري)',
+              label: context.l10n.afOpeningBalance,
               number: true),
           const SizedBox(height: AppSpacing.s3),
           _field(
               controller: _bankAccountNumber,
-              label: 'رقم الحساب البنكي (اختياري)',
-              hint: 'يساعد مطابقة الرسائل',
+              label: context.l10n.afBankAccountNumber,
+              hint: context.l10n.afHelpsMatching,
               number: true),
         ];
       case AccountType.card:
@@ -605,17 +608,17 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           const SizedBox(height: AppSpacing.s3),
           _field(
               controller: _creditLimit,
-              label: 'الحد الائتماني (اختياري)',
+              label: context.l10n.afCreditLimit,
               number: true),
           const SizedBox(height: AppSpacing.s3),
           _field(
               controller: _availableCredit,
-              label: 'الرصيد المتاح (اختياري)',
+              label: context.l10n.afAvailableBalance,
               number: true),
           const SizedBox(height: AppSpacing.s3),
           _field(
               controller: _paymentDueDay,
-              label: 'يوم السداد (1–31، اختياري)',
+              label: context.l10n.afPaymentDay,
               number: true),
         ];
       case AccountType.wallet:
@@ -623,20 +626,20 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           const SizedBox(height: AppSpacing.s3),
           _field(
               controller: _startingBalance,
-              label: 'الرصيد الافتتاحي (اختياري)',
+              label: context.l10n.afOpeningBalance,
               number: true),
           const SizedBox(height: AppSpacing.s3),
-          Text('المزوّد', style: AppTypography.caption(c.textLight)),
+          Text(context.l10n.afProvider, style: AppTypography.caption(c.textLight)),
           const SizedBox(height: AppSpacing.s2),
           DropdownButtonFormField<String?>(
-            value: _walletProviders.containsKey(_walletProvider)
+            value: _walletProviders(context).containsKey(_walletProvider)
                 ? _walletProvider
                 : null,
             isExpanded: true,
             items: [
-              const DropdownMenuItem<String?>(
-                  value: null, child: Text('غير محدَّد')),
-              for (final e in _walletProviders.entries)
+              DropdownMenuItem<String?>(
+                  value: null, child: Text(context.l10n.afUnspecified)),
+              for (final e in _walletProviders(context).entries)
                 DropdownMenuItem(value: e.key, child: Text(e.value)),
             ],
             onChanged:
@@ -648,7 +651,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           const SizedBox(height: AppSpacing.s3),
           _field(
               controller: _startingBalance,
-              label: 'الرصيد الافتتاحي (اختياري)',
+              label: context.l10n.afOpeningBalance,
               number: true),
         ];
     }
@@ -717,7 +720,7 @@ class _AdvancedSection extends StatelessWidget {
                     color: c.textLight,
                     size: 20),
                 const SizedBox(width: 6),
-                Text('خيارات متقدمة', style: AppTypography.body(c.textMain)),
+                Text(context.l10n.afAdvancedOptions, style: AppTypography.body(c.textMain)),
               ],
             ),
           ),

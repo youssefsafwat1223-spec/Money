@@ -6276,6 +6276,834 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'لا توجد عمليات بعد'**
   String get cdNoTxYet;
+
+  /// No description provided for @bfInvalidAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'مبلغ غير صالح'**
+  String get bfInvalidAmount;
+
+  /// No description provided for @bfPickFutureDue.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر تاريخ استحقاق قادمًا أو اليوم.'**
+  String get bfPickFutureDue;
+
+  /// No description provided for @bfPaidFromForm.
+  ///
+  /// In ar, this message translates to:
+  /// **'مدفوع يدويًا من النموذج'**
+  String get bfPaidFromForm;
+
+  /// No description provided for @bfSavedButPaymentFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم حفظ الفاتورة، لكن فشل تسجيل الدفعة — أعد المحاولة بنفس البيانات.'**
+  String get bfSavedButPaymentFailed;
+
+  /// No description provided for @bfSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.'**
+  String get bfSaveFailed;
+
+  /// No description provided for @bfAddBill.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة فاتورة'**
+  String get bfAddBill;
+
+  /// No description provided for @bfEditBill.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل فاتورة'**
+  String get bfEditBill;
+
+  /// No description provided for @bfSubscription.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراك'**
+  String get bfSubscription;
+
+  /// No description provided for @bfInstalment.
+  ///
+  /// In ar, this message translates to:
+  /// **'قسط'**
+  String get bfInstalment;
+
+  /// No description provided for @bfBillName.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسم الفاتورة'**
+  String get bfBillName;
+
+  /// No description provided for @bfEnterName.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب الاسم'**
+  String get bfEnterName;
+
+  /// No description provided for @bfEnterValidAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب مبلغ صحيح'**
+  String get bfEnterValidAmount;
+
+  /// No description provided for @bfManuallyPaidAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'مبلغ مدفوع يدويًا'**
+  String get bfManuallyPaidAmount;
+
+  /// No description provided for @bfPaidManuallyFromSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'مدفوع من الاشتراك يدويًا'**
+  String get bfPaidManuallyFromSub;
+
+  /// No description provided for @bfRecordManualHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'إذا دفعت مبلغًا ولم يظهر كعملية، سجّله هنا'**
+  String get bfRecordManualHint;
+
+  /// No description provided for @bfAmountAboveZero.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب مبلغ أكبر من صفر'**
+  String get bfAmountAboveZero;
+
+  /// No description provided for @bfAccountCurrency.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملة الحساب'**
+  String get bfAccountCurrency;
+
+  /// No description provided for @bfLender.
+  ///
+  /// In ar, this message translates to:
+  /// **'المقرض / الجهة (Tamara, بنك...)'**
+  String get bfLender;
+
+  /// No description provided for @bfTotalInstalments.
+  ///
+  /// In ar, this message translates to:
+  /// **'عدد الأقساط الكلي'**
+  String get bfTotalInstalments;
+
+  /// No description provided for @bfPaidSoFar.
+  ///
+  /// In ar, this message translates to:
+  /// **'المدفوع منها'**
+  String get bfPaidSoFar;
+
+  /// No description provided for @bfPurchaseValue.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيمة الشراء / القرض'**
+  String get bfPurchaseValue;
+
+  /// No description provided for @bfInterestOptional.
+  ///
+  /// In ar, this message translates to:
+  /// **'الفائدة % (اختياري)'**
+  String get bfInterestOptional;
+
+  /// No description provided for @bfHowOften.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل كم؟'**
+  String get bfHowOften;
+
+  /// No description provided for @bfEveryHowManyDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل كم يوم؟'**
+  String get bfEveryHowManyDays;
+
+  /// No description provided for @bfEnterValidDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب عدد أيام صحيح'**
+  String get bfEnterValidDays;
+
+  /// No description provided for @bfNextDueDate.
+  ///
+  /// In ar, this message translates to:
+  /// **'تاريخ الاستحقاق القادم'**
+  String get bfNextDueDate;
+
+  /// No description provided for @bfEnableReminder.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل التذكير'**
+  String get bfEnableReminder;
+
+  /// No description provided for @bfConfirmedBill.
+  ///
+  /// In ar, this message translates to:
+  /// **'فاتورة مؤكدة'**
+  String get bfConfirmedBill;
+
+  /// No description provided for @bfPresetCarInstalment.
+  ///
+  /// In ar, this message translates to:
+  /// **'قسط سيارة'**
+  String get bfPresetCarInstalment;
+
+  /// No description provided for @bfPresetRent.
+  ///
+  /// In ar, this message translates to:
+  /// **'إيجار'**
+  String get bfPresetRent;
+
+  /// No description provided for @bfPresetPhone.
+  ///
+  /// In ar, this message translates to:
+  /// **'جوال'**
+  String get bfPresetPhone;
+
+  /// No description provided for @bfPresetLaptop.
+  ///
+  /// In ar, this message translates to:
+  /// **'لابتوب'**
+  String get bfPresetLaptop;
+
+  /// No description provided for @bfPresetFurniture.
+  ///
+  /// In ar, this message translates to:
+  /// **'أثاث'**
+  String get bfPresetFurniture;
+
+  /// No description provided for @bfPresetEducation.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعليم'**
+  String get bfPresetEducation;
+
+  /// No description provided for @bfPresetTravel.
+  ///
+  /// In ar, this message translates to:
+  /// **'سفر'**
+  String get bfPresetTravel;
+
+  /// No description provided for @bfPresetMedical.
+  ///
+  /// In ar, this message translates to:
+  /// **'علاج'**
+  String get bfPresetMedical;
+
+  /// No description provided for @bfPresetWedding.
+  ///
+  /// In ar, this message translates to:
+  /// **'زواج'**
+  String get bfPresetWedding;
+
+  /// No description provided for @bfPresetGold.
+  ///
+  /// In ar, this message translates to:
+  /// **'ذهب'**
+  String get bfPresetGold;
+
+  /// No description provided for @bfPresetAppliances.
+  ///
+  /// In ar, this message translates to:
+  /// **'أجهزة منزلية'**
+  String get bfPresetAppliances;
+
+  /// No description provided for @bfPresetComputer.
+  ///
+  /// In ar, this message translates to:
+  /// **'كمبيوتر'**
+  String get bfPresetComputer;
+
+  /// No description provided for @bfSearchService.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابحث عن خدمة...'**
+  String get bfSearchService;
+
+  /// No description provided for @bfSearchInstalment.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابحث عن قسط...'**
+  String get bfSearchInstalment;
+
+  /// No description provided for @bfCustomSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراك مخصص'**
+  String get bfCustomSub;
+
+  /// No description provided for @bfCustomInstalment.
+  ///
+  /// In ar, this message translates to:
+  /// **'قسط مخصص'**
+  String get bfCustomInstalment;
+
+  /// No description provided for @bfAddManuallyHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف الاسم والمبلغ والتكرار يدويًا'**
+  String get bfAddManuallyHint;
+
+  /// No description provided for @bfMostUsed.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأكثر استخدامًا'**
+  String get bfMostUsed;
+
+  /// No description provided for @afVodafoneCash.
+  ///
+  /// In ar, this message translates to:
+  /// **'فودافون كاش'**
+  String get afVodafoneCash;
+
+  /// No description provided for @afOrangeCash.
+  ///
+  /// In ar, this message translates to:
+  /// **'أورنج كاش'**
+  String get afOrangeCash;
+
+  /// No description provided for @afEtisalatCash.
+  ///
+  /// In ar, this message translates to:
+  /// **'e& كاش'**
+  String get afEtisalatCash;
+
+  /// No description provided for @afWePay.
+  ///
+  /// In ar, this message translates to:
+  /// **'وي باي'**
+  String get afWePay;
+
+  /// No description provided for @afCurrencyLockedInUse.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يمكن تغيير عملة حساب يحتوي على رصيد أو عمليات.'**
+  String get afCurrencyLockedInUse;
+
+  /// No description provided for @afUsageCheckFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر التحقق من استخدام الحساب؛ لم يتم تغيير العملة.'**
+  String get afUsageCheckFailed;
+
+  /// No description provided for @afEnterAccountName.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرجاء إدخال اسم الحساب'**
+  String get afEnterAccountName;
+
+  /// No description provided for @afPaymentDayRange.
+  ///
+  /// In ar, this message translates to:
+  /// **'يوم السداد يجب أن يكون بين 1 و31'**
+  String get afPaymentDayRange;
+
+  /// No description provided for @afSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدث خطأ غير متوقع — بياناتك محفوظة، حاول مجددًا.'**
+  String get afSaveFailed;
+
+  /// No description provided for @afDeleteAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الحساب'**
+  String get afDeleteAccount;
+
+  /// No description provided for @afDeletePrepFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تحضير الحذف — حاول مجددًا.'**
+  String get afDeletePrepFailed;
+
+  /// No description provided for @afCannotDeleteLast.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يمكن حذف آخر حساب.'**
+  String get afCannotDeleteLast;
+
+  /// No description provided for @afNeedsExplicitDecision.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر الحذف — بعض العناصر تحتاج قرارًا صريحًا.'**
+  String get afNeedsExplicitDecision;
+
+  /// No description provided for @afDeleteFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حذف الحساب — حاول مجددًا.'**
+  String get afDeleteFailed;
+
+  /// No description provided for @afEditAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل حساب'**
+  String get afEditAccount;
+
+  /// No description provided for @afNewAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'حساب جديد'**
+  String get afNewAccount;
+
+  /// No description provided for @afAccountName.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسم الحساب'**
+  String get afAccountName;
+
+  /// No description provided for @afAccountNameHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'مثال: كاش مصر، بنك الراجحي، محفظة USD'**
+  String get afAccountNameHint;
+
+  /// No description provided for @afCurrencyLockedShort.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يمكن تغيير عملة حساب مستخدم'**
+  String get afCurrencyLockedShort;
+
+  /// No description provided for @afDefaultAccountHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'العمليات الجديدة تتسجّل هنا تلقائيًا'**
+  String get afDefaultAccountHint;
+
+  /// No description provided for @afExcludeFromTotals.
+  ///
+  /// In ar, this message translates to:
+  /// **'استبعاد من الإجماليات'**
+  String get afExcludeFromTotals;
+
+  /// No description provided for @afOpeningBalance.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرصيد الافتتاحي (اختياري)'**
+  String get afOpeningBalance;
+
+  /// No description provided for @afBankAccountNumber.
+  ///
+  /// In ar, this message translates to:
+  /// **'رقم الحساب البنكي (اختياري)'**
+  String get afBankAccountNumber;
+
+  /// No description provided for @afHelpsMatching.
+  ///
+  /// In ar, this message translates to:
+  /// **'يساعد مطابقة الرسائل'**
+  String get afHelpsMatching;
+
+  /// No description provided for @afCreditLimit.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحد الائتماني (اختياري)'**
+  String get afCreditLimit;
+
+  /// No description provided for @afAvailableBalance.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرصيد المتاح (اختياري)'**
+  String get afAvailableBalance;
+
+  /// No description provided for @afPaymentDay.
+  ///
+  /// In ar, this message translates to:
+  /// **'يوم السداد (1–31، اختياري)'**
+  String get afPaymentDay;
+
+  /// No description provided for @afProvider.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزوّد'**
+  String get afProvider;
+
+  /// No description provided for @afUnspecified.
+  ///
+  /// In ar, this message translates to:
+  /// **'غير محدَّد'**
+  String get afUnspecified;
+
+  /// No description provided for @afAdvancedOptions.
+  ///
+  /// In ar, this message translates to:
+  /// **'خيارات متقدمة'**
+  String get afAdvancedOptions;
+
+  /// No description provided for @gfRecommendedFor.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ الموصى به: {amount} {currency} يوميًا لـ {days, plural, =1{يوم واحد} =2{يومين} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}.'**
+  String gfRecommendedFor(String amount, String currency, int days);
+
+  /// No description provided for @bfsSuggestAfterMoreTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'بعد إضافة عمليات أكثر، سنقترح ميزانية {period} مناسبة.'**
+  String bfsSuggestAfterMoreTx(String period);
+
+  /// No description provided for @bfsSuggestion.
+  ///
+  /// In ar, this message translates to:
+  /// **'اقتراح ميزانية {period}: {value}'**
+  String bfsSuggestion(String period, String value);
+
+  /// No description provided for @cfDeleteCardBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف البطاقة لن يحذف عملياتها — تبقى محفوظة بأرقامها. قد تظهر بطاقة تلقائية بنفس الأرقام إذا وصلت رسالة جديدة.'**
+  String get cfDeleteCardBody;
+
+  /// No description provided for @mtEnterValidAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب مبلغًا صحيحًا.'**
+  String get mtEnterValidAmount;
+
+  /// No description provided for @mtPickCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر تصنيف العملية.'**
+  String get mtPickCategory;
+
+  /// No description provided for @mtSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر حفظ العملية الآن.'**
+  String get mtSaveFailed;
+
+  /// No description provided for @mtDeleteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيتم حذف العملية من التقارير والميزانيات.'**
+  String get mtDeleteBody;
+
+  /// No description provided for @mtDeleteFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر حذف العملية الآن.'**
+  String get mtDeleteFailed;
+
+  /// No description provided for @mtConfirmFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تأكيد العملية الآن.'**
+  String get mtConfirmFailed;
+
+  /// No description provided for @mtAddManually.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة عملية يدويًا'**
+  String get mtAddManually;
+
+  /// No description provided for @mtCategoriesFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تحميل التصنيفات'**
+  String get mtCategoriesFailed;
+
+  /// No description provided for @mtMerchantOptional.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتجر أو المصدر (اختياري)'**
+  String get mtMerchantOptional;
+
+  /// No description provided for @mtNoteOptional.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملاحظة (اختياري)'**
+  String get mtNoteOptional;
+
+  /// No description provided for @mtSaveEdits.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ التعديلات'**
+  String get mtSaveEdits;
+
+  /// No description provided for @mtAddTransaction.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة العملية'**
+  String get mtAddTransaction;
+
+  /// No description provided for @mtTxConfirmed.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملية مؤكدة'**
+  String get mtTxConfirmed;
+
+  /// No description provided for @cfEnterValidLast4.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدخل آخر 4 أرقام صحيحة'**
+  String get cfEnterValidLast4;
+
+  /// No description provided for @cfDuplicateCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'توجد بطاقة بنفس الأرقام في هذا الحساب'**
+  String get cfDuplicateCard;
+
+  /// No description provided for @cfSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حفظ البطاقة — حاول مجددًا.'**
+  String get cfSaveFailed;
+
+  /// No description provided for @cfDeleteTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف البطاقة؟'**
+  String get cfDeleteTitle;
+
+  /// No description provided for @cfDeleteFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حذف البطاقة — حاول مجددًا.'**
+  String get cfDeleteFailed;
+
+  /// No description provided for @cfEditCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل بطاقة'**
+  String get cfEditCard;
+
+  /// No description provided for @cfNewCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقة جديدة'**
+  String get cfNewCard;
+
+  /// No description provided for @cfAutoDetected.
+  ///
+  /// In ar, this message translates to:
+  /// **'مكتشفة تلقائيًا من رسائلك'**
+  String get cfAutoDetected;
+
+  /// No description provided for @cfShortNameOptional.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسم مختصر (اختياري)'**
+  String get cfShortNameOptional;
+
+  /// No description provided for @cfShortNameHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'مثال: راتب، سفر'**
+  String get cfShortNameHint;
+
+  /// No description provided for @cfLast4.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر 4 أرقام'**
+  String get cfLast4;
+
+  /// No description provided for @cfNetwork.
+  ///
+  /// In ar, this message translates to:
+  /// **'الشبكة'**
+  String get cfNetwork;
+
+  /// No description provided for @cfDesign.
+  ///
+  /// In ar, this message translates to:
+  /// **'التصميم'**
+  String get cfDesign;
+
+  /// No description provided for @cfAccentOptional.
+  ///
+  /// In ar, this message translates to:
+  /// **'لون مميّز (اختياري)'**
+  String get cfAccentOptional;
+
+  /// No description provided for @cfLinkedAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحساب المرتبط'**
+  String get cfLinkedAccount;
+
+  /// No description provided for @cfDeleteCard.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف البطاقة'**
+  String get cfDeleteCard;
+
+  /// No description provided for @cfNoAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون حساب'**
+  String get cfNoAccount;
+
+  /// No description provided for @gfNewGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'هدف جديد'**
+  String get gfNewGoal;
+
+  /// No description provided for @gfEditGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل الهدف'**
+  String get gfEditGoal;
+
+  /// No description provided for @gfGoalName.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسم الهدف'**
+  String get gfGoalName;
+
+  /// No description provided for @gfEnterGoalName.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب اسم الهدف'**
+  String get gfEnterGoalName;
+
+  /// No description provided for @gfTargetAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ المستهدف'**
+  String get gfTargetAmount;
+
+  /// No description provided for @gfEnterValidAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'أدخل مبلغًا صحيحًا'**
+  String get gfEnterValidAmount;
+
+  /// No description provided for @gfDeadline.
+  ///
+  /// In ar, this message translates to:
+  /// **'الموعد النهائي'**
+  String get gfDeadline;
+
+  /// No description provided for @gfOptional.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختياري'**
+  String get gfOptional;
+
+  /// No description provided for @gfRecommendedAfterDate.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ الموصى به يظهر بعد اختيار التاريخ.'**
+  String get gfRecommendedAfterDate;
+
+  /// No description provided for @gfAutoSaving.
+  ///
+  /// In ar, this message translates to:
+  /// **'ادخار تلقائي'**
+  String get gfAutoSaving;
+
+  /// No description provided for @gfAutoSavingHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'يضيف قِرش المبلغ للهدف كل فترة تلقائيًا'**
+  String get gfAutoSavingHint;
+
+  /// No description provided for @gfFrequency.
+  ///
+  /// In ar, this message translates to:
+  /// **'التكرار'**
+  String get gfFrequency;
+
+  /// No description provided for @gfCreateGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنشئ الهدف'**
+  String get gfCreateGoal;
+
+  /// No description provided for @gfSaveEdit.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ التعديل'**
+  String get gfSaveEdit;
+
+  /// No description provided for @gfPickFutureDeadline.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر موعدًا نهائيًا قادمًا أو اليوم.'**
+  String get gfPickFutureDeadline;
+
+  /// No description provided for @bfsNewBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية جديدة'**
+  String get bfsNewBudget;
+
+  /// No description provided for @bfsPickCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر تصنيفًا'**
+  String get bfsPickCategory;
+
+  /// No description provided for @bfsSaveBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ الميزانية'**
+  String get bfsSaveBudget;
+
+  /// No description provided for @bfsDeleteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيتم حذف هذه الميزانية نهائياً.'**
+  String get bfsDeleteBody;
+
+  /// No description provided for @bfsPeriodDaily.
+  ///
+  /// In ar, this message translates to:
+  /// **'يومية'**
+  String get bfsPeriodDaily;
+
+  /// No description provided for @bfsPeriodWeekly.
+  ///
+  /// In ar, this message translates to:
+  /// **'أسبوعية'**
+  String get bfsPeriodWeekly;
+
+  /// No description provided for @bfsPeriodMonthly.
+  ///
+  /// In ar, this message translates to:
+  /// **'شهرية'**
+  String get bfsPeriodMonthly;
+
+  /// No description provided for @bfsPeriodYearly.
+  ///
+  /// In ar, this message translates to:
+  /// **'سنوية'**
+  String get bfsPeriodYearly;
+
+  /// No description provided for @bfsComputingSuggestion.
+  ///
+  /// In ar, this message translates to:
+  /// **'نحسب اقتراحًا من آخر 30 يومًا...'**
+  String get bfsComputingSuggestion;
+
+  /// No description provided for @bfsUseIt.
+  ///
+  /// In ar, this message translates to:
+  /// **'استخدمه'**
+  String get bfsUseIt;
+
+  /// No description provided for @bfsBudgetPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'دورية الميزانية'**
+  String get bfsBudgetPeriod;
+
+  /// No description provided for @bdgDeleteBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الميزانية'**
+  String get bdgDeleteBudget;
+
+  /// No description provided for @mtKindExpense.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروف'**
+  String get mtKindExpense;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

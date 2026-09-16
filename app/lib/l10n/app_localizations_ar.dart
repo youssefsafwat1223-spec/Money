@@ -3801,4 +3801,439 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get cdNoTxYet => 'لا توجد عمليات بعد';
+
+  @override
+  String get bfInvalidAmount => 'مبلغ غير صالح';
+
+  @override
+  String get bfPickFutureDue => 'اختر تاريخ استحقاق قادمًا أو اليوم.';
+
+  @override
+  String get bfPaidFromForm => 'مدفوع يدويًا من النموذج';
+
+  @override
+  String get bfSavedButPaymentFailed =>
+      'تم حفظ الفاتورة، لكن فشل تسجيل الدفعة — أعد المحاولة بنفس البيانات.';
+
+  @override
+  String get bfSaveFailed => 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
+
+  @override
+  String get bfAddBill => 'إضافة فاتورة';
+
+  @override
+  String get bfEditBill => 'تعديل فاتورة';
+
+  @override
+  String get bfSubscription => 'اشتراك';
+
+  @override
+  String get bfInstalment => 'قسط';
+
+  @override
+  String get bfBillName => 'اسم الفاتورة';
+
+  @override
+  String get bfEnterName => 'اكتب الاسم';
+
+  @override
+  String get bfEnterValidAmount => 'اكتب مبلغ صحيح';
+
+  @override
+  String get bfManuallyPaidAmount => 'مبلغ مدفوع يدويًا';
+
+  @override
+  String get bfPaidManuallyFromSub => 'مدفوع من الاشتراك يدويًا';
+
+  @override
+  String get bfRecordManualHint => 'إذا دفعت مبلغًا ولم يظهر كعملية، سجّله هنا';
+
+  @override
+  String get bfAmountAboveZero => 'اكتب مبلغ أكبر من صفر';
+
+  @override
+  String get bfAccountCurrency => 'عملة الحساب';
+
+  @override
+  String get bfLender => 'المقرض / الجهة (Tamara, بنك...)';
+
+  @override
+  String get bfTotalInstalments => 'عدد الأقساط الكلي';
+
+  @override
+  String get bfPaidSoFar => 'المدفوع منها';
+
+  @override
+  String get bfPurchaseValue => 'قيمة الشراء / القرض';
+
+  @override
+  String get bfInterestOptional => 'الفائدة % (اختياري)';
+
+  @override
+  String get bfHowOften => 'كل كم؟';
+
+  @override
+  String get bfEveryHowManyDays => 'كل كم يوم؟';
+
+  @override
+  String get bfEnterValidDays => 'اكتب عدد أيام صحيح';
+
+  @override
+  String get bfNextDueDate => 'تاريخ الاستحقاق القادم';
+
+  @override
+  String get bfEnableReminder => 'تفعيل التذكير';
+
+  @override
+  String get bfConfirmedBill => 'فاتورة مؤكدة';
+
+  @override
+  String get bfPresetCarInstalment => 'قسط سيارة';
+
+  @override
+  String get bfPresetRent => 'إيجار';
+
+  @override
+  String get bfPresetPhone => 'جوال';
+
+  @override
+  String get bfPresetLaptop => 'لابتوب';
+
+  @override
+  String get bfPresetFurniture => 'أثاث';
+
+  @override
+  String get bfPresetEducation => 'تعليم';
+
+  @override
+  String get bfPresetTravel => 'سفر';
+
+  @override
+  String get bfPresetMedical => 'علاج';
+
+  @override
+  String get bfPresetWedding => 'زواج';
+
+  @override
+  String get bfPresetGold => 'ذهب';
+
+  @override
+  String get bfPresetAppliances => 'أجهزة منزلية';
+
+  @override
+  String get bfPresetComputer => 'كمبيوتر';
+
+  @override
+  String get bfSearchService => 'ابحث عن خدمة...';
+
+  @override
+  String get bfSearchInstalment => 'ابحث عن قسط...';
+
+  @override
+  String get bfCustomSub => 'اشتراك مخصص';
+
+  @override
+  String get bfCustomInstalment => 'قسط مخصص';
+
+  @override
+  String get bfAddManuallyHint => 'أضف الاسم والمبلغ والتكرار يدويًا';
+
+  @override
+  String get bfMostUsed => 'الأكثر استخدامًا';
+
+  @override
+  String get afVodafoneCash => 'فودافون كاش';
+
+  @override
+  String get afOrangeCash => 'أورنج كاش';
+
+  @override
+  String get afEtisalatCash => 'e& كاش';
+
+  @override
+  String get afWePay => 'وي باي';
+
+  @override
+  String get afCurrencyLockedInUse =>
+      'لا يمكن تغيير عملة حساب يحتوي على رصيد أو عمليات.';
+
+  @override
+  String get afUsageCheckFailed =>
+      'تعذر التحقق من استخدام الحساب؛ لم يتم تغيير العملة.';
+
+  @override
+  String get afEnterAccountName => 'الرجاء إدخال اسم الحساب';
+
+  @override
+  String get afPaymentDayRange => 'يوم السداد يجب أن يكون بين 1 و31';
+
+  @override
+  String get afSaveFailed => 'حدث خطأ غير متوقع — بياناتك محفوظة، حاول مجددًا.';
+
+  @override
+  String get afDeleteAccount => 'حذف الحساب';
+
+  @override
+  String get afDeletePrepFailed => 'تعذّر تحضير الحذف — حاول مجددًا.';
+
+  @override
+  String get afCannotDeleteLast => 'لا يمكن حذف آخر حساب.';
+
+  @override
+  String get afNeedsExplicitDecision =>
+      'تعذّر الحذف — بعض العناصر تحتاج قرارًا صريحًا.';
+
+  @override
+  String get afDeleteFailed => 'تعذّر حذف الحساب — حاول مجددًا.';
+
+  @override
+  String get afEditAccount => 'تعديل حساب';
+
+  @override
+  String get afNewAccount => 'حساب جديد';
+
+  @override
+  String get afAccountName => 'اسم الحساب';
+
+  @override
+  String get afAccountNameHint => 'مثال: كاش مصر، بنك الراجحي، محفظة USD';
+
+  @override
+  String get afCurrencyLockedShort => 'لا يمكن تغيير عملة حساب مستخدم';
+
+  @override
+  String get afDefaultAccountHint => 'العمليات الجديدة تتسجّل هنا تلقائيًا';
+
+  @override
+  String get afExcludeFromTotals => 'استبعاد من الإجماليات';
+
+  @override
+  String get afOpeningBalance => 'الرصيد الافتتاحي (اختياري)';
+
+  @override
+  String get afBankAccountNumber => 'رقم الحساب البنكي (اختياري)';
+
+  @override
+  String get afHelpsMatching => 'يساعد مطابقة الرسائل';
+
+  @override
+  String get afCreditLimit => 'الحد الائتماني (اختياري)';
+
+  @override
+  String get afAvailableBalance => 'الرصيد المتاح (اختياري)';
+
+  @override
+  String get afPaymentDay => 'يوم السداد (1–31، اختياري)';
+
+  @override
+  String get afProvider => 'المزوّد';
+
+  @override
+  String get afUnspecified => 'غير محدَّد';
+
+  @override
+  String get afAdvancedOptions => 'خيارات متقدمة';
+
+  @override
+  String gfRecommendedFor(String amount, String currency, int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days يوم',
+      many: '$days يومًا',
+      few: '$days أيام',
+      two: 'يومين',
+      one: 'يوم واحد',
+    );
+    return 'المبلغ الموصى به: $amount $currency يوميًا لـ $_temp0.';
+  }
+
+  @override
+  String bfsSuggestAfterMoreTx(String period) {
+    return 'بعد إضافة عمليات أكثر، سنقترح ميزانية $period مناسبة.';
+  }
+
+  @override
+  String bfsSuggestion(String period, String value) {
+    return 'اقتراح ميزانية $period: $value';
+  }
+
+  @override
+  String get cfDeleteCardBody =>
+      'حذف البطاقة لن يحذف عملياتها — تبقى محفوظة بأرقامها. قد تظهر بطاقة تلقائية بنفس الأرقام إذا وصلت رسالة جديدة.';
+
+  @override
+  String get mtEnterValidAmount => 'اكتب مبلغًا صحيحًا.';
+
+  @override
+  String get mtPickCategory => 'اختر تصنيف العملية.';
+
+  @override
+  String get mtSaveFailed => 'تعذر حفظ العملية الآن.';
+
+  @override
+  String get mtDeleteBody => 'سيتم حذف العملية من التقارير والميزانيات.';
+
+  @override
+  String get mtDeleteFailed => 'تعذر حذف العملية الآن.';
+
+  @override
+  String get mtConfirmFailed => 'تعذر تأكيد العملية الآن.';
+
+  @override
+  String get mtAddManually => 'إضافة عملية يدويًا';
+
+  @override
+  String get mtCategoriesFailed => 'تعذر تحميل التصنيفات';
+
+  @override
+  String get mtMerchantOptional => 'المتجر أو المصدر (اختياري)';
+
+  @override
+  String get mtNoteOptional => 'ملاحظة (اختياري)';
+
+  @override
+  String get mtSaveEdits => 'حفظ التعديلات';
+
+  @override
+  String get mtAddTransaction => 'إضافة العملية';
+
+  @override
+  String get mtTxConfirmed => 'العملية مؤكدة';
+
+  @override
+  String get cfEnterValidLast4 => 'أدخل آخر 4 أرقام صحيحة';
+
+  @override
+  String get cfDuplicateCard => 'توجد بطاقة بنفس الأرقام في هذا الحساب';
+
+  @override
+  String get cfSaveFailed => 'تعذّر حفظ البطاقة — حاول مجددًا.';
+
+  @override
+  String get cfDeleteTitle => 'حذف البطاقة؟';
+
+  @override
+  String get cfDeleteFailed => 'تعذّر حذف البطاقة — حاول مجددًا.';
+
+  @override
+  String get cfEditCard => 'تعديل بطاقة';
+
+  @override
+  String get cfNewCard => 'بطاقة جديدة';
+
+  @override
+  String get cfAutoDetected => 'مكتشفة تلقائيًا من رسائلك';
+
+  @override
+  String get cfShortNameOptional => 'اسم مختصر (اختياري)';
+
+  @override
+  String get cfShortNameHint => 'مثال: راتب، سفر';
+
+  @override
+  String get cfLast4 => 'آخر 4 أرقام';
+
+  @override
+  String get cfNetwork => 'الشبكة';
+
+  @override
+  String get cfDesign => 'التصميم';
+
+  @override
+  String get cfAccentOptional => 'لون مميّز (اختياري)';
+
+  @override
+  String get cfLinkedAccount => 'الحساب المرتبط';
+
+  @override
+  String get cfDeleteCard => 'حذف البطاقة';
+
+  @override
+  String get cfNoAccount => 'بدون حساب';
+
+  @override
+  String get gfNewGoal => 'هدف جديد';
+
+  @override
+  String get gfEditGoal => 'تعديل الهدف';
+
+  @override
+  String get gfGoalName => 'اسم الهدف';
+
+  @override
+  String get gfEnterGoalName => 'اكتب اسم الهدف';
+
+  @override
+  String get gfTargetAmount => 'المبلغ المستهدف';
+
+  @override
+  String get gfEnterValidAmount => 'أدخل مبلغًا صحيحًا';
+
+  @override
+  String get gfDeadline => 'الموعد النهائي';
+
+  @override
+  String get gfOptional => 'اختياري';
+
+  @override
+  String get gfRecommendedAfterDate =>
+      'المبلغ الموصى به يظهر بعد اختيار التاريخ.';
+
+  @override
+  String get gfAutoSaving => 'ادخار تلقائي';
+
+  @override
+  String get gfAutoSavingHint => 'يضيف قِرش المبلغ للهدف كل فترة تلقائيًا';
+
+  @override
+  String get gfFrequency => 'التكرار';
+
+  @override
+  String get gfCreateGoal => 'أنشئ الهدف';
+
+  @override
+  String get gfSaveEdit => 'حفظ التعديل';
+
+  @override
+  String get gfPickFutureDeadline => 'اختر موعدًا نهائيًا قادمًا أو اليوم.';
+
+  @override
+  String get bfsNewBudget => 'ميزانية جديدة';
+
+  @override
+  String get bfsPickCategory => 'اختر تصنيفًا';
+
+  @override
+  String get bfsSaveBudget => 'حفظ الميزانية';
+
+  @override
+  String get bfsDeleteBody => 'سيتم حذف هذه الميزانية نهائياً.';
+
+  @override
+  String get bfsPeriodDaily => 'يومية';
+
+  @override
+  String get bfsPeriodWeekly => 'أسبوعية';
+
+  @override
+  String get bfsPeriodMonthly => 'شهرية';
+
+  @override
+  String get bfsPeriodYearly => 'سنوية';
+
+  @override
+  String get bfsComputingSuggestion => 'نحسب اقتراحًا من آخر 30 يومًا...';
+
+  @override
+  String get bfsUseIt => 'استخدمه';
+
+  @override
+  String get bfsBudgetPeriod => 'دورية الميزانية';
+
+  @override
+  String get bdgDeleteBudget => 'حذف الميزانية';
+
+  @override
+  String get mtKindExpense => 'مصروف';
 }

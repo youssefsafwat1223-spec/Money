@@ -21,6 +21,7 @@ import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/repositories/account_repository.dart';
 import 'package:money_companion/features/common/account_range_controls.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 AccountEntity _account(String id, String name, {bool isDefault = false}) {
   final t = DateTime.utc(2026, 1, 1);
@@ -67,6 +68,9 @@ void main() {
       UncontrolledProviderScope(
         container: container,
         child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          locale: const Locale('ar'),
           theme: AppTheme.light,
           home: const Directionality(
             textDirection: TextDirection.rtl,
