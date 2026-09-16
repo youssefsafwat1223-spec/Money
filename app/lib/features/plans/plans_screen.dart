@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/l10n_ext.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -41,11 +42,11 @@ class PlansScreen extends ConsumerWidget {
     final async = ref.watch(plansWithSpentProvider);
     return AppScreenScaffold(
       header: AppHeader(
-        title: 'الخطط',
-        subtitle: 'ميزانية لكل مناسبة، بتتابع نفسها',
+        title: context.l10n.homePlans,
+        subtitle: context.l10n.plSubtitle,
         showBack: true,
         action: IconButton(
-          tooltip: 'خطة جديدة',
+          tooltip: context.l10n.homeNewPlan,
           onPressed: () => PlanFormSheet.show(context),
           icon: Icon(AppLucideIcons.plus, color: c.cta),
         ),
@@ -53,7 +54,7 @@ class PlansScreen extends ConsumerWidget {
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => const Center(child: Text('تعذّر التحميل')),
+        error: (e, _) => Center(child: Text(context.l10n.plLoadFailed)),
         data: (plans) {
           if (plans.isEmpty) {
             return Center(
@@ -62,10 +63,10 @@ class PlansScreen extends ConsumerWidget {
                     const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
                 child: AppEmptyState(
                   icon: AppLucideIcons.luggage,
-                  title: 'لا توجد خطط بعد',
+                  title: context.l10n.plNoPlans,
                   subtitle:
-                      'أنشئ خطة لرحلة أو مناسبة: ميزانية + فترة + الكروت اللي هتصرف منها، وقرش يتابعها لك.',
-                  primaryLabel: 'خطة جديدة',
+                      context.l10n.plEmptyBody,
+                  primaryLabel: context.l10n.homeNewPlan,
                   onPrimary: () => PlanFormSheet.show(context),
                 ),
               ),
@@ -93,21 +94,21 @@ class PlansScreen extends ConsumerWidget {
 /// than fetched per card. An id with no matching account is skipped rather than
 /// printed raw: a stale id is a data question, and a UUID on a plan card
 /// answers nothing.
-String _planScopeLabel(PlanEntity plan, WidgetRef ref) {
+String _planScopeLabel(BuildContext context, PlanEntity plan, WidgetRef ref) {
   if (plan.scopeMode == PlanScopeMode.allExpenses) {
-    return 'كل المصروفات في الفترة';
+    return context.l10n.plAllSpendInPeriod;
   }
   final accounts = ref.watch(accountsProvider).valueOrNull ?? const [];
   final byId = {for (final a in accounts) a.id: a.name};
   final parts = <String>[
     for (final id in plan.accountIds)
       if (byId[id] != null) byId[id]!,
-    for (final last4 in plan.cardLast4s) 'بطاقة ••$last4',
+    for (final last4 in plan.cardLast4s) context.l10n.plCardShort(last4),
   ];
   // The scope predicate is `account IN (...) OR card IN (...)`, so an id that
   // no longer resolves still widens the plan. Saying «حسابات محددة» is honest
   // about that; naming only the resolvable half would not be.
-  if (parts.isEmpty) return 'حسابات محددة';
+  if (parts.isEmpty) return context.l10n.plSpecificAccounts;
   return parts.join(' · ');
 }
 
@@ -170,7 +171,7 @@ class _PlanCard extends ConsumerWidget {
                               borderRadius:
                                   BorderRadius.circular(AppRadius.pill),
                             ),
-                            child: Text('منتهية',
+                            child: Text(context.l10n.plEnded,
                                 style: AppTypography.caption(c.textSecondary)),
                           ),
                         ],
@@ -192,7 +193,7 @@ class _PlanCard extends ConsumerWidget {
                     // form. Rendering it as blank would hide the widest scope
                     // the app has.
                     Text(
-                      _planScopeLabel(plan, ref),
+                      _planScopeLabel(context, plan, ref),
                       style: AppTypography.caption(c.textLight),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -211,7 +212,7 @@ class _PlanCard extends ConsumerWidget {
               // easiest one to reach. Edit now leads; delete is one level in and
               // still confirmed.
               PopupMenuButton<String>(
-                tooltip: 'خيارات الخطة',
+                tooltip: context.l10n.plPlanOptions,
                 icon: Icon(AppLucideIcons.moreVertical,
                     color: c.textLight, size: 20),
                 onSelected: (value) {
@@ -222,10 +223,10 @@ class _PlanCard extends ConsumerWidget {
                   }
                 },
                 itemBuilder: (context) => [
-                  const PopupMenuItem(value: 'edit', child: Text('تعديل')),
+                  PopupMenuItem(value: 'edit', child: Text(context.l10n.cardEdit)),
                   PopupMenuItem(
                     value: 'delete',
-                    child: Text('حذف', style: TextStyle(color: c.danger)),
+                    child: Text(context.l10n.setDelete, style: TextStyle(color: c.danger)),
                   ),
                 ],
               ),
@@ -293,7 +294,7 @@ class _PlanCard extends ConsumerWidget {
                   progress.perDayLeft,
                   style: AppTypography.caption(c.textLight),
                 ),
-                Text('/يوم · ${plan.daysLeft} يوم',
+                Text(context.l10n.plPerDayLeft(plan.daysLeft),
                     style: AppTypography.caption(c.textLight)),
               ],
             ],
@@ -307,16 +308,16 @@ class _PlanCard extends ConsumerWidget {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('حذف الخطة؟'),
+        title: Text(context.l10n.plDeleteTitle),
         content: Text(
-            'ستُحذف خطة «${progress.plan.name}». لن تتأثر العمليات نفسها.'),
+            context.l10n.plDeleteBody(progress.plan.name)),
         actions: [
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('إلغاء')),
+              child: Text(context.l10n.commonCancel)),
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('حذف')),
+              child: Text(context.l10n.setDelete)),
         ],
       ),
     );
@@ -342,7 +343,7 @@ class _PlanCard extends ConsumerWidget {
       if (!context.mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر حذف الخطة الآن.')),
+        SnackBar(content: Text(context.l10n.plDeleteFailed)),
       );
     }
   }
@@ -370,19 +371,19 @@ class _PlanDetailsSheet extends ConsumerWidget {
     final c = context.colors;
     return progressAsync.when(
       skipLoadingOnReload: true,
-      loading: () => const AppSheetScaffold(
-        title: 'تفاصيل الخطة',
-        body: Center(child: CircularProgressIndicator()),
+      loading: () => AppSheetScaffold(
+        title: context.l10n.plDetails,
+        body: const Center(child: CircularProgressIndicator()),
       ),
-      error: (e, _) => const AppSheetScaffold(
-        title: 'تفاصيل الخطة',
-        body: Center(child: Text('تعذّر التحميل')),
+      error: (e, _) => AppSheetScaffold(
+        title: context.l10n.plDetails,
+        body: Center(child: Text(context.l10n.plLoadFailed)),
       ),
       data: (progress) {
         if (progress == null) {
-          return const AppSheetScaffold(
-            title: 'تفاصيل الخطة',
-            body: Center(child: Text('الخطة غير موجودة')),
+          return AppSheetScaffold(
+            title: context.l10n.plDetails,
+            body: Center(child: Text(context.l10n.plNotFound)),
           );
         }
         final plan = progress.plan;
@@ -399,7 +400,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
                 child: OutlinedButton.icon(
                   onPressed: () => PlanFormSheet.show(context, existing: plan),
                   icon: const Icon(AppLucideIcons.pencil),
-                  label: const Text('تعديل'),
+                  label: Text(context.l10n.cardEdit),
                 ),
               ),
               const SizedBox(width: AppSpacing.s2),
@@ -412,7 +413,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
                     txAsync.valueOrNull ?? const [],
                   ),
                   icon: const Icon(AppLucideIcons.link2),
-                  label: const Text('ربط عملية'),
+                  label: Text(context.l10n.plLinkTransaction),
                 ),
               ),
             ],
@@ -431,7 +432,7 @@ class _PlanDetailsSheet extends ConsumerWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'من ${Formatters.amount(plan.budgetAmount)} $currency',
+                      context.l10n.plOfBudget(Formatters.amount(plan.budgetAmount), currency),
                       style: AppTypography.caption(c.textLight),
                     ),
                     const SizedBox(height: AppSpacing.s3),
@@ -447,19 +448,19 @@ class _PlanDetailsSheet extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: AppSpacing.s4),
-              Text('سجل الخطة', style: AppTypography.sectionTitle(c.textMain)),
+              Text(context.l10n.plHistory, style: AppTypography.sectionTitle(c.textMain)),
               const SizedBox(height: AppSpacing.s2),
               txAsync.when(
                 skipLoadingOnReload: true,
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => const Text('تعذّر تحميل العمليات'),
+                error: (e, _) => Text(context.l10n.plTxLoadFailed),
                 data: (transactions) {
                   if (transactions.isEmpty) {
                     return AppEmptyState(
                       icon: AppLucideIcons.receipt,
-                      title: 'لا توجد عمليات مرتبطة',
-                      subtitle: 'اربط عملية موجودة أو اختار حساب/كارت للخطة.',
-                      primaryLabel: 'ربط عملية',
+                      title: context.l10n.plNoLinkedTx,
+                      subtitle: context.l10n.plLinkHint,
+                      primaryLabel: context.l10n.plLinkTransaction,
                       onPrimary: () => _showLinkTransactionSheet(
                         context,
                         ref,
@@ -512,7 +513,7 @@ class _PlanTransactionTile extends StatelessWidget {
                 Text(
                   tx.rawMerchant?.trim().isNotEmpty == true
                       ? tx.rawMerchant!
-                      : 'عملية',
+                      : context.l10n.txnTransactionWord,
                   style: AppTypography.bodyStrong(c.textMain),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -551,7 +552,7 @@ Future<void> _showLinkTransactionSheet(
       builder: (context, setState) {
         final c = context.colors;
         return AppSheetScaffold(
-          title: 'ربط عملية بالخطة',
+          title: context.l10n.plLinkToPlan,
           subtitle: plan.name,
           scrollable: true,
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
@@ -575,10 +576,10 @@ Future<void> _showLinkTransactionSheet(
                   .take(40)
                   .toList(growable: false);
               if (transactions.isEmpty) {
-                return const AppEmptyState(
+                return AppEmptyState(
                   icon: AppLucideIcons.unlink,
-                  title: 'لا توجد عمليات مناسبة',
-                  subtitle: 'كل العمليات المناسبة مرتبطة بالفعل أو غير مؤكدة.',
+                  title: context.l10n.plNoSuitableTx,
+                  subtitle: context.l10n.plAllLinkedAlready,
                 );
               }
               return Column(

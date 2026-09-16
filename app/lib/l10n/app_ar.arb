@@ -2219,5 +2219,289 @@
   "bfsUseIt": "استخدمه",
   "bfsBudgetPeriod": "دورية الميزانية",
   "bdgDeleteBudget": "حذف الميزانية",
-  "mtKindExpense": "مصروف"
+  "mtKindExpense": "مصروف",
+  "bdsIncludesLegacyManual": "يشمل {amount} {currency} مدفوعة يدويًا قديمة.",
+  "@bdsIncludesLegacyManual": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsPayAllRemaining": "سداد كل الأقساط المتبقية ({count}) دفعة واحدة",
+  "@bdsPayAllRemaining": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bdsPaymentForPeriod": "هذه الدفعة عن الفترة {from} - {to}",
+  "@bdsPaymentForPeriod": {
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsPaymentForInstalment": "هذه الدفعة عن قسط رقم {index} للفترة {from} - {to}",
+  "@bdsPaymentForInstalment": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsPayRemainingInFull": "سدّد المتبقي بالكامل ({amount} {currency})",
+  "@bdsPayRemainingInFull": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsInstalmentNamed": "قسط {name}",
+  "@bdsInstalmentNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsSubscriptionNamed": "اشتراك {name}",
+  "@bdsSubscriptionNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsDeleteBody": "سيتم حذف «{name}» من الاشتراكات والأقساط.",
+  "@bdsDeleteBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsDeleted": "حُذف {name}",
+  "@bdsDeleted": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsInstalmentNumber": "قسط رقم {index}",
+  "@bdsInstalmentNumber": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "bdsPaymentNamed": "دفعة {name}",
+  "@bdsPaymentNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "plCardShort": "بطاقة ••{last4}",
+  "@plCardShort": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "plPerDayLeft": "/يوم · {days, plural, =1{يوم واحد} =2{يومان} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}",
+  "@plPerDayLeft": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "plDeleteBody": "ستُحذف خطة «{name}». لن تتأثر العمليات نفسها.",
+  "@plDeleteBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "plOfBudget": "من {amount} {currency}",
+  "@plOfBudget": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsInstalmentValue": "قيمة القسط",
+  "bdsTotalPaid": "إجمالي مدفوع",
+  "bdsRecordedPayments": "دفعات مسجّلة",
+  "bdsPaid": "مدفوع",
+  "bdsRemaining": "متبقي",
+  "bdsProgress": "تقدم",
+  "bdsRecordInstalmentPayment": "تسجيل دفع قسط",
+  "bdsRecordPayment": "تسجيل دفعة",
+  "bdsPaymentHistory": "سجل الدفعات",
+  "bdsNoManualInstalmentPayments": "لا توجد بعد دفعات أقساط مسجّلة يدويًا.",
+  "bdsNoManualSubPayments": "لا توجد بعد دفعات اشتراك مسجّلة يدويًا.",
+  "bdsSuggestedToLink": "عمليات مقترحة للربط",
+  "bdsNameMatchNote": "مطابقة بالاسم — لا تُحتسب ضمن المدفوع حتى تربطها كدفعة.",
+  "bdsNoSuggestions": "لا توجد عمليات مقترحة للربط.",
+  "bdsOptionalNote": "ملاحظة اختيارية",
+  "bdsRecordFailed": "تعذّر تسجيل الدفعة الآن. حاول مجددًا.",
+  "bdsSavedButNotLinked": "تم حفظ العملية، لكن تعذّر ربط الدفعة. أعد المحاولة ولن تتكرر العملية.",
+  "bdsRecord": "تسجيل",
+  "bdsPaymentRecorded": "تم تسجيل الدفعة وأضيفت للعمليات.",
+  "bdsDeleteBillTitle": "حذف الفاتورة؟",
+  "bdsDeleteBillFailed": "تعذّر حذف الفاتورة الآن.",
+  "bdsDeletePaymentTitle": "حذف الدفعة؟",
+  "bdsDeletePaymentBody": "سيُحذف سجل الدفع اليدوي هذا نهائيًا.",
+  "bdsDeletePaymentFailed": "تعذّر حذف الدفعة الآن.",
+  "plSubtitle": "ميزانية لكل مناسبة، تتابع نفسها",
+  "plLoadFailed": "تعذّر التحميل",
+  "plNoPlans": "لا توجد خطط بعد",
+  "plEmptyBody": "أنشئ خطة لرحلة أو مناسبة: ميزانية وفترة والبطاقات التي ستصرف منها، ويتابعها قِرش لك.",
+  "plAllSpendInPeriod": "كل المصروفات في الفترة",
+  "plSpecificAccounts": "حسابات محددة",
+  "plEnded": "منتهية",
+  "plPlanOptions": "خيارات الخطة",
+  "plDeleteTitle": "حذف الخطة؟",
+  "plDeleteFailed": "تعذّر حذف الخطة الآن.",
+  "plDetails": "تفاصيل الخطة",
+  "plNotFound": "الخطة غير موجودة",
+  "plLinkTransaction": "ربط عملية",
+  "plHistory": "سجل الخطة",
+  "plTxLoadFailed": "تعذّر تحميل العمليات",
+  "plNoLinkedTx": "لا توجد عمليات مرتبطة",
+  "plLinkHint": "اربط عملية موجودة أو اختر حسابًا أو بطاقة للخطة.",
+  "plLinkToPlan": "ربط عملية بالخطة",
+  "plNoSuitableTx": "لا توجد عمليات مناسبة",
+  "plAllLinkedAlready": "كل العمليات المناسبة مرتبطة بالفعل أو غير مؤكدة.",
+  "pcrWhyBody": "الميزانيات والأهداف القديمة لا تحفظ عملة مع المبلغ. لذلك لن يخمّن قِرش عملتها، بل تختار أنت كيف تريد معاملتها. لن يتغيّر أي مبلغ ولن تُحذف أي بيانات. مساهمات الأهداف تتبع عملة الهدف تلقائيًا.",
+  "pcrNoCurrencySet": "{amount} · بدون عملة محددة",
+  "@pcrNoCurrencySet": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "pcrConfirmedFor": "تم تأكيد {currency} لكل الميزانيات والأهداف الحالية.",
+  "@pcrConfirmedFor": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "bkLastBackup": "آخر نسخة: {date} · {time}",
+  "@bkLastBackup": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "pcrTitle": "تأكيد عملة التخطيط",
+  "pcrListChanged": "تغيّرت الميزانيات أو الأهداف",
+  "pcrListChangedBody": "القرار السابق لم يعد يطابق القائمة الحالية. حدّث القائمة ثم أكّد العملات مرة أخرى.",
+  "pcrRefreshList": "تحديث القائمة",
+  "pcrWhyTitle": "لماذا نحتاج تأكيدك؟",
+  "pcrDefaultSuggestion": "الاقتراح الافتراضي",
+  "pcrSuggestionNote": "هذا اقتراح من عملتك الحالية فقط، وليس قراراً محفوظاً حتى تؤكده.",
+  "pcrHowToConfirm": "طريقة التأكيد",
+  "pcrOneCurrencyForAll": "عملة واحدة للجميع",
+  "pcrOneCurrencyHint": "كل الميزانيات والأهداف الحالية تستخدم نفس العملة",
+  "pcrPerItem": "تحديد عملة لكل عنصر",
+  "pcrPerItemHint": "اختر عملة مختلفة لكل ميزانية أو هدف عند الحاجة",
+  "pcrSaveSelected": "حفظ العملات المحددة",
+  "pcrNotNow": "ليس الآن — سأكمل لاحقاً",
+  "pcrAllOneCurrency": "كل العناصر بعملة واحدة",
+  "pcrCurrencyCode": "رمز العملة",
+  "pcrWillRecord": "سيسجل التأكيد أن كل الميزانيات والأهداف الحالية تستخدم هذا الرمز.",
+  "pcrUnsupportedCodeLong": "رمز العملة غير مدعوم. استخدم رمزاً من ثلاث حروف مثل EGP أو SAR.",
+  "pcrUnsupportedCode": "رمز العملة غير مدعوم.",
+  "pcrSaveFailed": "تعذر حفظ التأكيد الآن. لم تتغير أي من بياناتك المالية.",
+  "pcrTreatAsCurrency": "اعتبرها بهذه العملة",
+  "pcrNothingToFix": "لا يوجد شيء يحتاج إلى إصلاح",
+  "pcrNothingToFixBody": "لا توجد ميزانيات أو أهداف قديمة تحتاج إلى تأكيد عملتها.",
+  "pcrPerItemSaved": "تم حفظ عملة مستقلة لكل ميزانية وهدف حالي.",
+  "pcrConfirmed": "تم تأكيد العملات",
+  "pcrBackToSettings": "العودة إلى الإعدادات",
+  "pcrReadFailed": "تعذر قراءة بيانات التخطيط. لم يتغير أي شيء.",
+  "rcTitle": "إنشاء تقرير مالي",
+  "rcPeriod": "الفترة",
+  "rcCustom": "مخصّص",
+  "rcPickRange": "اختر المدى",
+  "accTitleShort": "الحسابات",
+  "rcLanguage": "اللغة",
+  "rcArabic": "العربية",
+  "rcTxDetails": "تفاصيل العمليات",
+  "rcMerchantNames": "أسماء المتاجر",
+  "rcAccountNames": "أسماء الحسابات",
+  "rcBalances": "الأرصدة",
+  "rcNotes": "الملاحظات",
+  "rcPrivacyMode": "وضع الخصوصية (إخفاء المبالغ)",
+  "rcCreateReport": "إنشاء التقرير",
+  "rcNoDataInPeriod": "لا توجد بيانات في هذه الفترة",
+  "rcFontsFailed": "تعذّر تحميل الخطوط",
+  "rcPdfFailed": "تعذّر إنشاء ملف PDF",
+  "rcSaveFailed": "تعذّر حفظ الملف",
+  "rcCancelled": "أُلغي",
+  "rcUnexpectedError": "حدث خطأ غير متوقع",
+  "rcGenerating": "جاري إنشاء التقرير…",
+  "rcStepCollect": "جمع البيانات",
+  "rcStepMetrics": "حساب المؤشرات",
+  "rcStepDraw": "رسم الصفحات",
+  "rcStepSave": "حفظ الملف",
+  "rcStepDone": "اكتمل",
+  "bkTitle": "النسخ الاحتياطي والاستعادة",
+  "bkSubtitle": "احفظ بياناتك المالية واسترجعها بأمان وسرية تامة في أي وقت.",
+  "bkCreateAccountTitle": "أنشئ حسابًا لتفعيل النسخ الاحتياطي",
+  "bkCreateAccountBody": "يمكنك استخدام قِرش محليًا بدون حساب. النسخ الاحتياطي يحتاج تسجيل دخول حتى نربط النسخة المشفّرة بك.",
+  "bkNoBackupYet": "لم تُنشأ نسخة بعد",
+  "bkBackupNow": "نسخ احتياطي الآن",
+  "bkTurnOff": "إيقاف النسخ الاحتياطي",
+  "bkLocalDataStays": "بياناتك المحلية تبقى عند الإيقاف.",
+  "bkEnableFailed": "فشل تفعيل النسخ الاحتياطي. حاول مرة أخرى.",
+  "bkEncryptedWeCannotRead": "نسخة مشفّرة لا يمكننا قراءتها",
+  "bkOptionalOffByDefault": "النسخ الاحتياطي اختياري ومطفأ افتراضياً. عند تفعيله تُشفّر بياناتك end-to-end وترجع على أي جهاز.",
+  "bkPassphrase": "كلمة مرور التشفير (passphrase)",
+  "bkContinue": "متابعة",
+  "bkRecoveryCode": "رمز الاسترداد (Recovery Code)",
+  "bkCopyCode": "نسخ الرمز",
+  "bkLoseBothWarning": "إذا فقدت كلمة المرور والرمز معًا لن نتمكّن من استعادة نسختك.",
+  "bkSavedTheCode": "حفظت الرمز وأفهم ذلك",
+  "bkEnable": "تفعيل",
+  "bkRestoreFromBackup": "استعادة من نسخة احتياطية",
+  "pcrOldAmount": "المبلغ القديم",
+  "pcrOldTarget": "المبلغ المستهدف القديم"
 }

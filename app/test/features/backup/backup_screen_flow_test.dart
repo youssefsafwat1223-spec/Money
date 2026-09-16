@@ -9,6 +9,7 @@ import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/backup/backup_screen.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _FakeBackupService implements BackupService {
   _FakeBackupService({this.enableError});
@@ -112,6 +113,9 @@ Future<void> _pumpBackupScreen(
         backupServiceProvider.overrideWithValue(service),
       ],
       child: MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('ar'),
         theme: AppTheme.light,
         home: const Directionality(
           textDirection: TextDirection.rtl,

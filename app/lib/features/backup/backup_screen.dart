@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/backup/backup_service.dart';
@@ -30,7 +31,7 @@ class BackupScreen extends ConsumerWidget {
             child: async.when(
               skipLoadingOnReload: true,
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => const Center(child: Text('حدث خطأ')),
+              error: (e, _) => Center(child: Text(context.l10n.txnError)),
               data: (status) => isGuest
                   ? const _GuestBackupGate()
                   : status.enabled
@@ -79,7 +80,7 @@ class _BackupHeader extends StatelessWidget {
               ],
               Expanded(
                 child: Text(
-                  'النسخ الاحتياطي والاستعادة',
+                  context.l10n.bkTitle,
                   style: AppTypography.title1(c.textMain)
                       .copyWith(fontWeight: FontWeight.bold),
                 ),
@@ -88,7 +89,7 @@ class _BackupHeader extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            'احفظ بياناتك المالية واسترجعها بأمان وسرية تامة في أي وقت.',
+            context.l10n.bkSubtitle,
             style: AppTypography.caption(c.textMuted),
           ),
         ],
@@ -108,17 +109,17 @@ class _GuestBackupGate extends StatelessWidget {
       children: [
         Icon(AppLucideIcons.userPlus, size: 48, color: c.primary),
         const SizedBox(height: AppSpacing.s3),
-        Text('أنشئ حسابًا لتفعيل النسخ الاحتياطي',
+        Text(context.l10n.bkCreateAccountTitle,
             style: AppTypography.headline(c.textMain)),
         const SizedBox(height: AppSpacing.s2),
         Text(
-          'تقدر تستخدم قرش محليًا بدون حساب. النسخ الاحتياطي يحتاج تسجيل دخول حتى نربط النسخة المشفّرة بك.',
+          context.l10n.bkCreateAccountBody,
           style: AppTypography.body(c.textLight),
         ),
         const SizedBox(height: AppSpacing.s5),
         FilledButton(
           onPressed: () => context.push('/onboarding/auth'),
-          child: const Text('تسجيل الدخول'),
+          child: Text(context.l10n.homeSignIn),
         ),
       ],
     );
@@ -154,8 +155,10 @@ class _EnabledView extends ConsumerWidget {
         const SizedBox(height: AppSpacing.s2),
         Text(
           status.lastBackupAt == null
-              ? 'لم تُنشأ نسخة بعد'
-              : 'آخر نسخة: ${Formatters.fullDate(status.lastBackupAt!, context)} · ${Formatters.time(status.lastBackupAt!)}',
+              ? context.l10n.bkNoBackupYet
+              : context.l10n.bkLastBackup(
+                    Formatters.fullDate(status.lastBackupAt!, context),
+                    Formatters.time(status.lastBackupAt!)),
           style: AppTypography.body(c.textLight),
         ),
         const SizedBox(height: AppSpacing.s5),
@@ -166,7 +169,7 @@ class _EnabledView extends ConsumerWidget {
                   await controller.backupNow();
                   ref.invalidate(backupStatusProvider);
                 },
-          child: const Text('نسخ احتياطي الآن'),
+          child: Text(context.l10n.bkBackupNow),
         ),
         const SizedBox(height: AppSpacing.s3),
         const _RestoreBackupButton(),
@@ -177,10 +180,10 @@ class _EnabledView extends ConsumerWidget {
             ref.invalidate(backupStatusProvider);
           },
           child:
-              Text('إيقاف النسخ الاحتياطي', style: TextStyle(color: c.danger)),
+              Text(context.l10n.bkTurnOff, style: TextStyle(color: c.danger)),
         ),
         const SizedBox(height: AppSpacing.s3),
-        Text('بياناتك المحلية تبقى عند الإيقاف.',
+        Text(context.l10n.bkLocalDataStays,
             style: AppTypography.caption(c.textLight)),
       ],
     );
@@ -233,7 +236,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = 'فشل تفعيل النسخ الاحتياطي. جرّب مرة تانية.';
+        _error = context.l10n.bkEnableFailed;
       });
       ref.invalidate(backupStatusProvider);
     }
@@ -248,15 +251,15 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
       children: [
         Icon(AppLucideIcons.lock, size: 48, color: c.primary),
         const SizedBox(height: AppSpacing.s3),
-        Text('نسخة مشفّرة لا نقدر نقرأها',
+        Text(context.l10n.bkEncryptedWeCannotRead,
             style: AppTypography.headline(c.textMain)),
         const SizedBox(height: AppSpacing.s2),
         Text(
-            'النسخ الاحتياطي اختياري ومطفأ افتراضياً. عند تفعيله تُشفّر بياناتك end-to-end وترجع على أي جهاز.',
+            context.l10n.bkOptionalOffByDefault,
             style: AppTypography.body(c.textLight)),
         const SizedBox(height: AppSpacing.s5),
         if (_recoveryCode == null) ...[
-          Text('كلمة مرور التشفير (passphrase)',
+          Text(context.l10n.bkPassphrase,
               style: AppTypography.subhead(c.textLight)),
           const SizedBox(height: AppSpacing.s2),
           TextField(
@@ -315,13 +318,13 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
               ),
-              child: Text('متابعة', style: AppTypography.bodyStrong(c.onInk)),
+              child: Text(context.l10n.bkContinue, style: AppTypography.bodyStrong(c.onInk)),
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
           const _RestoreBackupButton(),
         ] else ...[
-          Text('رمز الاسترداد (Recovery Code)',
+          Text(context.l10n.bkRecoveryCode,
               style: AppTypography.subhead(c.textLight)),
           const SizedBox(height: AppSpacing.s2),
           Container(
@@ -341,7 +344,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
             onPressed: () =>
                 Clipboard.setData(ClipboardData(text: _recoveryCode!)),
             icon: const Icon(AppLucideIcons.copy, size: 18),
-            label: const Text('نسخ الرمز'),
+            label: Text(context.l10n.bkCopyCode),
           ),
           const SizedBox(height: AppSpacing.s4),
           Container(
@@ -356,7 +359,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
                 const SizedBox(width: AppSpacing.s2),
                 Expanded(
                   child: Text(
-                    'لو فقدت كلمة المرور والرمز معاً لن نتمكّن من استعادة نسختك.',
+                    context.l10n.bkLoseBothWarning,
                     style: AppTypography.caption(c.textMain),
                   ),
                 ),
@@ -370,7 +373,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
             contentPadding: EdgeInsets.zero,
             controlAffinity: ListTileControlAffinity.leading,
             activeColor: c.primary,
-            title: Text('حفظت الرمز وأفهم ذلك',
+            title: Text(context.l10n.bkSavedTheCode,
                 style: AppTypography.body(c.textMain)),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -387,7 +390,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16)),
               ),
-              child: Text('تفعيل', style: AppTypography.bodyStrong(c.onInk)),
+              child: Text(context.l10n.bkEnable, style: AppTypography.bodyStrong(c.onInk)),
             ),
           ),
         ],
@@ -406,7 +409,7 @@ class _RestoreBackupButton extends StatelessWidget {
       onPressed: () => context.push('/backup/restore'),
       icon: const Icon(AppLucideIcons.rotateCcw, size: 18),
       label: Text(
-        'استعادة من نسخة احتياطية',
+        context.l10n.bkRestoreFromBackup,
         style: AppTypography.bodyStrong(c.primary),
       ),
       style: OutlinedButton.styleFrom(

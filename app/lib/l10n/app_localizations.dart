@@ -7104,6 +7104,828 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'مصروف'**
   String get mtKindExpense;
+
+  /// No description provided for @bdsIncludesLegacyManual.
+  ///
+  /// In ar, this message translates to:
+  /// **'يشمل {amount} {currency} مدفوعة يدويًا قديمة.'**
+  String bdsIncludesLegacyManual(String amount, String currency);
+
+  /// No description provided for @bdsPayAllRemaining.
+  ///
+  /// In ar, this message translates to:
+  /// **'سداد كل الأقساط المتبقية ({count}) دفعة واحدة'**
+  String bdsPayAllRemaining(int count);
+
+  /// No description provided for @bdsPaymentForPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه الدفعة عن الفترة {from} - {to}'**
+  String bdsPaymentForPeriod(String from, String to);
+
+  /// No description provided for @bdsPaymentForInstalment.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه الدفعة عن قسط رقم {index} للفترة {from} - {to}'**
+  String bdsPaymentForInstalment(int index, String from, String to);
+
+  /// No description provided for @bdsPayRemainingInFull.
+  ///
+  /// In ar, this message translates to:
+  /// **'سدّد المتبقي بالكامل ({amount} {currency})'**
+  String bdsPayRemainingInFull(String amount, String currency);
+
+  /// No description provided for @bdsInstalmentNamed.
+  ///
+  /// In ar, this message translates to:
+  /// **'قسط {name}'**
+  String bdsInstalmentNamed(String name);
+
+  /// No description provided for @bdsSubscriptionNamed.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراك {name}'**
+  String bdsSubscriptionNamed(String name);
+
+  /// No description provided for @bdsDeleteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيتم حذف «{name}» من الاشتراكات والأقساط.'**
+  String bdsDeleteBody(String name);
+
+  /// No description provided for @bdsDeleted.
+  ///
+  /// In ar, this message translates to:
+  /// **'حُذف {name}'**
+  String bdsDeleted(String name);
+
+  /// No description provided for @bdsInstalmentNumber.
+  ///
+  /// In ar, this message translates to:
+  /// **'قسط رقم {index}'**
+  String bdsInstalmentNumber(int index);
+
+  /// No description provided for @bdsPaymentNamed.
+  ///
+  /// In ar, this message translates to:
+  /// **'دفعة {name}'**
+  String bdsPaymentNamed(String name);
+
+  /// No description provided for @plCardShort.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقة ••{last4}'**
+  String plCardShort(String last4);
+
+  /// No description provided for @plPerDayLeft.
+  ///
+  /// In ar, this message translates to:
+  /// **'/يوم · {days, plural, =1{يوم واحد} =2{يومان} few{{days} أيام} many{{days} يومًا} other{{days} يوم}}'**
+  String plPerDayLeft(int days);
+
+  /// No description provided for @plDeleteBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستُحذف خطة «{name}». لن تتأثر العمليات نفسها.'**
+  String plDeleteBody(String name);
+
+  /// No description provided for @plOfBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'من {amount} {currency}'**
+  String plOfBudget(String amount, String currency);
+
+  /// No description provided for @bdsInstalmentValue.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيمة القسط'**
+  String get bdsInstalmentValue;
+
+  /// No description provided for @bdsTotalPaid.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي مدفوع'**
+  String get bdsTotalPaid;
+
+  /// No description provided for @bdsRecordedPayments.
+  ///
+  /// In ar, this message translates to:
+  /// **'دفعات مسجّلة'**
+  String get bdsRecordedPayments;
+
+  /// No description provided for @bdsPaid.
+  ///
+  /// In ar, this message translates to:
+  /// **'مدفوع'**
+  String get bdsPaid;
+
+  /// No description provided for @bdsRemaining.
+  ///
+  /// In ar, this message translates to:
+  /// **'متبقي'**
+  String get bdsRemaining;
+
+  /// No description provided for @bdsProgress.
+  ///
+  /// In ar, this message translates to:
+  /// **'تقدم'**
+  String get bdsProgress;
+
+  /// No description provided for @bdsRecordInstalmentPayment.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل دفع قسط'**
+  String get bdsRecordInstalmentPayment;
+
+  /// No description provided for @bdsRecordPayment.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل دفعة'**
+  String get bdsRecordPayment;
+
+  /// No description provided for @bdsPaymentHistory.
+  ///
+  /// In ar, this message translates to:
+  /// **'سجل الدفعات'**
+  String get bdsPaymentHistory;
+
+  /// No description provided for @bdsNoManualInstalmentPayments.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد بعد دفعات أقساط مسجّلة يدويًا.'**
+  String get bdsNoManualInstalmentPayments;
+
+  /// No description provided for @bdsNoManualSubPayments.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد بعد دفعات اشتراك مسجّلة يدويًا.'**
+  String get bdsNoManualSubPayments;
+
+  /// No description provided for @bdsSuggestedToLink.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمليات مقترحة للربط'**
+  String get bdsSuggestedToLink;
+
+  /// No description provided for @bdsNameMatchNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'مطابقة بالاسم — لا تُحتسب ضمن المدفوع حتى تربطها كدفعة.'**
+  String get bdsNameMatchNote;
+
+  /// No description provided for @bdsNoSuggestions.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات مقترحة للربط.'**
+  String get bdsNoSuggestions;
+
+  /// No description provided for @bdsOptionalNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملاحظة اختيارية'**
+  String get bdsOptionalNote;
+
+  /// No description provided for @bdsRecordFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تسجيل الدفعة الآن. حاول مجددًا.'**
+  String get bdsRecordFailed;
+
+  /// No description provided for @bdsSavedButNotLinked.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم حفظ العملية، لكن تعذّر ربط الدفعة. أعد المحاولة ولن تتكرر العملية.'**
+  String get bdsSavedButNotLinked;
+
+  /// No description provided for @bdsRecord.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل'**
+  String get bdsRecord;
+
+  /// No description provided for @bdsPaymentRecorded.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تسجيل الدفعة وأضيفت للعمليات.'**
+  String get bdsPaymentRecorded;
+
+  /// No description provided for @bdsDeleteBillTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الفاتورة؟'**
+  String get bdsDeleteBillTitle;
+
+  /// No description provided for @bdsDeleteBillFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حذف الفاتورة الآن.'**
+  String get bdsDeleteBillFailed;
+
+  /// No description provided for @bdsDeletePaymentTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الدفعة؟'**
+  String get bdsDeletePaymentTitle;
+
+  /// No description provided for @bdsDeletePaymentBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيُحذف سجل الدفع اليدوي هذا نهائيًا.'**
+  String get bdsDeletePaymentBody;
+
+  /// No description provided for @bdsDeletePaymentFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حذف الدفعة الآن.'**
+  String get bdsDeletePaymentFailed;
+
+  /// No description provided for @plSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية لكل مناسبة، تتابع نفسها'**
+  String get plSubtitle;
+
+  /// No description provided for @plLoadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر التحميل'**
+  String get plLoadFailed;
+
+  /// No description provided for @plNoPlans.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد خطط بعد'**
+  String get plNoPlans;
+
+  /// No description provided for @plEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنشئ خطة لرحلة أو مناسبة: ميزانية وفترة والبطاقات التي ستصرف منها، ويتابعها قِرش لك.'**
+  String get plEmptyBody;
+
+  /// No description provided for @plAllSpendInPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل المصروفات في الفترة'**
+  String get plAllSpendInPeriod;
+
+  /// No description provided for @plSpecificAccounts.
+  ///
+  /// In ar, this message translates to:
+  /// **'حسابات محددة'**
+  String get plSpecificAccounts;
+
+  /// No description provided for @plEnded.
+  ///
+  /// In ar, this message translates to:
+  /// **'منتهية'**
+  String get plEnded;
+
+  /// No description provided for @plPlanOptions.
+  ///
+  /// In ar, this message translates to:
+  /// **'خيارات الخطة'**
+  String get plPlanOptions;
+
+  /// No description provided for @plDeleteTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الخطة؟'**
+  String get plDeleteTitle;
+
+  /// No description provided for @plDeleteFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حذف الخطة الآن.'**
+  String get plDeleteFailed;
+
+  /// No description provided for @plDetails.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفاصيل الخطة'**
+  String get plDetails;
+
+  /// No description provided for @plNotFound.
+  ///
+  /// In ar, this message translates to:
+  /// **'الخطة غير موجودة'**
+  String get plNotFound;
+
+  /// No description provided for @plLinkTransaction.
+  ///
+  /// In ar, this message translates to:
+  /// **'ربط عملية'**
+  String get plLinkTransaction;
+
+  /// No description provided for @plHistory.
+  ///
+  /// In ar, this message translates to:
+  /// **'سجل الخطة'**
+  String get plHistory;
+
+  /// No description provided for @plTxLoadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تحميل العمليات'**
+  String get plTxLoadFailed;
+
+  /// No description provided for @plNoLinkedTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات مرتبطة'**
+  String get plNoLinkedTx;
+
+  /// No description provided for @plLinkHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'اربط عملية موجودة أو اختر حسابًا أو بطاقة للخطة.'**
+  String get plLinkHint;
+
+  /// No description provided for @plLinkToPlan.
+  ///
+  /// In ar, this message translates to:
+  /// **'ربط عملية بالخطة'**
+  String get plLinkToPlan;
+
+  /// No description provided for @plNoSuitableTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات مناسبة'**
+  String get plNoSuitableTx;
+
+  /// No description provided for @plAllLinkedAlready.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل العمليات المناسبة مرتبطة بالفعل أو غير مؤكدة.'**
+  String get plAllLinkedAlready;
+
+  /// No description provided for @pcrWhyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'الميزانيات والأهداف القديمة لا تحفظ عملة مع المبلغ. لذلك لن يخمّن قِرش عملتها، بل تختار أنت كيف تريد معاملتها. لن يتغيّر أي مبلغ ولن تُحذف أي بيانات. مساهمات الأهداف تتبع عملة الهدف تلقائيًا.'**
+  String get pcrWhyBody;
+
+  /// No description provided for @pcrNoCurrencySet.
+  ///
+  /// In ar, this message translates to:
+  /// **'{amount} · بدون عملة محددة'**
+  String pcrNoCurrencySet(String amount);
+
+  /// No description provided for @pcrConfirmedFor.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تأكيد {currency} لكل الميزانيات والأهداف الحالية.'**
+  String pcrConfirmedFor(String currency);
+
+  /// No description provided for @bkLastBackup.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر نسخة: {date} · {time}'**
+  String bkLastBackup(String date, String time);
+
+  /// No description provided for @pcrTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد عملة التخطيط'**
+  String get pcrTitle;
+
+  /// No description provided for @pcrListChanged.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيّرت الميزانيات أو الأهداف'**
+  String get pcrListChanged;
+
+  /// No description provided for @pcrListChangedBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'القرار السابق لم يعد يطابق القائمة الحالية. حدّث القائمة ثم أكّد العملات مرة أخرى.'**
+  String get pcrListChangedBody;
+
+  /// No description provided for @pcrRefreshList.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحديث القائمة'**
+  String get pcrRefreshList;
+
+  /// No description provided for @pcrWhyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لماذا نحتاج تأكيدك؟'**
+  String get pcrWhyTitle;
+
+  /// No description provided for @pcrDefaultSuggestion.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاقتراح الافتراضي'**
+  String get pcrDefaultSuggestion;
+
+  /// No description provided for @pcrSuggestionNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذا اقتراح من عملتك الحالية فقط، وليس قراراً محفوظاً حتى تؤكده.'**
+  String get pcrSuggestionNote;
+
+  /// No description provided for @pcrHowToConfirm.
+  ///
+  /// In ar, this message translates to:
+  /// **'طريقة التأكيد'**
+  String get pcrHowToConfirm;
+
+  /// No description provided for @pcrOneCurrencyForAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملة واحدة للجميع'**
+  String get pcrOneCurrencyForAll;
+
+  /// No description provided for @pcrOneCurrencyHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل الميزانيات والأهداف الحالية تستخدم نفس العملة'**
+  String get pcrOneCurrencyHint;
+
+  /// No description provided for @pcrPerItem.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحديد عملة لكل عنصر'**
+  String get pcrPerItem;
+
+  /// No description provided for @pcrPerItemHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر عملة مختلفة لكل ميزانية أو هدف عند الحاجة'**
+  String get pcrPerItemHint;
+
+  /// No description provided for @pcrSaveSelected.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ العملات المحددة'**
+  String get pcrSaveSelected;
+
+  /// No description provided for @pcrNotNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'ليس الآن — سأكمل لاحقاً'**
+  String get pcrNotNow;
+
+  /// No description provided for @pcrAllOneCurrency.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل العناصر بعملة واحدة'**
+  String get pcrAllOneCurrency;
+
+  /// No description provided for @pcrCurrencyCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز العملة'**
+  String get pcrCurrencyCode;
+
+  /// No description provided for @pcrWillRecord.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيسجل التأكيد أن كل الميزانيات والأهداف الحالية تستخدم هذا الرمز.'**
+  String get pcrWillRecord;
+
+  /// No description provided for @pcrUnsupportedCodeLong.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز العملة غير مدعوم. استخدم رمزاً من ثلاث حروف مثل EGP أو SAR.'**
+  String get pcrUnsupportedCodeLong;
+
+  /// No description provided for @pcrUnsupportedCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز العملة غير مدعوم.'**
+  String get pcrUnsupportedCode;
+
+  /// No description provided for @pcrSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر حفظ التأكيد الآن. لم تتغير أي من بياناتك المالية.'**
+  String get pcrSaveFailed;
+
+  /// No description provided for @pcrTreatAsCurrency.
+  ///
+  /// In ar, this message translates to:
+  /// **'اعتبرها بهذه العملة'**
+  String get pcrTreatAsCurrency;
+
+  /// No description provided for @pcrNothingToFix.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يوجد شيء يحتاج إلى إصلاح'**
+  String get pcrNothingToFix;
+
+  /// No description provided for @pcrNothingToFixBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد ميزانيات أو أهداف قديمة تحتاج إلى تأكيد عملتها.'**
+  String get pcrNothingToFixBody;
+
+  /// No description provided for @pcrPerItemSaved.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم حفظ عملة مستقلة لكل ميزانية وهدف حالي.'**
+  String get pcrPerItemSaved;
+
+  /// No description provided for @pcrConfirmed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تأكيد العملات'**
+  String get pcrConfirmed;
+
+  /// No description provided for @pcrBackToSettings.
+  ///
+  /// In ar, this message translates to:
+  /// **'العودة إلى الإعدادات'**
+  String get pcrBackToSettings;
+
+  /// No description provided for @pcrReadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر قراءة بيانات التخطيط. لم يتغير أي شيء.'**
+  String get pcrReadFailed;
+
+  /// No description provided for @rcTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'إنشاء تقرير مالي'**
+  String get rcTitle;
+
+  /// No description provided for @rcPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'الفترة'**
+  String get rcPeriod;
+
+  /// No description provided for @rcCustom.
+  ///
+  /// In ar, this message translates to:
+  /// **'مخصّص'**
+  String get rcCustom;
+
+  /// No description provided for @rcPickRange.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر المدى'**
+  String get rcPickRange;
+
+  /// No description provided for @accTitleShort.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحسابات'**
+  String get accTitleShort;
+
+  /// No description provided for @rcLanguage.
+  ///
+  /// In ar, this message translates to:
+  /// **'اللغة'**
+  String get rcLanguage;
+
+  /// No description provided for @rcArabic.
+  ///
+  /// In ar, this message translates to:
+  /// **'العربية'**
+  String get rcArabic;
+
+  /// No description provided for @rcTxDetails.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفاصيل العمليات'**
+  String get rcTxDetails;
+
+  /// No description provided for @rcMerchantNames.
+  ///
+  /// In ar, this message translates to:
+  /// **'أسماء المتاجر'**
+  String get rcMerchantNames;
+
+  /// No description provided for @rcAccountNames.
+  ///
+  /// In ar, this message translates to:
+  /// **'أسماء الحسابات'**
+  String get rcAccountNames;
+
+  /// No description provided for @rcBalances.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأرصدة'**
+  String get rcBalances;
+
+  /// No description provided for @rcNotes.
+  ///
+  /// In ar, this message translates to:
+  /// **'الملاحظات'**
+  String get rcNotes;
+
+  /// No description provided for @rcPrivacyMode.
+  ///
+  /// In ar, this message translates to:
+  /// **'وضع الخصوصية (إخفاء المبالغ)'**
+  String get rcPrivacyMode;
+
+  /// No description provided for @rcCreateReport.
+  ///
+  /// In ar, this message translates to:
+  /// **'إنشاء التقرير'**
+  String get rcCreateReport;
+
+  /// No description provided for @rcNoDataInPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد بيانات في هذه الفترة'**
+  String get rcNoDataInPeriod;
+
+  /// No description provided for @rcFontsFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تحميل الخطوط'**
+  String get rcFontsFailed;
+
+  /// No description provided for @rcPdfFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر إنشاء ملف PDF'**
+  String get rcPdfFailed;
+
+  /// No description provided for @rcSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حفظ الملف'**
+  String get rcSaveFailed;
+
+  /// No description provided for @rcCancelled.
+  ///
+  /// In ar, this message translates to:
+  /// **'أُلغي'**
+  String get rcCancelled;
+
+  /// No description provided for @rcUnexpectedError.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدث خطأ غير متوقع'**
+  String get rcUnexpectedError;
+
+  /// No description provided for @rcGenerating.
+  ///
+  /// In ar, this message translates to:
+  /// **'جاري إنشاء التقرير…'**
+  String get rcGenerating;
+
+  /// No description provided for @rcStepCollect.
+  ///
+  /// In ar, this message translates to:
+  /// **'جمع البيانات'**
+  String get rcStepCollect;
+
+  /// No description provided for @rcStepMetrics.
+  ///
+  /// In ar, this message translates to:
+  /// **'حساب المؤشرات'**
+  String get rcStepMetrics;
+
+  /// No description provided for @rcStepDraw.
+  ///
+  /// In ar, this message translates to:
+  /// **'رسم الصفحات'**
+  String get rcStepDraw;
+
+  /// No description provided for @rcStepSave.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ الملف'**
+  String get rcStepSave;
+
+  /// No description provided for @rcStepDone.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتمل'**
+  String get rcStepDone;
+
+  /// No description provided for @bkTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخ الاحتياطي والاستعادة'**
+  String get bkTitle;
+
+  /// No description provided for @bkSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'احفظ بياناتك المالية واسترجعها بأمان وسرية تامة في أي وقت.'**
+  String get bkSubtitle;
+
+  /// No description provided for @bkCreateAccountTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنشئ حسابًا لتفعيل النسخ الاحتياطي'**
+  String get bkCreateAccountTitle;
+
+  /// No description provided for @bkCreateAccountBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'يمكنك استخدام قِرش محليًا بدون حساب. النسخ الاحتياطي يحتاج تسجيل دخول حتى نربط النسخة المشفّرة بك.'**
+  String get bkCreateAccountBody;
+
+  /// No description provided for @bkNoBackupYet.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم تُنشأ نسخة بعد'**
+  String get bkNoBackupYet;
+
+  /// No description provided for @bkBackupNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسخ احتياطي الآن'**
+  String get bkBackupNow;
+
+  /// No description provided for @bkTurnOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'إيقاف النسخ الاحتياطي'**
+  String get bkTurnOff;
+
+  /// No description provided for @bkLocalDataStays.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك المحلية تبقى عند الإيقاف.'**
+  String get bkLocalDataStays;
+
+  /// No description provided for @bkEnableFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل تفعيل النسخ الاحتياطي. حاول مرة أخرى.'**
+  String get bkEnableFailed;
+
+  /// No description provided for @bkEncryptedWeCannotRead.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسخة مشفّرة لا يمكننا قراءتها'**
+  String get bkEncryptedWeCannotRead;
+
+  /// No description provided for @bkOptionalOffByDefault.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخ الاحتياطي اختياري ومطفأ افتراضياً. عند تفعيله تُشفّر بياناتك end-to-end وترجع على أي جهاز.'**
+  String get bkOptionalOffByDefault;
+
+  /// No description provided for @bkPassphrase.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمة مرور التشفير (passphrase)'**
+  String get bkPassphrase;
+
+  /// No description provided for @bkContinue.
+  ///
+  /// In ar, this message translates to:
+  /// **'متابعة'**
+  String get bkContinue;
+
+  /// No description provided for @bkRecoveryCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز الاسترداد (Recovery Code)'**
+  String get bkRecoveryCode;
+
+  /// No description provided for @bkCopyCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسخ الرمز'**
+  String get bkCopyCode;
+
+  /// No description provided for @bkLoseBothWarning.
+  ///
+  /// In ar, this message translates to:
+  /// **'إذا فقدت كلمة المرور والرمز معًا لن نتمكّن من استعادة نسختك.'**
+  String get bkLoseBothWarning;
+
+  /// No description provided for @bkSavedTheCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظت الرمز وأفهم ذلك'**
+  String get bkSavedTheCode;
+
+  /// No description provided for @bkEnable.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل'**
+  String get bkEnable;
+
+  /// No description provided for @bkRestoreFromBackup.
+  ///
+  /// In ar, this message translates to:
+  /// **'استعادة من نسخة احتياطية'**
+  String get bkRestoreFromBackup;
+
+  /// No description provided for @pcrOldAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ القديم'**
+  String get pcrOldAmount;
+
+  /// No description provided for @pcrOldTarget.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ المستهدف القديم'**
+  String get pcrOldTarget;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

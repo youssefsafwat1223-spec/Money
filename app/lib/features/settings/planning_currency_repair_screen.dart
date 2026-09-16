@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/utils/l10n_ext.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -45,7 +46,7 @@ class _PlanningCurrencyRepairScreenState
       textDirection: TextDirection.rtl,
       child: Scaffold(
         backgroundColor: c.bg,
-        appBar: const AppHeader(title: 'تأكيد عملة التخطيط'),
+        appBar: AppHeader(title: context.l10n.pcrTitle),
         body: Column(
           children: [
             // Server-originated unresolved-currency rows (from the sync quarantine)
@@ -112,9 +113,9 @@ class _PlanningCurrencyRepairScreenState
             color: c.warning,
             background: c.warningBg,
             icon: AppLucideIcons.refreshCw,
-            title: 'تغيّرت الميزانيات أو الأهداف',
+            title: context.l10n.pcrListChanged,
             message:
-                'القرار السابق لم يعد يطابق القائمة الحالية. حدّث القائمة ثم أكّد العملات مرة أخرى.',
+                context.l10n.pcrListChangedBody,
             action: OutlinedButton.icon(
               key: const ValueKey('repair-refresh'),
               onPressed: _saving
@@ -123,18 +124,16 @@ class _PlanningCurrencyRepairScreenState
                       .read(planningCurrencyRepairProvider.notifier)
                       .refresh(),
               icon: const Icon(AppLucideIcons.refreshCw),
-              label: const Text('تحديث القائمة'),
+              label: Text(context.l10n.pcrRefreshList),
             ),
           ),
           const SizedBox(height: AppSpacing.s4),
         ],
         _InfoCard(
           icon: AppLucideIcons.info,
-          title: 'لماذا نحتاج تأكيدك؟',
+          title: context.l10n.pcrWhyTitle,
           child: Text(
-            'الميزانيات والأهداف القديمة لا تحفظ عملة مع المبلغ. لذلك لن يخمّن '
-            'قرش عملتها، بل تختار أنت كيف تريد معاملتها. لن يتغيّر أي مبلغ ولن '
-            'تُحذف أي بيانات. مساهمات الأهداف تتبع عملة الهدف تلقائياً.',
+            context.l10n.pcrWhyBody,
             style: AppTypography.body(c.textSecondary),
           ),
         ),
@@ -143,20 +142,20 @@ class _PlanningCurrencyRepairScreenState
           color: c.info,
           background: c.infoBg,
           icon: AppLucideIcons.lightbulb,
-          title: 'الاقتراح الافتراضي',
+          title: context.l10n.pcrDefaultSuggestion,
           message: '${data.proposedCurrency} — '
               '${Currency.label(context, data.proposedCurrency)}\n'
-              'هذا اقتراح من عملتك الحالية فقط، وليس قراراً محفوظاً حتى تؤكده.',
+              '${context.l10n.pcrSuggestionNote}',
         ),
         const SizedBox(height: AppSpacing.s5),
-        Text('طريقة التأكيد', style: AppTypography.sectionTitle(c.textPrimary)),
+        Text(context.l10n.pcrHowToConfirm, style: AppTypography.sectionTitle(c.textPrimary)),
         const SizedBox(height: AppSpacing.s2),
         _ModeCard(
           key: const ValueKey('repair-mode-global'),
           selected: _mode == PlanningRepairMode.global,
           icon: AppLucideIcons.checkCheck,
-          title: 'عملة واحدة للجميع',
-          subtitle: 'كل الميزانيات والأهداف الحالية تستخدم نفس العملة',
+          title: context.l10n.pcrOneCurrencyForAll,
+          subtitle: context.l10n.pcrOneCurrencyHint,
           onTap: _saving
               ? null
               : () => setState(() {
@@ -169,8 +168,8 @@ class _PlanningCurrencyRepairScreenState
           key: const ValueKey('repair-mode-per-row'),
           selected: _mode == PlanningRepairMode.perRow,
           icon: AppLucideIcons.settings2,
-          title: 'تحديد عملة لكل عنصر',
-          subtitle: 'اختر عملة مختلفة لكل ميزانية أو هدف عند الحاجة',
+          title: context.l10n.pcrPerItem,
+          subtitle: context.l10n.pcrPerItemHint,
           onTap: _saving
               ? null
               : () => setState(() {
@@ -208,14 +207,14 @@ class _PlanningCurrencyRepairScreenState
                   _mode == PlanningRepairMode.global
                       ? 'تأكيد أن كل الميزانيات والأهداف الحالية تستخدم '
                           '${_globalCurrencyController.text.trim().toUpperCase()}'
-                      : 'حفظ العملات المحددة',
+                      : context.l10n.pcrSaveSelected,
                 ),
         ),
         const SizedBox(height: AppSpacing.s2),
         TextButton(
           key: const ValueKey('repair-defer'),
           onPressed: _saving ? null : () => Navigator.of(context).maybePop(),
-          child: const Text('ليس الآن — سأكمل لاحقاً'),
+          child: Text(context.l10n.pcrNotNow),
         ),
       ],
     );
@@ -225,7 +224,7 @@ class _PlanningCurrencyRepairScreenState
     final c = context.colors;
     return _InfoCard(
       icon: AppLucideIcons.globe,
-      title: 'كل العناصر بعملة واحدة',
+      title: context.l10n.pcrAllOneCurrency,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -243,15 +242,15 @@ class _PlanningCurrencyRepairScreenState
             onChanged: (_) {
               setState(() => _validationMessage = null);
             },
-            decoration: const InputDecoration(
-              labelText: 'رمز العملة',
+            decoration: InputDecoration(
+              labelText: context.l10n.pcrCurrencyCode,
               hintText: 'EGP',
               counterText: '',
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
           Text(
-            'سيسجل التأكيد أن كل الميزانيات والأهداف الحالية تستخدم هذا الرمز.',
+            context.l10n.pcrWillRecord,
             style: AppTypography.footnote(c.textSecondary),
           ),
         ],
@@ -265,7 +264,7 @@ class _PlanningCurrencyRepairScreenState
       children: [
         if (data.budgets.isNotEmpty) ...[
           _RowGroupTitle(
-            title: 'الميزانيات',
+            title: context.l10n.helpBudgetsTitle,
             count: data.budgets.length,
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -282,7 +281,7 @@ class _PlanningCurrencyRepairScreenState
           const SizedBox(height: AppSpacing.s3),
         ],
         if (data.goals.isNotEmpty) ...[
-          _RowGroupTitle(title: 'الأهداف', count: data.goals.length),
+          _RowGroupTitle(title: context.l10n.bdgTabGoals, count: data.goals.length),
           const SizedBox(height: AppSpacing.s2),
           for (final row in data.goals) ...[
             _PlanningRowCurrencyCard(
@@ -310,7 +309,7 @@ class _PlanningCurrencyRepairScreenState
     if (currencies.any((currency) => !isSupportedCurrency(currency))) {
       setState(() {
         _validationMessage =
-            'رمز العملة غير مدعوم. استخدم رمزاً من ثلاث حروف مثل EGP أو SAR.';
+            context.l10n.pcrUnsupportedCodeLong;
       });
       return;
     }
@@ -327,12 +326,12 @@ class _PlanningCurrencyRepairScreenState
       }
     } on UnsupportedCurrencyException {
       if (mounted) {
-        setState(() => _validationMessage = 'رمز العملة غير مدعوم.');
+        setState(() => _validationMessage = context.l10n.pcrUnsupportedCode);
       }
     } on Object {
       if (mounted) {
         setState(() => _validationMessage =
-            'تعذر حفظ التأكيد الآن. لم تتغير أي من بياناتك المالية.');
+            context.l10n.pcrSaveFailed);
       }
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -552,8 +551,8 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.s1),
           Text(
-            '${isBudget ? 'المبلغ القديم' : 'المبلغ المستهدف القديم'}: '
-            '${Formatters.amount(row.legacyAmount)} · بدون عملة محددة',
+            '${isBudget ? context.l10n.pcrOldAmount : context.l10n.pcrOldTarget}: '
+            '${context.l10n.pcrNoCurrencySet(Formatters.amount(row.legacyAmount))}',
             style: AppTypography.caption(c.textSecondary),
           ),
           const SizedBox(height: AppSpacing.s3),
@@ -561,7 +560,7 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
             key: ValueKey('repair-currency-${row.id}'),
             value: currency,
             isExpanded: true,
-            decoration: const InputDecoration(labelText: 'اعتبرها بهذه العملة'),
+            decoration: InputDecoration(labelText: context.l10n.pcrTreatAsCurrency),
             items: [
               for (final code in currencies)
                 DropdownMenuItem(
@@ -585,10 +584,10 @@ class _NothingToRepair extends StatelessWidget {
   const _NothingToRepair();
 
   @override
-  Widget build(BuildContext context) => const _TerminalState(
+  Widget build(BuildContext context) => _TerminalState(
         icon: AppLucideIcons.checkCircle,
-        title: 'لا يوجد شيء يحتاج إلى إصلاح',
-        message: 'لا توجد ميزانيات أو أهداف قديمة تحتاج إلى تأكيد عملتها.',
+        title: context.l10n.pcrNothingToFix,
+        message: context.l10n.pcrNothingToFixBody,
       );
 }
 
@@ -601,11 +600,11 @@ class _RepairDone extends StatelessWidget {
   Widget build(BuildContext context) {
     final manifest = data.manifest;
     final detail = manifest?.mode == PlanningRepairMode.global
-        ? 'تم تأكيد ${manifest!.globalCurrency} لكل الميزانيات والأهداف الحالية.'
-        : 'تم حفظ عملة مستقلة لكل ميزانية وهدف حالي.';
+        ? context.l10n.pcrConfirmedFor(manifest!.globalCurrency ?? '')
+        : context.l10n.pcrPerItemSaved;
     return _TerminalState(
       icon: AppLucideIcons.badgeCheck,
-      title: 'تم تأكيد العملات',
+      title: context.l10n.pcrConfirmed,
       message: detail,
     );
   }
@@ -643,7 +642,7 @@ class _TerminalState extends StatelessWidget {
             const SizedBox(height: AppSpacing.s5),
             OutlinedButton(
               onPressed: () => Navigator.of(context).maybePop(),
-              child: const Text('العودة إلى الإعدادات'),
+              child: Text(context.l10n.pcrBackToSettings),
             ),
           ],
         ),
@@ -669,7 +668,7 @@ class _LoadError extends StatelessWidget {
             Icon(AppLucideIcons.alertCircle, color: c.danger, size: 48),
             const SizedBox(height: AppSpacing.s3),
             Text(
-              'تعذر قراءة بيانات التخطيط. لم يتغير أي شيء.',
+              context.l10n.pcrReadFailed,
               textAlign: TextAlign.center,
               style: AppTypography.body(c.textSecondary),
             ),
@@ -677,7 +676,7 @@ class _LoadError extends StatelessWidget {
             OutlinedButton.icon(
               onPressed: onRetry,
               icon: const Icon(AppLucideIcons.refreshCw),
-              label: const Text('إعادة المحاولة'),
+              label: Text(context.l10n.annRetry),
             ),
           ],
         ),

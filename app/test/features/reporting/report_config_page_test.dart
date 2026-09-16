@@ -10,6 +10,7 @@ import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/domain/reporting/report_request.dart';
 import 'package:money_companion/features/reporting/ui/report_config_page.dart';
 import 'package:money_companion/features/settings/settings_providers.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
   Widget harness(void Function(ReportRequest?) onResult) {
@@ -23,6 +24,11 @@ void main() {
       child: MaterialApp(
         // The page uses AppHeader, which reads the app's theme extension.
         theme: AppTheme.light,
+        // Its copy comes from the ARB now, so the delegates are part of the
+        // contract under test.
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('en'),
         home: Builder(
           builder: (context) => Scaffold(
             body: Center(
@@ -45,13 +51,13 @@ void main() {
     await tester.pumpAndSettle();
 
     // Sheet is shown (English, the default MaterialApp locale).
-    expect(find.text('Create financial report'), findsOneWidget);
+    expect(find.text('Create a financial report'), findsOneWidget);
     expect(find.text('Monthly'), findsOneWidget);
-    expect(find.text('Privacy mode (mask amounts)'), findsOneWidget);
+    expect(find.text('Privacy mode (hide amounts)'), findsOneWidget);
 
-    await tester.ensureVisible(find.text('Generate report'));
+    await tester.ensureVisible(find.text('Create report'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Generate report'));
+    await tester.tap(find.text('Create report'));
     await tester.pumpAndSettle();
 
     expect(result, isNotNull);
@@ -68,9 +74,9 @@ void main() {
 
     await tester.tap(find.text('Weekly'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Generate report'));
+    await tester.ensureVisible(find.text('Create report'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Generate report'));
+    await tester.tap(find.text('Create report'));
     await tester.pumpAndSettle();
 
     expect(result, isNotNull);
@@ -87,7 +93,7 @@ void main() {
     // No sheet surface anywhere...
     expect(find.byType(BottomSheet), findsNothing);
     // ...and the page is a real route with its own Scaffold + app bar.
-    expect(find.text('Create financial report'), findsOneWidget);
+    expect(find.text('Create a financial report'), findsOneWidget);
     expect(find.byType(AppBar), findsOneWidget);
     // Back navigation exists (the route can be popped).
     expect(find.byType(BackButton), findsOneWidget);

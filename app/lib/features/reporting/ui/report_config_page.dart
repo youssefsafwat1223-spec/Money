@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../../core/utils/l10n_ext.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/di/app_providers.dart';
@@ -15,7 +16,6 @@ import '../../../core/utils/app_lucide_icons.dart';
 
 enum _PeriodKind { weekly, monthly, yearly, custom }
 
-String _t(bool isAr, String ar, String en) => isAr ? ar : en;
 
 /// Opens the report configuration PAGE and returns the chosen [ReportRequest],
 /// or null if the user backs out.
@@ -93,14 +93,13 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isAr = Localizations.localeOf(context).languageCode != 'en';
     final accounts =
         ref.watch(accountsProvider).valueOrNull ?? const <AccountEntity>[];
     final canGenerate = _period != _PeriodKind.custom || _customRange != null;
 
     return Scaffold(
       appBar: AppHeader(
-          title: _t(isAr, 'إنشاء تقرير مالي', 'Create financial report')),
+          title: context.l10n.rcTitle),
       body: SingleChildScrollView(
         padding: EdgeInsets.only(
           left: 20,
@@ -112,14 +111,14 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            _label(isAr, 'الفترة', 'Period'),
+            _label(context.l10n.rcPeriod),
             Wrap(
               spacing: 8,
               children: <Widget>[
-                _periodChip(isAr, _PeriodKind.weekly, 'أسبوعي', 'Weekly'),
-                _periodChip(isAr, _PeriodKind.monthly, 'شهري', 'Monthly'),
-                _periodChip(isAr, _PeriodKind.yearly, 'سنوي', 'Yearly'),
-                _periodChip(isAr, _PeriodKind.custom, 'مخصّص', 'Custom'),
+                _periodChip(_PeriodKind.weekly, context.l10n.txnCycleWeekly),
+                _periodChip(_PeriodKind.monthly, context.l10n.txnCycleMonthly),
+                _periodChip(_PeriodKind.yearly, context.l10n.txnCycleYearly),
+                _periodChip(_PeriodKind.custom, context.l10n.rcCustom),
               ],
             ),
             if (_period == _PeriodKind.custom)
@@ -128,7 +127,7 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
                 child: OutlinedButton.icon(
                   icon: const Icon(AppLucideIcons.calendarRange, size: 18),
                   label: Text(_customRange == null
-                      ? _t(isAr, 'اختر المدى', 'Pick a range')
+                      ? context.l10n.rcPickRange
                       : '${_customRange!.start.toString().split(' ').first}'
                           ' → ${_customRange!.end.toString().split(' ').first}'),
                   onPressed: () async {
@@ -144,10 +143,10 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
                 ),
               ),
             const SizedBox(height: 16),
-            _label(isAr, 'الحسابات', 'Accounts'),
+            _label(context.l10n.accTitleShort),
             SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(_t(isAr, 'كل الحسابات', 'All accounts')),
+              title: Text(context.l10n.homeAllAccounts),
               value: _allAccounts,
               onChanged: (v) => setState(() => _allAccounts = v),
             ),
@@ -162,28 +161,25 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
                 onChanged: (v) => setState(() => _accountId = v),
               ),
             const SizedBox(height: 12),
-            _label(isAr, 'اللغة', 'Language'),
+            _label(context.l10n.rcLanguage),
             SegmentedButton<String>(
-              segments: const <ButtonSegment<String>>[
-                ButtonSegment<String>(value: 'ar', label: Text('العربية')),
-                ButtonSegment<String>(value: 'en', label: Text('English')),
+              segments: <ButtonSegment<String>>[
+                ButtonSegment<String>(value: 'ar', label: Text(context.l10n.rcArabic)),
+                const ButtonSegment<String>(value: 'en', label: Text('English')),
               ],
               selected: <String>{_lang},
               onSelectionChanged: (s) => setState(() => _lang = s.first),
             ),
             const SizedBox(height: 8),
-            _switch(isAr, 'تفاصيل العمليات', 'Transaction details', _details,
+            _switch(context.l10n.rcTxDetails, _details,
                 (v) => _details = v),
-            _switch(isAr, 'أسماء المتاجر', 'Merchant names', _merchants,
+            _switch(context.l10n.rcMerchantNames, _merchants,
                 (v) => _merchants = v),
-            _switch(isAr, 'أسماء الحسابات', 'Account names', _accounts,
+            _switch(context.l10n.rcAccountNames, _accounts,
                 (v) => _accounts = v),
-            _switch(
-                isAr, 'الأرصدة', 'Balances', _balances, (v) => _balances = v),
-            _switch(
-                isAr, 'الملاحظات', 'Insights', _insights, (v) => _insights = v),
-            _switch(isAr, 'وضع الخصوصية (إخفاء المبالغ)',
-                'Privacy mode (mask amounts)', _privacy, (v) => _privacy = v),
+            _switch(context.l10n.rcBalances, _balances, (v) => _balances = v),
+            _switch(context.l10n.rcNotes, _insights, (v) => _insights = v),
+            _switch(context.l10n.rcPrivacyMode, _privacy, (v) => _privacy = v),
           ],
         ),
       ),
@@ -194,7 +190,7 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
           width: double.infinity,
           child: FilledButton.icon(
             icon: const Icon(AppLucideIcons.fileText, size: 18),
-            label: Text(_t(isAr, 'إنشاء التقرير', 'Generate report')),
+            label: Text(context.l10n.rcCreateReport),
             onPressed: canGenerate
                 ? () => Navigator.of(context).pop(_buildRequest())
                 : null,
@@ -204,28 +200,26 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
     );
   }
 
-  Widget _label(bool isAr, String ar, String en) => Padding(
+  Widget _label(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 6),
-        child: Text(_t(isAr, ar, en),
+        child: Text(text,
             style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: Theme.of(context).colorScheme.outline)),
       );
 
-  Widget _periodChip(bool isAr, _PeriodKind kind, String ar, String en) =>
-      ChoiceChip(
-        label: Text(_t(isAr, ar, en)),
+  Widget _periodChip(_PeriodKind kind, String text) => ChoiceChip(
+        label: Text(text),
         selected: _period == kind,
         onSelected: (_) => setState(() => _period = kind),
       );
 
-  Widget _switch(bool isAr, String ar, String en, bool value,
-          ValueChanged<bool> onChanged) =>
+  Widget _switch(String text, bool value, ValueChanged<bool> onChanged) =>
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         dense: true,
-        title: Text(_t(isAr, ar, en)),
+        title: Text(text),
         value: value,
         onChanged: (v) => setState(() => onChanged(v)),
       );
@@ -234,7 +228,6 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
 /// Runs generation with a progress dialog and, on success, opens the preview.
 Future<void> runReportGeneration(
     BuildContext context, WidgetRef ref, ReportRequest request) async {
-  final isAr = Localizations.localeOf(context).languageCode != 'en';
   // Best-effort cleanup of stale report temp files from previous sessions.
   unawaited(ref.read(reportFileServiceProvider).sweepStale());
   final controller = ref.read(reportGenerationControllerProvider)..invalidate();
@@ -246,7 +239,7 @@ Future<void> runReportGeneration(
     context: context,
     barrierDismissible: false,
     builder: (dialogContext) =>
-        _ProgressDialog(progress: progress, cancel: cancel, isAr: isAr),
+        _ProgressDialog(progress: progress, cancel: cancel),
   );
 
   try {
@@ -270,33 +263,32 @@ Future<void> runReportGeneration(
     Navigator.of(context).pop(); // dismiss progress
     if (e.kind == ReportErrorKind.cancelled) return;
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(_errorText(e.kind, isAr))));
+        .showSnackBar(SnackBar(content: Text(_errorText(context, e.kind))));
   } finally {
     progress.dispose();
   }
 }
 
-String _errorText(ReportErrorKind kind, bool isAr) => switch (kind) {
+String _errorText(BuildContext context, ReportErrorKind kind) =>
+    switch (kind) {
       ReportErrorKind.noData =>
-        _t(isAr, 'لا توجد بيانات في هذه الفترة', 'No data for this period'),
+        context.l10n.rcNoDataInPeriod,
       ReportErrorKind.fontLoadFailed =>
-        _t(isAr, 'تعذّر تحميل الخطوط', 'Could not load fonts'),
+        context.l10n.rcFontsFailed,
       ReportErrorKind.renderFailed =>
-        _t(isAr, 'تعذّر إنشاء ملف PDF', 'Could not render the PDF'),
+        context.l10n.rcPdfFailed,
       ReportErrorKind.writeFailed =>
-        _t(isAr, 'تعذّر حفظ الملف', 'Could not save the file'),
-      ReportErrorKind.cancelled => _t(isAr, 'أُلغي', 'Cancelled'),
+        context.l10n.rcSaveFailed,
+      ReportErrorKind.cancelled => context.l10n.rcCancelled,
       ReportErrorKind.unknown =>
-        _t(isAr, 'حدث خطأ غير متوقع', 'Something went wrong'),
+        context.l10n.rcUnexpectedError,
     };
 
 class _ProgressDialog extends StatelessWidget {
-  const _ProgressDialog(
-      {required this.progress, required this.cancel, required this.isAr});
+  const _ProgressDialog({required this.progress, required this.cancel});
 
   final ValueNotifier<ReportProgress> progress;
   final ReportCancelToken cancel;
-  final bool isAr;
 
   @override
   Widget build(BuildContext context) {
@@ -307,11 +299,11 @@ class _ProgressDialog extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Text(_t(isAr, 'جاري إنشاء التقرير…', 'Generating report…')),
+            Text(context.l10n.rcGenerating),
             const SizedBox(height: 12),
             LinearProgressIndicator(value: value.fraction),
             const SizedBox(height: 8),
-            Text(_stageText(value.stage, isAr),
+            Text(_stageText(context, value.stage),
                 style: Theme.of(context).textTheme.bodySmall),
           ],
         ),
@@ -319,18 +311,18 @@ class _ProgressDialog extends StatelessWidget {
       actions: <Widget>[
         TextButton(
           onPressed: cancel.cancel,
-          child: Text(_t(isAr, 'إلغاء', 'Cancel')),
+          child: Text(context.l10n.commonCancel),
         ),
       ],
     );
   }
 
-  String _stageText(ReportStage stage, bool isAr) => switch (stage) {
-        ReportStage.collecting => _t(isAr, 'جمع البيانات', 'Collecting data'),
-        ReportStage.composing => _t(isAr, 'حساب المؤشرات', 'Computing metrics'),
-        ReportStage.rendering => _t(isAr, 'رسم الصفحات', 'Rendering pages'),
-        ReportStage.writing => _t(isAr, 'حفظ الملف', 'Saving file'),
-        ReportStage.ready => _t(isAr, 'اكتمل', 'Done'),
+  String _stageText(BuildContext context, ReportStage stage) => switch (stage) {
+        ReportStage.collecting => context.l10n.rcStepCollect,
+        ReportStage.composing => context.l10n.rcStepMetrics,
+        ReportStage.rendering => context.l10n.rcStepDraw,
+        ReportStage.writing => context.l10n.rcStepSave,
+        ReportStage.ready => context.l10n.rcStepDone,
         _ => '',
       };
 }

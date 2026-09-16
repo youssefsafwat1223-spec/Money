@@ -4236,4 +4236,478 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get mtKindExpense => 'مصروف';
+
+  @override
+  String bdsIncludesLegacyManual(String amount, String currency) {
+    return 'يشمل $amount $currency مدفوعة يدويًا قديمة.';
+  }
+
+  @override
+  String bdsPayAllRemaining(int count) {
+    return 'سداد كل الأقساط المتبقية ($count) دفعة واحدة';
+  }
+
+  @override
+  String bdsPaymentForPeriod(String from, String to) {
+    return 'هذه الدفعة عن الفترة $from - $to';
+  }
+
+  @override
+  String bdsPaymentForInstalment(int index, String from, String to) {
+    return 'هذه الدفعة عن قسط رقم $index للفترة $from - $to';
+  }
+
+  @override
+  String bdsPayRemainingInFull(String amount, String currency) {
+    return 'سدّد المتبقي بالكامل ($amount $currency)';
+  }
+
+  @override
+  String bdsInstalmentNamed(String name) {
+    return 'قسط $name';
+  }
+
+  @override
+  String bdsSubscriptionNamed(String name) {
+    return 'اشتراك $name';
+  }
+
+  @override
+  String bdsDeleteBody(String name) {
+    return 'سيتم حذف «$name» من الاشتراكات والأقساط.';
+  }
+
+  @override
+  String bdsDeleted(String name) {
+    return 'حُذف $name';
+  }
+
+  @override
+  String bdsInstalmentNumber(int index) {
+    return 'قسط رقم $index';
+  }
+
+  @override
+  String bdsPaymentNamed(String name) {
+    return 'دفعة $name';
+  }
+
+  @override
+  String plCardShort(String last4) {
+    return 'بطاقة ••$last4';
+  }
+
+  @override
+  String plPerDayLeft(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days يوم',
+      many: '$days يومًا',
+      few: '$days أيام',
+      two: 'يومان',
+      one: 'يوم واحد',
+    );
+    return '/يوم · $_temp0';
+  }
+
+  @override
+  String plDeleteBody(String name) {
+    return 'ستُحذف خطة «$name». لن تتأثر العمليات نفسها.';
+  }
+
+  @override
+  String plOfBudget(String amount, String currency) {
+    return 'من $amount $currency';
+  }
+
+  @override
+  String get bdsInstalmentValue => 'قيمة القسط';
+
+  @override
+  String get bdsTotalPaid => 'إجمالي مدفوع';
+
+  @override
+  String get bdsRecordedPayments => 'دفعات مسجّلة';
+
+  @override
+  String get bdsPaid => 'مدفوع';
+
+  @override
+  String get bdsRemaining => 'متبقي';
+
+  @override
+  String get bdsProgress => 'تقدم';
+
+  @override
+  String get bdsRecordInstalmentPayment => 'تسجيل دفع قسط';
+
+  @override
+  String get bdsRecordPayment => 'تسجيل دفعة';
+
+  @override
+  String get bdsPaymentHistory => 'سجل الدفعات';
+
+  @override
+  String get bdsNoManualInstalmentPayments =>
+      'لا توجد بعد دفعات أقساط مسجّلة يدويًا.';
+
+  @override
+  String get bdsNoManualSubPayments =>
+      'لا توجد بعد دفعات اشتراك مسجّلة يدويًا.';
+
+  @override
+  String get bdsSuggestedToLink => 'عمليات مقترحة للربط';
+
+  @override
+  String get bdsNameMatchNote =>
+      'مطابقة بالاسم — لا تُحتسب ضمن المدفوع حتى تربطها كدفعة.';
+
+  @override
+  String get bdsNoSuggestions => 'لا توجد عمليات مقترحة للربط.';
+
+  @override
+  String get bdsOptionalNote => 'ملاحظة اختيارية';
+
+  @override
+  String get bdsRecordFailed => 'تعذّر تسجيل الدفعة الآن. حاول مجددًا.';
+
+  @override
+  String get bdsSavedButNotLinked =>
+      'تم حفظ العملية، لكن تعذّر ربط الدفعة. أعد المحاولة ولن تتكرر العملية.';
+
+  @override
+  String get bdsRecord => 'تسجيل';
+
+  @override
+  String get bdsPaymentRecorded => 'تم تسجيل الدفعة وأضيفت للعمليات.';
+
+  @override
+  String get bdsDeleteBillTitle => 'حذف الفاتورة؟';
+
+  @override
+  String get bdsDeleteBillFailed => 'تعذّر حذف الفاتورة الآن.';
+
+  @override
+  String get bdsDeletePaymentTitle => 'حذف الدفعة؟';
+
+  @override
+  String get bdsDeletePaymentBody => 'سيُحذف سجل الدفع اليدوي هذا نهائيًا.';
+
+  @override
+  String get bdsDeletePaymentFailed => 'تعذّر حذف الدفعة الآن.';
+
+  @override
+  String get plSubtitle => 'ميزانية لكل مناسبة، تتابع نفسها';
+
+  @override
+  String get plLoadFailed => 'تعذّر التحميل';
+
+  @override
+  String get plNoPlans => 'لا توجد خطط بعد';
+
+  @override
+  String get plEmptyBody =>
+      'أنشئ خطة لرحلة أو مناسبة: ميزانية وفترة والبطاقات التي ستصرف منها، ويتابعها قِرش لك.';
+
+  @override
+  String get plAllSpendInPeriod => 'كل المصروفات في الفترة';
+
+  @override
+  String get plSpecificAccounts => 'حسابات محددة';
+
+  @override
+  String get plEnded => 'منتهية';
+
+  @override
+  String get plPlanOptions => 'خيارات الخطة';
+
+  @override
+  String get plDeleteTitle => 'حذف الخطة؟';
+
+  @override
+  String get plDeleteFailed => 'تعذّر حذف الخطة الآن.';
+
+  @override
+  String get plDetails => 'تفاصيل الخطة';
+
+  @override
+  String get plNotFound => 'الخطة غير موجودة';
+
+  @override
+  String get plLinkTransaction => 'ربط عملية';
+
+  @override
+  String get plHistory => 'سجل الخطة';
+
+  @override
+  String get plTxLoadFailed => 'تعذّر تحميل العمليات';
+
+  @override
+  String get plNoLinkedTx => 'لا توجد عمليات مرتبطة';
+
+  @override
+  String get plLinkHint => 'اربط عملية موجودة أو اختر حسابًا أو بطاقة للخطة.';
+
+  @override
+  String get plLinkToPlan => 'ربط عملية بالخطة';
+
+  @override
+  String get plNoSuitableTx => 'لا توجد عمليات مناسبة';
+
+  @override
+  String get plAllLinkedAlready =>
+      'كل العمليات المناسبة مرتبطة بالفعل أو غير مؤكدة.';
+
+  @override
+  String get pcrWhyBody =>
+      'الميزانيات والأهداف القديمة لا تحفظ عملة مع المبلغ. لذلك لن يخمّن قِرش عملتها، بل تختار أنت كيف تريد معاملتها. لن يتغيّر أي مبلغ ولن تُحذف أي بيانات. مساهمات الأهداف تتبع عملة الهدف تلقائيًا.';
+
+  @override
+  String pcrNoCurrencySet(String amount) {
+    return '$amount · بدون عملة محددة';
+  }
+
+  @override
+  String pcrConfirmedFor(String currency) {
+    return 'تم تأكيد $currency لكل الميزانيات والأهداف الحالية.';
+  }
+
+  @override
+  String bkLastBackup(String date, String time) {
+    return 'آخر نسخة: $date · $time';
+  }
+
+  @override
+  String get pcrTitle => 'تأكيد عملة التخطيط';
+
+  @override
+  String get pcrListChanged => 'تغيّرت الميزانيات أو الأهداف';
+
+  @override
+  String get pcrListChangedBody =>
+      'القرار السابق لم يعد يطابق القائمة الحالية. حدّث القائمة ثم أكّد العملات مرة أخرى.';
+
+  @override
+  String get pcrRefreshList => 'تحديث القائمة';
+
+  @override
+  String get pcrWhyTitle => 'لماذا نحتاج تأكيدك؟';
+
+  @override
+  String get pcrDefaultSuggestion => 'الاقتراح الافتراضي';
+
+  @override
+  String get pcrSuggestionNote =>
+      'هذا اقتراح من عملتك الحالية فقط، وليس قراراً محفوظاً حتى تؤكده.';
+
+  @override
+  String get pcrHowToConfirm => 'طريقة التأكيد';
+
+  @override
+  String get pcrOneCurrencyForAll => 'عملة واحدة للجميع';
+
+  @override
+  String get pcrOneCurrencyHint =>
+      'كل الميزانيات والأهداف الحالية تستخدم نفس العملة';
+
+  @override
+  String get pcrPerItem => 'تحديد عملة لكل عنصر';
+
+  @override
+  String get pcrPerItemHint => 'اختر عملة مختلفة لكل ميزانية أو هدف عند الحاجة';
+
+  @override
+  String get pcrSaveSelected => 'حفظ العملات المحددة';
+
+  @override
+  String get pcrNotNow => 'ليس الآن — سأكمل لاحقاً';
+
+  @override
+  String get pcrAllOneCurrency => 'كل العناصر بعملة واحدة';
+
+  @override
+  String get pcrCurrencyCode => 'رمز العملة';
+
+  @override
+  String get pcrWillRecord =>
+      'سيسجل التأكيد أن كل الميزانيات والأهداف الحالية تستخدم هذا الرمز.';
+
+  @override
+  String get pcrUnsupportedCodeLong =>
+      'رمز العملة غير مدعوم. استخدم رمزاً من ثلاث حروف مثل EGP أو SAR.';
+
+  @override
+  String get pcrUnsupportedCode => 'رمز العملة غير مدعوم.';
+
+  @override
+  String get pcrSaveFailed =>
+      'تعذر حفظ التأكيد الآن. لم تتغير أي من بياناتك المالية.';
+
+  @override
+  String get pcrTreatAsCurrency => 'اعتبرها بهذه العملة';
+
+  @override
+  String get pcrNothingToFix => 'لا يوجد شيء يحتاج إلى إصلاح';
+
+  @override
+  String get pcrNothingToFixBody =>
+      'لا توجد ميزانيات أو أهداف قديمة تحتاج إلى تأكيد عملتها.';
+
+  @override
+  String get pcrPerItemSaved => 'تم حفظ عملة مستقلة لكل ميزانية وهدف حالي.';
+
+  @override
+  String get pcrConfirmed => 'تم تأكيد العملات';
+
+  @override
+  String get pcrBackToSettings => 'العودة إلى الإعدادات';
+
+  @override
+  String get pcrReadFailed => 'تعذر قراءة بيانات التخطيط. لم يتغير أي شيء.';
+
+  @override
+  String get rcTitle => 'إنشاء تقرير مالي';
+
+  @override
+  String get rcPeriod => 'الفترة';
+
+  @override
+  String get rcCustom => 'مخصّص';
+
+  @override
+  String get rcPickRange => 'اختر المدى';
+
+  @override
+  String get accTitleShort => 'الحسابات';
+
+  @override
+  String get rcLanguage => 'اللغة';
+
+  @override
+  String get rcArabic => 'العربية';
+
+  @override
+  String get rcTxDetails => 'تفاصيل العمليات';
+
+  @override
+  String get rcMerchantNames => 'أسماء المتاجر';
+
+  @override
+  String get rcAccountNames => 'أسماء الحسابات';
+
+  @override
+  String get rcBalances => 'الأرصدة';
+
+  @override
+  String get rcNotes => 'الملاحظات';
+
+  @override
+  String get rcPrivacyMode => 'وضع الخصوصية (إخفاء المبالغ)';
+
+  @override
+  String get rcCreateReport => 'إنشاء التقرير';
+
+  @override
+  String get rcNoDataInPeriod => 'لا توجد بيانات في هذه الفترة';
+
+  @override
+  String get rcFontsFailed => 'تعذّر تحميل الخطوط';
+
+  @override
+  String get rcPdfFailed => 'تعذّر إنشاء ملف PDF';
+
+  @override
+  String get rcSaveFailed => 'تعذّر حفظ الملف';
+
+  @override
+  String get rcCancelled => 'أُلغي';
+
+  @override
+  String get rcUnexpectedError => 'حدث خطأ غير متوقع';
+
+  @override
+  String get rcGenerating => 'جاري إنشاء التقرير…';
+
+  @override
+  String get rcStepCollect => 'جمع البيانات';
+
+  @override
+  String get rcStepMetrics => 'حساب المؤشرات';
+
+  @override
+  String get rcStepDraw => 'رسم الصفحات';
+
+  @override
+  String get rcStepSave => 'حفظ الملف';
+
+  @override
+  String get rcStepDone => 'اكتمل';
+
+  @override
+  String get bkTitle => 'النسخ الاحتياطي والاستعادة';
+
+  @override
+  String get bkSubtitle =>
+      'احفظ بياناتك المالية واسترجعها بأمان وسرية تامة في أي وقت.';
+
+  @override
+  String get bkCreateAccountTitle => 'أنشئ حسابًا لتفعيل النسخ الاحتياطي';
+
+  @override
+  String get bkCreateAccountBody =>
+      'يمكنك استخدام قِرش محليًا بدون حساب. النسخ الاحتياطي يحتاج تسجيل دخول حتى نربط النسخة المشفّرة بك.';
+
+  @override
+  String get bkNoBackupYet => 'لم تُنشأ نسخة بعد';
+
+  @override
+  String get bkBackupNow => 'نسخ احتياطي الآن';
+
+  @override
+  String get bkTurnOff => 'إيقاف النسخ الاحتياطي';
+
+  @override
+  String get bkLocalDataStays => 'بياناتك المحلية تبقى عند الإيقاف.';
+
+  @override
+  String get bkEnableFailed => 'فشل تفعيل النسخ الاحتياطي. حاول مرة أخرى.';
+
+  @override
+  String get bkEncryptedWeCannotRead => 'نسخة مشفّرة لا يمكننا قراءتها';
+
+  @override
+  String get bkOptionalOffByDefault =>
+      'النسخ الاحتياطي اختياري ومطفأ افتراضياً. عند تفعيله تُشفّر بياناتك end-to-end وترجع على أي جهاز.';
+
+  @override
+  String get bkPassphrase => 'كلمة مرور التشفير (passphrase)';
+
+  @override
+  String get bkContinue => 'متابعة';
+
+  @override
+  String get bkRecoveryCode => 'رمز الاسترداد (Recovery Code)';
+
+  @override
+  String get bkCopyCode => 'نسخ الرمز';
+
+  @override
+  String get bkLoseBothWarning =>
+      'إذا فقدت كلمة المرور والرمز معًا لن نتمكّن من استعادة نسختك.';
+
+  @override
+  String get bkSavedTheCode => 'حفظت الرمز وأفهم ذلك';
+
+  @override
+  String get bkEnable => 'تفعيل';
+
+  @override
+  String get bkRestoreFromBackup => 'استعادة من نسخة احتياطية';
+
+  @override
+  String get pcrOldAmount => 'المبلغ القديم';
+
+  @override
+  String get pcrOldTarget => 'المبلغ المستهدف القديم';
 }

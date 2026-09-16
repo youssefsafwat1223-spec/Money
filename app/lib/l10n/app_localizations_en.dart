@@ -4213,4 +4213,484 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get mtKindExpense => 'Expense';
+
+  @override
+  String bdsIncludesLegacyManual(String amount, String currency) {
+    return 'Includes $amount $currency recorded manually earlier.';
+  }
+
+  @override
+  String bdsPayAllRemaining(int count) {
+    return 'Pay all $count remaining instalments at once';
+  }
+
+  @override
+  String bdsPaymentForPeriod(String from, String to) {
+    return 'This payment covers $from - $to';
+  }
+
+  @override
+  String bdsPaymentForInstalment(int index, String from, String to) {
+    return 'This payment covers instalment $index, $from - $to';
+  }
+
+  @override
+  String bdsPayRemainingInFull(String amount, String currency) {
+    return 'Pay the rest in full ($amount $currency)';
+  }
+
+  @override
+  String bdsInstalmentNamed(String name) {
+    return '$name instalment';
+  }
+
+  @override
+  String bdsSubscriptionNamed(String name) {
+    return '$name subscription';
+  }
+
+  @override
+  String bdsDeleteBody(String name) {
+    return '“$name” will be removed from subscriptions and instalments.';
+  }
+
+  @override
+  String bdsDeleted(String name) {
+    return 'Deleted $name';
+  }
+
+  @override
+  String bdsInstalmentNumber(int index) {
+    return 'Instalment $index';
+  }
+
+  @override
+  String bdsPaymentNamed(String name) {
+    return '$name payment';
+  }
+
+  @override
+  String plCardShort(String last4) {
+    return 'Card ••$last4';
+  }
+
+  @override
+  String plPerDayLeft(int days) {
+    String _temp0 = intl.Intl.pluralLogic(
+      days,
+      locale: localeName,
+      other: '$days days',
+      one: '1 day',
+    );
+    return '/day · $_temp0 left';
+  }
+
+  @override
+  String plDeleteBody(String name) {
+    return 'The “$name” plan will be deleted. Its transactions are not affected.';
+  }
+
+  @override
+  String plOfBudget(String amount, String currency) {
+    return 'of $amount $currency';
+  }
+
+  @override
+  String get bdsInstalmentValue => 'Instalment amount';
+
+  @override
+  String get bdsTotalPaid => 'Total paid';
+
+  @override
+  String get bdsRecordedPayments => 'Recorded payments';
+
+  @override
+  String get bdsPaid => 'Paid';
+
+  @override
+  String get bdsRemaining => 'Remaining';
+
+  @override
+  String get bdsProgress => 'Progress';
+
+  @override
+  String get bdsRecordInstalmentPayment => 'Record an instalment payment';
+
+  @override
+  String get bdsRecordPayment => 'Record a payment';
+
+  @override
+  String get bdsPaymentHistory => 'Payment history';
+
+  @override
+  String get bdsNoManualInstalmentPayments =>
+      'No instalment payments have been recorded manually yet.';
+
+  @override
+  String get bdsNoManualSubPayments =>
+      'No subscription payments have been recorded manually yet.';
+
+  @override
+  String get bdsSuggestedToLink => 'Transactions you could link';
+
+  @override
+  String get bdsNameMatchNote =>
+      'Matched by name — not counted as paid until you link it as a payment.';
+
+  @override
+  String get bdsNoSuggestions => 'No transactions to suggest for linking.';
+
+  @override
+  String get bdsOptionalNote => 'Optional note';
+
+  @override
+  String get bdsRecordFailed =>
+      'The payment could not be recorded right now. Please try again.';
+
+  @override
+  String get bdsSavedButNotLinked =>
+      'The transaction was saved but the payment could not be linked. Try again — it will not be duplicated.';
+
+  @override
+  String get bdsRecord => 'Record';
+
+  @override
+  String get bdsPaymentRecorded =>
+      'The payment was recorded and added to your transactions.';
+
+  @override
+  String get bdsDeleteBillTitle => 'Delete this bill?';
+
+  @override
+  String get bdsDeleteBillFailed => 'The bill could not be deleted right now.';
+
+  @override
+  String get bdsDeletePaymentTitle => 'Delete this payment?';
+
+  @override
+  String get bdsDeletePaymentBody =>
+      'This manual payment record will be permanently deleted.';
+
+  @override
+  String get bdsDeletePaymentFailed =>
+      'The payment could not be deleted right now.';
+
+  @override
+  String get plSubtitle => 'A budget for every occasion, tracking itself';
+
+  @override
+  String get plLoadFailed => 'Could not load';
+
+  @override
+  String get plNoPlans => 'No plans yet';
+
+  @override
+  String get plEmptyBody =>
+      'Create a plan for a trip or an occasion: a budget, a period, and the cards you will spend from — Qirsh tracks it for you.';
+
+  @override
+  String get plAllSpendInPeriod => 'All spending in the period';
+
+  @override
+  String get plSpecificAccounts => 'Specific accounts';
+
+  @override
+  String get plEnded => 'Ended';
+
+  @override
+  String get plPlanOptions => 'Plan options';
+
+  @override
+  String get plDeleteTitle => 'Delete this plan?';
+
+  @override
+  String get plDeleteFailed => 'The plan could not be deleted right now.';
+
+  @override
+  String get plDetails => 'Plan details';
+
+  @override
+  String get plNotFound => 'That plan no longer exists';
+
+  @override
+  String get plLinkTransaction => 'Link a transaction';
+
+  @override
+  String get plHistory => 'Plan history';
+
+  @override
+  String get plTxLoadFailed => 'Transactions could not be loaded';
+
+  @override
+  String get plNoLinkedTx => 'No linked transactions';
+
+  @override
+  String get plLinkHint =>
+      'Link an existing transaction, or choose an account or card for the plan.';
+
+  @override
+  String get plLinkToPlan => 'Link a transaction to this plan';
+
+  @override
+  String get plNoSuitableTx => 'No suitable transactions';
+
+  @override
+  String get plAllLinkedAlready =>
+      'Every suitable transaction is already linked, or not yet confirmed.';
+
+  @override
+  String get pcrWhyBody =>
+      'Older budgets and goals do not store a currency alongside the amount. Qirsh will not guess one — you choose how each should be treated. No amount changes and nothing is deleted. Goal contributions follow the goal’s currency automatically.';
+
+  @override
+  String pcrNoCurrencySet(String amount) {
+    return '$amount · no currency set';
+  }
+
+  @override
+  String pcrConfirmedFor(String currency) {
+    return '$currency confirmed for every existing budget and goal.';
+  }
+
+  @override
+  String bkLastBackup(String date, String time) {
+    return 'Last backup: $date · $time';
+  }
+
+  @override
+  String get pcrTitle => 'Confirm your planning currency';
+
+  @override
+  String get pcrListChanged => 'Your budgets or goals have changed';
+
+  @override
+  String get pcrListChangedBody =>
+      'Your earlier decision no longer matches the current list. Refresh it, then confirm the currencies again.';
+
+  @override
+  String get pcrRefreshList => 'Refresh the list';
+
+  @override
+  String get pcrWhyTitle => 'Why do we need you to confirm?';
+
+  @override
+  String get pcrDefaultSuggestion => 'Default suggestion';
+
+  @override
+  String get pcrSuggestionNote =>
+      'This is only a suggestion based on your current currency — nothing is saved until you confirm.';
+
+  @override
+  String get pcrHowToConfirm => 'How to confirm';
+
+  @override
+  String get pcrOneCurrencyForAll => 'One currency for everything';
+
+  @override
+  String get pcrOneCurrencyHint =>
+      'Every existing budget and goal uses the same currency';
+
+  @override
+  String get pcrPerItem => 'Choose a currency per item';
+
+  @override
+  String get pcrPerItemHint =>
+      'Pick a different currency for a budget or goal where you need to';
+
+  @override
+  String get pcrSaveSelected => 'Save the selected currencies';
+
+  @override
+  String get pcrNotNow => 'Not now — I will finish later';
+
+  @override
+  String get pcrAllOneCurrency => 'Everything in one currency';
+
+  @override
+  String get pcrCurrencyCode => 'Currency code';
+
+  @override
+  String get pcrWillRecord =>
+      'Confirming records that every existing budget and goal uses this code.';
+
+  @override
+  String get pcrUnsupportedCodeLong =>
+      'That currency code is not supported. Use a three-letter code such as EGP or SAR.';
+
+  @override
+  String get pcrUnsupportedCode => 'That currency code is not supported.';
+
+  @override
+  String get pcrSaveFailed =>
+      'The confirmation could not be saved right now. None of your financial data changed.';
+
+  @override
+  String get pcrTreatAsCurrency => 'Treat it as this currency';
+
+  @override
+  String get pcrNothingToFix => 'Nothing needs fixing';
+
+  @override
+  String get pcrNothingToFixBody =>
+      'There are no older budgets or goals whose currency needs confirming.';
+
+  @override
+  String get pcrPerItemSaved =>
+      'A separate currency was saved for every existing budget and goal.';
+
+  @override
+  String get pcrConfirmed => 'Currencies confirmed';
+
+  @override
+  String get pcrBackToSettings => 'Back to Settings';
+
+  @override
+  String get pcrReadFailed =>
+      'Your planning data could not be read. Nothing was changed.';
+
+  @override
+  String get rcTitle => 'Create a financial report';
+
+  @override
+  String get rcPeriod => 'Period';
+
+  @override
+  String get rcCustom => 'Custom';
+
+  @override
+  String get rcPickRange => 'Choose a range';
+
+  @override
+  String get accTitleShort => 'Accounts';
+
+  @override
+  String get rcLanguage => 'Language';
+
+  @override
+  String get rcArabic => 'Arabic';
+
+  @override
+  String get rcTxDetails => 'Transaction details';
+
+  @override
+  String get rcMerchantNames => 'Merchant names';
+
+  @override
+  String get rcAccountNames => 'Account names';
+
+  @override
+  String get rcBalances => 'Balances';
+
+  @override
+  String get rcNotes => 'Notes';
+
+  @override
+  String get rcPrivacyMode => 'Privacy mode (hide amounts)';
+
+  @override
+  String get rcCreateReport => 'Create report';
+
+  @override
+  String get rcNoDataInPeriod => 'No data in this period';
+
+  @override
+  String get rcFontsFailed => 'The fonts could not be loaded';
+
+  @override
+  String get rcPdfFailed => 'The PDF could not be created';
+
+  @override
+  String get rcSaveFailed => 'The file could not be saved';
+
+  @override
+  String get rcCancelled => 'Cancelled';
+
+  @override
+  String get rcUnexpectedError => 'Something unexpected went wrong';
+
+  @override
+  String get rcGenerating => 'Creating your report…';
+
+  @override
+  String get rcStepCollect => 'Collecting data';
+
+  @override
+  String get rcStepMetrics => 'Working out the figures';
+
+  @override
+  String get rcStepDraw => 'Drawing the pages';
+
+  @override
+  String get rcStepSave => 'Saving the file';
+
+  @override
+  String get rcStepDone => 'Done';
+
+  @override
+  String get bkTitle => 'Backup & restore';
+
+  @override
+  String get bkSubtitle =>
+      'Save your financial data and bring it back, securely and privately, whenever you need to.';
+
+  @override
+  String get bkCreateAccountTitle => 'Create an account to turn on backup';
+
+  @override
+  String get bkCreateAccountBody =>
+      'You can use Qirsh locally without an account. Backup needs a sign-in so the encrypted copy can be tied to you.';
+
+  @override
+  String get bkNoBackupYet => 'No backup yet';
+
+  @override
+  String get bkBackupNow => 'Back up now';
+
+  @override
+  String get bkTurnOff => 'Turn off backup';
+
+  @override
+  String get bkLocalDataStays => 'Your local data stays when you turn it off.';
+
+  @override
+  String get bkEnableFailed =>
+      'Backup could not be turned on. Please try again.';
+
+  @override
+  String get bkEncryptedWeCannotRead => 'An encrypted copy we cannot read';
+
+  @override
+  String get bkOptionalOffByDefault =>
+      'Backup is optional and off by default. Turn it on and your data is encrypted end-to-end, and restorable on any device.';
+
+  @override
+  String get bkPassphrase => 'Encryption passphrase';
+
+  @override
+  String get bkContinue => 'Continue';
+
+  @override
+  String get bkRecoveryCode => 'Recovery code';
+
+  @override
+  String get bkCopyCode => 'Copy the code';
+
+  @override
+  String get bkLoseBothWarning =>
+      'If you lose both the passphrase and the code, we cannot recover your backup.';
+
+  @override
+  String get bkSavedTheCode => 'I have saved the code and I understand';
+
+  @override
+  String get bkEnable => 'Turn on';
+
+  @override
+  String get bkRestoreFromBackup => 'Restore from a backup';
+
+  @override
+  String get pcrOldAmount => 'Previous amount';
+
+  @override
+  String get pcrOldTarget => 'Previous target amount';
 }

@@ -180,7 +180,7 @@ void main() {
       final src =
           File('lib/features/plans/plans_screen.dart').readAsStringSync();
       expect(src, contains('_planScopeLabel'));
-      expect(src, contains('كل المصروفات في الفترة'),
+      expect(src, contains('context.l10n.plAllSpendInPeriod'),
           reason: 'MALI-048n: an empty selection means ALL expenses, and '
               'rendering it blank would hide the widest scope the app has');
       expect(src, contains('PlanScopeMode.allExpenses'));

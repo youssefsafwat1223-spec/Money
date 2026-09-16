@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/async_reload_safe.dart';
+import '../../core/utils/l10n_ext.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -69,7 +70,7 @@ class BillDetailsSheet extends ConsumerWidget {
         );
     return AppSheetScaffold(
       title: currentBill.name,
-      subtitle: isInstallment ? 'قسط' : 'اشتراك',
+      subtitle: isInstallment ? context.l10n.bfInstalment : context.l10n.bfSubscription,
       scrollable: true,
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
@@ -105,14 +106,14 @@ class BillDetailsSheet extends ConsumerWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(_statusLabel(currentBill),
+                          Text(_statusLabel(context, currentBill),
                               style: AppTypography.bodyStrong(
                                   _statusColor(context, currentBill))),
                           const SizedBox(height: 2),
                           Text(
                             [
-                              _frequencyLabel(currentBill.frequency),
-                              _dueLabel(currentBill.nextDueDate),
+                              _frequencyLabel(context, currentBill.frequency),
+                              _dueLabel(context, currentBill.nextDueDate),
                               if (accountName != null) accountName,
                             ].join(' · '),
                             maxLines: 2,
@@ -131,7 +132,7 @@ class BillDetailsSheet extends ConsumerWidget {
                     children: [
                       Expanded(
                         child: _SummaryTile(
-                          label: isInstallment ? 'قيمة القسط' : 'المبلغ',
+                          label: isInstallment ? context.l10n.bdsInstalmentValue : context.l10n.bdgAmount,
                           value:
                               '${Formatters.amount(currentBill.amount)} $currLabel',
                         ),
@@ -139,14 +140,14 @@ class BillDetailsSheet extends ConsumerWidget {
                       Container(width: 1, height: 38, color: c.border),
                       Expanded(
                         child: _SummaryTile(
-                          label: 'إجمالي مدفوع',
+                          label: context.l10n.bdsTotalPaid,
                           value: '${Formatters.amount(totalPaid)} $currLabel',
                         ),
                       ),
                       Container(width: 1, height: 38, color: c.border),
                       Expanded(
                         child: _SummaryTile(
-                          label: 'دفعات مسجّلة',
+                          label: context.l10n.bdsRecordedPayments,
                           value: '${payments.length}',
                         ),
                       ),
@@ -156,7 +157,8 @@ class BillDetailsSheet extends ConsumerWidget {
                 if (legacyManualPaid > 0) ...[
                   const SizedBox(height: AppSpacing.s2),
                   Text(
-                    'يشمل ${Formatters.amount(legacyManualPaid)} $currLabel مدفوعة يدويًا قديمة.',
+                    context.l10n.bdsIncludesLegacyManual(
+                  Formatters.amount(legacyManualPaid), currLabel),
                     textAlign: TextAlign.center,
                     style: AppTypography.caption(c.textSecondary),
                   ),
@@ -169,22 +171,23 @@ class BillDetailsSheet extends ConsumerWidget {
                       children: [
                         Expanded(
                           child: _SummaryTile(
-                            label: 'مدفوع',
+                            label: context.l10n.bdsPaid,
                             value:
-                                '${currentBill.paidCount ?? 0} من ${currentBill.totalInstallments}',
+                                context.l10n.homeNofM(currentBill.paidCount ?? 0,
+                  currentBill.totalInstallments ?? 0),
                           ),
                         ),
                         Container(width: 1, height: 38, color: c.border),
                         Expanded(
                           child: _SummaryTile(
-                            label: 'متبقي',
+                            label: context.l10n.bdsRemaining,
                             value: '${currentBill.remainingInstallments}',
                           ),
                         ),
                         Container(width: 1, height: 38, color: c.border),
                         Expanded(
                           child: _SummaryTile(
-                            label: 'تقدم',
+                            label: context.l10n.bdsProgress,
                             value:
                                 '${(currentBill.installmentProgress * 100).round()}%',
                           ),
@@ -201,7 +204,7 @@ class BillDetailsSheet extends ConsumerWidget {
                     currentBill,
                   ),
                   icon: const Icon(AppLucideIcons.creditCard),
-                  label: Text(isInstallment ? 'تسجيل دفع قسط' : 'تسجيل دفعة'),
+                  label: Text(isInstallment ? context.l10n.bdsRecordInstalmentPayment : context.l10n.bdsRecordPayment),
                 ),
                 const SizedBox(height: AppSpacing.s3),
                 Row(
@@ -211,7 +214,7 @@ class BillDetailsSheet extends ConsumerWidget {
                         onPressed: () =>
                             BillFormSheet.show(context, bill: currentBill),
                         icon: const Icon(AppLucideIcons.pencil),
-                        label: const Text('تعديل'),
+                        label: Text(context.l10n.cardEdit),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.s3),
@@ -220,7 +223,7 @@ class BillDetailsSheet extends ConsumerWidget {
                         onPressed: () =>
                             _confirmDelete(context, ref, currentBill),
                         icon: const Icon(AppLucideIcons.trash2),
-                        label: const Text('حذف'),
+                        label: Text(context.l10n.setDelete),
                         style: OutlinedButton.styleFrom(
                           foregroundColor: c.danger,
                           side: BorderSide(
@@ -231,7 +234,7 @@ class BillDetailsSheet extends ConsumerWidget {
                   ],
                 ),
                 const SizedBox(height: AppSpacing.s5),
-                Text('سجل الدفعات',
+                Text(context.l10n.bdsPaymentHistory,
                     style: AppTypography.bodyStrong(c.textPrimary)),
                 const SizedBox(height: AppSpacing.s2),
                 if (paymentsAsync.isLoading)
@@ -249,8 +252,8 @@ class BillDetailsSheet extends ConsumerWidget {
                     ),
                     child: Text(
                       isInstallment
-                          ? 'لا توجد بعد دفعات أقساط مسجّلة يدويًا.'
-                          : 'لا توجد بعد دفعات اشتراك مسجّلة يدويًا.',
+                          ? context.l10n.bdsNoManualInstalmentPayments
+                          : context.l10n.bdsNoManualSubPayments,
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.textSecondary),
                     ),
@@ -259,11 +262,11 @@ class BillDetailsSheet extends ConsumerWidget {
                   for (final payment in payments)
                     _BillPaymentRow(payment: payment, bill: currentBill),
                 const SizedBox(height: AppSpacing.s5),
-                Text('عمليات مقترحة للربط',
+                Text(context.l10n.bdsSuggestedToLink,
                     style: AppTypography.bodyStrong(c.textPrimary)),
                 const SizedBox(height: 2),
                 Text(
-                  'مطابقة بالاسم — لا تُحتسب ضمن المدفوع حتى تربطها كدفعة.',
+                  context.l10n.bdsNameMatchNote,
                   style: AppTypography.caption(c.textSecondary),
                 ),
                 const SizedBox(height: AppSpacing.s2),
@@ -281,7 +284,7 @@ class BillDetailsSheet extends ConsumerWidget {
                       border: Border.all(color: c.border),
                     ),
                     child: Text(
-                      'لا توجد عمليات مقترحة للربط.',
+                      context.l10n.bdsNoSuggestions,
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.textSecondary),
                     ),
@@ -327,17 +330,19 @@ class BillDetailsSheet extends ConsumerWidget {
         builder: (context, setDialogState) => PopScope(
           canPop: !busy,
           child: AlertDialog(
-            title: Text(isInstallment ? 'تسجيل دفع قسط' : 'تسجيل دفعة'),
+            title: Text(isInstallment ? context.l10n.bdsRecordInstalmentPayment : context.l10n.bdsRecordPayment),
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
                   payFull
-                      ? 'سداد كل الأقساط المتبقية ($remainingCount) دفعة واحدة'
+                      ? context.l10n.bdsPayAllRemaining(remainingCount)
                       : period.installmentIndex == null
-                          ? 'هذه الدفعة عن الفترة ${_shortDate(period.start)} - ${_shortDate(period.end)}'
-                          : 'هذه الدفعة عن قسط رقم ${period.installmentIndex} للفترة ${_shortDate(period.start)} - ${_shortDate(period.end)}',
+                          ? context.l10n.bdsPaymentForPeriod(
+                        _shortDate(period.start), _shortDate(period.end))
+                          : context.l10n.bdsPaymentForInstalment(period.installmentIndex ?? 0,
+                        _shortDate(period.start), _shortDate(period.end)),
                   style: AppTypography.caption(context.colors.textSecondary),
                 ),
                 const SizedBox(height: AppSpacing.s3),
@@ -348,7 +353,7 @@ class BillDetailsSheet extends ConsumerWidget {
                   keyboardType:
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: InputDecoration(
-                    labelText: 'المبلغ',
+                    labelText: context.l10n.bdgAmount,
                     suffixText: Currency.label(context, bill.currency),
                   ),
                 ),
@@ -358,7 +363,8 @@ class BillDetailsSheet extends ConsumerWidget {
                     contentPadding: EdgeInsets.zero,
                     value: payFull,
                     title: Text(
-                      'سدّد المتبقي بالكامل (${Formatters.amount(remainingAmount)} ${Currency.label(context, bill.currency)})',
+                      context.l10n.bdsPayRemainingInFull(Formatters.amount(remainingAmount),
+            Currency.label(context, bill.currency)),
                       style: AppTypography.caption(context.colors.textMain),
                     ),
                     onChanged: busy || attempt.payment != null
@@ -378,8 +384,8 @@ class BillDetailsSheet extends ConsumerWidget {
                 TextField(
                   controller: noteController,
                   enabled: !busy && attempt.payment == null,
-                  decoration: const InputDecoration(
-                    labelText: 'ملاحظة اختيارية',
+                  decoration: InputDecoration(
+                    labelText: context.l10n.bdsOptionalNote,
                   ),
                 ),
                 if (errorMessage != null) ...[
@@ -395,7 +401,7 @@ class BillDetailsSheet extends ConsumerWidget {
             actions: [
               TextButton(
                 onPressed: busy ? null : () => Navigator.of(context).pop(false),
-                child: const Text('إلغاء'),
+                child: Text(context.l10n.commonCancel),
               ),
               FilledButton(
                 key: const ValueKey('bill-payment-submit'),
@@ -412,7 +418,7 @@ class BillDetailsSheet extends ConsumerWidget {
                                 );
                         } on Exception {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('مبلغ غير صالح')),
+                            SnackBar(content: Text(context.l10n.bfInvalidAmount)),
                           );
                           return;
                         }
@@ -453,8 +459,8 @@ class BillDetailsSheet extends ConsumerWidget {
                               merchant: bill.name,
                               note: payment.note ??
                                   (isInstallment
-                                      ? 'قسط ${bill.name}'
-                                      : 'اشتراك ${bill.name}'),
+                                      ? context.l10n.bdsInstalmentNamed(bill.name)
+                                      : context.l10n.bdsSubscriptionNamed(bill.name)),
                               accountId: bill.accountId,
                             ),
                             recordPayment: (payment) => ref
@@ -469,8 +475,8 @@ class BillDetailsSheet extends ConsumerWidget {
                             errorMessage = !attempt.hasTransaction
                                 ? error is RepoException
                                     ? repoExceptionMessage(error)
-                                    : 'تعذّر تسجيل الدفعة الآن. حاول مجددًا.'
-                                : 'تم حفظ العملية، لكن تعذّر ربط الدفعة. أعد المحاولة ولن تتكرر العملية.';
+                                    : context.l10n.bdsRecordFailed
+                                : context.l10n.bdsSavedButNotLinked;
                           });
                         }
                       },
@@ -483,7 +489,7 @@ class BillDetailsSheet extends ConsumerWidget {
                           color: Colors.white,
                         ),
                       )
-                    : Text(errorMessage == null ? 'تسجيل' : 'إعادة المحاولة'),
+                    : Text(errorMessage == null ? context.l10n.bdsRecord : context.l10n.annRetry),
               ),
             ],
           ),
@@ -499,7 +505,7 @@ class BillDetailsSheet extends ConsumerWidget {
     ref.invalidate(dashboardDataProvider);
     if (!context.mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('تم تسجيل الدفعة وأضيفت للعمليات.')),
+      SnackBar(content: Text(context.l10n.bdsPaymentRecorded)),
     );
   }
 
@@ -508,16 +514,16 @@ class BillDetailsSheet extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('حذف الفاتورة؟'),
-        content: Text('هيتم حذف "${bill.name}" من الاشتراكات والأقساط.'),
+        title: Text(context.l10n.bdsDeleteBillTitle),
+        content: Text(context.l10n.bdsDeleteBody(bill.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.commonCancel),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('حذف'),
+            child: Text(context.l10n.setDelete),
           ),
         ],
       ),
@@ -532,7 +538,7 @@ class BillDetailsSheet extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر حذف الفاتورة الآن.')),
+        SnackBar(content: Text(context.l10n.bdsDeleteBillFailed)),
       );
       return;
     }
@@ -543,7 +549,7 @@ class BillDetailsSheet extends ConsumerWidget {
     if (!context.mounted) return;
     final navigator = Navigator.of(context);
     navigator.pop();
-    AppToast.show(context, 'اتحذف ${bill.name}');
+    AppToast.show(context, context.l10n.bdsDeleted(bill.name));
   }
 }
 
@@ -582,16 +588,16 @@ class _BillPaymentRow extends ConsumerWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('حذف الدفعة؟'),
-        content: const Text('سيُحذف سجل الدفع اليدوي هذا نهائيًا.'),
+        title: Text(context.l10n.bdsDeletePaymentTitle),
+        content: Text(context.l10n.bdsDeletePaymentBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.commonCancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text('حذف', style: TextStyle(color: context.colors.danger)),
+            child: Text(context.l10n.setDelete, style: TextStyle(color: context.colors.danger)),
           ),
         ],
       ),
@@ -615,7 +621,7 @@ class _BillPaymentRow extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('تعذّر حذف الدفعة الآن.')),
+        SnackBar(content: Text(context.l10n.bdsDeletePaymentFailed)),
       );
       return;
     }
@@ -628,8 +634,8 @@ class _BillPaymentRow extends ConsumerWidget {
     final c = context.colors;
     final isInstallment = bill.type == BillType.installment;
     final title = isInstallment && payment.installmentIndex != null
-        ? 'قسط رقم ${payment.installmentIndex}'
-        : 'دفعة ${bill.name}';
+        ? context.l10n.bdsInstalmentNumber(payment.installmentIndex ?? 0)
+        : context.l10n.bdsPaymentNamed(bill.name);
     final period =
         '${_shortDate(payment.periodStart)} - ${_shortDate(payment.periodEnd)}';
     return Container(
@@ -708,7 +714,7 @@ class _BillTransactionRow extends StatelessWidget {
         ? tx.rawMerchant!.trim()
         : tx.note?.trim().isNotEmpty == true
             ? tx.note!.trim()
-            : 'عملية';
+            : context.l10n.txnTransactionWord;
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.md),
       onTap: () => TransactionDetailsScreen.showSheet(context, tx.id),
@@ -857,19 +863,20 @@ String _shortDate(DateTime value) {
   return '${local.day}/${local.month}/${local.year}';
 }
 
-String _frequencyLabel(BillFrequency frequency) => switch (frequency) {
-      BillFrequency.weekly => 'أسبوعي',
-      BillFrequency.monthly => 'شهري',
-      BillFrequency.yearly => 'سنوي',
-      BillFrequency.custom => 'مخصص',
+String _frequencyLabel(BuildContext context, BillFrequency frequency) =>
+    switch (frequency) {
+      BillFrequency.weekly => context.l10n.txnCycleWeekly,
+      BillFrequency.monthly => context.l10n.txnCycleMonthly,
+      BillFrequency.yearly => context.l10n.txnCycleYearly,
+      BillFrequency.custom => context.l10n.txnRangeCustom,
     };
 
-String _statusLabel(BillEntity bill) {
-  if (bill.type == BillType.installment) return 'قسط جاري';
+String _statusLabel(BuildContext context, BillEntity bill) {
+  if (bill.type == BillType.installment) return context.l10n.txnRunningInst;
   return switch (bill.status) {
-    BillStatus.active => 'نشط',
-    BillStatus.paused => 'متوقف',
-    BillStatus.cancelled => 'ملغي',
+    BillStatus.active => context.l10n.txnActive,
+    BillStatus.paused => context.l10n.txnPaused,
+    BillStatus.cancelled => context.l10n.txnCancelled,
   };
 }
 
@@ -883,9 +890,9 @@ Color _statusColor(BuildContext context, BillEntity bill) {
   };
 }
 
-String _dueLabel(DateTime dueDate) {
+String _dueLabel(BuildContext context, DateTime dueDate) {
   final daysLeft = dueDate.difference(DateTime.now()).inDays;
-  if (daysLeft < 0) return 'متأخر ${daysLeft.abs()} يوم';
-  if (daysLeft == 0) return 'مستحق اليوم';
-  return 'بعد $daysLeft يوم';
+  if (daysLeft < 0) return context.l10n.txnOverdueDays(daysLeft.abs());
+  if (daysLeft == 0) return context.l10n.txnDueToday;
+  return context.l10n.txnInDays(daysLeft);
 }

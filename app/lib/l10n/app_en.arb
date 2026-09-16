@@ -2103,5 +2103,289 @@
   "bfsComputingSuggestion": "Working out a suggestion from the last 30 days…",
   "bfsUseIt": "Use it",
   "bfsBudgetPeriod": "Budget period",
-  "bdgDeleteBudget": "Delete budget"
+  "bdgDeleteBudget": "Delete budget",
+  "bdsIncludesLegacyManual": "Includes {amount} {currency} recorded manually earlier.",
+  "@bdsIncludesLegacyManual": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsPayAllRemaining": "Pay all {count} remaining instalments at once",
+  "@bdsPayAllRemaining": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bdsPaymentForPeriod": "This payment covers {from} - {to}",
+  "@bdsPaymentForPeriod": {
+    "placeholders": {
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsPaymentForInstalment": "This payment covers instalment {index}, {from} - {to}",
+  "@bdsPaymentForInstalment": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      },
+      "from": {
+        "type": "String"
+      },
+      "to": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsPayRemainingInFull": "Pay the rest in full ({amount} {currency})",
+  "@bdsPayRemainingInFull": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsInstalmentNamed": "{name} instalment",
+  "@bdsInstalmentNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsSubscriptionNamed": "{name} subscription",
+  "@bdsSubscriptionNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsDeleteBody": "“{name}” will be removed from subscriptions and instalments.",
+  "@bdsDeleteBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsDeleted": "Deleted {name}",
+  "@bdsDeleted": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsInstalmentNumber": "Instalment {index}",
+  "@bdsInstalmentNumber": {
+    "placeholders": {
+      "index": {
+        "type": "int"
+      }
+    }
+  },
+  "bdsPaymentNamed": "{name} payment",
+  "@bdsPaymentNamed": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "plCardShort": "Card ••{last4}",
+  "@plCardShort": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "plPerDayLeft": "/day · {days, plural, =1{1 day} other{{days} days}} left",
+  "@plPerDayLeft": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
+  "plDeleteBody": "The “{name}” plan will be deleted. Its transactions are not affected.",
+  "@plDeleteBody": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "plOfBudget": "of {amount} {currency}",
+  "@plOfBudget": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "bdsInstalmentValue": "Instalment amount",
+  "bdsTotalPaid": "Total paid",
+  "bdsRecordedPayments": "Recorded payments",
+  "bdsPaid": "Paid",
+  "bdsRemaining": "Remaining",
+  "bdsProgress": "Progress",
+  "bdsRecordInstalmentPayment": "Record an instalment payment",
+  "bdsRecordPayment": "Record a payment",
+  "bdsPaymentHistory": "Payment history",
+  "bdsNoManualInstalmentPayments": "No instalment payments have been recorded manually yet.",
+  "bdsNoManualSubPayments": "No subscription payments have been recorded manually yet.",
+  "bdsSuggestedToLink": "Transactions you could link",
+  "bdsNameMatchNote": "Matched by name — not counted as paid until you link it as a payment.",
+  "bdsNoSuggestions": "No transactions to suggest for linking.",
+  "bdsOptionalNote": "Optional note",
+  "bdsRecordFailed": "The payment could not be recorded right now. Please try again.",
+  "bdsSavedButNotLinked": "The transaction was saved but the payment could not be linked. Try again — it will not be duplicated.",
+  "bdsRecord": "Record",
+  "bdsPaymentRecorded": "The payment was recorded and added to your transactions.",
+  "bdsDeleteBillTitle": "Delete this bill?",
+  "bdsDeleteBillFailed": "The bill could not be deleted right now.",
+  "bdsDeletePaymentTitle": "Delete this payment?",
+  "bdsDeletePaymentBody": "This manual payment record will be permanently deleted.",
+  "bdsDeletePaymentFailed": "The payment could not be deleted right now.",
+  "plSubtitle": "A budget for every occasion, tracking itself",
+  "plLoadFailed": "Could not load",
+  "plNoPlans": "No plans yet",
+  "plEmptyBody": "Create a plan for a trip or an occasion: a budget, a period, and the cards you will spend from — Qirsh tracks it for you.",
+  "plAllSpendInPeriod": "All spending in the period",
+  "plSpecificAccounts": "Specific accounts",
+  "plEnded": "Ended",
+  "plPlanOptions": "Plan options",
+  "plDeleteTitle": "Delete this plan?",
+  "plDeleteFailed": "The plan could not be deleted right now.",
+  "plDetails": "Plan details",
+  "plNotFound": "That plan no longer exists",
+  "plLinkTransaction": "Link a transaction",
+  "plHistory": "Plan history",
+  "plTxLoadFailed": "Transactions could not be loaded",
+  "plNoLinkedTx": "No linked transactions",
+  "plLinkHint": "Link an existing transaction, or choose an account or card for the plan.",
+  "plLinkToPlan": "Link a transaction to this plan",
+  "plNoSuitableTx": "No suitable transactions",
+  "plAllLinkedAlready": "Every suitable transaction is already linked, or not yet confirmed.",
+  "pcrWhyBody": "Older budgets and goals do not store a currency alongside the amount. Qirsh will not guess one — you choose how each should be treated. No amount changes and nothing is deleted. Goal contributions follow the goal’s currency automatically.",
+  "pcrNoCurrencySet": "{amount} · no currency set",
+  "@pcrNoCurrencySet": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "pcrConfirmedFor": "{currency} confirmed for every existing budget and goal.",
+  "@pcrConfirmedFor": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "bkLastBackup": "Last backup: {date} · {time}",
+  "@bkLastBackup": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      },
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "pcrTitle": "Confirm your planning currency",
+  "pcrListChanged": "Your budgets or goals have changed",
+  "pcrListChangedBody": "Your earlier decision no longer matches the current list. Refresh it, then confirm the currencies again.",
+  "pcrRefreshList": "Refresh the list",
+  "pcrWhyTitle": "Why do we need you to confirm?",
+  "pcrDefaultSuggestion": "Default suggestion",
+  "pcrSuggestionNote": "This is only a suggestion based on your current currency — nothing is saved until you confirm.",
+  "pcrHowToConfirm": "How to confirm",
+  "pcrOneCurrencyForAll": "One currency for everything",
+  "pcrOneCurrencyHint": "Every existing budget and goal uses the same currency",
+  "pcrPerItem": "Choose a currency per item",
+  "pcrPerItemHint": "Pick a different currency for a budget or goal where you need to",
+  "pcrSaveSelected": "Save the selected currencies",
+  "pcrNotNow": "Not now — I will finish later",
+  "pcrAllOneCurrency": "Everything in one currency",
+  "pcrCurrencyCode": "Currency code",
+  "pcrWillRecord": "Confirming records that every existing budget and goal uses this code.",
+  "pcrUnsupportedCodeLong": "That currency code is not supported. Use a three-letter code such as EGP or SAR.",
+  "pcrUnsupportedCode": "That currency code is not supported.",
+  "pcrSaveFailed": "The confirmation could not be saved right now. None of your financial data changed.",
+  "pcrTreatAsCurrency": "Treat it as this currency",
+  "pcrNothingToFix": "Nothing needs fixing",
+  "pcrNothingToFixBody": "There are no older budgets or goals whose currency needs confirming.",
+  "pcrPerItemSaved": "A separate currency was saved for every existing budget and goal.",
+  "pcrConfirmed": "Currencies confirmed",
+  "pcrBackToSettings": "Back to Settings",
+  "pcrReadFailed": "Your planning data could not be read. Nothing was changed.",
+  "rcTitle": "Create a financial report",
+  "rcPeriod": "Period",
+  "rcCustom": "Custom",
+  "rcPickRange": "Choose a range",
+  "accTitleShort": "Accounts",
+  "rcLanguage": "Language",
+  "rcArabic": "Arabic",
+  "rcTxDetails": "Transaction details",
+  "rcMerchantNames": "Merchant names",
+  "rcAccountNames": "Account names",
+  "rcBalances": "Balances",
+  "rcNotes": "Notes",
+  "rcPrivacyMode": "Privacy mode (hide amounts)",
+  "rcCreateReport": "Create report",
+  "rcNoDataInPeriod": "No data in this period",
+  "rcFontsFailed": "The fonts could not be loaded",
+  "rcPdfFailed": "The PDF could not be created",
+  "rcSaveFailed": "The file could not be saved",
+  "rcCancelled": "Cancelled",
+  "rcUnexpectedError": "Something unexpected went wrong",
+  "rcGenerating": "Creating your report…",
+  "rcStepCollect": "Collecting data",
+  "rcStepMetrics": "Working out the figures",
+  "rcStepDraw": "Drawing the pages",
+  "rcStepSave": "Saving the file",
+  "rcStepDone": "Done",
+  "bkTitle": "Backup & restore",
+  "bkSubtitle": "Save your financial data and bring it back, securely and privately, whenever you need to.",
+  "bkCreateAccountTitle": "Create an account to turn on backup",
+  "bkCreateAccountBody": "You can use Qirsh locally without an account. Backup needs a sign-in so the encrypted copy can be tied to you.",
+  "bkNoBackupYet": "No backup yet",
+  "bkBackupNow": "Back up now",
+  "bkTurnOff": "Turn off backup",
+  "bkLocalDataStays": "Your local data stays when you turn it off.",
+  "bkEnableFailed": "Backup could not be turned on. Please try again.",
+  "bkEncryptedWeCannotRead": "An encrypted copy we cannot read",
+  "bkOptionalOffByDefault": "Backup is optional and off by default. Turn it on and your data is encrypted end-to-end, and restorable on any device.",
+  "bkPassphrase": "Encryption passphrase",
+  "bkContinue": "Continue",
+  "bkRecoveryCode": "Recovery code",
+  "bkCopyCode": "Copy the code",
+  "bkLoseBothWarning": "If you lose both the passphrase and the code, we cannot recover your backup.",
+  "bkSavedTheCode": "I have saved the code and I understand",
+  "bkEnable": "Turn on",
+  "bkRestoreFromBackup": "Restore from a backup",
+  "pcrOldAmount": "Previous amount",
+  "pcrOldTarget": "Previous target amount"
 }

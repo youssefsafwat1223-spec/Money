@@ -67,7 +67,9 @@ void main() {
     test('delete is still confirmed', () {
       // Making delete less prominent must not make it less guarded.
       expect(screen, contains('_confirmDelete(context, ref)'));
-      expect(screen, contains('حذف الخطة؟'));
+      expect(screen, contains('context.l10n.plDeleteTitle'));
+      expect(_arb('ar')['plDeleteTitle'], 'حذف الخطة؟');
+      expect(_arb('en')['plDeleteTitle'], 'Delete this plan?');
     });
   });
 
@@ -77,7 +79,11 @@ void main() {
 
     test('closed plans carry a «منتهية» badge', () {
       expect(screen, contains('plan.status == PlanStatus.closed'));
-      expect(screen, contains('منتهية'));
+      expect(screen, contains('context.l10n.plEnded'));
+      expect(_arb('ar')['plEnded'], 'منتهية');
+      expect(_arb('en')['plEnded'], 'Ended',
+          reason: 'a closed plan must say so in English too, or the badge is '
+              'invisible to half the users it was added for');
     });
   });
 }
