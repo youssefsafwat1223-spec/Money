@@ -4710,4 +4710,19 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get pcrOldTarget => 'المبلغ المستهدف القديم';
+
+  @override
+  String get cesTitle => 'إضافة عملية جديدة';
+
+  @override
+  String get cesPasteBankMessage => 'ألصق رسالة بنك';
+
+  @override
+  String get cesPasteHint => 'نقرأ الرسالة ونجهّز العملية للمراجعة.';
+
+  @override
+  String get cesManualEntry => 'إضافة يدوية';
+
+  @override
+  String get cesManualHint => 'اكتب تفاصيل العملية بنفسك.';
 }

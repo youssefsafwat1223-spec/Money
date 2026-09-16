@@ -7926,6 +7926,36 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'المبلغ المستهدف القديم'**
   String get pcrOldTarget;
+
+  /// No description provided for @cesTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة عملية جديدة'**
+  String get cesTitle;
+
+  /// No description provided for @cesPasteBankMessage.
+  ///
+  /// In ar, this message translates to:
+  /// **'ألصق رسالة بنك'**
+  String get cesPasteBankMessage;
+
+  /// No description provided for @cesPasteHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقرأ الرسالة ونجهّز العملية للمراجعة.'**
+  String get cesPasteHint;
+
+  /// No description provided for @cesManualEntry.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة يدوية'**
+  String get cesManualEntry;
+
+  /// No description provided for @cesManualHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب تفاصيل العملية بنفسك.'**
+  String get cesManualHint;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

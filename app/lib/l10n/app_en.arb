@@ -2387,5 +2387,10 @@
   "bkEnable": "Turn on",
   "bkRestoreFromBackup": "Restore from a backup",
   "pcrOldAmount": "Previous amount",
-  "pcrOldTarget": "Previous target amount"
+  "pcrOldTarget": "Previous target amount",
+  "cesTitle": "Add a transaction",
+  "cesPasteBankMessage": "Paste a bank message",
+  "cesPasteHint": "We read the message and prepare the transaction for review.",
+  "cesManualEntry": "Add manually",
+  "cesManualHint": "Enter the transaction details yourself."
 }

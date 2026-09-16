@@ -4693,4 +4693,20 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get pcrOldTarget => 'Previous target amount';
+
+  @override
+  String get cesTitle => 'Add a transaction';
+
+  @override
+  String get cesPasteBankMessage => 'Paste a bank message';
+
+  @override
+  String get cesPasteHint =>
+      'We read the message and prepare the transaction for review.';
+
+  @override
+  String get cesManualEntry => 'Add manually';
+
+  @override
+  String get cesManualHint => 'Enter the transaction details yourself.';
 }

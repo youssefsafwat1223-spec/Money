@@ -2503,5 +2503,10 @@
   "bkEnable": "تفعيل",
   "bkRestoreFromBackup": "استعادة من نسخة احتياطية",
   "pcrOldAmount": "المبلغ القديم",
-  "pcrOldTarget": "المبلغ المستهدف القديم"
+  "pcrOldTarget": "المبلغ المستهدف القديم",
+  "cesTitle": "إضافة عملية جديدة",
+  "cesPasteBankMessage": "ألصق رسالة بنك",
+  "cesPasteHint": "نقرأ الرسالة ونجهّز العملية للمراجعة.",
+  "cesManualEntry": "إضافة يدوية",
+  "cesManualHint": "اكتب تفاصيل العملية بنفسك."
 }

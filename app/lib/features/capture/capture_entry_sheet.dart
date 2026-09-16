@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/utils/l10n_ext.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -18,7 +19,7 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
     context: context,
     backgroundColor: Colors.transparent,
     builder: (_) => navySheetTheme(AppSheetScaffold(
-      title: 'إضافة عملية جديدة',
+      title: context.l10n.cesTitle,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       scrollable: true,
       body: Column(
@@ -26,11 +27,11 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
         children: [
           _ActionTile(
             icon: AppLucideIcons.clipboardPaste,
-            title: 'ألصق رسالة بنك',
+            title: context.l10n.cesPasteBankMessage,
             // Truthful by default: AI consent is `unset` until the user grants
             // it, so most installs read the message on-device only, and every
             // capture lands in review rather than being added "automatically".
-            subtitle: 'نقرأ الرسالة ونجهّز العملية للمراجعة.',
+            subtitle: context.l10n.cesPasteHint,
             isPrimary: true,
             onTap: () {
               Navigator.of(context).pop();
@@ -40,8 +41,8 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
           const SizedBox(height: AppSpacing.s3),
           _ActionTile(
             icon: AppLucideIcons.pencil,
-            title: 'إضافة يدوية',
-            subtitle: 'اكتب تفاصيل العملية بنفسك.',
+            title: context.l10n.cesManualEntry,
+            subtitle: context.l10n.cesManualHint,
             isPrimary: false,
             onTap: () {
               Navigator.of(context).pop();
