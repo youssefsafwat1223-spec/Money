@@ -5,7 +5,6 @@ import '../../core/utils/l10n_ext.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/backup/backup_service.dart';
-import '../../core/backup/remote_backup_controller.dart';
 import '../../core/backup/remote_backup_state.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
@@ -148,7 +147,7 @@ class _EnabledView extends ConsumerWidget {
               color: state.isProtected ? c.success : c.textLight,
             ),
             const SizedBox(width: AppSpacing.s3),
-            Text(remoteBackupStateLabel(state),
+            Text(_stateLabel(context, state),
                 style: AppTypography.headline(c.textMain)),
           ],
         ),
@@ -421,5 +420,50 @@ class _RestoreBackupButton extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 14),
       ),
     );
+  }
+}
+
+/// Truthful user-facing label for each backup state (MALI-076n §16). Only
+/// `enabledIdle` — a committed AND verified generation — renders as "Protected".
+///
+/// This used to live in `remote_backup_controller` as a context-free function,
+/// which meant the words could never follow the locale. The controller owns the
+/// STATE; the screen owns how it reads.
+String _stateLabel(BuildContext context, RemoteBackupState s) {
+  final l = context.l10n;
+  switch (s) {
+    case RemoteBackupState.disabled:
+      return l.bkStateDisabled;
+    case RemoteBackupState.enabling:
+      return l.bkStateEnabling;
+    case RemoteBackupState.preparing:
+      return l.bkStatePreparing;
+    case RemoteBackupState.encrypting:
+      return l.bkStateEncrypting;
+    case RemoteBackupState.uploading:
+      return l.bkStateUploading;
+    case RemoteBackupState.verifyingUpload:
+    case RemoteBackupState.verifyingDownload:
+      return l.bkStateVerifying;
+    case RemoteBackupState.downloading:
+      return l.bkStateDownloading;
+    case RemoteBackupState.enabledIdle:
+      return l.bkStateProtected;
+    case RemoteBackupState.pausedOffline:
+      return l.bkStateWaitingForConnection;
+    case RemoteBackupState.retryScheduled:
+      return l.bkStateWillRetry;
+    case RemoteBackupState.authenticationRequired:
+      return l.bkStateNeedsSignIn;
+    case RemoteBackupState.consentRequired:
+      return l.bkStateNeedsCloudSync;
+    case RemoteBackupState.failedRetryable:
+      return l.bkStateFailedRetryable;
+    case RemoteBackupState.failedTerminal:
+      return l.bkStateFailed;
+    case RemoteBackupState.deleting:
+      return l.bkStateDeleting;
+    case RemoteBackupState.cancelled:
+      return l.bkStateCancelled;
   }
 }

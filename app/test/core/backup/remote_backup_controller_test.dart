@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_service.dart';
@@ -150,12 +152,56 @@ void main() {
     expect(svc.deleteCalls, 1);
   });
 
-  test('every state maps to a non-empty label; only enabledIdle is Protected', () {
-    for (final s in RemoteBackupState.values) {
-      expect(remoteBackupStateLabel(s), isNotEmpty);
+  test('every state maps to a non-empty label; only enabledIdle is Protected',
+      () {
+    // The label switch moved to `backup_screen`, where a BuildContext exists,
+    // so the words can follow the locale. The CONTRACT is unchanged and is
+    // asserted where the copy now lives — in both languages, because "only a
+    // committed AND verified generation may read as Protected" is a claim
+    // about truthfulness, not about Arabic.
+    final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+        as Map<String, dynamic>;
+    final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+        as Map<String, dynamic>;
+    const keyFor = {
+      RemoteBackupState.disabled: 'bkStateDisabled',
+      RemoteBackupState.enabling: 'bkStateEnabling',
+      RemoteBackupState.preparing: 'bkStatePreparing',
+      RemoteBackupState.encrypting: 'bkStateEncrypting',
+      RemoteBackupState.uploading: 'bkStateUploading',
+      RemoteBackupState.verifyingUpload: 'bkStateVerifying',
+      RemoteBackupState.verifyingDownload: 'bkStateVerifying',
+      RemoteBackupState.downloading: 'bkStateDownloading',
+      RemoteBackupState.enabledIdle: 'bkStateProtected',
+      RemoteBackupState.pausedOffline: 'bkStateWaitingForConnection',
+      RemoteBackupState.retryScheduled: 'bkStateWillRetry',
+      RemoteBackupState.authenticationRequired: 'bkStateNeedsSignIn',
+      RemoteBackupState.consentRequired: 'bkStateNeedsCloudSync',
+      RemoteBackupState.failedRetryable: 'bkStateFailedRetryable',
+      RemoteBackupState.failedTerminal: 'bkStateFailed',
+      RemoteBackupState.deleting: 'bkStateDeleting',
+      RemoteBackupState.cancelled: 'bkStateCancelled',
+    };
+    // A new state with no entry here fails, rather than quietly rendering
+    // nothing on a screen that is supposed to be truthful about protection.
+    expect(keyFor.keys.toSet(), RemoteBackupState.values.toSet());
+    for (final entry in keyFor.entries) {
+      for (final arb in [ar, en]) {
+        expect(arb[entry.value], isA<String>(),
+            reason: '${entry.key} has no label');
+        expect((arb[entry.value] as String).trim(), isNotEmpty,
+            reason: '${entry.key} has an empty label');
+      }
     }
-    expect(remoteBackupStateLabel(RemoteBackupState.enabledIdle), 'محمي');
-    expect(remoteBackupStateLabel(RemoteBackupState.uploading), isNot('محمي'));
+    expect(ar['bkStateProtected'], 'محمي');
+    expect(en['bkStateProtected'], 'Protected');
+    for (final entry in keyFor.entries) {
+      if (entry.key == RemoteBackupState.enabledIdle) continue;
+      expect(ar[entry.value], isNot('محمي'),
+          reason: '${entry.key} must not read as protected');
+      expect(en[entry.value], isNot('Protected'),
+          reason: '${entry.key} must not read as protected');
+    }
   });
 
   test('C-3: the consent hook defaults to DENY when the caller omits it',

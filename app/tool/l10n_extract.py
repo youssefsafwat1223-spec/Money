@@ -32,6 +32,12 @@ DATA_NOT_COPY = (
     'lib/data/db/app_database.dart',
     'lib/core/data_portability/portable_csv.dart',
     'lib/features/cards/brand_mark.dart',
+    # bank NAME -> key mappings ('الراجحي:alrajhi'), matched against SMS text
+    'lib/features/cards/bank_mark.dart',
+    # the SMS parser's keyword vocabulary and its regexes: 'خصم', 'كافيه',
+    # '(?:الرسوم|الرسم|الضريبة|...)'. Translating one silently stops a whole
+    # class of transaction from being recognised or categorised.
+    'lib/domain/usecases/add_transaction_usecase.dart',
 )
 
 # Files that are already bilingual: the Arabic half of an `en ? … : …` pair, or

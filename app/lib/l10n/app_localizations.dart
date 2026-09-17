@@ -7956,6 +7956,102 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'اكتب تفاصيل العملية بنفسك.'**
   String get cesManualHint;
+
+  /// No description provided for @bkStateDisabled.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخ الاحتياطي متوقف'**
+  String get bkStateDisabled;
+
+  /// No description provided for @bkStateEnabling.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ التفعيل…'**
+  String get bkStateEnabling;
+
+  /// No description provided for @bkStatePreparing.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ التحضير…'**
+  String get bkStatePreparing;
+
+  /// No description provided for @bkStateEncrypting.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ التشفير…'**
+  String get bkStateEncrypting;
+
+  /// No description provided for @bkStateUploading.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ الرفع…'**
+  String get bkStateUploading;
+
+  /// No description provided for @bkStateVerifying.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ التحقق…'**
+  String get bkStateVerifying;
+
+  /// No description provided for @bkStateDownloading.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ التنزيل…'**
+  String get bkStateDownloading;
+
+  /// No description provided for @bkStateProtected.
+  ///
+  /// In ar, this message translates to:
+  /// **'محمي'**
+  String get bkStateProtected;
+
+  /// No description provided for @bkStateWaitingForConnection.
+  ///
+  /// In ar, this message translates to:
+  /// **'بانتظار الاتصال'**
+  String get bkStateWaitingForConnection;
+
+  /// No description provided for @bkStateWillRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستتم إعادة المحاولة'**
+  String get bkStateWillRetry;
+
+  /// No description provided for @bkStateNeedsSignIn.
+  ///
+  /// In ar, this message translates to:
+  /// **'يلزم تسجيل الدخول'**
+  String get bkStateNeedsSignIn;
+
+  /// No description provided for @bkStateNeedsCloudSync.
+  ///
+  /// In ar, this message translates to:
+  /// **'يلزم تفعيل المزامنة السحابية'**
+  String get bkStateNeedsCloudSync;
+
+  /// No description provided for @bkStateFailedRetryable.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل — أعد المحاولة'**
+  String get bkStateFailedRetryable;
+
+  /// No description provided for @bkStateFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل'**
+  String get bkStateFailed;
+
+  /// No description provided for @bkStateDeleting.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ حذف النسخة عن بُعد'**
+  String get bkStateDeleting;
+
+  /// No description provided for @bkStateCancelled.
+  ///
+  /// In ar, this message translates to:
+  /// **'أُلغيت'**
+  String get bkStateCancelled;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

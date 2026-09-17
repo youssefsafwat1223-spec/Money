@@ -4709,4 +4709,52 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cesManualHint => 'Enter the transaction details yourself.';
+
+  @override
+  String get bkStateDisabled => 'Backup is off';
+
+  @override
+  String get bkStateEnabling => 'Turning on…';
+
+  @override
+  String get bkStatePreparing => 'Preparing…';
+
+  @override
+  String get bkStateEncrypting => 'Encrypting…';
+
+  @override
+  String get bkStateUploading => 'Uploading…';
+
+  @override
+  String get bkStateVerifying => 'Verifying…';
+
+  @override
+  String get bkStateDownloading => 'Downloading…';
+
+  @override
+  String get bkStateProtected => 'Protected';
+
+  @override
+  String get bkStateWaitingForConnection => 'Waiting for a connection';
+
+  @override
+  String get bkStateWillRetry => 'Will retry';
+
+  @override
+  String get bkStateNeedsSignIn => 'Sign-in required';
+
+  @override
+  String get bkStateNeedsCloudSync => 'Cloud sync must be on';
+
+  @override
+  String get bkStateFailedRetryable => 'Failed — try again';
+
+  @override
+  String get bkStateFailed => 'Failed';
+
+  @override
+  String get bkStateDeleting => 'Deleting the remote copy…';
+
+  @override
+  String get bkStateCancelled => 'Cancelled';
 }

@@ -2392,5 +2392,21 @@
   "cesPasteBankMessage": "Paste a bank message",
   "cesPasteHint": "We read the message and prepare the transaction for review.",
   "cesManualEntry": "Add manually",
-  "cesManualHint": "Enter the transaction details yourself."
+  "cesManualHint": "Enter the transaction details yourself.",
+  "bkStateDisabled": "Backup is off",
+  "bkStateEnabling": "Turning on…",
+  "bkStatePreparing": "Preparing…",
+  "bkStateEncrypting": "Encrypting…",
+  "bkStateUploading": "Uploading…",
+  "bkStateVerifying": "Verifying…",
+  "bkStateDownloading": "Downloading…",
+  "bkStateProtected": "Protected",
+  "bkStateWaitingForConnection": "Waiting for a connection",
+  "bkStateWillRetry": "Will retry",
+  "bkStateNeedsSignIn": "Sign-in required",
+  "bkStateNeedsCloudSync": "Cloud sync must be on",
+  "bkStateFailedRetryable": "Failed — try again",
+  "bkStateFailed": "Failed",
+  "bkStateDeleting": "Deleting the remote copy…",
+  "bkStateCancelled": "Cancelled"
 }

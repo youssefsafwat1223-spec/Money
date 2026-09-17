@@ -4725,4 +4725,52 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get cesManualHint => 'اكتب تفاصيل العملية بنفسك.';
+
+  @override
+  String get bkStateDisabled => 'النسخ الاحتياطي متوقف';
+
+  @override
+  String get bkStateEnabling => 'جارٍ التفعيل…';
+
+  @override
+  String get bkStatePreparing => 'جارٍ التحضير…';
+
+  @override
+  String get bkStateEncrypting => 'جارٍ التشفير…';
+
+  @override
+  String get bkStateUploading => 'جارٍ الرفع…';
+
+  @override
+  String get bkStateVerifying => 'جارٍ التحقق…';
+
+  @override
+  String get bkStateDownloading => 'جارٍ التنزيل…';
+
+  @override
+  String get bkStateProtected => 'محمي';
+
+  @override
+  String get bkStateWaitingForConnection => 'بانتظار الاتصال';
+
+  @override
+  String get bkStateWillRetry => 'ستتم إعادة المحاولة';
+
+  @override
+  String get bkStateNeedsSignIn => 'يلزم تسجيل الدخول';
+
+  @override
+  String get bkStateNeedsCloudSync => 'يلزم تفعيل المزامنة السحابية';
+
+  @override
+  String get bkStateFailedRetryable => 'فشل — أعد المحاولة';
+
+  @override
+  String get bkStateFailed => 'فشل';
+
+  @override
+  String get bkStateDeleting => 'جارٍ حذف النسخة عن بُعد';
+
+  @override
+  String get bkStateCancelled => 'أُلغيت';
 }

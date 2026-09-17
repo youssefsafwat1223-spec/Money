@@ -2508,5 +2508,21 @@
   "cesPasteBankMessage": "ألصق رسالة بنك",
   "cesPasteHint": "نقرأ الرسالة ونجهّز العملية للمراجعة.",
   "cesManualEntry": "إضافة يدوية",
-  "cesManualHint": "اكتب تفاصيل العملية بنفسك."
+  "cesManualHint": "اكتب تفاصيل العملية بنفسك.",
+  "bkStateDisabled": "النسخ الاحتياطي متوقف",
+  "bkStateEnabling": "جارٍ التفعيل…",
+  "bkStatePreparing": "جارٍ التحضير…",
+  "bkStateEncrypting": "جارٍ التشفير…",
+  "bkStateUploading": "جارٍ الرفع…",
+  "bkStateVerifying": "جارٍ التحقق…",
+  "bkStateDownloading": "جارٍ التنزيل…",
+  "bkStateProtected": "محمي",
+  "bkStateWaitingForConnection": "بانتظار الاتصال",
+  "bkStateWillRetry": "ستتم إعادة المحاولة",
+  "bkStateNeedsSignIn": "يلزم تسجيل الدخول",
+  "bkStateNeedsCloudSync": "يلزم تفعيل المزامنة السحابية",
+  "bkStateFailedRetryable": "فشل — أعد المحاولة",
+  "bkStateFailed": "فشل",
+  "bkStateDeleting": "جارٍ حذف النسخة عن بُعد",
+  "bkStateCancelled": "أُلغيت"
 }
