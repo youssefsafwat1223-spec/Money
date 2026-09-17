@@ -27,7 +27,7 @@ records what changed, what is proven, and what is not.
 | 3 | No Android runtime smoke test | NOT DONE | **DONE** — 19 routes × 2 languages pass on Android 15; `V1_ANDROID_RUNTIME.md` |
 | 4 | No process-restart / reboot proof | NOT DONE | **DONE** — same install, same inode; `V1_RUNTIME_PERSISTENCE_PROOF.md` |
 | 5 | Import-apply and cloud E2E unexercised | NOT DONE | **DONE** — both run; the cloud test found two real defects |
-| 6 | P11 reviewers not run | NOT DONE | **PARTIAL** — see items 98–99 |
+| 6 | P11 reviewers not run | NOT DONE | **PARTIAL** — two reviewers ran and found real defects; Codex is REVIEW_DEFERRED (not installed). See items 98–99 |
 
 ---
 
