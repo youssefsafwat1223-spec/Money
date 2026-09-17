@@ -256,6 +256,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     child: Column(children: [
                       if (settings != null) ...[
                         _Section(
+                          // First group: it renders inside the header's melt,
+                          // where the background is still blue.
+                          onMelt: true,
                           // UX-028 — the other «الحساب». This group is profile
                           // data, so it says so.
                           title: context.l10n.setAccountData,
@@ -1770,11 +1773,21 @@ class _Section extends StatelessWidget {
     required this.title,
     required this.children,
     this.description,
+    this.onMelt = false,
   });
 
   final String title;
   final String? description;
   final List<Widget> children;
+
+  /// True for the FIRST group only, which sits inside the header's `MeltTail`
+  /// where the background is still blue.
+  ///
+  /// The page tokens are correct everywhere else and wrong there: «Your account
+  /// details» measured **1.10:1** against the melt — effectively invisible.
+  /// A single colour cannot serve both, because the melt fades from the header
+  /// blue to the page background across this one group.
+  final bool onMelt;
 
   @override
   Widget build(BuildContext context) {
@@ -1790,14 +1803,18 @@ class _Section extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: AppTypography.footnote(c.textLight)
+                style: AppTypography.footnote(onMelt
+                        ? Colors.white.withValues(alpha: 0.85)
+                        : c.textLight)
                     .copyWith(fontWeight: FontWeight.w700),
               ),
               if (description != null) ...[
                 const SizedBox(height: 1),
                 Text(
                   description!,
-                  style: AppTypography.micro(c.textMuted),
+                  style: AppTypography.micro(onMelt
+                      ? Colors.white.withValues(alpha: 0.70)
+                      : c.textMuted),
                 ),
               ],
             ],

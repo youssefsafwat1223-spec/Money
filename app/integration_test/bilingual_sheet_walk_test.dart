@@ -298,6 +298,16 @@ void main() {
           unreachable.add('[$lang] ${entry.key}');
           continue;
         }
+        // A row-backed sheet awaits TWO repository reads before it can build,
+        // so it can still be in flight when the first settle returns. Give it
+        // a second window before concluding that nothing opened — the
+        // difference between "slow" and "broken" is the whole point of this
+        // measurement.
+        if (find.byType(BottomSheet).evaluate().isEmpty &&
+            find.byType(Dialog).evaluate().isEmpty &&
+            find.byType(AlertDialog).evaluate().isEmpty) {
+          await settle(tester, budget: const Duration(seconds: 8));
+        }
 
         // A sheet is a modal; the report builder is a pushed PAGE. Both are
         // "something opened on top", so the test is whether the shell is no
