@@ -4928,4 +4928,88 @@ class AppL10nEn extends AppL10n {
   @override
   String get pfNoScopeHint =>
       'If you pick no account or card, the plan counts all spending in the period.';
+
+  @override
+  String ctsFeeAlsoAdded(String amount, String currency) {
+    return 'We found two transactions in the message: we also added the fee/tax of $amount $currency (in a different currency).';
+  }
+
+  @override
+  String ctsForeignCurrencyHint(String amount, String foreign, String home) {
+    return 'A transaction in another currency ($amount $foreign). Enter what it came to in $home so it counts — or leave it and edit it later, once the charged amount arrives.';
+  }
+
+  @override
+  String get pcsIntro =>
+      'This item was edited on another device too. Choose which version to keep.';
+
+  @override
+  String get ctsNeedsCategory => 'Needs a category — pick one below.';
+
+  @override
+  String get ctsAiParsed => 'Read by AI — confirm the amount and the category.';
+
+  @override
+  String get ctsLowConfidence =>
+      'The reading is not fully certain — check the details before confirming.';
+
+  @override
+  String get ctsReviewBeforeConfirm => 'Check the details before confirming.';
+
+  @override
+  String get ctsTitle => 'Review transaction';
+
+  @override
+  String get ctsCategoryLabel => 'Category:';
+
+  @override
+  String get ctsCategoryUpdateFailed => 'The category could not be updated.';
+
+  @override
+  String get ctsConfirmFailed =>
+      'The transaction could not be confirmed. Please try again.';
+
+  @override
+  String get ctsEditDetails => 'Edit details';
+
+  @override
+  String get adTitle => 'Account';
+
+  @override
+  String get adNotFound => 'That account no longer exists';
+
+  @override
+  String get adCards => 'Cards';
+
+  @override
+  String get adNoCards =>
+      'No cards yet — they appear automatically from your messages, or add one yourself.';
+
+  @override
+  String get adRecentTx => 'Recent transactions';
+
+  @override
+  String get pcsLoadFailed =>
+      'The conflicts could not be loaded — please try again.';
+
+  @override
+  String get pcsNoConflicts => 'No conflicts';
+
+  @override
+  String get pcsAllSynced => 'All your planning data is in sync.';
+
+  @override
+  String get pcsTitle => 'Resolve sync conflicts';
+
+  @override
+  String get pcsKeptMine => 'Your version was kept.';
+
+  @override
+  String get pcsKeptTheirs => 'The other device’s version was kept.';
+
+  @override
+  String get pcsKeepMine => 'Keep mine';
+
+  @override
+  String get pcsKeepTheirs => 'The other device’s version';
 }

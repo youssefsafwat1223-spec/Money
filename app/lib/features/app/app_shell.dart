@@ -1038,8 +1038,12 @@ class _AppShellState extends ConsumerState<AppShell> {
           if (result.transactionId != null &&
               result.addTransactionResult.requiresConfirmation) {
             pendingConfirmationId = result.transactionId;
-            pendingSecondaryNotice =
-                feeNoticeFor(result.addTransactionResult.secondary);
+            // Guarded: this runs inside a drain loop that has already awaited,
+            // so the State may be gone by now.
+            if (mounted) {
+              pendingSecondaryNotice =
+                  feeNoticeFor(context, result.addTransactionResult.secondary);
+            }
           }
           pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
             message.sender,

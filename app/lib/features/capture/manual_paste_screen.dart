@@ -244,13 +244,13 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
         ref.invalidate(dashboardDataProvider);
         await _openReview(
           addResult.transaction!.id,
-          feeNoticeFor(addResult.secondary),
+          feeNoticeFor(context, addResult.secondary),
         );
       case AddTransactionOutcome.duplicate:
         refreshTransactions(ref);
         ref.invalidate(dashboardDataProvider);
         final existing = addResult.transaction;
-        final feeNotice = feeNoticeFor(addResult.secondary);
+        final feeNotice = feeNoticeFor(context, addResult.secondary);
         // Re-pasting may have added a missing fee, or the existing operation may
         // still need review. If it is already confirmed, open its details
         // instead of blocking the user with a dead-end duplicate message.
@@ -321,7 +321,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
       showTopError(context, context.l10n.pasteNothingToOpen);
       return;
     }
-    final feeNotice = feeNoticeFor(result.secondary);
+    final feeNotice = feeNoticeFor(context, result.secondary);
     if (result.outcome == AddTransactionOutcome.added &&
         result.requiresConfirmation) {
       await showConfirmTransactionSheet(hostContext, tx.id,

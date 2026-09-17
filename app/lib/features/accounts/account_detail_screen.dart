@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/utils/l10n_ext.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -39,11 +40,11 @@ class AccountDetailScreen extends ConsumerWidget {
     if (account == null) {
       return Scaffold(
         backgroundColor: c.bg,
-        appBar: const AppHeader(title: 'الحساب'),
+        appBar: AppHeader(title: context.l10n.commonAccountDefinite),
         body: Center(
           child: accountsAsync.isLoading
               ? const CircularProgressIndicator()
-              : Text('الحساب غير موجود', style: AppTypography.body(c.textMain)),
+              : Text(context.l10n.adNotFound, style: AppTypography.body(c.textMain)),
         ),
       );
     }
@@ -63,7 +64,7 @@ class AccountDetailScreen extends ConsumerWidget {
         // depended on how long you had named it.
         titleMaxLines: 2,
         trailing: IconButton(
-          tooltip: 'تعديل',
+          tooltip: context.l10n.cardEdit,
           icon: const Icon(AppLucideIcons.pencil),
           onPressed: () => showAccountForm(context, ref, account: account),
         ),
@@ -76,20 +77,20 @@ class AccountDetailScreen extends ConsumerWidget {
           const SizedBox(height: AppSpacing.s4),
           Row(
             children: [
-              Text('البطاقات', style: AppTypography.sectionTitle(c.textMain)),
+              Text(context.l10n.adCards, style: AppTypography.sectionTitle(c.textMain)),
               const Spacer(),
               TextButton.icon(
                 onPressed: () =>
                     showCardForm(context, ref, accountId: accountId),
                 icon: const Icon(AppLucideIcons.plus, size: 18),
-                label: const Text('إضافة بطاقة'),
+                label: Text(context.l10n.cardAddCard),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.s2),
           if (cards.isEmpty)
             Text(
-                'لا توجد بطاقات بعد — تظهر تلقائيًا من رسائلك أو أضفها يدويًا.',
+                context.l10n.adNoCards,
                 style: AppTypography.caption(c.textLight))
           else
             for (final card in cards) ...[
@@ -97,7 +98,7 @@ class AccountDetailScreen extends ConsumerWidget {
               const SizedBox(height: AppSpacing.s2),
             ],
           const SizedBox(height: AppSpacing.s4),
-          Text('آخر العمليات', style: AppTypography.sectionTitle(c.textMain)),
+          Text(context.l10n.adRecentTx, style: AppTypography.sectionTitle(c.textMain)),
           const SizedBox(height: AppSpacing.s2),
           txAsync.when(
             skipLoadingOnReload: true,
@@ -105,10 +106,10 @@ class AccountDetailScreen extends ConsumerWidget {
                 child: Padding(
                     padding: EdgeInsets.all(AppSpacing.cardPadding),
                     child: CircularProgressIndicator())),
-            error: (e, _) => const Text('حدث خطأ'),
+            error: (e, _) => Text(context.l10n.txnError),
             data: (txns) {
               if (txns.isEmpty) {
-                return Text('لا توجد عمليات بعد',
+                return Text(context.l10n.cdNoTxYet,
                     style: AppTypography.callout(c.textLight));
               }
               return Column(
@@ -176,7 +177,7 @@ class _AccountHeaderCard extends StatelessWidget {
                 color: c.primary.withValues(alpha: 0.12),
                 borderRadius: BorderRadius.circular(AppRadius.pill),
               ),
-              child: Text('افتراضي',
+              child: Text(context.l10n.accDefault,
                   style: AppTypography.caption(c.primary)
                       .copyWith(fontWeight: FontWeight.w700)),
             ),
@@ -239,7 +240,7 @@ class _ManagedCardRow extends ConsumerWidget {
               ),
             ),
             IconButton(
-              tooltip: 'تعديل',
+              tooltip: context.l10n.cardEdit,
               icon: Icon(AppLucideIcons.pencil, color: c.textLight, size: 20),
               onPressed: () =>
                   showCardForm(context, ref, accountId: accountId, card: card),

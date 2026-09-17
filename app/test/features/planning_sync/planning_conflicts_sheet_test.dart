@@ -5,6 +5,7 @@ import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/sync/conflict_policy.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/features/planning_sync/planning_conflicts_sheet.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _FakeResolver implements UniversalConflictResolver {
   final keepLocal = <String>[];
@@ -36,8 +37,12 @@ void main() {
         conflictsProvider.overrideWith((ref) async => [conflict]),
         conflictResolverProvider.overrideWithValue(fake),
       ],
-      child: const MaterialApp(
-        home: Scaffold(body: PlanningConflictsSheet()),
+      child: MaterialApp(
+        // The sheet reads its copy from the ARB now.
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('ar'),
+        home: const Scaffold(body: PlanningConflictsSheet()),
       ),
     ));
     await tester.pumpAndSettle();

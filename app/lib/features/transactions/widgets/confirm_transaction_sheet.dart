@@ -9,6 +9,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/utils/currency.dart';
+import '../../../core/utils/l10n_ext.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/finance/money_input.dart';
@@ -42,14 +43,14 @@ Future<void> showConfirmTransactionSheet(
 
 /// Builds the "we also found a fee/tax in another currency" note for a capture
 /// result, or null when the SMS held a single operation.
-String? feeNoticeFor(AddTransactionResult? secondary) {
+String? feeNoticeFor(BuildContext context, AddTransactionResult? secondary) {
   if (secondary?.outcome != AddTransactionOutcome.added ||
       secondary?.transaction == null) {
     return null;
   }
   final fee = secondary!.transaction!;
-  return 'وجدنا عمليتين في الرسالة: أضفنا أيضًا الرسوم/الضريبة '
-      '${fee.amount.toStringAsFixed(2)} ${fee.currency} (بعملة مختلفة).';
+  return context.l10n.ctsFeeAlsoAdded(
+      fee.amount.toStringAsFixed(2), fee.currency);
 }
 
 class _ConfirmSheet extends ConsumerStatefulWidget {
@@ -100,15 +101,15 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
   /// decision transparent (most actionable reason first).
   String _pendingReason(TransactionEntity tx, String? categoryKey) {
     if (categoryKey == null) {
-      return 'محتاجة تصنيف — اختَر التصنيف المناسب بالأسفل.';
+      return context.l10n.ctsNeedsCategory;
     }
     if (tx.source == TransactionSourceEntity.aiParsed) {
-      return 'حلّلها الذكاء الاصطناعي — أكّد المبلغ والتصنيف.';
+      return context.l10n.ctsAiParsed;
     }
     if (tx.parseConfidence < 0.92) {
-      return 'القراءة غير مؤكدة تمامًا — راجع التفاصيل قبل التأكيد.';
+      return context.l10n.ctsLowConfidence;
     }
-    return 'راجِع التفاصيل قبل التأكيد.';
+    return context.l10n.ctsReviewBeforeConfirm;
   }
 
   @override
@@ -128,7 +129,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
         _selectedCategoryKey ?? catalog.byId(tx.categoryId)?.key;
 
     return AppSheetScaffold(
-      title: 'مراجعة العملية',
+      title: context.l10n.ctsTitle,
       scrollable: true,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       body: Column(
@@ -154,7 +155,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
               children: [
                 Icon(AppLucideIcons.sparkles, size: 14, color: c.accent),
                 const SizedBox(width: 6),
-                Text('قيد المراجعة',
+                Text(context.l10n.txnPendingReview,
                     style: AppTypography.caption(c.accent)
                         .copyWith(fontWeight: FontWeight.w700)),
               ],
@@ -209,8 +210,10 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'عملية بعملة مختلفة (${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency}). '
-                    'اكتب قيمتها بـ ${Currency.label(context, tx.currency)} لتُحتسب — أو اتركها وعدّلها لاحقًا عند وصول المبلغ المخصوم.',
+                    context.l10n.ctsForeignCurrencyHint(
+                        Formatters.amount(tx.foreignAmount!),
+                        tx.foreignCurrency ?? '',
+                        Currency.label(context, tx.currency)),
                     style: AppTypography.caption(c.textMain),
                   ),
                   const SizedBox(height: AppSpacing.s2),
@@ -220,7 +223,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                         const TextInputType.numberWithOptions(decimal: true),
                     decoration: InputDecoration(
                       labelText:
-                          'القيمة بـ ${Currency.label(context, tx.currency)}',
+                          context.l10n.txdValueIn(Currency.label(context, tx.currency)),
                       filled: true,
                       fillColor: c.surface2.withValues(alpha: 0.5),
                       border: OutlineInputBorder(
@@ -243,7 +246,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
           // Inline Category Quick-Pick
           Align(
             alignment: AlignmentDirectional.centerStart,
-            child: Text('التصنيف:', style: AppTypography.caption(c.textLight)),
+            child: Text(context.l10n.ctsCategoryLabel, style: AppTypography.caption(c.textLight)),
           ),
           const SizedBox(height: AppSpacing.s2),
           SizedBox(
@@ -281,7 +284,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                           if (!context.mounted) return;
                           final message = e is RepoException
                               ? repoExceptionMessage(e)
-                              : 'تعذر تحديث التصنيف.';
+                              : context.l10n.ctsCategoryUpdateFailed;
                           AppToast.show(context, message);
                         });
                       },
@@ -317,7 +320,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                       height: 16,
                       color: c.border,
                       margin: const EdgeInsets.symmetric(horizontal: 8)),
-                  Text('بطاقة ${tx.cardLast4}',
+                  Text(context.l10n.pfCardNamed(tx.cardLast4 ?? ''),
                       style: AppTypography.caption(c.textLight)),
                 ],
               ],
@@ -336,7 +339,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                       value: value,
                       isExpanded: true,
                       decoration: InputDecoration(
-                        labelText: 'الحساب',
+                        labelText: context.l10n.commonAccountDefinite,
                         prefixIcon: const Icon(AppLucideIcons.walletCards),
                         filled: true,
                         fillColor: c.surface2.withValues(alpha: 0.5),
@@ -385,7 +388,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
           const SizedBox(height: AppSpacing.s5),
 
           AppButton(
-            label: 'تأكيد العملية',
+            label: context.l10n.txdConfirmTx,
             loading: _confirming,
             onPressed: _confirming
                 ? null
@@ -428,7 +431,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                     } catch (_) {
                       if (!context.mounted) return;
                       AppToast.show(
-                          context, 'تعذّر تأكيد العملية. حاول مرة أخرى.');
+                          context, context.l10n.ctsConfirmFailed);
                     } finally {
                       if (mounted) setState(() => _confirming = false);
                     }
@@ -437,7 +440,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
           ),
           const SizedBox(height: AppSpacing.s2),
           AppButton(
-            label: 'تعديل التفاصيل',
+            label: context.l10n.ctsEditDetails,
             onPressed: () async {
               await ManualTransactionSheet.show(
                 context,

@@ -4939,4 +4939,87 @@ class AppL10nAr extends AppL10n {
   @override
   String get pfNoScopeHint =>
       'إذا لم تختر حسابًا أو بطاقة، ستحسب الخطة كل المصاريف في الفترة.';
+
+  @override
+  String ctsFeeAlsoAdded(String amount, String currency) {
+    return 'وجدنا عمليتين في الرسالة: أضفنا أيضًا الرسوم/الضريبة $amount $currency (بعملة مختلفة).';
+  }
+
+  @override
+  String ctsForeignCurrencyHint(String amount, String foreign, String home) {
+    return 'عملية بعملة مختلفة ($amount $foreign). اكتب قيمتها بـ $home لتُحتسب — أو اتركها وعدّلها لاحقًا عند وصول المبلغ المخصوم.';
+  }
+
+  @override
+  String get pcsIntro =>
+      'عُدِّل هذا العنصر على جهاز آخر أيضًا. اختر النسخة التي تريد الاحتفاظ بها.';
+
+  @override
+  String get ctsNeedsCategory =>
+      'محتاجة تصنيف — اختَر التصنيف المناسب بالأسفل.';
+
+  @override
+  String get ctsAiParsed => 'حلّلها الذكاء الاصطناعي — أكّد المبلغ والتصنيف.';
+
+  @override
+  String get ctsLowConfidence =>
+      'القراءة غير مؤكدة تمامًا — راجع التفاصيل قبل التأكيد.';
+
+  @override
+  String get ctsReviewBeforeConfirm => 'راجِع التفاصيل قبل التأكيد.';
+
+  @override
+  String get ctsTitle => 'مراجعة العملية';
+
+  @override
+  String get ctsCategoryLabel => 'التصنيف:';
+
+  @override
+  String get ctsCategoryUpdateFailed => 'تعذر تحديث التصنيف.';
+
+  @override
+  String get ctsConfirmFailed => 'تعذّر تأكيد العملية. حاول مرة أخرى.';
+
+  @override
+  String get ctsEditDetails => 'تعديل التفاصيل';
+
+  @override
+  String get adTitle => 'الحساب';
+
+  @override
+  String get adNotFound => 'الحساب غير موجود';
+
+  @override
+  String get adCards => 'البطاقات';
+
+  @override
+  String get adNoCards =>
+      'لا توجد بطاقات بعد — تظهر تلقائيًا من رسائلك أو أضفها يدويًا.';
+
+  @override
+  String get adRecentTx => 'آخر العمليات';
+
+  @override
+  String get pcsLoadFailed => 'تعذّر تحميل التعارضات — حاول مجددًا.';
+
+  @override
+  String get pcsNoConflicts => 'لا توجد تعارضات';
+
+  @override
+  String get pcsAllSynced => 'كل بيانات التخطيط متزامنة.';
+
+  @override
+  String get pcsTitle => 'حل تعارضات المزامنة';
+
+  @override
+  String get pcsKeptMine => 'تم الاحتفاظ بنسختك.';
+
+  @override
+  String get pcsKeptTheirs => 'تم اعتماد نسخة الجهاز الآخر.';
+
+  @override
+  String get pcsKeepMine => 'احتفظ بنسختي';
+
+  @override
+  String get pcsKeepTheirs => 'نسخة الجهاز الآخر';
 }

@@ -8352,6 +8352,156 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'إذا لم تختر حسابًا أو بطاقة، ستحسب الخطة كل المصاريف في الفترة.'**
   String get pfNoScopeHint;
+
+  /// No description provided for @ctsFeeAlsoAdded.
+  ///
+  /// In ar, this message translates to:
+  /// **'وجدنا عمليتين في الرسالة: أضفنا أيضًا الرسوم/الضريبة {amount} {currency} (بعملة مختلفة).'**
+  String ctsFeeAlsoAdded(String amount, String currency);
+
+  /// No description provided for @ctsForeignCurrencyHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملية بعملة مختلفة ({amount} {foreign}). اكتب قيمتها بـ {home} لتُحتسب — أو اتركها وعدّلها لاحقًا عند وصول المبلغ المخصوم.'**
+  String ctsForeignCurrencyHint(String amount, String foreign, String home);
+
+  /// No description provided for @pcsIntro.
+  ///
+  /// In ar, this message translates to:
+  /// **'عُدِّل هذا العنصر على جهاز آخر أيضًا. اختر النسخة التي تريد الاحتفاظ بها.'**
+  String get pcsIntro;
+
+  /// No description provided for @ctsNeedsCategory.
+  ///
+  /// In ar, this message translates to:
+  /// **'محتاجة تصنيف — اختَر التصنيف المناسب بالأسفل.'**
+  String get ctsNeedsCategory;
+
+  /// No description provided for @ctsAiParsed.
+  ///
+  /// In ar, this message translates to:
+  /// **'حلّلها الذكاء الاصطناعي — أكّد المبلغ والتصنيف.'**
+  String get ctsAiParsed;
+
+  /// No description provided for @ctsLowConfidence.
+  ///
+  /// In ar, this message translates to:
+  /// **'القراءة غير مؤكدة تمامًا — راجع التفاصيل قبل التأكيد.'**
+  String get ctsLowConfidence;
+
+  /// No description provided for @ctsReviewBeforeConfirm.
+  ///
+  /// In ar, this message translates to:
+  /// **'راجِع التفاصيل قبل التأكيد.'**
+  String get ctsReviewBeforeConfirm;
+
+  /// No description provided for @ctsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'مراجعة العملية'**
+  String get ctsTitle;
+
+  /// No description provided for @ctsCategoryLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'التصنيف:'**
+  String get ctsCategoryLabel;
+
+  /// No description provided for @ctsCategoryUpdateFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر تحديث التصنيف.'**
+  String get ctsCategoryUpdateFailed;
+
+  /// No description provided for @ctsConfirmFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تأكيد العملية. حاول مرة أخرى.'**
+  String get ctsConfirmFailed;
+
+  /// No description provided for @ctsEditDetails.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل التفاصيل'**
+  String get ctsEditDetails;
+
+  /// No description provided for @adTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحساب'**
+  String get adTitle;
+
+  /// No description provided for @adNotFound.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحساب غير موجود'**
+  String get adNotFound;
+
+  /// No description provided for @adCards.
+  ///
+  /// In ar, this message translates to:
+  /// **'البطاقات'**
+  String get adCards;
+
+  /// No description provided for @adNoCards.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد بطاقات بعد — تظهر تلقائيًا من رسائلك أو أضفها يدويًا.'**
+  String get adNoCards;
+
+  /// No description provided for @adRecentTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر العمليات'**
+  String get adRecentTx;
+
+  /// No description provided for @pcsLoadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تحميل التعارضات — حاول مجددًا.'**
+  String get pcsLoadFailed;
+
+  /// No description provided for @pcsNoConflicts.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد تعارضات'**
+  String get pcsNoConflicts;
+
+  /// No description provided for @pcsAllSynced.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل بيانات التخطيط متزامنة.'**
+  String get pcsAllSynced;
+
+  /// No description provided for @pcsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حل تعارضات المزامنة'**
+  String get pcsTitle;
+
+  /// No description provided for @pcsKeptMine.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم الاحتفاظ بنسختك.'**
+  String get pcsKeptMine;
+
+  /// No description provided for @pcsKeptTheirs.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم اعتماد نسخة الجهاز الآخر.'**
+  String get pcsKeptTheirs;
+
+  /// No description provided for @pcsKeepMine.
+  ///
+  /// In ar, this message translates to:
+  /// **'احتفظ بنسختي'**
+  String get pcsKeepMine;
+
+  /// No description provided for @pcsKeepTheirs.
+  ///
+  /// In ar, this message translates to:
+  /// **'نسخة الجهاز الآخر'**
+  String get pcsKeepTheirs;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

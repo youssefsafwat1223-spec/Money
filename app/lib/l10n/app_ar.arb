@@ -2605,5 +2605,53 @@
   "pfPlanBudget": "ميزانية الخطة",
   "pfAccountsToSpendFrom": "الحسابات التي ستصرف منها",
   "pfCardsOptional": "البطاقات (اختياري)",
-  "pfNoScopeHint": "إذا لم تختر حسابًا أو بطاقة، ستحسب الخطة كل المصاريف في الفترة."
+  "pfNoScopeHint": "إذا لم تختر حسابًا أو بطاقة، ستحسب الخطة كل المصاريف في الفترة.",
+  "ctsFeeAlsoAdded": "وجدنا عمليتين في الرسالة: أضفنا أيضًا الرسوم/الضريبة {amount} {currency} (بعملة مختلفة).",
+  "@ctsFeeAlsoAdded": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "ctsForeignCurrencyHint": "عملية بعملة مختلفة ({amount} {foreign}). اكتب قيمتها بـ {home} لتُحتسب — أو اتركها وعدّلها لاحقًا عند وصول المبلغ المخصوم.",
+  "@ctsForeignCurrencyHint": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "foreign": {
+        "type": "String"
+      },
+      "home": {
+        "type": "String"
+      }
+    }
+  },
+  "pcsIntro": "عُدِّل هذا العنصر على جهاز آخر أيضًا. اختر النسخة التي تريد الاحتفاظ بها.",
+  "ctsNeedsCategory": "محتاجة تصنيف — اختَر التصنيف المناسب بالأسفل.",
+  "ctsAiParsed": "حلّلها الذكاء الاصطناعي — أكّد المبلغ والتصنيف.",
+  "ctsLowConfidence": "القراءة غير مؤكدة تمامًا — راجع التفاصيل قبل التأكيد.",
+  "ctsReviewBeforeConfirm": "راجِع التفاصيل قبل التأكيد.",
+  "ctsTitle": "مراجعة العملية",
+  "ctsCategoryLabel": "التصنيف:",
+  "ctsCategoryUpdateFailed": "تعذر تحديث التصنيف.",
+  "ctsConfirmFailed": "تعذّر تأكيد العملية. حاول مرة أخرى.",
+  "ctsEditDetails": "تعديل التفاصيل",
+  "adTitle": "الحساب",
+  "adNotFound": "الحساب غير موجود",
+  "adCards": "البطاقات",
+  "adNoCards": "لا توجد بطاقات بعد — تظهر تلقائيًا من رسائلك أو أضفها يدويًا.",
+  "adRecentTx": "آخر العمليات",
+  "pcsLoadFailed": "تعذّر تحميل التعارضات — حاول مجددًا.",
+  "pcsNoConflicts": "لا توجد تعارضات",
+  "pcsAllSynced": "كل بيانات التخطيط متزامنة.",
+  "pcsTitle": "حل تعارضات المزامنة",
+  "pcsKeptMine": "تم الاحتفاظ بنسختك.",
+  "pcsKeptTheirs": "تم اعتماد نسخة الجهاز الآخر.",
+  "pcsKeepMine": "احتفظ بنسختي",
+  "pcsKeepTheirs": "نسخة الجهاز الآخر"
 }

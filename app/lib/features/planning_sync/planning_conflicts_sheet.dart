@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/l10n_ext.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/sync/conflict_resolver.dart';
 
@@ -31,18 +32,18 @@ class PlanningConflictsSheet extends ConsumerWidget {
           padding: EdgeInsets.all(32),
           child: Center(child: CircularProgressIndicator()),
         ),
-        error: (_, __) => const Padding(
-          padding: EdgeInsets.all(24),
-          child: Text('تعذّر تحميل التعارضات — حاول مجددًا.'),
+        error: (_, __) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: Text(context.l10n.pcsLoadFailed),
         ),
         data: (conflicts) {
           if (conflicts.isEmpty) {
             return Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Text('لا توجد تعارضات', style: theme.textTheme.titleMedium),
+                Text(context.l10n.pcsNoConflicts, style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
-                const Text('كل بيانات التخطيط متزامنة.'),
+                Text(context.l10n.pcsAllSynced),
               ],
             );
           }
@@ -50,13 +51,12 @@ class PlanningConflictsSheet extends ConsumerWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Text('حل تعارضات المزامنة',
+              Text(context.l10n.pcsTitle,
                   style: theme.textTheme.titleLarge,
                   textAlign: TextAlign.center),
               const SizedBox(height: 4),
               Text(
-                'عُدِّل هذا العنصر على جهاز آخر أيضًا. اختر النسخة التي تريد '
-                'الاحتفاظ بها.',
+                context.l10n.pcsIntro,
                 style: theme.textTheme.bodySmall,
                 textAlign: TextAlign.center,
               ),
@@ -109,8 +109,8 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(keepLocal
-                ? 'تم الاحتفاظ بنسختك.'
-                : 'تم اعتماد نسخة الجهاز الآخر.'),
+                ? context.l10n.pcsKeptMine
+                : context.l10n.pcsKeptTheirs),
           ),
         );
       }
@@ -132,14 +132,14 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
             Expanded(
               child: OutlinedButton(
                 onPressed: _busy ? null : () => _resolve(true),
-                child: const Text('احتفظ بنسختي'),
+                child: Text(context.l10n.pcsKeepMine),
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: OutlinedButton(
                 onPressed: _busy ? null : () => _resolve(false),
-                child: const Text('نسخة الجهاز الآخر'),
+                child: Text(context.l10n.pcsKeepTheirs),
               ),
             ),
           ],
