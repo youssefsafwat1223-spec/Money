@@ -59,6 +59,14 @@ DATA_NOT_COPY = (
     # language IS known at creation time it is now used (see
     # `user_settings_usecases.dart`); these run before it is, or name a row
     # arriving from the server with no name of its own.
+    # NOTE: this file also holds `كل المصروفات`, the ALL-EXPENSES
+    # pseudo-category, and that one is NOT data — it has a fixed id, the user
+    # cannot rename it, and it read Arabic in the English build until
+    # `CategoryView.name` was taught about it. It is excluded here because the
+    # SEED ROW is genuinely data; the LABEL is resolved in
+    # `category_catalog.dart` and guarded by
+    # `category_catalog_language_test`. A file-level exclusion cannot make
+    # that distinction, which is exactly how the defect hid.
     'lib/data/db/database_seed.dart',
     'lib/data/repositories/drift_bill_repository.dart',
     'lib/data/repositories/drift_smart_inbox_repository.dart',

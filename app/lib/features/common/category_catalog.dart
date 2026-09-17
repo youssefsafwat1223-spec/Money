@@ -9,6 +9,7 @@ import '../../core/utils/lucide_icon_map.dart';
 import '../../core/i18n/locale_provider.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../engine/categorization/category.dart';
+import '../../domain/entities/budget_entity.dart';
 
 /// نموذج عرض تصنيف (جاهز للواجهة: أيقونة + لون).
 class CategoryView {
@@ -35,6 +36,17 @@ class CategoryView {
   /// category has exactly one name, the one they typed, and keeps it.
   String get name {
     if (languageCode != 'en') return entity.nameAr;
+    // `all_expenses` is a SYSTEM pseudo-category with a fixed id
+    // (`__all_expenses__`), seeded ahead of the real ones and deliberately
+    // absent from `Categories.all` so it never appears in a category picker.
+    // That absence made it fall through to `nameAr`, so a whole-ledger budget
+    // was labelled «كل المصروفات» in the English build — and unlike a
+    // user-created category, this one cannot be renamed, so it is copy, not
+    // data. `report_composer.dart` already special-cased it for the PDF; the
+    // UI did not.
+    if (entity.key == BudgetEntity.allExpensesCategoryKey) {
+      return 'All expenses';
+    }
     final known = Categories.all.where((c) => c.key == entity.key);
     return known.isEmpty ? entity.nameAr : known.first.enName;
   }
