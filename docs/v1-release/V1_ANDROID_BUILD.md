@@ -77,6 +77,37 @@ Recorded because it is the only compile error the Android target has produced.
 | SMS capture on Android | **NOT APPLICABLE TO THIS BUILD** — the capture path is the iOS Shortcuts automation; the Android equivalent is a separate feature |
 | Google Play submission | **DEFERRED** by standing instruction |
 
+## The smoke test, and exactly why it did not run
+
+Five attempts. The blocker is an Android SDK state problem on this machine, not
+the project:
+
+```
+$ sdkmanager --list_installed | grep system-image
+  system-images;android-35;google_apis;arm64-v8a | 9 | Google APIs ARM 64 v8a System Image
+
+$ ls ~/Library/Android/sdk/system-images
+ls: No such file or directory
+```
+
+`sdkmanager` records the image as installed, so `--install` is a no-op that
+exits 0 and writes nothing; `--uninstall` did not clear the record either. With
+no system image there is no AVD, and with no AVD there is nothing to install the
+APK onto.
+
+**One-click fix for the owner:** Android Studio → Settings → Languages &
+Frameworks → Android SDK → SDK Tools / System Images, untick and re-tick the
+image so the IDE rewrites the local repository record. Then:
+
+```sh
+avdmanager create avd -n qirsh -k "system-images;android-35;google_apis;arm64-v8a"
+emulator -avd qirsh &
+cd app && flutter run   # or: flutter install --debug
+```
+
+Until that runs, **Android behaviour is unverified**. The build proves the code
+compiles and packages; it says nothing about whether the app works there.
+
 A build is not a smoke test. Nothing here says the app behaves correctly on
 Android; it says the code compiles and packages for it, which was previously
 unknown.
