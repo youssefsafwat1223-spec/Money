@@ -18,6 +18,7 @@ import '../../../engine/parser/capture_money.dart';
 import 'capture_backend_client.dart';
 import 'capture_device_registration_service.dart';
 import 'native_capture_bridge.dart';
+import 'local_notification_service.dart';
 
 class CaptureSyncResult {
   const CaptureSyncResult({
@@ -325,6 +326,7 @@ class CaptureSyncService {
       source: source,
       senderId: senderId,
       receivedAt: receivedAt,
+      lang: LocalNotificationService.instance.notificationLanguage,
     );
     await requireCurrentAdmission?.call();
     await markPayloadImported(

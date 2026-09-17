@@ -17,12 +17,21 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
   /// the same INSERT OR IGNORE and therefore keeps one review card. This is a
   /// local Smart Inbox item (there is no server-authored row to push), while the
   /// raw SMS remains available in [body] for manual recovery.
+  /// [lang] is the reader's language at the moment the message arrived.
+  ///
+  /// `smart_inbox_items.title` normally holds SERVER-authored text, so a
+  /// code-and-render-at-the-UI scheme does not generalize to this column. This
+  /// one title is generated locally, so it is written in the language the user
+  /// is reading in — the same contract the capture notifications use. A later
+  /// language switch leaves existing rows as they were, which is deliberate:
+  /// the row records what the user was actually shown.
   Future<String> saveUnprocessableCapture({
     required String payloadId,
     required String rawMessage,
     required String source,
     String? senderId,
     DateTime? receivedAt,
+    String lang = 'ar',
   }) async {
     final itemId = 'local_capture:$payloadId';
     final now = DateTime.now().toUtc();
@@ -41,7 +50,9 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
         Variable.withString(itemId),
         Variable.withString(itemId),
         Variable.withString(payloadId),
-        Variable.withString('رسالة بنكية غير مدعومة تحتاج مراجعة'),
+        Variable.withString(lang == 'en'
+            ? 'An unsupported bank message that needs review'
+            : 'رسالة بنكية غير مدعومة تحتاج مراجعة'),
         Variable.withString(rawMessage),
         Variable.withString(jsonEncode({
           'capture_disposition': 'unprocessable',
