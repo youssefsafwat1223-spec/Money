@@ -128,7 +128,13 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         } else if (error is AuthConfigurationException) {
           // Permanent for this build — "try again" would be a lie the user
           // could follow forever.
-          AppToast.showError(context, error.message);
+          //
+          // There is exactly one of these — Google sign-in not configured — so
+          // the localized string is named directly. The exception's own message
+          // stays Arabic and log-only, which is where the rest of the auth
+          // service's strings live too: `AuthCancelledException` deliberately
+          // shows nothing, and every other failure uses `authSignInError`.
+          AppToast.showError(context, context.l10n.authGoogleUnavailable);
         } else {
           AppToast.showError(context, context.l10n.authSignInError);
         }

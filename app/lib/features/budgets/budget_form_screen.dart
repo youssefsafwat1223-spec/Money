@@ -22,6 +22,7 @@ import 'budgets_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../common/repo_error_messages.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -416,7 +417,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     } catch (error) {
       if (!mounted) return;
       final message = error is RepoException
-          ? repoExceptionMessage(error)
+          ? repoErrorMessage(context, error)
           : context.l10n.bfSaveFailed;
       AppToast.show(context, message);
     } finally {

@@ -38,6 +38,7 @@ import 'budget_form_screen.dart';
 import 'budgets_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
+import '../common/repo_error_messages.dart';
 
 class BudgetsScreen extends ConsumerWidget {
   const BudgetsScreen({super.key});
@@ -395,7 +396,7 @@ class BudgetsScreen extends ConsumerWidget {
       ref.invalidate(dashboardDataProvider);
     } on RepoException catch (error) {
       if (!context.mounted) return;
-      AppToast.showError(context, repoExceptionMessage(error));
+      AppToast.showError(context, repoErrorMessage(context, error));
     } catch (_) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

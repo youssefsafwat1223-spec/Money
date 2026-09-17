@@ -287,6 +287,137 @@ void main() {
       expect(attributable(observed: o, baseline: b), hasLength(1));
     });
 
+    test('a multi-row background UPDATE is labelled churn, not a finding', () {
+      // Catalog sync re-stamps notification_log_events.synced_at across
+      // whichever rows are due, so the no-tap baseline and the post-tap
+      // observation name the same churn on DIFFERENT ids and row-exact
+      // subtraction can never cancel it. Three innocent controls were charged
+      // with an UNEXPECTED-MUTATION for it.
+      final baseline = {
+        sig('notification_log_events', 'r1', 'updated', ['synced_at']),
+      };
+      final observed = {
+        sig('notification_log_events', 'r2', 'updated', ['synced_at']),
+      };
+      final own = attributable(observed: observed, baseline: baseline);
+      expect(own, hasLength(1), reason: 'subtraction stays row-exact');
+      expect(isBackgroundChurn(own, baseline.map(shapeOf).toSet()), isTrue);
+    });
+
+    test('a CREATED row is never churn, however familiar its shape', () {
+      // The dangerous direction: if shape alone excused a leftover, a
+      // background writer creating budgets/b1 would excuse a control that
+      // created budgets/b2 — the exact finding the whole isolation exists for.
+      final baseline = {sig('budgets', 'b1', 'created', const [])};
+      final observed = {sig('budgets', 'b2', 'created', const [])};
+      final own = attributable(observed: observed, baseline: baseline);
+      expect(own, hasLength(1));
+      expect(isBackgroundChurn(own, baseline.map(shapeOf).toSet()), isFalse,
+          reason: 'row creation is structural; shape must not wave it through');
+    });
+
+    test('a DELETED row is never churn either', () {
+      final baseline = {sig('goals', 'g1', 'deleted', const [])};
+      final observed = {sig('goals', 'g2', 'deleted', const [])};
+      final own = attributable(observed: observed, baseline: baseline);
+      expect(isBackgroundChurn(own, baseline.map(shapeOf).toSet()), isFalse);
+    });
+
+    test('an UPDATE with a different field set is not churn', () {
+      // Same table, same kind, different columns: a settings rewrite that
+      // happens to share a table with bookkeeping keeps its own shape.
+      final baseline = {sig('user_settings', 'u1', 'updated', ['synced_at'])};
+      final observed = {
+        sig('user_settings', 'u2', 'updated', ['privacy_mode_enabled']),
+      };
+      final own = attributable(observed: observed, baseline: baseline);
+      expect(isBackgroundChurn(own, baseline.map(shapeOf).toSet()), isFalse);
+    });
+
+    test('a mixed leftover is not churn — one real write taints the set', () {
+      final baseline = {
+        sig('notification_log_events', 'r1', 'updated', ['synced_at']),
+      };
+      final observed = {
+        sig('notification_log_events', 'r2', 'updated', ['synced_at']),
+        sig('budgets', 'b9', 'created', const []),
+      };
+      final own = attributable(observed: observed, baseline: baseline);
+      expect(isBackgroundChurn(own, baseline.map(shapeOf).toSet()), isFalse,
+          reason: 'every() — a single real write must keep the finding');
+    });
+
+    test('a bookkeeping-only UPDATE on a background-written table is churn',
+        () {
+      // The shape rule alone depends on the writer firing inside a 12-second
+      // no-tap window. On the run that exposed this it did not, and four
+      // controls were charged with `synced_at` churn they did not cause.
+      final own = {sig('notification_log_events', 'r9', 'updated', ['synced_at'])};
+      expect(isBackgroundChurn(own, const {}), isFalse,
+          reason: 'no shape evidence, and no table declared');
+      expect(
+          isBackgroundChurn(own, const {},
+              backgroundWrittenTables: {'notification_log_events'}),
+          isTrue);
+    });
+
+    test('a MEANINGFUL column on a background-written table is not churn', () {
+      // The table being background-written does not make everything in it
+      // noise. Only the closed bookkeeping set qualifies.
+      final own = {
+        sig('notification_log_events', 'r9', 'updated', ['read_at']),
+      };
+      expect(
+          isBackgroundChurn(own, const {},
+              backgroundWrittenTables: {'notification_log_events'}),
+          isFalse);
+    });
+
+    test('bookkeeping mixed with a meaningful column is not churn', () {
+      final own = {
+        sig('notification_log_events', 'r9', 'updated',
+            ['synced_at', 'read_at']),
+      };
+      expect(
+          isBackgroundChurn(own, const {},
+              backgroundWrittenTables: {'notification_log_events'}),
+          isFalse,
+          reason: 'every() over fields — one meaningful column keeps it');
+    });
+
+    test('a CREATE on a background-written table is still a finding', () {
+      final own = {sig('notification_log_events', 'r9', 'created', const [])};
+      expect(
+          isBackgroundChurn(own, const {},
+              backgroundWrittenTables: {'notification_log_events'}),
+          isFalse,
+          reason: 'rows appearing are structural, never waved through');
+    });
+
+    test('bookkeeping columns on an UNDECLARED table are not churn', () {
+      final own = {sig('budgets', 'b1', 'updated', ['synced_at'])};
+      expect(isBackgroundChurn(own, const {}), isFalse);
+      expect(
+          isBackgroundChurn(own, const {},
+              backgroundWrittenTables: {'notification_log_events'}),
+          isFalse,
+          reason: 'the table must be declared, not merely have the column');
+    });
+
+    test('an UPDATE with no named fields is not churn', () {
+      // fields.isEmpty would make `every` vacuously true and wave through a
+      // change whose columns were never identified.
+      final own = {sig('notification_log_events', 'r9', 'updated', const [])};
+      expect(
+          isBackgroundChurn(own, const {},
+              backgroundWrittenTables: {'notification_log_events'}),
+          isFalse);
+    });
+
+    test('an empty leftover is not churn', () {
+      expect(isBackgroundChurn(const {}, {'x/updated/y'}), isFalse);
+    });
+
     test('different mutation shape stays attributable', () {
       final b = {sig('budgets', 'b1', 'created', const [])};
       final o = {sig('budgets', 'b1', 'deleted', const [])};

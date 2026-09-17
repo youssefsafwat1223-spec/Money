@@ -29,6 +29,7 @@ import 'card_theme.dart';
 import 'cards_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../common/repo_error_messages.dart';
 
 /// مفتاح مطابقة بطاقة مُدارة (CardEntity) بصفّ معروض: (الحساب، آخر 4 أرقام).
 String _cardKey(String? accountId, String last4) => '${accountId ?? ''}|$last4';
@@ -551,7 +552,7 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                                         } on RepoException catch (e) {
                                           if (!context.mounted) return;
                                           AppToast.show(
-                                              context, repoExceptionMessage(e));
+                                              context, repoErrorMessage(context, e));
                                           return;
                                         }
                                         ref.invalidate(cardSummariesProvider);

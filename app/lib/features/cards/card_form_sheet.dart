@@ -16,6 +16,8 @@ import 'card_network_badge.dart';
 import 'card_theme.dart';
 import 'cards_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../common/repo_error_messages.dart';
+import 'card_theme_labels.dart';
 
 /// شيت إضافة/تعديل بطاقة. [accountId] اختياري: مرَّره لربط مبدئي بحساب، أو
 /// اتركه null للإضافة من صفحة البطاقات (يختار المستخدم الحساب أو «بدون»).
@@ -144,7 +146,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
         context,
         e is ValidationRepoException && e.message == 'duplicate_card'
             ? context.l10n.cfDuplicateCard
-            : repoExceptionMessage(e),
+            : repoErrorMessage(context, e),
       );
     } catch (_) {
       if (!mounted) return;
@@ -358,7 +360,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
             end: Alignment.bottomRight,
             colors: theme.colors,
           ),
-          label: theme.label,
+          label: cardThemeLabel(context, theme.key, theme.label),
           onTap: () => setState(() => _colorTheme = theme.key),
         ),
     ];

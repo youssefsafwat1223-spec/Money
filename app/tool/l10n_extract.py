@@ -66,6 +66,13 @@ ALREADY_BILINGUAL = (
     'lib/core/data_portability/drift_financial_exporter.dart',
     'lib/core/data_portability/drift_financial_importer.dart',
     'lib/core/data_portability/qirsh_package_codec.dart',
+    # The Arabic here never reaches a user: `AuthCancelledException` shows
+    # nothing by design, the one configuration failure is rendered from the ARB
+    # at the display site, and everything else surfaces as `authSignInError`.
+    # These strings are log lines.
+    'lib/core/auth/supabase_auth_service.dart',
+    # SMS keyword matching, same class as the parser engine.
+    'lib/features/capture/manual_paste_splitter.dart',
 )
 LITERAL = re.compile(r"'([^'\\\n]{2,200})'")
 INTERP = re.compile(r'\$\{?\w')

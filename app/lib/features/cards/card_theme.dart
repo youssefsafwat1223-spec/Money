@@ -8,6 +8,10 @@ class CardThemeOption {
   const CardThemeOption(this.key, this.label, this.colors);
 
   final String key;
+
+  /// The Arabic name, kept so the catalog stays `const` and so anything
+  /// without a BuildContext still has something to show. The UI renders
+  /// `cardThemeLabel(context, key)` instead.
   final String label;
   final List<Color> colors; // [البداية، النهاية]
 }

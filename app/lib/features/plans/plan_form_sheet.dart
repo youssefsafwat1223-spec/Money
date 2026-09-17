@@ -19,6 +19,7 @@ import '../common/app_sheet_scaffold.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'plans_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../common/repo_error_messages.dart';
 
 /// Create or edit a plan/envelope (travel, wedding, Ramadan…).
 class PlanFormSheet extends ConsumerStatefulWidget {
@@ -134,7 +135,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
     } catch (error) {
       if (!mounted) return;
       final message = error is RepoException
-          ? repoExceptionMessage(error)
+          ? repoErrorMessage(context, error)
           : context.l10n.bfSaveFailed;
       AppToast.show(context, message);
     } finally {

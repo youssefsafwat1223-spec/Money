@@ -5263,4 +5263,72 @@ class AppL10nEn extends AppL10n {
   @override
   String get dpePackageTooManyRows =>
       'The package exceeds 100,000 rows in total.';
+
+  @override
+  String get repoErrNetwork =>
+      'Could not reach the server — check your connection and try again.';
+
+  @override
+  String get repoErrAuth => 'Please sign in to continue.';
+
+  @override
+  String repoErrValidation(String detail) {
+    return 'Invalid data: $detail';
+  }
+
+  @override
+  String get repoErrForbidden => 'You do not have permission to do that.';
+
+  @override
+  String get repoErrDuplicate => 'That item already exists.';
+
+  @override
+  String get repoErrNotFound => 'That item no longer exists, or was deleted.';
+
+  @override
+  String get repoErrServer =>
+      'The server had a problem — please try again later.';
+
+  @override
+  String get repoErrUnknown =>
+      'Something unexpected went wrong — please try again.';
+
+  @override
+  String get cardThemeNavy => 'Navy';
+
+  @override
+  String get cardThemeEmerald => 'Emerald';
+
+  @override
+  String get cardThemePlum => 'Plum';
+
+  @override
+  String get cardThemeSunset => 'Sunset';
+
+  @override
+  String get cardThemeGraphite => 'Graphite';
+
+  @override
+  String get cardThemeOcean => 'Ocean';
+
+  @override
+  String get authGoogleUnavailable =>
+      'Google sign-in is not available in this build. Use another method.';
+
+  @override
+  String get authGoogleCancelled => 'Google sign-in was cancelled.';
+
+  @override
+  String get authGoogleTokenUnreadable =>
+      'We could not read the Google sign-in token.';
+
+  @override
+  String get authAppleCancelled => 'Apple sign-in was cancelled.';
+
+  @override
+  String get authAppleFailed => 'Apple sign-in failed.';
+
+  @override
+  String get authAppleTokenUnreadable =>
+      'We could not read the Apple sign-in token.';
 }

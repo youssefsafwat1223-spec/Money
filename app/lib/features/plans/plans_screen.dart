@@ -26,6 +26,7 @@ import '../transactions/transaction_details_screen.dart';
 import 'plan_form_sheet.dart';
 import 'plans_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
+import '../common/repo_error_messages.dart';
 
 class PlansScreen extends ConsumerWidget {
   const PlansScreen({super.key});
@@ -338,7 +339,7 @@ class _PlanCard extends ConsumerWidget {
     } on RepoException catch (error) {
       if (!context.mounted) return;
       Navigator.of(context).pop();
-      AppToast.showError(context, repoExceptionMessage(error));
+      AppToast.showError(context, repoErrorMessage(context, error));
     } catch (_) {
       if (!context.mounted) return;
       Navigator.of(context).pop();

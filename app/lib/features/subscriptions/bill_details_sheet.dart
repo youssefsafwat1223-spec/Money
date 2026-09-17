@@ -29,6 +29,7 @@ import 'bill_payment_attempt.dart';
 import 'subscriptions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../common/repo_error_messages.dart';
 
 class BillDetailsSheet extends ConsumerWidget {
   const BillDetailsSheet({super.key, required this.bill});
@@ -474,7 +475,7 @@ class BillDetailsSheet extends ConsumerWidget {
                             busy = false;
                             errorMessage = !attempt.hasTransaction
                                 ? error is RepoException
-                                    ? repoExceptionMessage(error)
+                                    ? repoErrorMessage(context, error)
                                     : context.l10n.bdsRecordFailed
                                 : context.l10n.bdsSavedButNotLinked;
                           });
@@ -533,7 +534,7 @@ class BillDetailsSheet extends ConsumerWidget {
       await ref.read(billRepositoryProvider).delete(bill.id);
     } on RepoException catch (error) {
       if (!context.mounted) return;
-      AppToast.showError(context, repoExceptionMessage(error));
+      AppToast.showError(context, repoErrorMessage(context, error));
       return;
     } catch (_) {
       if (!context.mounted) return;
@@ -616,7 +617,7 @@ class _BillPaymentRow extends ConsumerWidget {
       });
     } on RepoException catch (error) {
       if (!context.mounted) return;
-      AppToast.showError(context, repoExceptionMessage(error));
+      AppToast.showError(context, repoErrorMessage(context, error));
       return;
     } catch (_) {
       if (!context.mounted) return;

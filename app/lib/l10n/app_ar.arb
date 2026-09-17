@@ -2825,5 +2825,32 @@
       }
     }
   },
-  "dpePackageTooManyRows": "الحزمة تتجاوز 100,000 صف إجمالي."
+  "dpePackageTooManyRows": "الحزمة تتجاوز 100,000 صف إجمالي.",
+  "repoErrNetwork": "تعذّر الاتصال بالخادم — تحقّق من الإنترنت وحاول مجددًا.",
+  "repoErrAuth": "الرجاء تسجيل الدخول للمتابعة.",
+  "repoErrValidation": "بيانات غير صالحة: {detail}",
+  "repoErrForbidden": "لا تملك صلاحية تنفيذ هذه العملية.",
+  "repoErrDuplicate": "هذا العنصر موجود بالفعل.",
+  "repoErrNotFound": "العنصر غير موجود أو تم حذفه.",
+  "repoErrServer": "حدث خطأ في الخادم — حاول لاحقًا.",
+  "repoErrUnknown": "حدث خطأ غير متوقع — حاول مجددًا.",
+  "@repoErrValidation": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "cardThemeNavy": "كحلي",
+  "cardThemeEmerald": "زمرّدي",
+  "cardThemePlum": "برقوقي",
+  "cardThemeSunset": "غروب",
+  "cardThemeGraphite": "جرافيت",
+  "cardThemeOcean": "محيط",
+  "authGoogleUnavailable": "تسجيل الدخول بجوجل غير متاح في هذه النسخة. استخدم طريقة أخرى.",
+  "authGoogleCancelled": "تم إلغاء تسجيل الدخول بجوجل.",
+  "authGoogleTokenUnreadable": "لم نستطع قراءة رمز دخول جوجل.",
+  "authAppleCancelled": "تم إلغاء تسجيل الدخول بـ Apple.",
+  "authAppleFailed": "تعذّر تسجيل الدخول بـ Apple.",
+  "authAppleTokenUnreadable": "لم نستطع قراءة رمز دخول Apple."
 }

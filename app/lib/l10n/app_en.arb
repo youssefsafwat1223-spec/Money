@@ -2709,5 +2709,32 @@
       }
     }
   },
-  "dpePackageTooManyRows": "The package exceeds 100,000 rows in total."
+  "dpePackageTooManyRows": "The package exceeds 100,000 rows in total.",
+  "repoErrNetwork": "Could not reach the server — check your connection and try again.",
+  "repoErrAuth": "Please sign in to continue.",
+  "repoErrValidation": "Invalid data: {detail}",
+  "repoErrForbidden": "You do not have permission to do that.",
+  "repoErrDuplicate": "That item already exists.",
+  "repoErrNotFound": "That item no longer exists, or was deleted.",
+  "repoErrServer": "The server had a problem — please try again later.",
+  "repoErrUnknown": "Something unexpected went wrong — please try again.",
+  "@repoErrValidation": {
+    "placeholders": {
+      "detail": {
+        "type": "String"
+      }
+    }
+  },
+  "cardThemeNavy": "Navy",
+  "cardThemeEmerald": "Emerald",
+  "cardThemePlum": "Plum",
+  "cardThemeSunset": "Sunset",
+  "cardThemeGraphite": "Graphite",
+  "cardThemeOcean": "Ocean",
+  "authGoogleUnavailable": "Google sign-in is not available in this build. Use another method.",
+  "authGoogleCancelled": "Google sign-in was cancelled.",
+  "authGoogleTokenUnreadable": "We could not read the Google sign-in token.",
+  "authAppleCancelled": "Apple sign-in was cancelled.",
+  "authAppleFailed": "Apple sign-in failed.",
+  "authAppleTokenUnreadable": "We could not read the Apple sign-in token."
 }

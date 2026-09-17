@@ -5271,4 +5271,68 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get dpePackageTooManyRows => 'الحزمة تتجاوز 100,000 صف إجمالي.';
+
+  @override
+  String get repoErrNetwork =>
+      'تعذّر الاتصال بالخادم — تحقّق من الإنترنت وحاول مجددًا.';
+
+  @override
+  String get repoErrAuth => 'الرجاء تسجيل الدخول للمتابعة.';
+
+  @override
+  String repoErrValidation(String detail) {
+    return 'بيانات غير صالحة: $detail';
+  }
+
+  @override
+  String get repoErrForbidden => 'لا تملك صلاحية تنفيذ هذه العملية.';
+
+  @override
+  String get repoErrDuplicate => 'هذا العنصر موجود بالفعل.';
+
+  @override
+  String get repoErrNotFound => 'العنصر غير موجود أو تم حذفه.';
+
+  @override
+  String get repoErrServer => 'حدث خطأ في الخادم — حاول لاحقًا.';
+
+  @override
+  String get repoErrUnknown => 'حدث خطأ غير متوقع — حاول مجددًا.';
+
+  @override
+  String get cardThemeNavy => 'كحلي';
+
+  @override
+  String get cardThemeEmerald => 'زمرّدي';
+
+  @override
+  String get cardThemePlum => 'برقوقي';
+
+  @override
+  String get cardThemeSunset => 'غروب';
+
+  @override
+  String get cardThemeGraphite => 'جرافيت';
+
+  @override
+  String get cardThemeOcean => 'محيط';
+
+  @override
+  String get authGoogleUnavailable =>
+      'تسجيل الدخول بجوجل غير متاح في هذه النسخة. استخدم طريقة أخرى.';
+
+  @override
+  String get authGoogleCancelled => 'تم إلغاء تسجيل الدخول بجوجل.';
+
+  @override
+  String get authGoogleTokenUnreadable => 'لم نستطع قراءة رمز دخول جوجل.';
+
+  @override
+  String get authAppleCancelled => 'تم إلغاء تسجيل الدخول بـ Apple.';
+
+  @override
+  String get authAppleFailed => 'تعذّر تسجيل الدخول بـ Apple.';
+
+  @override
+  String get authAppleTokenUnreadable => 'لم نستطع قراءة رمز دخول Apple.';
 }

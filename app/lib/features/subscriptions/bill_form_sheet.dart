@@ -22,6 +22,7 @@ import 'subscriptions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
+import '../common/repo_error_messages.dart';
 
 class BillFormSheet extends ConsumerStatefulWidget {
   const BillFormSheet({
@@ -370,7 +371,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
       final message = billSaved && needsManualPayment
           ? context.l10n.bfSavedButPaymentFailed
           : e is RepoException
-              ? repoExceptionMessage(e)
+              ? repoErrorMessage(context, e)
               : context.l10n.bfSaveFailed;
       AppToast.show(context, message);
     } finally {

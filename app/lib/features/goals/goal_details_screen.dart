@@ -23,6 +23,7 @@ import 'goal_form_screen.dart';
 import 'goals_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../common/repo_error_messages.dart';
 
 class GoalDetailsScreen extends ConsumerWidget {
   const GoalDetailsScreen({super.key, required this.goalId});
@@ -367,7 +368,7 @@ Future<void> _showAddContributionSheet(
               ref.invalidate(goalDetailsProvider(goalId));
             } on RepoException catch (error) {
               if (!context.mounted) return;
-              AppToast.showError(context, repoExceptionMessage(error));
+              AppToast.showError(context, repoErrorMessage(context, error));
             } catch (_) {
               if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(

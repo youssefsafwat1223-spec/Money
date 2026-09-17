@@ -8904,6 +8904,126 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'الحزمة تتجاوز 100,000 صف إجمالي.'**
   String get dpePackageTooManyRows;
+
+  /// No description provided for @repoErrNetwork.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر الاتصال بالخادم — تحقّق من الإنترنت وحاول مجددًا.'**
+  String get repoErrNetwork;
+
+  /// No description provided for @repoErrAuth.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرجاء تسجيل الدخول للمتابعة.'**
+  String get repoErrAuth;
+
+  /// No description provided for @repoErrValidation.
+  ///
+  /// In ar, this message translates to:
+  /// **'بيانات غير صالحة: {detail}'**
+  String repoErrValidation(String detail);
+
+  /// No description provided for @repoErrForbidden.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا تملك صلاحية تنفيذ هذه العملية.'**
+  String get repoErrForbidden;
+
+  /// No description provided for @repoErrDuplicate.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذا العنصر موجود بالفعل.'**
+  String get repoErrDuplicate;
+
+  /// No description provided for @repoErrNotFound.
+  ///
+  /// In ar, this message translates to:
+  /// **'العنصر غير موجود أو تم حذفه.'**
+  String get repoErrNotFound;
+
+  /// No description provided for @repoErrServer.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدث خطأ في الخادم — حاول لاحقًا.'**
+  String get repoErrServer;
+
+  /// No description provided for @repoErrUnknown.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدث خطأ غير متوقع — حاول مجددًا.'**
+  String get repoErrUnknown;
+
+  /// No description provided for @cardThemeNavy.
+  ///
+  /// In ar, this message translates to:
+  /// **'كحلي'**
+  String get cardThemeNavy;
+
+  /// No description provided for @cardThemeEmerald.
+  ///
+  /// In ar, this message translates to:
+  /// **'زمرّدي'**
+  String get cardThemeEmerald;
+
+  /// No description provided for @cardThemePlum.
+  ///
+  /// In ar, this message translates to:
+  /// **'برقوقي'**
+  String get cardThemePlum;
+
+  /// No description provided for @cardThemeSunset.
+  ///
+  /// In ar, this message translates to:
+  /// **'غروب'**
+  String get cardThemeSunset;
+
+  /// No description provided for @cardThemeGraphite.
+  ///
+  /// In ar, this message translates to:
+  /// **'جرافيت'**
+  String get cardThemeGraphite;
+
+  /// No description provided for @cardThemeOcean.
+  ///
+  /// In ar, this message translates to:
+  /// **'محيط'**
+  String get cardThemeOcean;
+
+  /// No description provided for @authGoogleUnavailable.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الدخول بجوجل غير متاح في هذه النسخة. استخدم طريقة أخرى.'**
+  String get authGoogleUnavailable;
+
+  /// No description provided for @authGoogleCancelled.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم إلغاء تسجيل الدخول بجوجل.'**
+  String get authGoogleCancelled;
+
+  /// No description provided for @authGoogleTokenUnreadable.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم نستطع قراءة رمز دخول جوجل.'**
+  String get authGoogleTokenUnreadable;
+
+  /// No description provided for @authAppleCancelled.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم إلغاء تسجيل الدخول بـ Apple.'**
+  String get authAppleCancelled;
+
+  /// No description provided for @authAppleFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تسجيل الدخول بـ Apple.'**
+  String get authAppleFailed;
+
+  /// No description provided for @authAppleTokenUnreadable.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم نستطع قراءة رمز دخول Apple.'**
+  String get authAppleTokenUnreadable;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

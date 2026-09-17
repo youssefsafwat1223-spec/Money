@@ -19,6 +19,7 @@ import '../../domain/usecases/account_deletion.dart';
 import 'account_deletion_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../common/repo_error_messages.dart';
 
 String accountTypeLabel(BuildContext context, AccountType type) =>
     switch (type) {
@@ -307,7 +308,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
       saved = true;
     } on RepoException catch (e) {
       if (!mounted) return;
-      AppToast.show(context, repoExceptionMessage(e));
+      AppToast.show(context, repoErrorMessage(context, e));
     } catch (_) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -403,7 +404,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           context,
           e is ValidationRepoException && e.message.contains('last_account')
               ? context.l10n.afCannotDeleteLast
-              : repoExceptionMessage(e),
+              : repoErrorMessage(context, e),
         );
       }
     } catch (_) {

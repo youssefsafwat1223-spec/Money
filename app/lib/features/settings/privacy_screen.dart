@@ -23,6 +23,7 @@ import 'settings_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
+import '../common/repo_error_messages.dart';
 
 class PrivacyScreen extends ConsumerWidget {
   const PrivacyScreen({super.key});
@@ -226,7 +227,7 @@ class PrivacyScreen extends ConsumerWidget {
     } catch (error) {
       if (context.mounted) {
         final message = error is RepoException
-            ? repoExceptionMessage(error)
+            ? repoErrorMessage(context, error)
             : context.l10n.privScheduleFailed;
         AppToast.show(context, message);
       }
@@ -270,7 +271,7 @@ class PrivacyScreen extends ConsumerWidget {
     } catch (error) {
       if (!context.mounted) return;
       final message = error is RepoException
-          ? repoExceptionMessage(error)
+          ? repoErrorMessage(context, error)
           : context.l10n.privCancelFailed;
       AppToast.show(context, message);
     }

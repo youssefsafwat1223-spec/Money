@@ -18,6 +18,7 @@ import '../capture/services/local_notification_service.dart';
 import 'onboarding_options.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/app_colors.dart';
+import '../common/repo_error_messages.dart';
 
 /// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
 /// `color: "#021B79"`) and the rest of the pre-dashboard onboarding sequence.
@@ -158,7 +159,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     } catch (error) {
       if (!mounted) return;
       final message = error is RepoException
-          ? repoExceptionMessage(error)
+          ? repoErrorMessage(context, error)
           : context.l10n.setupSaveFailed;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()

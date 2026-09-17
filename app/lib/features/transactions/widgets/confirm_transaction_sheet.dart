@@ -23,6 +23,7 @@ import '../../dashboard/dashboard_providers.dart';
 import '../manual_transaction_sheet.dart';
 import '../transactions_providers.dart';
 import '../../../core/theme/widgets/app_toast.dart';
+import '../../common/repo_error_messages.dart';
 
 Future<void> showConfirmTransactionSheet(
   BuildContext context,
@@ -283,7 +284,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                         }).catchError((Object e) {
                           if (!context.mounted) return;
                           final message = e is RepoException
-                              ? repoExceptionMessage(e)
+                              ? repoErrorMessage(context, e)
                               : context.l10n.ctsCategoryUpdateFailed;
                           AppToast.show(context, message);
                         });
@@ -372,7 +373,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                               );
                         } on RepoException catch (e) {
                           if (!context.mounted) return;
-                          AppToast.show(context, repoExceptionMessage(e));
+                          AppToast.show(context, repoErrorMessage(context, e));
                           return;
                         }
                         ref.invalidate(
@@ -410,7 +411,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                                 );
                           } on RepoException catch (e) {
                             if (!context.mounted) return;
-                            AppToast.show(context, repoExceptionMessage(e));
+                            AppToast.show(context, repoErrorMessage(context, e));
                             return;
                           }
                         } on Exception {
@@ -427,7 +428,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                       if (context.mounted) Navigator.of(context).pop();
                     } on RepoException catch (e) {
                       if (!context.mounted) return;
-                      AppToast.show(context, repoExceptionMessage(e));
+                      AppToast.show(context, repoErrorMessage(context, e));
                     } catch (_) {
                       if (!context.mounted) return;
                       AppToast.show(

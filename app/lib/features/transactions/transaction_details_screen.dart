@@ -33,6 +33,7 @@ import 'widgets/change_category_sheet.dart';
 import '../common/motion.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../common/repo_error_messages.dart';
 
 class TransactionDetailsScreen extends ConsumerWidget {
   const TransactionDetailsScreen({super.key, required this.transactionId});
@@ -573,7 +574,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
       );
     } on RepoException catch (e) {
       if (!context.mounted) return;
-      AppToast.show(context, repoExceptionMessage(e));
+      AppToast.show(context, repoErrorMessage(context, e));
       return;
     }
     for (final billId in affectedBillIds) {
@@ -670,7 +671,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
           .updateAmount(transactionId: tx.id, amount: value);
     } on RepoException catch (e) {
       if (!context.mounted) return;
-      AppToast.show(context, repoExceptionMessage(e));
+      AppToast.show(context, repoErrorMessage(context, e));
       return;
     }
     ref.invalidate(transactionByIdProvider(tx.id));

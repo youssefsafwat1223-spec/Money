@@ -30,6 +30,7 @@ import '../subscriptions/subscriptions_providers.dart';
 import 'transactions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../common/repo_error_messages.dart';
 
 class ManualTransactionSheet extends ConsumerStatefulWidget {
   const ManualTransactionSheet({
@@ -209,7 +210,7 @@ class _ManualTransactionSheetState
       if (!mounted) return;
       Navigator.of(context).pop();
     } on RepoException catch (e) {
-      if (mounted) _snack(repoExceptionMessage(e));
+      if (mounted) _snack(repoErrorMessage(context, e));
     } catch (_) {
       if (mounted) _snack(context.l10n.mtSaveFailed);
     } finally {
@@ -262,7 +263,7 @@ class _ManualTransactionSheetState
       Navigator.of(context).pop();
       Navigator.of(context).maybePop();
     } on RepoException catch (e) {
-      if (mounted) _snack(repoExceptionMessage(e));
+      if (mounted) _snack(repoErrorMessage(context, e));
     } catch (_) {
       if (mounted) _snack(context.l10n.mtDeleteFailed);
     } finally {
