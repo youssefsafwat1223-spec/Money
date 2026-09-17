@@ -1,3 +1,9 @@
+> **§5 SUPERSEDED — 2026-09-17.** That section accepted visual fidelity on 13
+> route captures. A strict pass has since inspected 45 unique surfaces in both
+> languages, found 11 mismatches and fixed them all. See
+> `V1_UI_ACCEPTANCE_MATRIX_VISUAL_2026-09-17.md`. Sections 1–4 and 6 of this
+> document — the surface inventory and the honest disclaimers — still stand.
+
 # V1 UI Acceptance Matrix
 
 Reconciles the UI Atlas and the HTML prototype against current HEAD.
