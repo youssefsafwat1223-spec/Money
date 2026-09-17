@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/features/planning_sync/services/planning_server_currency_repair.dart';
 import 'package:money_companion/features/settings/planning_server_repair_providers.dart';
 import 'package:money_companion/features/settings/planning_server_repair_section.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
   testWidgets('surfaces items with NO preselected currency', (tester) async {
@@ -22,8 +23,11 @@ void main() {
               ),
             ]),
       ],
-      child: const MaterialApp(
-          home: Scaffold(body: PlanningServerRepairSection())),
+      child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          locale: const Locale('ar'),
+          home: const Scaffold(body: PlanningServerRepairSection())),
     ));
     await tester.pumpAndSettle();
 
@@ -40,8 +44,11 @@ void main() {
       overrides: [
         serverUnresolvedPlanningItemsProvider.overrideWith((ref) async => const []),
       ],
-      child: const MaterialApp(
-          home: Scaffold(body: PlanningServerRepairSection())),
+      child: MaterialApp(
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
+          locale: const Locale('ar'),
+          home: const Scaffold(body: PlanningServerRepairSection())),
     ));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('server-unresolved-repair')), findsNothing);

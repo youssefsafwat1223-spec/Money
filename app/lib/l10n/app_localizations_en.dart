@@ -5012,4 +5012,109 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get pcsKeepTheirs => 'The other device’s version';
+
+  @override
+  String get rprUnsupportedCode => 'Unsupported currency code';
+
+  @override
+  String get rprTitle => 'Currency for the backup’s data';
+
+  @override
+  String get rprPerItem => 'A currency per item';
+
+  @override
+  String get rprTreatAllAs => 'Treat everything as this currency';
+
+  @override
+  String get rprContinueRestore => 'Continue the restore';
+
+  @override
+  String get rprCancelRestore => 'Cancel the restore';
+
+  @override
+  String get rprGoal => 'Goal';
+
+  @override
+  String get rprBudget => 'Budget';
+
+  @override
+  String get psrTitle => 'Items waiting for a currency (from sync)';
+
+  @override
+  String get psrUnsupported => 'Unsupported currency';
+
+  @override
+  String get psrConfirmed => 'Confirmed';
+
+  @override
+  String get psrConfirmFailed => 'Could not confirm — please try again';
+
+  @override
+  String get psrCurrencyExample => 'Currency (for example: KWD)';
+
+  @override
+  String get adsSubsAndBills => 'Subscriptions & bills';
+
+  @override
+  String get adsPickDestination =>
+      'Choose where each active subscription should go — none is deleted automatically.';
+
+  @override
+  String get adsChoose => 'Choose…';
+
+  @override
+  String get adsArchive => 'Archive';
+
+  @override
+  String get rpTitle => 'Report preview';
+
+  @override
+  String get rpShare => 'Share';
+
+  @override
+  String get rpPrint => 'Print';
+
+  @override
+  String get rpShareFinancialData => 'Share financial data';
+
+  @override
+  String get rpShareWarning =>
+      'This report contains balances and merchant names. Do you want to share it?';
+
+  @override
+  String get rpFinancialReport => 'Financial report';
+
+  @override
+  String get psrIntro =>
+      'These rows arrived from sync without a currency. Pick the right one for each — Qirsh will not guess, and no amount changes.';
+
+  @override
+  String psrAmount(String amount) {
+    return 'Amount: $amount';
+  }
+
+  @override
+  String adsWillDetach(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count transactions will be detached',
+      one: '1 transaction will be detached',
+    );
+    return '$_temp0 (their history is kept in full).';
+  }
+
+  @override
+  String adsMoveTo(String account) {
+    return 'Move to $account';
+  }
+
+  @override
+  String get rprIntro =>
+      'The backup does not record a currency for budgets and goals. Choose how you want those treated when restoring.';
+
+  @override
+  String rprLegacyAmount(String amount) {
+    return 'Previous amount: $amount · no currency set';
+  }
 }

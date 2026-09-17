@@ -2537,5 +2537,62 @@
   "pcsKeptMine": "Your version was kept.",
   "pcsKeptTheirs": "The other device’s version was kept.",
   "pcsKeepMine": "Keep mine",
-  "pcsKeepTheirs": "The other device’s version"
+  "pcsKeepTheirs": "The other device’s version",
+  "rprUnsupportedCode": "Unsupported currency code",
+  "rprTitle": "Currency for the backup’s data",
+  "rprPerItem": "A currency per item",
+  "rprTreatAllAs": "Treat everything as this currency",
+  "rprContinueRestore": "Continue the restore",
+  "rprCancelRestore": "Cancel the restore",
+  "rprGoal": "Goal",
+  "rprBudget": "Budget",
+  "psrTitle": "Items waiting for a currency (from sync)",
+  "psrUnsupported": "Unsupported currency",
+  "psrConfirmed": "Confirmed",
+  "psrConfirmFailed": "Could not confirm — please try again",
+  "psrCurrencyExample": "Currency (for example: KWD)",
+  "adsSubsAndBills": "Subscriptions & bills",
+  "adsPickDestination": "Choose where each active subscription should go — none is deleted automatically.",
+  "adsChoose": "Choose…",
+  "adsArchive": "Archive",
+  "rpTitle": "Report preview",
+  "rpShare": "Share",
+  "rpPrint": "Print",
+  "rpShareFinancialData": "Share financial data",
+  "rpShareWarning": "This report contains balances and merchant names. Do you want to share it?",
+  "rpFinancialReport": "Financial report",
+  "psrIntro": "These rows arrived from sync without a currency. Pick the right one for each — Qirsh will not guess, and no amount changes.",
+  "psrAmount": "Amount: {amount}",
+  "@psrAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "adsWillDetach": "{count, plural, =1{1 transaction will be detached} other{{count} transactions will be detached}} (their history is kept in full).",
+  "@adsWillDetach": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "adsMoveTo": "Move to {account}",
+  "@adsMoveTo": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      }
+    }
+  },
+  "rprIntro": "The backup does not record a currency for budgets and goals. Choose how you want those treated when restoring.",
+  "rprLegacyAmount": "Previous amount: {amount} · no currency set",
+  "@rprLegacyAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  }
 }

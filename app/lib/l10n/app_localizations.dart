@@ -8502,6 +8502,180 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'نسخة الجهاز الآخر'**
   String get pcsKeepTheirs;
+
+  /// No description provided for @rprUnsupportedCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز عملة غير مدعوم'**
+  String get rprUnsupportedCode;
+
+  /// No description provided for @rprTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملة بيانات النسخة الاحتياطية'**
+  String get rprTitle;
+
+  /// No description provided for @rprPerItem.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملة لكل عنصر'**
+  String get rprPerItem;
+
+  /// No description provided for @rprTreatAllAs.
+  ///
+  /// In ar, this message translates to:
+  /// **'اعتبر كل العناصر بهذه العملة'**
+  String get rprTreatAllAs;
+
+  /// No description provided for @rprContinueRestore.
+  ///
+  /// In ar, this message translates to:
+  /// **'متابعة الاستعادة'**
+  String get rprContinueRestore;
+
+  /// No description provided for @rprCancelRestore.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلغاء الاستعادة'**
+  String get rprCancelRestore;
+
+  /// No description provided for @rprGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'هدف'**
+  String get rprGoal;
+
+  /// No description provided for @rprBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية'**
+  String get rprBudget;
+
+  /// No description provided for @psrTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'بنود بانتظار تحديد العملة (من المزامنة)'**
+  String get psrTitle;
+
+  /// No description provided for @psrUnsupported.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملة غير مدعومة'**
+  String get psrUnsupported;
+
+  /// No description provided for @psrConfirmed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم التأكيد'**
+  String get psrConfirmed;
+
+  /// No description provided for @psrConfirmFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر التأكيد — حاول مرة أخرى'**
+  String get psrConfirmFailed;
+
+  /// No description provided for @psrCurrencyExample.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملة (مثال: KWD)'**
+  String get psrCurrencyExample;
+
+  /// No description provided for @adsSubsAndBills.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاشتراكات والفواتير'**
+  String get adsSubsAndBills;
+
+  /// No description provided for @adsPickDestination.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر وجهة كل اشتراك نشط — لن يُحذف تلقائيًا.'**
+  String get adsPickDestination;
+
+  /// No description provided for @adsChoose.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر…'**
+  String get adsChoose;
+
+  /// No description provided for @adsArchive.
+  ///
+  /// In ar, this message translates to:
+  /// **'أرشفة'**
+  String get adsArchive;
+
+  /// No description provided for @rpTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'معاينة التقرير'**
+  String get rpTitle;
+
+  /// No description provided for @rpShare.
+  ///
+  /// In ar, this message translates to:
+  /// **'مشاركة'**
+  String get rpShare;
+
+  /// No description provided for @rpPrint.
+  ///
+  /// In ar, this message translates to:
+  /// **'طباعة'**
+  String get rpPrint;
+
+  /// No description provided for @rpShareFinancialData.
+  ///
+  /// In ar, this message translates to:
+  /// **'مشاركة بيانات مالية'**
+  String get rpShareFinancialData;
+
+  /// No description provided for @rpShareWarning.
+  ///
+  /// In ar, this message translates to:
+  /// **'يحتوي هذا التقرير على أرصدة وأسماء متاجر. هل تريد مشاركته؟'**
+  String get rpShareWarning;
+
+  /// No description provided for @rpFinancialReport.
+  ///
+  /// In ar, this message translates to:
+  /// **'التقرير المالي'**
+  String get rpFinancialReport;
+
+  /// No description provided for @psrIntro.
+  ///
+  /// In ar, this message translates to:
+  /// **'وصلت هذه الصفوف من المزامنة بدون عملة. اختر العملة الصحيحة لكل صف — لن يُخمّن قِرش عملتها، ولن يتغيّر أي مبلغ.'**
+  String get psrIntro;
+
+  /// No description provided for @psrAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ: {amount}'**
+  String psrAmount(String amount);
+
+  /// No description provided for @adsWillDetach.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستُفصل {count, plural, =1{عملية واحدة} =2{عمليتان} few{{count} عمليات} many{{count} عملية} other{{count} عملية}} (يبقى سجلها كاملًا).'**
+  String adsWillDetach(int count);
+
+  /// No description provided for @adsMoveTo.
+  ///
+  /// In ar, this message translates to:
+  /// **'نقل إلى {account}'**
+  String adsMoveTo(String account);
+
+  /// No description provided for @rprIntro.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخة الاحتياطية لا تحفظ عملة الميزانيات والأهداف. اختر كيف تريد معاملة هذه العناصر عند الاستعادة.'**
+  String get rprIntro;
+
+  /// No description provided for @rprLegacyAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ القديم: {amount} · العملة غير محددة'**
+  String rprLegacyAmount(String amount);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -5022,4 +5022,112 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get pcsKeepTheirs => 'نسخة الجهاز الآخر';
+
+  @override
+  String get rprUnsupportedCode => 'رمز عملة غير مدعوم';
+
+  @override
+  String get rprTitle => 'عملة بيانات النسخة الاحتياطية';
+
+  @override
+  String get rprPerItem => 'عملة لكل عنصر';
+
+  @override
+  String get rprTreatAllAs => 'اعتبر كل العناصر بهذه العملة';
+
+  @override
+  String get rprContinueRestore => 'متابعة الاستعادة';
+
+  @override
+  String get rprCancelRestore => 'إلغاء الاستعادة';
+
+  @override
+  String get rprGoal => 'هدف';
+
+  @override
+  String get rprBudget => 'ميزانية';
+
+  @override
+  String get psrTitle => 'بنود بانتظار تحديد العملة (من المزامنة)';
+
+  @override
+  String get psrUnsupported => 'عملة غير مدعومة';
+
+  @override
+  String get psrConfirmed => 'تم التأكيد';
+
+  @override
+  String get psrConfirmFailed => 'تعذّر التأكيد — حاول مرة أخرى';
+
+  @override
+  String get psrCurrencyExample => 'العملة (مثال: KWD)';
+
+  @override
+  String get adsSubsAndBills => 'الاشتراكات والفواتير';
+
+  @override
+  String get adsPickDestination =>
+      'اختر وجهة كل اشتراك نشط — لن يُحذف تلقائيًا.';
+
+  @override
+  String get adsChoose => 'اختر…';
+
+  @override
+  String get adsArchive => 'أرشفة';
+
+  @override
+  String get rpTitle => 'معاينة التقرير';
+
+  @override
+  String get rpShare => 'مشاركة';
+
+  @override
+  String get rpPrint => 'طباعة';
+
+  @override
+  String get rpShareFinancialData => 'مشاركة بيانات مالية';
+
+  @override
+  String get rpShareWarning =>
+      'يحتوي هذا التقرير على أرصدة وأسماء متاجر. هل تريد مشاركته؟';
+
+  @override
+  String get rpFinancialReport => 'التقرير المالي';
+
+  @override
+  String get psrIntro =>
+      'وصلت هذه الصفوف من المزامنة بدون عملة. اختر العملة الصحيحة لكل صف — لن يُخمّن قِرش عملتها، ولن يتغيّر أي مبلغ.';
+
+  @override
+  String psrAmount(String amount) {
+    return 'المبلغ: $amount';
+  }
+
+  @override
+  String adsWillDetach(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عملية',
+      many: '$count عملية',
+      few: '$count عمليات',
+      two: 'عمليتان',
+      one: 'عملية واحدة',
+    );
+    return 'ستُفصل $_temp0 (يبقى سجلها كاملًا).';
+  }
+
+  @override
+  String adsMoveTo(String account) {
+    return 'نقل إلى $account';
+  }
+
+  @override
+  String get rprIntro =>
+      'النسخة الاحتياطية لا تحفظ عملة الميزانيات والأهداف. اختر كيف تريد معاملة هذه العناصر عند الاستعادة.';
+
+  @override
+  String rprLegacyAmount(String amount) {
+    return 'المبلغ القديم: $amount · العملة غير محددة';
+  }
 }

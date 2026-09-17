@@ -5,6 +5,7 @@ import 'package:money_companion/data/db/planning_currency_repair.dart'
     show PlanningRepairMode;
 import 'package:money_companion/features/backup/restore_payload_repair_view.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 // MALI-026 (Phase-8 B8-2.10 §6) — the restore-payload repair UX emits a decision
 // scoped to the PAYLOAD fingerprint (not the live dataset) and supports
@@ -22,6 +23,9 @@ void main() {
       (tester) async {
     RestorePayloadRepairDecision? decision;
     await tester.pumpWidget(MaterialApp(
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: const Locale('ar'),
       theme: AppTheme.light,
       home: RestorePayloadRepairView(
         rows: rows,
@@ -46,6 +50,9 @@ void main() {
       (tester) async {
     var confirmed = false;
     await tester.pumpWidget(MaterialApp(
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: const Locale('ar'),
       theme: AppTheme.light,
       home: RestorePayloadRepairView(
         rows: rows,
@@ -64,6 +71,9 @@ void main() {
   testWidgets('cancel aborts (caller leaves the DB untouched)', (tester) async {
     var cancelled = false;
     await tester.pumpWidget(MaterialApp(
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: const Locale('ar'),
       theme: AppTheme.light,
       home: RestorePayloadRepairView(
         rows: rows,

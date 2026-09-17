@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/entities/account_entity.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../domain/usecases/account_deletion.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 
@@ -86,19 +87,19 @@ class _AccountDeletionSheetState extends State<AccountDeletionSheet> {
           controller: controller,
           padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
           children: [
-            Text('حذف الحساب',
+            Text(context.l10n.afDeleteAccount,
                 style: theme.textTheme.titleLarge, textAlign: TextAlign.center),
             const SizedBox(height: 12),
             _SummaryLine(
-              'ستُفصل ${impact.transactionsToDetach} عملية (يبقى سجلها كاملًا).',
+              context.l10n.adsWillDetach(impact.transactionsToDetach),
             ),
             if (impact.cardsToArchive > 0)
-              _SummaryLine('ستُؤرشف ${impact.cardsToArchive} بطاقة.'),
+              _SummaryLine(context.l10n.accWillArchiveCards(impact.cardsToArchive)),
             if (impact.budgetsToArchive > 0)
-              _SummaryLine('ستُؤرشف ${impact.budgetsToArchive} ميزانية.'),
+              _SummaryLine(context.l10n.accWillArchiveBudgets(impact.budgetsToArchive)),
             if (impact.goals.isNotEmpty) ...[
               const SizedBox(height: 16),
-              Text('الأهداف', style: theme.textTheme.titleMedium),
+              Text(context.l10n.bdgTabGoals, style: theme.textTheme.titleMedium),
               const SizedBox(height: 4),
               for (final g in impact.goals)
                 _DependentDecision(
@@ -112,9 +113,9 @@ class _AccountDeletionSheetState extends State<AccountDeletionSheet> {
             ],
             if (impact.subscriptions.isNotEmpty) ...[
               const SizedBox(height: 16),
-              Text('الاشتراكات والفواتير', style: theme.textTheme.titleMedium),
+              Text(context.l10n.adsSubsAndBills, style: theme.textTheme.titleMedium),
               Text(
-                'اختر وجهة كل اشتراك نشط — لن يُحذف تلقائيًا.',
+                context.l10n.adsPickDestination,
                 style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 4),
@@ -134,12 +135,12 @@ class _AccountDeletionSheetState extends State<AccountDeletionSheet> {
               style: FilledButton.styleFrom(
                 backgroundColor: theme.colorScheme.error,
               ),
-              child: const Text('حذف الحساب'),
+              child: Text(context.l10n.afDeleteAccount),
             ),
             const SizedBox(height: 8),
             TextButton(
               onPressed: () => Navigator.of(context).pop(),
-              child: const Text('إلغاء'),
+              child: Text(context.l10n.commonCancel),
             ),
           ],
         ),
@@ -195,20 +196,20 @@ class _DependentDecision extends StatelessWidget {
             key: ValueKey('decision-${dependent.id}'),
             initialValue: value,
             isExpanded: true,
-            decoration: const InputDecoration(
-              border: OutlineInputBorder(),
-              contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              hintText: 'اختر…',
+            decoration: InputDecoration(
+              border: const OutlineInputBorder(),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              hintText: context.l10n.adsChoose,
             ),
             items: [
               for (final acc in compatible)
                 DropdownMenuItem<String>(
                   value: acc.id,
-                  child: Text('نقل إلى ${acc.name}'),
+                  child: Text(context.l10n.adsMoveTo(acc.name)),
                 ),
               DropdownMenuItem<String>(
                 value: archiveValue,
-                child: const Text('أرشفة'),
+                child: Text(context.l10n.adsArchive),
               ),
             ],
             onChanged: (v) {

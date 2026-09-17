@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/backup/planning_restore_preflight.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../data/db/planning_currency_repair.dart' show PlanningRepairMode;
 import '../../domain/finance/currency_scale.dart';
 import '../common/app_header.dart';
@@ -58,7 +59,7 @@ class _RestorePayloadRepairViewState extends State<RestorePayloadRepairView> {
     if (_mode == PlanningRepairMode.global) {
       final code = _globalController.text.trim().toUpperCase();
       if (!isSupportedCurrency(code)) {
-        setState(() => _error = 'رمز عملة غير مدعوم');
+        setState(() => _error = context.l10n.rprUnsupportedCode);
         return;
       }
       widget.onConfirm(RestorePayloadRepairDecision(
@@ -70,7 +71,7 @@ class _RestorePayloadRepairViewState extends State<RestorePayloadRepairView> {
     } else {
       for (final entry in _perRow.entries) {
         if (!isSupportedCurrency(entry.value)) {
-          setState(() => _error = 'رمز عملة غير مدعوم');
+          setState(() => _error = context.l10n.rprUnsupportedCode);
           return;
         }
       }
@@ -89,23 +90,22 @@ class _RestorePayloadRepairViewState extends State<RestorePayloadRepairView> {
       textDirection: TextDirection.rtl,
       child: Scaffold(
         key: const Key('restore_payload_repair_view'),
-        appBar: const AppHeader(title: 'عملة بيانات النسخة الاحتياطية'),
+        appBar: AppHeader(title: context.l10n.rprTitle),
         body: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            const Text(
-              'النسخة الاحتياطية لا تحفظ عملة الميزانيات والأهداف. اختر كيف '
-              'تريد معاملة هذه العناصر عند الاستعادة.',
+            Text(
+              context.l10n.rprIntro,
             ),
             const SizedBox(height: 16),
             SegmentedButton<PlanningRepairMode>(
-              segments: const [
+              segments: [
                 ButtonSegment(
                     value: PlanningRepairMode.global,
-                    label: Text('عملة واحدة للجميع')),
+                    label: Text(context.l10n.pcrOneCurrencyForAll)),
                 ButtonSegment(
                     value: PlanningRepairMode.perRow,
-                    label: Text('عملة لكل عنصر')),
+                    label: Text(context.l10n.rprPerItem)),
               ],
               selected: {_mode},
               onSelectionChanged: (s) => setState(() {
@@ -118,8 +118,8 @@ class _RestorePayloadRepairViewState extends State<RestorePayloadRepairView> {
               TextField(
                 key: const Key('restore_repair_global_field'),
                 controller: _globalController,
-                decoration: const InputDecoration(
-                  labelText: 'اعتبر كل العناصر بهذه العملة',
+                decoration: InputDecoration(
+                  labelText: context.l10n.rprTreatAllAs,
                 ),
               )
             else
@@ -132,13 +132,13 @@ class _RestorePayloadRepairViewState extends State<RestorePayloadRepairView> {
             FilledButton(
               key: const Key('restore_repair_confirm'),
               onPressed: _confirm,
-              child: const Text('متابعة الاستعادة'),
+              child: Text(context.l10n.rprContinueRestore),
             ),
             const SizedBox(height: 8),
             TextButton(
               key: const Key('restore_repair_cancel'),
               onPressed: widget.onCancel,
-              child: const Text('إلغاء الاستعادة'),
+              child: Text(context.l10n.rprCancelRestore),
             ),
           ],
         ),
@@ -148,15 +148,15 @@ class _RestorePayloadRepairViewState extends State<RestorePayloadRepairView> {
 
   Widget _perRowTile(RestorePlanningRow r) {
     return ListTile(
-      title: Text(r.isGoal ? 'هدف' : 'ميزانية'),
-      subtitle: Text('المبلغ القديم: ${r.legacyAmount} · العملة غير محددة'),
+      title: Text(r.isGoal ? context.l10n.rprGoal : context.l10n.rprBudget),
+      subtitle: Text(context.l10n.rprLegacyAmount(r.legacyAmount.toString())),
       trailing: SizedBox(
         width: 96,
         child: TextField(
           key: Key('restore_repair_row_${r.id}'),
           controller: TextEditingController(text: _perRow[r.id]),
           onChanged: (v) => _perRow[r.id] = v.trim().toUpperCase(),
-          decoration: const InputDecoration(labelText: 'العملة'),
+          decoration: InputDecoration(labelText: context.l10n.dtxCurrency),
         ),
       ),
     );

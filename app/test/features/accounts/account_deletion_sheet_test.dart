@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/usecases/account_deletion.dart';
 import 'package:money_companion/features/accounts/account_deletion_sheet.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
   final now = DateTime.utc(2026, 7, 1);
@@ -23,6 +24,9 @@ void main() {
   ) async {
     AccountDeletionRequest? popped;
     await tester.pumpWidget(MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('ar'),
       home: Scaffold(
         body: Builder(
           builder: (ctx) => ElevatedButton(
@@ -93,6 +97,9 @@ void main() {
 
     AccountDeletionRequest? request;
     await tester.pumpWidget(MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('ar'),
       home: Scaffold(
         body: Builder(
           builder: (ctx) => ElevatedButton(

@@ -2653,5 +2653,62 @@
   "pcsKeptMine": "تم الاحتفاظ بنسختك.",
   "pcsKeptTheirs": "تم اعتماد نسخة الجهاز الآخر.",
   "pcsKeepMine": "احتفظ بنسختي",
-  "pcsKeepTheirs": "نسخة الجهاز الآخر"
+  "pcsKeepTheirs": "نسخة الجهاز الآخر",
+  "rprUnsupportedCode": "رمز عملة غير مدعوم",
+  "rprTitle": "عملة بيانات النسخة الاحتياطية",
+  "rprPerItem": "عملة لكل عنصر",
+  "rprTreatAllAs": "اعتبر كل العناصر بهذه العملة",
+  "rprContinueRestore": "متابعة الاستعادة",
+  "rprCancelRestore": "إلغاء الاستعادة",
+  "rprGoal": "هدف",
+  "rprBudget": "ميزانية",
+  "psrTitle": "بنود بانتظار تحديد العملة (من المزامنة)",
+  "psrUnsupported": "عملة غير مدعومة",
+  "psrConfirmed": "تم التأكيد",
+  "psrConfirmFailed": "تعذّر التأكيد — حاول مرة أخرى",
+  "psrCurrencyExample": "العملة (مثال: KWD)",
+  "adsSubsAndBills": "الاشتراكات والفواتير",
+  "adsPickDestination": "اختر وجهة كل اشتراك نشط — لن يُحذف تلقائيًا.",
+  "adsChoose": "اختر…",
+  "adsArchive": "أرشفة",
+  "rpTitle": "معاينة التقرير",
+  "rpShare": "مشاركة",
+  "rpPrint": "طباعة",
+  "rpShareFinancialData": "مشاركة بيانات مالية",
+  "rpShareWarning": "يحتوي هذا التقرير على أرصدة وأسماء متاجر. هل تريد مشاركته؟",
+  "rpFinancialReport": "التقرير المالي",
+  "psrIntro": "وصلت هذه الصفوف من المزامنة بدون عملة. اختر العملة الصحيحة لكل صف — لن يُخمّن قِرش عملتها، ولن يتغيّر أي مبلغ.",
+  "psrAmount": "المبلغ: {amount}",
+  "@psrAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "adsWillDetach": "ستُفصل {count, plural, =1{عملية واحدة} =2{عمليتان} few{{count} عمليات} many{{count} عملية} other{{count} عملية}} (يبقى سجلها كاملًا).",
+  "@adsWillDetach": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "adsMoveTo": "نقل إلى {account}",
+  "@adsMoveTo": {
+    "placeholders": {
+      "account": {
+        "type": "String"
+      }
+    }
+  },
+  "rprIntro": "النسخة الاحتياطية لا تحفظ عملة الميزانيات والأهداف. اختر كيف تريد معاملة هذه العناصر عند الاستعادة.",
+  "rprLegacyAmount": "المبلغ القديم: {amount} · العملة غير محددة",
+  "@rprLegacyAmount": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  }
 }

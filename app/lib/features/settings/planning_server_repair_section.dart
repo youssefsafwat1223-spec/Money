@@ -1,6 +1,7 @@
 // MALI-026 (Phase-9F-2 §3/§4) — surfaces SERVER-originated unresolved-currency
 // planning rows (from the sync quarantine) with an explicit owner currency choice.
 // Self-contained: renders nothing when there is no server repair work, so it can be
+import '../../core/utils/l10n_ext.dart';
 // prepended to the existing (local-legacy) repair screen without touching its flow.
 // The currency field starts EMPTY — never preselects base/account/settings.
 import 'package:flutter/material.dart';
@@ -29,12 +30,11 @@ class PlanningServerRepairSection extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('بنود بانتظار تحديد العملة (من المزامنة)',
-                  style: TextStyle(fontWeight: FontWeight.bold)),
+              Text(context.l10n.psrTitle,
+                  style: const TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 4),
-              const Text(
-                'وصلت هذه الصفوف من المزامنة بدون عملة. اختر العملة الصحيحة لكل '
-                'صف — لن يُخمّن قرش عملتها، ولن يتغيّر أي مبلغ.',
+              Text(
+                context.l10n.psrIntro,
               ),
               const SizedBox(height: 8),
               for (final item in items) _ServerRepairRow(item: item),
@@ -68,7 +68,7 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
     final code = _controller.text.trim().toUpperCase();
     final messenger = ScaffoldMessenger.of(context);
     if (!isSupportedCurrency(code)) {
-      messenger.showSnackBar(const SnackBar(content: Text('عملة غير مدعومة')));
+      messenger.showSnackBar(SnackBar(content: Text(context.l10n.psrUnsupported)));
       return;
     }
     setState(() => _busy = true);
@@ -83,14 +83,14 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
     final ok = outcome == PlanningRepairOutcome.resolved ||
         outcome == PlanningRepairOutcome.resolvedByRemoval;
     messenger.showSnackBar(SnackBar(
-        content: Text(ok ? 'تم التأكيد' : 'تعذّر التأكيد — حاول مرة أخرى')));
+        content: Text(ok ? context.l10n.psrConfirmed : context.l10n.psrConfirmFailed)));
     ref.invalidate(serverUnresolvedPlanningItemsProvider);
   }
 
   @override
   Widget build(BuildContext context) {
     final item = widget.item;
-    final kind = item.entityType == 'goal' ? 'هدف' : 'ميزانية';
+    final kind = item.entityType == 'goal' ? context.l10n.rprGoal : context.l10n.rprBudget;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Column(
@@ -98,7 +98,7 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
         children: [
           Text('$kind: ${item.title ?? kind}'),
           if (item.amountText != null)
-            Text('المبلغ: ${item.amountText}',
+            Text(context.l10n.psrAmount(item.amountText ?? ''),
                 style: const TextStyle(color: Colors.grey)),
           Row(
             children: [
@@ -106,8 +106,8 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
                 child: TextField(
                   controller: _controller,
                   textCapitalization: TextCapitalization.characters,
-                  decoration: const InputDecoration(
-                    hintText: 'العملة (مثال: KWD)',
+                  decoration: InputDecoration(
+                    hintText: context.l10n.psrCurrencyExample,
                     isDense: true,
                   ),
                 ),
@@ -120,7 +120,7 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('تأكيد'),
+                    : Text(context.l10n.txnConfirm),
               ),
             ],
           ),

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import '../../../core/utils/l10n_ext.dart';
 import 'package:printing/printing.dart';
 
 import '../../../core/exporting/managed_export_store.dart';
@@ -49,7 +50,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
   Widget build(BuildContext context) {
     final isAr = Localizations.localeOf(context).languageCode != 'en';
     return Scaffold(
-      appBar: AppHeader(title: isAr ? 'معاينة التقرير' : 'Report preview'),
+      appBar: AppHeader(title: isAr ? context.l10n.rpTitle : 'Report preview'),
       body: PdfPreview(
         build: (_) async => widget.bytes,
         useActions: false,
@@ -66,7 +67,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                 child: FilledButton.icon(
                   onPressed: () => _share(context, isAr),
                   icon: const Icon(AppLucideIcons.share, size: 18),
-                  label: Text(isAr ? 'مشاركة' : 'Share'),
+                  label: Text(isAr ? context.l10n.rpShare : 'Share'),
                 ),
               ),
               const SizedBox(width: 10),
@@ -74,7 +75,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
                 child: OutlinedButton.icon(
                   onPressed: () => widget.fileService.printPdf(widget.bytes),
                   icon: const Icon(AppLucideIcons.printer, size: 18),
-                  label: Text(isAr ? 'طباعة' : 'Print'),
+                  label: Text(isAr ? context.l10n.rpPrint : 'Print'),
                 ),
               ),
             ],
@@ -89,18 +90,18 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          title: Text(isAr ? 'مشاركة بيانات مالية' : 'Share financial data'),
+          title: Text(isAr ? context.l10n.rpShareFinancialData : 'Share financial data'),
           content: Text(isAr
-              ? 'يحتوي هذا التقرير على أرصدة وأسماء متاجر. هل تريد مشاركته؟'
+              ? context.l10n.rpShareWarning
               : 'This report contains account balances and merchant names. Share it anyway?'),
           actions: <Widget>[
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(isAr ? 'إلغاء' : 'Cancel'),
+              child: Text(isAr ? context.l10n.commonCancel : 'Cancel'),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(isAr ? 'مشاركة' : 'Share'),
+              child: Text(isAr ? context.l10n.rpShare : 'Share'),
             ),
           ],
         ),
@@ -114,7 +115,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
     await widget.fileService.share(
       widget.export,
       origin: origin,
-      subject: isAr ? 'التقرير المالي' : 'Financial Report',
+      subject: isAr ? context.l10n.rpFinancialReport : 'Financial Report',
     );
   }
 }
