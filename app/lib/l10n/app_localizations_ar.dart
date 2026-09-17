@@ -5335,4 +5335,138 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get authAppleTokenUnreadable => 'لم نستطع قراءة رمز دخول Apple.';
+
+  @override
+  String get navHome => 'الرئيسية';
+
+  @override
+  String get navTransactions => 'العمليات';
+
+  @override
+  String get navBudgets => 'الميزانيات';
+
+  @override
+  String get navMore => 'المزيد';
+
+  @override
+  String get navAnalytics => 'التحليلات';
+
+  @override
+  String navExpandBar(String tab) {
+    return 'فتح شريط التنقل — $tab';
+  }
+
+  @override
+  String get bkeNoLocalBackup => 'لا توجد نسخة احتياطية على هذا الجهاز.';
+
+  @override
+  String get bkeNeedsReenable => 'النسخ الاحتياطي يحتاج تفعيلًا جديدًا.';
+
+  @override
+  String get bkeSignInRequired => 'سجّل الدخول أولًا لتفعيل النسخ الاحتياطي.';
+
+  @override
+  String get bkeStateSaveFailed =>
+      'تعذّر حفظ حالة النسخ الاحتياطي. أعد المحاولة.';
+
+  @override
+  String get bkeBucketMissing =>
+      'إعداد النسخ الاحتياطي غير مكتمل: أنشئ Storage bucket باسم backups في Supabase ثم أعد المحاولة.';
+
+  @override
+  String bkeUploadFailed(String value) {
+    return 'فشل رفع النسخة الاحتياطية: $value';
+  }
+
+  @override
+  String get bkeWrongPassphrase => 'كلمة مرور النسخة الاحتياطية غير صحيحة.';
+
+  @override
+  String get bkeInvalidBackupFile => 'ملف النسخة الاحتياطية غير صالح.';
+
+  @override
+  String get bkeDecryptFailed =>
+      'تعذّر فك النسخة الاحتياطية: كلمة المرور غير صحيحة أو الملف تالف.';
+
+  @override
+  String get bkeUnsupportedEnvelopeVersion =>
+      'هذه النسخة الاحتياطية من إصدار غير مدعوم. حدّث التطبيق ثم أعد المحاولة.';
+
+  @override
+  String get bkeBackupFromNewerApp =>
+      'هذه النسخة الاحتياطية من إصدار أحدث من التطبيق. حدّث التطبيق ثم أعد المحاولة.';
+
+  @override
+  String bkeUnsupportedBackupVersion(String value) {
+    return 'هذه النسخة الاحتياطية من إصدار غير مدعوم ($value). حدّث التطبيق.';
+  }
+
+  @override
+  String get bkeBackupCorrupt =>
+      'النسخة الاحتياطية تالفة أو غير مكتملة. تعذّرت الاستعادة.';
+
+  @override
+  String bkeTableCorrupt(String value) {
+    return 'النسخة الاحتياطية تالفة عند الجدول «$value». تعذّرت الاستعادة.';
+  }
+
+  @override
+  String bkeRequiredTableMissing(String value) {
+    return 'النسخة الاحتياطية غير مكتملة — الجدول «$value» مفقود. تعذّرت الاستعادة.';
+  }
+
+  @override
+  String bkeUnsupportedTable(String value) {
+    return 'النسخة الاحتياطية تحتوي على جدول غير مدعوم «$value». تعذّرت الاستعادة.';
+  }
+
+  @override
+  String bkeUnexpectedSensitiveField(String value) {
+    return 'النسخة الاحتياطية تحتوي على حقل حسّاس غير متوقع «$value». تعذّرت الاستعادة.';
+  }
+
+  @override
+  String bkeInvalidMoneyValue(String value) {
+    return 'تعذّرت الاستعادة: قيمة نقدية غير صالحة «$value».';
+  }
+
+  @override
+  String get bkeAccountChanged =>
+      'تغيّر الحساب أثناء تجهيز الاستعادة. أعد المحاولة.';
+
+  @override
+  String get bkeRelationalIntegrity =>
+      'تعذّرت الاستعادة: النسخة الاحتياطية تنتهك سلامة العلاقات بين البيانات.';
+
+  @override
+  String get bkePlanningInconsistent =>
+      'تعذّرت الاستعادة: بيانات التخطيط غير متسقة بعد الاستعادة.';
+
+  @override
+  String get bkeForeignKeys => 'تعذّر إعادة تفعيل قيود العلاقات بعد الاستعادة.';
+
+  @override
+  String bkeOrphanGoalContribution(String value) {
+    return 'تعذّرت الاستعادة: مساهمة هدف يتيمة «$value».';
+  }
+
+  @override
+  String get bkePrepareFailed =>
+      'تعذّر تجهيز الاستعادة. تحقّق من الملف وكلمة المرور.';
+
+  @override
+  String get bkeRestoreFailedNoChanges =>
+      'تعذّرت الاستعادة ولم تتغيّر بياناتك الحالية.';
+
+  @override
+  String get bkeCommittedPendingBackupState =>
+      'اكتملت استعادة البيانات، لكن تعذّر إكمال حماية النسخة الاحتياطية. أعد المحاولة.';
+
+  @override
+  String get bkeRestoredDbNotReady =>
+      'اكتملت الاستعادة لكن تعذّر تجهيز قاعدة البيانات. أعد تشغيل التطبيق.';
+
+  @override
+  String get bkeNeedsDatabaseRepair =>
+      'تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح.';
 }

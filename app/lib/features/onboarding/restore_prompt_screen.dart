@@ -18,6 +18,7 @@ import 'setup_screen.dart';
 import 'widgets/neon_illustration.dart';
 import 'widgets/premium_ui.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../backup/backup_error_messages.dart';
 
 class RestorePromptScreen extends ConsumerStatefulWidget {
   const RestorePromptScreen({super.key, required this.onboardingFlow});
@@ -65,7 +66,8 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
     try {
       await controller.beginPreparation();
       if (controller.value.phase != RestoreUiPhase.readyForConfirmation) {
-        _showRestoreError(controller.value.message);
+        if (!mounted) return;
+        _showRestoreError(restoreStateMessage(context, controller.value));
         return;
       }
       // The database is NOT touched until the user confirms this replacement.
@@ -85,7 +87,8 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
           context.go('/data-transfer');
         }
       } else {
-        _showRestoreError(controller.value.message);
+        if (!mounted) return;
+        _showRestoreError(restoreStateMessage(context, controller.value));
       }
     } finally {
       controller.dispose();

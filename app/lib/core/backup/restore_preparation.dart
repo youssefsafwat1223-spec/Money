@@ -31,6 +31,7 @@ class RestorePreparation {
       throw const BackupException(
         'هذه النسخة الاحتياطية من إصدار أحدث من التطبيق. حدّث التطبيق ثم '
         'أعد المحاولة.',
+        code: BackupError.backupFromNewerApp,
       );
     }
     // Structural + sensitive-field + required-table validation (shared with the
@@ -45,6 +46,8 @@ class RestorePreparation {
         throw BackupException(
           'النسخة الاحتياطية تحتوي على جدول غير مدعوم ("$table"). '
           'تعذّرت الاستعادة.',
+          code: BackupError.unsupportedTable,
+          args: [table],
         );
       }
     }

@@ -5331,4 +5331,139 @@ class AppL10nEn extends AppL10n {
   @override
   String get authAppleTokenUnreadable =>
       'We could not read the Apple sign-in token.';
+
+  @override
+  String get navHome => 'Home';
+
+  @override
+  String get navTransactions => 'Transactions';
+
+  @override
+  String get navBudgets => 'Budgets';
+
+  @override
+  String get navMore => 'More';
+
+  @override
+  String get navAnalytics => 'Analytics';
+
+  @override
+  String navExpandBar(String tab) {
+    return 'Open the navigation bar — $tab';
+  }
+
+  @override
+  String get bkeNoLocalBackup => 'There is no backup on this device.';
+
+  @override
+  String get bkeNeedsReenable => 'Backup needs to be set up again.';
+
+  @override
+  String get bkeSignInRequired => 'Sign in first to turn on backup.';
+
+  @override
+  String get bkeStateSaveFailed =>
+      'Could not save the backup state. Please try again.';
+
+  @override
+  String get bkeBucketMissing =>
+      'Backup is not fully set up: create a Storage bucket named backups in Supabase, then try again.';
+
+  @override
+  String bkeUploadFailed(String value) {
+    return 'Uploading the backup failed: $value';
+  }
+
+  @override
+  String get bkeWrongPassphrase => 'That backup passphrase is not correct.';
+
+  @override
+  String get bkeInvalidBackupFile => 'That backup file is not valid.';
+
+  @override
+  String get bkeDecryptFailed =>
+      'Could not open the backup: the passphrase is wrong, or the file is damaged.';
+
+  @override
+  String get bkeUnsupportedEnvelopeVersion =>
+      'This backup comes from an unsupported version. Update Qirsh and try again.';
+
+  @override
+  String get bkeBackupFromNewerApp =>
+      'This backup comes from a newer version of the app. Update Qirsh and try again.';
+
+  @override
+  String bkeUnsupportedBackupVersion(String value) {
+    return 'This backup comes from an unsupported version ($value). Update Qirsh.';
+  }
+
+  @override
+  String get bkeBackupCorrupt =>
+      'The backup is damaged or incomplete. Nothing was restored.';
+
+  @override
+  String bkeTableCorrupt(String value) {
+    return 'The backup is damaged at the “$value” table. Nothing was restored.';
+  }
+
+  @override
+  String bkeRequiredTableMissing(String value) {
+    return 'The backup is incomplete — the “$value” table is missing. Nothing was restored.';
+  }
+
+  @override
+  String bkeUnsupportedTable(String value) {
+    return 'The backup contains an unsupported table, “$value”. Nothing was restored.';
+  }
+
+  @override
+  String bkeUnexpectedSensitiveField(String value) {
+    return 'The backup contains an unexpected sensitive field, “$value”. Nothing was restored.';
+  }
+
+  @override
+  String bkeInvalidMoneyValue(String value) {
+    return 'Restore stopped: invalid money value “$value”.';
+  }
+
+  @override
+  String get bkeAccountChanged =>
+      'The account changed while the restore was being prepared. Please try again.';
+
+  @override
+  String get bkeRelationalIntegrity =>
+      'Restore stopped: the backup breaks the links between your records.';
+
+  @override
+  String get bkePlanningInconsistent =>
+      'Restore stopped: your planning data was inconsistent afterwards.';
+
+  @override
+  String get bkeForeignKeys =>
+      'Could not re-enable the relationship checks after the restore.';
+
+  @override
+  String bkeOrphanGoalContribution(String value) {
+    return 'Restore stopped: a goal contribution has no goal (“$value”).';
+  }
+
+  @override
+  String get bkePrepareFailed =>
+      'Could not prepare the restore. Check the file and the passphrase.';
+
+  @override
+  String get bkeRestoreFailedNoChanges =>
+      'The restore failed, and your current data is unchanged.';
+
+  @override
+  String get bkeCommittedPendingBackupState =>
+      'Your data was restored, but finishing the backup protection failed. Please try again.';
+
+  @override
+  String get bkeRestoredDbNotReady =>
+      'The restore finished, but the database could not be prepared. Restart Qirsh.';
+
+  @override
+  String get bkeNeedsDatabaseRepair =>
+      'The restore failed and the database needs repair.';
 }

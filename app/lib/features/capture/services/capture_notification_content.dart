@@ -267,3 +267,18 @@ String? _captureCategoryLabelEn(String? key) {
     _ => null,
   };
 }
+
+/// إشعار رسالة لم يستطع المحرّك تحليلها.
+///
+/// Both notification paths (CapturedMessageProcessor in the background and
+/// AppShell in the foreground) showed this with their own literals, in Arabic
+/// only and with two different wordings. One builder, both languages.
+CaptureNotificationContent buildUnsupportedCaptureContent({String lang = 'ar'}) {
+  final en = lang == 'en';
+  return CaptureNotificationContent(
+    title: en ? 'Message not recognised' : 'رسالة لم نتمكن من تحليلها',
+    body: en
+        ? 'Open Qirsh and paste the message to add it manually.'
+        : 'افتح قِرش والصق الرسالة يدويًا للإضافة.',
+  );
+}

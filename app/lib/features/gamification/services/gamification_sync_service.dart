@@ -7,6 +7,7 @@ import 'package:drift/drift.dart' show Variable;
 import '../../../core/di/app_providers.dart';
 import '../../../core/privacy/consent_authority.dart';
 import '../../../data/db/app_database.dart';
+import '../../../domain/entities/achievement_catalog.dart';
 import '../../../domain/usecases/gamification_rules.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
@@ -109,14 +110,26 @@ class GamificationSyncService {
     // then would spam the user with their whole history.
     if (unlockedToNotify.isNotEmpty && !appDataRestoring.value) {
       try {
-        final preferences = await LoadNotificationPreferencesUseCase(
-          DriftUserSettingsRepository(db),
-        ).call();
+        final settingsRepository = DriftUserSettingsRepository(db);
+        final preferences =
+            await LoadNotificationPreferencesUseCase(settingsRepository).call();
+        // This can run from a background sync with no providers, so the
+        // language comes straight from the settings row `localeProvider` reads.
+        final lang = (await settingsRepository.getSettings()).language;
+        final en = lang == 'en';
         for (final achievement in unlockedToNotify) {
+          // Rows awarded before the catalog was bilingual store only the
+          // Arabic name; `displayName` looks the English one up by key.
+          final name = AchievementCatalog.displayName(
+              achievement.key, achievement.name, lang);
           await LocalNotificationService.instance.showAchievementNotification(
             achievementKey: achievement.key,
-            title: '🏆 إنجاز جديد: ${achievement.name}',
-            body: 'فتحت إنجازًا جديدًا — افتح قِرش لتراه.',
+            title: en
+                ? '🏆 New achievement: $name'
+                : '🏆 إنجاز جديد: $name',
+            body: en
+                ? 'You unlocked a new achievement — open Qirsh to see it.'
+                : 'فتحت إنجازًا جديدًا — افتح قِرش لتراه.',
             preferences: preferences,
           );
         }

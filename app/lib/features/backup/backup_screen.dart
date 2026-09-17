@@ -12,6 +12,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import 'backup_error_messages.dart';
 
 class BackupScreen extends ConsumerWidget {
   const BackupScreen({super.key});
@@ -228,7 +229,7 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
       if (!mounted) return;
       setState(() {
         _busy = false;
-        _error = error.message;
+        _error = backupExceptionMessage(context, error);
       });
       ref.invalidate(backupStatusProvider);
     } catch (error) {

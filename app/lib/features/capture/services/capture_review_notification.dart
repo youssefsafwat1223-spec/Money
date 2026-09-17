@@ -98,16 +98,36 @@ class CaptureReviewNotification {
     CaptureReviewState state, {
     String? amountLabel,
     bool lockScreenSafe = false,
+    String lang = 'ar',
   }) {
+    final en = lang == 'en';
     if (lockScreenSafe) {
       // No amount, no merchant, no bank — nothing a stranger glancing at a
       // locked screen learns about this person's finances.
       return switch (state) {
-        CaptureReviewState.proven => 'عملية جديدة بانتظار التأكيد',
-        _ => 'عملية تحتاج مراجعة',
+        CaptureReviewState.proven => en
+            ? 'A new transaction is waiting for confirmation'
+            : 'عملية جديدة بانتظار التأكيد',
+        _ => en ? 'A transaction needs review' : 'عملية تحتاج مراجعة',
       };
     }
     final amount = amountLabel == null ? '' : ' $amountLabel';
+    if (en) {
+      return switch (state) {
+        CaptureReviewState.proven => 'Tap to confirm the transaction$amount.',
+        CaptureReviewState.amountConflict =>
+          'More than one possible amount — pick the right one.',
+        CaptureReviewState.currencyConflict =>
+          'The currency is unclear — review the transaction.',
+        CaptureReviewState.directionAmbiguous =>
+          'We could not tell whether it was money in or money out.',
+        CaptureReviewState.directionConflict =>
+          'Conflicting signals about the direction — please review it.',
+        CaptureReviewState.categoryAmbiguous =>
+          'Choose a category for the transaction$amount.',
+        _ => 'Review the transaction.',
+      };
+    }
     return switch (state) {
       CaptureReviewState.proven => 'اضغط لتأكيد العملية$amount.',
       CaptureReviewState.amountConflict =>

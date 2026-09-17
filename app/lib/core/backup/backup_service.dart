@@ -22,10 +22,72 @@ class BackupStatus {
   final DateTime? lastBackupAt;
 }
 
+/// The locale-independent identity of a backup or restore failure.
+///
+/// Same contract as `DataPortabilityError`: the services that throw these run
+/// with no BuildContext — background isolates, a ValueNotifier, a Drift
+/// transaction — so they cannot resolve an ARB string. They name WHAT went
+/// wrong; `backupErrorMessage(context, …)` at the UI chooses the words.
+///
+/// A value here is a promise to the UI, so removing or renaming one is a
+/// breaking change: `backup_error_messages.dart` switches exhaustively and the
+/// analyzer fails on a missing arm.
+enum BackupError {
+  // ---- local state ----
+  noLocalBackup,
+  needsReenable,
+  signInRequired,
+  stateSaveFailed,
+
+  // ---- transport ----
+  bucketMissing,
+  uploadFailed,
+
+  // ---- envelope / passphrase ----
+  wrongPassphrase,
+  invalidBackupFile,
+  decryptFailed,
+  unsupportedEnvelopeVersion,
+
+  // ---- version compatibility ----
+  backupFromNewerApp,
+  unsupportedBackupVersion,
+
+  // ---- payload shape ----
+  backupCorrupt,
+  tableCorrupt,
+  requiredTableMissing,
+  unsupportedTable,
+  unexpectedSensitiveField,
+  invalidMoneyValue,
+
+  // ---- post-restore invariants ----
+  accountChangedDuringRestore,
+  relationalIntegrityViolated,
+  planningInconsistent,
+  foreignKeysNotReenabled,
+  orphanGoalContribution,
+
+  // ---- restore controller outcomes (no exception, a UI phase) ----
+  prepareFailed,
+  restoreFailedNoChanges,
+  committedPendingBackupState,
+  restoredButDatabaseNotReady,
+  restoreNeedsDatabaseRepair,
+}
+
 class BackupException implements Exception {
-  const BackupException(this.message);
+  /// [message] stays required and Arabic: it is what a log line, a crash
+  /// report, and any throw site not yet given a [code] will show. [code] is
+  /// what the UI renders from. Visible-but-Arabic beats silently blank.
+  const BackupException(this.message, {this.code, this.args = const []});
 
   final String message;
+  final BackupError? code;
+
+  /// Values interpolated into the message — a table name, a column, a size.
+  /// Never localized: they are identifiers, not copy.
+  final List<String> args;
 
   @override
   String toString() => message;
@@ -111,7 +173,8 @@ class StubBackupService implements BackupService {
 
   @override
   Future<RestorePlan> prepareRestore({required String passphrase}) async =>
-      throw const BackupException('لا توجد نسخة احتياطية على هذا الجهاز.');
+      throw const BackupException('لا توجد نسخة احتياطية على هذا الجهاز.',
+          code: BackupError.noLocalBackup);
 
   @override
   Future<RestoreResult> commitRestore(

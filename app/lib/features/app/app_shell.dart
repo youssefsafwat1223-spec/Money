@@ -70,6 +70,7 @@ import '../transactions/transactions_screen.dart';
 import '../transactions/widgets/confirm_transaction_sheet.dart';
 import 'celebration_runtime.dart';
 import '../../core/theme/widgets/mali_glass.dart';
+import '../../core/utils/l10n_ext.dart';
 
 final shellIndexProvider = StateProvider<int>((ref) => 0);
 
@@ -1085,6 +1086,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           await CapturedMessageProcessor.checkBudgetAlert(
             ref.read(appDatabaseProvider),
             notificationPreferences,
+            lang: LocalNotificationService.instance.notificationLanguage,
           );
         } catch (error) {
           if (kDebugMode) {
@@ -1177,9 +1179,11 @@ class _AppShellState extends ConsumerState<AppShell> {
           stableId: result.notificationStableId,
         );
       case CapturedMessageDisposition.unprocessable:
+        final unsupported = buildUnsupportedCaptureContent(
+            lang: LocalNotificationService.instance.notificationLanguage);
         await LocalNotificationService.instance.showLightCaptureNotification(
-          title: 'رسالة غير مدعومة',
-          body: 'افتح قرش والصق الرسالة يدوياً للإضافة.',
+          title: unsupported.title,
+          body: unsupported.body,
           preferences: preferences,
           stableId: result.notificationStableId,
         );
@@ -1236,6 +1240,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       // in the device timezone (tz.local), so plan in the same frame. (The
       // `Riyadh` names are legacy; the values are device-local.)
       nowRiyadh: DateTime.now(),
+      lang: LocalNotificationService.instance.notificationLanguage,
     );
     await LocalNotificationService.instance.schedulePlannedNotifications(
       planned,
@@ -1618,27 +1623,22 @@ class _BottomNavBar extends StatelessWidget {
     _BottomBarItem(
       page: 3,
       icon: AppLucideIcons.settings,
-      label: 'المزيد',
     ),
     _BottomBarItem(
       page: 4,
       icon: AppLucideIcons.shapes,
-      label: 'التحليلات',
     ),
     _BottomBarItem(
       page: 0,
       icon: AppLucideIcons.home,
-      label: 'الرئيسية',
     ),
     _BottomBarItem(
       page: 2,
       icon: AppLucideIcons.walletCards,
-      label: 'الميزانيات',
     ),
     _BottomBarItem(
       page: 1,
       icon: AppLucideIcons.receipt,
-      label: 'العمليات',
     ),
   ];
 
@@ -1739,7 +1739,7 @@ class _BottomNavBar extends StatelessWidget {
   Widget _collapsedPill(
       BuildContext context, AppColors c, bool isDark, _BottomBarItem active) {
     return Semantics(
-      label: 'فتح شريط التنقل — ${active.label}',
+      label: context.l10n.navExpandBar(active.label(context)),
       button: true,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -1769,12 +1769,26 @@ class _BottomBarItem {
   const _BottomBarItem({
     required this.page,
     required this.icon,
-    required this.label,
   });
 
   final int page;
   final IconData icon;
-  final String label;
+
+  /// The tab's name, in the reader's language. The list is `static const`, so
+  /// it cannot hold localized copy; `page` is the stable key and the words
+  /// live in the ARB. Only the Semantics layer reads this — the bar itself
+  /// draws icons only.
+  String label(BuildContext context) {
+    final l = context.l10n;
+    return switch (page) {
+      0 => l.navHome,
+      1 => l.navTransactions,
+      2 => l.navBudgets,
+      3 => l.navMore,
+      4 => l.navAnalytics,
+      _ => '',
+    };
+  }
 }
 
 class _NavTab extends StatelessWidget {
@@ -1796,7 +1810,7 @@ class _NavTab extends StatelessWidget {
     final inactiveColor = c.textMuted;
 
     return Semantics(
-      label: item.label,
+      label: item.label(context),
       selected: selected,
       button: true,
       child: GestureDetector(

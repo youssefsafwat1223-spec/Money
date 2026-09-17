@@ -59,12 +59,26 @@ class RestoreUiState {
     required this.phase,
     this.warnings = const [],
     this.message,
+    this.code,
+    this.args = const [],
     this.operationId,
   });
 
   final RestoreUiPhase phase;
   final List<String> warnings;
+
+  /// The failure in Arabic, for logs and as the fallback when [code] is null.
   final String? message;
+
+  /// What went wrong, independent of language. A controller is a
+  /// ValueNotifier with no BuildContext, so it cannot resolve an ARB string;
+  /// `restoreStateMessage(context, state)` renders this at the screen.
+  final BackupError? code;
+
+  /// Identifiers interpolated into [message] — a table name, a row id. Never
+  /// localized.
+  final List<String> args;
+
   final String? operationId;
 }
 
@@ -110,11 +124,16 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
       );
     } on BackupException catch (e) {
       value = RestoreUiState(
-          phase: RestoreUiPhase.failedWithoutChanges, message: e.message);
+        phase: RestoreUiPhase.failedWithoutChanges,
+        message: e.message,
+        code: e.code,
+        args: e.args,
+      );
     } catch (_) {
       value = const RestoreUiState(
         phase: RestoreUiPhase.failedWithoutChanges,
         message: 'تعذّر تجهيز الاستعادة. تحقّق من الملف وكلمة المرور.',
+        code: BackupError.prepareFailed,
       );
     }
   }
@@ -150,12 +169,17 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
       result = await _mutate(confirmation);
     } on BackupException catch (e) {
       value = RestoreUiState(
-          phase: RestoreUiPhase.failedWithoutChanges, message: e.message);
+        phase: RestoreUiPhase.failedWithoutChanges,
+        message: e.message,
+        code: e.code,
+        args: e.args,
+      );
       return;
     } catch (_) {
       value = const RestoreUiState(
         phase: RestoreUiPhase.failedWithoutChanges,
         message: 'تعذّرت الاستعادة ولم تتغيّر بياناتك الحالية.',
+        code: BackupError.restoreFailedNoChanges,
       );
       return;
     }
@@ -175,6 +199,7 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
         operationId: result.operationId,
         message:
             'اكتملت استعادة البيانات، لكن تعذّر إكمال حماية النسخة الاحتياطية. أعد المحاولة.',
+        code: BackupError.committedPendingBackupState,
       );
       return;
     }
@@ -191,6 +216,7 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
         operationId: result.operationId,
         message:
             'اكتملت الاستعادة لكن تعذّر تجهيز قاعدة البيانات. أعد تشغيل التطبيق.',
+        code: BackupError.restoredButDatabaseNotReady,
       );
       return;
     }
@@ -212,11 +238,13 @@ class RestoreController extends ValueNotifier<RestoreUiState> {
         return const RestoreUiState(
           phase: RestoreUiPhase.recoveryRequired,
           message: 'تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح.',
+          code: BackupError.restoreNeedsDatabaseRepair,
         );
       default:
         return const RestoreUiState(
           phase: RestoreUiPhase.failedWithoutChanges,
           message: 'تعذّرت الاستعادة ولم تتغيّر بياناتك الحالية.',
+          code: BackupError.restoreFailedNoChanges,
         );
     }
   }

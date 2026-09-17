@@ -248,7 +248,8 @@ class EncryptedBackupService implements BackupService {
     final recoveryRaw = await _storage.read(key: _recoveryKey);
     if (keyRaw == null ||
         ((slotsRaw == null || slotsRaw.isEmpty) && saltRaw == null)) {
-      throw const BackupException('النسخ الاحتياطي يحتاج تفعيل جديد.');
+      throw const BackupException('النسخ الاحتياطي يحتاج تفعيل جديد.',
+          code: BackupError.needsReenable);
     }
 
     final keyBytes = base64Decode(keyRaw);
@@ -343,7 +344,7 @@ class EncryptedBackupService implements BackupService {
           ));
       await _storage.write(key: _lastKey, value: now.toIso8601String());
     } on supabase.StorageException catch (error) {
-      throw BackupException(backupStorageExceptionMessage(error));
+      throw backupStorageException(error);
     }
   }
 
@@ -401,6 +402,7 @@ class EncryptedBackupService implements BackupService {
     )) {
       throw const BackupException(
         'تغيّر الحساب أثناء تجهيز الاستعادة. أعد المحاولة.',
+        code: BackupError.accountChangedDuringRestore,
       );
     }
     // MALI-076n §7 — prefer the committed generation, integrity-verified (size +
@@ -458,6 +460,7 @@ class EncryptedBackupService implements BackupService {
       )) {
         throw const BackupException(
           'تغيّر الحساب أثناء تجهيز الاستعادة. أعد المحاولة.',
+          code: BackupError.accountChangedDuringRestore,
         );
       }
       // Stash sensitive decrypt outputs in memory only. The authoritative user id
@@ -473,11 +476,13 @@ class EncryptedBackupService implements BackupService {
       );
       return plan;
     } on BackupEnvelopeException catch (e) {
-      throw BackupException(_envelopeErrorMessage(e.kind));
+      throw _envelopeException(e.kind);
     } on SecretBoxAuthenticationError {
-      throw const BackupException('كلمة مرور النسخة الاحتياطية غير صحيحة.');
+      throw const BackupException('كلمة مرور النسخة الاحتياطية غير صحيحة.',
+          code: BackupError.wrongPassphrase);
     } on FormatException {
-      throw const BackupException('ملف النسخة الاحتياطية غير صالح.');
+      throw const BackupException('ملف النسخة الاحتياطية غير صالح.',
+          code: BackupError.invalidBackupFile);
     }
   }
 
@@ -699,6 +704,7 @@ class EncryptedBackupService implements BackupService {
       if (await _storage.read(key: entry.key) != entry.value) {
         throw const BackupException(
           'تعذّر حفظ حالة النسخ الاحتياطي. أعد المحاولة.',
+          code: BackupError.stateSaveFailed,
         );
       }
     }
@@ -707,19 +713,28 @@ class EncryptedBackupService implements BackupService {
   // Safe, non-leaking user messages for typed envelope failures (MALI-076n §8).
   // A wrong passphrase, tampering, and corruption are cryptographically
   // indistinguishable, so they share one message.
-  static String _envelopeErrorMessage(BackupEnvelopeErrorKind kind) {
+  static BackupException _envelopeException(BackupEnvelopeErrorKind kind) {
     switch (kind) {
       case BackupEnvelopeErrorKind.authenticationFailed:
-        return 'تعذّر فك النسخة الاحتياطية: كلمة المرور غير صحيحة أو الملف تالف.';
+        return const BackupException(
+          'تعذّر فك النسخة الاحتياطية: كلمة المرور غير صحيحة أو الملف تالف.',
+          code: BackupError.decryptFailed,
+        );
       case BackupEnvelopeErrorKind.unsupportedVersion:
       case BackupEnvelopeErrorKind.incompatibleSchema:
-        return 'هذه النسخة الاحتياطية من إصدار غير مدعوم. حدّث التطبيق ثم أعد المحاولة.';
+        return const BackupException(
+          'هذه النسخة الاحتياطية من إصدار غير مدعوم. حدّث التطبيق ثم أعد المحاولة.',
+          code: BackupError.unsupportedEnvelopeVersion,
+        );
       case BackupEnvelopeErrorKind.payloadTooLarge:
       case BackupEnvelopeErrorKind.unsafeKdfParams:
       case BackupEnvelopeErrorKind.unsupportedAlgorithm:
       case BackupEnvelopeErrorKind.malformed:
       case BackupEnvelopeErrorKind.decodeFailed:
-        return 'ملف النسخة الاحتياطية غير صالح.';
+        return const BackupException(
+          'ملف النسخة الاحتياطية غير صالح.',
+          code: BackupError.invalidBackupFile,
+        );
     }
   }
 
@@ -731,7 +746,8 @@ class EncryptedBackupService implements BackupService {
   String _userId() {
     final id = _currentUserId();
     if (id == null) {
-      throw const BackupException('سجّل الدخول أولاً لتفعيل النسخ الاحتياطي.');
+      throw const BackupException('سجّل الدخول أولاً لتفعيل النسخ الاحتياطي.',
+          code: BackupError.signInRequired);
     }
     return id;
   }
@@ -791,13 +807,26 @@ class EncryptedBackupService implements BackupService {
   }
 }
 
-String backupStorageExceptionMessage(supabase.StorageException error) {
+BackupException backupStorageException(supabase.StorageException error) {
   if (error.statusCode == '404' ||
       error.message.toLowerCase().contains('bucket not found')) {
-    return 'إعداد النسخ الاحتياطي غير مكتمل: أنشئ Storage bucket باسم backups في Supabase ثم جرّب تاني.';
+    // «جرّب تاني» was Egyptian colloquial; MSA is «أعد المحاولة».
+    return const BackupException(
+      'إعداد النسخ الاحتياطي غير مكتمل: أنشئ Storage bucket باسم backups '
+      'في Supabase ثم أعد المحاولة.',
+      code: BackupError.bucketMissing,
+    );
   }
-  return 'فشل رفع النسخة الاحتياطية: ${error.message}';
+  return BackupException(
+    'فشل رفع النسخة الاحتياطية: ${error.message}',
+    code: BackupError.uploadFailed,
+    args: [error.message],
+  );
 }
+
+/// Kept for log lines and for callers that genuinely want only the words.
+String backupStorageExceptionMessage(supabase.StorageException error) =>
+    backupStorageException(error).message;
 
 // Transient decrypt state held between prepareRestore and commitRestore. Lives in
 // memory only and is discarded after commit — the key never reaches the UI or disk

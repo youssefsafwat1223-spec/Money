@@ -273,11 +273,17 @@ void main() {
     test('the Reports duplicate route is gone from Settings', () {
       // UX-029's own instruction: "Fixing UX-012 should reduce this list, not
       // duplicate it." UX-012 is fixed — every bottom-nav tab now carries a
-      // text label, «التحليلات» among them.
+      // text label, Analytics among them.
       expect(src.contains("title: 'الرؤى والتقارير'"), isFalse);
       final shell =
           File('lib/features/app/app_shell.dart').readAsStringSync();
-      expect(shell, contains("label: 'التحليلات'"));
+      // The label used to be an Arabic literal in `_items`, which this test
+      // grepped for. It now comes from the ARB, so assert the wiring AND both
+      // languages — an Arabic-only label would have passed the old grep.
+      expect(shell, contains('l.navAnalytics'));
+      expect(arAr['navAnalytics'], 'التحليلات');
+      expect(enAr['navAnalytics'], isA<String>());
+      expect(enAr['navAnalytics'], isNot(arAr['navAnalytics']));
     });
 
     test('the ten-entry hub is split into destinations and configuration', () {

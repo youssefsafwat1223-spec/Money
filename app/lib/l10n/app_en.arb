@@ -2736,5 +2736,102 @@
   "authGoogleTokenUnreadable": "We could not read the Google sign-in token.",
   "authAppleCancelled": "Apple sign-in was cancelled.",
   "authAppleFailed": "Apple sign-in failed.",
-  "authAppleTokenUnreadable": "We could not read the Apple sign-in token."
+  "authAppleTokenUnreadable": "We could not read the Apple sign-in token.",
+  "navHome": "Home",
+  "navTransactions": "Transactions",
+  "navBudgets": "Budgets",
+  "navMore": "More",
+  "navAnalytics": "Analytics",
+  "navExpandBar": "Open the navigation bar — {tab}",
+  "@navExpandBar": {
+    "placeholders": {
+      "tab": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeNoLocalBackup": "There is no backup on this device.",
+  "bkeNeedsReenable": "Backup needs to be set up again.",
+  "bkeSignInRequired": "Sign in first to turn on backup.",
+  "bkeStateSaveFailed": "Could not save the backup state. Please try again.",
+  "bkeBucketMissing": "Backup is not fully set up: create a Storage bucket named backups in Supabase, then try again.",
+  "bkeUploadFailed": "Uploading the backup failed: {value}",
+  "@bkeUploadFailed": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeWrongPassphrase": "That backup passphrase is not correct.",
+  "bkeInvalidBackupFile": "That backup file is not valid.",
+  "bkeDecryptFailed": "Could not open the backup: the passphrase is wrong, or the file is damaged.",
+  "bkeUnsupportedEnvelopeVersion": "This backup comes from an unsupported version. Update Qirsh and try again.",
+  "bkeBackupFromNewerApp": "This backup comes from a newer version of the app. Update Qirsh and try again.",
+  "bkeUnsupportedBackupVersion": "This backup comes from an unsupported version ({value}). Update Qirsh.",
+  "@bkeUnsupportedBackupVersion": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeBackupCorrupt": "The backup is damaged or incomplete. Nothing was restored.",
+  "bkeTableCorrupt": "The backup is damaged at the “{value}” table. Nothing was restored.",
+  "@bkeTableCorrupt": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeRequiredTableMissing": "The backup is incomplete — the “{value}” table is missing. Nothing was restored.",
+  "@bkeRequiredTableMissing": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeUnsupportedTable": "The backup contains an unsupported table, “{value}”. Nothing was restored.",
+  "@bkeUnsupportedTable": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeUnexpectedSensitiveField": "The backup contains an unexpected sensitive field, “{value}”. Nothing was restored.",
+  "@bkeUnexpectedSensitiveField": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeInvalidMoneyValue": "Restore stopped: invalid money value “{value}”.",
+  "@bkeInvalidMoneyValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeAccountChanged": "The account changed while the restore was being prepared. Please try again.",
+  "bkeRelationalIntegrity": "Restore stopped: the backup breaks the links between your records.",
+  "bkePlanningInconsistent": "Restore stopped: your planning data was inconsistent afterwards.",
+  "bkeForeignKeys": "Could not re-enable the relationship checks after the restore.",
+  "bkeOrphanGoalContribution": "Restore stopped: a goal contribution has no goal (“{value}”).",
+  "@bkeOrphanGoalContribution": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkePrepareFailed": "Could not prepare the restore. Check the file and the passphrase.",
+  "bkeRestoreFailedNoChanges": "The restore failed, and your current data is unchanged.",
+  "bkeCommittedPendingBackupState": "Your data was restored, but finishing the backup protection failed. Please try again.",
+  "bkeRestoredDbNotReady": "The restore finished, but the database could not be prepared. Restart Qirsh.",
+  "bkeNeedsDatabaseRepair": "The restore failed and the database needs repair."
 }

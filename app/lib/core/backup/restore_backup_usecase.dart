@@ -108,6 +108,7 @@ class RestoreBackupUseCase {
       throw const BackupException(
         'هذه النسخة الاحتياطية من إصدار أحدث من التطبيق. حدّث التطبيق ثم '
         'أعد المحاولة.',
+        code: BackupError.backupFromNewerApp,
       );
     }
     // Validate the WHOLE payload BEFORE any destructive DELETE runs, so a
@@ -182,6 +183,7 @@ class RestoreBackupUseCase {
           throw const BackupException(
             'تعذّرت الاستعادة: النسخة الاحتياطية تنتهك سلامة العلاقات بين '
             'البيانات.',
+            code: BackupError.relationalIntegrityViolated,
           );
         }
         // MALI-026 (B8-3 §26/§7 continuation) — when a RESTORE_PAYLOAD-scoped
@@ -216,6 +218,7 @@ class RestoreBackupUseCase {
             planningViolations.isNotEmpty) {
           throw const BackupException(
             'تعذّرت الاستعادة: بيانات التخطيط غير متسقة بعد الاستعادة.',
+            code: BackupError.planningInconsistent,
           );
         }
         await _db.customStatement(
@@ -266,6 +269,7 @@ class RestoreBackupUseCase {
       if (fkEnabled != 1) {
         throw const BackupException(
           'تعذّر إعادة تفعيل قيود العلاقات بعد الاستعادة.',
+          code: BackupError.foreignKeysNotReenabled,
         );
       }
     } catch (_) {
@@ -336,6 +340,8 @@ class RestoreBackupUseCase {
       if (cur == null) {
         throw BackupException(
           'تعذّرت الاستعادة: مساهمة هدف يتيمة (${c.read<String>('id')}).',
+          code: BackupError.orphanGoalContribution,
+          args: [c.read<String>('id')],
         );
       }
       await _db.customStatement(
@@ -530,6 +536,7 @@ class RestoreBackupUseCase {
     if (rawTables is! Map<String, dynamic>) {
       throw const BackupException(
         'النسخة الاحتياطية تالفة أو غير مكتملة. تعذّرت الاستعادة.',
+        code: BackupError.backupCorrupt,
       );
     }
     // Every present table must be a list of row-maps.
@@ -538,6 +545,8 @@ class RestoreBackupUseCase {
       if (value is! List) {
         throw BackupException(
           'النسخة الاحتياطية تالفة عند الجدول "${entry.key}". تعذّرت الاستعادة.',
+          code: BackupError.tableCorrupt,
+          args: [entry.key],
         );
       }
       for (final row in value) {
@@ -545,6 +554,8 @@ class RestoreBackupUseCase {
           throw BackupException(
             'النسخة الاحتياطية تالفة عند الجدول "${entry.key}". '
             'تعذّرت الاستعادة.',
+            code: BackupError.tableCorrupt,
+            args: [entry.key],
           );
         }
         // MALI-058n §4/§6 — fail CLOSED on an unexpected key/secret-like field
@@ -562,6 +573,8 @@ class RestoreBackupUseCase {
             throw BackupException(
               'النسخة الاحتياطية تحتوي على حقل حسّاس غير متوقع '
               '("${entry.key}"). تعذّرت الاستعادة.',
+              code: BackupError.unexpectedSensitiveField,
+              args: [entry.key],
             );
           }
         }
@@ -580,6 +593,8 @@ class RestoreBackupUseCase {
           throw BackupException(
             'النسخة الاحتياطية تالفة أو غير مكتملة (جدول "$table" مفقود). '
             'تعذّرت الاستعادة.',
+            code: BackupError.requiredTableMissing,
+            args: [table],
           );
         }
       }
@@ -611,6 +626,8 @@ class RestoreBackupUseCase {
           throw BackupException(
             'النسخة الاحتياطية غير مكتملة (جدول "$table" مفقود). '
             'تعذّرت الاستعادة.',
+            code: BackupError.requiredTableMissing,
+            args: [table],
           );
         }
       }
@@ -655,6 +672,8 @@ class RestoreBackupUseCase {
         if (parsed == null) {
           throw BackupException(
             'تعذّرت الاستعادة: قيمة نقدية غير صالحة ("$key").',
+            code: BackupError.invalidMoneyValue,
+            args: [key],
           );
         }
         data[key] = parsed;
@@ -679,6 +698,8 @@ class RestoreBackupUseCase {
       // SQL from arbitrary identifiers rather than trust the snapshot.
       throw BackupException(
         'تعذّرت الاستعادة: جدول غير مدعوم ("$table").',
+        code: BackupError.unsupportedTable,
+        args: [table],
       );
     }
     final restorable = <String>{

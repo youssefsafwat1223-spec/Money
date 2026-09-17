@@ -31,6 +31,7 @@ import 'transactions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
+import '../capture/services/local_notification_service.dart';
 
 class ManualTransactionSheet extends ConsumerStatefulWidget {
   const ManualTransactionSheet({
@@ -206,6 +207,7 @@ class _ManualTransactionSheetState
       await CapturedMessageProcessor.checkBudgetAlert(
         ref.read(appDatabaseProvider),
         prefs,
+        lang: LocalNotificationService.instance.notificationLanguage,
       );
       if (!mounted) return;
       Navigator.of(context).pop();

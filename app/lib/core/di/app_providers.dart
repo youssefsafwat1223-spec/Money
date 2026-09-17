@@ -1394,6 +1394,7 @@ final addGoalContributionUseCaseProvider =
         goal: goal,
         beforeProgress: beforeProgress,
         afterProgress: afterProgress,
+        lang: LocalNotificationService.instance.notificationLanguage,
       );
       if (notification == null) return;
       await LocalNotificationService.instance.showGoalMilestoneNotification(

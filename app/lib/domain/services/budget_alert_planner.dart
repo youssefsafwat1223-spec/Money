@@ -51,12 +51,18 @@ class BudgetAlertPlanner {
   /// drop it again and reproduce the finding; making it required-and-nullable
   /// forces the caller to state that it genuinely does not know, which happens
   /// only when there is no account at all.
+  ///
+  /// [lang] is the reader's language, read from the settings row by the caller.
+  /// This runs in a background isolate with no BuildContext, so it follows the
+  /// same contract as every other notification builder: the words are chosen
+  /// here from a language code, not resolved from an ARB at a widget.
   BudgetAlertContent? plan({
     required BudgetProgressEntry entry,
     required DateTime now,
     required String currencyLabel,
     required String categoryLabel,
     required String? accountLabel,
+    String lang = 'ar',
   }) {
     final ratio = entry.ratio;
     final bucket = ratio >= 1.0
@@ -99,26 +105,54 @@ class BudgetAlertPlanner {
     // Naming the budget's own account and the crossed threshold removes that
     // reading: the alert now describes a state of a named budget rather than
     // an unattributed reaction to a recent event.
-    final scope =
-        accountLabel == null ? categoryLabel : '$categoryLabel في $accountLabel';
+    final en = lang == 'en';
+    final scope = accountLabel == null
+        ? categoryLabel
+        : en
+            ? '$categoryLabel in $accountLabel'
+            : '$categoryLabel في $accountLabel';
 
     final String title;
     final String body;
     if (bucket == 3) {
-      title = 'تجاوزت $categoryLabel';
-      body = 'ميزانية $scope وصلت ١٠٠٪ من حدّها — '
-          'صرفت ${fmt(entry.spent - budget.amountMoney)} $currencyLabel زيادة عنها.';
+      final over = fmt(entry.spent - budget.amountMoney);
+      title = en ? 'You went over $categoryLabel' : 'تجاوزت $categoryLabel';
+      body = en
+          ? 'The $scope budget reached 100% of its limit — '
+              'you spent $over $currencyLabel over it.'
+          : 'ميزانية $scope بلغت ١٠٠٪ من حدّها — '
+              'أنفقت $over $currencyLabel زيادة عنها.';
     } else if (bucket == 2) {
-      title = '$categoryLabel على وشك الاكتمال';
-      body = 'ميزانية $scope عدّت ٩٠٪ — بقيلك ${fmt(remaining)} $currencyLabel '
-          'فقط، ومعدلك الحالي سيستهلكها في $daysRemaining يوم.';
+      final left = fmt(remaining);
+      title = en
+          ? '$categoryLabel is almost used up'
+          : '$categoryLabel على وشك الاكتمال';
+      body = en
+          ? 'The $scope budget reached 90% — only $left $currencyLabel left, '
+              'and at your current rate it runs out in '
+              '${_enDays(daysRemaining)}.'
+          : 'ميزانية $scope بلغت ٩٠٪ — تبقّى لك $left $currencyLabel '
+              'فقط، ومعدّلك الحالي سيستهلكها خلال ${_arDays(daysRemaining)}.';
     } else {
-      title = 'وصلت ٧٥٪ من $categoryLabel';
-      body = projected.compareTo(budget.amountMoney) > 0
-          ? 'ميزانية $scope عدّت ٧٥٪ — بقيلك ${fmt(remaining)} $currencyLabel. '
-              'إذا استمر معدلك قد تتجاوز الميزانية بـ${fmt(projected - budget.amountMoney)} $currencyLabel.'
-          : 'ميزانية $scope عدّت ٧٥٪ — بقيلك ${fmt(remaining)} $currencyLabel '
-              'حتى نهاية الفترة.';
+      final left = fmt(remaining);
+      title = en
+          ? '$categoryLabel has reached 75%'
+          : 'وصلت ٧٥٪ من $categoryLabel';
+      if (projected.compareTo(budget.amountMoney) > 0) {
+        final overBy = fmt(projected - budget.amountMoney);
+        body = en
+            ? 'The $scope budget reached 75% — $left $currencyLabel left. '
+                'At your current rate you may go over by '
+                '$overBy $currencyLabel.'
+            : 'ميزانية $scope بلغت ٧٥٪ — تبقّى لك $left $currencyLabel. '
+                'إذا استمرّ معدّلك فقد تتجاوز الميزانية بـ$overBy $currencyLabel.';
+      } else {
+        body = en
+            ? 'The $scope budget reached 75% — $left $currencyLabel left '
+                'for the rest of the period.'
+            : 'ميزانية $scope بلغت ٧٥٪ — تبقّى لك $left $currencyLabel '
+                'حتى نهاية الفترة.';
+      }
     }
 
     final type = bucket == 3
@@ -133,3 +167,17 @@ class BudgetAlertPlanner {
     );
   }
 }
+
+/// Arabic counts days with five categories; a bare "$n يوم" is wrong for every
+/// value except 1 and is the kind of agreement error the MSA guard exists to
+/// catch. `ar.arb` handles this with an ICU plural, but this builder has no
+/// ARB, so the same five categories are spelled out here.
+String _arDays(int n) => switch (n) {
+      0 => 'أقل من يوم',
+      1 => 'يوم واحد',
+      2 => 'يومين',
+      >= 3 && <= 10 => '$n أيام',
+      _ => '$n يومًا',
+    };
+
+String _enDays(int n) => n == 1 ? '1 day' : '$n days';

@@ -9024,6 +9024,210 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'لم نستطع قراءة رمز دخول Apple.'**
   String get authAppleTokenUnreadable;
+
+  /// No description provided for @navHome.
+  ///
+  /// In ar, this message translates to:
+  /// **'الرئيسية'**
+  String get navHome;
+
+  /// No description provided for @navTransactions.
+  ///
+  /// In ar, this message translates to:
+  /// **'العمليات'**
+  String get navTransactions;
+
+  /// No description provided for @navBudgets.
+  ///
+  /// In ar, this message translates to:
+  /// **'الميزانيات'**
+  String get navBudgets;
+
+  /// No description provided for @navMore.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزيد'**
+  String get navMore;
+
+  /// No description provided for @navAnalytics.
+  ///
+  /// In ar, this message translates to:
+  /// **'التحليلات'**
+  String get navAnalytics;
+
+  /// No description provided for @navExpandBar.
+  ///
+  /// In ar, this message translates to:
+  /// **'فتح شريط التنقل — {tab}'**
+  String navExpandBar(String tab);
+
+  /// No description provided for @bkeNoLocalBackup.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد نسخة احتياطية على هذا الجهاز.'**
+  String get bkeNoLocalBackup;
+
+  /// No description provided for @bkeNeedsReenable.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخ الاحتياطي يحتاج تفعيلًا جديدًا.'**
+  String get bkeNeedsReenable;
+
+  /// No description provided for @bkeSignInRequired.
+  ///
+  /// In ar, this message translates to:
+  /// **'سجّل الدخول أولًا لتفعيل النسخ الاحتياطي.'**
+  String get bkeSignInRequired;
+
+  /// No description provided for @bkeStateSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حفظ حالة النسخ الاحتياطي. أعد المحاولة.'**
+  String get bkeStateSaveFailed;
+
+  /// No description provided for @bkeBucketMissing.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعداد النسخ الاحتياطي غير مكتمل: أنشئ Storage bucket باسم backups في Supabase ثم أعد المحاولة.'**
+  String get bkeBucketMissing;
+
+  /// No description provided for @bkeUploadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل رفع النسخة الاحتياطية: {value}'**
+  String bkeUploadFailed(String value);
+
+  /// No description provided for @bkeWrongPassphrase.
+  ///
+  /// In ar, this message translates to:
+  /// **'كلمة مرور النسخة الاحتياطية غير صحيحة.'**
+  String get bkeWrongPassphrase;
+
+  /// No description provided for @bkeInvalidBackupFile.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف النسخة الاحتياطية غير صالح.'**
+  String get bkeInvalidBackupFile;
+
+  /// No description provided for @bkeDecryptFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر فك النسخة الاحتياطية: كلمة المرور غير صحيحة أو الملف تالف.'**
+  String get bkeDecryptFailed;
+
+  /// No description provided for @bkeUnsupportedEnvelopeVersion.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه النسخة الاحتياطية من إصدار غير مدعوم. حدّث التطبيق ثم أعد المحاولة.'**
+  String get bkeUnsupportedEnvelopeVersion;
+
+  /// No description provided for @bkeBackupFromNewerApp.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه النسخة الاحتياطية من إصدار أحدث من التطبيق. حدّث التطبيق ثم أعد المحاولة.'**
+  String get bkeBackupFromNewerApp;
+
+  /// No description provided for @bkeUnsupportedBackupVersion.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه النسخة الاحتياطية من إصدار غير مدعوم ({value}). حدّث التطبيق.'**
+  String bkeUnsupportedBackupVersion(String value);
+
+  /// No description provided for @bkeBackupCorrupt.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخة الاحتياطية تالفة أو غير مكتملة. تعذّرت الاستعادة.'**
+  String get bkeBackupCorrupt;
+
+  /// No description provided for @bkeTableCorrupt.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخة الاحتياطية تالفة عند الجدول «{value}». تعذّرت الاستعادة.'**
+  String bkeTableCorrupt(String value);
+
+  /// No description provided for @bkeRequiredTableMissing.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخة الاحتياطية غير مكتملة — الجدول «{value}» مفقود. تعذّرت الاستعادة.'**
+  String bkeRequiredTableMissing(String value);
+
+  /// No description provided for @bkeUnsupportedTable.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخة الاحتياطية تحتوي على جدول غير مدعوم «{value}». تعذّرت الاستعادة.'**
+  String bkeUnsupportedTable(String value);
+
+  /// No description provided for @bkeUnexpectedSensitiveField.
+  ///
+  /// In ar, this message translates to:
+  /// **'النسخة الاحتياطية تحتوي على حقل حسّاس غير متوقع «{value}». تعذّرت الاستعادة.'**
+  String bkeUnexpectedSensitiveField(String value);
+
+  /// No description provided for @bkeInvalidMoneyValue.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت الاستعادة: قيمة نقدية غير صالحة «{value}».'**
+  String bkeInvalidMoneyValue(String value);
+
+  /// No description provided for @bkeAccountChanged.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيّر الحساب أثناء تجهيز الاستعادة. أعد المحاولة.'**
+  String get bkeAccountChanged;
+
+  /// No description provided for @bkeRelationalIntegrity.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت الاستعادة: النسخة الاحتياطية تنتهك سلامة العلاقات بين البيانات.'**
+  String get bkeRelationalIntegrity;
+
+  /// No description provided for @bkePlanningInconsistent.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت الاستعادة: بيانات التخطيط غير متسقة بعد الاستعادة.'**
+  String get bkePlanningInconsistent;
+
+  /// No description provided for @bkeForeignKeys.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر إعادة تفعيل قيود العلاقات بعد الاستعادة.'**
+  String get bkeForeignKeys;
+
+  /// No description provided for @bkeOrphanGoalContribution.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت الاستعادة: مساهمة هدف يتيمة «{value}».'**
+  String bkeOrphanGoalContribution(String value);
+
+  /// No description provided for @bkePrepareFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تجهيز الاستعادة. تحقّق من الملف وكلمة المرور.'**
+  String get bkePrepareFailed;
+
+  /// No description provided for @bkeRestoreFailedNoChanges.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت الاستعادة ولم تتغيّر بياناتك الحالية.'**
+  String get bkeRestoreFailedNoChanges;
+
+  /// No description provided for @bkeCommittedPendingBackupState.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتملت استعادة البيانات، لكن تعذّر إكمال حماية النسخة الاحتياطية. أعد المحاولة.'**
+  String get bkeCommittedPendingBackupState;
+
+  /// No description provided for @bkeRestoredDbNotReady.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتملت الاستعادة لكن تعذّر تجهيز قاعدة البيانات. أعد تشغيل التطبيق.'**
+  String get bkeRestoredDbNotReady;
+
+  /// No description provided for @bkeNeedsDatabaseRepair.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح.'**
+  String get bkeNeedsDatabaseRepair;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -92,6 +92,8 @@ class RestoreCompatibility {
     if (adapter == null) {
       throw BackupException(
         'هذه النسخة الاحتياطية من إصدار غير مدعوم ($version). حدّث التطبيق.',
+        code: BackupError.unsupportedBackupVersion,
+        args: ['$version'],
       );
     }
     return adapter;
@@ -109,6 +111,8 @@ class RestoreCompatibility {
     if (!isSupported(schemaVersion)) {
       throw BackupException(
         'هذه النسخة الاحتياطية من إصدار غير مدعوم ($schemaVersion). حدّث التطبيق.',
+        code: BackupError.unsupportedBackupVersion,
+        args: ['$schemaVersion'],
       );
     }
     final adapter = adapterFor(schemaVersion);
@@ -118,6 +122,8 @@ class RestoreCompatibility {
         throw BackupException(
           'النسخة الاحتياطية تالفة أو غير مكتملة (جدول "$table" مفقود). '
           'تعذّرت الاستعادة.',
+          code: BackupError.requiredTableMissing,
+          args: [table],
         );
       }
     }

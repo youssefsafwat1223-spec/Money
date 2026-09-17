@@ -2852,5 +2852,102 @@
   "authGoogleTokenUnreadable": "لم نستطع قراءة رمز دخول جوجل.",
   "authAppleCancelled": "تم إلغاء تسجيل الدخول بـ Apple.",
   "authAppleFailed": "تعذّر تسجيل الدخول بـ Apple.",
-  "authAppleTokenUnreadable": "لم نستطع قراءة رمز دخول Apple."
+  "authAppleTokenUnreadable": "لم نستطع قراءة رمز دخول Apple.",
+  "navHome": "الرئيسية",
+  "navTransactions": "العمليات",
+  "navBudgets": "الميزانيات",
+  "navMore": "المزيد",
+  "navAnalytics": "التحليلات",
+  "navExpandBar": "فتح شريط التنقل — {tab}",
+  "@navExpandBar": {
+    "placeholders": {
+      "tab": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeNoLocalBackup": "لا توجد نسخة احتياطية على هذا الجهاز.",
+  "bkeNeedsReenable": "النسخ الاحتياطي يحتاج تفعيلًا جديدًا.",
+  "bkeSignInRequired": "سجّل الدخول أولًا لتفعيل النسخ الاحتياطي.",
+  "bkeStateSaveFailed": "تعذّر حفظ حالة النسخ الاحتياطي. أعد المحاولة.",
+  "bkeBucketMissing": "إعداد النسخ الاحتياطي غير مكتمل: أنشئ Storage bucket باسم backups في Supabase ثم أعد المحاولة.",
+  "bkeUploadFailed": "فشل رفع النسخة الاحتياطية: {value}",
+  "@bkeUploadFailed": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeWrongPassphrase": "كلمة مرور النسخة الاحتياطية غير صحيحة.",
+  "bkeInvalidBackupFile": "ملف النسخة الاحتياطية غير صالح.",
+  "bkeDecryptFailed": "تعذّر فك النسخة الاحتياطية: كلمة المرور غير صحيحة أو الملف تالف.",
+  "bkeUnsupportedEnvelopeVersion": "هذه النسخة الاحتياطية من إصدار غير مدعوم. حدّث التطبيق ثم أعد المحاولة.",
+  "bkeBackupFromNewerApp": "هذه النسخة الاحتياطية من إصدار أحدث من التطبيق. حدّث التطبيق ثم أعد المحاولة.",
+  "bkeUnsupportedBackupVersion": "هذه النسخة الاحتياطية من إصدار غير مدعوم ({value}). حدّث التطبيق.",
+  "@bkeUnsupportedBackupVersion": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeBackupCorrupt": "النسخة الاحتياطية تالفة أو غير مكتملة. تعذّرت الاستعادة.",
+  "bkeTableCorrupt": "النسخة الاحتياطية تالفة عند الجدول «{value}». تعذّرت الاستعادة.",
+  "@bkeTableCorrupt": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeRequiredTableMissing": "النسخة الاحتياطية غير مكتملة — الجدول «{value}» مفقود. تعذّرت الاستعادة.",
+  "@bkeRequiredTableMissing": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeUnsupportedTable": "النسخة الاحتياطية تحتوي على جدول غير مدعوم «{value}». تعذّرت الاستعادة.",
+  "@bkeUnsupportedTable": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeUnexpectedSensitiveField": "النسخة الاحتياطية تحتوي على حقل حسّاس غير متوقع «{value}». تعذّرت الاستعادة.",
+  "@bkeUnexpectedSensitiveField": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeInvalidMoneyValue": "تعذّرت الاستعادة: قيمة نقدية غير صالحة «{value}».",
+  "@bkeInvalidMoneyValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkeAccountChanged": "تغيّر الحساب أثناء تجهيز الاستعادة. أعد المحاولة.",
+  "bkeRelationalIntegrity": "تعذّرت الاستعادة: النسخة الاحتياطية تنتهك سلامة العلاقات بين البيانات.",
+  "bkePlanningInconsistent": "تعذّرت الاستعادة: بيانات التخطيط غير متسقة بعد الاستعادة.",
+  "bkeForeignKeys": "تعذّر إعادة تفعيل قيود العلاقات بعد الاستعادة.",
+  "bkeOrphanGoalContribution": "تعذّرت الاستعادة: مساهمة هدف يتيمة «{value}».",
+  "@bkeOrphanGoalContribution": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "bkePrepareFailed": "تعذّر تجهيز الاستعادة. تحقّق من الملف وكلمة المرور.",
+  "bkeRestoreFailedNoChanges": "تعذّرت الاستعادة ولم تتغيّر بياناتك الحالية.",
+  "bkeCommittedPendingBackupState": "اكتملت استعادة البيانات، لكن تعذّر إكمال حماية النسخة الاحتياطية. أعد المحاولة.",
+  "bkeRestoredDbNotReady": "اكتملت الاستعادة لكن تعذّر تجهيز قاعدة البيانات. أعد تشغيل التطبيق.",
+  "bkeNeedsDatabaseRepair": "تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح."
 }

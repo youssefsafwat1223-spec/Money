@@ -42,6 +42,7 @@ import '../../../domain/usecases/resolve_bank_for_sender_usecase.dart';
 import '../../../domain/usecases/user_settings_usecases.dart';
 import '../../../engine/ai/ai_parser_client.dart';
 import '../../../engine/ai/bank_discovery_client.dart';
+import '../../../engine/categorization/category.dart';
 import 'capture_notification_content.dart';
 import 'local_notification_service.dart';
 
@@ -275,7 +276,8 @@ class CapturedMessageProcessor {
 
       if (showNotifications &&
           result.addTransactionResult.outcome == AddTransactionOutcome.added) {
-        await checkBudgetAlert(db, notificationPreferences);
+        await checkBudgetAlert(db, notificationPreferences,
+            lang: notificationLanguage);
       }
 
       // Points 4/5 — re-validate before the native acknowledgement / any
@@ -324,10 +326,12 @@ class CapturedMessageProcessor {
               stableId: result.notificationStableId,
             );
           case CapturedMessageDisposition.unprocessable:
+            final unsupported =
+                buildUnsupportedCaptureContent(lang: notificationLanguage);
             await LocalNotificationService.instance
                 .showLightCaptureNotification(
-              title: 'رسالة لم نتمكن من تحليلها',
-              body: 'افتح قرش والصق الرسالة يدوياً للإضافة.',
+              title: unsupported.title,
+              body: unsupported.body,
               preferences: notificationPreferences,
               stableId: result.notificationStableId,
             );
@@ -379,10 +383,13 @@ class CapturedMessageProcessor {
     }
   }
 
+  /// [lang] is the reader's language. Defaulting it keeps the three existing
+  /// call sites compiling, and each one passes the settings row's value.
   static Future<void> checkBudgetAlert(
     AppDatabase db,
-    NotificationPreferences prefs,
-  ) async {
+    NotificationPreferences prefs, {
+    String lang = 'ar',
+  }) async {
     final progress = await BudgetProgressUseCase(
       budgetRepository: DriftBudgetRepository(db),
       transactionRepository: DriftTransactionRepository(db),
@@ -399,13 +406,14 @@ class CapturedMessageProcessor {
       final account = budgetAccountId == null
           ? defaultAccount
           : await accountRepo.getById(budgetAccountId);
-      final currencyLabel = Currency.arabicLabel(
+      final currencyLabel = Currency.labelFor(
         account?.currency ?? defaultAccount?.currency ?? '',
+        lang,
       );
       final categoryLabel = entry.budget.isAllExpenses
-          ? 'ميزانيتك الكلية'
-          : await _categoryNameAr(db, entry.budget.categoryId) ??
-              'ميزانية الفئة';
+          ? (lang == 'en' ? 'your overall' : 'ميزانيتك الكلية')
+          : await _categoryName(db, entry.budget.categoryId, lang) ??
+              (lang == 'en' ? 'the category' : 'ميزانية الفئة');
 
       final content = planner.plan(
         entry: entry,
@@ -415,6 +423,7 @@ class CapturedMessageProcessor {
         // UX-037 — the account was already resolved right here and never
         // reached the notification text.
         accountLabel: account?.name ?? defaultAccount?.name,
+        lang: lang,
       );
       if (content == null) continue;
 
@@ -428,14 +437,27 @@ class CapturedMessageProcessor {
     }
   }
 
-  static Future<String?> _categoryNameAr(
+  /// The category's name in [lang].
+  ///
+  /// The local `categories` table has no `name_en` column — English names live
+  /// only in the seeded [Categories] catalog, keyed by the stable `key`. This
+  /// is the same resolution `CategoryView.name` does for the UI; a user-created
+  /// category has one name, the one they typed, and keeps it.
+  static Future<String?> _categoryName(
     AppDatabase db,
     String categoryId,
+    String lang,
   ) async {
     final rows = await db.customSelect(
-      'SELECT name_ar FROM categories WHERE id = ? LIMIT 1;',
+      'SELECT key, name_ar FROM categories WHERE id = ? LIMIT 1;',
       variables: [Variable.withString(categoryId)],
     ).get();
-    return rows.firstOrNull?.read<String>('name_ar');
+    final row = rows.firstOrNull;
+    if (row == null) return null;
+    final nameAr = row.read<String>('name_ar');
+    if (lang != 'en') return nameAr;
+    final key = row.read<String>('key');
+    final known = Categories.all.where((c) => c.key == key);
+    return known.isEmpty ? nameAr : known.first.enName;
   }
 }
