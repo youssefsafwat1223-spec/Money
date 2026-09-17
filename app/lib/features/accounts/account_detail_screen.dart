@@ -12,6 +12,7 @@ import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/card_entity.dart';
 import '../cards/bank_mark.dart';
 import '../cards/card_form_sheet.dart';
+import '../cards/card_network_label.dart';
 import '../cards/card_network_badge.dart';
 import '../cards/cards_providers.dart';
 import '../common/app_header.dart';
@@ -199,7 +200,9 @@ class _ManagedCardRow extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     final title =
-        card.nickname?.isNotEmpty == true ? card.nickname! : card.network.label;
+        card.nickname?.isNotEmpty == true
+            ? card.nickname!
+            : cardNetworkLabel(context, card.network);
     return InkWell(
       borderRadius: BorderRadius.circular(AppRadius.card),
       onTap: () => context.push('/card/${card.last4}'),

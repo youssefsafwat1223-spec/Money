@@ -6,14 +6,11 @@ enum CardNetwork {
   amex,
   unknown;
 
-  /// تسمية للعرض.
-  String get label => switch (this) {
-        CardNetwork.mada => 'مدى',
-        CardNetwork.visa => 'Visa',
-        CardNetwork.mastercard => 'Mastercard',
-        CardNetwork.amex => 'Amex',
-        CardNetwork.unknown => 'بطاقة',
-      };
+  // No `label` getter here on purpose. This file is pure Dart with no
+  // BuildContext, so any display name it returned would be in ONE language —
+  // and it returned Arabic, which reached English readers through the card
+  // form's Network dropdown and the account-detail card row. The localized
+  // name lives in `features/cards/card_network_label.dart`.
 }
 
 /// يكتشف شبكة البطاقة من نص الرسالة (Dart نقي، قابل للاختبار).

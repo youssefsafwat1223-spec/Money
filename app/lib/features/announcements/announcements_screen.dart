@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'announcement_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -337,7 +339,9 @@ class _MessageItem {
         _ => c.cta,
       },
       url: announcement.actionUrl,
-      actionLabel: announcement.actionLabelAr,
+      // Was `announcement.actionLabelAr`, one line below two that chose by
+      // locale correctly.
+      actionLabel: announcement.actionLabelFor(context),
       dismissible: announcement.isDismissible,
     );
   }

@@ -4138,6 +4138,9 @@ class AppL10nAr extends AppL10n {
   String get cfNetwork => 'الشبكة';
 
   @override
+  String get cardNetworkGeneric => 'بطاقة';
+
+  @override
   String get cfDesign => 'التصميم';
 
   @override

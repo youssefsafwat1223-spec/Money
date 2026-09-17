@@ -8,6 +8,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../announcements/announcement_text.dart';
 
 class ForceUpdateScreen extends ConsumerWidget {
   const ForceUpdateScreen({super.key});
@@ -23,11 +24,14 @@ class ForceUpdateScreen extends ConsumerWidget {
         ?.where((a) => a.isForceUpdate)
         .firstOrNull;
 
-    final titleText = announcement?.titleAr ?? context.l10n.fuTitle;
-    final bodyText =
-        announcement?.bodyAr ?? context.l10n.fuBody;
+    // The announcement's own language, not always Arabic. This screen blocks
+    // the whole app, so an English reader who could not read it had no way
+    // forward at all.
+    final titleText = announcement?.titleFor(context) ?? context.l10n.fuTitle;
+    final bodyText = announcement?.bodyFor(context) ?? context.l10n.fuBody;
     final actionUrl = announcement?.actionUrl ?? _appStoreUrl;
-    final actionLabel = announcement?.actionLabelAr ?? context.l10n.fuNow;
+    final actionLabel =
+        announcement?.actionLabelFor(context) ?? context.l10n.fuNow;
 
     return Scaffold(
       backgroundColor: c.bg,

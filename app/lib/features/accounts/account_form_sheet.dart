@@ -517,7 +517,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
                 for (final code in currencies)
                   DropdownMenuItem(
                     value: code,
-                    child: Text('$code — ${Currency.label(context, code)}'),
+                    child: Text(Currency.codeWithLabel(context, code)),
                   ),
               ],
               onChanged: _busy || currencyLocked

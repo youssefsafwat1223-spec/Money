@@ -2245,7 +2245,7 @@ class _TrustNoticeTile extends StatelessWidget {
             child: Text(
               text,
               style: AppTypography.caption(c.textLight).copyWith(height: 1.45),
-              textAlign: TextAlign.right,
+              textAlign: TextAlign.start,
             ),
           ),
         ],

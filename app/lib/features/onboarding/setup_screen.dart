@@ -410,24 +410,37 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
           ),
         ],
       ),
+      // A pill this screen owns, rather than a themed ChoiceChip.
+      //
+      // The chips rendered as SOLID WHITE pills carrying WHITE labels —
+      // measured on the capture, rgb(255,255,255) against an rgb(8,26,116)
+      // page. A new user could read exactly one country, the one already
+      // selected, in BOTH languages, on the mandatory first-run step.
+      //
+      // Three attempts failed to move it: per-chip `backgroundColor`, per-chip
+      // `color` (the M3 state property), and an ancestor `ChipTheme`. Each of
+      // them resolves correctly in a widget test — pumping the REAL screen and
+      // reading the chips' `Ink` reports `white @ 10%` — and each still landed
+      // white on the device. The `Ink` is not the whole story: the chip's own
+      // `Material` falls back to the theme's canvas colour and paints it inside
+      // the pill shape, underneath. On a screen that paints its own navy over a
+      // LIGHT theme, that fallback is white, and no property on the chip
+      // reaches it.
+      //
+      // So the pill is drawn here instead: a transparent Material, an explicit
+      // decoration, and nothing left to inherit. Same shape, same spacing, same
+      // selected treatment — and `country_chip_contrast_test` now measures the
+      // composite rather than trusting a property.
       control: Wrap(
         alignment: WrapAlignment.center,
         spacing: 8,
         runSpacing: 8,
         children: [
           for (final choice in _countriesIn(context))
-            ChoiceChip(
-              label: Text('${choice.flag} ${choice.name} · ${choice.currency}'),
+            _CountryPill(
+              choice: choice,
               selected: _countryCode == choice.code,
-              selectedColor: _setupAccent.withValues(alpha: 0.22),
-              backgroundColor: Colors.white.withValues(alpha: 0.06),
-              labelStyle: AppTypography.caption(Colors.white),
-              side: BorderSide(
-                color: _countryCode == choice.code
-                    ? _setupAccent.withValues(alpha: 0.6)
-                    : Colors.white.withValues(alpha: 0.14),
-              ),
-              onSelected: _busy ? null : (_) => _saveCountry(choice),
+              onTap: _busy ? null : () => _saveCountry(choice),
             ),
         ],
       ),
@@ -566,6 +579,65 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
             duration: 260.ms,
             curve: Curves.easeOutBack,
           ),
+    );
+  }
+}
+
+/// One country/currency choice on the setup step.
+///
+/// Deliberately not a `ChoiceChip`: see the note at its call site. Material's
+/// chip paints its own surface from the ambient theme underneath anything the
+/// widget sets, which on this navy screen meant a white pill under white text.
+class _CountryPill extends StatelessWidget {
+  const _CountryPill({
+    required this.choice,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _CountryChoice choice;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = selected
+        ? _setupAccent.withValues(alpha: 0.22)
+        : Colors.white.withValues(alpha: 0.10);
+    final border = selected
+        ? _setupAccent.withValues(alpha: 0.60)
+        : Colors.white.withValues(alpha: 0.24);
+    return Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(AppRadius.chip),
+        child: Ink(
+          decoration: ShapeDecoration(
+            color: fill,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(AppRadius.chip),
+              side: BorderSide(color: border),
+            ),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (selected) ...[
+                  const Icon(Icons.check, size: 16, color: Colors.white),
+                  const SizedBox(width: 6),
+                ],
+                Text(
+                  '${choice.flag} ${choice.name} · ${choice.currency}',
+                  style: AppTypography.caption(Colors.white),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

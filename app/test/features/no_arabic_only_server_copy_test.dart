@@ -1,0 +1,124 @@
+import 'dart:io';
+
+import 'package:flutter_test/flutter_test.dart';
+
+/// Server-authored rows carry BOTH `*Ar` and `*En`. A widget that reads the
+/// `*Ar` field directly shows Arabic to an English reader, and no ARB check can
+/// see it: the strings are not in the ARB at all, they are database columns.
+///
+/// Four surfaces did exactly that, and the worst of them blocked the whole app:
+/// `ForceUpdateScreen` read `titleAr`, `bodyAr` AND `actionLabelAr`, so its
+/// English and Arabic captures came back byte-for-byte identical. The dashboard
+/// announcement banner did the same for both announcements and campaigns, and
+/// `AnnouncementsScreen.fromAnnouncement` read `actionLabelAr` on the line
+/// directly below two that chose by locale correctly.
+///
+/// None of it ever reached the bilingual walk, because the QA catalog seeds
+/// zero announcements. The surfaces rendered empty, so there was no copy to
+/// measure and nothing to report — "0 untranslated strings" was true and said
+/// nothing about any of them.
+///
+/// `features/announcements/announcement_text.dart` is where the locale choice
+/// belongs; widgets call `titleFor(context)` and friends.
+void main() {
+  /// Files allowed to name the Arabic column directly.
+  const allowed = <String>{
+    // The extension that makes the choice.
+    'lib/features/announcements/announcement_text.dart',
+    // The DAO that defines and parses the columns.
+    'lib/data/catalog/catalog_daos.dart',
+    // Chooses inline with an explicit `en ?` on every line; correct, and left
+    // alone rather than refactored.
+    'lib/features/announcements/announcements_screen.dart',
+    // NOT a widget: composes a scheduled notification from a background
+    // isolate with no BuildContext. It is Arabic-only today and that is a real
+    // gap, recorded in the visual-closure report — but it needs the
+    // `notificationLanguage` pattern, not a context, so it is out of scope for
+    // a rule about widgets.
+    'lib/features/capture/services/notification_journey_service.dart',
+  };
+
+  test('no widget reads the Arabic column of a bilingual server row', () {
+    final offenders = <String>[];
+    for (final file in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (allowed.contains(file.path)) continue;
+      if (file.path.startsWith('lib/l10n/')) continue;
+
+      final lines = file.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i];
+        if (line.trimLeft().startsWith('//')) continue;
+        // The defect shape: reading `.titleAr` / `.bodyAr` / `.actionLabelAr`
+        // off a row, without an `en ?` on the same line choosing it.
+        // `this.titleAr` in a constructor is a DECLARATION, not a read —
+        // `CouponOffer` tripped the first version of this rule that way.
+        final readsArabic =
+            RegExp(r'(?<!this)\.(titleAr|bodyAr|actionLabelAr)\b')
+                .hasMatch(line);
+        if (!readsArabic) continue;
+        if (line.contains('en ?') || line.contains("== 'en'")) continue;
+        offenders.add('${file.path}:${i + 1}');
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'these show Arabic server copy to an English reader. Use the '
+            'titleFor/bodyFor/actionLabelFor extensions in '
+            'features/announcements/announcement_text.dart: '
+            '${offenders.join(", ")}');
+  });
+
+  test('no widget hardcodes a text alignment', () {
+    // `TextAlign.right` is what an Arabic-only app writes when it means
+    // "start". Under English it right-aligns body copy, and on the welcome
+    // story it also pushed the text into the halftone illustration, leaving
+    // words unreadable on the first screen a new user sees.
+    final offenders = <String>[];
+    for (final file in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      // The PDF renderer's one use is a fixed-width numeric column, where
+      // right-alignment is a typographic choice rather than a direction; a PDF
+      // also has no Directionality to inherit from.
+      if (file.path.endsWith('pdf/report_pdf_renderer.dart')) continue;
+      final lines = file.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].trimLeft().startsWith('//')) continue;
+        if (RegExp(r'(?<!pw\.)TextAlign\.(right|left)\b').hasMatch(lines[i])) {
+          offenders.add('${file.path}:${i + 1}');
+        }
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'use TextAlign.start / TextAlign.end, which follow the '
+            'reader direction: ${offenders.join(", ")}');
+  });
+
+  test('no widget pins a Stack child to an absolute side', () {
+    // `Positioned(left:)` on a decorative element is the same mistake one layer
+    // down: the welcome story pinned its illustration to the far left, which is
+    // away from Arabic text and directly under English text.
+    final offenders = <String>[];
+    for (final file in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      final source = file.readAsStringSync();
+      // Only the onboarding story is pinned here today; the rule exists to keep
+      // it that way rather than to sweep the whole app, which has many
+      // legitimate absolute positions inside already-mirrored parents.
+      if (!file.path.contains('features/onboarding/story_screen.dart')) {
+        continue;
+      }
+      if (RegExp(r'Positioned\(\s*\n?\s*(left|right):').hasMatch(source)) {
+        offenders.add(file.path);
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'use PositionedDirectional(start:/end:) so the layout mirrors: '
+            '${offenders.join(", ")}');
+  });
+}

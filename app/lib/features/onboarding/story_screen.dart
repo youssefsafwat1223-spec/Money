@@ -360,14 +360,38 @@ class _PromisePageState extends State<_PromisePage> {
       children: [
         const ColoredBox(color: _onboardingBlue),
         const Positioned.fill(child: CoinRain()),
-        Positioned(
-          left: -width * 0.10,
+        // DIRECTIONAL, not absolute. The illustration belongs on the side the
+        // text does NOT start from: in Arabic the copy is right-aligned and the
+        // hand sits far left. Pinned with `left:` it stayed far left under
+        // English too — where the copy now starts — and the halftone ran
+        // straight through the body text, leaving "…ging expenses and setting"
+        // unreadable on the first screen a new user sees.
+        //
+        // `end` resolves to left in RTL, so the Arabic frame is unchanged to
+        // the pixel, and to right in LTR, which is where it should have been.
+        PositionedDirectional(
+          end: -width * 0.10,
           bottom: 90,
           child: ExcludeSemantics(
-            child: Image(
-              image: const AssetImage(AppAssets.handCoinCutout),
-              width: width * 0.52,
-              fit: BoxFit.fitWidth,
+            // DECORATION, at decoration weight. The asset is a bright white
+            // halftone and was painted at full opacity, so body copy — which is
+            // white at ~70% — crossed it and simply disappeared: on the English
+            // frame "manage your money with eas…", "from logging expenses and
+            // s…" and "Your partner on your financia… journey." all ran into
+            // it and stopped being readable. The content sits ABOVE the image
+            // in this Stack, so nothing was clipped; the two were the same
+            // colour.
+            //
+            // The prototype draws this hand as a faint, navy-blended texture,
+            // not as a foreground object. Matching that both restores the
+            // intended look and gives the text something to be read against.
+            child: Opacity(
+              opacity: 0.38,
+              child: Image(
+                image: const AssetImage(AppAssets.handCoinCutout),
+                width: width * 0.52,
+                fit: BoxFit.fitWidth,
+              ),
             ),
           ),
         ),
@@ -404,7 +428,7 @@ class _PromisePageState extends State<_PromisePage> {
                             WordRevealText(
                               blocks[i].text,
                               style: blocks[i].style,
-                              textAlign: TextAlign.right,
+                              textAlign: TextAlign.start,
                               hapticPerWord: true,
                               onComplete: () => _advance(blocks.length),
                             ),
@@ -585,7 +609,7 @@ class _StoryPageState extends State<_StoryPage> {
                         WordRevealText(
                           blocks[i].text,
                           style: blocks[i].style,
-                          textAlign: TextAlign.right,
+                          textAlign: TextAlign.start,
                           hapticPerWord: true,
                           onComplete: () => _advance(blocks.length),
                         ),

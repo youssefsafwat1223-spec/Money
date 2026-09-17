@@ -4113,6 +4113,9 @@ class AppL10nEn extends AppL10n {
   String get cfNetwork => 'Network';
 
   @override
+  String get cardNetworkGeneric => 'Card';
+
+  @override
   String get cfDesign => 'Design';
 
   @override

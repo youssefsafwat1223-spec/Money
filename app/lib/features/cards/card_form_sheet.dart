@@ -13,6 +13,7 @@ import '../../domain/entities/card_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../engine/parser/card_network.dart';
 import 'card_network_badge.dart';
+import 'card_network_label.dart';
 import 'card_theme.dart';
 import 'cards_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -252,7 +253,8 @@ class _CardFormState extends ConsumerState<_CardForm> {
               value: _network,
               items: [
                 for (final n in CardNetwork.values)
-                  DropdownMenuItem(value: n, child: Text(n.label)),
+                  DropdownMenuItem(
+                      value: n, child: Text(cardNetworkLabel(context, n))),
               ],
               onChanged: _busy
                   ? null

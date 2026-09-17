@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../announcements/announcement_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -119,9 +121,9 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
     // كان تدرّج تركوازي — لون مالوش وجود في أي مكان تاني في التطبيق.
     final start = isDark ? AppBrandBlue.strong : AppBrandBlue.mid;
     const end = AppBrandBlue.brand;
-    final body = widget.campaign.bodyAr?.trim();
+    final body = widget.campaign.bodyFor(context)?.trim();
     final hasBody = body != null && body.isNotEmpty;
-    final actionLabel = widget.campaign.actionLabelAr?.trim();
+    final actionLabel = widget.campaign.actionLabelFor(context)?.trim();
     final hasAction = actionLabel != null && actionLabel.isNotEmpty;
 
     return DecoratedBox(
@@ -196,8 +198,8 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
                         children: [
                           Expanded(
                             child: Text(
-                              widget.campaign.titleAr,
-                              textAlign: TextAlign.right,
+                              widget.campaign.titleFor(context),
+                              textAlign: TextAlign.start,
                               style: AppTypography.title(Colors.white).copyWith(
                                 fontWeight: FontWeight.w700,
                                 height: 1.22,
@@ -218,7 +220,7 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
                         const SizedBox(height: AppSpacing.s2),
                         Text(
                           body,
-                          textAlign: TextAlign.right,
+                          textAlign: TextAlign.start,
                           style: AppTypography.body(
                             Colors.white.withValues(alpha: 0.82),
                           ).copyWith(height: 1.35),
@@ -301,9 +303,9 @@ class _BannerTile extends ConsumerWidget {
           fg: Colors.white,
         ),
     };
-    final body = announcement.bodyAr?.trim();
+    final body = announcement.bodyFor(context)?.trim();
     final hasBody = body != null && body.isNotEmpty;
-    final actionLabel = announcement.actionLabelAr?.trim();
+    final actionLabel = announcement.actionLabelFor(context)?.trim();
     final hasAction = announcement.actionUrl != null &&
         actionLabel != null &&
         actionLabel.isNotEmpty;
@@ -380,8 +382,8 @@ class _BannerTile extends ConsumerWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              announcement.titleAr,
-                              textAlign: TextAlign.right,
+                              announcement.titleFor(context),
+                              textAlign: TextAlign.start,
                               style: AppTypography.title(colors.fg).copyWith(
                                 fontWeight: FontWeight.w700,
                                 height: 1.22,
@@ -400,7 +402,7 @@ class _BannerTile extends ConsumerWidget {
                         const SizedBox(height: AppSpacing.s2),
                         Text(
                           body,
-                          textAlign: TextAlign.right,
+                          textAlign: TextAlign.start,
                           style: AppTypography.body(
                             colors.fg.withValues(alpha: 0.82),
                           ).copyWith(height: 1.35),

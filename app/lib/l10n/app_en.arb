@@ -2072,6 +2072,10 @@
   "cfShortNameHint": "For example: Salary, Travel",
   "cfLast4": "Last 4 digits",
   "cfNetwork": "Network",
+  "cardNetworkGeneric": "Card",
+  "@cardNetworkGeneric": {
+    "description": "Shown when the card network could not be detected. Visa, Mastercard and Amex are brand names and are not translated."
+  },
   "cfDesign": "Design",
   "cfAccentOptional": "Accent colour (optional)",
   "cfLinkedAccount": "Linked account",

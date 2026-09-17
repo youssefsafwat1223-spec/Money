@@ -6907,6 +6907,12 @@ abstract class AppL10n {
   /// **'الشبكة'**
   String get cfNetwork;
 
+  /// Shown when the card network could not be detected. Visa, Mastercard and Amex are brand names and are not translated.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقة'**
+  String get cardNetworkGeneric;
+
   /// No description provided for @cfDesign.
   ///
   /// In ar, this message translates to:

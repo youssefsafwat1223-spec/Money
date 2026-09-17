@@ -2187,6 +2187,10 @@
   "cfShortNameHint": "مثال: راتب، سفر",
   "cfLast4": "آخر 4 أرقام",
   "cfNetwork": "الشبكة",
+  "cardNetworkGeneric": "بطاقة",
+  "@cardNetworkGeneric": {
+    "description": "Shown when the card network could not be detected. Visa, Mastercard and Amex are brand names and are not translated."
+  },
   "cfDesign": "التصميم",
   "cfAccentOptional": "لون مميّز (اختياري)",
   "cfLinkedAccount": "الحساب المرتبط",
