@@ -57,24 +57,24 @@ String encodePortableCsvChunk({
 
 PortableCsvDocument decodePortableCsv(Uint8List bytes) {
   if (bytes.length > maxImportBytes) {
-    throw const DataPortabilityException('حجم ملف CSV أكبر من 25MB.');
+    throw const DataPortabilityException('حجم ملف CSV أكبر من 25MB.', code: DataPortabilityError.csvTooLarge);
   }
   final text = utf8.decode(bytes, allowMalformed: false);
   final decoded = Csv(autoDetect: true).decode(text);
   if (decoded.isEmpty) {
-    throw const DataPortabilityException('ملف CSV فارغ.');
+    throw const DataPortabilityException('ملف CSV فارغ.', code: DataPortabilityError.csvEmpty);
   }
   if (decoded.length - 1 > maxImportRows) {
-    throw const DataPortabilityException('ملف CSV يتجاوز 100,000 صف.');
+    throw const DataPortabilityException('ملف CSV يتجاوز 100,000 صف.', code: DataPortabilityError.csvTooManyRows);
   }
   final headers = decoded.first
       .map((value) => value.toString().replaceFirst('\ufeff', '').trim())
       .toList(growable: false);
   if (headers.isEmpty || headers.any((header) => header.isEmpty)) {
-    throw const DataPortabilityException('عناوين أعمدة CSV غير صالحة.');
+    throw const DataPortabilityException('عناوين أعمدة CSV غير صالحة.', code: DataPortabilityError.csvBadHeaders);
   }
   if (headers.toSet().length != headers.length) {
-    throw const DataPortabilityException('ملف CSV يحتوي أعمدة مكررة.');
+    throw const DataPortabilityException('ملف CSV يحتوي أعمدة مكررة.', code: DataPortabilityError.csvDuplicateColumns);
   }
   final rows = <Map<String, String>>[];
   for (var index = 1; index < decoded.length; index++) {

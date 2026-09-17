@@ -8676,6 +8676,234 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'المبلغ القديم: {amount} · العملة غير محددة'**
   String rprLegacyAmount(String amount);
+
+  /// No description provided for @dpeCsvTooLarge.
+  ///
+  /// In ar, this message translates to:
+  /// **'حجم ملف CSV أكبر من 25MB.'**
+  String get dpeCsvTooLarge;
+
+  /// No description provided for @dpeCsvEmpty.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف CSV فارغ.'**
+  String get dpeCsvEmpty;
+
+  /// No description provided for @dpeCsvTooManyRows.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف CSV يتجاوز 100,000 صف.'**
+  String get dpeCsvTooManyRows;
+
+  /// No description provided for @dpeCsvBadHeaders.
+  ///
+  /// In ar, this message translates to:
+  /// **'عناوين أعمدة CSV غير صالحة.'**
+  String get dpeCsvBadHeaders;
+
+  /// No description provided for @dpeCsvDuplicateColumns.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف CSV يحتوي أعمدة مكررة.'**
+  String get dpeCsvDuplicateColumns;
+
+  /// No description provided for @dpeFileTooLarge.
+  ///
+  /// In ar, this message translates to:
+  /// **'حجم الملف أكبر من 25MB.'**
+  String get dpeFileTooLarge;
+
+  /// No description provided for @dpeZipInvalid.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف ZIP غير صالح أو تالف.'**
+  String get dpeZipInvalid;
+
+  /// No description provided for @dpePickCsvOrZip.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر ملف CSV أو ZIP.'**
+  String get dpePickCsvOrZip;
+
+  /// No description provided for @dpeFixErrorsFirst.
+  ///
+  /// In ar, this message translates to:
+  /// **'أصلح أخطاء الملف قبل الاستيراد.'**
+  String get dpeFixErrorsFirst;
+
+  /// No description provided for @dpeExternalCsvMergeOnly.
+  ///
+  /// In ar, this message translates to:
+  /// **'CSV الخارجي يدعم الدمج فقط.'**
+  String get dpeExternalCsvMergeOnly;
+
+  /// No description provided for @dpeReplaceUnavailableMixed.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.'**
+  String get dpeReplaceUnavailableMixed;
+
+  /// No description provided for @dpeReselectFile.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعد اختيار الملف ثم حاول مرة أخرى.'**
+  String get dpeReselectFile;
+
+  /// No description provided for @dpeCsvMappingIncomplete.
+  ///
+  /// In ar, this message translates to:
+  /// **'مطابقة أعمدة CSV غير مكتملة.'**
+  String get dpeCsvMappingIncomplete;
+
+  /// No description provided for @dpeExportTooLarge.
+  ///
+  /// In ar, this message translates to:
+  /// **'حجم التصدير تجاوز الحد المسموح (100MB).'**
+  String get dpeExportTooLarge;
+
+  /// No description provided for @dpePackageAlreadyImported.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم استيراد هذه الحزمة سابقًا بوضع مختلف.'**
+  String get dpePackageAlreadyImported;
+
+  /// No description provided for @dpeForeignPairRequired.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ والعملة الأجنبية يجب أن يوجدا معًا.'**
+  String get dpeForeignPairRequired;
+
+  /// No description provided for @dpeUnsupportedTable.
+  ///
+  /// In ar, this message translates to:
+  /// **'جدول غير مدعوم: {value}'**
+  String dpeUnsupportedTable(String value);
+
+  /// No description provided for @dpeOtherCategoryMissing.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصنيف «أخرى» غير موجود.'**
+  String get dpeOtherCategoryMissing;
+
+  /// No description provided for @dpeMissingValue.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيمة {value} مفقودة.'**
+  String dpeMissingValue(String value);
+
+  /// No description provided for @dpeInvalidCurrencyCode.
+  ///
+  /// In ar, this message translates to:
+  /// **'رمز عملة غير صالح: {value}'**
+  String dpeInvalidCurrencyCode(String value);
+
+  /// No description provided for @dpeInvalidMinorAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيمة مالية دقيقة غير صالحة: {value}'**
+  String dpeInvalidMinorAmount(String value);
+
+  /// No description provided for @dpeInvalidAmount.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيمة مالية غير صالحة: {value}'**
+  String dpeInvalidAmount(String value);
+
+  /// No description provided for @dpeInvalidDate.
+  ///
+  /// In ar, this message translates to:
+  /// **'تاريخ غير صالح: {value}'**
+  String dpeInvalidDate(String value);
+
+  /// No description provided for @dpeExportFileMissing.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف {value} مفقود من التصدير.'**
+  String dpeExportFileMissing(String value);
+
+  /// No description provided for @dpeZipTooLarge.
+  ///
+  /// In ar, this message translates to:
+  /// **'حجم ملف ZIP أكبر من 25MB.'**
+  String get dpeZipTooLarge;
+
+  /// No description provided for @dpePackageUnsafePath.
+  ///
+  /// In ar, this message translates to:
+  /// **'حزمة قِرش تحتوي مسارًا أو ملفًا غير مسموح.'**
+  String get dpePackageUnsafePath;
+
+  /// No description provided for @dpePackageInflatedTooLarge.
+  ///
+  /// In ar, this message translates to:
+  /// **'حجم الحزمة بعد الفك أكبر من 100MB.'**
+  String get dpePackageInflatedTooLarge;
+
+  /// No description provided for @dpeEntryUnreadable.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذر قراءة {value}.'**
+  String dpeEntryUnreadable(String value);
+
+  /// No description provided for @dpeEntrySizeMismatch.
+  ///
+  /// In ar, this message translates to:
+  /// **'حجم {value} لا يطابق ترويسة ZIP.'**
+  String dpeEntrySizeMismatch(String value);
+
+  /// No description provided for @dpeManifestMissing.
+  ///
+  /// In ar, this message translates to:
+  /// **'manifest.json مفقود.'**
+  String get dpeManifestMissing;
+
+  /// No description provided for @dpeManifestInvalid.
+  ///
+  /// In ar, this message translates to:
+  /// **'manifest.json غير صالح.'**
+  String get dpeManifestInvalid;
+
+  /// No description provided for @dpeNotAQirshExport.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذا ليس ملف تصدير قِرش.'**
+  String get dpeNotAQirshExport;
+
+  /// No description provided for @dpeNewerVersion.
+  ///
+  /// In ar, this message translates to:
+  /// **'الملف من إصدار أحدث. حدّث قِرش ثم أعد المحاولة.'**
+  String get dpeNewerVersion;
+
+  /// No description provided for @dpeUnsupportedVersion.
+  ///
+  /// In ar, this message translates to:
+  /// **'إصدار ملف قِرش غير مدعوم.'**
+  String get dpeUnsupportedVersion;
+
+  /// No description provided for @dpePackageMetaIncomplete.
+  ///
+  /// In ar, this message translates to:
+  /// **'بيانات تعريف الحزمة ناقصة.'**
+  String get dpePackageMetaIncomplete;
+
+  /// No description provided for @dpePackageEntryMissing.
+  ///
+  /// In ar, this message translates to:
+  /// **'{value} مفقود من الحزمة.'**
+  String dpePackageEntryMissing(String value);
+
+  /// No description provided for @dpeIntegrityCheckFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل التحقق من سلامة {value}.'**
+  String dpeIntegrityCheckFailed(String value);
+
+  /// No description provided for @dpePackageTooManyRows.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحزمة تتجاوز 100,000 صف إجمالي.'**
+  String get dpePackageTooManyRows;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

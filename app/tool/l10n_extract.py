@@ -58,6 +58,14 @@ ALREADY_BILINGUAL = (
     'lib/features/dashboard/home_sections_providers.dart',
     'lib/features/transactions/transactions_providers.dart',
     'lib/domain/finance/budget_period.dart',
+    # The import/export services carry an Arabic `message` on every throw AND a
+    # locale-independent `code`; the UI renders the code through the ARB and
+    # falls back to the message. The Arabic here is the fallback half of a
+    # bilingual pair, not untranslated copy.
+    'lib/core/data_portability/app_data_portability_service.dart',
+    'lib/core/data_portability/drift_financial_exporter.dart',
+    'lib/core/data_portability/drift_financial_importer.dart',
+    'lib/core/data_portability/qirsh_package_codec.dart',
 )
 LITERAL = re.compile(r"'([^'\\\n]{2,200})'")
 INTERP = re.compile(r'\$\{?\w')

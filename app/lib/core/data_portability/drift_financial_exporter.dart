@@ -109,7 +109,7 @@ class DriftFinancialExporter {
         // Typed, privacy-safe resource limit — no financial content in the message,
         // no partial file returned (the caller only writes a file on success).
         throw const DataPortabilityException(
-          'حجم التصدير تجاوز الحد المسموح (100MB).',
+          'حجم التصدير تجاوز الحد المسموح (100MB).', code: DataPortabilityError.exportTooLarge,
         );
       }
       csvFiles['${spec.name}.csv'] = bytes;
@@ -159,7 +159,7 @@ class DriftFinancialExporter {
       byteSize += bytes.length;
       if (byteSize > budgetBytes) {
         throw const DataPortabilityException(
-          'حجم التصدير تجاوز الحد المسموح (100MB).',
+          'حجم التصدير تجاوز الحد المسموح (100MB).', code: DataPortabilityError.exportTooLarge,
         );
       }
       out.add(bytes);

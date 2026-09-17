@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import '../../core/utils/l10n_ext.dart';
+import 'data_portability_messages.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -122,7 +123,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
         _mode = ImportMode.merge;
       });
     } on DataPortabilityException catch (error) {
-      _message(error.message);
+      _message(_portabilityMessage(error));
     } catch (_) {
       _message(l10n.dtxScanFailed);
     } finally {
@@ -142,7 +143,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       if (!mounted) return;
       setState(() => _result = result);
     } on DataPortabilityException catch (error) {
-      _message(error.message);
+      _message(_portabilityMessage(error));
     } catch (_) {
       _message(l10n.dtxImportFailed);
     } finally {
@@ -167,7 +168,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
           : await service.exportTransactionsCsv();
     } on DataPortabilityException catch (error, stackTrace) {
       _logExportFailure('prepare', error, stackTrace);
-      _message(error.message);
+      _message(_portabilityMessage(error));
       if (mounted) setState(() => _busy = false);
       return;
     } catch (error, stackTrace) {
@@ -245,6 +246,11 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
       return true;
     }());
   }
+
+  /// The failure in the reader's language, falling back to the exception's own
+  /// Arabic message for any throw site that has no code yet.
+  String _portabilityMessage(DataPortabilityException e) =>
+      mounted ? dataPortabilityMessage(context, e) : e.message;
 
   void _message(String text) {
     if (!mounted) return;

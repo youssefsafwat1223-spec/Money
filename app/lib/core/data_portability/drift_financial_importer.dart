@@ -31,7 +31,7 @@ class DriftFinancialImporter {
     if (previous != null) {
       if (previous.read<String>('mode') != mode.name) {
         throw const DataPortabilityException(
-          'تم استيراد هذه الحزمة سابقًا بوضع مختلف.',
+          'تم استيراد هذه الحزمة سابقًا بوضع مختلف.', code: DataPortabilityError.packageAlreadyImported,
         );
       }
       return _resultFromJson(previous.read<String>('result_json'));
@@ -323,7 +323,7 @@ class DriftFinancialImporter {
             null;
         if (hasForeignAmount != (foreignCurrency != null)) {
           throw const DataPortabilityException(
-              'المبلغ والعملة الأجنبية يجب أن يوجدا معًا.');
+              'المبلغ والعملة الأجنبية يجب أن يوجدا معًا.', code: DataPortabilityError.foreignPairRequired);
         }
         final foreignMoney = foreignCurrency == null
             ? null
@@ -688,7 +688,7 @@ class DriftFinancialImporter {
           _date(row['created_at']),
         ]);
       default:
-        throw DataPortabilityException('جدول غير مدعوم: $table');
+        throw DataPortabilityException('جدول غير مدعوم: $table', code: DataPortabilityError.unsupportedTable, args: [table]);
     }
   }
 
@@ -717,7 +717,7 @@ class DriftFinancialImporter {
         )
         .getSingleOrNull();
     if (row == null) {
-      throw const DataPortabilityException('تصنيف «أخرى» غير موجود.');
+      throw const DataPortabilityException('تصنيف «أخرى» غير موجود.', code: DataPortabilityError.otherCategoryMissing);
     }
     return row.read<String>('id');
   }
@@ -748,7 +748,7 @@ class DriftFinancialImporter {
 
 String _required(Map<String, String> row, String key) {
   final value = _nullable(row[key]);
-  if (value == null) throw DataPortabilityException('قيمة $key مفقودة.');
+  if (value == null) throw DataPortabilityException('قيمة $key مفقودة.', code: DataPortabilityError.missingValue, args: [key]);
   return value;
 }
 
@@ -762,7 +762,7 @@ String _or(String? value, String fallback) => _nullable(value) ?? fallback;
 String _currency(String? value) {
   final code = _or(value, '').toUpperCase();
   if (!RegExp(r'^[A-Z]{3}$').hasMatch(code)) {
-    throw DataPortabilityException('رمز عملة غير صالح: $value');
+    throw DataPortabilityException('رمز عملة غير صالح: $value', code: DataPortabilityError.invalidCurrencyCode, args: ['\$value']);
   }
   return code;
 }
@@ -795,7 +795,7 @@ Money? _portableMoneyOrNull(
   if (text == null) return null;
   final minor = int.tryParse(text);
   if (minor == null) {
-    throw DataPortabilityException('قيمة مالية دقيقة غير صالحة: $minorKey');
+    throw DataPortabilityException('قيمة مالية دقيقة غير صالحة: $minorKey', code: DataPortabilityError.invalidMinorAmount, args: [minorKey]);
   }
   return Money(minor, currency);
 }
@@ -813,7 +813,7 @@ Money _portablePositiveMoney(
     currency: currency,
   );
   if (money == null || money.isZero || money.isNegative) {
-    throw DataPortabilityException('قيمة مالية غير صالحة: ${row[legacyKey]}');
+    throw DataPortabilityException('قيمة مالية غير صالحة: ${row[legacyKey]}', code: DataPortabilityError.invalidAmountLegacy, args: ['\${row[legacyKey]}']);
   }
   return money;
 }
@@ -825,7 +825,7 @@ Money? _legacyMoneyOrNull(String? value, String currency) {
   if (text == null) return null;
   final numeric = num.tryParse(text);
   if (numeric == null) {
-    throw DataPortabilityException('قيمة مالية غير صالحة: $value');
+    throw DataPortabilityException('قيمة مالية غير صالحة: $value', code: DataPortabilityError.invalidAmount, args: ['\$value']);
   }
   return legacyLossyNumberToMoney(numeric, currency);
 }
@@ -837,7 +837,7 @@ int _boolInt(String? value) =>
 
 String _date(String? value) {
   final parsed = DateTime.tryParse(value?.trim() ?? '');
-  if (parsed == null) throw DataPortabilityException('تاريخ غير صالح: $value');
+  if (parsed == null) throw DataPortabilityException('تاريخ غير صالح: $value', code: DataPortabilityError.invalidDate, args: ['\$value']);
   return dateTimeToSql(parsed.toUtc());
 }
 

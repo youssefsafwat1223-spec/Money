@@ -5130,4 +5130,145 @@ class AppL10nAr extends AppL10n {
   String rprLegacyAmount(String amount) {
     return 'المبلغ القديم: $amount · العملة غير محددة';
   }
+
+  @override
+  String get dpeCsvTooLarge => 'حجم ملف CSV أكبر من 25MB.';
+
+  @override
+  String get dpeCsvEmpty => 'ملف CSV فارغ.';
+
+  @override
+  String get dpeCsvTooManyRows => 'ملف CSV يتجاوز 100,000 صف.';
+
+  @override
+  String get dpeCsvBadHeaders => 'عناوين أعمدة CSV غير صالحة.';
+
+  @override
+  String get dpeCsvDuplicateColumns => 'ملف CSV يحتوي أعمدة مكررة.';
+
+  @override
+  String get dpeFileTooLarge => 'حجم الملف أكبر من 25MB.';
+
+  @override
+  String get dpeZipInvalid => 'ملف ZIP غير صالح أو تالف.';
+
+  @override
+  String get dpePickCsvOrZip => 'اختر ملف CSV أو ZIP.';
+
+  @override
+  String get dpeFixErrorsFirst => 'أصلح أخطاء الملف قبل الاستيراد.';
+
+  @override
+  String get dpeExternalCsvMergeOnly => 'CSV الخارجي يدعم الدمج فقط.';
+
+  @override
+  String get dpeReplaceUnavailableMixed =>
+      'الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.';
+
+  @override
+  String get dpeReselectFile => 'أعد اختيار الملف ثم حاول مرة أخرى.';
+
+  @override
+  String get dpeCsvMappingIncomplete => 'مطابقة أعمدة CSV غير مكتملة.';
+
+  @override
+  String get dpeExportTooLarge => 'حجم التصدير تجاوز الحد المسموح (100MB).';
+
+  @override
+  String get dpePackageAlreadyImported =>
+      'تم استيراد هذه الحزمة سابقًا بوضع مختلف.';
+
+  @override
+  String get dpeForeignPairRequired =>
+      'المبلغ والعملة الأجنبية يجب أن يوجدا معًا.';
+
+  @override
+  String dpeUnsupportedTable(String value) {
+    return 'جدول غير مدعوم: $value';
+  }
+
+  @override
+  String get dpeOtherCategoryMissing => 'تصنيف «أخرى» غير موجود.';
+
+  @override
+  String dpeMissingValue(String value) {
+    return 'قيمة $value مفقودة.';
+  }
+
+  @override
+  String dpeInvalidCurrencyCode(String value) {
+    return 'رمز عملة غير صالح: $value';
+  }
+
+  @override
+  String dpeInvalidMinorAmount(String value) {
+    return 'قيمة مالية دقيقة غير صالحة: $value';
+  }
+
+  @override
+  String dpeInvalidAmount(String value) {
+    return 'قيمة مالية غير صالحة: $value';
+  }
+
+  @override
+  String dpeInvalidDate(String value) {
+    return 'تاريخ غير صالح: $value';
+  }
+
+  @override
+  String dpeExportFileMissing(String value) {
+    return 'ملف $value مفقود من التصدير.';
+  }
+
+  @override
+  String get dpeZipTooLarge => 'حجم ملف ZIP أكبر من 25MB.';
+
+  @override
+  String get dpePackageUnsafePath =>
+      'حزمة قِرش تحتوي مسارًا أو ملفًا غير مسموح.';
+
+  @override
+  String get dpePackageInflatedTooLarge => 'حجم الحزمة بعد الفك أكبر من 100MB.';
+
+  @override
+  String dpeEntryUnreadable(String value) {
+    return 'تعذر قراءة $value.';
+  }
+
+  @override
+  String dpeEntrySizeMismatch(String value) {
+    return 'حجم $value لا يطابق ترويسة ZIP.';
+  }
+
+  @override
+  String get dpeManifestMissing => 'manifest.json مفقود.';
+
+  @override
+  String get dpeManifestInvalid => 'manifest.json غير صالح.';
+
+  @override
+  String get dpeNotAQirshExport => 'هذا ليس ملف تصدير قِرش.';
+
+  @override
+  String get dpeNewerVersion =>
+      'الملف من إصدار أحدث. حدّث قِرش ثم أعد المحاولة.';
+
+  @override
+  String get dpeUnsupportedVersion => 'إصدار ملف قِرش غير مدعوم.';
+
+  @override
+  String get dpePackageMetaIncomplete => 'بيانات تعريف الحزمة ناقصة.';
+
+  @override
+  String dpePackageEntryMissing(String value) {
+    return '$value مفقود من الحزمة.';
+  }
+
+  @override
+  String dpeIntegrityCheckFailed(String value) {
+    return 'فشل التحقق من سلامة $value.';
+  }
+
+  @override
+  String get dpePackageTooManyRows => 'الحزمة تتجاوز 100,000 صف إجمالي.';
 }

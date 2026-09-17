@@ -2594,5 +2594,120 @@
         "type": "String"
       }
     }
-  }
+  },
+  "dpeCsvTooLarge": "The CSV file is larger than 25MB.",
+  "dpeCsvEmpty": "The CSV file is empty.",
+  "dpeCsvTooManyRows": "The CSV file has more than 100,000 rows.",
+  "dpeCsvBadHeaders": "The CSV column headers are not valid.",
+  "dpeCsvDuplicateColumns": "The CSV file has duplicate columns.",
+  "dpeFileTooLarge": "The file is larger than 25MB.",
+  "dpeZipInvalid": "The ZIP file is invalid or damaged.",
+  "dpePickCsvOrZip": "Choose a CSV or ZIP file.",
+  "dpeFixErrorsFirst": "Fix the errors in the file before importing.",
+  "dpeExternalCsvMergeOnly": "An external CSV can only be merged, not replaced.",
+  "dpeReplaceUnavailableMixed": "Replace is not available while mixed data sources are active.",
+  "dpeReselectFile": "Select the file again, then try once more.",
+  "dpeCsvMappingIncomplete": "The CSV column mapping is incomplete.",
+  "dpeExportTooLarge": "The export exceeded the 100MB limit.",
+  "dpePackageAlreadyImported": "This package was already imported, in a different mode.",
+  "dpeForeignPairRequired": "The foreign amount and its currency must both be present.",
+  "dpeUnsupportedTable": "Unsupported table: {value}",
+  "@dpeUnsupportedTable": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeOtherCategoryMissing": "The “Other” category is missing.",
+  "dpeMissingValue": "{value} is missing.",
+  "@dpeMissingValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeInvalidCurrencyCode": "Invalid currency code: {value}",
+  "@dpeInvalidCurrencyCode": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeInvalidMinorAmount": "Invalid exact amount: {value}",
+  "@dpeInvalidMinorAmount": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeInvalidAmount": "Invalid amount: {value}",
+  "@dpeInvalidAmount": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeInvalidDate": "Invalid date: {value}",
+  "@dpeInvalidDate": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeExportFileMissing": "{value} is missing from the export.",
+  "@dpeExportFileMissing": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeZipTooLarge": "The ZIP file is larger than 25MB.",
+  "dpePackageUnsafePath": "The Qirsh package contains a path or file that is not allowed.",
+  "dpePackageInflatedTooLarge": "The package is larger than 100MB once unpacked.",
+  "dpeEntryUnreadable": "{value} could not be read.",
+  "@dpeEntryUnreadable": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeEntrySizeMismatch": "The size of {value} does not match the ZIP header.",
+  "@dpeEntrySizeMismatch": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeManifestMissing": "manifest.json is missing.",
+  "dpeManifestInvalid": "manifest.json is not valid.",
+  "dpeNotAQirshExport": "This is not a Qirsh export file.",
+  "dpeNewerVersion": "This file comes from a newer version. Update Qirsh and try again.",
+  "dpeUnsupportedVersion": "This Qirsh file version is not supported.",
+  "dpePackageMetaIncomplete": "The package metadata is incomplete.",
+  "dpePackageEntryMissing": "{value} is missing from the package.",
+  "@dpePackageEntryMissing": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeIntegrityCheckFailed": "The integrity check for {value} failed.",
+  "@dpeIntegrityCheckFailed": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpePackageTooManyRows": "The package exceeds 100,000 rows in total."
 }

@@ -195,10 +195,63 @@ abstract interface class DataPortabilityService {
   Future<ImportResult> import(ImportPreview preview, ImportMode mode);
 }
 
+/// A locale-independent identity for each import/export failure.
+///
+/// `message` is still thrown and still logged — this is ADDED so the UI can
+/// render the same failure in the reader's language. A throw site with no code
+/// falls back to the Arabic message, which is visible rather than broken.
+enum DataPortabilityError {
+  csvTooLarge,
+  csvEmpty,
+  csvTooManyRows,
+  csvBadHeaders,
+  csvDuplicateColumns,
+  fileTooLarge,
+  zipInvalid,
+  pickCsvOrZip,
+  fixErrorsFirst,
+  externalCsvMergeOnly,
+  replaceUnavailableMixed,
+  reselectFile,
+  csvMappingIncomplete,
+  exportTooLarge,
+  packageAlreadyImported,
+  foreignPairRequired,
+  unsupportedTable,
+  otherCategoryMissing,
+  missingValue,
+  invalidCurrencyCode,
+  invalidMinorAmount,
+  invalidAmountLegacy,
+  invalidAmount,
+  invalidDate,
+  exportFileMissing,
+  zipTooLarge,
+  packageUnsafePath,
+  packageInflatedTooLarge,
+  entryUnreadable,
+  entrySizeMismatch,
+  manifestMissing,
+  manifestInvalid,
+  notAQirshExport,
+  newerVersion,
+  unsupportedVersion,
+  packageMetaIncomplete,
+  packageEntryMissing,
+  integrityCheckFailed,
+  packageTooManyRows,
+}
+
 class DataPortabilityException implements Exception {
-  const DataPortabilityException(this.message);
+  const DataPortabilityException(this.message, {this.code, this.args = const []});
 
   final String message;
+
+  /// Locale-independent identity. Null on paths that re-wrap another error.
+  final DataPortabilityError? code;
+
+  /// Values interpolated into the message, in the order the ARB expects them.
+  final List<String> args;
 
   @override
   String toString() => message;

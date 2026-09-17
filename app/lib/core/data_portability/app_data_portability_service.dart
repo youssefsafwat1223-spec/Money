@@ -118,7 +118,7 @@ class AppDataPortabilityService implements DataPortabilityService {
     final file = File(path);
     final length = await file.length();
     if (length > maxImportBytes) {
-      throw const DataPortabilityException('حجم الملف أكبر من 25MB.');
+      throw const DataPortabilityException('حجم الملف أكبر من 25MB.', code: DataPortabilityError.fileTooLarge);
     }
     var bytes = await file.readAsBytes();
     final lower = path.toLowerCase();
@@ -144,7 +144,7 @@ class AppDataPortabilityService implements DataPortabilityService {
         try {
           archive = ZipDecoder().decodeBytes(bytes);
         } catch (_) {
-          throw const DataPortabilityException('ملف ZIP غير صالح أو تالف.');
+          throw const DataPortabilityException('ملف ZIP غير صالح أو تالف.', code: DataPortabilityError.zipInvalid);
         }
         final csvFiles = archive.files
             .where((f) => f.isFile && f.name.toLowerCase().endsWith('.csv'))
@@ -160,7 +160,7 @@ class AppDataPortabilityService implements DataPortabilityService {
         }
       }
     } else if (!lower.endsWith('.csv')) {
-      throw const DataPortabilityException('اختر ملف CSV أو ZIP.');
+      throw const DataPortabilityException('اختر ملف CSV أو ZIP.', code: DataPortabilityError.pickCsvOrZip);
     }
     final document = decodePortableCsv(bytes);
     final guessedMapping = guessCsvMapping(document.headers);
@@ -230,23 +230,23 @@ class AppDataPortabilityService implements DataPortabilityService {
   @override
   Future<ImportResult> import(ImportPreview preview, ImportMode mode) async {
     if (preview.hasErrors) {
-      throw const DataPortabilityException('أصلح أخطاء الملف قبل الاستيراد.');
+      throw const DataPortabilityException('أصلح أخطاء الملف قبل الاستيراد.', code: DataPortabilityError.fixErrorsFirst);
     }
     if (preview.format == ImportFormat.genericCsv) {
       if (mode == ImportMode.replace) {
-        throw const DataPortabilityException('CSV الخارجي يدعم الدمج فقط.');
+        throw const DataPortabilityException('CSV الخارجي يدعم الدمج فقط.', code: DataPortabilityError.externalCsvMergeOnly);
       }
       return _importGeneric(preview);
     }
     if (mode == ImportMode.replace && !preview.canReplace) {
       throw const DataPortabilityException(
-        'الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.',
+        'الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.', code: DataPortabilityError.replaceUnavailableMixed,
       );
     }
     final package = _inspected[preview.packageId];
     if (package is! QirshPackageData) {
       throw const DataPortabilityException(
-          'أعد اختيار الملف ثم حاول مرة أخرى.');
+          'أعد اختيار الملف ثم حاول مرة أخرى.', code: DataPortabilityError.reselectFile);
     }
     // MALI-034: single Drift-authoritative import path. The Supabase-primary
     // server/mixed import RPC branches (and their repairAll/mark-dirty recovery)
@@ -259,7 +259,7 @@ class AppDataPortabilityService implements DataPortabilityService {
     final document = _inspected[preview.packageId];
     final mapping = preview.mapping;
     if (document is! PortableCsvDocument || mapping == null) {
-      throw const DataPortabilityException('مطابقة أعمدة CSV غير مكتملة.');
+      throw const DataPortabilityException('مطابقة أعمدة CSV غير مكتملة.', code: DataPortabilityError.csvMappingIncomplete);
     }
     final defaultCurrency = (await _settings.getSettings()).currency;
     final parsed = parseGenericTransactions(

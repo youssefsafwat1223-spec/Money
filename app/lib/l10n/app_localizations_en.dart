@@ -5117,4 +5117,150 @@ class AppL10nEn extends AppL10n {
   String rprLegacyAmount(String amount) {
     return 'Previous amount: $amount · no currency set';
   }
+
+  @override
+  String get dpeCsvTooLarge => 'The CSV file is larger than 25MB.';
+
+  @override
+  String get dpeCsvEmpty => 'The CSV file is empty.';
+
+  @override
+  String get dpeCsvTooManyRows => 'The CSV file has more than 100,000 rows.';
+
+  @override
+  String get dpeCsvBadHeaders => 'The CSV column headers are not valid.';
+
+  @override
+  String get dpeCsvDuplicateColumns => 'The CSV file has duplicate columns.';
+
+  @override
+  String get dpeFileTooLarge => 'The file is larger than 25MB.';
+
+  @override
+  String get dpeZipInvalid => 'The ZIP file is invalid or damaged.';
+
+  @override
+  String get dpePickCsvOrZip => 'Choose a CSV or ZIP file.';
+
+  @override
+  String get dpeFixErrorsFirst =>
+      'Fix the errors in the file before importing.';
+
+  @override
+  String get dpeExternalCsvMergeOnly =>
+      'An external CSV can only be merged, not replaced.';
+
+  @override
+  String get dpeReplaceUnavailableMixed =>
+      'Replace is not available while mixed data sources are active.';
+
+  @override
+  String get dpeReselectFile => 'Select the file again, then try once more.';
+
+  @override
+  String get dpeCsvMappingIncomplete => 'The CSV column mapping is incomplete.';
+
+  @override
+  String get dpeExportTooLarge => 'The export exceeded the 100MB limit.';
+
+  @override
+  String get dpePackageAlreadyImported =>
+      'This package was already imported, in a different mode.';
+
+  @override
+  String get dpeForeignPairRequired =>
+      'The foreign amount and its currency must both be present.';
+
+  @override
+  String dpeUnsupportedTable(String value) {
+    return 'Unsupported table: $value';
+  }
+
+  @override
+  String get dpeOtherCategoryMissing => 'The “Other” category is missing.';
+
+  @override
+  String dpeMissingValue(String value) {
+    return '$value is missing.';
+  }
+
+  @override
+  String dpeInvalidCurrencyCode(String value) {
+    return 'Invalid currency code: $value';
+  }
+
+  @override
+  String dpeInvalidMinorAmount(String value) {
+    return 'Invalid exact amount: $value';
+  }
+
+  @override
+  String dpeInvalidAmount(String value) {
+    return 'Invalid amount: $value';
+  }
+
+  @override
+  String dpeInvalidDate(String value) {
+    return 'Invalid date: $value';
+  }
+
+  @override
+  String dpeExportFileMissing(String value) {
+    return '$value is missing from the export.';
+  }
+
+  @override
+  String get dpeZipTooLarge => 'The ZIP file is larger than 25MB.';
+
+  @override
+  String get dpePackageUnsafePath =>
+      'The Qirsh package contains a path or file that is not allowed.';
+
+  @override
+  String get dpePackageInflatedTooLarge =>
+      'The package is larger than 100MB once unpacked.';
+
+  @override
+  String dpeEntryUnreadable(String value) {
+    return '$value could not be read.';
+  }
+
+  @override
+  String dpeEntrySizeMismatch(String value) {
+    return 'The size of $value does not match the ZIP header.';
+  }
+
+  @override
+  String get dpeManifestMissing => 'manifest.json is missing.';
+
+  @override
+  String get dpeManifestInvalid => 'manifest.json is not valid.';
+
+  @override
+  String get dpeNotAQirshExport => 'This is not a Qirsh export file.';
+
+  @override
+  String get dpeNewerVersion =>
+      'This file comes from a newer version. Update Qirsh and try again.';
+
+  @override
+  String get dpeUnsupportedVersion =>
+      'This Qirsh file version is not supported.';
+
+  @override
+  String get dpePackageMetaIncomplete => 'The package metadata is incomplete.';
+
+  @override
+  String dpePackageEntryMissing(String value) {
+    return '$value is missing from the package.';
+  }
+
+  @override
+  String dpeIntegrityCheckFailed(String value) {
+    return 'The integrity check for $value failed.';
+  }
+
+  @override
+  String get dpePackageTooManyRows =>
+      'The package exceeds 100,000 rows in total.';
 }

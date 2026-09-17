@@ -51,7 +51,7 @@ Uint8List encodeQirshPackage({
     final fileName = '$table.csv';
     final bytes = csvFiles[fileName];
     if (bytes == null) {
-      throw DataPortabilityException('ملف $fileName مفقود من التصدير.');
+      throw DataPortabilityException('ملف $fileName مفقود من التصدير.', code: DataPortabilityError.exportFileMissing, args: [fileName]);
     }
     checksums[fileName] = sha256.convert(bytes).toString();
     counts[table] = rowCounts != null && rowCounts.containsKey(table)
@@ -82,13 +82,13 @@ Uint8List encodeQirshPackage({
 
 QirshPackageData decodeQirshPackage(Uint8List bytes) {
   if (bytes.length > maxImportBytes) {
-    throw const DataPortabilityException('حجم ملف ZIP أكبر من 25MB.');
+    throw const DataPortabilityException('حجم ملف ZIP أكبر من 25MB.', code: DataPortabilityError.zipTooLarge);
   }
   Archive archive;
   try {
     archive = ZipDecoder().decodeBytes(bytes, verify: true);
   } catch (_) {
-    throw const DataPortabilityException('ملف ZIP غير صالح أو تالف.');
+    throw const DataPortabilityException('ملف ZIP غير صالح أو تالف.', code: DataPortabilityError.zipInvalid);
   }
 
   final allowed = {
@@ -106,28 +106,28 @@ QirshPackageData decodeQirshPackage(Uint8List bytes) {
         name.contains('/./') ||
         !allowed.contains(name)) {
       throw const DataPortabilityException(
-          'حزمة قرش تحتوي مسارًا أو ملفًا غير مسموح.');
+          'حزمة قرش تحتوي مسارًا أو ملفًا غير مسموح.', code: DataPortabilityError.packageUnsafePath);
     }
     if (entry.size < 0 ||
         entry.size > maxExpandedImportBytes ||
         expandedBytes + entry.size > maxExpandedImportBytes) {
       throw const DataPortabilityException(
-          'حجم الحزمة بعد الفك أكبر من 100MB.');
+          'حجم الحزمة بعد الفك أكبر من 100MB.', code: DataPortabilityError.packageInflatedTooLarge);
     }
     expandedBytes += entry.size;
     final content = entry.readBytes();
     if (content == null) {
-      throw DataPortabilityException('تعذر قراءة $name.');
+      throw DataPortabilityException('تعذر قراءة $name.', code: DataPortabilityError.entryUnreadable, args: [name]);
     }
     if (content.length != entry.size) {
-      throw DataPortabilityException('حجم $name لا يطابق ترويسة ZIP.');
+      throw DataPortabilityException('حجم $name لا يطابق ترويسة ZIP.', code: DataPortabilityError.entrySizeMismatch, args: [name]);
     }
     files[name] = content;
   }
 
   final manifestBytes = files['manifest.json'];
   if (manifestBytes == null) {
-    throw const DataPortabilityException('manifest.json مفقود.');
+    throw const DataPortabilityException('manifest.json مفقود.', code: DataPortabilityError.manifestMissing);
   }
   final Map<String, dynamic> manifest;
   try {
@@ -135,26 +135,26 @@ QirshPackageData decodeQirshPackage(Uint8List bytes) {
       jsonDecode(utf8.decode(manifestBytes)) as Map,
     );
   } catch (_) {
-    throw const DataPortabilityException('manifest.json غير صالح.');
+    throw const DataPortabilityException('manifest.json غير صالح.', code: DataPortabilityError.manifestInvalid);
   }
   if (manifest['format'] != 'qirsh-financial-data') {
-    throw const DataPortabilityException('هذا ليس ملف تصدير قرش.');
+    throw const DataPortabilityException('هذا ليس ملف تصدير قرش.', code: DataPortabilityError.notAQirshExport);
   }
   final version = manifest['version'];
   if (version is! int || version > qirshPackageVersion) {
     throw const DataPortabilityException(
-      'الملف من إصدار أحدث. حدّث قرش ثم أعد المحاولة.',
+      'الملف من إصدار أحدث. حدّث قرش ثم أعد المحاولة.', code: DataPortabilityError.newerVersion,
     );
   }
   if (version < 1) {
-    throw const DataPortabilityException('إصدار ملف قرش غير مدعوم.');
+    throw const DataPortabilityException('إصدار ملف قرش غير مدعوم.', code: DataPortabilityError.unsupportedVersion);
   }
   final packageId = manifest['package_id']?.toString().trim() ?? '';
   final exportedAt = DateTime.tryParse(
     manifest['exported_at']?.toString() ?? '',
   );
   if (packageId.isEmpty || exportedAt == null) {
-    throw const DataPortabilityException('بيانات تعريف الحزمة ناقصة.');
+    throw const DataPortabilityException('بيانات تعريف الحزمة ناقصة.', code: DataPortabilityError.packageMetaIncomplete);
   }
   final checksums = Map<String, dynamic>.from(
     (manifest['checksums'] as Map?) ?? const {},
@@ -165,17 +165,17 @@ QirshPackageData decodeQirshPackage(Uint8List bytes) {
     final fileName = '$table.csv';
     final content = files[fileName];
     if (content == null) {
-      throw DataPortabilityException('$fileName مفقود من الحزمة.');
+      throw DataPortabilityException('$fileName مفقود من الحزمة.', code: DataPortabilityError.packageEntryMissing, args: [fileName]);
     }
     final expected = checksums[fileName]?.toString();
     final actual = sha256.convert(content).toString();
     if (expected == null || expected != actual) {
-      throw DataPortabilityException('فشل التحقق من سلامة $fileName.');
+      throw DataPortabilityException('فشل التحقق من سلامة $fileName.', code: DataPortabilityError.integrityCheckFailed, args: [fileName]);
     }
     final document = decodePortableCsv(content);
     totalRows += document.rows.length;
     if (totalRows > maxImportRows) {
-      throw const DataPortabilityException('الحزمة تتجاوز 100,000 صف إجمالي.');
+      throw const DataPortabilityException('الحزمة تتجاوز 100,000 صف إجمالي.', code: DataPortabilityError.packageTooManyRows);
     }
     tables[table] = document;
   }

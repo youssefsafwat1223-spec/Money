@@ -2710,5 +2710,120 @@
         "type": "String"
       }
     }
-  }
+  },
+  "dpeCsvTooLarge": "حجم ملف CSV أكبر من 25MB.",
+  "dpeCsvEmpty": "ملف CSV فارغ.",
+  "dpeCsvTooManyRows": "ملف CSV يتجاوز 100,000 صف.",
+  "dpeCsvBadHeaders": "عناوين أعمدة CSV غير صالحة.",
+  "dpeCsvDuplicateColumns": "ملف CSV يحتوي أعمدة مكررة.",
+  "dpeFileTooLarge": "حجم الملف أكبر من 25MB.",
+  "dpeZipInvalid": "ملف ZIP غير صالح أو تالف.",
+  "dpePickCsvOrZip": "اختر ملف CSV أو ZIP.",
+  "dpeFixErrorsFirst": "أصلح أخطاء الملف قبل الاستيراد.",
+  "dpeExternalCsvMergeOnly": "CSV الخارجي يدعم الدمج فقط.",
+  "dpeReplaceUnavailableMixed": "الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.",
+  "dpeReselectFile": "أعد اختيار الملف ثم حاول مرة أخرى.",
+  "dpeCsvMappingIncomplete": "مطابقة أعمدة CSV غير مكتملة.",
+  "dpeExportTooLarge": "حجم التصدير تجاوز الحد المسموح (100MB).",
+  "dpePackageAlreadyImported": "تم استيراد هذه الحزمة سابقًا بوضع مختلف.",
+  "dpeForeignPairRequired": "المبلغ والعملة الأجنبية يجب أن يوجدا معًا.",
+  "dpeUnsupportedTable": "جدول غير مدعوم: {value}",
+  "@dpeUnsupportedTable": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeOtherCategoryMissing": "تصنيف «أخرى» غير موجود.",
+  "dpeMissingValue": "قيمة {value} مفقودة.",
+  "@dpeMissingValue": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeInvalidCurrencyCode": "رمز عملة غير صالح: {value}",
+  "@dpeInvalidCurrencyCode": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeInvalidMinorAmount": "قيمة مالية دقيقة غير صالحة: {value}",
+  "@dpeInvalidMinorAmount": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeInvalidAmount": "قيمة مالية غير صالحة: {value}",
+  "@dpeInvalidAmount": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeInvalidDate": "تاريخ غير صالح: {value}",
+  "@dpeInvalidDate": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeExportFileMissing": "ملف {value} مفقود من التصدير.",
+  "@dpeExportFileMissing": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeZipTooLarge": "حجم ملف ZIP أكبر من 25MB.",
+  "dpePackageUnsafePath": "حزمة قِرش تحتوي مسارًا أو ملفًا غير مسموح.",
+  "dpePackageInflatedTooLarge": "حجم الحزمة بعد الفك أكبر من 100MB.",
+  "dpeEntryUnreadable": "تعذر قراءة {value}.",
+  "@dpeEntryUnreadable": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeEntrySizeMismatch": "حجم {value} لا يطابق ترويسة ZIP.",
+  "@dpeEntrySizeMismatch": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeManifestMissing": "manifest.json مفقود.",
+  "dpeManifestInvalid": "manifest.json غير صالح.",
+  "dpeNotAQirshExport": "هذا ليس ملف تصدير قِرش.",
+  "dpeNewerVersion": "الملف من إصدار أحدث. حدّث قِرش ثم أعد المحاولة.",
+  "dpeUnsupportedVersion": "إصدار ملف قِرش غير مدعوم.",
+  "dpePackageMetaIncomplete": "بيانات تعريف الحزمة ناقصة.",
+  "dpePackageEntryMissing": "{value} مفقود من الحزمة.",
+  "@dpePackageEntryMissing": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpeIntegrityCheckFailed": "فشل التحقق من سلامة {value}.",
+  "@dpeIntegrityCheckFailed": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "dpePackageTooManyRows": "الحزمة تتجاوز 100,000 صف إجمالي."
 }
