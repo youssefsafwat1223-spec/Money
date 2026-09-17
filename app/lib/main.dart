@@ -253,10 +253,22 @@ class _DatabaseRecoveryViewState extends State<_DatabaseRecoveryView> {
                   child: FilledButton(
                     onPressed: _resetting ? null : _reset,
                     // الشاشة دي خلفيتها سودا صريحة تحت ثيم فاتح — زر ink
-                    // الفاتح (أسود) هيختفي عليها، فنقلب أبيض/أسود يدويًا.
+                    // الفاتح (أسود) هيختفي عليها، فنقلب الألوان يدويًا.
+                    //
+                    // DESTRUCTIVE, and styled as such. This button deletes the
+                    // user's entire local financial history, and it rendered
+                    // white-on-black: the neutral, default affordance, on the
+                    // only control this screen has. The prototype's
+                    // SHELL-DATABASE-RECOVERY frame draws it red, and the rest
+                    // of the app already reserves red for deletion.
+                    //
+                    // The colour is a literal because this view runs BEFORE the
+                    // database opens, which is before the theme extension that
+                    // carries `danger` is available; it is the same
+                    // 0xFFDC2626 that token holds.
                     style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: Colors.black,
+                      backgroundColor: const Color(0xFFDC2626),
+                      foregroundColor: Colors.white,
                     ),
                     child: _resetting
                         ? const SizedBox(

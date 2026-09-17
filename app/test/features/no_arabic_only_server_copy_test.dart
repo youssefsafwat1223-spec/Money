@@ -97,6 +97,37 @@ void main() {
             'reader direction: ${offenders.join(", ")}');
   });
 
+  test('no picker pins its own locale', () {
+    // `showDatePicker(locale: const Locale('ar'))` at two of eleven call sites
+    // — the goal deadline and the manual-transaction date. An English user
+    // tapping "Deadline" got a fully Arabic calendar over a visibly English
+    // app: «اختيار التاريخ», Arabic weekday headers, Eastern Arabic numerals,
+    // «الإلغاء»/«حسنًا», laid out right-to-left. The other nine call sites
+    // inherited the app locale and were correct, so the app disagreed with
+    // itself depending on which date field you touched.
+    //
+    // A picker with no `locale` inherits from Localizations, which is the app's
+    // language. `locale_provider.dart` is the one place that decides it.
+    final offenders = <String>[];
+    for (final file in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      if (file.path.endsWith('core/i18n/locale_provider.dart')) continue;
+      if (file.path.startsWith('lib/l10n/')) continue;
+      final lines = file.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        if (lines[i].trimLeft().startsWith('//')) continue;
+        if (RegExp(r"locale:\s*const Locale\(").hasMatch(lines[i])) {
+          offenders.add('${file.path}:${i + 1}');
+        }
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'these force one language on a picker regardless of the '
+            "reader's: ${offenders.join(", ")}");
+  });
+
   test('no widget pins a Stack child to an absolute side', () {
     // `Positioned(left:)` on a decorative element is the same mistake one layer
     // down: the welcome story pinned its illustration to the far left, which is

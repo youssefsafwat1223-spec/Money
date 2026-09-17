@@ -323,21 +323,29 @@ void main() {
         // has already answered the prompt the call returns immediately; if a
         // native sheet does come up it sits ABOVE Flutter and the next capture
         // would be of a dialog, so the step is recorded rather than forced.
-        final notifCta = find.text(
-            tester.element(find.byType(Scaffold).first).l10n.setupNotificationsCta);
-        if (notifCta.evaluate().isEmpty) {
-          notes.add('[$lang] notifications CTA absent — step 2 not advanced');
+        // Step 3 is NOT reached by tapping "Enable". That asks iOS for
+        // notification permission, and the OS alert is a native view: while it
+        // is up the engine stops delivering vsync, `tester.pump()` never
+        // returns, and the run freezes with every capture so far discarded.
+        // Three runs ended on "step 3 never appeared" for that reason.
+        //
+        // The app has its own way in. `RestorePromptScreen` pushes this screen
+        // with `entry: captureGuide`, which opens on the shortcut step with the
+        // first two already done — the path a returning user takes after a
+        // restore. That is the constructor used here: a shipping entry point,
+        // not a synthesised one.
+        final host = tester.element(find.byType(Scaffold).first);
+        unawaited(Navigator.of(host).push(MaterialPageRoute<void>(
+          builder: (_) => const OnboardingSetupScreen(
+              entry: OnboardingSetupEntry.captureGuide),
+        )));
+        await settle(tester, budget: const Duration(seconds: 14));
+        final shortcut = find.text(
+            tester.element(find.byType(Scaffold).first).l10n.setupShortcutTitle);
+        if (shortcut.evaluate().isEmpty) {
+          failures.add('[$lang] step 3 (the shortcut guide) did not render');
         } else {
-          await tester.tap(notifCta.first, warnIfMissed: false);
-          await settle(tester, budget: const Duration(seconds: 20));
-          final shortcut = find.text(
-              tester.element(find.byType(Scaffold).first).l10n.setupShortcutTitle);
-          if (shortcut.evaluate().isEmpty) {
-            failures.add('[$lang] step 3 (the shortcut guide) never appeared '
-                'after the notifications step');
-          } else {
-            await shoot(lang, 'setup-3-shortcut');
-          }
+          await shoot(lang, 'setup-3-shortcut');
         }
       }
     }

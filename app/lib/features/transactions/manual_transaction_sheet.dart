@@ -125,7 +125,6 @@ class _ManualTransactionSheetState
       initialDate: _occurredAt,
       firstDate: DateTime(DateTime.now().year - 5),
       lastDate: DateTime.now().add(const Duration(days: 1)),
-      locale: const Locale('ar'),
     );
     if (date == null || !mounted) return;
     final time = await showTimePicker(

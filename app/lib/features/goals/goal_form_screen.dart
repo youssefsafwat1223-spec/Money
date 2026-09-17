@@ -431,7 +431,6 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
       initialDate: DateTime.now().add(const Duration(days: 90)),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 3650)),
-      locale: const Locale('ar'),
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
