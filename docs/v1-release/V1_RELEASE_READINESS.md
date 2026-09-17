@@ -114,3 +114,77 @@ practical, and that is why the contrast finding was checked rather than believed
 - Affiliate activation is **not** claimed.
 - The app is **Arabic-first**; English is 11% and must not be declared.
 - No Apple approval is implied.
+
+---
+
+# Release closure — 2026-09-17
+
+## Unshipped cloud-backup surface — owner decision
+
+**`BackupScreen`: KEEP DISABLED — V1 RELEASE REASON.**
+
+It ships in the binary and has no navigation entry point anywhere. That is
+deliberate and decided by the owner at release closure:
+
+- it has no shipping entry point today;
+- enabling it now would **expand V1 scope**;
+- cloud-backup behaviour and consent were only just hardened (`hasRemoteBackup()`
+  could not see the backups the app itself wrote; the enable path bypassed the
+  cloud-consent gate — both fixed, neither soaked);
+- **local export/import remains available and tested** end to end;
+- a new **reviewer-visible cloud feature** must not appear in the submission at
+  release closure.
+
+The implementation is **not deleted** — removal is not required for release
+safety.
+
+**`FoundationHomeScreen`: KEEP DISABLED — legacy.** Zero reachable references
+anywhere in `lib/`. Not resurrected for V1.
+
+Neither is counted as a shipping V1 screen. The route denominator is **19**,
+and `test/features/unshipped_surfaces_test.dart` fails if either gains a
+reference, if `/backup` stops being a redirect, if anything links to it, if
+either enters the route denominator, or if the consent gates are removed.
+
+Full reasoning: `V1_FEATURE_ACTIVATION_MATRIX.md` §3a.
+
+## Corrections to the claims above
+
+The **"English is 11% and must not be declared"** line in *Truthful claims* is
+no longer true and must not be carried into store metadata as written.
+
+Current measured state: **0 untranslated user-facing strings**; ARB parity at
+1,615 keys per language with identical key sets and zero Arabic left in the
+English file; 19 routes × 2 languages walked on **both** iOS and Android with
+identical results — 8 routes carrying Arabic under `en`, every survivor being
+user data (account, goal and merchant names, avatar initials).
+
+The app remains **Arabic-first** by design. English is now shippable, and
+whether to declare it in App Store metadata is a product decision, not a
+blocked one. See `V1_LOCALIZATION_MATRIX_2026-09-17.md`.
+
+The version line (`0.1.3+39`) is also stale; the bump to `1.0.0+40` happened
+later in the programme.
+
+## Final reviews
+
+Two independent reviewers ran at closure and found real defects, recorded with
+their dispositions in `V1_FINAL_REVIEWS.md`.
+
+**Codex red-team: REVIEW_DEFERRED.** The binary is not installed on this
+machine. Recorded truthfully; not counted as a pass. Acceptable under the
+charter.
+
+## What still blocks the release candidate
+
+Owner and hardware only:
+
+1. **EB-004** — Apple signing identity.
+2. **EB-005** — App Store Connect session.
+3. Android release signing (`key.properties`).
+4. Physical-device behaviour: APNs delivery, real-SIM SMS capture, background
+   capture on a killed app, permission prompts, wall-clock scheduled fire, and
+   the Android Settings channel list as the OS renders it.
+
+`QIRSH V1 RELEASE CANDIDATE READY` remains **withheld** until a signed,
+validated archive exists.

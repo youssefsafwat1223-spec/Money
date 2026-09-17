@@ -5,7 +5,8 @@ disposition. The proof audit recorded this as NOT PROVEN because no such
 inventory existed — flag defaults were readable, but nobody had said which ones
 V1 *intends*.
 
-Measured against HEAD, 2026-09-16. Sources: `lib/data/catalog/feature_flag_service.dart`
+Measured against HEAD, 2026-09-16; §3a added 2026-09-17 at release closure.
+Sources: `lib/data/catalog/feature_flag_service.dart`
 (`_defaults`), `lib/core/router/app_router.dart`, `lib/data/sync/exact_transport_capability.dart`.
 
 Classification: **ACTIVATE FOR V1** · **KEEP DISABLED — RELEASE REASON** · **EXTERNAL BLOCKED**
@@ -88,6 +89,70 @@ green.
 |---|---|---|---|
 | `/design` | `if (kDebugMode)` only | **KEEP DISABLED** | Design-system gallery. Absent from release builds — the sweep's one `ErrorWidget` was on this route in a debug build, and a profile build correctly served "Page Not Found" |
 | `/welcome`, `/onboarding/*` | Reachable only without a session | **ACTIVATE FOR V1** | Real first-run flow; covered by the destructive phase, which reaches them the only way a user can |
+| `/backup` | Permanent redirect to `/data-transfer` | **KEEP DISABLED — V1 RELEASE REASON** | An alias so an old deep link does not 404. It builds nothing, and nothing in the app links to it. See §3a |
+| `/backup/restore` | Offered from Data Transfer when a pre-V1 cloud backup exists | **ACTIVATE FOR V1** | The one live cloud surface: restore only, for people who enabled backup in an earlier build. Walked in both languages |
+
+## 3a. Unshipped screens — present in the binary, unreachable by design
+
+Two screens compile and ship but have **no navigation entry point anywhere**.
+This is an owner decision recorded at release closure, not an oversight.
+
+| Screen | Disposition | Reason |
+|---|---|---|
+| `BackupScreen` | **KEEP DISABLED — V1 RELEASE REASON** | See below |
+| `FoundationHomeScreen` | **KEEP DISABLED — legacy** | Zero reachable references anywhere in `lib/`. Not resurrected for V1 |
+
+### `BackupScreen` — why it stays unreachable
+
+It is the only place cloud backup can be **turned on**. Reaching it would:
+
+* **expand V1 scope** at release closure;
+* introduce a **reviewer-visible cloud feature** into an App Store submission
+  that does not otherwise make one;
+* do so immediately after the consent and discovery behaviour behind it was
+  hardened — `hasRemoteBackup()` could not see the backups the app itself
+  wrote, and the enable path bypassed the cloud-consent gate. Both are fixed,
+  neither has runtime soak.
+
+What a V1 user keeps: **local export and import**, which is the backup story
+V1 actually ships, and which is tested end to end — CSV and ZIP written to
+disk and read back through `inspectFile`, plus a real applied import verified
+row by row. Restore from a pre-V1 cloud backup also remains available via
+`/backup/restore`.
+
+### What "unreachable" is NOT
+
+It is **not a security control**. The screen is one route away from returning,
+and whoever adds that route will not re-derive the consent argument. So the
+code behind it stays correct regardless:
+
+* `BackupScreen` goes through `RemoteBackupController`, where the cloud-consent
+  gate lives — never `backupServiceProvider.enable()` directly;
+* the live backup-existence probe on the Data Transfer screen is gated on
+  `EgressClass.backup`;
+* `RemoteBackupController` denies when built with no consent function at all.
+
+### Not deleted
+
+Removal is not required for release safety, and the implementation is the
+starting point for whenever the owner does ship it. Four review findings in
+this unreachable code are recorded in `V1_FINAL_REVIEWS.md` (A4–A6) rather
+than fixed, for the same reason: changing unreachable code carries risk
+without benefit.
+
+### Enforced, not just asserted
+
+`test/features/unshipped_surfaces_test.dart` fails if either screen gains a
+reference, if `/backup` stops being a redirect, if anything links to it, if
+either surface enters the V1 route denominator, or if the consent gates are
+removed. Every other test in the suite asks whether code *works*; the property
+here is that it is **not reachable at all**, which nothing else would notice.
+
+### Not counted as shipping screens
+
+Neither appears in the bilingual walk's route list, which is the denominator
+every localization and direction figure is reported against. The V1 route
+count is **19**, and it contains no unreachable surface.
 
 ## 4. Deferred infrastructure
 
