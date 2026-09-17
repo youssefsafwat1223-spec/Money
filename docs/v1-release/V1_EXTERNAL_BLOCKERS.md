@@ -3,7 +3,9 @@
 Only genuine owner-or-external actions belong here. Everything else is
 engineering work and is tracked on the execution board.
 
-Last reconciled: 2026-09-16.
+Last reconciled: 2026-09-16. Boundary re-validated 2026-09-17 after the
+localization, Android, persistence and review work — see the re-validation
+block below.
 
 ---
 
@@ -24,10 +26,62 @@ Everything up to that boundary is done and verified:
 | Privacy | Redaction proven **on the wire** against the deployed backend, all ten PII classes |
 | Store metadata | Privacy labels, age rating, export compliance and reviewer notes written and ready to paste |
 | Screenshots | 13 at 1320×2868, regenerable by one command |
-| Tests | 3,944 Dart · 355 Deno · 18 Swift · live wire probe — all green |
+| Tests | **4,003 Dart** · 355 Deno · 18 Swift · live wire probe — all green |
 
 The only actions left are **EB-004** and **EB-005** below. Both are
 authentication in the owner's identity; neither has an engineering substitute.
+
+---
+
+## Boundary re-validation — 2026-09-17
+
+58 commits landed after the last reconcile, touching ~50 files under `lib/`.
+Everything up to the signing boundary was re-run so the owner does not add a
+certificate and then discover the build is broken.
+
+| Check | Result |
+|---|---|
+| `flutter analyze` — `lib/`, `test/`, `integration_test/` | clean (the earlier gate covered `lib/` only) |
+| Dart suite | **4,003 pass** |
+| Unsigned release build, production defines | **✓ Built** `Runner.app` (60.5 MB) |
+| `tool/preflight_archive.sh` | **PREFLIGHT PASS — safe to archive** |
+| Version | `1.0.0+40`, matching pubspec, `kPubspecVersion` and the artifact |
+| Bundle id | `com.youssefsafwat.mali` |
+| `ios/ExportOptions.plist` | lints clean; app-store-connect / team `5TWARK8A23` / automatic |
+| QA credentials in the artifact | none — `QA_EMAIL`, `QA_PASSWORD`, `QA_USER_ID`, `service_role`, owner email all absent |
+| Zero-contact refs | absent (all three) |
+| Production ref present | yes |
+| ATS enforced / no ATT string | OK |
+
+**The production defines file is `~/.qirsh-qa/demo_app_defines.json`** — it
+carries only `SUPABASE_URL` (production ref) and `SUPABASE_ANON_KEY`, with no
+QA credentials. `qa_run_defines.json` carries QA credentials and **must not**
+be used for a release build; the preflight's `QA_EMAIL`-in-binary check exists
+to catch exactly that mistake. The name "demo_app_defines" is misleading for a
+production file and is worth renaming when convenient.
+
+Building **without** `--dart-define-from-file` fails the preflight on two
+lines (`SUPABASE_URL + ANON_KEY present`, `production project ref present`),
+correctly: a release with no Supabase config fails closed at runtime. The
+archive command in EB-004 below already includes the flag.
+
+### Did the new English localization reach the release artifact?
+
+Yes, and to the same degree Arabic does. Measured against the AOT binary,
+searching both UTF-8 and UTF-16 (Dart stores non-ASCII strings as two-byte,
+which is why a UTF-8-only search reports Arabic as 0% and is simply wrong):
+
+| | Present in the release binary |
+|---|---|
+| Arabic ARB values | 1,012 / 1,175 (86%) |
+| English ARB values | 1,030 / 1,201 (85%) |
+
+Of the absences, **156 are missing in BOTH languages** — language-neutral
+tree-shaking of getters unreachable from the release entry point. Only 21 are
+asymmetric, split in both directions (15 English-only, 6 Arabic-only), which is
+AOT string-pool storage rather than a localization gap.
+
+**There is no English-specific gap in the release artifact.**
 
 ---
 
