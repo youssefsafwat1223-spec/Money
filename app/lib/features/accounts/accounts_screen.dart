@@ -224,7 +224,8 @@ class _AccountCard extends ConsumerWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    '${accountTypeLabel(context, account.type)} · ${Currency.label(context, account.currency)} (${account.currency})',
+                    '${accountTypeLabel(context, account.type)} · '
+                    '${Currency.labelWithCode(context, account.currency)}',
                     style: AppTypography.caption(c.textLight),
                   ),
                   // UX-013 — the balance was the one thing this screen never

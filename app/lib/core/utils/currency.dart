@@ -71,6 +71,21 @@ class Currency {
 
   /// Locale-aware label. Mirrors `Formatters`' context-taking API so money
   /// reads in the same language as everything around it.
+  /// "«ريال» (SAR)" in Arabic, "SAR" in English.
+  ///
+  /// The account list wrote `'\${label} (\$code)'` by hand. In Arabic that
+  /// reads naturally — a familiar name plus the ISO code. In English
+  /// [englishLabel] IS the code, so it rendered "SAR (SAR)": the same token
+  /// twice, which looks like a bug to the reader because it is one.
+  ///
+  /// Collapsing when the two are equal keeps the Arabic exactly as it was and
+  /// fixes English everywhere, including at call sites that do not exist yet.
+  static String labelWithCode(BuildContext context, String code) {
+    final name = label(context, code);
+    final upper = code.toUpperCase();
+    return name == upper ? upper : '$name ($upper)';
+  }
+
   static String label(BuildContext context, String code) =>
       labelFor(code, Localizations.localeOf(context).languageCode);
 

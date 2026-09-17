@@ -1215,7 +1215,7 @@
   "cardIn": "In",
   "cardOut": "Out",
   "cardAddTx": "Add transaction",
-  "cardLinkExistingTx": "Link an existing transaction",
+  "cardLinkExistingTx": "Link a transaction",
   "cardSearchHint": "Search by name or amount",
   "cardNoTx": "No transactions",
   "accAddAccount": "Add account",

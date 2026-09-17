@@ -2634,7 +2634,7 @@ class AppL10nEn extends AppL10n {
   String get cardAddTx => 'Add transaction';
 
   @override
-  String get cardLinkExistingTx => 'Link an existing transaction';
+  String get cardLinkExistingTx => 'Link a transaction';
 
   @override
   String get cardSearchHint => 'Search by name or amount';

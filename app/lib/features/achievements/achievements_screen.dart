@@ -7,6 +7,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
+import '../common/app_card.dart';
 import '../common/premium_loading.dart';
 import 'achievements_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -43,34 +44,52 @@ class AchievementsScreen extends ConsumerWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(context.l10n.achCurrentLevel,
-                          style: AppTypography.callout(c.textLight)),
-                      const SizedBox(height: AppSpacing.s1),
-                      Text(
-                        _levelName(context, data.xpLevel.levelKey),
-                        style: AppTypography.title2(c.textMain),
-                      ),
-                      const SizedBox(height: AppSpacing.s3),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(AppRadius.pill),
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          minHeight: 12,
-                          backgroundColor: c.surface2,
-                          valueColor: AlwaysStoppedAnimation(c.primary),
+                      // ON A SURFACE, not on the bare page.
+                      //
+                      // `CalmPageHeader` melts its gradient DOWNWARD into the
+                      // page, so the first content block sits over fading
+                      // blue. This block used the light-theme page tokens
+                      // there, and «Current level» measured **1.45:1** against
+                      // its background — WCAG AA wants 4.5:1. Every other
+                      // screen puts a card in the melt zone, which is why none
+                      // of them has the problem; this one had bare text.
+                      AppCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(context.l10n.achCurrentLevel,
+                                style: AppTypography.callout(c.textLight)),
+                            const SizedBox(height: AppSpacing.s1),
+                            Text(
+                              _levelName(context, data.xpLevel.levelKey),
+                              style: AppTypography.title2(c.textMain),
+                            ),
+                            const SizedBox(height: AppSpacing.s3),
+                            ClipRRect(
+                              borderRadius:
+                                  BorderRadius.circular(AppRadius.pill),
+                              child: LinearProgressIndicator(
+                                value: progress,
+                                minHeight: 12,
+                                backgroundColor: c.surface2,
+                                valueColor: AlwaysStoppedAnimation(c.primary),
+                              ),
+                            ),
+                            const SizedBox(height: AppSpacing.s2),
+                            Text(
+                              nextThreshold == null
+                                  ? '${data.xpLevel.totalXp.toString()} XP'
+                                  : '${data.xpLevel.totalXp.toString()}/$nextThreshold XP',
+                              style: AppTypography.subhead(c.textMain),
+                            ),
+                            const SizedBox(height: AppSpacing.s3),
+                            Text(
+                              context.l10n
+                                  .achCurrentStreak(data.streak.currentStreak),
+                              style: AppTypography.bodyStrong(c.textMain),
+                            ),
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: AppSpacing.s2),
-                      Text(
-                        nextThreshold == null
-                            ? '${data.xpLevel.totalXp.toString()} XP'
-                            : '${data.xpLevel.totalXp.toString()}/$nextThreshold XP',
-                        style: AppTypography.subhead(c.textMain),
-                      ),
-                      const SizedBox(height: AppSpacing.s5),
-                      Text(
-                        context.l10n.achCurrentStreak(data.streak.currentStreak),
-                        style: AppTypography.bodyStrong(c.textMain),
                       ),
                       const SizedBox(height: AppSpacing.s5),
                       GridView.builder(
