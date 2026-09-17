@@ -86,12 +86,48 @@ void main() {
   NavigatorState navigatorOf(WidgetTester tester) =>
       tester.state<NavigatorState>(find.byType(Navigator).first);
 
+  /// Close whatever is on top until the shell is back, bounded.
+  ///
+  /// One stuck sheet used to take the whole pass down; popping until the shell
+  /// returns, with a bound, means a sheet that will not close costs one entry
+  /// rather than the run.
+  Future<void> popToShell(WidgetTester tester) async {
+    for (var i = 0; i < 6; i++) {
+      if (find.byType(AppShell).evaluate().isNotEmpty &&
+          find.byType(BottomSheet).evaluate().isEmpty &&
+          find.byType(Dialog).evaluate().isEmpty) {
+        return;
+      }
+      final nav = navigatorOf(tester);
+      if (!nav.canPop()) return;
+      nav.pop();
+      await settle(tester, budget: const Duration(seconds: 5));
+    }
+  }
+
+
   /// Text inside the MODAL only.
   ///
   /// Reading the whole tree reports the screen still sitting behind the sheet,
   /// which made every sheet look like it had leftover Arabic when what leaked
   /// through was Home's account and merchant names — user data, and correctly
   /// Arabic. Scope to the sheet subtree or the measurement is meaningless.
+  /// The language the thing currently on top actually resolved.
+  ///
+  /// `Localizations.localeOf` on the SHEET's own element, not the shell's: a
+  /// modal is pushed with its own context, and that is precisely where a stale
+  /// one hides.
+  String? localeOfTopmost(WidgetTester tester) {
+    for (final type in [BottomSheet, AlertDialog, Dialog]) {
+      final host = find.byType(type);
+      if (host.evaluate().isEmpty) continue;
+      return Localizations.localeOf(tester.element(host.first)).languageCode;
+    }
+    final scaffolds = find.byType(Scaffold);
+    if (scaffolds.evaluate().isEmpty) return null;
+    return Localizations.localeOf(tester.element(scaffolds.last)).languageCode;
+  }
+
   List<String> modalText(WidgetTester tester) {
     for (final type in [BottomSheet, AlertDialog, Dialog]) {
       final host = find.byType(type);
@@ -161,6 +197,23 @@ void main() {
       await settingsRepo.saveSettings(current.copyWith(language: lang));
       await settle(tester, budget: const Duration(seconds: 10));
 
+      // The switch has to reach the WIDGET TREE before anything is measured,
+      // not merely the settings row. A sheet opened from a context whose
+      // `Localizations` is still the previous language renders that language
+      // and looks exactly like an untranslated screen — `goal-form` reported
+      // seven Arabic strings this way while its ARB entries were complete and
+      // correct in English. Wait for the tree, then measure.
+      final localeDeadline = DateTime.now().add(const Duration(seconds: 20));
+      while (DateTime.now().isBefore(localeDeadline)) {
+        final shell = find.byType(AppShell);
+        if (shell.evaluate().isNotEmpty &&
+            Localizations.localeOf(tester.element(shell)).languageCode ==
+                lang) {
+          break;
+        }
+        await settle(tester, budget: const Duration(seconds: 2));
+      }
+
       for (final entry in _sheets.entries) {
         // Re-resolve the shell each time: closing a sheet rebuilds the tree.
         final shell = find.byType(AppShell);
@@ -185,6 +238,19 @@ void main() {
         } else {
           opened[lang] = opened[lang]! + 1;
           if (lang == 'en') {
+            // THE guard against a false positive: read the locale the sheet
+            // itself resolved. If it is not `lang`, the sheet was built from a
+            // stale context and its Arabic says nothing about whether the copy
+            // is translated. Record it as a failure to MEASURE rather than as
+            // untranslated copy — the two need different fixes and must not be
+            // reported as the same thing.
+            final sheetLocale = localeOfTopmost(tester);
+            if (sheetLocale != null && sheetLocale != lang) {
+              failedToOpen.add('[$lang] ${entry.key}: rendered in '
+                  '$sheetLocale — stale Localizations, not untranslated copy');
+              await popToShell(tester);
+              continue;
+            }
             final arabic = modalText(tester)
                 .where(arabicScript.hasMatch)
                 .toSet()
@@ -197,17 +263,7 @@ void main() {
         // Pop until the shell is back. A single pop was not enough: one sheet
         // that failed to close took the ENTIRE English pass down with it,
         // because every later opener needs the shell's context.
-        for (var i = 0; i < 6; i++) {
-          if (find.byType(AppShell).evaluate().isNotEmpty &&
-              find.byType(BottomSheet).evaluate().isEmpty &&
-              find.byType(Dialog).evaluate().isEmpty) {
-            break;
-          }
-          final nav = navigatorOf(tester);
-          if (!nav.canPop()) break;
-          nav.pop();
-          await settle(tester, budget: const Duration(seconds: 5));
-        }
+        await popToShell(tester);
       }
     }
 
