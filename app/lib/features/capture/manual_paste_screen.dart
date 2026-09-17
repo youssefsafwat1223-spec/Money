@@ -62,7 +62,7 @@ class _ManualPasteSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(28),
@@ -668,7 +668,7 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
     final summary =
         _BatchSummary.from(widget.items, confirmedIds: _confirmedIds);
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: MaliGlass(

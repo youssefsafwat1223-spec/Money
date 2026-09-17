@@ -503,7 +503,7 @@ class _ActiveAccountPicker extends ConsumerWidget {
       showDragHandle: true,
       backgroundColor: c.surface,
       builder: (context) => navySheetTheme(Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: Directionality.of(context),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
@@ -1195,7 +1195,7 @@ class _BillsTabState extends State<_BillsTab> {
       context: context,
       showDragHandle: true,
       builder: (context) => navySheetTheme(Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: Directionality.of(context),
         child: Padding(
           padding: const EdgeInsets.all(AppSpacing.gutter),
           child: Column(
@@ -1946,9 +1946,9 @@ class _SmartInboxSheet extends ConsumerWidget {
         isScrollControlled: true,
         showDragHandle: true,
         backgroundColor: context.colors.surface,
-        builder: (_) => navySheetTheme(const Directionality(
-          textDirection: TextDirection.rtl,
-          child: _SmartInboxSheet(),
+        builder: (_) => navySheetTheme(Directionality(
+          textDirection: Directionality.of(context),
+          child: const _SmartInboxSheet(),
         )),
       );
 
@@ -2079,7 +2079,7 @@ Future<void> showSuspectedDuplicateReviewSheet(
     showDragHandle: true,
     backgroundColor: context.colors.surface,
     builder: (_) => navySheetTheme(Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
         child: _SuspectedDuplicateCard(dupe: dupe),
@@ -2097,9 +2097,9 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
       isScrollControlled: true,
       showDragHandle: true,
       backgroundColor: context.colors.surface,
-      builder: (_) => navySheetTheme(const Directionality(
-        textDirection: TextDirection.rtl,
-        child: _SuspectedDuplicatesSheet(),
+      builder: (_) => navySheetTheme(Directionality(
+        textDirection: Directionality.of(context),
+        child: const _SuspectedDuplicatesSheet(),
       )),
     );
   }

@@ -84,6 +84,30 @@ class Formatters {
     'Sun',
   ];
 
+  /// A SINGLE-CHARACTER weekday label, for axes too narrow for a name.
+  ///
+  /// The daily-spend chart carried its own `const _initials` list of Arabic
+  /// letters, so an English reader saw «ن ث ر خ ج س ح» under the bars with
+  /// only "Today" in their language. A chart axis is the easiest place in an
+  /// app for an untranslated string to hide: single characters read as
+  /// decoration, and a string scan reports them as one-letter noise.
+  ///
+  /// English repeats T and S (Tue/Thu, Sat/Sun). That is the ordinary
+  /// convention for a seven-slot axis and is what a reader expects; widening
+  /// the axis to disambiguate would cost more than it buys.
+  static String weekdayInitial(BuildContext context, DateTime d) =>
+      Localizations.localeOf(context).languageCode == 'en'
+          ? _enWeekdayInitials[d.weekday - 1]
+          : _arWeekdayInitials[d.weekday - 1];
+
+  /// `DateTime.monday` (1) → `sunday` (7).
+  static const List<String> _arWeekdayInitials = [
+    'ن', 'ث', 'ر', 'خ', 'ج', 'س', 'ح',
+  ];
+  static const List<String> _enWeekdayInitials = [
+    'M', 'T', 'W', 'T', 'F', 'S', 'S',
+  ];
+
   static String weekdayShort(BuildContext context, DateTime d) =>
       Localizations.localeOf(context).languageCode == 'en'
           ? _enWeekdaysShort[d.weekday - 1]

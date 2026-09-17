@@ -38,7 +38,7 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(
           top: Radius.circular(28),

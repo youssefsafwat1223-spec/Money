@@ -119,7 +119,7 @@ class _LockScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: Scaffold(
         backgroundColor: c.bg,
         body: SafeArea(

@@ -21,7 +21,7 @@ class PlanningServerRepairSection extends ConsumerWidget {
             const <PlanningRepairItem>[];
     if (items.isEmpty) return const SizedBox.shrink();
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: Card(
         key: const ValueKey('server-unresolved-repair'),
         margin: const EdgeInsets.all(12),

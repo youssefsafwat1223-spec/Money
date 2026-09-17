@@ -1030,7 +1030,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) => navySheetTheme(Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: Directionality.of(context),
         child: Padding(
           padding: EdgeInsets.fromLTRB(
             AppSpacing.gutter,
@@ -1100,7 +1100,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       showDragHandle: true,
       builder: (context) => navySheetTheme(Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: Directionality.of(context),
         child: ListView(
           shrinkWrap: true,
           padding: const EdgeInsets.fromLTRB(
@@ -1167,7 +1167,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (context) => navySheetTheme(Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: Directionality.of(context),
         child: Container(
           constraints: BoxConstraints(
             maxHeight: MediaQuery.of(context).size.height * 0.78,
@@ -1266,7 +1266,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       showDragHandle: true,
       builder: (context) => navySheetTheme(StatefulBuilder(
         builder: (context, setState) => Directionality(
-          textDirection: TextDirection.rtl,
+          textDirection: Directionality.of(context),
           child: Padding(
             padding: EdgeInsets.fromLTRB(
               AppSpacing.gutter,
@@ -1440,7 +1440,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       showDragHandle: true,
       builder: (context) => navySheetTheme(StatefulBuilder(
         builder: (context, setState) => Directionality(
-          textDirection: TextDirection.rtl,
+          textDirection: Directionality.of(context),
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.gutter,
@@ -1549,7 +1549,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       context: context,
       showDragHandle: true,
       builder: (context) => navySheetTheme(Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: Directionality.of(context),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,

@@ -89,7 +89,7 @@ class _AccountPicker extends ConsumerWidget {
       showDragHandle: true,
       backgroundColor: c.surface,
       builder: (context) => navySheetTheme(Directionality(
-        textDirection: TextDirection.rtl,
+        textDirection: Directionality.of(context),
         child: Padding(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,

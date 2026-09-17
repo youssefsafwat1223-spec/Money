@@ -15,6 +15,7 @@ import '../../cards/brand_mark.dart';
 import '../../common/app_avatar.dart';
 import '../../common/category_catalog.dart';
 import '../../common/transaction_direction.dart';
+import '../../../core/utils/formatters.dart';
 
 /// Home's «المصروفات اليومية» card.
 ///
@@ -349,9 +350,6 @@ class _SevenDayBars extends StatelessWidget {
   static const double _maxHeight = 56;
   static const double _minHeight = 3;
 
-  /// Arabic single-letter weekday keys, `DateTime.monday` (1) → `sunday` (7).
-  static const _initials = ['ن', 'ث', 'ر', 'خ', 'ج', 'س', 'ح'];
-
   @override
   Widget build(BuildContext context) {
     final t = MaliTokens.of(context);
@@ -400,7 +398,9 @@ class _SevenDayBars extends StatelessWidget {
         : (_minHeight + (_maxHeight - _minHeight) * (magnitude / peak))
             .clamp(_minHeight, _maxHeight)
             .toDouble();
-    final label = isToday ? context.l10n.txnRangeToday : _initials[day.day.weekday - 1];
+    final label = isToday
+        ? context.l10n.txnRangeToday
+        : Formatters.weekdayInitial(context, day.day);
     return Semantics(
       label: context.l10n.homeDayAmountSemantics(label, formatMoney(day.total)),
       excludeSemantics: true,

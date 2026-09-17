@@ -16,6 +16,14 @@ import 'package:money_companion/features/goals/goal_form_screen.dart';
 import 'package:money_companion/features/onboarding/ios_shortcut_guide.dart';
 import 'package:money_companion/features/reporting/ui/report_config_page.dart';
 import 'package:money_companion/features/subscriptions/bill_form_sheet.dart';
+import 'package:money_companion/features/budgets/allocate_income_sheet.dart';
+import 'package:money_companion/features/plans/plan_form_sheet.dart';
+import 'package:money_companion/features/planning_sync/planning_conflicts_sheet.dart';
+import 'package:money_companion/features/subscriptions/bill_details_sheet.dart';
+import 'package:money_companion/features/transactions/manual_transaction_sheet.dart';
+import 'package:money_companion/features/transactions/widgets/change_category_sheet.dart';
+import 'package:money_companion/features/transactions/widgets/confirm_transaction_sheet.dart';
+import 'package:money_companion/features/common/category_catalog.dart';
 
 import 'demo_seed_test.dart' as demo_seed;
 
@@ -44,6 +52,7 @@ typedef SheetOpener = Future<void> Function(BuildContext context);
 /// Only sheets that open with no argument, or with one we can supply without
 /// inventing data. A sheet that needs a real entity is covered by the route
 /// walk's screen instead.
+/// Sheets that need nothing but a context.
 final _sheets = <String, SheetOpener>{
   'goal-form': (c) => GoalFormScreen.showSheet(c),
   'bill-form': (c) => BillFormSheet.show(c),
@@ -51,6 +60,41 @@ final _sheets = <String, SheetOpener>{
   'manual-paste': (c) => ManualPasteScreen.showSheet(c),
   'ios-shortcut-guide': (c) => showIosShortcutSheet(c),
   'report-config': (c) => showReportConfigPage(c).then((_) {}),
+  'manual-transaction': (c) => ManualTransactionSheet.show(c),
+  'allocate-income': (c) => AllocateIncomeSheet.show(c),
+  'plan-form': (c) => PlanFormSheet.show(c),
+  'planning-conflicts': (c) => PlanningConflictsSheet.show(c),
+};
+
+/// Sheets that need a real ROW to render — a transaction, a bill. They are
+/// fetched from the seeded ledger through the shipping repositories rather
+/// than fabricated: a made-up entity renders a shape the app never produces,
+/// which is worse than not inspecting the sheet at all.
+typedef DataSheetOpener = Future<void> Function(
+    BuildContext context, ProviderContainer container);
+
+final _dataSheets = <String, DataSheetOpener>{
+  'change-category': (c, container) async {
+    final tx = (await container.read(transactionRepositoryProvider).getRecent(
+        limit: 1));
+    if (tx.isEmpty) return;
+    final catalog = await container.read(categoryCatalogProvider.future);
+    if (!c.mounted) return;
+    return showChangeCategorySheet(c, tx.first, catalog);
+  },
+  'confirm-transaction': (c, container) async {
+    final tx = (await container.read(transactionRepositoryProvider).getRecent(
+        limit: 1));
+    if (tx.isEmpty) return;
+    if (!c.mounted) return;
+    return showConfirmTransactionSheet(c, tx.first.id);
+  },
+  'bill-details': (c, container) async {
+    final bills = await container.read(billRepositoryProvider).getAll();
+    if (bills.isEmpty) return;
+    if (!c.mounted) return;
+    return BillDetailsSheet.show(c, bills.first);
+  },
 };
 
 /// `showAccountForm` and `showCardForm` take a `WidgetRef`, which this walk has
@@ -214,7 +258,15 @@ void main() {
         await settle(tester, budget: const Duration(seconds: 2));
       }
 
-      for (final entry in _sheets.entries) {
+      // Context-only sheets and row-backed sheets, walked as one list so the
+      // measurement and the capture are identical for both kinds.
+      final all = <String, SheetOpener>{
+        ..._sheets,
+        for (final e in _dataSheets.entries)
+          e.key: (c) => e.value(c, container),
+      };
+
+      for (final entry in all.entries) {
         // Re-resolve the shell each time: closing a sheet rebuilds the tree.
         final shell = find.byType(AppShell);
         if (shell.evaluate().isEmpty) {

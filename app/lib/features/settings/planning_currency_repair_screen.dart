@@ -43,7 +43,7 @@ class _PlanningCurrencyRepairScreenState
     final c = context.colors;
     final repair = ref.watch(planningCurrencyRepairProvider);
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: Scaffold(
         backgroundColor: c.bg,
         appBar: AppHeader(title: context.l10n.pcrTitle),

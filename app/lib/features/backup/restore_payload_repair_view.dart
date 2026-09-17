@@ -87,7 +87,7 @@ class _RestorePayloadRepairViewState extends State<RestorePayloadRepairView> {
   @override
   Widget build(BuildContext context) {
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: Scaffold(
         key: const Key('restore_payload_repair_view'),
         appBar: AppHeader(title: context.l10n.rprTitle),

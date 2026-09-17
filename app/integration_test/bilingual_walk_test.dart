@@ -200,10 +200,22 @@ void main() {
 
         // THE assertion: the tree's resolved direction, not a guess from a
         // screenshot.
-        final ctx = tester.element(find.byType(Scaffold).first);
-        final dir = Directionality.of(ctx);
-        if (dir != expected) {
-          failures.add('[$lang] $route rendered $dir, expected $expected');
+        //
+        // Read EVERY Directionality in the route, not just the one above the
+        // first Scaffold. 31 widgets across 19 files wrapped their content in
+        // `Directionality(textDirection: TextDirection.rtl)`, all of them
+        // BELOW that node — so this assertion was true where it looked and
+        // false three widgets down, and English screens rendered mirrored for
+        // as long as this test has existed.
+        final directions = tester
+            .widgetList<Directionality>(find.byType(Directionality))
+            .map((d) => d.textDirection)
+            .toSet();
+        final wrong = directions.where((d) => d != expected).toList();
+        if (wrong.isNotEmpty) {
+          failures.add('[$lang] $route has ${wrong.length} '
+              'Directionality node(s) set to ${wrong.join(", ")}, '
+              'expected $expected');
         }
 
         visited[lang] = visited[lang]! + 1;

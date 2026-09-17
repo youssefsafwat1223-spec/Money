@@ -186,7 +186,7 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
                   AppSpacing.s5,
                 ),
                 child: Directionality(
-                  textDirection: TextDirection.rtl,
+                  textDirection: Directionality.of(context),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,
@@ -370,7 +370,7 @@ class _BannerTile extends ConsumerWidget {
                   AppSpacing.s5,
                 ),
                 child: Directionality(
-                  textDirection: TextDirection.rtl,
+                  textDirection: Directionality.of(context),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     mainAxisSize: MainAxisSize.min,

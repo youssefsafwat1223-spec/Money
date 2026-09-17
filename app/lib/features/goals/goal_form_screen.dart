@@ -79,7 +79,7 @@ class _GoalFormSheet extends StatelessWidget {
     final c = context.colors;
 
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: MaliGlass(

@@ -58,7 +58,7 @@ Future<void> showAccountForm(
     isScrollControlled: true,
     showDragHandle: true,
     builder: (context) => navySheetTheme(Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: Padding(
         padding:
             EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),

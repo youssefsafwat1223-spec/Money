@@ -37,7 +37,7 @@ class PlanningRepairRequiredView extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Directionality(
-      textDirection: TextDirection.rtl,
+      textDirection: Directionality.of(context),
       child: Scaffold(
         key: const Key('planning_repair_required_view'),
         body: SafeArea(
