@@ -37,12 +37,12 @@ void main() {
         conflictsProvider.overrideWith((ref) async => [conflict]),
         conflictResolverProvider.overrideWithValue(fake),
       ],
-      child: MaterialApp(
+      child: const MaterialApp(
         // The sheet reads its copy from the ARB now.
         localizationsDelegates: AppL10n.localizationsDelegates,
         supportedLocales: AppL10n.supportedLocales,
-        locale: const Locale('ar'),
-        home: const Scaffold(body: PlanningConflictsSheet()),
+        locale: Locale('ar'),
+        home: Scaffold(body: PlanningConflictsSheet()),
       ),
     ));
     await tester.pumpAndSettle();

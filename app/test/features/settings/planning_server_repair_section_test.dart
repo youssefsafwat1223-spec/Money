@@ -23,11 +23,11 @@ void main() {
               ),
             ]),
       ],
-      child: MaterialApp(
+      child: const MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          locale: const Locale('ar'),
-          home: const Scaffold(body: PlanningServerRepairSection())),
+          locale: Locale('ar'),
+          home: Scaffold(body: PlanningServerRepairSection())),
     ));
     await tester.pumpAndSettle();
 
@@ -44,11 +44,11 @@ void main() {
       overrides: [
         serverUnresolvedPlanningItemsProvider.overrideWith((ref) async => const []),
       ],
-      child: MaterialApp(
+      child: const MaterialApp(
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          locale: const Locale('ar'),
-          home: const Scaffold(body: PlanningServerRepairSection())),
+          locale: Locale('ar'),
+          home: Scaffold(body: PlanningServerRepairSection())),
     ));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('server-unresolved-repair')), findsNothing);
