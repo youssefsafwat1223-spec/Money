@@ -71,6 +71,7 @@ import '../transactions/widgets/confirm_transaction_sheet.dart';
 import 'celebration_runtime.dart';
 import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../../core/i18n/locale_provider.dart';
 
 final shellIndexProvider = StateProvider<int>((ref) => 0);
 
@@ -1216,6 +1217,36 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
+  /// Re-compose the scheduled notifications in the current language.
+  ///
+  /// Deliberately narrower than [_syncEngagement]: that one also does network
+  /// work, and a language switch is not a reason to sync anything.
+  Future<void> _replanScheduledNotifications() async {
+    try {
+      final preferences =
+          await ref.read(loadNotificationPreferencesUseCaseProvider).call();
+      if (!mounted) return;
+      final bills = await ref.read(billRepositoryProvider).getAll();
+      if (!mounted) return;
+      final planned = const NotificationPlanner().planScheduled(
+        preferences: preferences,
+        bills: bills,
+        nowRiyadh: DateTime.now(),
+        lang: LocalNotificationService.instance.notificationLanguage,
+      );
+      await LocalNotificationService.instance
+          .schedulePlannedNotifications(planned);
+    } catch (error) {
+      // A failed re-plan leaves the previous language's pending requests in
+      // place, which is strictly better than cancelling them and scheduling
+      // nothing.
+      if (kDebugMode) {
+        debugPrint('[Notifications] re-plan after language switch skipped: '
+            '${error.runtimeType}');
+      }
+    }
+  }
+
   Future<void> _syncEngagementBody() async {
     // Entry is already a disposal window: this is awaited from _onResume after
     // other awaits, so the shell can be gone before the first line runs.
@@ -1477,6 +1508,20 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   @override
   Widget build(BuildContext context) {
+    // A scheduled notification is composed NOW and delivered hours or days
+    // later, so it carries the language that was current when it was planned.
+    // Re-planning otherwise happens only on cold start and on resume, which
+    // means someone who switched to English and did not background the app
+    // would still get that evening's reminder in Arabic. Re-plan on the switch
+    // itself. The ids are fixed, so this REPLACES the pending requests rather
+    // than stacking new ones.
+    ref.listen<Locale>(localeProvider, (previous, next) {
+      if (previous == null || previous.languageCode == next.languageCode) {
+        return;
+      }
+      unawaited(_replanScheduledNotifications());
+    });
+
     // Force update blocks the entire app — check before rendering anything else.
     final forceUpdateAsync = ref.watch(hasForceUpdateProvider);
     if (forceUpdateAsync.valueOrNull == true) {

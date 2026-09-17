@@ -97,6 +97,59 @@ void main() {
     expect(remaining.read<int>('total'), 0);
   });
 
+  test('same-tick events still upload in insertion order', () async {
+    // The ordering above used `id ASC` as its tie-breaker, and `id` is a
+    // RANDOM 16-byte value. Two events for one notification normally share a
+    // `created_at` tick — `recordCreated` is followed by `recordSent`
+    // microseconds later — so the upload order was decided at random, and the
+    // 'created after sent' regression this suite exists to prevent happened
+    // roughly half the time. It surfaced as a flake: this file and
+    // `local_notification_service_tracking_test` failed on alternate full-suite
+    // runs and passed in isolation.
+    //
+    // Forcing an identical `created_at` on every row makes the tie-breaker the
+    // ONLY thing that can order them, so this fails outright rather than
+    // half the time.
+    final logId = await logService.recordCreated(
+      channel: NotificationLogChannel.localAndroid,
+      notificationType: 'achievement',
+    );
+    await logService.recordSent(
+      logId: logId,
+      channel: NotificationLogChannel.localAndroid,
+      notificationType: 'achievement',
+    );
+    await logService.recordOpened(
+      logId: logId,
+      channel: NotificationLogChannel.localAndroid,
+      notificationType: 'achievement',
+    );
+    await db.customStatement(
+      "UPDATE notification_log_events SET created_at = '2026-09-17T10:00:00.000Z';",
+    );
+
+    final statusesInOrder = <String>[];
+    final http = MockClient((request) async {
+      final decoded = jsonDecode(request.body) as Map;
+      statusesInOrder.add(decoded['status'] as String);
+      return _json(<Object>[], request);
+    });
+    final sync = NotificationLogSyncService(
+      db: db,
+      getClient: () => _client(http),
+      getAuthUserId: () async => 'qa-user',
+      getInstallId: () async => 'qa-install',
+    );
+    await sync.debugSyncBatch('qa-user');
+
+    expect(statusesInOrder.indexOf('pending'),
+        lessThan(statusesInOrder.indexOf('sent')),
+        reason: 'created uploaded after sent — the row status regresses');
+    expect(statusesInOrder.indexOf('sent'),
+        lessThan(statusesInOrder.indexOf('opened')),
+        reason: 'sent uploaded after opened');
+  });
+
   test('processes events oldest-first so created never uploads after sent',
       () async {
     final logId = await logService.recordCreated(

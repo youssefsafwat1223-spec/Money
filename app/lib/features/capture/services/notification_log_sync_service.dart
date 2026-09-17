@@ -144,9 +144,20 @@ class NotificationLogSyncService {
   Future<void> _syncBatch(String userId) async {
     final installId = await _getInstallId();
     final rows = await _db.customSelect(
+      // The tie-breaker is `rowid`, NOT `id`. `id` is a random 16-byte value
+      // (`IdGenerator.next()`), so when two events for the same notification
+      // land in the same `created_at` tick — which is the NORMAL case, since
+      // `recordCreated` is followed by `recordSent` microseconds later — the
+      // upload order was decided at random. That is exactly the regression the
+      // comment above warns about: 'created' (status=pending) upserted after
+      // an already-synced 'sent' drags the row's status backward.
+      //
+      // `notification_log_events` is a rowid table, so `rowid` is monotonic
+      // with insertion and breaks the tie in true insertion order. No schema
+      // change, no migration.
       'SELECT * FROM notification_log_events '
       'WHERE synced_at IS NULL '
-      'ORDER BY created_at ASC, id ASC LIMIT ?;',
+      'ORDER BY created_at ASC, rowid ASC LIMIT ?;',
       variables: [Variable.withInt(_batchSize)],
     ).get();
 
