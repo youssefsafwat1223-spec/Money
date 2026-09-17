@@ -103,7 +103,7 @@ class _AccountPicker extends ConsumerWidget {
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: Text(
-                  'اختار الحساب',
+                  context.l10n.rngPickAccount,
                   style: AppTypography.title2(c.textPrimary),
                 ),
               ),
@@ -198,7 +198,7 @@ class _DateRangeChips extends ConsumerWidget {
         builder: (context, setState) {
           final c = context.colors;
           return AppSheetScaffold(
-            title: 'اختار فترة العرض',
+            title: context.l10n.rngPickPeriod,
             scrollable: true,
             body: Padding(
               padding:
@@ -243,7 +243,7 @@ class _DateRangeChips extends ConsumerWidget {
                         children: [
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('من'),
+                            title: Text(context.l10n.rngFrom),
                             subtitle: Text(Formatters.fullDate(from, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
@@ -259,7 +259,7 @@ class _DateRangeChips extends ConsumerWidget {
                           ),
                           ListTile(
                             contentPadding: EdgeInsets.zero,
-                            title: const Text('إلى'),
+                            title: Text(context.l10n.rngTo),
                             subtitle: Text(Formatters.fullDate(to, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
@@ -299,7 +299,7 @@ class _DateRangeChips extends ConsumerWidget {
                             onChanged?.call();
                             Navigator.of(context).pop();
                           },
-                    child: const Text('تطبيق الفترة المخصصة'),
+                    child: Text(context.l10n.rngApplyCustom),
                   ),
                   const SizedBox(height: AppSpacing.s5),
                 ],

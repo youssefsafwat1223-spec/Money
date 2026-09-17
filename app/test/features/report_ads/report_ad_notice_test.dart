@@ -12,6 +12,7 @@ import 'package:money_companion/features/report_ads/report_ads_analytics.dart';
 import 'package:money_companion/features/report_ads/report_entitlement.dart';
 import 'package:money_companion/features/report_ads/report_export_ad_gateway.dart';
 import 'package:money_companion/features/report_ads/report_export_coordinator.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 // ── fakes ────────────────────────────────────────────────────────────────────
 class _FakeReferralService implements ReferralService {
@@ -300,6 +301,9 @@ void main() {
         locale: const Locale('ar'),
         supportedLocales: const [Locale('ar'), Locale('en')],
         localizationsDelegates: const <LocalizationsDelegate<dynamic>>[
+          // The notice's own copy comes from the ARB now; the Global* ones
+          // only cover Material/Cupertino chrome.
+          ...AppL10n.localizationsDelegates,
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,

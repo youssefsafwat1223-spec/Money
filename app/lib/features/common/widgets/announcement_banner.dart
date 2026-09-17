@@ -9,6 +9,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../core/utils/app_lucide_icons.dart';
+import '../../../core/utils/l10n_ext.dart';
 
 class AnnouncementBanner extends ConsumerWidget {
   const AnnouncementBanner({super.key});
@@ -477,7 +478,7 @@ class _DismissButton extends ConsumerWidget {
                   (_) => ref.invalidate(activeAnnouncementsProvider),
                 ),
         icon: const Icon(AppLucideIcons.x, size: 18),
-        tooltip: 'إخفاء',
+        tooltip: context.l10n.commonHide,
       ),
     );
   }
@@ -504,7 +505,7 @@ class _CampaignDismissButton extends ConsumerWidget {
             .dismiss(campaignId)
             .then((_) => ref.invalidate(activeDashboardCampaignsProvider)),
         icon: const Icon(AppLucideIcons.x, size: 18),
-        tooltip: 'إخفاء',
+        tooltip: context.l10n.commonHide,
       ),
     );
   }

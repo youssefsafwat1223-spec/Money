@@ -6,6 +6,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/l10n_ext.dart';
 
 /// Shown by `runApp()` immediately on cold start, before real async
 /// initialization (DB open, session restore, feature flags, ...) has
@@ -81,7 +82,7 @@ class _LoadingBody extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.s5),
         Text(
-          'جاري تجهيز التطبيق...',
+          context.l10n.startPreparing,
           style: AppTypography.callout(c.textLight),
         ),
       ],
@@ -123,22 +124,20 @@ class _ErrorBody extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.s5),
         Text(
-          isTimeout
-              ? 'استغرق التجهيز وقتاً أطول من المتوقع'
-              : 'تعذّر تجهيز التطبيق',
+          isTimeout ? context.l10n.startTookLonger : context.l10n.startFailed,
           textAlign: TextAlign.center,
           style: AppTypography.headline(c.textMain),
         ),
         const SizedBox(height: AppSpacing.s2),
         Text(
-          'تأكد من اتصالك بالإنترنت وحاول مرة أخرى.',
+          context.l10n.startCheckConnection,
           textAlign: TextAlign.center,
           style: AppTypography.callout(c.textLight),
         ),
         if (lastStep != null) ...[
           const SizedBox(height: AppSpacing.s2),
           Text(
-            'معرّف: $lastStep',
+            context.l10n.startStepId(lastStep!),
             textAlign: TextAlign.center,
             style: AppTypography.caption(c.textLight),
           ),
@@ -152,7 +151,7 @@ class _ErrorBody extends StatelessWidget {
             style: FilledButton.styleFrom(
               minimumSize: const Size.fromHeight(52),
             ),
-            child: const Text('إعادة المحاولة'),
+            child: Text(context.l10n.startRetry),
           ),
         ),
       ],

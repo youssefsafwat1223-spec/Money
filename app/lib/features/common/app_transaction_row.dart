@@ -6,6 +6,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../cards/brand_mark.dart';
 import 'app_avatar.dart';
+import '../../core/utils/l10n_ext.dart';
 
 /// صف معاملة قياسي — UI فقط، لا يستورد طبقة البيانات.
 ///
@@ -117,8 +118,8 @@ class AppTransactionRow extends StatelessWidget {
                             ),
                           ),
                           if (isPending)
-                            _RowBadge(label: 'قيد المراجعة', color: c.warning),
-                          if (isAi) _RowBadge(label: 'ذكاء', color: c.cta),
+                            _RowBadge(label: context.l10n.commonUnderReview, color: c.warning),
+                          if (isAi) _RowBadge(label: context.l10n.commonSmart, color: c.cta),
                         ],
                       ),
                       if (subtitle != null) ...[

@@ -41,7 +41,7 @@ void main() {
     );
 
     expect(planned, hasLength(1));
-    expect(planned.first.title, 'اشتراك Netflix هيتجدد بكرة');
+    expect(planned.first.title, 'اشتراك Netflix يُجدَّد غدًا');
     expect(planned.first.body, '45 SAR');
     expect(planned.first.scheduledAtRiyadh, DateTime(2026, 6, 19, 10));
   });
@@ -73,7 +73,7 @@ void main() {
     expect(planned, hasLength(1),
         reason: 'the old behavior dropped the bill entirely — no reminder');
     expect(planned.first.scheduledAtRiyadh, DateTime(2026, 6, 19, 14, 30));
-    expect(planned.first.title, 'اشتراك Netflix هيتجدد بكرة');
+    expect(planned.first.title, 'اشتراك Netflix يُجدَّد غدًا');
   });
 
   test('catch-up on the due day itself says "اليوم" and still fires', () {
@@ -97,7 +97,7 @@ void main() {
     );
 
     expect(planned, hasLength(1));
-    expect(planned.first.title, 'اشتراك Netflix هيتجدد اليوم');
+    expect(planned.first.title, 'اشتراك Netflix يُجدَّد اليوم');
   });
 
   test('a bill already past its due day is not reminded', () {
@@ -175,7 +175,7 @@ void main() {
 
     expect(first, isNotNull);
     expect(first!.milestone, 50);
-    expect(first.title, 'خزنة الطوارئ وصلت 50%!');
+    expect(first.title, 'خزنة الطوارئ بلغت 50%!');
     expect(second, isNull);
   });
 
@@ -447,6 +447,35 @@ void main() {
     test('disabled quiet hours are never quiet', () {
       expect(
           planner.isQuietHour(at(2), const NotificationPreferences()), isFalse);
+    });
+  });
+
+  group('the reader\'s language reaches every scheduled notification', () {
+    // The assertions above are Arabic-only, and passed while the planner had
+    // no `lang` parameter at all. These are what fail if English is dropped.
+    const planner = NotificationPlanner();
+    final now = DateTime(2026, 9, 17, 8);
+
+    test('the daily reminder is English under en', () {
+      final ar = planner.planDailyReminder(
+          preferences: const NotificationPreferences(), nowRiyadh: now);
+      final en = planner.planDailyReminder(
+          preferences: const NotificationPreferences(),
+          nowRiyadh: now,
+          lang: 'en');
+      expect(ar!.title, isNot(en!.title));
+      expect(RegExp(r'[؀-ۿ]').hasMatch(en.title), isFalse,
+          reason: 'the daily reminder still reads Arabic under en: ${en.title}');
+      expect(RegExp(r'[؀-ۿ]').hasMatch(en.body), isFalse);
+    });
+
+    test('the weekly report is English under en', () {
+      final en = planner.planWeeklyReport(
+          preferences: const NotificationPreferences(),
+          nowRiyadh: now,
+          lang: 'en');
+      expect(RegExp(r'[؀-ۿ]').hasMatch(en!.title), isFalse);
+      expect(RegExp(r'[؀-ۿ]').hasMatch(en.body), isFalse);
     });
   });
 }

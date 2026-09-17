@@ -2949,5 +2949,117 @@
   "bkeRestoreFailedNoChanges": "تعذّرت الاستعادة ولم تتغيّر بياناتك الحالية.",
   "bkeCommittedPendingBackupState": "اكتملت استعادة البيانات، لكن تعذّر إكمال حماية النسخة الاحتياطية. أعد المحاولة.",
   "bkeRestoredDbNotReady": "اكتملت الاستعادة لكن تعذّر تجهيز قاعدة البيانات. أعد تشغيل التطبيق.",
-  "bkeNeedsDatabaseRepair": "تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح."
+  "bkeNeedsDatabaseRepair": "تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح.",
+  "startPreparing": "جارٍ تجهيز التطبيق...",
+  "startTookLonger": "استغرق التجهيز وقتًا أطول من المتوقع",
+  "startFailed": "تعذّر تجهيز التطبيق",
+  "startCheckConnection": "تأكد من اتصالك بالإنترنت وحاول مرة أخرى.",
+  "startStepId": "معرّف: {step}",
+  "startRetry": "إعادة المحاولة",
+  "dbRecoveryTitle": "تعذّر فتح بياناتك",
+  "dbRecoveryBody": "ملف البيانات تالف أو مشفّر بمفتاح غير متطابق ولا يمكن فتحه. يمكنك إعادة تعيين بيانات التطبيق للبدء من جديد (ستُحذف العمليات المحفوظة محليًا فقط).",
+  "dbRecoveryReset": "إعادة تعيين البيانات",
+  "lockTitle": "قِرش مقفل",
+  "lockBody": "افتح التطبيق للتحقق من هويتك وعرض بياناتك المالية.",
+  "lockVerifying": "جارٍ التحقق...",
+  "lockUnlock": "فتح قِرش",
+  "lockPrompt": "افتح قِرش لحماية بياناتك المالية.",
+  "@startStepId": {
+    "placeholders": {
+      "step": {
+        "type": "String"
+      }
+    }
+  },
+  "bdConfirmTitle": "تأكيد البنك",
+  "bdIsSenderFrom": "هل هذا المرسل من {bank}؟",
+  "bdSender": "المرسل",
+  "bdCountry": "الدولة",
+  "bdConfidence": "الثقة",
+  "bdKey": "المفتاح",
+  "bdReason": "السبب: {reason}",
+  "bdReasonDefault": "السبب: {bank} يطابق هذا المرسل ونمط الرسائل بدرجة عالية.",
+  "bdConfirmThis": "تأكيد هذا البنك",
+  "bdNotThis": "ليس هذا البنك",
+  "bdAskLater": "اسألني لاحقًا",
+  "smsShareTitle": "شارك رسالة البنك مع قِرش",
+  "smsShareBody": "بدون إذن قراءة الرسائل: افتح رسالة البنك، اضغط «مشاركة»، واختر قِرش. سنحلّل النص على جهازك فقط.",
+  "smsShareExample": "مثال: «شراء 45 ريالًا لدى BURGER BOUTIQUE»",
+  "smsShareFallback": "إن لم يظهر زر المشاركة في تطبيق الرسائل، استخدم اللصق اليدوي كبديل سريع.",
+  "smsPasteManually": "لصق رسالة يدويًا",
+  "smsPasteLater": "لاحقًا، ألصق يدويًا",
+  "rngPickAccount": "اختر الحساب",
+  "rngPickPeriod": "اختر فترة العرض",
+  "rngFrom": "من",
+  "rngTo": "إلى",
+  "rngApplyCustom": "تطبيق الفترة المخصصة",
+  "ccTitle": "غيّر التصنيف",
+  "ccScope": "نطاق التعديل",
+  "ccThisOnly": "هذه العملية فقط",
+  "ccAllMerchant": "كل عمليات هذا المتجر",
+  "ccSave": "حفظ التعديل",
+  "commonClose": "إغلاق",
+  "commonHide": "إخفاء",
+  "commonSkip": "تخطّى",
+  "commonDefault": "افتراضي",
+  "commonReview": "مراجعة",
+  "commonSmart": "ذكاء",
+  "commonPending": "معلّقة",
+  "commonTransaction": "عملية",
+  "commonUnderReview": "قيد المراجعة",
+  "chartCategories": "التصنيفات",
+  "chartCategoriesEmpty": "أضف عمليات مؤكدة ليظهر توزيع التصنيفات هنا.",
+  "chartRefund": "مرتجع",
+  "chartTotal": "إجمالي",
+  "prgTitle": "التخطيط غير متاح مؤقتًا",
+  "prgBody": "قبل استخدام الميزانيات والأهداف، نحتاج تأكيد العملة التي تُعامَل بها بيانات التخطيط الحالية. لن نغيّر أي مبلغ.",
+  "prgConfirmNow": "تأكيد العملة الآن",
+  "prgNotNow": "ليس الآن",
+  "fuTitle": "تحديث مطلوب",
+  "fuBody": "يرجى تحديث التطبيق للاستمرار في الاستخدام.",
+  "fuNow": "تحديث الآن",
+  "rpConfirmTitle": "تأكيد الاستعادة",
+  "rpConfirmBody": "ستحل النسخة الاحتياطية محل بياناتك الحالية على هذا الجهاز. لا يمكن التراجع بعد التأكيد. هل تريد المتابعة؟",
+  "rpCancel": "إلغاء",
+  "rpRestore": "استعادة",
+  "rpPrivacyNote": "الاستعادة تحتاج كلمة المرور أو رمز الاسترداد فقط. قِرش لا يقرأ محتوى النسخة بدونهما.",
+  "adNoticeTitle": "إعلان قبل إنشاء التقرير",
+  "adNoticeBody": "قد يظهر إعلان قصير قبل إنشاء التقرير.",
+  "adNoticeCancel": "إلغاء",
+  "adNoticeContinue": "متابعة",
+  "plansFrom": "من",
+  "plansOverBudget": "تجاوزت الميزانية بـ",
+  "plansRemaining": "باقٍ",
+  "pcrConfirmAll": "تأكيد أن كل الميزانيات والأهداف الحالية تستخدم",
+  "cardNetworkMada": "مدى",
+  "budgetsAllAccounts": "كل الحسابات",
+  "txnCountSuffix": "· {count} عملية",
+  "@bdIsSenderFrom": {
+    "placeholders": {
+      "bank": {
+        "type": "String"
+      }
+    }
+  },
+  "@bdReason": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
+  "@bdReasonDefault": {
+    "placeholders": {
+      "bank": {
+        "type": "String"
+      }
+    }
+  },
+  "@txnCountSuffix": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  }
 }

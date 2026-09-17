@@ -4,6 +4,7 @@ import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/l10n_ext.dart';
 
 /// True while the app is doing blocking startup work the user must not see
 /// half-populated — specifically the post-sign-in data restore, when the local
@@ -60,7 +61,7 @@ class AppBootLoader extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s5),
-                Text('جاري تجهيز التطبيق...',
+                Text(context.l10n.startPreparing,
                     style: AppTypography.callout(c.textLight)),
               ],
             ),

@@ -5469,4 +5469,252 @@ class AppL10nAr extends AppL10n {
   @override
   String get bkeNeedsDatabaseRepair =>
       'تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح.';
+
+  @override
+  String get startPreparing => 'جارٍ تجهيز التطبيق...';
+
+  @override
+  String get startTookLonger => 'استغرق التجهيز وقتًا أطول من المتوقع';
+
+  @override
+  String get startFailed => 'تعذّر تجهيز التطبيق';
+
+  @override
+  String get startCheckConnection => 'تأكد من اتصالك بالإنترنت وحاول مرة أخرى.';
+
+  @override
+  String startStepId(String step) {
+    return 'معرّف: $step';
+  }
+
+  @override
+  String get startRetry => 'إعادة المحاولة';
+
+  @override
+  String get dbRecoveryTitle => 'تعذّر فتح بياناتك';
+
+  @override
+  String get dbRecoveryBody =>
+      'ملف البيانات تالف أو مشفّر بمفتاح غير متطابق ولا يمكن فتحه. يمكنك إعادة تعيين بيانات التطبيق للبدء من جديد (ستُحذف العمليات المحفوظة محليًا فقط).';
+
+  @override
+  String get dbRecoveryReset => 'إعادة تعيين البيانات';
+
+  @override
+  String get lockTitle => 'قِرش مقفل';
+
+  @override
+  String get lockBody => 'افتح التطبيق للتحقق من هويتك وعرض بياناتك المالية.';
+
+  @override
+  String get lockVerifying => 'جارٍ التحقق...';
+
+  @override
+  String get lockUnlock => 'فتح قِرش';
+
+  @override
+  String get lockPrompt => 'افتح قِرش لحماية بياناتك المالية.';
+
+  @override
+  String get bdConfirmTitle => 'تأكيد البنك';
+
+  @override
+  String bdIsSenderFrom(String bank) {
+    return 'هل هذا المرسل من $bank؟';
+  }
+
+  @override
+  String get bdSender => 'المرسل';
+
+  @override
+  String get bdCountry => 'الدولة';
+
+  @override
+  String get bdConfidence => 'الثقة';
+
+  @override
+  String get bdKey => 'المفتاح';
+
+  @override
+  String bdReason(String reason) {
+    return 'السبب: $reason';
+  }
+
+  @override
+  String bdReasonDefault(String bank) {
+    return 'السبب: $bank يطابق هذا المرسل ونمط الرسائل بدرجة عالية.';
+  }
+
+  @override
+  String get bdConfirmThis => 'تأكيد هذا البنك';
+
+  @override
+  String get bdNotThis => 'ليس هذا البنك';
+
+  @override
+  String get bdAskLater => 'اسألني لاحقًا';
+
+  @override
+  String get smsShareTitle => 'شارك رسالة البنك مع قِرش';
+
+  @override
+  String get smsShareBody =>
+      'بدون إذن قراءة الرسائل: افتح رسالة البنك، اضغط «مشاركة»، واختر قِرش. سنحلّل النص على جهازك فقط.';
+
+  @override
+  String get smsShareExample => 'مثال: «شراء 45 ريالًا لدى BURGER BOUTIQUE»';
+
+  @override
+  String get smsShareFallback =>
+      'إن لم يظهر زر المشاركة في تطبيق الرسائل، استخدم اللصق اليدوي كبديل سريع.';
+
+  @override
+  String get smsPasteManually => 'لصق رسالة يدويًا';
+
+  @override
+  String get smsPasteLater => 'لاحقًا، ألصق يدويًا';
+
+  @override
+  String get rngPickAccount => 'اختر الحساب';
+
+  @override
+  String get rngPickPeriod => 'اختر فترة العرض';
+
+  @override
+  String get rngFrom => 'من';
+
+  @override
+  String get rngTo => 'إلى';
+
+  @override
+  String get rngApplyCustom => 'تطبيق الفترة المخصصة';
+
+  @override
+  String get ccTitle => 'غيّر التصنيف';
+
+  @override
+  String get ccScope => 'نطاق التعديل';
+
+  @override
+  String get ccThisOnly => 'هذه العملية فقط';
+
+  @override
+  String get ccAllMerchant => 'كل عمليات هذا المتجر';
+
+  @override
+  String get ccSave => 'حفظ التعديل';
+
+  @override
+  String get commonClose => 'إغلاق';
+
+  @override
+  String get commonHide => 'إخفاء';
+
+  @override
+  String get commonSkip => 'تخطّى';
+
+  @override
+  String get commonDefault => 'افتراضي';
+
+  @override
+  String get commonReview => 'مراجعة';
+
+  @override
+  String get commonSmart => 'ذكاء';
+
+  @override
+  String get commonPending => 'معلّقة';
+
+  @override
+  String get commonTransaction => 'عملية';
+
+  @override
+  String get commonUnderReview => 'قيد المراجعة';
+
+  @override
+  String get chartCategories => 'التصنيفات';
+
+  @override
+  String get chartCategoriesEmpty =>
+      'أضف عمليات مؤكدة ليظهر توزيع التصنيفات هنا.';
+
+  @override
+  String get chartRefund => 'مرتجع';
+
+  @override
+  String get chartTotal => 'إجمالي';
+
+  @override
+  String get prgTitle => 'التخطيط غير متاح مؤقتًا';
+
+  @override
+  String get prgBody =>
+      'قبل استخدام الميزانيات والأهداف، نحتاج تأكيد العملة التي تُعامَل بها بيانات التخطيط الحالية. لن نغيّر أي مبلغ.';
+
+  @override
+  String get prgConfirmNow => 'تأكيد العملة الآن';
+
+  @override
+  String get prgNotNow => 'ليس الآن';
+
+  @override
+  String get fuTitle => 'تحديث مطلوب';
+
+  @override
+  String get fuBody => 'يرجى تحديث التطبيق للاستمرار في الاستخدام.';
+
+  @override
+  String get fuNow => 'تحديث الآن';
+
+  @override
+  String get rpConfirmTitle => 'تأكيد الاستعادة';
+
+  @override
+  String get rpConfirmBody =>
+      'ستحل النسخة الاحتياطية محل بياناتك الحالية على هذا الجهاز. لا يمكن التراجع بعد التأكيد. هل تريد المتابعة؟';
+
+  @override
+  String get rpCancel => 'إلغاء';
+
+  @override
+  String get rpRestore => 'استعادة';
+
+  @override
+  String get rpPrivacyNote =>
+      'الاستعادة تحتاج كلمة المرور أو رمز الاسترداد فقط. قِرش لا يقرأ محتوى النسخة بدونهما.';
+
+  @override
+  String get adNoticeTitle => 'إعلان قبل إنشاء التقرير';
+
+  @override
+  String get adNoticeBody => 'قد يظهر إعلان قصير قبل إنشاء التقرير.';
+
+  @override
+  String get adNoticeCancel => 'إلغاء';
+
+  @override
+  String get adNoticeContinue => 'متابعة';
+
+  @override
+  String get plansFrom => 'من';
+
+  @override
+  String get plansOverBudget => 'تجاوزت الميزانية بـ';
+
+  @override
+  String get plansRemaining => 'باقٍ';
+
+  @override
+  String get pcrConfirmAll => 'تأكيد أن كل الميزانيات والأهداف الحالية تستخدم';
+
+  @override
+  String get cardNetworkMada => 'مدى';
+
+  @override
+  String get budgetsAllAccounts => 'كل الحسابات';
+
+  @override
+  String txnCountSuffix(String count) {
+    return '· $count عملية';
+  }
 }

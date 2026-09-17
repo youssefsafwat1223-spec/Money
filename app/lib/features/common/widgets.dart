@@ -7,6 +7,7 @@ import '../../domain/entities/transaction_entity.dart';
 import 'app_avatar.dart';
 import 'category_catalog.dart';
 import 'transaction_direction.dart';
+import '../../core/utils/l10n_ext.dart';
 
 export 'app_error_state.dart';
 export 'app_budget_progress_card.dart';
@@ -87,7 +88,7 @@ class TransactionRow extends StatelessWidget {
                             child: Text(
                               transaction.rawMerchant ??
                                   category?.name ??
-                                  'عملية',
+                                  context.l10n.commonTransaction,
                               style: AppTypography.bodyStrong(c.textPrimary)
                                   .copyWith(
                                 fontWeight: FontWeight.bold,
@@ -106,7 +107,7 @@ class TransactionRow extends StatelessWidget {
                                 borderRadius: BorderRadius.circular(6),
                               ),
                               child: Text(
-                                'معلّقة',
+                                context.l10n.commonPending,
                                 style:
                                     AppTypography.caption(c.warning).copyWith(
                                   fontSize: 11.0,

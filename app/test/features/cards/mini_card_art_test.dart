@@ -5,10 +5,17 @@ import 'package:money_companion/engine/parser/card_network.dart';
 import 'package:money_companion/features/cards/card_theme.dart';
 import 'package:money_companion/features/cards/mini_card_art.dart';
 import 'package:money_companion/core/utils/app_lucide_icons.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
+  // The mada badge reads from the ARB now; a bare MaterialApp has no
+  // delegates, and the badge is pinned to Arabic so the brand renders in its
+  // own script in both builds.
   Widget harness(Widget child) => MaterialApp(
         theme: AppTheme.light,
+        locale: const Locale('ar'),
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
         home: Scaffold(
           body: Directionality(
             textDirection: TextDirection.rtl,

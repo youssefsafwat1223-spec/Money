@@ -15,6 +15,7 @@ import '../../common/app_button.dart';
 import '../../common/category_catalog.dart';
 import '../../dashboard/dashboard_providers.dart';
 import '../transactions_providers.dart';
+import '../../../core/utils/l10n_ext.dart';
 
 Future<void> showChangeCategorySheet(
   BuildContext context,
@@ -71,7 +72,7 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
     final hasMerchant = widget.transaction.rawMerchant != null;
 
     return AppSheetScaffold(
-      title: 'غيّر التصنيف',
+      title: context.l10n.ccTitle,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       body: Column(
         mainAxisSize: MainAxisSize.min,
@@ -97,7 +98,7 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
           ),
           if (hasMerchant) ...[
             const SizedBox(height: AppSpacing.s5),
-            Text('نطاق التعديل', style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.ccScope, style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             Material(
               color: c.surface2.withValues(alpha: 0.5),
@@ -112,7 +113,7 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
                     value: CategoryCorrectionScope.thisTransactionOnly,
                     groupValue: _scope,
                     onChanged: (v) => setState(() => _scope = v!),
-                    title: Text('هذه العملية فقط',
+                    title: Text(context.l10n.ccThisOnly,
                         style: AppTypography.body(c.textMain)),
                     activeColor: c.primary,
                   ),
@@ -121,7 +122,7 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
                     value: CategoryCorrectionScope.allMerchantTransactions,
                     groupValue: _scope,
                     onChanged: (v) => setState(() => _scope = v!),
-                    title: Text('كل عمليات هذا المتجر',
+                    title: Text(context.l10n.ccAllMerchant,
                         style: AppTypography.body(c.textMain)),
                     activeColor: c.primary,
                   ),
@@ -131,7 +132,7 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
           ],
           const SizedBox(height: AppSpacing.s5),
           AppButton(
-            label: 'حفظ التعديل',
+            label: context.l10n.ccSave,
             onPressed: _saving ? null : _save,
             isPrimary: true,
           ),

@@ -9228,6 +9228,468 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'تعذّرت الاستعادة وتحتاج قاعدة البيانات إلى إصلاح.'**
   String get bkeNeedsDatabaseRepair;
+
+  /// No description provided for @startPreparing.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ تجهيز التطبيق...'**
+  String get startPreparing;
+
+  /// No description provided for @startTookLonger.
+  ///
+  /// In ar, this message translates to:
+  /// **'استغرق التجهيز وقتًا أطول من المتوقع'**
+  String get startTookLonger;
+
+  /// No description provided for @startFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تجهيز التطبيق'**
+  String get startFailed;
+
+  /// No description provided for @startCheckConnection.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكد من اتصالك بالإنترنت وحاول مرة أخرى.'**
+  String get startCheckConnection;
+
+  /// No description provided for @startStepId.
+  ///
+  /// In ar, this message translates to:
+  /// **'معرّف: {step}'**
+  String startStepId(String step);
+
+  /// No description provided for @startRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة المحاولة'**
+  String get startRetry;
+
+  /// No description provided for @dbRecoveryTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر فتح بياناتك'**
+  String get dbRecoveryTitle;
+
+  /// No description provided for @dbRecoveryBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف البيانات تالف أو مشفّر بمفتاح غير متطابق ولا يمكن فتحه. يمكنك إعادة تعيين بيانات التطبيق للبدء من جديد (ستُحذف العمليات المحفوظة محليًا فقط).'**
+  String get dbRecoveryBody;
+
+  /// No description provided for @dbRecoveryReset.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة تعيين البيانات'**
+  String get dbRecoveryReset;
+
+  /// No description provided for @lockTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'قِرش مقفل'**
+  String get lockTitle;
+
+  /// No description provided for @lockBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'افتح التطبيق للتحقق من هويتك وعرض بياناتك المالية.'**
+  String get lockBody;
+
+  /// No description provided for @lockVerifying.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ التحقق...'**
+  String get lockVerifying;
+
+  /// No description provided for @lockUnlock.
+  ///
+  /// In ar, this message translates to:
+  /// **'فتح قِرش'**
+  String get lockUnlock;
+
+  /// No description provided for @lockPrompt.
+  ///
+  /// In ar, this message translates to:
+  /// **'افتح قِرش لحماية بياناتك المالية.'**
+  String get lockPrompt;
+
+  /// No description provided for @bdConfirmTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد البنك'**
+  String get bdConfirmTitle;
+
+  /// No description provided for @bdIsSenderFrom.
+  ///
+  /// In ar, this message translates to:
+  /// **'هل هذا المرسل من {bank}؟'**
+  String bdIsSenderFrom(String bank);
+
+  /// No description provided for @bdSender.
+  ///
+  /// In ar, this message translates to:
+  /// **'المرسل'**
+  String get bdSender;
+
+  /// No description provided for @bdCountry.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدولة'**
+  String get bdCountry;
+
+  /// No description provided for @bdConfidence.
+  ///
+  /// In ar, this message translates to:
+  /// **'الثقة'**
+  String get bdConfidence;
+
+  /// No description provided for @bdKey.
+  ///
+  /// In ar, this message translates to:
+  /// **'المفتاح'**
+  String get bdKey;
+
+  /// No description provided for @bdReason.
+  ///
+  /// In ar, this message translates to:
+  /// **'السبب: {reason}'**
+  String bdReason(String reason);
+
+  /// No description provided for @bdReasonDefault.
+  ///
+  /// In ar, this message translates to:
+  /// **'السبب: {bank} يطابق هذا المرسل ونمط الرسائل بدرجة عالية.'**
+  String bdReasonDefault(String bank);
+
+  /// No description provided for @bdConfirmThis.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد هذا البنك'**
+  String get bdConfirmThis;
+
+  /// No description provided for @bdNotThis.
+  ///
+  /// In ar, this message translates to:
+  /// **'ليس هذا البنك'**
+  String get bdNotThis;
+
+  /// No description provided for @bdAskLater.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسألني لاحقًا'**
+  String get bdAskLater;
+
+  /// No description provided for @smsShareTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'شارك رسالة البنك مع قِرش'**
+  String get smsShareTitle;
+
+  /// No description provided for @smsShareBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون إذن قراءة الرسائل: افتح رسالة البنك، اضغط «مشاركة»، واختر قِرش. سنحلّل النص على جهازك فقط.'**
+  String get smsShareBody;
+
+  /// No description provided for @smsShareExample.
+  ///
+  /// In ar, this message translates to:
+  /// **'مثال: «شراء 45 ريالًا لدى BURGER BOUTIQUE»'**
+  String get smsShareExample;
+
+  /// No description provided for @smsShareFallback.
+  ///
+  /// In ar, this message translates to:
+  /// **'إن لم يظهر زر المشاركة في تطبيق الرسائل، استخدم اللصق اليدوي كبديل سريع.'**
+  String get smsShareFallback;
+
+  /// No description provided for @smsPasteManually.
+  ///
+  /// In ar, this message translates to:
+  /// **'لصق رسالة يدويًا'**
+  String get smsPasteManually;
+
+  /// No description provided for @smsPasteLater.
+  ///
+  /// In ar, this message translates to:
+  /// **'لاحقًا، ألصق يدويًا'**
+  String get smsPasteLater;
+
+  /// No description provided for @rngPickAccount.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر الحساب'**
+  String get rngPickAccount;
+
+  /// No description provided for @rngPickPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر فترة العرض'**
+  String get rngPickPeriod;
+
+  /// No description provided for @rngFrom.
+  ///
+  /// In ar, this message translates to:
+  /// **'من'**
+  String get rngFrom;
+
+  /// No description provided for @rngTo.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلى'**
+  String get rngTo;
+
+  /// No description provided for @rngApplyCustom.
+  ///
+  /// In ar, this message translates to:
+  /// **'تطبيق الفترة المخصصة'**
+  String get rngApplyCustom;
+
+  /// No description provided for @ccTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'غيّر التصنيف'**
+  String get ccTitle;
+
+  /// No description provided for @ccScope.
+  ///
+  /// In ar, this message translates to:
+  /// **'نطاق التعديل'**
+  String get ccScope;
+
+  /// No description provided for @ccThisOnly.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه العملية فقط'**
+  String get ccThisOnly;
+
+  /// No description provided for @ccAllMerchant.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل عمليات هذا المتجر'**
+  String get ccAllMerchant;
+
+  /// No description provided for @ccSave.
+  ///
+  /// In ar, this message translates to:
+  /// **'حفظ التعديل'**
+  String get ccSave;
+
+  /// No description provided for @commonClose.
+  ///
+  /// In ar, this message translates to:
+  /// **'إغلاق'**
+  String get commonClose;
+
+  /// No description provided for @commonHide.
+  ///
+  /// In ar, this message translates to:
+  /// **'إخفاء'**
+  String get commonHide;
+
+  /// No description provided for @commonSkip.
+  ///
+  /// In ar, this message translates to:
+  /// **'تخطّى'**
+  String get commonSkip;
+
+  /// No description provided for @commonDefault.
+  ///
+  /// In ar, this message translates to:
+  /// **'افتراضي'**
+  String get commonDefault;
+
+  /// No description provided for @commonReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'مراجعة'**
+  String get commonReview;
+
+  /// No description provided for @commonSmart.
+  ///
+  /// In ar, this message translates to:
+  /// **'ذكاء'**
+  String get commonSmart;
+
+  /// No description provided for @commonPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'معلّقة'**
+  String get commonPending;
+
+  /// No description provided for @commonTransaction.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملية'**
+  String get commonTransaction;
+
+  /// No description provided for @commonUnderReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'قيد المراجعة'**
+  String get commonUnderReview;
+
+  /// No description provided for @chartCategories.
+  ///
+  /// In ar, this message translates to:
+  /// **'التصنيفات'**
+  String get chartCategories;
+
+  /// No description provided for @chartCategoriesEmpty.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف عمليات مؤكدة ليظهر توزيع التصنيفات هنا.'**
+  String get chartCategoriesEmpty;
+
+  /// No description provided for @chartRefund.
+  ///
+  /// In ar, this message translates to:
+  /// **'مرتجع'**
+  String get chartRefund;
+
+  /// No description provided for @chartTotal.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي'**
+  String get chartTotal;
+
+  /// No description provided for @prgTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'التخطيط غير متاح مؤقتًا'**
+  String get prgTitle;
+
+  /// No description provided for @prgBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'قبل استخدام الميزانيات والأهداف، نحتاج تأكيد العملة التي تُعامَل بها بيانات التخطيط الحالية. لن نغيّر أي مبلغ.'**
+  String get prgBody;
+
+  /// No description provided for @prgConfirmNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد العملة الآن'**
+  String get prgConfirmNow;
+
+  /// No description provided for @prgNotNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'ليس الآن'**
+  String get prgNotNow;
+
+  /// No description provided for @fuTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحديث مطلوب'**
+  String get fuTitle;
+
+  /// No description provided for @fuBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'يرجى تحديث التطبيق للاستمرار في الاستخدام.'**
+  String get fuBody;
+
+  /// No description provided for @fuNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحديث الآن'**
+  String get fuNow;
+
+  /// No description provided for @rpConfirmTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد الاستعادة'**
+  String get rpConfirmTitle;
+
+  /// No description provided for @rpConfirmBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ستحل النسخة الاحتياطية محل بياناتك الحالية على هذا الجهاز. لا يمكن التراجع بعد التأكيد. هل تريد المتابعة؟'**
+  String get rpConfirmBody;
+
+  /// No description provided for @rpCancel.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلغاء'**
+  String get rpCancel;
+
+  /// No description provided for @rpRestore.
+  ///
+  /// In ar, this message translates to:
+  /// **'استعادة'**
+  String get rpRestore;
+
+  /// No description provided for @rpPrivacyNote.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاستعادة تحتاج كلمة المرور أو رمز الاسترداد فقط. قِرش لا يقرأ محتوى النسخة بدونهما.'**
+  String get rpPrivacyNote;
+
+  /// No description provided for @adNoticeTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعلان قبل إنشاء التقرير'**
+  String get adNoticeTitle;
+
+  /// No description provided for @adNoticeBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'قد يظهر إعلان قصير قبل إنشاء التقرير.'**
+  String get adNoticeBody;
+
+  /// No description provided for @adNoticeCancel.
+  ///
+  /// In ar, this message translates to:
+  /// **'إلغاء'**
+  String get adNoticeCancel;
+
+  /// No description provided for @adNoticeContinue.
+  ///
+  /// In ar, this message translates to:
+  /// **'متابعة'**
+  String get adNoticeContinue;
+
+  /// No description provided for @plansFrom.
+  ///
+  /// In ar, this message translates to:
+  /// **'من'**
+  String get plansFrom;
+
+  /// No description provided for @plansOverBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاوزت الميزانية بـ'**
+  String get plansOverBudget;
+
+  /// No description provided for @plansRemaining.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقٍ'**
+  String get plansRemaining;
+
+  /// No description provided for @pcrConfirmAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكيد أن كل الميزانيات والأهداف الحالية تستخدم'**
+  String get pcrConfirmAll;
+
+  /// No description provided for @cardNetworkMada.
+  ///
+  /// In ar, this message translates to:
+  /// **'مدى'**
+  String get cardNetworkMada;
+
+  /// No description provided for @budgetsAllAccounts.
+  ///
+  /// In ar, this message translates to:
+  /// **'كل الحسابات'**
+  String get budgetsAllAccounts;
+
+  /// No description provided for @txnCountSuffix.
+  ///
+  /// In ar, this message translates to:
+  /// **'· {count} عملية'**
+  String txnCountSuffix(String count);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

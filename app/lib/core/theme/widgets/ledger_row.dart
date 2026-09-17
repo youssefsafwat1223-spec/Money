@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../app_colors.dart';
 import '../app_typography.dart';
 import '../mali_tokens.dart';
+import '../../utils/l10n_ext.dart';
 
 /// LedgerRow — one transaction line for the day-grouped timeline: a tinted
 /// category icon, merchant + "category · time" subtitle, and the signed
@@ -72,8 +73,12 @@ class LedgerRow extends StatelessWidget {
                         // long "قيد المراجعة" here (it would crowd out the
                         // merchant name); the full label lives on the details
                         // screen.
-                        if (isPending) _Badge(text: 'مراجعة', color: c.warning),
-                        if (isAi) _Badge(text: 'ذكاء', color: c.cta),
+                        if (isPending)
+                          _Badge(
+                              text: context.l10n.commonReview,
+                              color: c.warning),
+                        if (isAi)
+                          _Badge(text: context.l10n.commonSmart, color: c.cta),
                       ],
                     ),
                     const SizedBox(height: 3),
@@ -108,15 +113,28 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsetsDirectional.only(start: 7),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.14),
-          borderRadius: BorderRadius.circular(6),
+    // Flexible, not a fixed-width child. The badges used to take their
+    // intrinsic width while only the title could shrink, so two badges wider
+    // than the row overflowed with no way to recover — which is exactly what
+    // «مراجعة»/«ذكاء» becoming Review/Smart did at 375pt. The pill still
+    // shrink-wraps its text whenever there is room.
+    return Flexible(
+      child: Padding(
+        padding: const EdgeInsetsDirectional.only(start: 7),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.14),
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(
+            text,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+            style: AppTypography.micro(color),
+          ),
         ),
-        child: Text(text, style: AppTypography.micro(color)),
       ),
     );
   }

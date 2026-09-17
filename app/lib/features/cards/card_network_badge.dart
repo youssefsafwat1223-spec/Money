@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../engine/parser/card_network.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/l10n_ext.dart';
 
 /// شارة شبكة البطاقة مرسومة (mada / Visa / Mastercard / Amex) — بلا أصول خارجية.
 class CardNetworkBadge extends StatelessWidget {
@@ -33,7 +34,7 @@ class CardNetworkBadge extends StatelessWidget {
       case CardNetwork.visa:
         return _text('VISA', const Color(0xFF1A1F71), italic: true);
       case CardNetwork.mada:
-        return _text('مدى', const Color(0xFF84B740));
+        return _text(context.l10n.cardNetworkMada, const Color(0xFF84B740));
       case CardNetwork.amex:
         return _text('AMEX', const Color(0xFF2E77BC));
       case CardNetwork.unknown:

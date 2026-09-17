@@ -4,6 +4,7 @@ import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/category_entity.dart';
 import 'package:money_companion/features/common/category_catalog.dart';
 import 'package:money_companion/features/common/charts/spending_charts.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
   testWidgets('spending charts render in RTL without throwing', (tester) async {
@@ -21,6 +22,8 @@ void main() {
 
     await tester.pumpWidget(
       MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
         theme: AppTheme.light,
         home: Directionality(
           textDirection: TextDirection.rtl,

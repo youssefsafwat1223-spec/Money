@@ -5,6 +5,7 @@ import '../app_spacing.dart';
 import '../app_typography.dart';
 import '../mali_tokens.dart';
 import 'mali_card.dart';
+import '../../utils/l10n_ext.dart';
 
 /// AccountCard — one account/wallet row: a tinted type mark, name (+ optional
 /// "افتراضي" badge), "type · currency" subtitle, and the balance in its own
@@ -129,7 +130,7 @@ class _DefaultBadge extends StatelessWidget {
           color: color.withValues(alpha: 0.14),
           borderRadius: BorderRadius.circular(6),
         ),
-        child: Text('افتراضي', style: AppTypography.micro(color)),
+        child: Text(context.l10n.commonDefault, style: AppTypography.micro(color)),
       ),
     );
   }

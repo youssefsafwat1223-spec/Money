@@ -30,8 +30,12 @@ class BudgetsView {
   final List<GoalEntity> goals;
   final List<AccountEntity> accounts;
 
-  String accountName(String? id, {bool showGlobalLabel = false}) {
-    if (id == null) return showGlobalLabel ? 'كل الحسابات' : '';
+  /// [globalLabel] is the words for "every account", supplied by the caller —
+  /// this is a provider's view model, with no BuildContext to resolve an ARB
+  /// string of its own.
+  String accountName(String? id,
+      {bool showGlobalLabel = false, String globalLabel = ''}) {
+    if (id == null) return showGlobalLabel ? globalLabel : '';
     final match = accounts.where((a) => a.id == id);
     return match.isEmpty ? '' : match.first.name;
   }

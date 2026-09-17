@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/di/app_providers.dart';
 import '../../data/db/planning_cutover.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/l10n_ext.dart';
 
 /// MALI-026 (Phase-8 B8-2.10 §3) — the planning navigation repair gate.
 ///
@@ -48,15 +49,15 @@ class PlanningRepairRequiredView extends StatelessWidget {
                 children: [
                   const Icon(AppLucideIcons.lock, size: 48),
                   const SizedBox(height: 16),
-                  const Text(
-                    'التخطيط غير متاح مؤقتاً',
-                    style: TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
+                  Text(
+                    context.l10n.prgTitle,
+                    style: const TextStyle(
+                        fontSize: 20, fontWeight: FontWeight.w700),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'قبل استخدام الميزانيات والأهداف، نحتاج تأكيد العملة التي '
-                    'تُعامَل بها بيانات التخطيط الحالية. لن نغيّر أي مبلغ.',
+                  Text(
+                    context.l10n.prgBody,
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 24),
@@ -64,14 +65,14 @@ class PlanningRepairRequiredView extends StatelessWidget {
                     key: const Key('planning_repair_confirm_cta'),
                     onPressed: () =>
                         context.push('/settings/planning-currency-repair'),
-                    child: const Text('تأكيد العملة الآن'),
+                    child: Text(context.l10n.prgConfirmNow),
                   ),
                   const SizedBox(height: 8),
                   TextButton(
                     key: const Key('planning_repair_defer_cta'),
                     onPressed: () =>
                         context.canPop() ? context.pop() : context.go('/'),
-                    child: const Text('ليس الآن'),
+                    child: Text(context.l10n.prgNotNow),
                   ),
                 ],
               ),

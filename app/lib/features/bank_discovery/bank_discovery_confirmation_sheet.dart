@@ -11,6 +11,7 @@ import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import 'bank_discovery_controller.dart';
+import '../../core/utils/l10n_ext.dart';
 
 Future<void> showBankDiscoveryConfirmationSheet(
   BuildContext context,
@@ -119,22 +120,28 @@ class _BankDiscoveryConfirmationSheetState
                     ),
                     const SizedBox(height: AppSpacing.s4),
                     Text(
-                      'تأكيد البنك',
+                      context.l10n.bdConfirmTitle,
                       textAlign: TextAlign.center,
                       style: AppTypography.subhead(c.textLight),
                     ),
                     const SizedBox(height: AppSpacing.s2),
                     Text(
-                      'هل هذا المرسل من ${mapping.suggestedBankName}؟',
+                      context.l10n.bdIsSenderFrom(mapping.suggestedBankName),
                       textAlign: TextAlign.center,
                       style: AppTypography.title2(c.textMain),
                     ),
                     const SizedBox(height: AppSpacing.s4),
-                    _InfoRow(label: 'المرسل', value: mapping.senderId),
-                    _InfoRow(label: 'الدولة', value: mapping.suggestedCountry),
-                    _InfoRow(label: 'الثقة', value: '$confidence%'),
+                    _InfoRow(label: context.l10n.bdSender, value: mapping.senderId),
+                    _InfoRow(
+                        label: context.l10n.bdCountry,
+                        value: mapping.suggestedCountry),
+                    _InfoRow(
+                        label: context.l10n.bdConfidence,
+                        value: '$confidence%'),
                     if (mapping.bankKey != null)
-                      _InfoRow(label: 'المفتاح', value: mapping.bankKey!),
+                      _InfoRow(
+                          label: context.l10n.bdKey,
+                          value: mapping.bankKey!),
                     const SizedBox(height: AppSpacing.s3),
                     Container(
                       padding: const EdgeInsets.all(AppSpacing.s3),
@@ -145,24 +152,25 @@ class _BankDiscoveryConfirmationSheetState
                       ),
                       child: Text(
                         mapping.reason?.trim().isNotEmpty == true
-                            ? 'السبب: ${mapping.reason!.trim()}'
-                            : 'السبب: ${mapping.suggestedBankName} يطابق هذا المرسل ونمط الرسائل بدرجة عالية.',
+                            ? context.l10n.bdReason(mapping.reason!.trim())
+                            : context.l10n
+                                .bdReasonDefault(mapping.suggestedBankName),
                         style: AppTypography.footnote(c.textLight),
                       ),
                     ),
                     const SizedBox(height: AppSpacing.s5),
                     FilledButton(
                       onPressed: _busy ? null : _confirm,
-                      child: const Text('تأكيد هذا البنك'),
+                      child: Text(context.l10n.bdConfirmThis),
                     ),
                     const SizedBox(height: AppSpacing.s2),
                     OutlinedButton(
                       onPressed: _busy ? null : _reject,
-                      child: const Text('ليس هذا البنك'),
+                      child: Text(context.l10n.bdNotThis),
                     ),
                     TextButton(
                       onPressed: _busy ? null : _askLater,
-                      child: const Text('اسألني لاحقًا'),
+                      child: Text(context.l10n.bdAskLater),
                     ),
                   ],
                 ),

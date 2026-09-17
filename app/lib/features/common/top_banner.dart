@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/l10n_ext.dart';
 
 /// Shows a dismissible error message as a banner pinned to the **top** of the
 /// screen (a [MaterialBanner], unlike the bottom snackbars used elsewhere).
@@ -27,7 +28,7 @@ void showTopError(BuildContext context, String message) {
       actions: [
         TextButton(
           onPressed: messenger.hideCurrentMaterialBanner,
-          child: Text('إغلاق', style: AppTypography.bodyStrong(c.danger)),
+          child: Text(context.l10n.commonClose, style: AppTypography.bodyStrong(c.danger)),
         ),
       ],
     ),
@@ -60,7 +61,7 @@ void showTopInfo(BuildContext context, String message) {
       actions: [
         TextButton(
           onPressed: messenger.hideCurrentMaterialBanner,
-          child: Text('إغلاق', style: AppTypography.bodyStrong(c.success)),
+          child: Text(context.l10n.commonClose, style: AppTypography.bodyStrong(c.success)),
         ),
       ],
     ),

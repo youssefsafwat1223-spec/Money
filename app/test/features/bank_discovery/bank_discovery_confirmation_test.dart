@@ -12,6 +12,7 @@ import 'package:money_companion/engine/parser/parse_result.dart';
 import 'package:money_companion/features/bank_discovery/bank_discovery_confirmation_sheet.dart';
 import 'package:money_companion/features/bank_discovery/bank_discovery_controller.dart';
 import 'package:money_companion/features/capture/capture_runtime.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 class _MemorySenderBankMappingRepository
     implements SenderBankMappingRepository {
@@ -271,6 +272,12 @@ class _TestApp extends StatelessWidget {
         theme: ThemeData(
           extensions: const [AppColors.light],
         ),
+        // The sheet's copy comes from the ARB now. Pinned to Arabic, because
+        // the assertions below name the Arabic strings; the English rendering
+        // is covered by the bilingual sheet walk.
+        locale: const Locale('ar'),
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
         home: Scaffold(
           body: BankDiscoveryConfirmationSheet(mapping: _pendingMapping()),
         ),

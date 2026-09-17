@@ -5466,4 +5466,256 @@ class AppL10nEn extends AppL10n {
   @override
   String get bkeNeedsDatabaseRepair =>
       'The restore failed and the database needs repair.';
+
+  @override
+  String get startPreparing => 'Getting Qirsh ready…';
+
+  @override
+  String get startTookLonger => 'Startup is taking longer than expected';
+
+  @override
+  String get startFailed => 'Qirsh could not start';
+
+  @override
+  String get startCheckConnection =>
+      'Check your internet connection and try again.';
+
+  @override
+  String startStepId(String step) {
+    return 'Step: $step';
+  }
+
+  @override
+  String get startRetry => 'Try again';
+
+  @override
+  String get dbRecoveryTitle => 'We could not open your data';
+
+  @override
+  String get dbRecoveryBody =>
+      'The data file is damaged, or encrypted with a key that no longer matches, and cannot be opened. You can reset the app’s data and start fresh (only transactions saved on this device are deleted).';
+
+  @override
+  String get dbRecoveryReset => 'Reset the data';
+
+  @override
+  String get lockTitle => 'Qirsh is locked';
+
+  @override
+  String get lockBody =>
+      'Unlock the app to verify it is you and see your finances.';
+
+  @override
+  String get lockVerifying => 'Verifying…';
+
+  @override
+  String get lockUnlock => 'Unlock Qirsh';
+
+  @override
+  String get lockPrompt => 'Unlock Qirsh to protect your financial data.';
+
+  @override
+  String get bdConfirmTitle => 'Confirm the bank';
+
+  @override
+  String bdIsSenderFrom(String bank) {
+    return 'Is this sender $bank?';
+  }
+
+  @override
+  String get bdSender => 'Sender';
+
+  @override
+  String get bdCountry => 'Country';
+
+  @override
+  String get bdConfidence => 'Confidence';
+
+  @override
+  String get bdKey => 'Key';
+
+  @override
+  String bdReason(String reason) {
+    return 'Reason: $reason';
+  }
+
+  @override
+  String bdReasonDefault(String bank) {
+    return 'Reason: $bank is a strong match for this sender and message pattern.';
+  }
+
+  @override
+  String get bdConfirmThis => 'Yes, this bank';
+
+  @override
+  String get bdNotThis => 'Not this bank';
+
+  @override
+  String get bdAskLater => 'Ask me later';
+
+  @override
+  String get smsShareTitle => 'Share a bank message with Qirsh';
+
+  @override
+  String get smsShareBody =>
+      'Without SMS read permission: open the bank message, tap Share, and choose Qirsh. The text is analysed on your device only.';
+
+  @override
+  String get smsShareExample =>
+      'For example: “Purchase SAR 45 at BURGER BOUTIQUE”';
+
+  @override
+  String get smsShareFallback =>
+      'If your Messages app has no Share button, pasting manually is the quick alternative.';
+
+  @override
+  String get smsPasteManually => 'Paste a message manually';
+
+  @override
+  String get smsPasteLater => 'Later — I’ll paste manually';
+
+  @override
+  String get rngPickAccount => 'Choose an account';
+
+  @override
+  String get rngPickPeriod => 'Choose a period';
+
+  @override
+  String get rngFrom => 'From';
+
+  @override
+  String get rngTo => 'To';
+
+  @override
+  String get rngApplyCustom => 'Apply this period';
+
+  @override
+  String get ccTitle => 'Change the category';
+
+  @override
+  String get ccScope => 'Apply to';
+
+  @override
+  String get ccThisOnly => 'This transaction only';
+
+  @override
+  String get ccAllMerchant => 'Every transaction from this merchant';
+
+  @override
+  String get ccSave => 'Save the change';
+
+  @override
+  String get commonClose => 'Close';
+
+  @override
+  String get commonHide => 'Hide';
+
+  @override
+  String get commonSkip => 'Skip';
+
+  @override
+  String get commonDefault => 'Default';
+
+  @override
+  String get commonReview => 'Review';
+
+  @override
+  String get commonSmart => 'Smart';
+
+  @override
+  String get commonPending => 'Pending';
+
+  @override
+  String get commonTransaction => 'Transaction';
+
+  @override
+  String get commonUnderReview => 'Under review';
+
+  @override
+  String get chartCategories => 'Categories';
+
+  @override
+  String get chartCategoriesEmpty =>
+      'Add confirmed transactions to see the category breakdown here.';
+
+  @override
+  String get chartRefund => 'Refund';
+
+  @override
+  String get chartTotal => 'Total';
+
+  @override
+  String get prgTitle => 'Planning is temporarily unavailable';
+
+  @override
+  String get prgBody =>
+      'Before you use budgets and goals, we need to confirm the currency your existing planning data is held in. No amount will be changed.';
+
+  @override
+  String get prgConfirmNow => 'Confirm the currency';
+
+  @override
+  String get prgNotNow => 'Not now';
+
+  @override
+  String get fuTitle => 'Update required';
+
+  @override
+  String get fuBody => 'Please update Qirsh to keep using it.';
+
+  @override
+  String get fuNow => 'Update now';
+
+  @override
+  String get rpConfirmTitle => 'Confirm the restore';
+
+  @override
+  String get rpConfirmBody =>
+      'The backup will replace your current data on this device. This cannot be undone once you confirm. Continue?';
+
+  @override
+  String get rpCancel => 'Cancel';
+
+  @override
+  String get rpRestore => 'Restore';
+
+  @override
+  String get rpPrivacyNote =>
+      'A restore needs only your passphrase or recovery code. Qirsh cannot read the backup without them.';
+
+  @override
+  String get adNoticeTitle => 'An ad before your report';
+
+  @override
+  String get adNoticeBody =>
+      'A short ad may play before the report is generated.';
+
+  @override
+  String get adNoticeCancel => 'Cancel';
+
+  @override
+  String get adNoticeContinue => 'Continue';
+
+  @override
+  String get plansFrom => 'from';
+
+  @override
+  String get plansOverBudget => 'over budget by';
+
+  @override
+  String get plansRemaining => 'left';
+
+  @override
+  String get pcrConfirmAll => 'Confirm that every current budget and goal uses';
+
+  @override
+  String get cardNetworkMada => 'mada';
+
+  @override
+  String get budgetsAllAccounts => 'All accounts';
+
+  @override
+  String txnCountSuffix(String count) {
+    return '· $count transactions';
+  }
 }

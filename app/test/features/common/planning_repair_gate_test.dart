@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/features/common/planning_repair_gate.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 // MALI-026 (Phase-8 B8-2.10 §3) — the planning navigation repair gate reacts to
 // the ONE cutover coordinator. Legacy (v29) is a passthrough; unresolved shows a
@@ -35,7 +36,12 @@ Future<void> _pump(WidgetTester tester, PlanningCutoverState state,
     GoRouter router) async {
   await tester.pumpWidget(ProviderScope(
     overrides: [_coordinator(state)],
-    child: MaterialApp.router(routerConfig: router),
+    // The gate's copy comes from the ARB now.
+    child: MaterialApp.router(
+      routerConfig: router,
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+    ),
   ));
   await tester.pumpAndSettle();
 }

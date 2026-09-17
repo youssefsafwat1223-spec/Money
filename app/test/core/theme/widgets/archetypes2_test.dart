@@ -10,9 +10,15 @@ import 'package:money_companion/core/theme/widgets/score_gauge.dart';
 import 'package:money_companion/core/theme/widgets/segmented_control.dart';
 import 'package:money_companion/core/theme/widgets/sheet_field.dart';
 import 'package:money_companion/core/utils/app_lucide_icons.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
+// These archetypes read their badge/label copy from the ARB now, so the host
+// must supply the localization delegates — a bare MaterialApp has none, and
+// `context.l10n` throws under it.
 Widget _host(Widget child) => MaterialApp(
       theme: AppTheme.light,
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
       home: Scaffold(
           body: Padding(padding: const EdgeInsets.all(16), child: child)),
     );

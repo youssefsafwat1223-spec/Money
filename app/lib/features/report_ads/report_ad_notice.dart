@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/utils/l10n_ext.dart';
 
 /// The pre-ad notice shown immediately before a report-export interstitial.
 ///
@@ -19,20 +20,20 @@ Future<bool> showReportAdNotice(BuildContext context) async {
     // A stray barrier tap must not be read as consent; it maps to cancel below.
     barrierDismissible: true,
     builder: (dialogContext) => AlertDialog(
-      title: Text(isAr ? 'إعلان قبل إنشاء التقرير' : 'Ad before your report'),
+      title: Text(isAr ? context.l10n.adNoticeTitle : 'Ad before your report'),
       content: Text(
         isAr
-            ? 'قد يظهر إعلان قصير قبل إنشاء التقرير.'
+            ? context.l10n.adNoticeBody
             : 'A short ad may appear before your report is created.',
       ),
       actions: <Widget>[
         TextButton(
           onPressed: () => Navigator.of(dialogContext).pop(false),
-          child: Text(isAr ? 'إلغاء' : 'Cancel'),
+          child: Text(isAr ? context.l10n.adNoticeCancel : 'Cancel'),
         ),
         FilledButton(
           onPressed: () => Navigator.of(dialogContext).pop(true),
-          child: Text(isAr ? 'متابعة' : 'Continue'),
+          child: Text(isAr ? context.l10n.adNoticeContinue : 'Continue'),
         ),
       ],
     ),

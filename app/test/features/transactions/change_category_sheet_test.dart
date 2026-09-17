@@ -7,6 +7,7 @@ import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/common/category_catalog.dart';
 import 'package:money_companion/features/transactions/widgets/change_category_sheet.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
   testWidgets('category scope options paint on their own Material surface',
@@ -43,6 +44,11 @@ void main() {
       ProviderScope(
         child: MaterialApp(
           theme: AppTheme.light,
+          // The sheet's copy comes from the ARB now; pinned to Arabic because
+          // the assertions below name the Arabic strings.
+          locale: const Locale('ar'),
+          localizationsDelegates: AppL10n.localizationsDelegates,
+          supportedLocales: AppL10n.supportedLocales,
           home: Builder(
             builder: (context) => Scaffold(
               body: TextButton(

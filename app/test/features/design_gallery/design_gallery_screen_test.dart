@@ -2,11 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/design_gallery/design_gallery_screen.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
 void main() {
   testWidgets('renders every section without throwing', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(theme: AppTheme.light, home: const DesignGalleryScreen()),
+      MaterialApp(
+        theme: AppTheme.light,
+        // The gallery renders shipping widgets, and those read from the ARB.
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: const DesignGalleryScreen(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -17,7 +24,13 @@ void main() {
   testWidgets('exercises mixed Arabic/Latin currency typography together',
       (tester) async {
     await tester.pumpWidget(
-      MaterialApp(theme: AppTheme.light, home: const DesignGalleryScreen()),
+      MaterialApp(
+        theme: AppTheme.light,
+        // The gallery renders shipping widgets, and those read from the ARB.
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: const DesignGalleryScreen(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -32,7 +45,13 @@ void main() {
   testWidgets('shows the Safe-to-Spend ring concept with plain-language text',
       (tester) async {
     await tester.pumpWidget(
-      MaterialApp(theme: AppTheme.light, home: const DesignGalleryScreen()),
+      MaterialApp(
+        theme: AppTheme.light,
+        // The gallery renders shipping widgets, and those read from the ARB.
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: const DesignGalleryScreen(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -57,7 +76,13 @@ void main() {
       addTearDown(view.resetDevicePixelRatio);
 
       await tester.pumpWidget(
-        MaterialApp(theme: AppTheme.light, home: const DesignGalleryScreen()),
+        MaterialApp(
+        theme: AppTheme.light,
+        // The gallery renders shipping widgets, and those read from the ARB.
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        home: const DesignGalleryScreen(),
+      ),
       );
       await tester.pumpAndSettle();
 

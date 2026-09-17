@@ -317,6 +317,7 @@ class BudgetsScreen extends ConsumerWidget {
             accountName: data.accountName(
               history.budget.accountId,
               showGlobalLabel: true,
+              globalLabel: context.l10n.budgetsAllAccounts,
             ),
             currencyLabel: entryCurrency,
           ),
@@ -356,6 +357,7 @@ class BudgetsScreen extends ConsumerWidget {
           accountName: data.accountName(
             entry.budget.accountId,
             showGlobalLabel: showGlobalAccountLabel,
+            globalLabel: context.l10n.budgetsAllAccounts,
           ),
           currencyLabel: _entryCurrencyLabel(context, data, entry, currencyLabel),
           onTap: () => BudgetFormScreen.showSheet(

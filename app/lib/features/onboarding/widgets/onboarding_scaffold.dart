@@ -6,6 +6,7 @@ import '../../../core/theme/app_typography.dart';
 import '../../common/app_button.dart';
 import 'premium_ui.dart';
 import '../../../core/utils/app_lucide_icons.dart';
+import '../../../core/utils/l10n_ext.dart';
 
 TextStyle obFont(double size, FontWeight w, double h, Color color) {
   return AppTypography.custom(
@@ -128,7 +129,7 @@ class OnboardingScaffold extends StatelessWidget {
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         minimumSize: const Size(40, 40),
                       ),
-                      child: Text('تخطّى',
+                      child: Text(context.l10n.commonSkip,
                           style: obFont(13, FontWeight.w700, 1, c.textMuted)),
                     )
                   else

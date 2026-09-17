@@ -6,6 +6,7 @@ import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../utils/app_lucide_icons.dart';
 import 'app_lock_service.dart';
+import '../utils/l10n_ext.dart';
 
 class AppLockGate extends StatefulWidget {
   const AppLockGate({super.key, required this.child});
@@ -145,12 +146,12 @@ class _LockScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: AppSpacing.s5),
                   Text(
-                    'قرش مقفول',
+                    context.l10n.lockTitle,
                     style: AppTypography.headline(c.textMain),
                   ),
                   const SizedBox(height: AppSpacing.s2),
                   Text(
-                    'افتح التطبيق للتحقق من هويتك وعرض بياناتك المالية.',
+                    context.l10n.lockBody,
                     textAlign: TextAlign.center,
                     style: AppTypography.callout(c.textLight),
                   ),
@@ -164,7 +165,9 @@ class _LockScreen extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(AppLucideIcons.unlock),
-                    label: Text(authenticating ? 'جاري التحقق...' : 'فتح قرش'),
+                    label: Text(authenticating
+                        ? context.l10n.lockVerifying
+                        : context.l10n.lockUnlock),
                     // سطح ink الموحّد (كان primary الكحلي القديم).
                     style: FilledButton.styleFrom(
                       minimumSize: const Size.fromHeight(52),

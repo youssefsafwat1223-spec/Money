@@ -7,6 +7,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/utils/l10n_ext.dart';
 
 class ForceUpdateScreen extends ConsumerWidget {
   const ForceUpdateScreen({super.key});
@@ -22,11 +23,11 @@ class ForceUpdateScreen extends ConsumerWidget {
         ?.where((a) => a.isForceUpdate)
         .firstOrNull;
 
-    final titleText = announcement?.titleAr ?? 'تحديث مطلوب';
+    final titleText = announcement?.titleAr ?? context.l10n.fuTitle;
     final bodyText =
-        announcement?.bodyAr ?? 'يرجى تحديث التطبيق للاستمرار في الاستخدام.';
+        announcement?.bodyAr ?? context.l10n.fuBody;
     final actionUrl = announcement?.actionUrl ?? _appStoreUrl;
-    final actionLabel = announcement?.actionLabelAr ?? 'تحديث الآن';
+    final actionLabel = announcement?.actionLabelAr ?? context.l10n.fuNow;
 
     return Scaffold(
       backgroundColor: c.bg,

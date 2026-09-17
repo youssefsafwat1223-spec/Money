@@ -9,6 +9,7 @@ import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import 'manual_paste_screen.dart';
+import '../../core/utils/l10n_ext.dart';
 
 class SmsPermissionScreen extends StatefulWidget {
   const SmsPermissionScreen({super.key});
@@ -89,13 +90,13 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                 ),
                 const SizedBox(height: AppSpacing.s4),
                 Text(
-                  'شارك رسالة البنك مع قرش',
+                  context.l10n.smsShareTitle,
                   textAlign: TextAlign.center,
                   style: AppTypography.title1(c.textMain),
                 ),
                 const SizedBox(height: AppSpacing.s2),
                 Text(
-                  'بدون إذن قراءة SMS: افتح رسالة البنك، اضغط مشاركة، واختر قرش. سنحلّل النص على جهازك فقط.',
+                  context.l10n.smsShareBody,
                   textAlign: TextAlign.center,
                   style: AppTypography.callout(c.textLight),
                 ),
@@ -115,13 +116,13 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                   child: Column(
                     children: [
                       Text(
-                        'مثال: «شراء 45 ريال لدى BURGER BOUTIQUE»',
+                        context.l10n.smsShareExample,
                         textAlign: TextAlign.center,
                         style: AppTypography.bodyStrong(c.textMain),
                       ),
                       const SizedBox(height: AppSpacing.s2),
                       Text(
-                        'لو لم يظهر زر المشاركة في تطبيق الرسائل، استخدم اللصق اليدوي كبديل سريع.',
+                        context.l10n.smsShareFallback,
                         textAlign: TextAlign.center,
                         style: AppTypography.callout(c.textLight),
                       ),
@@ -143,7 +144,7 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                       ),
                     ),
                     child: Text(
-                      'لصق رسالة يدويًا',
+                      context.l10n.smsPasteManually,
                       style: AppTypography.bodyStrong(Colors.white),
                     ),
                   ),
@@ -152,7 +153,7 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(false),
                   child: Text(
-                    'لاحقًا، ألصق يدويًا',
+                    context.l10n.smsPasteLater,
                     style: AppTypography.bodyStrong(c.textLight),
                   ),
                 ),

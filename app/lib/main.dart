@@ -18,6 +18,9 @@ import 'data/db/planning_canonical_invariants.dart';
 import 'data/db/planning_cutover.dart';
 import 'features/app/startup_loading_screen.dart';
 import 'core/utils/app_lucide_icons.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
+import 'l10n/app_localizations.dart';
+import 'core/utils/l10n_ext.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -161,6 +164,19 @@ class _StartupAppState extends State<StartupApp> {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,
+      // The bootstrap app carried no localizations at all, so everything it
+      // shows — the loading screen, the timeout, the database-recovery view —
+      // was necessarily a hardcoded Arabic literal. The saved language cannot
+      // be read yet (the database is exactly what has not opened), so resolve
+      // against the DEVICE locale, which is the only signal that exists this
+      // early. `MoneyApp` takes over with the user's saved choice.
+      supportedLocales: AppL10n.supportedLocales,
+      localizationsDelegates: const [
+        ...AppL10n.localizationsDelegates,
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
       // A timeout can land while `database_open` is the step in flight (it's
       // simply the slowest step, e.g. first-run key generation) without the
       // database itself being corrupt — only route to the destructive
@@ -205,9 +221,9 @@ class _DatabaseRecoveryViewState extends State<_DatabaseRecoveryView> {
 
   @override
   Widget build(BuildContext context) {
-    return Directionality(
-      textDirection: TextDirection.rtl,
-      child: Scaffold(
+    // Direction follows the resolved locale — this view is now localized, and
+    // a forced RTL would mirror an English layout.
+    return Scaffold(
         backgroundColor: Colors.black,
         body: Center(
           child: Padding(
@@ -218,20 +234,18 @@ class _DatabaseRecoveryViewState extends State<_DatabaseRecoveryView> {
                 const Icon(AppLucideIcons.alertCircle,
                     color: Colors.white70, size: 64),
                 const SizedBox(height: 16),
-                const Text(
-                  'تعذّر فتح بياناتك',
-                  style: TextStyle(
+                Text(
+                  context.l10n.dbRecoveryTitle,
+                  style: const TextStyle(
                       color: Colors.white,
                       fontSize: 20,
                       fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 10),
-                const Text(
-                  'ملف البيانات تالف أو مشفّر بمفتاح غير متطابق ولا يمكن فتحه. '
-                  'تقدر تعيد تعيين بيانات التطبيق للبدء من جديد (هيتم حذف '
-                  'العمليات المحفوظة محلياً فقط).',
+                Text(
+                  context.l10n.dbRecoveryBody,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white70, height: 1.5),
+                  style: const TextStyle(color: Colors.white70, height: 1.5),
                 ),
                 const SizedBox(height: 24),
                 SizedBox(
@@ -249,14 +263,13 @@ class _DatabaseRecoveryViewState extends State<_DatabaseRecoveryView> {
                             height: 20,
                             width: 20,
                             child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('إعادة تعيين البيانات'),
+                        : Text(context.l10n.dbRecoveryReset),
                   ),
                 ),
               ],
             ),
           ),
         ),
-      ),
     );
   }
 }

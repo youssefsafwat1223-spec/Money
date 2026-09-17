@@ -12,6 +12,7 @@ import '../../../domain/finance/money.dart';
 import '../../../domain/finance/money_format.dart';
 import '../category_catalog.dart';
 import '../widgets.dart';
+import '../../../core/utils/l10n_ext.dart';
 
 class SpendingChartSlice {
   const SpendingChartSlice({
@@ -32,7 +33,7 @@ class CategoryDonutChart extends StatelessWidget {
     super.key,
     required this.slices,
     this.height = 210,
-    this.centerLabel = 'التصنيفات',
+    this.centerLabel,
     this.currencyLabel = '',
     this.compactCenter = false,
     this.framed = true,
@@ -41,7 +42,11 @@ class CategoryDonutChart extends StatelessWidget {
 
   final List<SpendingChartSlice> slices;
   final double height;
-  final String centerLabel;
+
+  /// Null means "the default", resolved from the ARB at build time. It cannot
+  /// be a constructor default: a `const` constructor has no BuildContext, and
+  /// the previous Arabic literal was shown in every locale.
+  final String? centerLabel;
   final String currencyLabel;
   final bool compactCenter;
   final bool framed;
@@ -50,10 +55,11 @@ class CategoryDonutChart extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    final label = centerLabel ?? context.l10n.chartCategories;
     if (slices.isEmpty) {
       return _EmptyChartCard(
-        title: centerLabel,
-        body: 'أضف عمليات مؤكدة ليظهر توزيع التصنيفات هنا.',
+        title: label,
+        body: context.l10n.chartCategoriesEmpty,
       );
     }
 
@@ -74,7 +80,7 @@ class CategoryDonutChart extends StatelessWidget {
               size: chartSize,
               centerLabelColor: c.textPrimary,
               centerCaptionColor: c.textMuted,
-              centerLabel: centerLabel,
+              centerLabel: label,
               compactCenter: compactCenter,
             ),
           );
@@ -265,7 +271,7 @@ class _CapsuleBar extends StatelessWidget {
                       .copyWith(fontWeight: FontWeight.w700),
                 ),
                 if (isRefundDay && !privacyMode)
-                  Text('مرتجع',
+                  Text(context.l10n.chartRefund,
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.success)),
                 if (showCurrencyLabel)
@@ -361,7 +367,7 @@ class _Donut extends StatelessWidget {
                 overflow: TextOverflow.ellipsis,
               ),
               Text(
-                compactCenter ? 'إجمالي' : slices.first.category.name,
+                compactCenter ? context.l10n.chartTotal : slices.first.category.name,
                 style: AppTypography.caption(centerCaptionColor),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

@@ -6,9 +6,16 @@ import 'package:money_companion/core/theme/widgets/insight_card.dart';
 import 'package:money_companion/core/theme/widgets/ledger_row.dart';
 import 'package:money_companion/core/theme/widgets/pulse_row.dart';
 import 'package:money_companion/core/utils/app_lucide_icons.dart';
+import 'package:money_companion/l10n/app_localizations.dart';
 
-Widget _host(Widget child, {ThemeData? theme}) => MaterialApp(
+// These archetypes read their badge/label copy from the ARB now, so the host
+// must supply the localization delegates — a bare MaterialApp has none, and
+// `context.l10n` throws under it.
+Widget _host(Widget child, {ThemeData? theme, String? lang}) => MaterialApp(
       theme: theme ?? AppTheme.light,
+      localizationsDelegates: AppL10n.localizationsDelegates,
+      supportedLocales: AppL10n.supportedLocales,
+      locale: lang == null ? null : Locale(lang),
       home: Scaffold(body: child),
     );
 
@@ -51,9 +58,17 @@ void main() {
     expect(find.text('التفاصيل'), findsOneWidget);
   });
 
-  testWidgets('LedgerRow shows amount + pending/AI badges only when flagged',
-      (tester) async {
-    await tester.pumpWidget(_host(const Column(children: [
+  // The badge copy used to be two Arabic literals, so this test asserted the
+  // Arabic and passed in every locale — including the English build, where the
+  // badges also read Arabic. Both languages are checked now.
+  for (final (lang, pending, ai) in const [
+    ('ar', 'مراجعة', 'ذكاء'),
+    ('en', 'Review', 'Smart'),
+  ]) {
+    testWidgets(
+        'LedgerRow shows amount + pending/AI badges only when flagged ($lang)',
+        (tester) async {
+      await tester.pumpWidget(_host(lang: lang, const Column(children: [
       LedgerRow(
         icon: AppLucideIcons.shoppingBag,
         iconTint: Colors.red,
@@ -70,13 +85,14 @@ void main() {
         isPending: true,
         isAi: true,
       ),
-    ])));
-    expect(find.text('نون · تسوّق'), findsOneWidget);
-    expect(find.text('−320.00'), findsOneWidget);
-    // Badges appear once — only on the flagged row.
-    expect(find.text('مراجعة'), findsOneWidget);
-    expect(find.text('ذكاء'), findsOneWidget);
-  });
+      ])));
+      expect(find.text('نون · تسوّق'), findsOneWidget);
+      expect(find.text('−320.00'), findsOneWidget);
+      // Badges appear once — only on the flagged row.
+      expect(find.text(pending), findsOneWidget);
+      expect(find.text(ai), findsOneWidget);
+    });
+  }
 
   testWidgets('archetypes render on the dark theme too', (tester) async {
     await tester.pumpWidget(_host(

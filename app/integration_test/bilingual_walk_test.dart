@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -43,6 +44,21 @@ const _routes = <String>[
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  /// Android renders Flutter into a SurfaceView, which neither `screencap` nor
+  /// `takeScreenshot` can read until the surface is converted to an image —
+  /// that is what the "Call convertFlutterSurfaceToImage() before taking a
+  /// screenshot" state error means. It is a no-op-by-absence on iOS, where the
+  /// call is not supported at all, so it is guarded rather than unconditional.
+  ///
+  /// This is also why `adb exec-out screencap` returns a solid black frame for
+  /// a running Flutter app while the app is demonstrably rendering.
+  var surfaceConverted = false;
+  Future<void> captureReady() async {
+    if (surfaceConverted || !Platform.isAndroid) return;
+    await binding.convertFlutterSurfaceToImage();
+    surfaceConverted = true;
+  }
   demo_seed.main();
 
   Future<void> settle(WidgetTester tester,
@@ -158,6 +174,8 @@ void main() {
             survivingText[route] = arabic.toSet().toList();
           }
         }
+        await captureReady();
+        await tester.pumpAndSettle();
         await binding.takeScreenshot('$lang-${route.replaceAll("/", "_")}');
       }
     }
