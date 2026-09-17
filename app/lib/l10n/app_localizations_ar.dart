@@ -4773,4 +4773,90 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get bkStateCancelled => 'أُلغيت';
+
+  @override
+  String get iosStep1 => 'افتح تطبيق الاختصارات';
+
+  @override
+  String get iosStep1Body =>
+      'ادخل على Shortcuts ثم تبويب Automation من الأسفل.';
+
+  @override
+  String get iosStep2 => 'أنشئ Automation جديد';
+
+  @override
+  String get iosStep2Body => 'اضغط New Automation أو علامة +، ثم اختر Message.';
+
+  @override
+  String get iosStep3 => 'حدّد رسائل البنك';
+
+  @override
+  String get iosStep4 => 'اجعله يعمل فورًا';
+
+  @override
+  String get iosStep4Body =>
+      'اختَر Run Immediately. إذا ظهر Notify When Run فأغلقه، ثم اضغط Next.';
+
+  @override
+  String get iosStep5 => 'اختَر اختصار قِرش';
+
+  @override
+  String get iosStep5Body =>
+      'اضغط New Blank Automation، وابحث عن Process Bank SMS.';
+
+  @override
+  String get iosStep6 => 'مرّر نص الرسالة';
+
+  @override
+  String get iosStep6Body =>
+      'يجب أن يظهر حقل SMS Text. اختَر له Shortcut Input. وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام الرسالة — يمنع تكرار العملية إذا شُغّلت الأتمتة مرتين لنفس الرسالة.';
+
+  @override
+  String get iosStep7 => 'طابق الشكل النهائي';
+
+  @override
+  String get iosStep7Body =>
+      'يجب أن يكون: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input. افتح تفاصيل الأكشن وأغلق Show When Run إذا ظهر.';
+
+  @override
+  String get iosStep8 => 'احفظ الاختصار';
+
+  @override
+  String get iosStep8Body =>
+      'اضغط Done. بعدها أي رسالة بنك مطابقة ستتحول لعملية داخل قِرش.';
+
+  @override
+  String get countrySA => 'السعودية';
+
+  @override
+  String get countryAE => 'الإمارات';
+
+  @override
+  String get countryEG => 'مصر';
+
+  @override
+  String get countryKW => 'الكويت';
+
+  @override
+  String get countryQA => 'قطر';
+
+  @override
+  String get countryBH => 'البحرين';
+
+  @override
+  String get countryOM => 'عُمان';
+
+  @override
+  String get countryJO => 'الأردن';
+
+  @override
+  String get setupSaveFailed => 'تعذّر حفظ الإعدادات. حاول مرة أخرى.';
+
+  @override
+  String get setupFinishFailed => 'تعذّر إنهاء الإعداد. حاول مرة أخرى.';
+
+  @override
+  String iosStep3Body(String currency) {
+    return 'في Message Contents اكتب رمز العملة مثل $currency، وكرّر لاحقًا لأي عملة إضافية.';
+  }
 }

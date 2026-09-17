@@ -54,29 +54,41 @@ class OnboardingSetupScreen extends ConsumerStatefulWidget {
 }
 
 class _CountryChoice {
-  const _CountryChoice(this.code, this.flag, this.name, this.currency);
+  _CountryChoice(this.code, this.flag, this.name, this.currency);
   final String code;
   final String flag;
   final String name;
   final String currency;
 }
 
-const _countries = <_CountryChoice>[
-  _CountryChoice('SA', '🇸🇦', 'السعودية', 'SAR'),
-  _CountryChoice('AE', '🇦🇪', 'الإمارات', 'AED'),
-  _CountryChoice('EG', '🇪🇬', 'مصر', 'EGP'),
-  _CountryChoice('KW', '🇰🇼', 'الكويت', 'KWD'),
-  _CountryChoice('QA', '🇶🇦', 'قطر', 'QAR'),
-  _CountryChoice('BH', '🇧🇭', 'البحرين', 'BHD'),
-  _CountryChoice('OM', '🇴🇲', 'عُمان', 'OMR'),
-  _CountryChoice('JO', '🇯🇴', 'الأردن', 'JOD'),
-];
+/// Country names come from the ARB, so the list is built per-locale rather
+/// than being a `const` frozen at class-load.
+///
+/// Resolving by code keeps the SELECTION stable while the LABEL follows the
+/// language.
+List<_CountryChoice> _countriesIn(BuildContext context) => <_CountryChoice>[
+  _CountryChoice('SA', '🇸🇦', context.l10n.countrySA, 'SAR'),
+  _CountryChoice('AE', '🇦🇪', context.l10n.countryAE, 'AED'),
+  _CountryChoice('EG', '🇪🇬', context.l10n.countryEG, 'EGP'),
+  _CountryChoice('KW', '🇰🇼', context.l10n.countryKW, 'KWD'),
+  _CountryChoice('QA', '🇶🇦', context.l10n.countryQA, 'QAR'),
+  _CountryChoice('BH', '🇧🇭', context.l10n.countryBH, 'BHD'),
+  _CountryChoice('OM', '🇴🇲', context.l10n.countryOM, 'OMR'),
+      _CountryChoice('JO', '🇯🇴', context.l10n.countryJO, 'JOD'),
+    ];
 
 class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
   static const _stepCount = 3;
 
   final _done = List<bool>.filled(_stepCount, false);
-  _CountryChoice _country = _countries.first;
+  // The CODE is state; the label is not. Storing a `_CountryChoice` meant
+  // holding a localized name in state, which would keep whichever language was
+  // active when the screen was first built.
+  String _countryCode = 'SA';
+  _CountryChoice _selectedCountry(BuildContext context) =>
+      _countriesIn(context).firstWhere((c) => c.code == _countryCode,
+          orElse: () => _countriesIn(context).first);
+
   bool _busy = false;
   int _currentStep = 0;
 
@@ -97,9 +109,9 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
         await ref.read(userSettingsRepositoryProvider).getSettings();
     if (!mounted) return;
     final currency = settings.currency.trim().toUpperCase();
-    final match = _countries.where((item) => item.currency == currency);
+    final match = _countriesIn(context).where((item) => item.currency == currency);
     if (match.isNotEmpty) {
-      setState(() => _country = match.first);
+      setState(() => _countryCode = match.first.code);
     }
   }
 
@@ -129,7 +141,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     if (_busy) return;
     HapticFeedback.selectionClick();
     setState(() {
-      _country = choice;
+      _countryCode = choice.code;
       _busy = true;
     });
     try {
@@ -147,7 +159,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
       if (!mounted) return;
       final message = error is RepoException
           ? repoExceptionMessage(error)
-          : 'تعذّر حفظ الإعدادات. حاول مرة أخرى.';
+          : context.l10n.setupSaveFailed;
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(SnackBar(content: Text(message)));
@@ -180,7 +192,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
       ScaffoldMessenger.of(context)
         ..hideCurrentSnackBar()
         ..showSnackBar(
-          const SnackBar(content: Text('تعذّر إنهاء الإعداد. حاول مرة أخرى.')),
+          SnackBar(content: Text(context.l10n.setupFinishFailed)),
         );
     }
   }
@@ -402,15 +414,15 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
         spacing: 8,
         runSpacing: 8,
         children: [
-          for (final choice in _countries)
+          for (final choice in _countriesIn(context))
             ChoiceChip(
               label: Text('${choice.flag} ${choice.name} · ${choice.currency}'),
-              selected: _country.code == choice.code,
+              selected: _countryCode == choice.code,
               selectedColor: _setupAccent.withValues(alpha: 0.22),
               backgroundColor: Colors.white.withValues(alpha: 0.06),
               labelStyle: AppTypography.caption(Colors.white),
               side: BorderSide(
-                color: _country.code == choice.code
+                color: _countryCode == choice.code
                     ? _setupAccent.withValues(alpha: 0.6)
                     : Colors.white.withValues(alpha: 0.14),
               ),
@@ -458,7 +470,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
       (l10n.setupShortcutStep2Title, l10n.setupShortcutStep2Body),
       (
         l10n.setupShortcutStep3Title,
-        l10n.setupShortcutStep3Body(_country.currency)
+        l10n.setupShortcutStep3Body(_selectedCountry(context).currency)
       ),
       (l10n.setupShortcutStep4Title, l10n.setupShortcutStep4Body),
       (l10n.setupShortcutStep5Title, l10n.setupShortcutStep5Body),

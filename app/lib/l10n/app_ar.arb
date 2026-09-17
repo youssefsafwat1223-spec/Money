@@ -2524,5 +2524,38 @@
   "bkStateFailedRetryable": "فشل — أعد المحاولة",
   "bkStateFailed": "فشل",
   "bkStateDeleting": "جارٍ حذف النسخة عن بُعد",
-  "bkStateCancelled": "أُلغيت"
+  "bkStateCancelled": "أُلغيت",
+  "iosStep1": "افتح تطبيق الاختصارات",
+  "iosStep1Body": "ادخل على Shortcuts ثم تبويب Automation من الأسفل.",
+  "iosStep2": "أنشئ Automation جديد",
+  "iosStep2Body": "اضغط New Automation أو علامة +، ثم اختر Message.",
+  "iosStep3": "حدّد رسائل البنك",
+  "iosStep4": "اجعله يعمل فورًا",
+  "iosStep4Body": "اختَر Run Immediately. إذا ظهر Notify When Run فأغلقه، ثم اضغط Next.",
+  "iosStep5": "اختَر اختصار قِرش",
+  "iosStep5Body": "اضغط New Blank Automation، وابحث عن Process Bank SMS.",
+  "iosStep6": "مرّر نص الرسالة",
+  "iosStep6Body": "يجب أن يظهر حقل SMS Text. اختَر له Shortcut Input. وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام الرسالة — يمنع تكرار العملية إذا شُغّلت الأتمتة مرتين لنفس الرسالة.",
+  "iosStep7": "طابق الشكل النهائي",
+  "iosStep7Body": "يجب أن يكون: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input. افتح تفاصيل الأكشن وأغلق Show When Run إذا ظهر.",
+  "iosStep8": "احفظ الاختصار",
+  "iosStep8Body": "اضغط Done. بعدها أي رسالة بنك مطابقة ستتحول لعملية داخل قِرش.",
+  "countrySA": "السعودية",
+  "countryAE": "الإمارات",
+  "countryEG": "مصر",
+  "countryKW": "الكويت",
+  "countryQA": "قطر",
+  "countryBH": "البحرين",
+  "countryOM": "عُمان",
+  "countryJO": "الأردن",
+  "setupSaveFailed": "تعذّر حفظ الإعدادات. حاول مرة أخرى.",
+  "setupFinishFailed": "تعذّر إنهاء الإعداد. حاول مرة أخرى.",
+  "iosStep3Body": "في Message Contents اكتب رمز العملة مثل {currency}، وكرّر لاحقًا لأي عملة إضافية.",
+  "@iosStep3Body": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  }
 }

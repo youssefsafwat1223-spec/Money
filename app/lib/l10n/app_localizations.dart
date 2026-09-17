@@ -8052,6 +8052,162 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'أُلغيت'**
   String get bkStateCancelled;
+
+  /// No description provided for @iosStep1.
+  ///
+  /// In ar, this message translates to:
+  /// **'افتح تطبيق الاختصارات'**
+  String get iosStep1;
+
+  /// No description provided for @iosStep1Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'ادخل على Shortcuts ثم تبويب Automation من الأسفل.'**
+  String get iosStep1Body;
+
+  /// No description provided for @iosStep2.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنشئ Automation جديد'**
+  String get iosStep2;
+
+  /// No description provided for @iosStep2Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'اضغط New Automation أو علامة +، ثم اختر Message.'**
+  String get iosStep2Body;
+
+  /// No description provided for @iosStep3.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد رسائل البنك'**
+  String get iosStep3;
+
+  /// No description provided for @iosStep4.
+  ///
+  /// In ar, this message translates to:
+  /// **'اجعله يعمل فورًا'**
+  String get iosStep4;
+
+  /// No description provided for @iosStep4Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختَر Run Immediately. إذا ظهر Notify When Run فأغلقه، ثم اضغط Next.'**
+  String get iosStep4Body;
+
+  /// No description provided for @iosStep5.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختَر اختصار قِرش'**
+  String get iosStep5;
+
+  /// No description provided for @iosStep5Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'اضغط New Blank Automation، وابحث عن Process Bank SMS.'**
+  String get iosStep5Body;
+
+  /// No description provided for @iosStep6.
+  ///
+  /// In ar, this message translates to:
+  /// **'مرّر نص الرسالة'**
+  String get iosStep6;
+
+  /// No description provided for @iosStep6Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'يجب أن يظهر حقل SMS Text. اختَر له Shortcut Input. وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام الرسالة — يمنع تكرار العملية إذا شُغّلت الأتمتة مرتين لنفس الرسالة.'**
+  String get iosStep6Body;
+
+  /// No description provided for @iosStep7.
+  ///
+  /// In ar, this message translates to:
+  /// **'طابق الشكل النهائي'**
+  String get iosStep7;
+
+  /// No description provided for @iosStep7Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'يجب أن يكون: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input. افتح تفاصيل الأكشن وأغلق Show When Run إذا ظهر.'**
+  String get iosStep7Body;
+
+  /// No description provided for @iosStep8.
+  ///
+  /// In ar, this message translates to:
+  /// **'احفظ الاختصار'**
+  String get iosStep8;
+
+  /// No description provided for @iosStep8Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'اضغط Done. بعدها أي رسالة بنك مطابقة ستتحول لعملية داخل قِرش.'**
+  String get iosStep8Body;
+
+  /// No description provided for @countrySA.
+  ///
+  /// In ar, this message translates to:
+  /// **'السعودية'**
+  String get countrySA;
+
+  /// No description provided for @countryAE.
+  ///
+  /// In ar, this message translates to:
+  /// **'الإمارات'**
+  String get countryAE;
+
+  /// No description provided for @countryEG.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصر'**
+  String get countryEG;
+
+  /// No description provided for @countryKW.
+  ///
+  /// In ar, this message translates to:
+  /// **'الكويت'**
+  String get countryKW;
+
+  /// No description provided for @countryQA.
+  ///
+  /// In ar, this message translates to:
+  /// **'قطر'**
+  String get countryQA;
+
+  /// No description provided for @countryBH.
+  ///
+  /// In ar, this message translates to:
+  /// **'البحرين'**
+  String get countryBH;
+
+  /// No description provided for @countryOM.
+  ///
+  /// In ar, this message translates to:
+  /// **'عُمان'**
+  String get countryOM;
+
+  /// No description provided for @countryJO.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأردن'**
+  String get countryJO;
+
+  /// No description provided for @setupSaveFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر حفظ الإعدادات. حاول مرة أخرى.'**
+  String get setupSaveFailed;
+
+  /// No description provided for @setupFinishFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر إنهاء الإعداد. حاول مرة أخرى.'**
+  String get setupFinishFailed;
+
+  /// No description provided for @iosStep3Body.
+  ///
+  /// In ar, this message translates to:
+  /// **'في Message Contents اكتب رمز العملة مثل {currency}، وكرّر لاحقًا لأي عملة إضافية.'**
+  String iosStep3Body(String currency);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

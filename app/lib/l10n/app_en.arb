@@ -2408,5 +2408,38 @@
   "bkStateFailedRetryable": "Failed — try again",
   "bkStateFailed": "Failed",
   "bkStateDeleting": "Deleting the remote copy…",
-  "bkStateCancelled": "Cancelled"
+  "bkStateCancelled": "Cancelled",
+  "iosStep1": "Open the Shortcuts app",
+  "iosStep1Body": "Open Shortcuts, then the Automation tab at the bottom.",
+  "iosStep2": "Create a new Automation",
+  "iosStep2Body": "Tap New Automation or the + sign, then choose Message.",
+  "iosStep3": "Narrow it to bank messages",
+  "iosStep4": "Run it immediately",
+  "iosStep4Body": "Choose Run Immediately. If Notify When Run appears, turn it off, then tap Next.",
+  "iosStep5": "Pick the Qirsh shortcut",
+  "iosStep5Body": "Tap New Blank Automation and search for Process Bank SMS.",
+  "iosStep6": "Pass the message text through",
+  "iosStep6Body": "An SMS Text field must appear — set it to Shortcut Input. Open the action’s details and set Date Received to when the message arrived; that is what stops a transaction being recorded twice if the automation runs twice for the same message.",
+  "iosStep7": "Match the final shape",
+  "iosStep7Body": "It must read: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input. Open the action’s details and turn off Show When Run if it appears.",
+  "iosStep8": "Save the shortcut",
+  "iosStep8Body": "Tap Done. From then on, any matching bank message becomes a transaction in Qirsh.",
+  "countrySA": "Saudi Arabia",
+  "countryAE": "United Arab Emirates",
+  "countryEG": "Egypt",
+  "countryKW": "Kuwait",
+  "countryQA": "Qatar",
+  "countryBH": "Bahrain",
+  "countryOM": "Oman",
+  "countryJO": "Jordan",
+  "setupSaveFailed": "Your settings could not be saved. Please try again.",
+  "setupFinishFailed": "Setup could not be completed. Please try again.",
+  "iosStep3Body": "In Message Contents, enter a currency code such as {currency} — repeat later for any other currency.",
+  "@iosStep3Body": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  }
 }

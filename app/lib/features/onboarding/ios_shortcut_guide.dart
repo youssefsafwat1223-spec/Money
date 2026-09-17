@@ -40,85 +40,29 @@ class IosShortcutGuide extends StatelessWidget {
 
   final String currencyCode;
 
+  /// One list, both languages.
+  ///
+  /// This used to be `if (locale == 'en') return [...]; return [...]` — two
+  /// complete step lists, maintained in parallel, already visibly drifting
+  /// (the Arabic steps carried colloquial forms the English ones did not, and
+  /// one Arabic step had been half-migrated to the ARB while its neighbour had
+  /// not). The ARB does the switching now, so there is one list and one place
+  /// to change a step.
   static List<_ShortcutStep> _getSteps(
     BuildContext context,
     String currencyCode,
   ) {
-    final locale = Localizations.localeOf(context).languageCode;
-    if (locale == 'en') {
-      return [
-        const _ShortcutStep(
-            'Open Shortcuts app',
-            'Go to Shortcuts then Automation tab at the bottom.',
-            AppLucideIcons.layers),
-        const _ShortcutStep(
-            'Create new Automation',
-            'Press New Automation or +, then select Message.',
-            AppLucideIcons.plusCircle),
-        _ShortcutStep(
-            'Select bank messages',
-            'In Message Contents type currency code e.g. $currencyCode, repeat later for additional currencies.',
-            AppLucideIcons.filter),
-        const _ShortcutStep(
-            'Run Immediately',
-            'Select Run Immediately. If Notify When Run appears, turn it off, then press Next.',
-            AppLucideIcons.zap),
-        const _ShortcutStep(
-            'Choose Qirsh Shortcut',
-            'Press New Blank Automation, and search for Process Bank SMS.',
-            AppLucideIcons.send),
-        const _ShortcutStep(
-            'Pass message text',
-            'The action should show SMS Text. Set SMS Text to Shortcut Input. '
-                'Also expand the action and set Date Received to the '
-                'message\'s received date — it prevents duplicate imports '
-                'when the automation runs twice for the same SMS.',
-            AppLucideIcons.fileText),
-        const _ShortcutStep(
-            'Match the final shape',
-            'It should be: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input. Open action details and turn off Show When Run if visible.',
-            AppLucideIcons.volumeX),
-        const _ShortcutStep(
-            'Save shortcut',
-            'Press Done. Then any matching bank message will be converted to a transaction inside Qirsh.',
-            AppLucideIcons.checkCircle),
-      ];
-    }
+    final l = context.l10n;
     return [
-      const _ShortcutStep(
-          'افتح تطبيق الاختصارات',
-          'ادخل على Shortcuts ثم تبويب Automation من الأسفل.',
-          AppLucideIcons.layers),
-      const _ShortcutStep(
-          'أنشئ Automation جديد',
-          'اضغط New Automation أو علامة +، ثم اختر Message.',
-          AppLucideIcons.plusCircle),
+      _ShortcutStep(l.iosStep1, l.iosStep1Body, AppLucideIcons.layers),
+      _ShortcutStep(l.iosStep2, l.iosStep2Body, AppLucideIcons.plusCircle),
       _ShortcutStep(
-          'حدّد رسائل البنك',
-          'في Message Contents اكتب رمز العملة مثل $currencyCode، وكرّر لاحقاً لأي عملة إضافية.',
-          AppLucideIcons.filter),
-      const _ShortcutStep(
-          'خلّيه يعمل فوراً',
-          'اختَر Run Immediately. لو ظهر Notify When Run اقفله، ثم اضغط Next.',
-          AppLucideIcons.zap),
-      const _ShortcutStep(
-          'اختَر اختصار قرش',
-          'اضغط New Blank Automation، وابحث عن Process Bank SMS.',
-          AppLucideIcons.send),
-      const _ShortcutStep(
-          'مرّر نص الرسالة',
-          'لازم يظهر حقل SMS Text. اختَر له Shortcut Input. '
-              'وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام '
-              'الرسالة — يمنع تكرار العملية لو اشتغل الأتمتة مرتين لنفس الرسالة.',
-          AppLucideIcons.fileText),
-      const _ShortcutStep(
-          'طابق الشكل النهائي',
-          'لازم يكون: Receive messages as input ثم Process Bank SMS وفيها SMS Text = Shortcut Input. افتح تفاصيل الأكشن واقفل Show When Run لو ظهر.',
-          AppLucideIcons.volumeX),
-      const _ShortcutStep(
-          'احفظ الاختصار',
-          'اضغط Done. بعدها أي رسالة بنك مطابقة هتتحول لعملية داخل قرش.',
-          AppLucideIcons.checkCircle),
+          l.iosStep3, l.iosStep3Body(currencyCode), AppLucideIcons.filter),
+      _ShortcutStep(l.iosStep4, l.iosStep4Body, AppLucideIcons.zap),
+      _ShortcutStep(l.iosStep5, l.iosStep5Body, AppLucideIcons.send),
+      _ShortcutStep(l.iosStep6, l.iosStep6Body, AppLucideIcons.fileText),
+      _ShortcutStep(l.iosStep7, l.iosStep7Body, AppLucideIcons.volumeX),
+      _ShortcutStep(l.iosStep8, l.iosStep8Body, AppLucideIcons.checkCircle),
     ];
   }
 

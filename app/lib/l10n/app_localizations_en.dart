@@ -4757,4 +4757,93 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get bkStateCancelled => 'Cancelled';
+
+  @override
+  String get iosStep1 => 'Open the Shortcuts app';
+
+  @override
+  String get iosStep1Body =>
+      'Open Shortcuts, then the Automation tab at the bottom.';
+
+  @override
+  String get iosStep2 => 'Create a new Automation';
+
+  @override
+  String get iosStep2Body =>
+      'Tap New Automation or the + sign, then choose Message.';
+
+  @override
+  String get iosStep3 => 'Narrow it to bank messages';
+
+  @override
+  String get iosStep4 => 'Run it immediately';
+
+  @override
+  String get iosStep4Body =>
+      'Choose Run Immediately. If Notify When Run appears, turn it off, then tap Next.';
+
+  @override
+  String get iosStep5 => 'Pick the Qirsh shortcut';
+
+  @override
+  String get iosStep5Body =>
+      'Tap New Blank Automation and search for Process Bank SMS.';
+
+  @override
+  String get iosStep6 => 'Pass the message text through';
+
+  @override
+  String get iosStep6Body =>
+      'An SMS Text field must appear — set it to Shortcut Input. Open the action’s details and set Date Received to when the message arrived; that is what stops a transaction being recorded twice if the automation runs twice for the same message.';
+
+  @override
+  String get iosStep7 => 'Match the final shape';
+
+  @override
+  String get iosStep7Body =>
+      'It must read: Receive messages as input, then Process Bank SMS with SMS Text = Shortcut Input. Open the action’s details and turn off Show When Run if it appears.';
+
+  @override
+  String get iosStep8 => 'Save the shortcut';
+
+  @override
+  String get iosStep8Body =>
+      'Tap Done. From then on, any matching bank message becomes a transaction in Qirsh.';
+
+  @override
+  String get countrySA => 'Saudi Arabia';
+
+  @override
+  String get countryAE => 'United Arab Emirates';
+
+  @override
+  String get countryEG => 'Egypt';
+
+  @override
+  String get countryKW => 'Kuwait';
+
+  @override
+  String get countryQA => 'Qatar';
+
+  @override
+  String get countryBH => 'Bahrain';
+
+  @override
+  String get countryOM => 'Oman';
+
+  @override
+  String get countryJO => 'Jordan';
+
+  @override
+  String get setupSaveFailed =>
+      'Your settings could not be saved. Please try again.';
+
+  @override
+  String get setupFinishFailed =>
+      'Setup could not be completed. Please try again.';
+
+  @override
+  String iosStep3Body(String currency) {
+    return 'In Message Contents, enter a currency code such as $currency — repeat later for any other currency.';
+  }
 }
