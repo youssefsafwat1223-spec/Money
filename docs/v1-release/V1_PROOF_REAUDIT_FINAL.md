@@ -85,6 +85,19 @@ are honest. Attacking them found real bugs:
 
 3. **`/backup` was counted as a walked route and never visited.** See item 21.
 
+### 1b-ii. Two more, from the reviews
+
+4. **An Arabic comma in English copy** — `coupon_widgets.dart` joined country
+   codes with «،» unconditionally, so an English reader saw
+   "Available in SA، AE". It survived because the extractor's `code:` marker
+   matched an ordinary Dart named argument fourteen lines away. Markers are
+   anchored to the actual enums now.
+
+5. **Opening Data Transfer contacted Supabase with cloud consent OFF** — and
+   its second request existed only because `hasRemoteBackup()` had been
+   widened earlier the same day. Fixing one defect had increased ungated
+   egress elsewhere.
+
 ### 1c. Known residual, stated rather than hidden
 
 `drift_bill_repository.dart:459` — `name ?? merchantName ?? 'فاتورة'` is a
@@ -103,7 +116,7 @@ not touched this late.
 | 19 | App launches on Simulator | DIRECT | every integration test boots `app.main()` |
 | 20 | Sign-in against real Supabase + RLS | DIRECT | `post_auth_closure_test` — real GoTrue, real JWT |
 | 21 | Every V1 route renders | DIRECT | **19/19 genuinely visited**, both languages. The walk now asserts the router LANDED where it was sent, and that every route was walked — which is what exposed `/backup` |
-| 22 | Every openable sheet renders | DIRECT | 6/6 in both languages |
+| 22 | Every openable sheet renders | DIRECT | 6/6 in both languages, 1 survivor («ش», an avatar initial), identical across four consecutive runs. The walk reads the SHEET's own resolved locale and reports a stale one as a failure to MEASURE, not as untranslated copy |
 | 23 | Sheets needing a `WidgetRef` | PARTIAL | `account-form` and `card-form` are not in the sheet walk; covered by widget tests, and the test says so |
 | 24 | Writes reach disk | DIRECT | cold `openSecondary()` read-back |
 | 25 | Encrypted DB reopens cold | DIRECT | same, SQLCipher key from Keychain |
@@ -174,7 +187,7 @@ unreachable there is no other route to it.
 
 | # | Requirement | Class | Evidence |
 |---|---|---|---|
-| 61 | `flutter analyze` clean | DIRECT | `lib/` clean at every commit |
+| 61 | `flutter analyze` clean | DIRECT | clean across `lib/`, `test/` AND `integration_test/` — the earlier gate covered `lib/` only |
 | 62 | Unit/widget suite green | DIRECT | **4,003 tests pass** |
 | 63 | iOS archive preflight | STATIC | `preflight_archive.sh` |
 | 64 | Code-signing identity | BLOCKED | `security find-identity` reports 0 valid identities (EB-004) |
