@@ -6,6 +6,20 @@ class BudgetEntity {
   static const allExpensesCategoryId = '__all_expenses__';
   static const allExpensesCategoryKey = 'all_expenses';
 
+  /// The display name of the all-expenses pseudo-category, in ONE place.
+  ///
+  /// It was written three times and disagreed with itself: the budget form's
+  /// ARB entry said "All spending" while `CategoryView.name` and the report
+  /// composer said "All expenses" — the same row, two names, both visible to
+  /// one user in one session. Arabic never diverged because it only ever had
+  /// one spelling.
+  ///
+  /// It cannot live in the ARB alone: `CategoryView` and the PDF composer have
+  /// no BuildContext. `all_expenses_naming_test` asserts the ARB agrees with
+  /// these.
+  static const allExpensesNameAr = 'كل المصروفات';
+  static const allExpensesNameEn = 'All expenses';
+
   const BudgetEntity({
     required this.id,
     required this.categoryId,

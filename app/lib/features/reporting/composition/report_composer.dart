@@ -11,6 +11,7 @@ import '../../../domain/reporting/report_request.dart';
 import 'report_l10n.dart';
 import 'report_money_formatter.dart';
 import 'report_view_model.dart';
+import '../../../domain/entities/budget_entity.dart';
 
 /// Turns an immutable [ReportDataSnapshot] into a render-ready [ReportViewModel]
 /// using the pure calculators. Runs on the main isolate (it may format via
@@ -473,7 +474,9 @@ class ReportComposer {
   String _budgetLabel(ReportDataSnapshot s, String lang, ReportStrings str,
       String? categoryId) {
     if (categoryId == null || categoryId == '__all_expenses__') {
-      return lang == 'ar' ? 'كل المصروفات' : 'All expenses';
+      return lang == 'ar'
+          ? BudgetEntity.allExpensesNameAr
+          : BudgetEntity.allExpensesNameEn;
     }
     return _categoryLabel(s, lang, categoryId) ?? str.other;
   }

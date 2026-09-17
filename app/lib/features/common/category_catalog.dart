@@ -45,7 +45,7 @@ class CategoryView {
     // data. `report_composer.dart` already special-cased it for the PDF; the
     // UI did not.
     if (entity.key == BudgetEntity.allExpensesCategoryKey) {
-      return 'All expenses';
+      return BudgetEntity.allExpensesNameEn;
     }
     final known = Categories.all.where((c) => c.key == entity.key);
     return known.isEmpty ? entity.nameAr : known.first.enName;

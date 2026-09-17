@@ -73,6 +73,15 @@ final _sheets = <String, SheetOpener>{
 typedef DataSheetOpener = Future<void> Function(
     BuildContext context, ProviderContainer container);
 
+/// Thrown when a row-backed sheet has no row to render. Distinct from a
+/// failure: nothing is broken, there is simply nothing to show.
+class _NoDataForSheet implements Exception {
+  _NoDataForSheet(this.reason);
+  final String reason;
+  @override
+  String toString() => reason;
+}
+
 final _dataSheets = <String, DataSheetOpener>{
   'change-category': (c, container) async {
     final tx = (await container.read(transactionRepositoryProvider).getRecent(
@@ -89,9 +98,14 @@ final _dataSheets = <String, DataSheetOpener>{
     if (!c.mounted) return;
     return showConfirmTransactionSheet(c, tx.first.id);
   },
+  // Opens only when the account HAS a bill. The QA ledger seeds two detected
+  // subscriptions that are not enabled, so `getAll()` is empty and this sheet
+  // has no row to render. Reported as unreachable-with-this-data rather than
+  // as a failure: a fabricated bill would render a shape the app never
+  // produces, which is worse than not inspecting the sheet.
   'bill-details': (c, container) async {
     final bills = await container.read(billRepositoryProvider).getAll();
-    if (bills.isEmpty) return;
+    if (bills.isEmpty) throw _NoDataForSheet('no bill in the seeded ledger');
     if (!c.mounted) return;
     return BillDetailsSheet.show(c, bills.first);
   },
@@ -234,6 +248,7 @@ void main() {
 
     final opened = <String, int>{'ar': 0, 'en': 0};
     final failedToOpen = <String>[];
+    final unreachable = <String>[];
     final survivors = <String, List<String>>{};
 
     Future<void> walk(String lang) async {
@@ -274,8 +289,15 @@ void main() {
           continue;
         }
         final ctx = tester.element(shell);
-        unawaited(entry.value(ctx));
+        var noData = false;
+        unawaited(entry.value(ctx).catchError((Object e) {
+          if (e is _NoDataForSheet) noData = true;
+        }));
         await settle(tester);
+        if (noData) {
+          unreachable.add('[$lang] ${entry.key}');
+          continue;
+        }
 
         // A sheet is a modal; the report builder is a pushed PAGE. Both are
         // "something opened on top", so the test is whether the shell is no
@@ -330,6 +352,9 @@ void main() {
         'of ${_sheets.length}');
     debugPrint('[SHEETS] not reachable from here (need a WidgetRef): '
         '${_needsWidgetRef.join(", ")}');
+    for (final u in unreachable) {
+      debugPrint('[SHEETS] no data to render: $u');
+    }
     for (final f in failedToOpen) {
       debugPrint('[SHEETS] could not open: $f');
     }

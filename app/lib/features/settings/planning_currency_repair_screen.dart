@@ -143,8 +143,7 @@ class _PlanningCurrencyRepairScreenState
           background: c.infoBg,
           icon: AppLucideIcons.lightbulb,
           title: context.l10n.pcrDefaultSuggestion,
-          message: '${data.proposedCurrency} — '
-              '${Currency.label(context, data.proposedCurrency)}\n'
+          message: '${Currency.codeWithLabel(context, data.proposedCurrency)}\n'
               '${context.l10n.pcrSuggestionNote}',
         ),
         const SizedBox(height: AppSpacing.s5),
@@ -565,7 +564,7 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
               for (final code in currencies)
                 DropdownMenuItem(
                   value: code,
-                  child: Text('$code — ${Currency.label(context, code)}'),
+                  child: Text(Currency.codeWithLabel(context, code)),
                 ),
             ],
             onChanged: enabled

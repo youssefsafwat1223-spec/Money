@@ -86,6 +86,18 @@ class Currency {
     return name == upper ? upper : '$name ($upper)';
   }
 
+  /// "SAR — ريال" in Arabic, "SAR" in English.
+  ///
+  /// The code-first form used by pickers and the currency-repair screen, which
+  /// wrote `'\$code — \${label(context, code)}'` by hand and so printed
+  /// "SAR — SAR" to an English reader. Same collapse rule as [labelWithCode],
+  /// different order.
+  static String codeWithLabel(BuildContext context, String code) {
+    final name = label(context, code);
+    final upper = code.toUpperCase();
+    return name == upper ? upper : '$upper — $name';
+  }
+
   static String label(BuildContext context, String code) =>
       labelFor(code, Localizations.localeOf(context).languageCode);
 

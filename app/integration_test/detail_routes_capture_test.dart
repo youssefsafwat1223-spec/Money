@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:money_companion/core/utils/l10n_ext.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/features/app/app_shell.dart';
@@ -190,6 +191,59 @@ void main() {
         await binding.takeScreenshot('detail-$lang-${entry.key}');
         captured.add('$lang/${entry.key}');
       }
+      // ---- DIALOGS ---------------------------------------------------
+      //
+      // `DLG-DESTRUCTIVE-CONFIRM` is ONE design reused for twelve nouns —
+      // delete budget, transaction, card, goal, plan, account, bill, payment,
+      // category, erase all data, cancel account deletion. Opening it once
+      // accepts the design; the twelve are copy variants of the same frame.
+      //
+      // Reached the way a user reaches it: from goal details, which is already
+      // loaded above, by tapping Delete.
+      if (goals.isNotEmpty) {
+        router.go('/goals/${goals.first.id}');
+        await settle(tester, budget: const Duration(seconds: 20));
+        final l = tester.element(find.byType(Scaffold).first).l10n;
+        final del = find.text(l.gdDeleteGoal);
+        if (del.evaluate().isEmpty) {
+          failures.add('[$lang] destructive-confirm: '
+              'no "${l.gdDeleteGoal}" control');
+        } else {
+          await tester.ensureVisible(del.first);
+          await settle(tester, budget: const Duration(seconds: 3));
+          await tester.tap(del.first, warnIfMissed: false);
+          await settle(tester, budget: const Duration(seconds: 8));
+          if (find.byType(AlertDialog).evaluate().isEmpty &&
+              find.byType(Dialog).evaluate().isEmpty) {
+            failures.add('[$lang] destructive-confirm: nothing opened');
+          } else {
+            if (expected == TextDirection.ltr) {
+              final host = find.byType(AlertDialog).evaluate().isNotEmpty
+                  ? find.byType(AlertDialog).first
+                  : find.byType(Dialog).first;
+              final wrong = tester
+                  .widgetList<Directionality>(find.descendant(
+                      of: host, matching: find.byType(Directionality)))
+                  .map((d) => d.textDirection)
+                  .where((d) => d == TextDirection.rtl)
+                  .toList();
+              if (wrong.isNotEmpty) {
+                failures.add('[$lang] destructive-confirm: '
+                    '${wrong.length} forced-RTL node(s)');
+              }
+            }
+            await captureReady();
+            await settle(tester, budget: const Duration(seconds: 3));
+            await binding.takeScreenshot('detail-$lang-destructive-confirm');
+            captured.add('$lang/destructive-confirm');
+            // Dismiss WITHOUT confirming — this dialog deletes a goal.
+            final nav = Navigator.of(tester.element(find.byType(Scaffold).first));
+            if (nav.canPop()) nav.pop();
+            await settle(tester, budget: const Duration(seconds: 5));
+          }
+        }
+      }
+
       // ---- the shell TABS -------------------------------------------
       //
       // `TransactionsScreen` is tab 1 and has NO route. The route walk
@@ -252,9 +306,10 @@ void main() {
       debugPrint('[DETAIL-FAIL] $f');
     }
     expect(failures, isEmpty, reason: failures.join('\n'));
-    // routes × 2 languages, plus the transactions tab in each.
-    expect(captured.length, (routes.length + 1) * 2,
+    // routes × 2 languages, plus the transactions tab and the destructive
+    // confirmation dialog in each.
+    expect(captured.length, (routes.length + 2) * 2,
         reason: 'captured ${captured.length}, expected '
-            '${(routes.length + 1) * 2}');
+            '${(routes.length + 2) * 2}');
   }, timeout: const Timeout(Duration(minutes: 30)));
 }

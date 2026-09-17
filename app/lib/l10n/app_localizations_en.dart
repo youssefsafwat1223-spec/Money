@@ -1704,7 +1704,7 @@ class AppL10nEn extends AppL10n {
   String get bdgSafe => 'On track';
 
   @override
-  String get bdgAllExpenses => 'All spending';
+  String get bdgAllExpenses => 'All expenses';
 
   @override
   String get bdgCategory => 'Category';

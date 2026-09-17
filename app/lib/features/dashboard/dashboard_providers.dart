@@ -587,7 +587,9 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     return DashboardBudgetEntry(
       budgetId: budget.id,
       label: budget.isAllExpenses
-          ? (lang == 'en' ? 'All spending' : 'كل المصروفات')
+          ? (lang == 'en'
+              ? BudgetEntity.allExpensesNameEn
+              : BudgetEntity.allExpensesNameAr)
           : (catView?.name ?? (lang == 'en' ? 'Budget' : 'ميزانية')),
       spent: bSpent,
       limit: budget.amountMoney,

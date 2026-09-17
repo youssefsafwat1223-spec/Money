@@ -46,6 +46,33 @@ void main() {
     expect(await render(tester, 'en', 'usd'), 'USD');
   });
 
+  testWidgets('the code-first form collapses too', (tester) async {
+    // The currency-repair screen and the picker wrote `'\$code — \$label'` by
+    // hand and printed "SAR — SAR" to an English reader. Same defect as
+    // `labelWithCode`, opposite order — which is why it survived the first fix.
+    late String en, ar;
+    for (final lang in ['en', 'ar']) {
+      await tester.pumpWidget(MaterialApp(
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: Locale(lang),
+        home: Builder(builder: (context) {
+          final out = Currency.codeWithLabel(context, 'SAR');
+          if (lang == 'en') {
+            en = out;
+          } else {
+            ar = out;
+          }
+          return const SizedBox();
+        }),
+      ));
+    }
+    expect(en, 'SAR');
+    expect(en, isNot(contains('—')));
+    expect(ar, startsWith('SAR — '));
+    expect(RegExp(r'[؀-ۿ]').hasMatch(ar), isTrue);
+  });
+
   testWidgets('a currency with no Arabic name collapses in both',
       (tester) async {
     // An unknown code has no localized name in either language, so neither
