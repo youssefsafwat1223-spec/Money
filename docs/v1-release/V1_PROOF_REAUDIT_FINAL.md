@@ -175,7 +175,7 @@ unreachable there is no other route to it.
 | # | Requirement | Class | Evidence |
 |---|---|---|---|
 | 61 | `flutter analyze` clean | DIRECT | `lib/` clean at every commit |
-| 62 | Unit/widget suite green | DIRECT | **3,995 tests pass** |
+| 62 | Unit/widget suite green | DIRECT | **4,003 tests pass** |
 | 63 | iOS archive preflight | STATIC | `preflight_archive.sh` |
 | 64 | Code-signing identity | BLOCKED | `security find-identity` reports 0 valid identities (EB-004) |
 | 65 | App Store Connect session | BLOCKED | EB-005 |
@@ -209,24 +209,39 @@ unreachable there is no other route to it.
 | 95 | Defects introduced are recorded | DIRECT | the ARB key collision, and the severity overstatement in item 52, are both recorded rather than quietly corrected |
 | 96 | Test weakening avoided | DIRECT | every repointed assertion checks BOTH languages, and the walk gained two assertions it never had |
 | 97 | Over-broad guards narrowed, not deleted | DIRECT | the extractor moved from file-level to per-literal classification, which is strictly stronger |
-| 98 | Sol / Fable / Codex reviews | PARTIAL | see below |
-| 99 | Final red-team review | PARTIAL | see below |
+| 98 | Technical / security / privacy review | DIRECT | run; 10 findings, 4 fixed, 4 recorded as unreachable, 2 HOLD — `V1_FINAL_REVIEWS.md` |
+| 99 | Red-team review | DIRECT | run; found a real English-build leak and the tool flaw that hid it — `V1_FINAL_REVIEWS.md` |
+| 99a | Codex red-team | **NOT RUN** | the binary is not installed on this machine. REVIEW_DEFERRED, not a pass |
 | 100 | `QIRSH V1 RELEASE CANDIDATE READY` | **NOT EMITTED** | see the verdict |
 
 ### Items 98–99 — what was and was not run
 
-**Codex: NOT RUN — unavailable.** There is no `codex` binary on this machine
-(`which codex` → not found; nothing under `/opt/homebrew/bin`, npm globals, or
-`~/.local/bin`). A `~/.codex/` config directory exists without the tool. This
-is recorded as **REVIEW_DEFERRED**, not as a pass.
+Two reviewers ran with independent briefs and no knowledge of each other's
+findings. Full record in `V1_FINAL_REVIEWS.md`. Summary:
 
-**Fable and an independent adversarial reviewer: RUN**, with independent
-briefs and no knowledge of each other's findings, per instruction. Their
-results are recorded in `V1_FINAL_REVIEWS.md`.
+* **Security/privacy review** — 10 findings. The one that mattered:
+  `_checkLegacyBackup()` contacted Supabase on the Data Transfer screen's
+  `initState` with cloud consent OFF, and its second request existed only
+  because `hasRemoteBackup()` had been widened earlier the same day. **Fixing
+  one defect had increased ungated egress elsewhere** — which is what an
+  independent review is for. Fixed and gated.
+* **Red team** — found an Arabic comma shipping in English copy
+  ("Available in SA، AE") AND the tool flaw that hid it: the `code:` marker
+  matched an ordinary Dart named argument. Their summary is the right standard
+  to hold the claim to: *"zero" is "zero that this grep can see."* Both halves
+  fixed; the markers are anchored to the actual enums now.
 
-The most valuable review findings this pass came from turning the same
-adversarial method on the audit's own weakest claim — that everything excluded
-as "data, not copy" really is data. That produced §1b.
+**Codex: NOT RUN — unavailable.** No `codex` binary on this machine (`which
+codex` fails; nothing under `/opt/homebrew/bin`, npm globals, `/usr/local/bin`
+or `~/.local/bin`). A `~/.codex/` config directory exists without the tool.
+Recorded as **REVIEW_DEFERRED**, not as a pass.
+
+Four earlier review attempts died on `ECONNRESET` or a stalled stream, during
+a window when network calls from this machine were failing generally.
+
+The most valuable findings came from turning the same adversarial method on
+the audit's own weakest claim — that everything excluded as "data, not copy"
+really is data. That produced §1b.
 
 ---
 
@@ -240,8 +255,9 @@ entirely owner or hardware, plus one deliberate review gap.
 | | Item |
 |---|---|
 | — | **None of the six from the previous audit.** |
-| 1 | Codex red-team review — the tool is not installed on this machine (items 98–99) |
+| 1 | Codex red-team review — the tool is not installed on this machine (item 99a) |
 | 2 | Known residual: `drift_bill_repository.dart:459`, stated in §1c |
+| 3 | Four review findings in unreachable code (`BackupScreen`), recorded not fixed — `V1_FINAL_REVIEWS.md` A4-A6 |
 
 ### Owner or external only
 
