@@ -5718,4 +5718,64 @@ class AppL10nEn extends AppL10n {
   String txnCountSuffix(String count) {
     return '· $count transactions';
   }
+
+  @override
+  String get a11yDebit => 'debit';
+
+  @override
+  String get a11yCredit => 'credit';
+
+  @override
+  String get a11yPending => 'pending';
+
+  @override
+  String get a11yAi => 'AI';
+
+  @override
+  String chartSliceCount(String count) {
+    return '$count transactions';
+  }
+
+  @override
+  String planSpent(String amount) {
+    return 'Spent: $amount';
+  }
+
+  @override
+  String planEnds(String date) {
+    return 'Ends: $date';
+  }
+
+  @override
+  String planPerDayLeft(String amount) {
+    return '$amount a day available for the rest of the plan';
+  }
+
+  @override
+  String get iiUnreadableDate => 'We could not read the date.';
+
+  @override
+  String get iiCurrencyNotIso =>
+      'The currency must be a three-letter ISO code.';
+
+  @override
+  String get iiAmountInvalidOrZero => 'The amount is not valid, or it is zero.';
+
+  @override
+  String get iiCsvNeedsTwoColumns =>
+      'A CSV needs at least two columns: the date and the amount.';
+
+  @override
+  String get iiHeadersNotRecognised =>
+      'We did not recognise the headers. Check the column mapping.';
+
+  @override
+  String iiDuplicatesFound(String value) {
+    return '$value similar transactions already exist and will be shown before saving.';
+  }
+
+  @override
+  String iiRowPrefix(String row) {
+    return 'Row $row: ';
+  }
 }

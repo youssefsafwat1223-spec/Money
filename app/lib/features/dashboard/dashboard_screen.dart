@@ -1736,9 +1736,13 @@ class _PlanCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('المصروف: ${Formatters.amount(progress.spent.toDouble())}',
+              Text(
+                  context.l10n.planSpent(
+                      Formatters.amount(progress.spent.toDouble())),
                   style: AppTypography.caption(t.textOnCanvasSecondary)),
-              Text('تنتهي: ${Formatters.dateGroupLabel(plan.endDate, context)}',
+              Text(
+                  context.l10n.planEnds(
+                      Formatters.dateGroupLabel(plan.endDate, context)),
                   style: AppTypography.caption(t.textOnCanvasMuted)),
             ],
           ),
@@ -1756,7 +1760,8 @@ class _PlanCard extends StatelessWidget {
                 const SizedBox(width: 5),
                 Expanded(
                   child: Text(
-                    'متاح ${formatMoney(progress.perDayLeft)} في اليوم لباقي الخطة',
+                    context.l10n
+                        .planPerDayLeft(formatMoney(progress.perDayLeft)),
                     style: AppTypography.caption(t.textOnCanvasSecondary),
                   ),
                 ),

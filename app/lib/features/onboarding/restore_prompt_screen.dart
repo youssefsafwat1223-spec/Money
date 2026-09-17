@@ -114,19 +114,16 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
       context: context,
       barrierDismissible: false,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('تأكيد الاستعادة'),
-        content: const Text(
-          'ستحل النسخة الاحتياطية محل بياناتك الحالية على هذا الجهاز. '
-          'لا يمكن التراجع بعد التأكيد. متابعة؟',
-        ),
+        title: Text(context.l10n.rpConfirmTitle),
+        content: Text(context.l10n.rpConfirmBody),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('إلغاء'),
+            child: Text(context.l10n.rpCancel),
           ),
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('استعادة'),
+            child: Text(context.l10n.rpRestore),
           ),
         ],
       ),
@@ -249,7 +246,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                         const SizedBox(width: 10),
                         Expanded(
                           child: Text(
-                            'الاستعادة تحتاج كلمة المرور أو رمز الاسترداد فقط. قرش لا يقرأ محتوى النسخة بدونهم.',
+                            context.l10n.rpPrivacyNote,
                             style: AppTypography.caption(c.textMain),
                           ),
                         ),

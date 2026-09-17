@@ -87,7 +87,8 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
     if (_authenticating || !mounted) return;
     setState(() => _authenticating = true);
     HapticFeedback.selectionClick();
-    final ok = await AppLockService.instance.authenticate();
+    final ok = await AppLockService.instance
+        .authenticate(reason: context.l10n.lockPrompt);
     if (!mounted) return;
     setState(() {
       _authenticating = false;

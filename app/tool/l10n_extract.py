@@ -42,7 +42,78 @@ DATA_NOT_COPY = (
     # keywords ('ريال', 'ر.س') the shortcut matches against, and
     # `subscriptionShowcase` already carries priceAr AND priceEn.
     'lib/features/onboarding/onboarding_options.dart',
+    # SMS/CSV keyword vocabularies and digit tables, same class as the parser
+    # engine: «مصروف»/«مدين» are matched against an imported file's cells, and
+    # '٠١٢٣٤٥٦٧٨٩' is a DIGIT TABLE. Translating either breaks import.
+    'lib/core/data_portability/generic_transaction_import.dart',
+    # SMS keywords the bank-discovery heuristic matches on.
+    'lib/domain/services/bank_discovery_service.dart',
+    # Merchant-normalisation regexes, including Arabic alternations.
+    'lib/features/coupons/merchant_lookup_pipeline.dart',
+    # Arabic-Indic digit character classes inside input formatters.
+    'lib/features/subscriptions/bill_form_sheet.dart',
+    'lib/features/transactions/manual_transaction_sheet.dart',
+    # DEFAULT NAMES WRITTEN INTO THE DATABASE, not copy. Each becomes a row the
+    # user can rename, so it is their data from the moment it is created;
+    # rendering it through the ARB would overwrite a name they chose. Where the
+    # language IS known at creation time it is now used (see
+    # `user_settings_usecases.dart`); these run before it is, or name a row
+    # arriving from the server with no name of its own.
+    'lib/data/db/database_seed.dart',
+    'lib/data/repositories/drift_bill_repository.dart',
+    'lib/data/repositories/drift_smart_inbox_repository.dart',
+    'lib/domain/usecases/run_goal_auto_saves_usecase.dart',
+    'lib/features/planning_sync/services/planning_pull_service.dart',
+    'lib/features/capture/services/capture_sync_service.dart',
+    'lib/data/repositories/account_currency_repair_service.dart',
+    'lib/core/sync/conflict_policy.dart',
+    # The brand name, deliberately Arabic in every language.
+    'lib/features/reporting/pdf/report_pdf_renderer.dart',
 )
+
+# Screens that exist only in debug builds, so nothing here is user-facing copy
+# in a release. `/design` is behind `if (kDebugMode)` in app_router.dart, and
+# FoundationHomeScreen has no reference anywhere outside its own file.
+DEBUG_ONLY = (
+    'lib/features/design_gallery/design_gallery_screen.dart',
+    'lib/features/foundation/foundation_home_screen.dart',
+)
+
+# A literal is ALREADY BILINGUAL when its own statement carries the other half
+# — an `en ? … : …` pair, a `lang ==` dispatch, or a `code:` that the UI
+# renders from the ARB.
+#
+# This is checked PER LITERAL, not per file, and that distinction matters: the
+# file-level lists below cannot see a NEW untranslated string added to a file
+# that is mostly fine. `encrypted_backup_service.dart` has 40 coded throws; a
+# 41st without a code has to be reported, and a file-level exclusion would
+# swallow it.
+BILINGUAL_MARKERS = (
+    'code:',           # a DataPortabilityError / BackupError / ImportIssueCode
+    "== 'en'",         # explicit language dispatch
+    'if (en)',
+    'en ?',            # the common `final en = lang == 'en'` shorthand
+    'languageCode',
+    'defaultPromptAr', # the Arabic fallback beside a caller-supplied string
+    'repoErrorMessage',
+    'cardThemeLabel',
+)
+
+# A `switch`/`if` whose OTHER arm is the English one can be many lines away —
+# `capture_review_notification` has a full English switch above the Arabic one,
+# and `budget_alert_planner` puts the two branches of each threshold apart. A
+# window big enough to see them is still far narrower than the file, so a
+# genuinely untranslated string in an otherwise-bilingual file is still found.
+BILINGUAL_WINDOW = 28
+
+
+def _bilingual_context(lines, index):
+    """The code around line `index`, wide enough to see the other half of a
+    bilingual pair — a ternary, a two-branch if, or the English arm of a
+    switch — without swallowing the whole file."""
+    lo = max(0, index - BILINGUAL_WINDOW)
+    hi = min(len(lines), index + BILINGUAL_WINDOW)
+    return ''.join(lines[lo:hi])
 
 # Files that are already bilingual: the Arabic half of an `en ? … : …` pair, or
 # a locale-dispatched table. Reporting them as untranslated is noise.
@@ -73,6 +144,27 @@ ALREADY_BILINGUAL = (
     'lib/core/auth/supabase_auth_service.dart',
     # SMS keyword matching, same class as the parser engine.
     'lib/features/capture/manual_paste_splitter.dart',
+    # Every arm has a localized counterpart in `repo_error_messages.dart`, and
+    # `repo_error_messages_test` asserts the two agree — a stronger guard than
+    # this grep, because it fails when the two switches DRIFT rather than when
+    # an Arabic string exists.
+    'lib/domain/errors/repo_exceptions.dart',
+    # Bilingual via `lang`. What is left here is the Arabic branch plus
+    # `_arDays`, the Arabic five-category day plural whose English counterpart
+    # `_enDays` sits beside it. `notification_planner_test` asserts the English
+    # rendering, which is what fails if `lang` is dropped again.
+    'lib/domain/services/budget_alert_planner.dart',
+    'lib/features/capture/services/capture_review_notification.dart',
+    # `lang == 'ar' ? … : 'All expenses'`.
+    'lib/features/reporting/composition/report_composer.dart',
+    # The Arabic list separator «،», chosen by Directionality beside its Latin
+    # counterpart.
+    'lib/features/common/app_transaction_row.dart',
+    # The const theme catalog's Arabic fallback; `cardThemeLabel` renders from
+    # the ARB.
+    'lib/features/cards/card_theme.dart',
+    # The Arabic fallback beside the caller-supplied localized prompt.
+    'lib/core/security/app_lock_service.dart',
 )
 LITERAL = re.compile(r"'([^'\\\n]{2,200})'")
 INTERP = re.compile(r'\$\{?\w')
@@ -81,12 +173,18 @@ SKIP_LINE = re.compile(r'debugPrint|//|assert\(|Key\(|asset|package:|import |exp
 
 def extract(path):
     simple, complex_, skipped = [], [], []
-    for i, line in enumerate(open(path, encoding='utf-8'), 1):
+    lines = open(path, encoding='utf-8').readlines()
+    for idx, line in enumerate(lines):
+        i = idx + 1
         if SKIP_LINE.search(line):
             continue
         for m in LITERAL.finditer(line):
             s = m.group(1)
             if not ARABIC.search(s):
+                continue
+            context = _bilingual_context(lines, idx)
+            if any(marker in context for marker in BILINGUAL_MARKERS):
+                skipped.append((i, s, 'bilingual'))
                 continue
             if INTERP.search(s):
                 complex_.append((i, s))
@@ -95,8 +193,8 @@ def extract(path):
     return simple, complex_, skipped
 
 if __name__ == '__main__':
-    total_s = total_c = 0
-    skipped_data = skipped_bilingual = 0
+    total_s = total_c = total_pairs = 0
+    skipped_data = skipped_bilingual = skipped_debug = 0
     for path in sys.argv[1:]:
         if any(d in path for d in DATA_NOT_COPY):
             skipped_data += 1
@@ -104,8 +202,18 @@ if __name__ == '__main__':
         if any(b in path for b in ALREADY_BILINGUAL):
             skipped_bilingual += 1
             continue
-        s, c, _ = extract(path)
+        if any(d in path for d in DEBUG_ONLY):
+            skipped_debug += 1
+            continue
+        s, c, pairs = extract(path)
+        total_pairs += len(pairs)
+        if not s and not c:
+            continue
         total_s += len(s); total_c += len(c)
         print(f"{path}")
-        print(f"   simple (migratable): {len(s)}   interpolated (manual): {len(c)}")
-    print(f"\nTOTAL simple={total_s} interpolated={total_c}")
+        print(f"   simple (migratable): {len(s)}   interpolated (manual): {len(c)}"
+              f"   already bilingual: {len(pairs)}")
+    print(f"\nskipped whole files: data={skipped_data} "
+          f"bilingual={skipped_bilingual} debug-only={skipped_debug}")
+    print(f"already bilingual in place (Arabic half of a pair): {total_pairs}")
+    print(f"TOTAL simple={total_s} interpolated={total_c}")

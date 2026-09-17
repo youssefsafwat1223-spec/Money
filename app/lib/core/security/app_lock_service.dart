@@ -25,23 +25,32 @@ class AppLockService {
     }
   }
 
-  Future<bool> setEnabled(bool enabled) async {
+  /// The reason shown INSIDE the OS biometric sheet. That sheet is drawn by
+  /// iOS/Android, not by Flutter, so the string must be handed over already
+  /// localized — there is no BuildContext at the point `local_auth` is called,
+  /// and no ARB lookup possible inside the platform dialog.
+  ///
+  /// Callers pass it from `context.l10n.lockPrompt`; the Arabic default is what
+  /// every caller got before this parameter existed.
+  static const String defaultPromptAr = 'افتح قِرش لحماية بياناتك المالية.';
+
+  Future<bool> setEnabled(bool enabled, {String? reason}) async {
     if (!enabled) {
       await _storage.write(key: _kEnabled, value: '0');
       return true;
     }
     final supported = await canAuthenticate();
     if (!supported) return false;
-    final unlocked = await authenticate();
+    final unlocked = await authenticate(reason: reason);
     if (!unlocked) return false;
     await _storage.write(key: _kEnabled, value: '1');
     return true;
   }
 
-  Future<bool> authenticate() async {
+  Future<bool> authenticate({String? reason}) async {
     try {
       final authenticated = await _auth.authenticate(
-        localizedReason: 'افتح قرش لحماية بياناتك المالية.',
+        localizedReason: reason ?? defaultPromptAr,
         options: const AuthenticationOptions(
           biometricOnly: false,
           stickyAuth: true,

@@ -560,7 +560,8 @@ class _LegendRow extends StatelessWidget {
                 [
                   Formatters.amount(slice.total),
                   if (currencyLabel.isNotEmpty) currencyLabel,
-                  if (slice.count > 0) '· ${slice.count} عملية',
+                  if (slice.count > 0)
+                    '· ${context.l10n.chartSliceCount('${slice.count}')}',
                 ].join(' '),
                 style: AppTypography.caption(c.textMuted),
               ),

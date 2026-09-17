@@ -3061,5 +3061,62 @@
         "type": "String"
       }
     }
+  },
+  "a11yDebit": "خصم",
+  "a11yCredit": "إيداع",
+  "a11yPending": "معلق",
+  "a11yAi": "ذكاء اصطناعي",
+  "chartSliceCount": "{count} عملية",
+  "planSpent": "المصروف: {amount}",
+  "planEnds": "تنتهي: {date}",
+  "planPerDayLeft": "متاح {amount} في اليوم لباقي الخطة",
+  "@chartSliceCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@planSpent": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "@planEnds": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "@planPerDayLeft": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "iiUnreadableDate": "تعذّر قراءة التاريخ.",
+  "iiCurrencyNotIso": "العملة يجب أن تكون رمز ISO من ثلاثة أحرف.",
+  "iiAmountInvalidOrZero": "المبلغ غير صالح أو يساوي صفرًا.",
+  "iiCsvNeedsTwoColumns": "ملف CSV يحتاج عمودين على الأقل: التاريخ والمبلغ.",
+  "iiHeadersNotRecognised": "لم نتعرّف على العناوين تلقائيًا. راجع مطابقة الأعمدة.",
+  "iiDuplicatesFound": "{value} عملية مشابهة موجودة وستُعرض قبل الحفظ.",
+  "iiRowPrefix": "صف {row}: ",
+  "@iiDuplicatesFound": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "@iiRowPrefix": {
+    "placeholders": {
+      "row": {
+        "type": "String"
+      }
+    }
   }
 }

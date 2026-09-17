@@ -5717,4 +5717,63 @@ class AppL10nAr extends AppL10n {
   String txnCountSuffix(String count) {
     return '· $count عملية';
   }
+
+  @override
+  String get a11yDebit => 'خصم';
+
+  @override
+  String get a11yCredit => 'إيداع';
+
+  @override
+  String get a11yPending => 'معلق';
+
+  @override
+  String get a11yAi => 'ذكاء اصطناعي';
+
+  @override
+  String chartSliceCount(String count) {
+    return '$count عملية';
+  }
+
+  @override
+  String planSpent(String amount) {
+    return 'المصروف: $amount';
+  }
+
+  @override
+  String planEnds(String date) {
+    return 'تنتهي: $date';
+  }
+
+  @override
+  String planPerDayLeft(String amount) {
+    return 'متاح $amount في اليوم لباقي الخطة';
+  }
+
+  @override
+  String get iiUnreadableDate => 'تعذّر قراءة التاريخ.';
+
+  @override
+  String get iiCurrencyNotIso => 'العملة يجب أن تكون رمز ISO من ثلاثة أحرف.';
+
+  @override
+  String get iiAmountInvalidOrZero => 'المبلغ غير صالح أو يساوي صفرًا.';
+
+  @override
+  String get iiCsvNeedsTwoColumns =>
+      'ملف CSV يحتاج عمودين على الأقل: التاريخ والمبلغ.';
+
+  @override
+  String get iiHeadersNotRecognised =>
+      'لم نتعرّف على العناوين تلقائيًا. راجع مطابقة الأعمدة.';
+
+  @override
+  String iiDuplicatesFound(String value) {
+    return '$value عملية مشابهة موجودة وستُعرض قبل الحفظ.';
+  }
+
+  @override
+  String iiRowPrefix(String row) {
+    return 'صف $row: ';
+  }
 }

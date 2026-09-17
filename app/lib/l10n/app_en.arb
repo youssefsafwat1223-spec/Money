@@ -2945,5 +2945,62 @@
         "type": "String"
       }
     }
+  },
+  "a11yDebit": "debit",
+  "a11yCredit": "credit",
+  "a11yPending": "pending",
+  "a11yAi": "AI",
+  "chartSliceCount": "{count} transactions",
+  "planSpent": "Spent: {amount}",
+  "planEnds": "Ends: {date}",
+  "planPerDayLeft": "{amount} a day available for the rest of the plan",
+  "@chartSliceCount": {
+    "placeholders": {
+      "count": {
+        "type": "String"
+      }
+    }
+  },
+  "@planSpent": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "@planEnds": {
+    "placeholders": {
+      "date": {
+        "type": "String"
+      }
+    }
+  },
+  "@planPerDayLeft": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "iiUnreadableDate": "We could not read the date.",
+  "iiCurrencyNotIso": "The currency must be a three-letter ISO code.",
+  "iiAmountInvalidOrZero": "The amount is not valid, or it is zero.",
+  "iiCsvNeedsTwoColumns": "A CSV needs at least two columns: the date and the amount.",
+  "iiHeadersNotRecognised": "We did not recognise the headers. Check the column mapping.",
+  "iiDuplicatesFound": "{value} similar transactions already exist and will be shown before saving.",
+  "iiRowPrefix": "Row {row}: ",
+  "@iiDuplicatesFound": {
+    "placeholders": {
+      "value": {
+        "type": "String"
+      }
+    }
+  },
+  "@iiRowPrefix": {
+    "placeholders": {
+      "row": {
+        "type": "String"
+      }
+    }
   }
 }

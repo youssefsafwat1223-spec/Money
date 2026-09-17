@@ -9690,6 +9690,96 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'· {count} عملية'**
   String txnCountSuffix(String count);
+
+  /// No description provided for @a11yDebit.
+  ///
+  /// In ar, this message translates to:
+  /// **'خصم'**
+  String get a11yDebit;
+
+  /// No description provided for @a11yCredit.
+  ///
+  /// In ar, this message translates to:
+  /// **'إيداع'**
+  String get a11yCredit;
+
+  /// No description provided for @a11yPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'معلق'**
+  String get a11yPending;
+
+  /// No description provided for @a11yAi.
+  ///
+  /// In ar, this message translates to:
+  /// **'ذكاء اصطناعي'**
+  String get a11yAi;
+
+  /// No description provided for @chartSliceCount.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count} عملية'**
+  String chartSliceCount(String count);
+
+  /// No description provided for @planSpent.
+  ///
+  /// In ar, this message translates to:
+  /// **'المصروف: {amount}'**
+  String planSpent(String amount);
+
+  /// No description provided for @planEnds.
+  ///
+  /// In ar, this message translates to:
+  /// **'تنتهي: {date}'**
+  String planEnds(String date);
+
+  /// No description provided for @planPerDayLeft.
+  ///
+  /// In ar, this message translates to:
+  /// **'متاح {amount} في اليوم لباقي الخطة'**
+  String planPerDayLeft(String amount);
+
+  /// No description provided for @iiUnreadableDate.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر قراءة التاريخ.'**
+  String get iiUnreadableDate;
+
+  /// No description provided for @iiCurrencyNotIso.
+  ///
+  /// In ar, this message translates to:
+  /// **'العملة يجب أن تكون رمز ISO من ثلاثة أحرف.'**
+  String get iiCurrencyNotIso;
+
+  /// No description provided for @iiAmountInvalidOrZero.
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ غير صالح أو يساوي صفرًا.'**
+  String get iiAmountInvalidOrZero;
+
+  /// No description provided for @iiCsvNeedsTwoColumns.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملف CSV يحتاج عمودين على الأقل: التاريخ والمبلغ.'**
+  String get iiCsvNeedsTwoColumns;
+
+  /// No description provided for @iiHeadersNotRecognised.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم نتعرّف على العناوين تلقائيًا. راجع مطابقة الأعمدة.'**
+  String get iiHeadersNotRecognised;
+
+  /// No description provided for @iiDuplicatesFound.
+  ///
+  /// In ar, this message translates to:
+  /// **'{value} عملية مشابهة موجودة وستُعرض قبل الحفظ.'**
+  String iiDuplicatesFound(String value);
+
+  /// No description provided for @iiRowPrefix.
+  ///
+  /// In ar, this message translates to:
+  /// **'صف {row}: '**
+  String iiRowPrefix(String row);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -63,6 +63,7 @@ GenericImportParseResult parseGenericTransactions({
     if (occurredAt == null) {
       issues.add(ImportIssue(
         message: 'تعذر قراءة التاريخ.',
+        code: ImportIssueCode.unreadableDate,
         severity: ImportIssueSeverity.error,
         rowNumber: rowNumber,
         field: mapping.dateColumn,
@@ -77,6 +78,7 @@ GenericImportParseResult parseGenericTransactions({
     if (currency == null || !RegExp(r'^[A-Z]{3}$').hasMatch(currency)) {
       issues.add(ImportIssue(
         message: 'العملة يجب أن تكون رمز ISO من 3 أحرف.',
+        code: ImportIssueCode.currencyNotIso,
         severity: ImportIssueSeverity.error,
         rowNumber: rowNumber,
         field: mapping.currencyColumn,
@@ -87,6 +89,7 @@ GenericImportParseResult parseGenericTransactions({
     if (amountResult == null || amountResult.$1.isZero) {
       issues.add(ImportIssue(
         message: 'المبلغ غير صالح أو يساوي صفرًا.',
+        code: ImportIssueCode.amountInvalidOrZero,
         severity: ImportIssueSeverity.error,
         rowNumber: rowNumber,
         field: mapping.amountColumn,

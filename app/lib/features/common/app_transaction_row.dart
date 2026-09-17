@@ -72,10 +72,16 @@ class AppTransactionRow extends StatelessWidget {
     final amountColor = isDebit ? c.textPrimary : c.success;
     final amountPrefix = isDebit ? '−' : '+';
 
+    // The screen-reader label. It was Arabic in every locale, which is worse
+    // than a visible untranslated string: a blind English user hears the row
+    // read out in a language they may not speak, and nothing on screen shows
+    // it is wrong. The separator follows the locale too — Arabic uses «،».
+    final l = context.l10n;
+    final sep = Directionality.of(context) == TextDirection.rtl ? '، ' : ', ';
     final semantics = semanticsLabel ??
-        '$title، ${isDebit ? 'خصم' : 'إيداع'} $formattedAmount'
-            '${isPending ? '، معلق' : ''}'
-            '${isAi ? '، ذكاء اصطناعي' : ''}';
+        '$title$sep${isDebit ? l.a11yDebit : l.a11yCredit} $formattedAmount'
+            '${isPending ? '$sep${l.a11yPending}' : ''}'
+            '${isAi ? '$sep${l.a11yAi}' : ''}';
 
     return Semantics(
       label: semantics,

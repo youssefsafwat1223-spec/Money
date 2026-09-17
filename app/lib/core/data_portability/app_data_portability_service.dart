@@ -177,11 +177,13 @@ class AppDataPortabilityService implements DataPortabilityService {
     if (mapping == null) {
       issues.add(const ImportIssue(
         message: 'CSV يحتاج عمودين على الأقل: التاريخ والمبلغ.',
+        code: ImportIssueCode.csvNeedsTwoColumns,
         severity: ImportIssueSeverity.error,
       ));
     } else if (guessedMapping == null) {
       issues.add(const ImportIssue(
         message: 'لم نتعرف على العناوين تلقائياً. راجع مطابقة الأعمدة.',
+        code: ImportIssueCode.headersNotRecognised,
         severity: ImportIssueSeverity.warning,
       ));
     }
@@ -207,6 +209,8 @@ class AppDataPortabilityService implements DataPortabilityService {
         issues.add(ImportIssue(
           message:
               '${duplicates.length} عملية مشابهة موجودة وستُعرض قبل الحفظ.',
+          code: ImportIssueCode.duplicatesFound,
+          args: ['${duplicates.length}'],
           severity: ImportIssueSeverity.warning,
         ));
       }

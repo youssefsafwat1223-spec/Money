@@ -28,16 +28,36 @@ class ExportedFile {
   final int recordCount;
 }
 
+/// What is wrong with a row or a file, independent of language. Same contract
+/// as [DataPortabilityError]: the CSV parser has no BuildContext, so it names
+/// the problem and `importIssueMessage(context, issue)` chooses the words.
+enum ImportIssueCode {
+  unreadableDate,
+  currencyNotIso,
+  amountInvalidOrZero,
+  csvNeedsTwoColumns,
+  headersNotRecognised,
+  duplicatesFound,
+}
+
 class ImportIssue {
   const ImportIssue({
     required this.message,
     required this.severity,
+    this.code,
+    this.args = const [],
     this.rowNumber,
     this.field,
   });
 
+  /// Arabic, for logs and as the fallback for a site with no [code] yet.
   final String message;
   final ImportIssueSeverity severity;
+  final ImportIssueCode? code;
+
+  /// Values interpolated into the message — a count, a column name. Never
+  /// localized.
+  final List<String> args;
   final int? rowNumber;
   final String? field;
 }

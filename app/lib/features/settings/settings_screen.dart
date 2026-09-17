@@ -2034,7 +2034,8 @@ class _AppLockTileState extends State<_AppLockTile> {
   Future<void> _setEnabled(bool value) async {
     if (_busy) return;
     setState(() => _busy = true);
-    final ok = await AppLockService.instance.setEnabled(value);
+    final ok = await AppLockService.instance
+        .setEnabled(value, reason: context.l10n.lockPrompt);
     if (!mounted) return;
     setState(() {
       _busy = false;

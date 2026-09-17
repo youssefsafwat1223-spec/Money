@@ -248,7 +248,8 @@ class _PlanCard extends ConsumerWidget {
               const SizedBox(width: 4),
               Text(currency, style: AppTypography.caption(c.textLight)),
               const SizedBox(width: 6),
-              Text('من ', style: AppTypography.caption(c.textLight)),
+              Text('${context.l10n.plansFrom} ',
+                  style: AppTypography.caption(c.textLight)),
               Flexible(
                 child: MoneyText(
                   plan.budgetAmountMoney,
@@ -274,7 +275,9 @@ class _PlanCard extends ConsumerWidget {
                 child: Row(
                   children: [
                     Text(
-                      progress.isOver ? 'تجاوزت الميزانية بـ ' : 'باقي ',
+                      progress.isOver
+                          ? '${context.l10n.plansOverBudget} '
+                          : '${context.l10n.plansRemaining} ',
                       style: AppTypography.caption(
                           progress.isOver ? c.danger : c.textSecondary),
                     ),

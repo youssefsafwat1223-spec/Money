@@ -22,6 +22,7 @@ import '../../core/theme/widgets/app_toast.dart';
 import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
+import 'import_issue_messages.dart';
 
 class DataTransferScreen extends ConsumerStatefulWidget {
   const DataTransferScreen({super.key, this.initialAction});
@@ -635,7 +636,7 @@ class _PreviewPanel extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
-                    '${issue.rowNumber == null ? '' : 'صف ${issue.rowNumber}: '}${issue.message}',
+                    importIssueLine(context, issue),
                     style: AppTypography.caption(
                       issue.severity == ImportIssueSeverity.error
                           ? colors.danger

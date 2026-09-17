@@ -205,7 +205,7 @@ class _PlanningCurrencyRepairScreenState
                 )
               : Text(
                   _mode == PlanningRepairMode.global
-                      ? 'تأكيد أن كل الميزانيات والأهداف الحالية تستخدم '
+                      ? '${context.l10n.pcrConfirmAll} '
                           '${_globalCurrencyController.text.trim().toUpperCase()}'
                       : context.l10n.pcrSaveSelected,
                 ),
