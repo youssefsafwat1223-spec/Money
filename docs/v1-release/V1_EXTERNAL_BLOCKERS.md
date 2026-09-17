@@ -65,6 +65,23 @@ lines (`SUPABASE_URL + ANON_KEY present`, `production project ref present`),
 correctly: a release with no Supabase config fails closed at runtime. The
 archive command in EB-004 below already includes the flag.
 
+### After any QA run, REBUILD before archiving
+
+`Generated.xcconfig` keeps the dart-defines of the last build. A QA or
+integration run writes `QA_EMAIL`, `QA_PASSWORD`, `QA_USER_ID` and the sweep
+bounds into it, and the preflight then fails on
+`no QA/SWEEP dart-defines in Generated.xcconfig` — which is the check doing
+exactly its job, and it did catch this during the visual acceptance pass.
+
+The fix is one command, and it is the same one EB-004 already prescribes:
+
+```bash
+flutter build ios --release \
+  --dart-define-from-file=$HOME/.qirsh-qa/demo_app_defines.json
+```
+
+Re-verified after the visual pass: **PREFLIGHT PASS — safe to archive.**
+
 ### Did the new English localization reach the release artifact?
 
 Yes, and to the same degree Arabic does. Measured against the AOT binary,
