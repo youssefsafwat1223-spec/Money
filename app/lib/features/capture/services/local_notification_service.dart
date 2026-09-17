@@ -157,6 +157,48 @@ class LocalNotificationService {
   /// Defaults to Arabic, which is what every caller got before this existed.
   String notificationLanguage = 'ar';
 
+  /// ANDROID CHANNEL NAMING — why the ids below get a language suffix.
+  ///
+  /// Android stores a notification channel's NAME the first time the channel
+  /// is created and keeps it for the lifetime of the install. Passing a
+  /// different name with the same id is silently ignored, so a channel created
+  /// in Arabic stays Arabic in the system Settings list forever, even for a
+  /// user running the app in English. The ONLY way to change the name is a new
+  /// channel id — or deleting the channel, which also discards every
+  /// per-channel choice the user made (importance, sound, whether they muted
+  /// it).
+  ///
+  /// So: the EXISTING ids keep their existing Arabic names and are now the
+  /// Arabic channels, and English gets `<id>_en`. That choice is deliberate:
+  ///
+  ///  * Every existing install is Arabic. Nothing about it changes — same ids,
+  ///    same names, and every mute/importance the user set is preserved. A
+  ///    rename-by-deletion would have silently un-muted channels people
+  ///    deliberately turned off.
+  ///  * An English user gets English channel names from their first
+  ///    notification.
+  ///  * Switching language switches channel set. The other language's channels
+  ///    stay behind rather than being deleted, so switching BACK restores the
+  ///    user's settings for it. The cost is an unused entry in the system
+  ///    Settings list; the alternative cost is losing their choices, which is
+  ///    worse.
+  ///
+  /// [_channel] is the single place that applies the suffix. Every
+  /// `AndroidNotificationDetails` goes through it, which is why none of them
+  /// can be `const` any more.
+  String _channel(String base) => notificationLanguage == 'en' ? '${base}_en' : base;
+
+  /// A channel's name and description in the language it was created for.
+  ({String name, String description}) _channelCopy(
+    String arName,
+    String arDescription,
+    String enName,
+    String enDescription,
+  ) =>
+      notificationLanguage == 'en'
+          ? (name: enName, description: enDescription)
+          : (name: arName, description: arDescription);
+
   static const String _reviewChannelId = 'capture_review';
   // v2 because Android keeps the original channel importance forever after it
   // is created. The old capture_light channel was low importance, so confirmed
@@ -312,17 +354,29 @@ class LocalNotificationService {
       body: body,
       notificationType: NotificationType.captureReview,
       preferences: preferences,
-      details: const NotificationDetails(
+      details: NotificationDetails(
         android: AndroidNotificationDetails(
-          _reviewChannelId,
-          'تأكيد العمليات',
-          channelDescription: 'تنبيهات العمليات التي تحتاج مراجعة',
+          _channel(_reviewChannelId),
+          _channelCopy('تأكيد العمليات', 'تنبيهات العمليات التي تحتاج مراجعة',
+                  'Confirm transactions', 'Transactions that need a review')
+              .name,
+          channelDescription: _channelCopy(
+                  'تأكيد العمليات',
+                  'تنبيهات العمليات التي تحتاج مراجعة',
+                  'Confirm transactions',
+                  'Transactions that need a review')
+              .description,
           importance: Importance.max,
           priority: Priority.high,
           visibility: NotificationVisibility.private,
+          // Action labels are per-notification, NOT per-channel: Android reads
+          // them from each post. They were always free to follow the reader's
+          // language and simply did not.
           actions: [
-            AndroidNotificationAction(_actionConfirm, 'تأكيد ✓'),
-            AndroidNotificationAction(_actionDismiss, 'تجاهل',
+            AndroidNotificationAction(_actionConfirm,
+                notificationLanguage == 'en' ? 'Confirm ✓' : 'تأكيد ✓'),
+            AndroidNotificationAction(_actionDismiss,
+                notificationLanguage == 'en' ? 'Dismiss' : 'تجاهل',
                 cancelNotification: true),
           ],
         ),
@@ -362,11 +416,15 @@ class LocalNotificationService {
       body: body,
       notificationType: NotificationType.captureLight,
       preferences: preferences,
-      details: const NotificationDetails(
+      details: NotificationDetails(
         android: AndroidNotificationDetails(
-          _lightChannelId,
-          'التقاط العمليات',
-          channelDescription: 'إشعارات فورية عند التقاط عملية من رسائل البنك',
+          _channel(_lightChannelId),
+          notificationLanguage == 'en'
+              ? 'Captured transactions'
+              : 'التقاط العمليات',
+          channelDescription: notificationLanguage == 'en'
+              ? 'Alerts the moment a transaction is captured from a bank message'
+              : 'إشعارات فورية عند التقاط عملية من رسائل البنك',
           importance: Importance.high,
           priority: Priority.high,
           visibility: NotificationVisibility.private,
@@ -398,11 +456,15 @@ class LocalNotificationService {
         title: 'إشعار تجريبي من قرش',
         body:
             'إذا ظهر هذا الإشعار فإن إذن إشعارات قِرش يعمل. لا يعني ذلك قراءة إشعارات المصرف.',
-        notificationDetails: const NotificationDetails(
+        notificationDetails: NotificationDetails(
           android: AndroidNotificationDetails(
-            _lightChannelId,
-            'التقاط العمليات',
-            channelDescription: 'إشعارات خفيفة عند التقاط عملية مؤكدة',
+            _channel(_lightChannelId),
+            notificationLanguage == 'en'
+                ? 'Captured transactions'
+                : 'التقاط العمليات',
+            channelDescription: notificationLanguage == 'en'
+                ? 'Light alerts when a confirmed transaction is captured'
+                : 'إشعارات خفيفة عند التقاط عملية مؤكدة',
             importance: Importance.high,
             priority: Priority.high,
           ),
@@ -446,12 +508,13 @@ class LocalNotificationService {
       body: body,
       notificationType: NotificationType.marketing,
       preferences: preferences,
-      details: const NotificationDetails(
+      details: NotificationDetails(
         android: AndroidNotificationDetails(
-          _marketingChannelId,
-          'رسائل ونصائح قرش',
-          channelDescription:
-              'إشعارات من قرش تساعدك تكمل الإعداد وتكتشف ملخصاتك',
+          _channel(_marketingChannelId),
+          notificationLanguage == 'en' ? 'Qirsh tips' : 'رسائل ونصائح قرش',
+          channelDescription: notificationLanguage == 'en'
+              ? 'Messages from Qirsh that help you finish setup and find your summaries'
+              : 'إشعارات من قرش تساعدك تكمل الإعداد وتكتشف ملخصاتك',
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
         ),
@@ -485,11 +548,13 @@ class LocalNotificationService {
       body: body,
       notificationType: type,
       preferences: preferences,
-      details: const NotificationDetails(
+      details: NotificationDetails(
         android: AndroidNotificationDetails(
-          _budgetChannelId,
-          'تنبيهات الميزانيات',
-          channelDescription: 'تنبيهات الاقتراب من الميزانية أو تجاوزها',
+          _channel(_budgetChannelId),
+          notificationLanguage == 'en' ? 'Budget alerts' : 'تنبيهات الميزانيات',
+          channelDescription: notificationLanguage == 'en'
+              ? 'Alerts when a budget is nearly used up or gone over'
+              : 'تنبيهات الاقتراب من الميزانية أو تجاوزها',
           importance: Importance.high,
           priority: Priority.high,
           visibility: NotificationVisibility.private,
@@ -518,11 +583,13 @@ class LocalNotificationService {
       body: body,
       notificationType: NotificationType.achievements,
       preferences: preferences,
-      details: const NotificationDetails(
+      details: NotificationDetails(
         android: AndroidNotificationDetails(
-          _achievementChannelId,
-          'الإنجازات',
-          channelDescription: 'تنبيهات المستوى والشارات',
+          _channel(_achievementChannelId),
+          notificationLanguage == 'en' ? 'Achievements' : 'الإنجازات',
+          channelDescription: notificationLanguage == 'en'
+              ? 'Level and badge alerts'
+              : 'تنبيهات المستوى والشارات',
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
         ),
@@ -703,11 +770,15 @@ class LocalNotificationService {
       body: notification.body,
       notificationType: NotificationType.goalMilestone,
       preferences: preferences,
-      details: const NotificationDetails(
+      details: NotificationDetails(
         android: AndroidNotificationDetails(
-          _goalMilestoneChannelId,
-          'احتفالات الأهداف',
-          channelDescription: 'تنبيهات لطيفة عند الوصول لمراحل الأهداف',
+          _channel(_goalMilestoneChannelId),
+          notificationLanguage == 'en'
+              ? 'Goal milestones'
+              : 'احتفالات الأهداف',
+          channelDescription: notificationLanguage == 'en'
+              ? 'Gentle alerts when a goal reaches a milestone'
+              : 'تنبيهات لطيفة عند الوصول لمراحل الأهداف',
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
         ),
@@ -1038,11 +1109,15 @@ class LocalNotificationService {
   NotificationDetails _detailsFor(PlannedNotificationKind kind) {
     switch (kind) {
       case PlannedNotificationKind.dailyReminder:
-        return const NotificationDetails(
+        return NotificationDetails(
           android: AndroidNotificationDetails(
-            _dailyReminderChannelId,
-            'التذكير اليومي',
-            channelDescription: 'تذكير يومي بتسجيل المصروفات',
+            _channel(_dailyReminderChannelId),
+            notificationLanguage == 'en'
+                ? 'Daily reminder'
+                : 'التذكير اليومي',
+            channelDescription: notificationLanguage == 'en'
+                ? 'A daily nudge to log your spending'
+                : 'تذكير يومي بتسجيل المصروفات',
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
           ),
@@ -1054,11 +1129,15 @@ class LocalNotificationService {
           ),
         );
       case PlannedNotificationKind.weeklyReport:
-        return const NotificationDetails(
+        return NotificationDetails(
           android: AndroidNotificationDetails(
-            _weeklyReportChannelId,
-            'التقارير الأسبوعية',
-            channelDescription: 'تذكير أسبوعي لطيف لقراءة التقرير',
+            _channel(_weeklyReportChannelId),
+            notificationLanguage == 'en'
+                ? 'Weekly reports'
+                : 'التقارير الأسبوعية',
+            channelDescription: notificationLanguage == 'en'
+                ? 'A gentle weekly nudge to read your report'
+                : 'تذكير أسبوعي لطيف لقراءة التقرير',
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
           ),
@@ -1070,11 +1149,15 @@ class LocalNotificationService {
           ),
         );
       case PlannedNotificationKind.subscriptionReminder:
-        return const NotificationDetails(
+        return NotificationDetails(
           android: AndroidNotificationDetails(
-            _billReminderChannelId,
-            'تذكير الفواتير',
-            channelDescription: 'تذكير محلي بمواعيد الاشتراكات والأقساط',
+            _channel(_billReminderChannelId),
+            notificationLanguage == 'en'
+                ? 'Bill reminders'
+                : 'تذكير الفواتير',
+            channelDescription: notificationLanguage == 'en'
+                ? 'A local reminder of subscription and instalment dates'
+                : 'تذكير محلي بمواعيد الاشتراكات والأقساط',
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
           ),

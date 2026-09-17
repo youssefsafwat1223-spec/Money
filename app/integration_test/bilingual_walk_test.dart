@@ -8,6 +8,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/features/app/app_shell.dart';
+import 'package:money_companion/features/common/category_catalog.dart';
 import 'package:money_companion/main.dart' as app;
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -138,6 +139,21 @@ void main() {
       final current = await settingsRepo.getSettings();
       await settingsRepo.saveSettings(current.copyWith(language: lang));
       await settle(tester, budget: const Duration(seconds: 15));
+
+      // `categoryCatalogProvider` is a FutureProvider keyed off the language,
+      // so a language switch re-queries the whole category table. Until that
+      // future resolves the tree still holds the PREVIOUS language's labels,
+      // and the first route walked reads them — which is exactly what made the
+      // Android run report five Arabic category names on `/` while
+      // `/transactions`, walked later and rendering the same catalog, reported
+      // none. Wait for the catalog to actually carry this language before
+      // measuring anything.
+      final catalogDeadline = DateTime.now().add(const Duration(seconds: 20));
+      while (DateTime.now().isBefore(catalogDeadline)) {
+        final catalog = container.read(categoryCatalogProvider).valueOrNull;
+        if (catalog != null && catalog.languageCode == lang) break;
+        await settle(tester, budget: const Duration(seconds: 2));
+      }
 
       final seen = <String>{};
       for (final route in _routes) {

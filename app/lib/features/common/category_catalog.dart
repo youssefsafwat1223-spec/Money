@@ -53,13 +53,21 @@ class CategoryView {
 
 /// كتالوج التصنيفات (id↔عرض، key↔عرض) — يُحمّل مرة من DB.
 class CategoryCatalog {
-  CategoryCatalog(List<CategoryEntity> categories, {String languageCode = 'ar'})
+  CategoryCatalog(List<CategoryEntity> categories, {this.languageCode = 'ar'})
       : all = _dedupeByKey(categories, languageCode) {
     for (final view in all) {
       _byId[view.id] = view;
       _byKey[view.key] = view;
     }
   }
+
+  /// The language every [CategoryView] in this catalog renders in.
+  ///
+  /// The provider rebuilds the whole catalog when the language changes, and
+  /// the tree keeps showing the PREVIOUS catalog until that future resolves.
+  /// Exposed so a caller can tell a stale catalog from a current one instead
+  /// of inferring it from the words.
+  final String languageCode;
 
   // Guard against duplicate category rows in the DB (a duplicate key would crash
   // any DropdownButton built from `all`). Keep the first occurrence per key.

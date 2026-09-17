@@ -67,7 +67,12 @@ class SaveCountryCurrencyUseCase {
       await _accountRepository.create(
         AccountEntity(
           id: '',
-          name: 'الحساب الرئيسي',
+          // The first account's name is DATA: it is written once and the user
+          // can rename it. Naming it in the language they are setting the app
+          // up in is the honest behaviour — rendering it through the ARB would
+          // silently overwrite a name they chose. `settings` is already loaded
+          // three lines up, so the language costs nothing to read.
+          name: settings.language == 'en' ? 'Main account' : 'الحساب الرئيسي',
           currency: currency,
           type: AccountType.bank,
           isDefault: true,
