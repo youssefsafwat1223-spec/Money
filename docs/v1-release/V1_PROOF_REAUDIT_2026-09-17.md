@@ -1,3 +1,9 @@
+> **SUPERSEDED — 2026-09-17, later the same day.**
+>
+> All six engineering-resolvable items listed in this document's verdict are
+> addressed. See `V1_PROOF_REAUDIT_FINAL.md`. This file is kept unedited as
+> the record of what was true when it was written.
+
 # V1 Proof Re-Audit — 2026-09-17
 
 Re-run of the 100-item proof audit against the master prompt, after the
