@@ -208,3 +208,60 @@ it is now concentrated in the dashboard (blocked on owner reconciliation) and
 in sheets/forms/notifications (unblocked, mechanical, and covered by working
 tooling). The app must not be described as Arabic-only, and the App Store
 listing must not claim complete English support yet either.
+
+
+---
+
+# Final state — end of the 2026-09-17 pass
+
+Measured on the Simulator after the dashboard was closed with the owner's
+authorisation, and after the service-layer error paths were localized.
+
+| Measure | Start of the pass | End |
+|---|---|---|
+| Routes rendering Arabic under `en` | 15 / 19 | **8 / 19** |
+| Arabic strings on `/` | 88 | **13** |
+| Arabic strings, all routes | 422+ | **30** |
+| Sheets rendering Arabic under `en` | never measured | **1 / 6** |
+| ARB keys per language (sets identical) | 338 | **1,488** |
+| Untranslated copy remaining | 1,757 + 235 | **198 + 46** |
+
+## Every remaining runtime survivor, named
+
+**Dashboard (13)** — all user data, correctly Arabic:
+`الحساب الجاري · demo-seed · SAR` (account), `رحلة الصيف · demo-seed` (goal),
+merchants `ساسكو` `الدانوب` `نون` `التميمي`, and the six avatar initials
+derived from those names.
+
+**Other routes (17)** — account names, goal names, merchant names, and two
+strings from one onboarding notification that was delivered in Arabic before
+the fix and whose text is stored as it was sent.
+
+**Sheets (1)** — `ش`, an avatar initial.
+
+**There is no unintended Arabic UI copy on any walked route or openable sheet.**
+
+## What the 198 + 46 actually is
+
+Not route copy. It is spread thin across ~55 files that the walks do not reach:
+secondary dialogs, developer-facing surfaces, and error branches that need a
+specific failure to render. The systemic clusters are closed:
+
+- import/export failures → `DataPortabilityError` + ARB (39 codes)
+- repository failures → `repoErrorMessage(context, e)` (25 call sites)
+- backup states → moved to the widget (16 states)
+- notifications → all three paths bilingual
+
+## Still open, and honestly so
+
+1. **The remaining 198 + 46.** Thin, scattered, unmeasured at runtime because
+   the walks cannot reach them. Not closed.
+2. **Android notification channel names.** Android keeps a channel's name for
+   the lifetime of the install; re-localizing needs a new channel ID. A product
+   decision, not a sweep.
+3. **The `/` route is only clean because the dashboard was migrated with the
+   owner's explicit authorisation.** Every hunk is recorded in
+   `owner-reconcile/OWNER_DASHBOARD_EDITS.md`.
+
+English is no longer the blocker it was. It is also not finished, and this
+document does not say otherwise.
