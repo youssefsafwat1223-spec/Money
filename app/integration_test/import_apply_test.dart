@@ -174,8 +174,21 @@ void main() {
       expect(row.read<String>('currency'), currency,
           reason: '${entry.key} landed with the wrong currency — a default '
               'was substituted for the value in the file');
-      expect(row.read<String>('occurred_at'), startsWith(date),
-          reason: '${entry.key} landed on the wrong date');
+      // A CSV carries a CALENDAR date, and the importer reads it as local
+      // midnight and stores UTC — so `2026-03-04` is on disk as
+      // `2026-03-03T22:00:00Z` at UTC+2. That is correct: rendered back in the
+      // device's timezone it is the day the file said. Asserting the stored
+      // prefix would have been asserting the storage representation and would
+      // fail in any timezone east of UTC, so compare the calendar date the
+      // user actually sees.
+      final storedLocal =
+          DateTime.parse(row.read<String>('occurred_at')).toLocal();
+      final seen = '${storedLocal.year.toString().padLeft(4, '0')}-'
+          '${storedLocal.month.toString().padLeft(2, '0')}-'
+          '${storedLocal.day.toString().padLeft(2, '0')}';
+      expect(seen, date,
+          reason: '${entry.key} landed on the wrong day: the file said $date '
+              'and the app shows $seen');
     }
     debugPrint('[IMPORT] all three rows verified exactly');
 

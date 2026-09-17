@@ -155,10 +155,31 @@ class EncryptedBackupService implements BackupService {
     );
   }
 
+  /// Whether this account has a restorable cloud backup.
+  ///
+  /// This used to look ONLY for the fixed legacy object `<owner>/backup.enc`.
+  /// `backupNow()` has not written that path since MALI-076n §5: it publishes
+  /// each generation to a unique `<owner>/g/<generationId>.enc` and commits a
+  /// pointer. So this returned false for every backup the current code writes
+  /// — and it is what the Data Transfer screen and the post-reinstall restore
+  /// prompt ask before offering to restore. A user who reinstalled was told
+  /// they had no backup while `prepareRestore` would have opened it.
+  ///
+  /// It now asks in the same order `prepareRestore` does: the committed
+  /// generation pointer first, the legacy object only as a fallback. Those two
+  /// must agree, or the app offers a restore it cannot perform, or hides one
+  /// it could.
   @override
   Future<bool> hasRemoteBackup() async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null || userId.isEmpty) return false;
+    try {
+      final generation = await _remoteStore.readCurrentGeneration();
+      if (generation != null) return true;
+    } catch (_) {
+      // Fall through to the legacy check rather than reporting "no backup"
+      // on a transient pointer-read failure.
+    }
     try {
       final files = await _client.storage.from(_bucket).list(path: userId);
       return files.any((file) => file.name == 'backup.enc');

@@ -218,9 +218,27 @@ class _EnableFlowState extends ConsumerState<_EnableFlow> {
       _error = null;
     });
     try {
-      final code =
-          await ref.read(backupServiceProvider).enable(passphrase: passphrase);
+      // C-3 — through the CONTROLLER, never the service directly. The
+      // controller is where the cloud-consent gate lives; calling
+      // `backupServiceProvider.enable` from here uploaded an encrypted copy of
+      // the whole ledger with cloud consent OFF, and left
+      // `RemoteBackupState.consentRequired` — which this screen already knows
+      // how to render — unreachable from the one flow that can turn backup on.
+      //
+      // The controller returns null exactly when consent is missing; it has
+      // already moved its own state to `consentRequired`, so the status line
+      // explains it and no upload happened.
+      final code = await ref
+          .read(remoteBackupControllerProvider.notifier)
+          .enable(passphrase: passphrase);
       if (!mounted) return;
+      if (code == null) {
+        setState(() {
+          _busy = false;
+          _error = context.l10n.bkStateNeedsCloudSync;
+        });
+        return;
+      }
       setState(() {
         _busy = false;
         _recoveryCode = code;

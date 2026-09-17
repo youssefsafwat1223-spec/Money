@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_service.dart';
+import 'package:money_companion/core/backup/remote_backup_controller.dart';
 import 'package:money_companion/core/backup/restore_controller.dart';
 import 'package:money_companion/core/backup/restore_plan.dart';
 import 'package:money_companion/core/backup/restore_result.dart';
@@ -101,16 +102,46 @@ void main() {
     expect(find.text('رمز الاسترداد (Recovery Code)'), findsNothing);
     expect(service.enabled, isFalse);
   });
+
+  testWidgets('with cloud consent OFF nothing is uploaded and the screen says '
+      'why', (tester) async {
+    // The defect this closes: the screen called the service directly, so the
+    // consent gate never ran and an encrypted copy of the whole ledger was
+    // uploaded with cloud sync switched off.
+    final service = _FakeBackupService();
+    await _pumpBackupScreen(tester, service, cloudConsent: false);
+
+    await tester.enterText(find.byType(TextField).first, 'a-good-passphrase');
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(FilledButton).first);
+    await tester.pumpAndSettle();
+
+    expect(service.enabled, isFalse,
+        reason: 'the upload happened despite cloud consent being off');
+    expect(find.text('رمز الاسترداد (Recovery Code)'), findsNothing,
+        reason: 'a recovery code implies a backup exists; none was made');
+  });
 }
 
 Future<void> _pumpBackupScreen(
   WidgetTester tester,
-  BackupService service,
-) async {
+  BackupService service, {
+  bool cloudConsent = true,
+}) async {
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         backupServiceProvider.overrideWithValue(service),
+        // Turning backup on goes through the CONTROLLER now, because that is
+        // where the cloud-consent gate lives — the screen used to call the
+        // service directly and upload with consent OFF. So consent has to be
+        // stated here rather than inherited from a real settings row.
+        remoteBackupControllerProvider.overrideWith(
+          (ref) => RemoteBackupController(
+            service,
+            consentGranted: () async => cloudConsent,
+          ),
+        ),
       ],
       child: MaterialApp(
         localizationsDelegates: AppL10n.localizationsDelegates,

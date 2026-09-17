@@ -380,7 +380,7 @@ class LocalNotificationService {
                 cancelNotification: true),
           ],
         ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           presentBanner: true,
           presentList: true,
           presentBadge: false,
@@ -429,7 +429,7 @@ class LocalNotificationService {
           priority: Priority.high,
           visibility: NotificationVisibility.private,
         ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           presentBanner: true,
           presentList: true,
           presentBadge: false,
@@ -468,7 +468,7 @@ class LocalNotificationService {
             importance: Importance.high,
             priority: Priority.high,
           ),
-          iOS: DarwinNotificationDetails(
+          iOS: const DarwinNotificationDetails(
             presentBanner: true,
             presentList: true,
             presentBadge: false,
@@ -518,7 +518,7 @@ class LocalNotificationService {
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
         ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           presentBanner: true,
           presentList: true,
           presentBadge: false,
@@ -559,7 +559,7 @@ class LocalNotificationService {
           priority: Priority.high,
           visibility: NotificationVisibility.private,
         ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           presentBanner: true,
           presentList: true,
           presentBadge: false,
@@ -593,7 +593,7 @@ class LocalNotificationService {
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
         ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           presentBanner: true,
           presentList: true,
           presentBadge: false,
@@ -782,7 +782,7 @@ class LocalNotificationService {
           importance: Importance.defaultImportance,
           priority: Priority.defaultPriority,
         ),
-        iOS: DarwinNotificationDetails(
+        iOS: const DarwinNotificationDetails(
           presentBanner: true,
           presentList: true,
           presentBadge: false,
@@ -1121,7 +1121,7 @@ class LocalNotificationService {
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
           ),
-          iOS: DarwinNotificationDetails(
+          iOS: const DarwinNotificationDetails(
             presentBanner: true,
             presentList: true,
             presentBadge: false,
@@ -1141,7 +1141,7 @@ class LocalNotificationService {
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
           ),
-          iOS: DarwinNotificationDetails(
+          iOS: const DarwinNotificationDetails(
             presentBanner: true,
             presentList: true,
             presentBadge: false,
@@ -1161,7 +1161,7 @@ class LocalNotificationService {
             importance: Importance.defaultImportance,
             priority: Priority.defaultPriority,
           ),
-          iOS: DarwinNotificationDetails(
+          iOS: const DarwinNotificationDetails(
             presentBanner: true,
             presentList: true,
             presentBadge: false,

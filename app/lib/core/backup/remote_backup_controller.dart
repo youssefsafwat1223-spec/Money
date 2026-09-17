@@ -52,6 +52,16 @@ class RemoteBackupController extends StateNotifier<RemoteBackupState> {
     state = RemoteBackupState.disabled;
   }
 
+  /// Turn backup on. Returns null when cloud consent is missing — the state
+  /// becomes [RemoteBackupState.consentRequired] and NOTHING is uploaded.
+  ///
+  /// A [BackupException] is rethrown rather than folded into
+  /// `failedRetryable`, which is what every other operation here does. Enable
+  /// is the one flow whose failures are actionable by the person in front of
+  /// the screen — "create a Storage bucket named backups" is a specific
+  /// instruction, and turning it into a generic "try again" sends them round
+  /// the same loop forever. The caller renders it through
+  /// `backupExceptionMessage`.
   Future<String?> enable({required String passphrase}) =>
       _run<String>(() async {
         if (!await _consentGranted()) {
@@ -63,7 +73,7 @@ class RemoteBackupController extends StateNotifier<RemoteBackupState> {
         // Protected ONLY now — enable() completed the verified upload + commit.
         state = RemoteBackupState.enabledIdle;
         return recovery;
-      });
+      }, surfaceBackupException: true);
 
   Future<void> backupNow() => _run<void>(() async {
         if (!await _consentGranted()) {
@@ -88,7 +98,14 @@ class RemoteBackupController extends StateNotifier<RemoteBackupState> {
         state = RemoteBackupState.disabled;
       });
 
-  Future<T?> _run<T>(Future<T?> Function() op) async {
+  /// [surfaceBackupException] lets ONE caller — [enable] — see the typed
+  /// failure instead of the flattened `failedRetryable` state. The state is
+  /// still set first, so an observer of the notifier sees the same thing
+  /// either way; only the awaiting caller learns more.
+  Future<T?> _run<T>(
+    Future<T?> Function() op, {
+    bool surfaceBackupException = false,
+  }) async {
     // one operation at a time — no duplicate generations
     if (_busy) {
       return null;
@@ -99,8 +116,12 @@ class RemoteBackupController extends StateNotifier<RemoteBackupState> {
     } on RemoteBackupException catch (e) {
       state = _stateForError(e.kind);
       return null;
+    } on BackupException {
+      state = RemoteBackupState.failedRetryable;
+      if (surfaceBackupException) rethrow;
+      return null;
     } catch (_) {
-      // Envelope/IO/BackupException etc. — treat as retryable by default.
+      // Envelope/IO etc. — treat as retryable by default.
       state = RemoteBackupState.failedRetryable;
       return null;
     } finally {
