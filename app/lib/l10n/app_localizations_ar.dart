@@ -4859,4 +4859,84 @@ class AppL10nAr extends AppL10n {
   String iosStep3Body(String currency) {
     return 'في Message Contents اكتب رمز العملة مثل $currency، وكرّر لاحقًا لأي عملة إضافية.';
   }
+
+  @override
+  String pfCurrencyOnly(String currency) {
+    return 'تحسب الخطة عمليات $currency فقط — ولا يُحتسب فيها أي حساب بعملة أخرى.';
+  }
+
+  @override
+  String pfCardNamed(String last4) {
+    return 'بطاقة $last4';
+  }
+
+  @override
+  String obPerMonth(String amount, String currency) {
+    return '$amount $currency شهريًا';
+  }
+
+  @override
+  String get aiTitle => 'وزّع دخلك';
+
+  @override
+  String get aiSubtitle =>
+      'اكتب دخلك، ووزّعه على المظاريف — يمكنك تعديل أي رقم.';
+
+  @override
+  String get aiSaving => 'جارٍ الحفظ...';
+
+  @override
+  String get aiSaveSplit => 'احفظ التوزيع';
+
+  @override
+  String get aiMonthlyIncome => 'دخلك الشهري';
+
+  @override
+  String get aiSuggestSplit => 'اقترح توزيع تلقائي';
+
+  @override
+  String get aiSavings => 'الادخار';
+
+  @override
+  String get aiCreateGoalHint => 'أنشئ هدف ادخار لنحوّله تلقائيًا كل شهر.';
+
+  @override
+  String get aiAutoToGoal => 'يتحوّل تلقائيًا لهدف';
+
+  @override
+  String get aiAllocated => 'موزّع على المظاريف';
+
+  @override
+  String get aiUnallocated => 'متبقي غير موزّع';
+
+  @override
+  String get aiOverIncomeBy => 'تجاوزت دخلك بـ';
+
+  @override
+  String get pfEditPlan => 'تعديل الخطة';
+
+  @override
+  String get pfSubtitle => 'سفر، عُرس، رمضان… ميزانية لفترة محددة تتابع نفسها.';
+
+  @override
+  String get pfSavePlan => 'احفظ الخطة';
+
+  @override
+  String get pfPlanName => 'اسم الخطة';
+
+  @override
+  String get pfPlanNameHint => 'مثلاً: رحلة دبي';
+
+  @override
+  String get pfPlanBudget => 'ميزانية الخطة';
+
+  @override
+  String get pfAccountsToSpendFrom => 'الحسابات التي ستصرف منها';
+
+  @override
+  String get pfCardsOptional => 'البطاقات (اختياري)';
+
+  @override
+  String get pfNoScopeHint =>
+      'إذا لم تختر حسابًا أو بطاقة، ستحسب الخطة كل المصاريف في الفترة.';
 }

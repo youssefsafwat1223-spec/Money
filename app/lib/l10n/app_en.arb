@@ -2441,5 +2441,53 @@
         "type": "String"
       }
     }
-  }
+  },
+  "pfCurrencyOnly": "The plan counts {currency} transactions only — an account in any other currency is not included.",
+  "@pfCurrencyOnly": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "pfCardNamed": "Card {last4}",
+  "@pfCardNamed": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "obPerMonth": "{amount} {currency}/month",
+  "@obPerMonth": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "aiTitle": "Split your income",
+  "aiSubtitle": "Enter your income and split it into envelopes — you can change any number.",
+  "aiSaving": "Saving…",
+  "aiSaveSplit": "Save the split",
+  "aiMonthlyIncome": "Your monthly income",
+  "aiSuggestSplit": "Suggest a split",
+  "aiSavings": "Savings",
+  "aiCreateGoalHint": "Create a savings goal and we will move it across automatically each month.",
+  "aiAutoToGoal": "Moved to a goal automatically",
+  "aiAllocated": "Allocated to envelopes",
+  "aiUnallocated": "Left unallocated",
+  "aiOverIncomeBy": "Over your income by",
+  "pfEditPlan": "Edit plan",
+  "pfSubtitle": "A trip, a wedding, Ramadan… a budget for a set period that tracks itself.",
+  "pfSavePlan": "Save plan",
+  "pfPlanName": "Plan name",
+  "pfPlanNameHint": "For example: Dubai trip",
+  "pfPlanBudget": "Plan budget",
+  "pfAccountsToSpendFrom": "The accounts you will spend from",
+  "pfCardsOptional": "Cards (optional)",
+  "pfNoScopeHint": "If you pick no account or card, the plan counts all spending in the period."
 }

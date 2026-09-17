@@ -2557,5 +2557,53 @@
         "type": "String"
       }
     }
-  }
+  },
+  "pfCurrencyOnly": "تحسب الخطة عمليات {currency} فقط — ولا يُحتسب فيها أي حساب بعملة أخرى.",
+  "@pfCurrencyOnly": {
+    "placeholders": {
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "pfCardNamed": "بطاقة {last4}",
+  "@pfCardNamed": {
+    "placeholders": {
+      "last4": {
+        "type": "String"
+      }
+    }
+  },
+  "obPerMonth": "{amount} {currency} شهريًا",
+  "@obPerMonth": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      },
+      "currency": {
+        "type": "String"
+      }
+    }
+  },
+  "aiTitle": "وزّع دخلك",
+  "aiSubtitle": "اكتب دخلك، ووزّعه على المظاريف — يمكنك تعديل أي رقم.",
+  "aiSaving": "جارٍ الحفظ...",
+  "aiSaveSplit": "احفظ التوزيع",
+  "aiMonthlyIncome": "دخلك الشهري",
+  "aiSuggestSplit": "اقترح توزيع تلقائي",
+  "aiSavings": "الادخار",
+  "aiCreateGoalHint": "أنشئ هدف ادخار لنحوّله تلقائيًا كل شهر.",
+  "aiAutoToGoal": "يتحوّل تلقائيًا لهدف",
+  "aiAllocated": "موزّع على المظاريف",
+  "aiUnallocated": "متبقي غير موزّع",
+  "aiOverIncomeBy": "تجاوزت دخلك بـ",
+  "pfEditPlan": "تعديل الخطة",
+  "pfSubtitle": "سفر، عُرس، رمضان… ميزانية لفترة محددة تتابع نفسها.",
+  "pfSavePlan": "احفظ الخطة",
+  "pfPlanName": "اسم الخطة",
+  "pfPlanNameHint": "مثلاً: رحلة دبي",
+  "pfPlanBudget": "ميزانية الخطة",
+  "pfAccountsToSpendFrom": "الحسابات التي ستصرف منها",
+  "pfCardsOptional": "البطاقات (اختياري)",
+  "pfNoScopeHint": "إذا لم تختر حسابًا أو بطاقة، ستحسب الخطة كل المصاريف في الفترة."
 }

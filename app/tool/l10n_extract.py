@@ -38,6 +38,10 @@ DATA_NOT_COPY = (
     # '(?:الرسوم|الرسم|الضريبة|...)'. Translating one silently stops a whole
     # class of transaction from being recognised or categorised.
     'lib/domain/usecases/add_transaction_usecase.dart',
+    # Mixed, and neither half is work: `currencyKeywords` are SMS FILTER
+    # keywords ('ريال', 'ر.س') the shortcut matches against, and
+    # `subscriptionShowcase` already carries priceAr AND priceEn.
+    'lib/features/onboarding/onboarding_options.dart',
 )
 
 # Files that are already bilingual: the Arabic half of an `en ? … : …` pair, or

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/utils/l10n_ext.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -101,7 +102,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
     } on Exception {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('مبلغ غير صالح')),
+          SnackBar(content: Text(context.l10n.bfInvalidAmount)),
         );
       }
       return;
@@ -134,7 +135,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
       if (!mounted) return;
       final message = error is RepoException
           ? repoExceptionMessage(error)
-          : 'حدث خطأ غير متوقع أثناء الحفظ. حاول مجددًا.';
+          : context.l10n.bfSaveFailed;
       AppToast.show(context, message);
     } finally {
       if (mounted) setState(() => _saving = false);
@@ -164,8 +165,8 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
     final currency = Currency.label(context, planCurrencyCode);
 
     return AppSheetScaffold(
-      title: widget.existing == null ? 'خطة جديدة' : 'تعديل الخطة',
-      subtitle: 'سفر، عُرس، رمضان… ميزانية لفترة محددة بتتابع نفسها.',
+      title: widget.existing == null ? context.l10n.homeNewPlan : context.l10n.pfEditPlan,
+      subtitle: context.l10n.pfSubtitle,
       scrollable: true,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       bottomAction: FilledButton(
@@ -183,37 +184,37 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
                 height: 18,
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
-            : const Text('احفظ الخطة'),
+            : Text(context.l10n.pfSavePlan),
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           TextField(
             controller: _nameController,
-            decoration: _dec(c, 'اسم الخطة', hint: 'مثلاً: رحلة دبي'),
+            decoration: _dec(c, context.l10n.pfPlanName, hint: context.l10n.pfPlanNameHint),
           ),
           const SizedBox(height: AppSpacing.s3),
           TextField(
             controller: _budgetController,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: _dec(c, 'ميزانية الخطة', suffix: currency),
+            decoration: _dec(c, context.l10n.pfPlanBudget, suffix: currency),
           ),
           const SizedBox(height: AppSpacing.s3),
           Row(
             children: [
               Expanded(
                 child:
-                    _dateTile(c, 'من', _start, () => _pickDate(isStart: true)),
+                    _dateTile(c, context.l10n.txnFrom, _start, () => _pickDate(isStart: true)),
               ),
               const SizedBox(width: AppSpacing.s3),
               Expanded(
                 child:
-                    _dateTile(c, 'إلى', _end, () => _pickDate(isStart: false)),
+                    _dateTile(c, context.l10n.txnTo, _end, () => _pickDate(isStart: false)),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.s4),
-          _sectionLabel(c, 'الحسابات اللي هتصرف منها'),
+          _sectionLabel(c, context.l10n.pfAccountsToSpendFrom),
           const SizedBox(height: 2),
           // UX-036 — the mixed-currency rule, stated rather than left to be
           // discovered. The plan counts only transactions in its own currency,
@@ -221,7 +222,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
           // contributes nothing. Silence here is what made a mismatched
           // currency label look like a bug rather than a scope.
           Text(
-            'تحسب الخطة عمليات $currency فقط — ولا يُحتسب فيها أي حساب بعملة أخرى.',
+            context.l10n.pfCurrencyOnly(currency),
             style: AppTypography.caption(c.textLight),
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -246,7 +247,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
           ),
           if (cards.isNotEmpty) ...[
             const SizedBox(height: AppSpacing.s4),
-            _sectionLabel(c, 'الكروت (اختياري)'),
+            _sectionLabel(c, context.l10n.pfCardsOptional),
             const SizedBox(height: AppSpacing.s2),
             Wrap(
               spacing: 8,
@@ -254,7 +255,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
               children: [
                 for (final card in cards)
                   FilterChip(
-                    label: Text('بطاقة ${card.last4}'),
+                    label: Text(context.l10n.pfCardNamed(card.last4)),
                     selected: _cards.contains(card.last4),
                     onSelected: (v) => setState(() {
                       if (v) {
@@ -269,7 +270,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
           ],
           const SizedBox(height: AppSpacing.s2),
           Text(
-            'لو ماخترتش حساب أو كارت، الخطة هتحسب كل المصاريف في الفترة.',
+            context.l10n.pfNoScopeHint,
             style: AppTypography.caption(c.textLight),
           ),
           const SizedBox(height: AppSpacing.s3),

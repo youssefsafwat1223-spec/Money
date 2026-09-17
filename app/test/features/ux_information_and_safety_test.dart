@@ -531,7 +531,15 @@ void main() {
     });
 
     test('the mixed-currency rule is stated, not left to be discovered', () {
-      expect(src, contains('ولا يُحتسب فيها'));
+      expect(src, contains('context.l10n.pfCurrencyOnly'));
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      // Which currencies a plan counts is a rule a user cannot infer from the
+      // screen, so it has to be spelled out — in whichever language they read.
+      expect(ar['pfCurrencyOnly'], contains('ولا يُحتسب فيها'));
+      expect(en['pfCurrencyOnly'], contains('not included'));
     });
   });
 

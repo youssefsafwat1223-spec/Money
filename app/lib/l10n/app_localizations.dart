@@ -8208,6 +8208,150 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'في Message Contents اكتب رمز العملة مثل {currency}، وكرّر لاحقًا لأي عملة إضافية.'**
   String iosStep3Body(String currency);
+
+  /// No description provided for @pfCurrencyOnly.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحسب الخطة عمليات {currency} فقط — ولا يُحتسب فيها أي حساب بعملة أخرى.'**
+  String pfCurrencyOnly(String currency);
+
+  /// No description provided for @pfCardNamed.
+  ///
+  /// In ar, this message translates to:
+  /// **'بطاقة {last4}'**
+  String pfCardNamed(String last4);
+
+  /// No description provided for @obPerMonth.
+  ///
+  /// In ar, this message translates to:
+  /// **'{amount} {currency} شهريًا'**
+  String obPerMonth(String amount, String currency);
+
+  /// No description provided for @aiTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'وزّع دخلك'**
+  String get aiTitle;
+
+  /// No description provided for @aiSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتب دخلك، ووزّعه على المظاريف — يمكنك تعديل أي رقم.'**
+  String get aiSubtitle;
+
+  /// No description provided for @aiSaving.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ الحفظ...'**
+  String get aiSaving;
+
+  /// No description provided for @aiSaveSplit.
+  ///
+  /// In ar, this message translates to:
+  /// **'احفظ التوزيع'**
+  String get aiSaveSplit;
+
+  /// No description provided for @aiMonthlyIncome.
+  ///
+  /// In ar, this message translates to:
+  /// **'دخلك الشهري'**
+  String get aiMonthlyIncome;
+
+  /// No description provided for @aiSuggestSplit.
+  ///
+  /// In ar, this message translates to:
+  /// **'اقترح توزيع تلقائي'**
+  String get aiSuggestSplit;
+
+  /// No description provided for @aiSavings.
+  ///
+  /// In ar, this message translates to:
+  /// **'الادخار'**
+  String get aiSavings;
+
+  /// No description provided for @aiCreateGoalHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'أنشئ هدف ادخار لنحوّله تلقائيًا كل شهر.'**
+  String get aiCreateGoalHint;
+
+  /// No description provided for @aiAutoToGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'يتحوّل تلقائيًا لهدف'**
+  String get aiAutoToGoal;
+
+  /// No description provided for @aiAllocated.
+  ///
+  /// In ar, this message translates to:
+  /// **'موزّع على المظاريف'**
+  String get aiAllocated;
+
+  /// No description provided for @aiUnallocated.
+  ///
+  /// In ar, this message translates to:
+  /// **'متبقي غير موزّع'**
+  String get aiUnallocated;
+
+  /// No description provided for @aiOverIncomeBy.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاوزت دخلك بـ'**
+  String get aiOverIncomeBy;
+
+  /// No description provided for @pfEditPlan.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعديل الخطة'**
+  String get pfEditPlan;
+
+  /// No description provided for @pfSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'سفر، عُرس، رمضان… ميزانية لفترة محددة تتابع نفسها.'**
+  String get pfSubtitle;
+
+  /// No description provided for @pfSavePlan.
+  ///
+  /// In ar, this message translates to:
+  /// **'احفظ الخطة'**
+  String get pfSavePlan;
+
+  /// No description provided for @pfPlanName.
+  ///
+  /// In ar, this message translates to:
+  /// **'اسم الخطة'**
+  String get pfPlanName;
+
+  /// No description provided for @pfPlanNameHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'مثلاً: رحلة دبي'**
+  String get pfPlanNameHint;
+
+  /// No description provided for @pfPlanBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية الخطة'**
+  String get pfPlanBudget;
+
+  /// No description provided for @pfAccountsToSpendFrom.
+  ///
+  /// In ar, this message translates to:
+  /// **'الحسابات التي ستصرف منها'**
+  String get pfAccountsToSpendFrom;
+
+  /// No description provided for @pfCardsOptional.
+  ///
+  /// In ar, this message translates to:
+  /// **'البطاقات (اختياري)'**
+  String get pfCardsOptional;
+
+  /// No description provided for @pfNoScopeHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'إذا لم تختر حسابًا أو بطاقة، ستحسب الخطة كل المصاريف في الفترة.'**
+  String get pfNoScopeHint;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

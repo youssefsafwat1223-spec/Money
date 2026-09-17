@@ -4846,4 +4846,86 @@ class AppL10nEn extends AppL10n {
   String iosStep3Body(String currency) {
     return 'In Message Contents, enter a currency code such as $currency — repeat later for any other currency.';
   }
+
+  @override
+  String pfCurrencyOnly(String currency) {
+    return 'The plan counts $currency transactions only — an account in any other currency is not included.';
+  }
+
+  @override
+  String pfCardNamed(String last4) {
+    return 'Card $last4';
+  }
+
+  @override
+  String obPerMonth(String amount, String currency) {
+    return '$amount $currency/month';
+  }
+
+  @override
+  String get aiTitle => 'Split your income';
+
+  @override
+  String get aiSubtitle =>
+      'Enter your income and split it into envelopes — you can change any number.';
+
+  @override
+  String get aiSaving => 'Saving…';
+
+  @override
+  String get aiSaveSplit => 'Save the split';
+
+  @override
+  String get aiMonthlyIncome => 'Your monthly income';
+
+  @override
+  String get aiSuggestSplit => 'Suggest a split';
+
+  @override
+  String get aiSavings => 'Savings';
+
+  @override
+  String get aiCreateGoalHint =>
+      'Create a savings goal and we will move it across automatically each month.';
+
+  @override
+  String get aiAutoToGoal => 'Moved to a goal automatically';
+
+  @override
+  String get aiAllocated => 'Allocated to envelopes';
+
+  @override
+  String get aiUnallocated => 'Left unallocated';
+
+  @override
+  String get aiOverIncomeBy => 'Over your income by';
+
+  @override
+  String get pfEditPlan => 'Edit plan';
+
+  @override
+  String get pfSubtitle =>
+      'A trip, a wedding, Ramadan… a budget for a set period that tracks itself.';
+
+  @override
+  String get pfSavePlan => 'Save plan';
+
+  @override
+  String get pfPlanName => 'Plan name';
+
+  @override
+  String get pfPlanNameHint => 'For example: Dubai trip';
+
+  @override
+  String get pfPlanBudget => 'Plan budget';
+
+  @override
+  String get pfAccountsToSpendFrom => 'The accounts you will spend from';
+
+  @override
+  String get pfCardsOptional => 'Cards (optional)';
+
+  @override
+  String get pfNoScopeHint =>
+      'If you pick no account or card, the plan counts all spending in the period.';
 }

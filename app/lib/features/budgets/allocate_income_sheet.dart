@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/finance/money.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../domain/finance/money_input.dart';
 
 import '../../core/di/app_providers.dart';
@@ -200,8 +201,8 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
     ];
 
     return AppSheetScaffold(
-      title: 'وزّع دخلك',
-      subtitle: 'اكتب دخلك، ووزّعه على المظاريف — تقدر تعدّل أي رقم.',
+      title: context.l10n.aiTitle,
+      subtitle: context.l10n.aiSubtitle,
       scrollable: true,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       bottomAction: FilledButton(
@@ -215,7 +216,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
-        child: Text(_saving ? 'جارٍ الحفظ...' : 'احفظ التوزيع'),
+        child: Text(_saving ? context.l10n.aiSaving : context.l10n.aiSaveSplit),
       ),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -225,7 +226,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
-              labelText: 'دخلك الشهري',
+              labelText: context.l10n.aiMonthlyIncome,
               suffixText: currency,
               filled: true,
               fillColor: c.surface2.withValues(alpha: 0.5),
@@ -241,7 +242,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
             child: TextButton.icon(
               onPressed: income > 0 ? _suggest : null,
               icon: const Icon(AppLucideIcons.sparkles, size: 16),
-              label: const Text('اقترح توزيع تلقائي'),
+              label: Text(context.l10n.aiSuggestSplit),
             ),
           ),
           const SizedBox(height: AppSpacing.s2),
@@ -317,7 +318,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                     Icon(AppLucideIcons.piggyBank, color: c.success, size: 20),
                     const SizedBox(width: AppSpacing.s2),
                     Expanded(
-                      child: Text('الادخار',
+                      child: Text(context.l10n.aiSavings,
                           style: AppTypography.subhead(c.textMain)),
                     ),
                     SizedBox(
@@ -347,7 +348,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                   const SizedBox(height: AppSpacing.s2),
                   if (goals.isEmpty)
                     Text(
-                      'أنشئ هدف ادخار لنحوّله تلقائيًا كل شهر.',
+                      context.l10n.aiCreateGoalHint,
                       style: AppTypography.caption(c.textLight),
                     )
                   else
@@ -355,7 +356,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                       value: _savingsGoalId,
                       isExpanded: true,
                       decoration: InputDecoration(
-                        labelText: 'يتحوّل تلقائياً لهدف',
+                        labelText: context.l10n.aiAutoToGoal,
                         isDense: true,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -383,16 +384,16 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
             ),
             child: Column(
               children: [
-                _summaryRow(c, 'موزّع على المظاريف',
+                _summaryRow(c, context.l10n.aiAllocated,
                     '${Formatters.amount(allocated)} $currency'),
                 const SizedBox(height: 6),
                 _summaryRow(
-                    c, 'الادخار', '${Formatters.amount(savings)} $currency',
+                    c, context.l10n.aiSavings, '${Formatters.amount(savings)} $currency',
                     tone: c.success),
                 const SizedBox(height: 6),
                 _summaryRow(
                   c,
-                  leftover >= 0 ? 'متبقي غير موزّع' : 'تجاوزت دخلك بـ',
+                  leftover >= 0 ? context.l10n.aiUnallocated : context.l10n.aiOverIncomeBy,
                   '${Formatters.amount(leftover.abs())} $currency',
                   tone: leftover >= 0 ? c.textMain : c.danger,
                 ),
