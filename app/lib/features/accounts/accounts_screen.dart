@@ -116,8 +116,17 @@ class _CurrencyTotals extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: AppSpacing.s3, vertical: 6),
+              // OPAQUE, not a 10% tint.
+              //
+              // `_CurrencyTotals` is the first item in the ListView, so it
+              // lands in the melt zone where `_AccountsHeader` fades its
+              // gradient into the page. A 10% navy tint over navy is still
+              // navy, and `c.primary` text on it measured **1.50:1** — WCAG
+              // wants 3:1 even for large text. The tint is correct on the page
+              // background and wrong here, and the pill cannot know which it
+              // is sitting on. An opaque surface reads on both.
               decoration: BoxDecoration(
-                color: c.primary.withValues(alpha: 0.10),
+                color: c.surface,
                 borderRadius: BorderRadius.circular(AppRadius.pill),
               ),
               child: Row(

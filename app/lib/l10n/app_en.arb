@@ -3010,5 +3010,7 @@
         "type": "String"
       }
     }
-  }
+  },
+  "cardSourceAuto": "Detected from bank messages",
+  "cardSourceManual": "You added it yourself"
 }

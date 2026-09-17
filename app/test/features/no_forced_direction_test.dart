@@ -47,6 +47,37 @@ void main() {
             'gets a mirrored layout: ${offenders.join(", ")}');
   });
 
+  test('no Align pins a child with an absolute left/right', () {
+    // `Alignment.topLeft` cannot mirror. The SMS-permission sheet put its
+    // close button there, so it sat on the left in BOTH languages — right for
+    // Arabic by coincidence, wrong for English, and inconsistent with every
+    // other sheet, which puts close at the END.
+    //
+    // Scoped to `Align`/`alignment:` on a LAYOUT, not to gradients: a
+    // gradient's begin/end is a visual direction, and mirroring it is a design
+    // decision rather than a correctness one.
+    final offenders = <String>[];
+    for (final file in Directory('lib')
+        .listSync(recursive: true)
+        .whereType<File>()
+        .where((f) => f.path.endsWith('.dart'))) {
+      final lines = file.readAsLinesSync();
+      for (var i = 0; i < lines.length; i++) {
+        final line = lines[i];
+        if (!RegExp(r'alignment: Alignment\.(top|center|bottom)(Left|Right)')
+            .hasMatch(line)) {
+          continue;
+        }
+        // A gradient names its own stops; those lines sit inside a
+        // `LinearGradient(begin:/end:)`, not an `alignment:`.
+        offenders.add('${file.path}:${i + 1}');
+      }
+    }
+    expect(offenders, isEmpty,
+        reason: 'these pin a child to an absolute side, so the layout cannot '
+            'mirror: ${offenders.join(", ")}');
+  });
+
   test('the ones that remain READ the direction, they do not set it', () {
     // Guard against the fix being undone by re-introducing the constant under
     // a different spelling.

@@ -389,7 +389,10 @@ class _PromisePageState extends State<_PromisePage> {
                     horizontal: AppSpacing.gutter,
                   ),
                   child: Align(
-                    alignment: Alignment.centerRight,
+                    // DIRECTIONAL. Absolute `centerRight` pins this column to
+                    // the right in English too, where it should follow the
+                    // reading direction and start on the left.
+                    alignment: AlignmentDirectional.centerStart,
                     child: ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: columnWidth),
                       child: Column(

@@ -164,7 +164,8 @@ class _AccountHeaderCard extends StatelessWidget {
                     style: AppTypography.bodyStrong(c.textMain)),
                 const SizedBox(height: 2),
                 Text(
-                  '${accountTypeLabel(context, account.type)} · ${Currency.arabicLabel(account.currency)} (${account.currency})',
+                  '${accountTypeLabel(context, account.type)} · '
+                  '${Currency.labelWithCode(context, account.currency)}',
                   style: AppTypography.caption(c.textLight),
                 ),
               ],
@@ -233,7 +234,7 @@ class _ManagedCardRow extends ConsumerWidget {
                   // transactions will attach to this card by themselves), so it
                   // is restated in plain language rather than hidden.
                   Text(
-                    '$title · ${card.source == CardSource.auto ? 'اتعرفت من رسائل البنك' : 'أضفتها بنفسك'}',
+                    '$title · ${card.source == CardSource.auto ? context.l10n.cardSourceAuto : context.l10n.cardSourceManual}',
                     style: AppTypography.caption(c.textLight),
                   ),
                 ],

@@ -9786,6 +9786,18 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'ميزانية {amount}'**
   String conflictBudgetLabel(String amount);
+
+  /// No description provided for @cardSourceAuto.
+  ///
+  /// In ar, this message translates to:
+  /// **'اتُعرِّفت من رسائل البنك'**
+  String get cardSourceAuto;
+
+  /// No description provided for @cardSourceManual.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضفتها بنفسك'**
+  String get cardSourceManual;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

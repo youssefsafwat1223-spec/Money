@@ -142,8 +142,11 @@ class _GoalDetailsContent extends ConsumerWidget {
           return Center(child: Text(context.l10n.gdNotFound));
         }
         final c = context.colors;
-        final cur = Currency.arabicLabel(
-            ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+        // `arabicLabel`, not `label(context, …)` — so an English reader saw
+        // "Saved 12,750 of 15,000 ريال". Found by capturing this screen, which
+        // has no route without an id and had therefore never been walked.
+        final cur = Currency.label(
+            context, ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
         return ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
@@ -328,7 +331,7 @@ Future<void> _showAddContributionSheet(
   final goalCurrency =
       ref.read(goalDetailsProvider(goalId)).valueOrNull?.goal.currency ??
           (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
-  final cur = Currency.arabicLabel(goalCurrency);
+  final cur = Currency.label(context, goalCurrency);
   final isDark = Theme.of(context).brightness == Brightness.dark;
 
   await showModalBottomSheet<void>(

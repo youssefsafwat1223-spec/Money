@@ -5781,4 +5781,10 @@ class AppL10nAr extends AppL10n {
   String conflictBudgetLabel(String amount) {
     return 'ميزانية $amount';
   }
+
+  @override
+  String get cardSourceAuto => 'اتُعرِّفت من رسائل البنك';
+
+  @override
+  String get cardSourceManual => 'أضفتها بنفسك';
 }

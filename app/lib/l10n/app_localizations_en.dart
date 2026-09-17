@@ -5783,4 +5783,10 @@ class AppL10nEn extends AppL10n {
   String conflictBudgetLabel(String amount) {
     return 'Budget $amount';
   }
+
+  @override
+  String get cardSourceAuto => 'Detected from bank messages';
+
+  @override
+  String get cardSourceManual => 'You added it yourself';
 }

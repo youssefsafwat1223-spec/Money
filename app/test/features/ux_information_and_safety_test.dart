@@ -217,11 +217,30 @@ void main() {
     });
 
     test('UX-015 — the card source is stated in customer language', () {
+      // The copy moved to the ARB, so that is where the contract is asserted —
+      // and English is held to the same standard, which the source grep could
+      // not do. «أضفتها بنفسك» rendered to English readers until this screen
+      // was captured; a grep for the Arabic would have passed throughout.
       final src = File('lib/features/accounts/account_detail_screen.dart')
           .readAsStringSync();
-      expect(src.contains("? 'تلقائية' : 'يدوية'"), isFalse);
-      expect(src, contains('اتعرفت من رسائل البنك'));
-      expect(src, contains('أضفتها بنفسك'));
+      expect(src.contains("? 'تلقائية' : 'يدوية'"), isFalse,
+          reason: 'the jargon wording is back');
+      expect(src, contains('cardSourceAuto'));
+      expect(src, contains('cardSourceManual'));
+
+      final ar = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      final en = jsonDecode(File('lib/l10n/app_en.arb').readAsStringSync())
+          as Map<String, dynamic>;
+      expect(ar['cardSourceAuto'], 'اتُعرِّفت من رسائل البنك');
+      expect(ar['cardSourceManual'], 'أضفتها بنفسك');
+      // Customer language in English too: no "auto"/"manual" jargon.
+      expect(en['cardSourceAuto'], 'Detected from bank messages');
+      expect(en['cardSourceManual'], 'You added it yourself');
+      for (final k in ['cardSourceAuto', 'cardSourceManual']) {
+        expect(RegExp(r'[؀-ۿ]').hasMatch(en[k] as String), isFalse,
+            reason: '$k still reads Arabic in English');
+      }
     });
 
     test('UX-026 — the ambiguous tab names its domain', () {

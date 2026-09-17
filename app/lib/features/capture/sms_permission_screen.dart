@@ -68,7 +68,11 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Align(
-                    alignment: Alignment.topLeft,
+                    // DIRECTIONAL. `Alignment.topLeft` is absolute, so the
+                    // close button sat on the left in BOTH languages — correct
+                    // for Arabic by coincidence, wrong for English. Every
+                    // other sheet in the app puts close at the END.
+                    alignment: AlignmentDirectional.topEnd,
                     child: IconButton(
                       onPressed: () => Navigator.of(context).pop(false),
                       icon: const Icon(AppLucideIcons.x),

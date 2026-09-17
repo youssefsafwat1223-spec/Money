@@ -207,11 +207,24 @@ void main() {
         // BELOW that node — so this assertion was true where it looked and
         // false three widgets down, and English screens rendered mirrored for
         // as long as this test has existed.
-        final directions = tester
-            .widgetList<Directionality>(find.byType(Directionality))
-            .map((d) => d.textDirection)
-            .toSet();
-        final wrong = directions.where((d) => d != expected).toList();
+        // Asserted in ONE direction, deliberately: no node may force RTL
+        // while the app is English. That is the defect class — mirrored
+        // layouts wearing English text.
+        //
+        // The reverse is NOT a defect. LTR islands inside an Arabic screen are
+        // correct and intentional: a card number «•••• 4471», an email
+        // address, a coupon code and the bottom-nav row (whose curated order
+        // keeps Home centred) all read left-to-right in every language. An
+        // assertion that demanded uniformity would flag all of them and teach
+        // the next reader to weaken it.
+        final wrong = expected == TextDirection.ltr
+            ? tester
+                .widgetList<Directionality>(find.byType(Directionality))
+                .map((d) => d.textDirection)
+                .where((d) => d == TextDirection.rtl)
+                .toSet()
+                .toList()
+            : const <TextDirection>[];
         if (wrong.isNotEmpty) {
           failures.add('[$lang] $route has ${wrong.length} '
               'Directionality node(s) set to ${wrong.join(", ")}, '
