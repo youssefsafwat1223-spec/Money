@@ -36,11 +36,22 @@ const _qaEmail = String.fromEnvironment('QA_EMAIL');
 const _qaPassword = String.fromEnvironment('QA_PASSWORD');
 const _qaUserId = String.fromEnvironment('QA_USER_ID');
 
+/// Every V1 route with a screen of its own.
+///
+/// `/backup` is NOT here, and that is the finding that put it here as a
+/// comment rather than an entry. It is a permanent redirect to
+/// `/data-transfer` — cloud backup is retired in V1, `BackupScreen` has no
+/// reference anywhere in `lib/` outside its own file, and the only remaining
+/// cloud surface is `/backup/restore`, offered from Data Transfer when a
+/// backup from an earlier build exists. The walk used to list `/backup`,
+/// land on `/data-transfer`, find a Scaffold with the right direction, and
+/// count it as walked — one of nineteen routes measured was never the route
+/// it claimed.
 const _routes = <String>[
   '/', '/reports', '/accounts', '/budgets', '/goals', '/cards',
-  '/subscriptions', '/settings', '/help', '/privacy', '/backup',
+  '/subscriptions', '/settings', '/help', '/privacy', '/backup/restore',
   '/data-transfer', '/coupons', '/profile', '/achievements', '/announcements',
-  '/savings', '/paste', '/subscriptions', '/referrals',
+  '/savings', '/paste', '/referrals',
 ];
 
 void main() {
@@ -170,6 +181,23 @@ void main() {
           continue;
         }
 
+        // The router ACTUALLY went there. Without this, a `go()` that quietly
+        // no-ops leaves the PREVIOUS route on screen — which still has a
+        // Scaffold and still has the right direction, so every other check
+        // here passes and the route is counted as walked while showing
+        // something else entirely. A redirect is not a failure (an auth guard
+        // may legitimately send `/x` to `/y`), so the location is recorded
+        // rather than asserted equal, and a route that lands somewhere it was
+        // not sent is named.
+        final landed =
+            router.routerDelegate.currentConfiguration.uri.toString();
+        final expectedLanding = route.split('?').first;
+        if (!landed.startsWith(expectedLanding) &&
+            !expectedLanding.startsWith(landed)) {
+          failures.add('[$lang] $route did not navigate — landed on $landed');
+          continue;
+        }
+
         // THE assertion: the tree's resolved direction, not a guess from a
         // screenshot.
         final ctx = tester.element(find.byType(Scaffold).first);
@@ -217,6 +245,23 @@ void main() {
         debugPrint('[BILINGUAL-TEXT] ${e.key} :: ${t.replaceAll("\n", " ⏎ ")}');
       }
     }
+
+    // Printed BEFORE the assertions. The count assertion fires first
+    // otherwise, and the list that says WHICH route failed never reaches the
+    // log — which is the only thing that makes the count actionable.
+    for (final f in failures) {
+      debugPrint('[BILINGUAL-FAIL] $f');
+    }
+
+    // Every route, in every language. A silently-skipped route would shrink
+    // the denominator of "8/19" without anything else noticing.
+    final expectedRoutes = _routes.toSet().length;
+    expect(visited['ar'], expectedRoutes,
+        reason: 'only ${visited['ar']} of $expectedRoutes routes were walked '
+            'in Arabic');
+    expect(visited['en'], expectedRoutes,
+        reason: 'only ${visited['en']} of $expectedRoutes routes were walked '
+            'in English');
 
     expect(failures, isEmpty,
         reason: 'direction or routing failures:\n${failures.join("\n")}');
