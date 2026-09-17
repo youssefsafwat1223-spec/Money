@@ -9780,6 +9780,12 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'صف {row}: '**
   String iiRowPrefix(String row);
+
+  /// No description provided for @conflictBudgetLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية {amount}'**
+  String conflictBudgetLabel(String amount);
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

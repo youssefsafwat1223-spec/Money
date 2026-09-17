@@ -5776,4 +5776,9 @@ class AppL10nAr extends AppL10n {
   String iiRowPrefix(String row) {
     return 'صف $row: ';
   }
+
+  @override
+  String conflictBudgetLabel(String amount) {
+    return 'ميزانية $amount';
+  }
 }

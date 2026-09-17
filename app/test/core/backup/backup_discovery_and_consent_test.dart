@@ -56,6 +56,49 @@ void main() {
     });
   });
 
+  group('the backup-existence probe is gated too', () {
+    test('Data Transfer asks consent before asking the server', () {
+      // `_checkLegacyBackup()` runs on `initState` and is EGRESS: it reads the
+      // generation pointer and lists the user's storage prefix — two
+      // authenticated requests the moment the screen opens. It was gated on
+      // `SupabaseConfig.isConfigured` alone, which asks whether the app CAN
+      // reach the server, not whether the user agreed that it should.
+      final screen = File('lib/features/settings/data_transfer_screen.dart')
+          .readAsStringSync();
+      final probe = screen.substring(
+        screen.indexOf('Future<void> _checkLegacyBackup()'),
+        screen.indexOf('Future<void> _pickFile()'),
+      );
+      expect(probe, contains('EgressClass.backup'),
+          reason: 'the probe contacts Supabase with no consent check');
+      // And the consent check must come BEFORE the request, not after it.
+      expect(probe.indexOf('EgressClass.backup'),
+          lessThan(probe.indexOf('hasRemoteBackup()')),
+          reason: 'consent is checked after the request has already gone out');
+    });
+  });
+
+  group('discovery and restore agree on what is restorable', () {
+    test('a failed generation download falls through to the legacy object',
+        () {
+      // `hasRemoteBackup()` reports a backup when EITHER the pointer or the
+      // legacy object exists. If restore accepts only the pointer once one
+      // exists, an install with both — a pre-generation backup plus a pointer
+      // whose object is gone — is offered a restore that can never run.
+      final source = File('lib/core/backup/encrypted_backup_service.dart')
+          .readAsStringSync();
+      final prepare = source.substring(
+        source.indexOf('Future<RestorePlan> prepareRestore('),
+        source.indexOf('Future<RestoreResult> commitRestore('),
+      );
+      expect(prepare, contains("download('\$userId/backup.enc')"),
+          reason: 'restore has no legacy fallback');
+      expect(prepare, contains('bytes ??='),
+          reason: 'the legacy path is not reachable after a generation '
+              'download failure');
+    });
+  });
+
   group('turning backup on cannot bypass cloud consent', () {
     test('the backup screen goes through the controller, not the service', () {
       final screen =

@@ -430,14 +430,30 @@ class EncryptedBackupService implements BackupService {
     // encrypted-blob hash) BEFORE any decryption. A legacy backup with no
     // generation pointer falls back to the fixed object path (integrity still
     // enforced by the v3/legacy envelope authentication below).
+    // Discovery (`hasRemoteBackup`) reports a backup when EITHER the pointer
+    // or the legacy object exists. Restore used to accept only the pointer
+    // once one existed, so an install with both — a pre-generation backup plus
+    // a pointer whose object is gone — was offered a restore that could never
+    // run, with no way back. The two must agree on what "restorable" means, so
+    // a failed generation download falls through to the legacy object rather
+    // than ending the attempt.
     final generation = await _remoteStore.readCurrentGeneration();
-    final Uint8List bytes;
+    Uint8List? bytes;
     if (generation != null) {
-      bytes = await _publisher.downloadVerified(generation);
-    } else {
-      bytes =
-          await _client.storage.from(_bucket).download('$userId/backup.enc');
+      try {
+        bytes = await _publisher.downloadVerified(generation);
+      } catch (error) {
+        // Deliberately broad: a missing object, a size mismatch and a hash
+        // mismatch are all "this generation is not usable", and the legacy
+        // object is authenticated by its own envelope below either way.
+        if (kDebugMode) {
+          debugPrint('[Backup] generation unusable (${error.runtimeType}); '
+              'trying the legacy object');
+        }
+      }
     }
+    bytes ??=
+        await _client.storage.from(_bucket).download('$userId/backup.enc');
     try {
       // MALI-076n §9 — structurally validate + limit BEFORE any KDF, then
       // decrypt/authenticate. NOTHING is mutated in preparation.

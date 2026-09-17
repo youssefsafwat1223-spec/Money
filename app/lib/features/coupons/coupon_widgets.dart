@@ -554,7 +554,15 @@ class CouponDetailsSheet extends ConsumerWidget {
               Text(
                 offer.countryCodes.isEmpty
                     ? l10n.couponsAvailableGlobally
-                    : l10n.couponsAvailableIn(offer.countryCodes.join('، ')),
+                    // The Arabic comma «،» was joined unconditionally, so an
+                    // English reader saw "Available in SA، AE". The separator
+                    // is punctuation and follows the reader, exactly as
+                    // `app_transaction_row.dart` already does for the same
+                    // glyph.
+                    : l10n.couponsAvailableIn(offer.countryCodes.join(
+                        Directionality.of(context) == TextDirection.rtl
+                            ? '، '
+                            : ', ')),
                 style: AppTypography.caption(c.textMuted),
               ),
               if (offer.termsAr != null) ...[

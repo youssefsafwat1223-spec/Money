@@ -45,6 +45,13 @@ DATA_NOT_COPY = (
     # SMS/CSV keyword vocabularies and digit tables, same class as the parser
     # engine: «مصروف»/«مدين» are matched against an imported file's cells, and
     # '٠١٢٣٤٥٦٧٨٩' is a DIGIT TABLE. Translating either breaks import.
+    #
+    # This file ALSO holds three user-facing `ImportIssue` messages, which a
+    # file-level exclusion cannot see — a fourth added without a `code:` would
+    # print Arabic in the English build and never be reported. That hole is
+    # closed by `import_issue_coverage_test`, which asserts every
+    # `ImportIssue(` in `lib/` carries a code. A test that fails on DRIFT is
+    # stronger than a grep that fails on the presence of Arabic.
     'lib/core/data_portability/generic_transaction_import.dart',
     # SMS keywords the bank-discovery heuristic matches on.
     'lib/domain/services/bank_discovery_service.dart',
@@ -74,9 +81,6 @@ DATA_NOT_COPY = (
     'lib/features/planning_sync/services/planning_pull_service.dart',
     'lib/features/capture/services/capture_sync_service.dart',
     'lib/data/repositories/account_currency_repair_service.dart',
-    'lib/core/sync/conflict_policy.dart',
-    # The brand name, deliberately Arabic in every language.
-    'lib/features/reporting/pdf/report_pdf_renderer.dart',
 )
 
 # Screens that exist only in debug builds, so nothing here is user-facing copy
@@ -96,11 +100,22 @@ DEBUG_ONLY = (
 # that is mostly fine. `encrypted_backup_service.dart` has 40 coded throws; a
 # 41st without a code has to be reported, and a file-level exclusion would
 # swallow it.
+# NOTE ON `code:` — it used to be in this list bare, and that was wrong.
+# `code:` is also an ordinary Dart named argument, and it matched
+# `CouponCodePill(code: offer.code!)` fourteen lines below an Arabic comma,
+# marking a genuine leak as "already bilingual". An English reader saw
+# "Available in SA، AE". The markers are anchored to the actual enums now, so
+# a parameter that merely happens to be called `code` cannot rescue anything.
 BILINGUAL_MARKERS = (
-    'code:',           # a DataPortabilityError / BackupError / ImportIssueCode
+    'code: BackupError.',
+    'code: DataPortabilityError.',
+    'code: ImportIssueCode.',
+    'code: e.code',
     "== 'en'",         # explicit language dispatch
     'if (en)',
     'en ?',            # the common `final en = lang == 'en'` shorthand
+    'rtl ?',           # direction-dispatched punctuation and brand marks
+    'TextDirection.rtl',  # the same, when the formatter splits the ternary
     'languageCode',
     'defaultPromptAr', # the Arabic fallback beside a caller-supplied string
     'repoErrorMessage',

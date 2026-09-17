@@ -23,6 +23,7 @@ import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import 'import_issue_messages.dart';
+import '../../core/privacy/consent_authority.dart';
 
 class DataTransferScreen extends ConsumerStatefulWidget {
   const DataTransferScreen({super.key, this.initialAction});
@@ -90,8 +91,26 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     }
   }
 
+  /// Does this account still have a cloud backup from an earlier build?
+  ///
+  /// C-3 — this probe is EGRESS and must be gated. It asks Supabase for the
+  /// generation pointer and lists the user's storage prefix: two authenticated
+  /// requests carrying the auth token and the user id, made the moment this
+  /// screen opens. It was gated on `SupabaseConfig.isConfigured` alone, which
+  /// asks whether the app CAN reach the server, not whether the user agreed
+  /// that it should.
+  ///
+  /// With cloud consent off there is also nothing to offer: a cloud restore
+  /// cannot run either. So the tile stays hidden and no request is made.
   Future<void> _checkLegacyBackup() async {
     if (!SupabaseConfig.isConfigured) return;
+    final allowed = await ConsentAuthority(
+      () => ref.read(userSettingsRepositoryProvider).getSettings(),
+    ).allows(EgressClass.backup);
+    if (!allowed) {
+      if (mounted) setState(() => _legacyBackupExists = false);
+      return;
+    }
     try {
       final exists = await ref.read(backupServiceProvider).hasRemoteBackup();
       if (mounted) setState(() => _legacyBackupExists = exists);

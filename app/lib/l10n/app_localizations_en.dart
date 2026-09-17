@@ -5778,4 +5778,9 @@ class AppL10nEn extends AppL10n {
   String iiRowPrefix(String row) {
     return 'Row $row: ';
   }
+
+  @override
+  String conflictBudgetLabel(String amount) {
+    return 'Budget $amount';
+  }
 }

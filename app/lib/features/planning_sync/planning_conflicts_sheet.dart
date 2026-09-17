@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/sync/conflict_resolver.dart';
+import '../../core/sync/conflict_policy.dart';
 
 /// MALI-022 part 2 — the visible conflict-resolution surface. Lists planning
 /// rows stuck in `sync_status='conflict'` (a real two-device edit collision)
@@ -124,7 +125,7 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(widget.conflict.label,
+        Text(_conflictLabel(context, widget.conflict),
             style: Theme.of(context).textTheme.bodyLarge),
         const SizedBox(height: 8),
         Row(
@@ -147,4 +148,17 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
       ],
     );
   }
+}
+
+/// A conflicted row's label, in the reader's language.
+///
+/// `labelSql` returns a data column for every entity that has a name. A budget
+/// has none, so its label is composed — and composing it in SQL put an Arabic
+/// word on this sheet in every language. The amount comes from the query; the
+/// word comes from here.
+String _conflictLabel(BuildContext context, SyncConflict conflict) {
+  if (conflict.entityType == ConflictEntities.budget) {
+    return context.l10n.conflictBudgetLabel(conflict.label);
+  }
+  return conflict.label;
 }

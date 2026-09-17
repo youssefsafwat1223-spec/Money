@@ -150,7 +150,13 @@ const Map<String, EntityConflictPolicy> kConflictPolicies = {
     outbox: OutboxKind.planning,
     mechanism: ConflictMechanism.revisionCas,
     resolution: ConflictResolution.interactive,
-    labelSql: "'ميزانية ' || CAST(amount AS TEXT)",
+    // The amount ONLY. Every other entity's label is a data column
+    // (`name`, `raw_merchant`); a budget has no name, so this one has to be
+    // composed — and it used to be composed HERE, in SQL, as
+    // `'ميزانية ' || amount`. That baked an Arabic word into a query and put
+    // it on the planning-conflicts sheet in every language. The word is copy,
+    // so it belongs at the widget; the amount is data, so it stays here.
+    labelSql: 'CAST(amount AS TEXT)',
   ),
   ConflictEntities.subscription: EntityConflictPolicy(
     entityType: ConflictEntities.subscription,

@@ -3118,5 +3118,13 @@
         "type": "String"
       }
     }
+  },
+  "conflictBudgetLabel": "ميزانية {amount}",
+  "@conflictBudgetLabel": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
   }
 }
