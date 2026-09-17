@@ -265,3 +265,110 @@ specific failure to render. The systemic clusters are closed:
 
 English is no longer the blocker it was. It is also not finished, and this
 document does not say otherwise.
+
+---
+
+# Closure — 2026-09-17, later the same day
+
+The three items left open above are closed. This section supersedes them.
+
+## 1. The 198 + 46 is now 0 + 0 — and the zero means something
+
+The previous count was inflated by three things it should never have counted,
+and the fix is in the counting tool, not only in the code.
+
+`tool/l10n_extract.py` used to skip whole FILES. That cannot see a new
+untranslated string added to a file that is mostly fine — and
+`encrypted_backup_service.dart` has 40 coded throws, so a 41st without a code
+has to be reported. It now classifies **per literal**: a string whose own
+statement carries the other half of its pair (`code:`, a `lang == 'en'`
+branch, `if (en)`) is bilingual, not missing. 63 strings are counted that way,
+each with the marker that proved it.
+
+What is still excluded is excluded **by name, with a reason in the tool**:
+
+| Class | Why | Examples |
+|---|---|---|
+| data, not copy | translating it breaks the thing it does | SMS parser keywords, CSV column aliases, CSV type keywords (`مصروف`/`مدين`), Arabic-Indic **digit tables** (`٠١٢٣٤٥٦٧٨٩`), regex character classes |
+| default names written to the DB | each becomes a row the user can rename — it is their data from the moment it exists, and the ARB would overwrite a name they chose | `database_seed`, `planning_pull_service`, `drift_bill_repository` |
+| debug-only | not reachable in a release build | `/design` (behind `if (kDebugMode)` in the router), `FoundationHomeScreen` (no reference outside its own file) |
+| brand | deliberately Arabic in every language | `قرش` in the PDF renderer |
+
+For `repo_exceptions.dart` a file-level exclusion would have been the weak
+kind, so it ships with `repo_error_messages_test`: that asserts the domain
+switch and the UI switch **agree**, in both languages. It fails when the two
+DRIFT — which a grep for Arabic never could.
+
+### What was actually left, and is now done
+
+* The restore-confirmation dialog, the restore privacy note, the plan card's
+  "from / over budget by / left", and the currency-repair confirmation had ARB
+  keys added in an earlier pass and **never applied**. They were counted as
+  done and were not. This is the failure mode the per-literal counting exists
+  to prevent.
+* **The biometric prompt.** That sheet is drawn by iOS/Android, not Flutter,
+  so the string must be handed over already localized — there is no
+  BuildContext inside a platform dialog.
+* **`ImportIssue` got a code**, the same way `DataPortabilityException` and
+  `BackupException` did. Six issues, rendered at the Data Transfer screen.
+* **The transaction row's screen-reader label.** It was Arabic in every
+  locale, which is worse than a visible untranslated string: a blind English
+  user hears the row read out in a language they may not speak, and nothing on
+  screen shows it is wrong.
+* The bottom-nav tab labels, which were Arabic literals in a `static const`
+  list reaching the screen reader under `en`.
+* **The bootstrap app had no localizations at all.** `StartupApp` builds its
+  own `MaterialApp` with no delegates, so the loading screen, the timeout and
+  the database-recovery view were necessarily hardcoded Arabic, with forced
+  RTL on top. It resolves against the DEVICE locale now — the saved language
+  lives in the database, which is exactly what has not opened yet.
+
+## 2. Android notification channels — decided and implemented
+
+No longer a deferred product decision. See
+`V1_ANDROID_NOTIFICATION_CHANNELS.md`. Existing ids keep their Arabic names
+and are the Arabic channels; English gets `<id>_en`. Delete-and-recreate was
+considered and rejected: it discards importance, sound and **whether the user
+muted the channel**, and every existing install is Arabic.
+
+Action button labels were never subject to the constraint — Android reads them
+from each post — and are localized.
+
+## 3. Runtime evidence, both platforms
+
+| | iOS Simulator | Android 15 emulator |
+|---|---|---|
+| Routes walked | 19 × 2 languages | 19 × 2 languages |
+| Routes with Arabic under `en` | 8/19 | 8/19 |
+| Arabic on `/` | 13 | 13 |
+| Direction asserted | every route | every route |
+| Sheets | 6/6 open, 1 survivor | — |
+
+The two platforms agree exactly. Getting there required one real fix to the
+harness: `categoryCatalogProvider` rebuilds on a language switch and the tree
+keeps the PREVIOUS catalog until that future resolves, so the first route
+walked read the stale one. Android reported five Arabic category names on `/`
+while `/transactions`, walked later off the same catalog, reported none. The
+walk waits for the catalog to carry the active language before measuring.
+
+Every survivor is user data: account names, goal names, merchant names, avatar
+initials, and two strings from one onboarding notification delivered in Arabic
+before the fix, whose stored text is deliberately not rewritten — it is a
+record of what was actually shown.
+
+One survivor was a real defect and is fixed for new installs: the first
+account created during setup was named `الحساب الرئيسي` unconditionally. It is
+DATA, so it is now named in the language the user is setting up in, rather
+than rendered through the ARB.
+
+## Final counts
+
+| | |
+|---|---|
+| ARB keys per language | **1,614**, sets asserted identical |
+| Arabic left in the English ARB | **0** |
+| Untranslated user-facing strings | **0** |
+| Strings counted as bilingual in place | 63 |
+| Files excluded as data / bilingual / debug-only | 58 / 24 / 2 |
+| Tests | **3,990 pass** |
+| `flutter analyze lib` | clean |
