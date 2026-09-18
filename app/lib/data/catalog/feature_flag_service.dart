@@ -28,8 +28,20 @@ const Map<String, Object> _defaults = {
   // to this map, so a key present in neither is false by accident rather than
   // by decision — and "false by accident" is indistinguishable from "off" right
   // up until someone flips it remotely and nothing happens.
+  //
+  // One key per `AdPlacement`, ALL false — including the surfaces added by
+  // D-19 (2026-09-19). Seeding a new placement `true` would look like a
+  // rollout and behave like the opposite: `getBool` falls back to this map for
+  // anyone the percentage bucket excludes, so a `true` default hands the
+  // feature to exactly the users a partial rollout was meant to hold back.
+  // A guard test enforces `false` for every placement, not merely presence.
   'enable_banner_ads': false,
   'enable_banner_transactions_list': false,
+  'enable_banner_dashboard': false,
+  'enable_banner_goals': false,
+  'enable_banner_subscriptions': false,
+  'enable_banner_reports': false,
+  'enable_banner_achievements': false,
   // COUPONS Phase 1+ — four INDEPENDENT kill switches, all seeded OFF and
   // fail-closed. Deliberately not one flag: `enable_coupons` remains the master
   // for the generic catalog, and if merchant awareness, tracked links or

@@ -26,6 +26,20 @@ List<File> _adsLayerFiles() => [
 List<String> _adsLayerSources() =>
     _adsLayerFiles().map((f) => f.readAsStringSync()).toList();
 
+/// The `enum AdPlacement { … }` body, as source text.
+String _placementEnumBody() {
+  final src = File('lib/features/ads/ad_placement.dart').readAsStringSync();
+  return src.substring(src.indexOf('enum AdPlacement {'));
+}
+
+/// The declared enum value identifiers. Two-space indent is what distinguishes
+/// a value from anything nested deeper in the body.
+Set<String> _placementNames() =>
+    RegExp(r'^\s{2}([a-z][A-Za-z0-9]*)\(', multiLine: true)
+        .allMatches(_placementEnumBody())
+        .map((m) => m.group(1)!)
+        .toSet();
+
 Iterable<File> _allLibDart() => Directory('lib')
     .listSync(recursive: true)
     .whereType<File>()
@@ -277,29 +291,35 @@ void main() {
     }
     expect(found, approved,
         reason: 'banner call sites changed. The ad-surface allowlist is CLOSED '
-            '(owner decision 2026-09-03, D-18): a surface not on it is '
-            'prohibited. Adding one requires an owner decision recorded in '
-            'docs/project/DECISIONS.md and section 0 of '
-            'docs/plans/MONETIZATION_PLAN.md — not an edit to this list.');
+            '(owner decision 2026-09-19, D-19, superseding D-18): a surface not '
+            'approved there is prohibited. Adding one requires an owner '
+            'decision recorded in docs/project/DECISIONS.md and section 0 of '
+            'docs/plans/MONETIZATION_PLAN.md — not an edit to this list.\n'
+            'D-19 approves six surfaces; this list is the narrower record of '
+            'which are actually MOUNTED. Dashboard, Goals, Subscriptions, '
+            'Reports and Achievements are approved and not yet mounted — the '
+            'entry goes in here in the same change that adds the widget, not '
+            'ahead of it.');
   });
 
   test('the AdPlacement enum itself is a closed allowlist', () {
-    // The call-site guard above is necessary but not sufficient. A second
-    // placement could be added to the enum and mounted inside the ALREADY
-    // approved file, and the call-site set would not change. The approved
-    // surfaces are a product contract (D-18), so the enum that names them is
-    // pinned too: exactly one banner placement is approved.
-    final src = File('lib/features/ads/ad_placement.dart').readAsStringSync();
-    final body = src.substring(src.indexOf('enum AdPlacement {'));
-    final values = RegExp(r'^\s{2}([a-z][A-Za-z0-9]*)\(', multiLine: true)
-        .allMatches(body)
-        .map((m) => m.group(1))
-        .toSet();
-    expect(values, {'transactionsList'},
-        reason: 'AdPlacement changed. Approved surfaces are transactionsList '
-            '(banner) and the report-export interstitial, and nothing else. '
-            'Excluded by owner decision: Dashboard/Home, Budgets, Goals, Smart '
-            'Inbox, capture/review/confirmation, transaction detail/edit, '
+    // The call-site guard above is necessary but not sufficient. A placement
+    // could be added to the enum and mounted inside an ALREADY approved file,
+    // and the call-site set would not change. The approved surfaces are a
+    // product contract (D-19), so the enum that names them is pinned too.
+    expect(_placementNames(), {
+      'transactionsList',
+      'dashboard',
+      'goals',
+      'subscriptions',
+      'reports',
+      'achievements',
+    },
+        reason: 'AdPlacement changed. Approved surfaces are the six banner '
+            'placements above (owner decision D-19, 2026-09-19, superseding '
+            'D-18) plus the report-export interstitial, and nothing else. '
+            'Still excluded by owner decision: Budgets, Smart Inbox, '
+            'capture/review/confirmation, transaction detail/edit, '
             'Coupons/Savings/Merchant offers, onboarding/auth, privacy, '
             'backup/restore, destructive flows, and forms and modal financial '
             'actions. That exclusion list is illustrative — the allowlist is '
@@ -307,19 +327,49 @@ void main() {
             'first.');
   });
 
-  test('the banner flag keys exist in the flag defaults', () {
+  test('every placement flag is seeded, and seeded FALSE', () {
     // `getBool` consults the remote cache first and falls back to `_defaults`.
     // A key in neither is false by ACCIDENT — indistinguishable from "off"
     // right up until someone flips it remotely and nothing happens.
+    //
+    // And `false` specifically, not merely present: the rollout bucket returns
+    // null for a user OUTSIDE the percentage, which falls through to this map.
+    // A placement seeded `true` would therefore serve ads to precisely the
+    // population a partial rollout was created to withhold them from — the
+    // rollout would read as "10% on" and behave as "100% on".
+    //
+    // Derived from the enum rather than listed, so a new placement cannot ship
+    // with an unseeded flag.
     final defaults =
         File('lib/data/catalog/feature_flag_service.dart').readAsStringSync();
-    for (final key in const [
+    final placementKeys = RegExp(r"^\s{2}[a-z][A-Za-z0-9]*\('([a-z0-9_]+)'\)",
+            multiLine: true)
+        .allMatches(_placementEnumBody())
+        .map((m) => m.group(1)!)
+        .toSet();
+    expect(placementKeys.length, _placementNames().length,
+        reason: 'every enum value declares a literal key');
+    for (final key in {
       'enable_banner_ads',
-      'enable_banner_transactions_list',
-    ]) {
+      for (final k in placementKeys) 'enable_banner_$k',
+    }) {
       expect(defaults, contains("'$key': false"),
-          reason: '$key must be seeded OFF in _defaults');
+          reason: '$key must be seeded, and seeded OFF, in _defaults');
+      expect(defaults, isNot(contains("'$key': true")),
+          reason: '$key must never be seeded ON');
     }
+  });
+
+  test('the per-placement flag key is spelled in exactly one place', () {
+    // Three things must agree on the spelling: the provider that reads it, the
+    // `_defaults` seed, and the guard above. `AdPlacement.flagKey` is that one
+    // place; an interpolated string rebuilt at the read site can drift from the
+    // seed and fail silently to "off".
+    final providers =
+        File('lib/features/ads/banner_ads_providers.dart').readAsStringSync();
+    expect(providers.contains('placement.flagKey'), isTrue);
+    expect(providers.contains("'enable_banner_\${placement"), isFalse,
+        reason: 'read the key from AdPlacement.flagKey, do not re-interpolate');
   });
 
   test('no banner placement has a raw ad unit id', () {

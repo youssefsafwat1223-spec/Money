@@ -1,13 +1,14 @@
 # Mali — Complete Monetization Plan
 
-> **⚠️ PARTIALLY SUPERSEDED — owner decision, 2026-09-03. Read §0 before acting on
-> anything in this document.** The 2026-06-14 blanket prohibitions on banners and
-> interstitials are superseded **only** by the specific ad surfaces listed in §0.
-> Everything else in this plan — including every other "Never" — remains binding.
+> **⚠️ PARTIALLY SUPERSEDED — owner decisions, 2026-09-03 (D-18) and 2026-09-19
+> (D-19). Read §0 before acting on anything in this document.** The 2026-06-14
+> blanket prohibitions on banners and interstitials are superseded **only** by the
+> specific ad surfaces listed in §0. Everything else in this plan — including
+> every other "Never" — remains binding.
 
 ---
 
-## 0. Current ad-surface contract (2026-09-03) — AUTHORITATIVE
+## 0. Current ad-surface contract (2026-09-19) — AUTHORITATIVE
 
 This section outranks every other statement in this file. It is the single
 product contract for where an ad may appear in Qirsh.
@@ -20,17 +21,28 @@ not it appears in the exclusion list.
 
 | Surface | Format | Status | Basis |
 |---|---|---|---|
-| `AdPlacement.transactionsList` | Anchored adaptive banner, one per list, at the first section boundary | **APPROVED** | Owner decision 2026-09-03 |
+| `AdPlacement.transactionsList` | Anchored adaptive banner, one per list, at the first section boundary | **APPROVED** | Owner decision 2026-09-03 (D-18) |
+| `AdPlacement.dashboard` | Banner | **APPROVED** | Owner decision 2026-09-19 (D-19) |
+| `AdPlacement.goals` | Banner | **APPROVED** | Owner decision 2026-09-19 (D-19) |
+| `AdPlacement.subscriptions` | Banner | **APPROVED** | Owner decision 2026-09-19 (D-19) |
+| `AdPlacement.reports` | Banner | **APPROVED** | Owner decision 2026-09-19 (D-19) |
+| `AdPlacement.achievements` | Banner | **APPROVED** | Owner decision 2026-09-19 (D-19) |
 | Report export | Interstitial, on export completion | **APPROVED — preserved** | Commissioned after this plan; owner workstream `Qirsh Production/13_AdMob/` carries owner-assigned activation tasks, and the four `ADMOB_*` identifiers are wired through `codemagic.yaml` |
 
-Nothing else. No third surface is approved.
+Nothing else. Reports is the only surface carrying two formats, and approving
+the banner there is **not** approval of a banner→export→interstitial run in one
+session; sequencing those two is a requirement on the surface plan.
+
+D-19 supersedes D-18's narrower allowlist and moves Dashboard/Home and Goals out
+of the exclusion list. It leaves D-18's structure intact — closed allowlist, no
+raw unit ids in feature code, flags seeded OFF and fail-closed.
 
 ### Explicitly excluded — ads must never appear here
 
-Dashboard / Home · Budgets · Goals · Smart Inbox · capture, review and
-confirmation flows · transaction detail and edit · Coupons, Savings and Merchant
-offers · onboarding and auth · privacy screens · backup and restore · deletion
-and other destructive flows · any form or modal financial action.
+Budgets · Smart Inbox · capture, review and confirmation flows · transaction
+detail and edit · Coupons, Savings and Merchant offers · onboarding and auth ·
+privacy screens · backup and restore · deletion and other destructive flows ·
+any form or modal financial action.
 
 This list is illustrative of the boundary, **not** exhaustive of what is
 prohibited — the allowlist above is what defines what is permitted.
@@ -38,19 +50,37 @@ prohibited — the allowlist above is what defines what is permitted.
 ### How this is enforced
 
 The allowlist is structural, not documentary. `AdPlacement` enumerates the
-approved placements; `app/test/architecture/report_ads_guards_test.dart` holds a
-positive call-site allowlist that fails if `QirshAdBanner` is mounted anywhere
-other than an approved site. **That guard must not be weakened into a general ads
-permission.** Adding a surface requires an owner decision recorded in
-`docs/project/DECISIONS.md`, not merely a passing test.
+approved placements; `app/test/architecture/report_ads_guards_test.dart` pins
+that enum AND holds a positive call-site allowlist that fails if `QirshAdBanner`
+is mounted anywhere other than an approved, already-implemented site. **That
+guard must not be weakened into a general ads permission.** Adding a surface
+requires an owner decision recorded in `docs/project/DECISIONS.md`, not merely a
+passing test.
+
+Approval, mounting and enablement are three separate gates. A placement in the
+enum is approved; a call site means it renders; a remote flag means it serves.
+As of this revision, five of the six banner placements are approved and not yet
+mounted.
 
 ### What this decision does not do
 
-It does not enable ads. Both formats remain behind flags seeded OFF
-(`enable_report_ads`, `enable_banner_ads`, `enable_banner_transactions_list`),
-no production ad units exist, and activation remains a separate owner action.
+It does not enable ads. Every format remains behind a flag seeded OFF
+(`enable_banner_ads` plus one `enable_banner_<key>` per placement, and
+`enable_report_ads`), and activation remains a separate owner action. A guard
+asserts each of those defaults is `false` rather than merely present, because
+the percentage-rollout bucket falls through to the default for users outside the
+bucket — a `true` default would invert the meaning of a partial rollout. The
+master and per-placement flags also bucket independently (the rollout hash mixes
+the flag key), so roll out on one flag at a time and leave the other at 100%.
 
-Recorded as **D-18**; closes **RB-9**.
+AdMob release configuration — Codemagic environment variables, App IDs, Ad Unit
+IDs, release defines, the iOS `Info.plist` injection and the Android AdMob
+configuration — is **out of scope** by owner instruction (2026-09-19). All six
+placements therefore share the single configured banner unit; per-placement
+AdMob reporting would require new build inputs inside that frozen area, and
+placement-keyed analytics events serve that need instead.
+
+Recorded as **D-19**; supersedes **D-18**, which closed **RB-9**.
 
 ---
 

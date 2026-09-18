@@ -184,3 +184,79 @@ requires a new entry in this file, not a test edit.
 `enable_banner_transactions_list` remain seeded OFF, no production ad units
 exist, and a release build without injected identifiers resolves null and serves
 nothing. Activation is a separate owner action.
+
+## D-19 · The ad-surface allowlist widens to six banner surfaces
+
+**Owner decision, 2026-09-19. Supersedes D-18's allowlist.**
+
+D-18 (2026-09-03) closed the allowlist at two surfaces and named Dashboard/Home
+and Goals among the exclusions. The owner has since directed that banners be
+placed on five further screens. That is the owner's call — the exclusions in
+D-18 were a product judgement recorded on the owner's behalf, not a safety
+invariant — so D-18's **allowlist** is superseded here. Its **structure** is not:
+closed allowlist, no raw unit ids in feature code, flags seeded OFF and
+fail-closed, and no ad beside a financial confirmation or a destructive action
+all remain in force and are still enforced by
+`app/test/architecture/report_ads_guards_test.dart`.
+
+### Approved ad surfaces — the complete list
+
+| Surface | Format | Status |
+|---|---|---|
+| `AdPlacement.transactionsList` | Anchored adaptive banner | **APPROVED** — D-18, unchanged |
+| `AdPlacement.dashboard` | Banner | **APPROVED** — D-19 |
+| `AdPlacement.goals` | Banner | **APPROVED** — D-19 |
+| `AdPlacement.subscriptions` | Banner | **APPROVED** — D-19 |
+| `AdPlacement.reports` | Banner **and** the report-export interstitial | **APPROVED** — D-19 (banner); D-18 preserved (interstitial) |
+| `AdPlacement.achievements` | Banner | **APPROVED** — D-19 |
+
+Reports is the only surface carrying two formats. Both firing around one export
+is a sequencing problem that the surface plan must solve; approving the banner
+here is not approval of a banner→export→interstitial run.
+
+**Still excluded, illustratively rather than exhaustively:** Budgets, Smart
+Inbox, capture / review / confirmation flows, transaction detail and edit,
+Coupons / Savings / Merchant offers, onboarding and auth, privacy screens,
+backup and restore, deletion and other destructive flows, any form or modal
+financial action. As under D-18, the allowlist is what permits: a surface in
+neither list is prohibited.
+
+### Approved is not mounted, and mounted is not enabled
+
+Three separate gates, deliberately:
+
+1. **Approved** — a value in `AdPlacement`. This decision.
+2. **Mounted** — a `QirshAdBanner` call site, held in a positive allowlist in
+   the guard test. Five of the six are approved and not yet mounted; each entry
+   goes in with the widget, not ahead of it.
+3. **Enabled** — `enable_banner_ads` plus one `enable_banner_<key>` per
+   placement, every one of them seeded `false` in `_defaults` and activated
+   remotely. A guard asserts `false`, not merely presence: the rollout bucket
+   returns null outside the percentage and falls through to the default, so a
+   placement seeded `true` would serve ads to exactly the users a partial
+   rollout exists to hold back.
+
+Operationally, the rollout hash is `SHA-256("$installId:$flagKey")`, so the
+master and per-placement flags bucket **independently**. A master at 10% and a
+placement at 10% is the intersection of two unrelated samples, not 10% of users.
+Roll out on one flag and leave the other at 100%.
+
+### AdMob configuration is out of scope
+
+The owner has production AdMob identifiers and Codemagic environment
+configuration already in place and has placed them out of scope (2026-09-19):
+Codemagic environment variables, AdMob App IDs and Ad Unit IDs, release secrets
+and defines, the iOS `Info.plist` AdMob injection, and the Android AdMob
+configuration are not to be modified, moved or reorganised.
+
+The visible consequence is in `bannerUnitFor`: all six placements resolve to the
+**single** configured banner unit. D-18's note that a second placement "should
+get its own unit" for AdMob reporting still holds as advice, and is deliberately
+not acted on — a per-placement unit means a new `ADMOB_*` build input, a new
+Codemagic variable and a new ad unit, all inside the frozen area. The guard
+pinning exactly six `ADMOB_*` build inputs is therefore unchanged by this
+decision. Per-placement measurement runs meanwhile on the placement-keyed
+analytics events, which cost no build inputs.
+
+**No ad is enabled by this.** Every flag remains seeded OFF; activation stays a
+separate owner action.

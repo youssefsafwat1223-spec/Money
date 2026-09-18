@@ -31,14 +31,21 @@ final bannerAdsEnabledProvider = Provider<bool>((ref) {
 /// failure mode where one typo silently disables everything.
 ///
 /// Every key returned here MUST also exist in the `_defaults` map in
-/// `feature_flag_service.dart`. `getBool` falls back to `_defaults` only when
-/// the remote cache has no boolean for the key, so a key that is absent from
-/// BOTH is false by accident rather than by decision.
+/// `feature_flag_service.dart`, seeded `false`. `getBool` falls back to
+/// `_defaults` only when the remote cache has no boolean for the key, so a key
+/// that is absent from BOTH is false by accident rather than by decision — and
+/// a key seeded `true` there would defeat percentage rollout entirely, because
+/// the bucket miss falls back to the default.
+///
+/// Note that the master and the per-placement flag are bucketed INDEPENDENTLY:
+/// the rollout hash mixes the flag key, so a master at 10% and a placement at
+/// 10% is the intersection of two unrelated 10% samples, not 10% of users. Roll
+/// out on ONE flag at a time and leave the other at 100%.
 final bannerPlacementEnabledProvider =
     Provider.family<bool, AdPlacement>((ref, placement) {
   if (!ref.watch(bannerAdsEnabledProvider)) return false;
   try {
-    return featureFlags.getBool('enable_banner_${placement.key}');
+    return featureFlags.getBool(placement.flagKey);
   } on StateError {
     return false;
   }
