@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -17,7 +19,8 @@ import 'package:money_companion/domain/entities/category_entity.dart';
 import 'package:money_companion/features/ads/interstitial_cooldown.dart';
 import 'package:money_companion/features/common/category_catalog.dart';
 import 'package:money_companion/features/dashboard/dashboard_providers.dart'
-    show CategorySlice;
+    show CategorySlice, dashboardDataProvider;
+import 'package:money_companion/features/dashboard/dashboard_screen.dart';
 import 'package:money_companion/features/reports/reports_providers.dart';
 import 'package:money_companion/features/reports/reports_screen.dart';
 import 'package:money_companion/features/settings/settings_providers.dart';
@@ -517,6 +520,66 @@ void main() {
             .read(bannerEligibilityProvider(AdPlacement.goals).future),
         isTrue,
       );
+    });
+  });
+
+  group('dashboard', () {
+    // NO full pump of this screen, deliberately.
+    //
+    // `no_charts_on_home_test.dart` already records why: DashboardScreen's
+    // provider aggregates about a dozen repositories, and its sections each
+    // watch their own. Building a DashboardData fixture plus stubs for
+    // budgets, subscriptions, plans and coupons would be far more scaffolding
+    // than a banner placement earns, and it would break on changes that have
+    // nothing to do with ads.
+    //
+    // So: the error path is pumped for real, and the structural claim — that
+    // the banner is a SIBLING of `_Sheet` rather than a descendant of it — is
+    // checked against the source. That claim is the one that matters, because
+    // everything inside `_Sheet` is built as one list child and a banner there
+    // would request on arrival regardless of viewport.
+
+    testWidgets('the ERROR state carries no ad', (tester) async {
+      await tester.pumpWidget(_host(const DashboardScreen(), [
+        dashboardDataProvider
+            .overrideWith((ref) async => throw StateError('x')),
+      ]));
+      await _settle(tester);
+
+      expect(find.byType(QirshAdBanner), findsNothing);
+      expect(_SpyLoader.loadCalls, 0);
+    });
+
+    test('the banner is a sibling of _Sheet, not a descendant', () {
+      final src = File('lib/features/dashboard/dashboard_screen.dart')
+          .readAsStringSync();
+      final lines = src.split('\n');
+
+      int indentOf(bool Function(String) match) {
+        final line = lines.firstWhere(match);
+        return line.length - line.trimLeft().length;
+      }
+
+      // The banner's ENTRY in the children list — the `if` that introduces it —
+      // is what has to be a sibling. Its own line is two wrapper levels deeper
+      // (the conditional, then the Padding), which says nothing about nesting.
+      final entryIndent =
+          indentOf((l) => l.trimLeft().startsWith('if (!data.isEmpty)'));
+      final sheetIndent = indentOf((l) => l.trimLeft().startsWith('_Sheet('));
+
+      expect(entryIndent, sheetIndent,
+          reason: 'the banner must sit at the same list level as _Sheet. '
+              'Nested inside it, it is built with the whole sheet on arrival — '
+              'see banner_placement_mechanics_test.dart.');
+    });
+
+    test('the banner is guarded by the empty-ledger check', () {
+      final src = File('lib/features/dashboard/dashboard_screen.dart')
+          .readAsStringSync();
+      final at = src.indexOf('AdPlacement.dashboard');
+      expect(at, greaterThan(-1));
+      expect(src.substring(0, at), contains('if (!data.isEmpty)'),
+          reason: 'no transactions in the period means no ad');
     });
   });
 }

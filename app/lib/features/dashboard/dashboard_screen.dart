@@ -36,6 +36,8 @@ import '../../domain/finance/money.dart';
 import '../../domain/finance/hero_amount_size.dart';
 import '../../domain/finance/money_format.dart';
 import '../../core/security/app_lock_service.dart';
+import '../ads/ad_placement.dart';
+import '../ads/qirsh_ad_banner.dart';
 import '../app/app_shell.dart';
 import '../coupons/coupon_widgets.dart';
 import '../coupons/coupons_providers.dart';
@@ -218,6 +220,31 @@ class _HomeBody extends ConsumerWidget {
             ],
           ),
         ),
+        // A DIRECT child of the ListView.
+        //
+        // Everything above lives inside `_Sheet`, which is ONE list child — so
+        // a banner placed among those sections would be built with the whole
+        // sheet on arrival, for a slot the user may never scroll to. As a
+        // sibling of the sheet it is materialised only when reached. Both
+        // behaviours are pinned in banner_placement_mechanics_test.dart.
+        //
+        // Dashboard is the first screen after launch and the last placement in
+        // the rollout order for that reason; the foot of the page is the
+        // quietest spot on it.
+        //
+        // No transactions in the period means no ad. The sheet still renders
+        // the budgets, subscriptions and goals the user owns — those are not a
+        // function of the selected range — but an advertisement below an
+        // otherwise empty ledger is the loudest thing on the screen.
+        if (!data.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+            child: QirshAdBanner(placement: AdPlacement.dashboard),
+          ),
+        // The nav-bar clearance that used to close `_Sheet`. Moved out so it
+        // sits BELOW the banner — an ad the floating bar covers is an obscured
+        // ad.
+        const SizedBox(height: 112),
       ],
     );
   }
@@ -1059,8 +1086,10 @@ class _Sheet extends StatelessWidget {
     // شفاف بالكامل: الهيرو الأزرق بيكمّل وراه ([_heroMeltOverflow]) وبيدوب في
     // كانفاس الصفحة، فأول الكروت بتقعد على الذوبان بدل ما خلفية صلبة تقطعه.
     return Padding(
+      // Bottom clearance moved OUT to the list, so it can sit below the ad
+      // slot rather than between the last section and it.
       padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, 0, AppSpacing.gutter, 112),
+          AppSpacing.gutter, 0, AppSpacing.gutter, 0),
       child: child,
     );
   }
