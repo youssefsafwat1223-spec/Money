@@ -137,7 +137,10 @@ class BudgetsCard extends StatelessWidget {
     final c = context.colors;
     final hasLimit = !entry.limit.isZero && !entry.limit.isNegative;
     final ratio = hasLimit ? entry.ratio : null;
-    final tone = hasLimit ? c.budgetState(entry.ratio) : t.textOnCanvasMuted;
+    final tone = hasLimit
+        ? c.budgetState(entry.ratio,
+            warnAtPercent: entry.alertThresholdPercent)
+        : t.textOnCanvasMuted;
     final over = entry.spent.minorUnits > entry.limit.minorUnits;
     final left = over ? entry.spent - entry.limit : entry.limit - entry.spent;
     final periodLabel = switch (entry.period) {

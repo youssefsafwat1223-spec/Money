@@ -29,6 +29,7 @@ class DashboardBudgetEntry {
     required this.period,
     this.accountId,
     this.accountName,
+    this.alertThresholdPercent = BudgetEntity.defaultAlertThresholdPercent,
   });
 
   final String budgetId;
@@ -37,6 +38,9 @@ class DashboardBudgetEntry {
   final Money limit;
   final double ratio;
   final BudgetPeriod period;
+  /// The budget's own warning threshold, carried so the dashboard bar turns
+  /// amber at the same point the alert fires.
+  final int alertThresholdPercent;
   final String? accountId;
   final String? accountName;
 }
@@ -595,6 +599,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       limit: budget.amountMoney,
       ratio: bRatio,
       period: budget.period,
+      alertThresholdPercent: budget.alertThresholdPercent,
       accountId: budget.accountId,
       accountName:
           budget.accountId != null ? accountMap[budget.accountId] : null,

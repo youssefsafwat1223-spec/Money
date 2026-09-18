@@ -648,7 +648,8 @@ class _BudgetCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final progressColor = c.budgetState(entry.ratio);
+    final progressColor = c.budgetState(entry.ratio,
+        warnAtPercent: entry.budget.alertThresholdPercent);
     final progress = entry.ratio.clamp(0, 1).toDouble();
     final percent = (entry.ratio * 100).round();
     final isOver = entry.remaining.isNegative;
@@ -885,7 +886,8 @@ class _BudgetHistoryRow extends StatelessWidget {
     final entry = history.progress;
     final isGeneral = entry.budget.isAllExpenses;
     final isOver = entry.remaining.isNegative;
-    final progressColor = c.budgetState(entry.ratio);
+    final progressColor = c.budgetState(entry.ratio,
+        warnAtPercent: entry.budget.alertThresholdPercent);
     final iconColor = category?.tileColor ?? progressColor;
     final periodLabel = switch (entry.budget.period) {
       BudgetPeriod.daily => context.l10n.bdgFilterDaily,
@@ -1060,7 +1062,8 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final entry = history.progress;
-    final progressColor = c.budgetState(entry.ratio);
+    final progressColor = c.budgetState(entry.ratio,
+        warnAtPercent: entry.budget.alertThresholdPercent);
     final progress = entry.ratio.clamp(0, 1).toDouble();
     final percent = (entry.ratio * 100).round();
     final isOver = entry.remaining.isNegative;

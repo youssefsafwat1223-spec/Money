@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../domain/entities/budget_entity.dart';
+
 /// AppBrandBlue — the ONE blue family in the app.
 ///
 /// Before this existed the UI carried four independent blue authorities
@@ -13,24 +15,29 @@ import 'package:flutter/material.dart';
 /// part of this ramp and are untouched.
 abstract final class AppBrandBlue {
   /// Deepest navy — the top stop of the dark page header only.
-  static const Color deep = Color(0xFF01102F);
+  /// `--qirsh-blue-deep`.
+  static const Color deep = Color(0xFF011341);
 
   /// ★ The canonical brand / primary blue (the logo blue).
-  static const Color brand = Color(0xFF021B79);
+  /// `--qirsh-blue`.
+  static const Color brand = Color(0xFF022686);
 
   /// One step up — header mid-stop, sheet surfaces, dark gradient end.
-  static const Color strong = Color(0xFF0A2E9E);
+  /// `--qirsh-blue-mid`.
+  static const Color strong = Color(0xFF0336BF);
 
-  /// Light-mode CTA. Reuses the primary family (was an off-ramp #0340A5).
-  static const Color mid = Color(0xFF1C4FD0);
+  /// Light-mode CTA. `--qirsh-blue-light`.
+  static const Color mid = Color(0xFF1653F3);
 
-  /// Dark-mode CTA, light-mode `info`, and the accent-gradient start.
+  /// Dark-mode CTA and the accent-gradient start. Unchanged: the dark theme
+  /// already carried the design system's `--qirsh-blue-light` for dark.
   static const Color bright = Color(0xFF2E6BFF);
 
-  /// The lighter semantic blue — gradient light end, dark-mode `info`.
-  static const Color light = Color(0xFF55ABFF);
+  /// The lighter semantic blue — `--qirsh-sky`.
+  static const Color light = Color(0xFF688EF3);
 
   /// Pale on-navy blue — dark-mode `primary`, onboarding accents.
+  /// `--qirsh-sky` (dark).
   static const Color pale = Color(0xFF9DB9FF);
 
   /// The page-header gradient stops (top → bottom), per brightness. The single
@@ -175,24 +182,41 @@ class AppColors extends ThemeExtension<AppColors> {
         end: Alignment.bottomLeft,
       );
 
-  Color budgetState(double ratio) {
+  /// The colour of a budget at [ratio] of its limit.
+  ///
+  /// [warnAtPercent] is the budget's OWN alert threshold — the same value the
+  /// alert planner uses — so the bar turns amber exactly when the notification
+  /// would fire. It used to be a hardcoded 0.8 here, a hardcoded 0.8 in
+  /// `budget_progress_usecase` and a hardcoded 0.75 in the planner: three
+  /// constants for one idea, which is how a bar could read "warning" with no
+  /// alert sent.
+  ///
+  /// It defaults to [BudgetEntity.defaultAlertThresholdPercent] for the few
+  /// call sites that colour a ratio with no budget behind it (the dashboard's
+  /// whole-month spend against income).
+  Color budgetState(
+    double ratio, {
+    int warnAtPercent = BudgetEntity.defaultAlertThresholdPercent,
+  }) {
     if (ratio >= 1.0) return danger;
-    if (ratio >= 0.8) return warning;
+    if (ratio >= BudgetEntity.normalizeAlertThreshold(warnAtPercent) / 100) {
+      return warning;
+    }
     return success;
   }
 
   // ===== Light Mode =====
   static const AppColors light = AppColors(
-    bg: Color(0xFFF4F6FB),
+    bg: Color(0xFFF4F6FC),
     surface: Color(0xFFFFFFFF),
-    surfaceElevated: Color(0xFFF1F3F8),
+    surfaceElevated: Color(0xFFEEF1F8),
     surfaceCard: Color(0xFFFFFFFF),
-    surfaceMuted: Color(0xFFECEFF6),
+    surfaceMuted: Color(0xFFE7EBF5),
     primary: AppBrandBlue.brand,
     onPrimary: Color(0xFFFFFFFF),
     cta: AppBrandBlue.mid,
     onCta: Color(0xFFFFFFFF),
-    ctaSoft: Color(0xFFEAF2FF),
+    ctaSoft: Color(0xFFD3DDF8),
     // UX-002 — the rejected treatment, fixed at its ROOT.
     //
     // `ink` was near-black (#0F1115). It is the surface behind the selected tab
@@ -211,32 +235,50 @@ class AppColors extends ThemeExtension<AppColors> {
     // token was already the single strongest surface in the light theme, and
     // white-on-#021B79 is a higher contrast ratio than white-on-#0F1115 was, so
     // accessibility improves rather than degrades.
+    // DESIGN-SYSTEM DEVIATION, and a deliberate one.
+    //
+    // The prototype's `--ink-btn` / `--nav-bg` is #0B1024 — a near-black navy.
+    // Adopting it would undo UX-002 above: the owner looked at ~10 sightings of
+    // a near-black surface, rejected that treatment, and chose the product's
+    // own identity instead. That decision is not superseded by the design file
+    // it predates, and `ux002_brand_treatment_test` is the tripwire that caught
+    // this change trying to.
+    //
+    // The brand blue moves with the rest of the ramp (#021B79 -> #022686), so
+    // this token still adopts the design system — it just adopts the design's
+    // BLUE rather than the design's black. White on it is 12.93:1.
     ink: AppBrandBlue.brand,
     onInk: Color(0xFFFFFFFF),
-    accent: Color(0xFFFBC926),
-    income: Color(0xFF16A34A),
-    expense: Color(0xFFDC2626),
-    success: Color(0xFF16A34A),
-    warning: Color(0xFFD97706),
-    danger: Color(0xFFDC2626),
+    accent: Color(0xFFE4BA41),
+    income: Color(0xFF12855C),
+    expense: Color(0xFFC4362C),
+    success: Color(0xFF12855C),
+    warning: Color(0xFFC9800F),
+    danger: Color(0xFFC4362C),
     info: AppBrandBlue.bright,
     neutral: Color(0xFF667085),
     disabled: Color(0xFFD8DDE8),
     disabledFg: Color(0xFF8B94A7),
-    border: Color(0xFFDDE2EC),
+    border: Color(0xFFE7EBF5),
     divider: Color(0xFFE8EBF2),
-    textPrimary: Color(0xFF111827),
-    textSecondary: Color(0xFF4B5563),
-    textMuted: Color(0xFF636E80),
-    onSurface: Color(0xFF111827),
-    onSurfaceMuted: Color(0xFF4B5563),
-    successBg: Color(0xFFE8F8EE),
-    dangerBg: Color(0xFFFDECEC),
-    warningBg: Color(0xFFFFF3D8),
-    infoBg: Color(0xFFEAF1FF),
+    textPrimary: Color(0xFF0C1330),
+    textSecondary: Color(0xFF39415C),
+    // ACCESSIBILITY DELTA, deliberate and documented. The design system's
+    // `--qirsh-muted` is #727B96, which measures 3.90:1 on the design's own
+    // ground (#F4F6FC) — below WCAG AA for body text, on the one token this
+    // repo has already had to fix for exactly that reason. This is the same
+    // hue (225°) and saturation (0.146) darkened to the first step that
+    // passes: 4.56:1 on the ground, 4.93:1 on a card.
+    textMuted: Color(0xFF67708A),
+    onSurface: Color(0xFF0C1330),
+    onSurfaceMuted: Color(0xFF39415C),
+    successBg: Color(0xFFE1F3EC),
+    dangerBg: Color(0xFFFBE7E4),
+    warningBg: Color(0xFFFBF0DE),
+    infoBg: Color(0xFFD3DDF8),
     onSuccess: Color(0xFFFFFFFF),
     onDanger: Color(0xFFFFFFFF),
-    onWarning: Color(0xFF111827),
+    onWarning: Color(0xFF0C1330),
     onInfo: Color(0xFFFFFFFF),
     gradA: AppBrandBlue.light,
     gradB: AppBrandBlue.brand,
