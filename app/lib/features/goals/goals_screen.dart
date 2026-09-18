@@ -16,6 +16,8 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/finance/money.dart';
+import '../ads/ad_placement.dart';
+import '../ads/qirsh_ad_banner.dart';
 import '../common/planning_repair_gate.dart';
 import '../common/premium_loading.dart';
 import 'goal_details_screen.dart';
@@ -94,10 +96,28 @@ class GoalsScreen extends ConsumerWidget {
                         ),
                         const SizedBox(height: AppSpacing.s4),
                       ],
-                      const SizedBox(height: 120),
                     ],
                   ),
                 ),
+                // A DIRECT child of the ListView — the goal cards are not, so
+                // putting the banner among them would build it with the whole
+                // Column regardless of viewport. Here `SliverList` materialises
+                // it only when the user has scrolled to it.
+                //
+                // Two goals minimum. With one, an ad is the second thing on a
+                // nearly empty screen; with none, the empty state is a
+                // create-your-first-goal prompt and gets no ad at all.
+                if (visibleGoals.length >= 2)
+                  const Padding(
+                    padding:
+                        EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                    child: QirshAdBanner(placement: AdPlacement.goals),
+                  ),
+                // The nav-bar clearance that used to close the Column above.
+                // Moved out so it sits BELOW the banner rather than between the
+                // last goal and it — an ad the floating bar covers is an
+                // obscured ad.
+                const SizedBox(height: 120),
               ],
             ),
           );

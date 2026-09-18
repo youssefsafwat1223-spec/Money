@@ -5,7 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backend/metrics_client.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/di/app_providers.dart';
+import 'package:money_companion/data/db/planning_cutover.dart';
+import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
+import 'package:money_companion/domain/finance/money.dart';
+import 'package:money_companion/features/goals/goals_providers.dart';
+import 'package:money_companion/features/goals/goals_screen.dart';
 import 'package:money_companion/features/achievements/achievements_providers.dart';
 import 'package:money_companion/features/achievements/achievements_screen.dart';
 import 'package:money_companion/features/ads/ad_placement.dart';
@@ -122,6 +128,29 @@ AchievementsView _achievementsView({int badges = 8}) => AchievementsView(
       ),
     );
 
+List<GoalEntity> _goals(int count) => [
+      for (var i = 0; i < count; i++)
+        GoalEntity(
+          id: 'g$i',
+          name: 'هدف $i',
+          currency: 'SAR',
+          targetMoney: Money.parse('5000', 'SAR'),
+          savedMoney: Money.parse('1200', 'SAR'),
+          lastNotifiedSavedMoney: Money(0, 'SAR'),
+          vaultSkin: 'summer_trip',
+          status: 'active',
+          createdAt: DateTime.utc(2026, 1, 1),
+        ),
+    ];
+
+/// GoalsScreen sits behind `PlanningRepairGate`, which reads the cutover
+/// coordinator and therefore the database. A canonical stub keeps the test
+/// about placement.
+class _CanonicalCutover implements PlanningCutoverCoordinator {
+  @override
+  PlanningCutoverState state() => PlanningCutoverState.canonical;
+}
+
 void main() {
   setUp(() {
     _SpyLoader.reset();
@@ -133,13 +162,17 @@ void main() {
         (tester) async {
       await tester.pumpWidget(_host(
         const AchievementsScreen(),
-        [achievementsViewProvider.overrideWith((ref) async => _achievementsView())],
+        [
+          achievementsViewProvider
+              .overrideWith((ref) async => _achievementsView())
+        ],
       ));
       await _settle(tester);
 
       // Sliver laziness: nothing yet, because the slot is below the grid.
       expect(_SpyLoader.loadCalls, 0,
-          reason: 'the banner sits below the grid and must not load on arrival');
+          reason:
+              'the banner sits below the grid and must not load on arrival');
 
       await _scrollToBottom(tester);
       expect(find.byType(QirshAdBanner), findsOneWidget);
@@ -149,7 +182,10 @@ void main() {
     testWidgets('a rebuild does not buy a second ad', (tester) async {
       await tester.pumpWidget(_host(
         const AchievementsScreen(),
-        [achievementsViewProvider.overrideWith((ref) async => _achievementsView())],
+        [
+          achievementsViewProvider
+              .overrideWith((ref) async => _achievementsView())
+        ],
       ));
       await _settle(tester);
       await _scrollToBottom(tester);
@@ -190,6 +226,69 @@ void main() {
       expect(find.byType(QirshAdBanner), findsNothing,
           reason: 'an ad alone on an empty screen reads as the content');
       expect(_SpyLoader.loadCalls, 0);
+    });
+  });
+
+  group('goals', () {
+    List<Override> deps(int count) => [
+          planningCutoverCoordinatorProvider
+              .overrideWithValue(_CanonicalCutover()),
+          baseCurrencyProvider.overrideWith((ref) async => 'SAR'),
+          goalsListProvider.overrideWith((ref) async => _goals(count)),
+        ];
+
+    testWidgets('mounts exactly one banner, below the goal cards',
+        (tester) async {
+      await tester.pumpWidget(_host(const GoalsScreen(), deps(4)));
+      await _settle(tester);
+      await _scrollToBottom(tester);
+
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1);
+    });
+
+    testWidgets('a single goal carries no ad', (tester) async {
+      // One goal makes the ad the second thing on a nearly empty screen.
+      await tester.pumpWidget(_host(const GoalsScreen(), deps(1)));
+      await _settle(tester);
+      await _scrollToBottom(tester);
+
+      expect(find.byType(QirshAdBanner), findsNothing);
+      expect(_SpyLoader.loadCalls, 0);
+    });
+
+    testWidgets('the EMPTY state carries no ad', (tester) async {
+      // That branch is a create-your-first-goal prompt and a separate ListView.
+      await tester.pumpWidget(_host(const GoalsScreen(), deps(0)));
+      await _settle(tester);
+      await _scrollToBottom(tester);
+
+      expect(find.byType(QirshAdBanner), findsNothing);
+      expect(_SpyLoader.loadCalls, 0);
+    });
+
+    testWidgets('the ERROR state carries no ad', (tester) async {
+      await tester.pumpWidget(_host(const GoalsScreen(), [
+        planningCutoverCoordinatorProvider
+            .overrideWithValue(_CanonicalCutover()),
+        baseCurrencyProvider.overrideWith((ref) async => 'SAR'),
+        goalsListProvider.overrideWith((ref) async => throw StateError('boom')),
+      ]));
+      await _settle(tester);
+
+      expect(find.byType(QirshAdBanner), findsNothing);
+      expect(_SpyLoader.loadCalls, 0);
+    });
+
+    testWidgets('a rebuild does not buy a second ad', (tester) async {
+      await tester.pumpWidget(_host(const GoalsScreen(), deps(4)));
+      await _settle(tester);
+      await _scrollToBottom(tester);
+      expect(_SpyLoader.loadCalls, 1);
+
+      await _settle(tester);
+      expect(_SpyLoader.loadCalls, 1);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
     });
   });
 }

@@ -283,6 +283,7 @@ void main() {
     const approved = {
       'lib/features/transactions/transactions_screen.dart',
       'lib/features/achievements/achievements_screen.dart',
+      'lib/features/goals/goals_screen.dart',
     };
     final found = <String>{};
     for (final f in _allLibDart()) {
