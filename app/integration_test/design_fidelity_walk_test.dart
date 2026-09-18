@@ -171,6 +171,18 @@ void main() {
           });
         }
 
+        // The ledger is a shell TAB, not a route — and it is the densest
+        // category-bearing surface in the app, so it cannot be left out of a
+        // walk whose job is to inspect category glyphs.
+        await surface('$combo-transactions', () async {
+          router.go('/');
+          await settle(tester, budget: const Duration(seconds: 6));
+          container.read(shellIndexProvider.notifier).state = 1;
+          await settle(tester, budget: const Duration(seconds: 12));
+        });
+        container.read(shellIndexProvider.notifier).state = 0;
+        await settle(tester, budget: const Duration(seconds: 5));
+
         // The two overlays that carry the most design surface, including the
         // new Budget alert control.
         await popAll();

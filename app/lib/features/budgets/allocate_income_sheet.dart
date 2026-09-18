@@ -270,7 +270,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                       child: CategoryGlyph(
                         name: category.iconName,
                         size: 18,
-                        color: Colors.white,
+                        color: category.tileColor,
                       ),
                     ),
                     const SizedBox(width: AppSpacing.s3),

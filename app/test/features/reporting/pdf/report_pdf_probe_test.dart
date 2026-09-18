@@ -16,11 +16,14 @@ void main() {
     return pw.Font.ttf(ByteData.sublistView(bytes));
   }
 
+  // Vazirmatn — the same family `ReportFonts.load()` now loads and the same
+  // family the screen uses. The probe must render with the shipping face or it
+  // proves nothing about the shipping report.
   ReportFontSet loadFonts() => ReportFontSet(
-        regular: fontFrom('IBMPlexSansArabic-Regular.ttf'),
-        medium: fontFrom('IBMPlexSansArabic-Medium.ttf'),
-        semiBold: fontFrom('IBMPlexSansArabic-SemiBold.ttf'),
-        bold: fontFrom('IBMPlexSansArabic-Bold.ttf'),
+        regular: fontFrom('Vazirmatn-Regular.ttf'),
+        medium: fontFrom('Vazirmatn-Medium.ttf'),
+        semiBold: fontFrom('Vazirmatn-SemiBold.ttf'),
+        bold: fontFrom('Vazirmatn-Bold.ttf'),
       );
 
   test('renders a valid Arabic (RTL) probe PDF', () async {

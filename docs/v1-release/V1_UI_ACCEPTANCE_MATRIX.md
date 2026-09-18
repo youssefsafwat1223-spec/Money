@@ -43,15 +43,27 @@
 > mint/gold families on its own authority. All of it is now implemented, and the
 > denominator is rebuilt on the fidelity classification the owner specified.
 >
+> **SUPERSEDED by the closure below.**
+>
 > | Classification | Count |
 > |---|---|
-> | MATCH | **57** |
-> | ACCESSIBILITY EXCEPTION | **1** (`--qirsh-muted`, measured) |
+> | MATCH | **63** |
+> | ACCESSIBILITY EXCEPTION | **1** (`--qirsh-muted`, measured, owner-approved) |
 > | OWNER-APPROVED INTENTIONAL DELTA | **0** |
 > | NOT APPLICABLE | **0** |
-> | **MISMATCH** | **2** — category glyph set, `--f-mono` |
+> | **MISMATCH** | **0** |
 > | **NOT INSPECTED** | **0** |
-> | TOTAL | **60** |
+> | TOTAL | **64** |
+>
+> The two mismatches the previous pass reported are closed on the owner's
+> instruction: category glyphs are now the design's stroke-icon system with its
+> per-family tone pairs, and IBM Plex Mono is bundled and used where `--f-mono`
+> calls for it. The PDF renderer draws with Vazirmatn, so export and screen
+> share a face again.
+>
+> The denominator is 64: the walk gained the transactions ledger, which is a
+> shell tab rather than a route and had been missing from it — and is the
+> densest category-bearing surface in the app.
 >
 > Every surface was inspected on device in **all four** combinations —
 > Arabic/RTL and English/LTR × light and dark — by

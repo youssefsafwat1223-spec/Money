@@ -125,6 +125,50 @@ class AppTypography {
   static TextStyle micro(Color c) =>
       custom(size: 11, weight: FontWeight.w500, height: 1.30, color: c);
 
+  /// The MONOSPACED family, `--f-mono` in the design prototype.
+  ///
+  /// IBM Plex Mono (bundled, OFL). Used ONLY where the design calls for
+  /// technical/monospaced copy — card-network badges, build and version lines,
+  /// report page numbers and rank positions. It is not a body face and must not
+  /// become one: it has no Arabic.
+  static const String monoFontFamily = 'IBMPlexMono';
+
+  /// Arabic falls through to the UI family.
+  ///
+  /// IBM Plex Mono is Latin-only. The design's own card-network badge renders
+  /// «مدى» in it, so without this fallback an Arabic network name would render
+  /// as tofu — the exact failure the mono face invites. Vazirmatn first so
+  /// Arabic mono copy matches the rest of the interface.
+  static const List<String> _monoFallback = <String>[
+    'Vazirmatn',
+    'IBMPlexSansArabic',
+    'Alexandria',
+  ];
+
+  /// Technical/monospaced copy. [tabular] defaults ON — a monospaced string in
+  /// this app is nearly always a number, an id or a code, and proportional
+  /// figures in a mono face defeat the point of choosing one.
+  static TextStyle mono({
+    required double size,
+    FontWeight weight = FontWeight.w400,
+    double height = 1.30,
+    double letterSpacing = 0,
+    bool tabular = true,
+    Color? color,
+  }) {
+    return TextStyle(
+      fontFamily: monoFontFamily,
+      fontFamilyFallback: _monoFallback,
+      fontSize: size,
+      fontWeight: weight,
+      height: height,
+      letterSpacing: letterSpacing,
+      color: color,
+      fontFeatures:
+          tabular ? const [FontFeature.tabularFigures()] : const <FontFeature>[],
+    );
+  }
+
   // ===== Mali flagship "calm" scale (docs/MALI_DESIGN_SYSTEM.md) =====
   // Additive only. The existing amountHero/display/w800 styles above are
   // untouched and remain in active use across the app — do not remove them.

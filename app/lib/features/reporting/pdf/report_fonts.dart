@@ -5,10 +5,14 @@ import 'package:pdf/widgets.dart' as pw;
 
 /// The bundled OFL fonts used to render reports.
 ///
-/// IBM Plex Sans Arabic (SIL OFL 1.1) covers Arabic, Latin and Western digits —
-/// its Latin *is* IBM Plex Sans — so one family serves the whole document and
-/// avoids relying on `google_fonts` runtime fetching, which a headless renderer
-/// cannot use. Fonts are loaded from bundled TTF bytes on the **main isolate**
+/// **Vazirmatn** (SIL OFL 1.1) covers Arabic, Latin and Western digits, so one
+/// family serves the whole document and nothing relies on `google_fonts`
+/// runtime fetching, which a headless renderer cannot use.
+///
+/// It is the same face the SCREEN uses. That is the point: the renderer drew
+/// with IBM Plex Sans Arabic while the app moved to Vazirmatn, so an exported
+/// report no longer looked like the app it came from. The two are one family
+/// again — which is the property this file always claimed and briefly lost. Fonts are loaded from bundled TTF bytes on the **main isolate**
 /// (a background isolate cannot access `rootBundle`) and passed into the pure
 /// [ReportPdfRenderer].
 class ReportFontSet {
@@ -59,10 +63,10 @@ class ReportFonts {
         pw.Font.ttf(await rootBundle.load('$_dir/$file'));
 
     final set = ReportFontSet(
-      regular: await font('IBMPlexSansArabic-Regular.ttf'),
-      medium: await font('IBMPlexSansArabic-Medium.ttf'),
-      semiBold: await font('IBMPlexSansArabic-SemiBold.ttf'),
-      bold: await font('IBMPlexSansArabic-Bold.ttf'),
+      regular: await font('Vazirmatn-Regular.ttf'),
+      medium: await font('Vazirmatn-Medium.ttf'),
+      semiBold: await font('Vazirmatn-SemiBold.ttf'),
+      bold: await font('Vazirmatn-Bold.ttf'),
     );
     _cached = set;
     return set;
@@ -79,10 +83,10 @@ class ReportFonts {
     }
 
     final set = ReportFontBytes(
-      regular: await bytes('IBMPlexSansArabic-Regular.ttf'),
-      medium: await bytes('IBMPlexSansArabic-Medium.ttf'),
-      semiBold: await bytes('IBMPlexSansArabic-SemiBold.ttf'),
-      bold: await bytes('IBMPlexSansArabic-Bold.ttf'),
+      regular: await bytes('Vazirmatn-Regular.ttf'),
+      medium: await bytes('Vazirmatn-Medium.ttf'),
+      semiBold: await bytes('Vazirmatn-SemiBold.ttf'),
+      bold: await bytes('Vazirmatn-Bold.ttf'),
     );
     _cachedBytes = set;
     return set;

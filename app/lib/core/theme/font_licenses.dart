@@ -41,6 +41,7 @@ import 'package:flutter/services.dart' show rootBundle;
 /// silent gap is caught at build time rather than at runtime.
 const Map<String, String> kBundledFontLicenses = {
   'IBM Plex Sans Arabic': 'assets/fonts/IBMPlexSansArabic-OFL.txt',
+  'IBM Plex Mono': 'assets/fonts/IBMPlexMono-OFL.txt',
   'Vazirmatn': 'assets/fonts/Vazirmatn-OFL.txt',
   'Alexandria': 'assets/fonts/Alexandria-OFL.txt',
 };

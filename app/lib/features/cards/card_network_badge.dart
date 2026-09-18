@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../engine/parser/card_network.dart';
+import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/l10n_ext.dart';
 
@@ -63,12 +64,18 @@ class CardNetworkBadge extends StatelessWidget {
       alignment: Alignment.center,
       child: Text(
         label,
-        style: TextStyle(
+        // `--f-mono`. The design renders this badge in IBM Plex Mono — it is a
+        // network MARK, not prose. `AppTypography.mono` falls back to the UI
+        // family for Arabic, which is what keeps «مدى» from rendering as tofu
+        // in a Latin-only face.
+        style: AppTypography.mono(
+          size: height * 0.62,
+          weight: FontWeight.w700,
           color: color,
-          fontWeight: FontWeight.w800,
-          fontSize: height * 0.62,
-          fontStyle: italic ? FontStyle.italic : FontStyle.normal,
           letterSpacing: 0.5,
+          tabular: false,
+        ).copyWith(
+          fontStyle: italic ? FontStyle.italic : FontStyle.normal,
         ),
       ),
     );

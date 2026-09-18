@@ -15,6 +15,7 @@ import '../../domain/finance/money.dart';
 import '../../domain/finance/money_format.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/category_glyph.dart';
+import '../../core/utils/category_tone.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -678,11 +679,12 @@ class _BudgetCard extends StatelessWidget {
                 width: 50,
                 height: 50,
                 decoration: BoxDecoration(
-                  // `.icobox { background: var(--c-*-bg) }` — the category's
-                  // colour at wash strength, not the colour itself. Solid
-                  // tiles read as heavy dark blocks down the list.
-                  color: (category?.tileColor ?? progressColor)
-                      .withValues(alpha: 0.12),
+                  // `.icobox` — the design's `--c-*-bg` / `--c-*-ink` pair for
+                  // this theme, not one colour at two opacities.
+                  color: categoryTone(
+                    isGeneral ? 'wallet-cards' : (category?.iconName ?? 'shapes'),
+                    Theme.of(context).brightness,
+                  ).background,
                   borderRadius: BorderRadius.circular(AppRadius.card),
                 ),
                 child: CategoryGlyph(
@@ -690,7 +692,10 @@ class _BudgetCard extends StatelessWidget {
                       ? 'wallet-cards'
                       : (category?.iconName ?? 'shapes'),
                   size: 24,
-                  color: Colors.white,
+                  color: categoryTone(
+                    isGeneral ? 'wallet-cards' : (category?.iconName ?? 'shapes'),
+                    Theme.of(context).brightness,
+                  ).ink,
                 ),
               ),
               const SizedBox(width: AppSpacing.s3),
@@ -890,9 +895,6 @@ class _BudgetHistoryRow extends StatelessWidget {
     final entry = history.progress;
     final isGeneral = entry.budget.isAllExpenses;
     final isOver = entry.remaining.isNegative;
-    final progressColor = c.budgetState(entry.ratio,
-        warnAtPercent: entry.budget.alertThresholdPercent);
-    final iconColor = category?.tileColor ?? progressColor;
     final periodLabel = switch (entry.budget.period) {
       BudgetPeriod.daily => context.l10n.bdgFilterDaily,
       BudgetPeriod.weekly => context.l10n.bdgFilterWeekly,
@@ -938,14 +940,20 @@ class _BudgetHistoryRow extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: iconColor.withValues(alpha: 0.12),
+              color: categoryTone(
+                isGeneral ? 'wallet-cards' : (category?.iconName ?? 'shapes'),
+                Theme.of(context).brightness,
+              ).background,
               borderRadius: BorderRadius.circular(AppRadius.card),
             ),
             child: CategoryGlyph(
               name:
                   isGeneral ? 'wallet-cards' : (category?.iconName ?? 'shapes'),
               size: 20,
-              color: Colors.white,
+              color: categoryTone(
+                isGeneral ? 'wallet-cards' : (category?.iconName ?? 'shapes'),
+                Theme.of(context).brightness,
+              ).ink,
             ),
           ),
           const SizedBox(width: AppSpacing.s3),
@@ -1097,8 +1105,12 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: (category?.tileColor ?? progressColor)
-                        .withValues(alpha: 0.12),
+                    color: categoryTone(
+                      entry.budget.isAllExpenses
+                          ? 'wallet-cards'
+                          : (category?.iconName ?? 'shapes'),
+                      Theme.of(context).brightness,
+                    ).background,
                     borderRadius: BorderRadius.circular(AppRadius.card),
                   ),
                   child: CategoryGlyph(
@@ -1106,7 +1118,12 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                         ? 'wallet-cards'
                         : (category?.iconName ?? 'shapes'),
                     size: 24,
-                    color: Colors.white,
+                    color: categoryTone(
+                      entry.budget.isAllExpenses
+                          ? 'wallet-cards'
+                          : (category?.iconName ?? 'shapes'),
+                      Theme.of(context).brightness,
+                    ).ink,
                   ),
                 ),
                 const SizedBox(width: AppSpacing.s3),

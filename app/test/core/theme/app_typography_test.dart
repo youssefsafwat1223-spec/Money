@@ -100,6 +100,56 @@ void main() {
       expect(theme.headlineMedium!.fontWeight, FontWeight.w600); // §7 SemiBold
     });
 
+    test('the mono family is bundled with its weights and licence', () {
+      // `--f-mono: "IBM Plex Mono"`. Bundled, never fetched.
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      expect(pubspec, contains('family: IBMPlexMono'));
+      expect(pubspec, contains('asset: assets/fonts/IBMPlexMono-Regular.ttf'));
+      expect(pubspec, contains('asset: assets/fonts/IBMPlexMono-Bold.ttf'));
+      expect(File('assets/fonts/IBMPlexMono-Regular.ttf').existsSync(), isTrue);
+      expect(File('assets/fonts/IBMPlexMono-Bold.ttf').existsSync(), isTrue);
+      // SIL OFL 1.1 shipped beside the face, like every other bundled family.
+      expect(File('assets/fonts/IBMPlexMono-OFL.txt').existsSync(), isTrue);
+    });
+
+    test('mono() is the mono face, with tabular figures by default', () {
+      final s = AppTypography.mono(size: 10);
+      expect(s.fontFamily, 'IBMPlexMono');
+      expect(s.fontFeatures, contains(const FontFeature.tabularFigures()));
+      // A monospaced string here is nearly always a number, an id or a code.
+      final proportional = AppTypography.mono(size: 10, tabular: false);
+      expect(proportional.fontFeatures, isEmpty);
+    });
+
+    test('mono() falls back to the UI family so Arabic never breaks', () {
+      // THE failure mode this face invites: IBM Plex Mono is Latin-only, and
+      // the design's own card-network badge renders «مدى» in it. Without a
+      // fallback that has Arabic, the badge is tofu.
+      final s = AppTypography.mono(size: 10);
+      expect(s.fontFamilyFallback, isNotNull);
+      expect(s.fontFamilyFallback!.first, 'Vazirmatn',
+          reason: 'Arabic mono copy should match the rest of the interface');
+      expect(s.fontFamilyFallback, contains('IBMPlexSansArabic'));
+    });
+
+    testWidgets('an Arabic network badge renders through the fallback',
+        (tester) async {
+      await tester.pumpWidget(MaterialApp(
+        home: Directionality(
+          textDirection: TextDirection.rtl,
+          child: Scaffold(
+            body: Text('مدى',
+                style: AppTypography.mono(
+                    size: 12, color: const Color(0xFF84B740))),
+          ),
+        ),
+      ));
+      expect(tester.takeException(), isNull);
+      final style = tester.widget<Text>(find.text('مدى')).style!;
+      expect(style.fontFamily, 'IBMPlexMono');
+      expect(style.fontFamilyFallback, contains('Vazirmatn'));
+    });
+
     testWidgets('offline: Arabic + English render with the bundled family, no network',
         (tester) async {
       // No google_fonts import remains in the typography path, so no runtime

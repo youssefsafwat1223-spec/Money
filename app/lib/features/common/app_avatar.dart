@@ -4,6 +4,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/category_glyph.dart';
+import '../../core/utils/category_tone.dart';
 import '../../core/utils/category_palette.dart';
 import '../cards/brand_mark.dart';
 import 'category_catalog.dart';
@@ -112,12 +113,22 @@ class AppAvatar extends StatelessWidget {
     // ledger dropped to white-on-pale.
     final isSoft = _tone == AppAvatarTone.soft && initial == null;
 
+    // `.icobox` — the design's per-family background/ink pair for this theme.
+    // A single colour at low alpha cannot express it: the dark pair LIGHTENS
+    // the ink and darkens the ground, and `categoryTileColor` already returns
+    // near-black values, so 12% of one on a black canvas was invisible.
+    final tone = resolvedIconName == null
+        ? null
+        : categoryTone(resolvedIconName, Theme.of(context).brightness);
+
     return Container(
       width: size,
       height: size,
       alignment: Alignment.center,
       decoration: ShapeDecoration(
-        color: isSoft ? tileColor.withValues(alpha: 0.12) : tileColor,
+        color: isSoft
+            ? (tone?.background ?? tileColor.withValues(alpha: 0.12))
+            : tileColor,
         shape: shapeFor(size),
       ),
       child: _icon != null
@@ -138,9 +149,9 @@ class AppAvatar extends StatelessWidget {
               : CategoryGlyph(
                   name: resolvedIconName ?? 'receipt-text',
                   size: size * 0.46,
-                  // Ignored by CategoryGlyph — the emoji carries its own
-                  // colour. Passed for the call-site contract only.
-                  color: isSoft ? tileColor : Colors.white,
+                  color: isSoft
+                      ? (tone?.ink ?? tileColor)
+                      : Colors.white,
                 ),
     );
   }

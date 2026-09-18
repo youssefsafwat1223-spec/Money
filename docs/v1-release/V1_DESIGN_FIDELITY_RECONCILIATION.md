@@ -170,7 +170,7 @@ Status: **MATCH** (no longer a delta).
 The design's own value fails AA at the size it is used, on the design's own
 background. This is the minimum necessary deviation.
 
-### 4.3 Category glyphs — the one open owner decision
+### 4.3 Category glyphs — CLOSED 2026-09-18 (owner: implement)
 
 The design draws category marks as **stroke SVG icons** tinted with per-category
 ink colours (`--c-food-ink` etc.) on soft tinted backgrounds.
@@ -183,37 +183,96 @@ because the emoji carries its own.
 use the design's soft tint, which is what made them read as heavy brown boxes
 down the ledger and the budget list.
 
-**Not implemented:** replacing emoji with a stroke-icon set. That is a change of
-product identity and needs a per-category icon mapping — not a token migration,
-and not mine to self-approve in either direction.
+**Implemented.** `core/utils/category_icon.dart` maps all 27 shipping icon
+names to bundled Lucide stroke glyphs, and `CategoryGlyph` now renders an
+`Icon` that takes the category's ink colour. The emoji path is gone — the
+widget no longer builds a `Text` at all.
 
-Status: **MISMATCH — OWNER DECISION REQUIRED.** Counted as a mismatch, not
-quietly reclassified.
+Four names had no exact glyph in the bundled subset and take their nearest true
+equivalent rather than a new codepoint: `car-taxi-front` → car, `house` → home,
+`receipt-text` → receipt, `shopping-basket` → cart.
+
+**Directionality:** only `arrow-left-right` (transfers) mirrors — it means
+"from here to there" and points the wrong way unmirrored in Arabic. A cup, a
+plane, a cigarette are objects, and objects do not flip. Asserted both ways.
+
+**Guard:** `test/core/utils/category_icon_coverage_test.dart` fails if any
+seeded category, any key in `Categories.all` (smoking named explicitly), or any
+mapped name resolves to the fallback — and asserts the glyph renders as an
+`Icon`, never `Text`, and honours the tint.
+
+**The tint had to be rebuilt too, and the device found it.** The first
+implementation used the category's colour at 12% alpha for the ground and the
+colour itself for the ink. On white that reads; on black it vanished — the
+ledger's fuel and shopping glyphs were barely visible in dark mode, in a
+capture, after the widget tests passed.
+
+The cause: `categoryTileColor` returns values like `#2C1E12`, which is *itself*
+the design's dark `--c-food-bg`. Twelve percent of a near-black on a black
+canvas is nothing. The design never does this — it defines a PAIR per family
+per theme, and dark **lightens the ink** while darkening the ground:
+
+```
+--c-food-bg:  #FDF0E7 (light)   #2C1E12 (dark)
+--c-food-ink: #C9541A (light)   #F0A868 (dark)
+```
+
+`core/utils/category_tone.dart` carries all five families (`food`, `move`,
+`bill`, `shop`, `in`) plus a neutral from `--qirsh-blue-wash`, in both themes,
+at the design's exact values. The twenty-nine shipping icons map onto the five
+by meaning rather than inventing new colours.
+
+Guarded: every seeded category's ink must clear **3:1** against its own ground
+in *both* themes — the WCAG threshold for non-text graphics — and dark must not
+reuse the light pair.
+
+Status: **MATCH**.
 
 ---
 
-## 5. `--f-mono` — MISMATCH, small
+## 5. `--f-mono` — CLOSED 2026-09-18 (owner: implement)
 
-The design specifies IBM Plex Mono for "selected monospaced financial/network
-details". The app has no mono family bundled and uses tabular figures on the
-primary face instead.
+**IBM Plex Mono is bundled** — Regular 400 and Bold 700, with its SIL OFL 1.1
+licence beside the face in `assets/fonts/IBMPlexMono-OFL.txt` and registered in
+`FontLicenses`. No runtime network dependency; the app has never fetched type
+and still does not.
 
-Effect is confined to technical detail strings (IDs, card networks). Closing it
-means bundling a fourth family; recorded rather than done silently.
+`AppTypography.mono()` is the only way in. Tabular figures default **on** — a
+monospaced string in this app is nearly always a number, an id or a code.
 
-Status: **MISMATCH — OWNER DECISION REQUIRED** (bundle IBM Plex Mono, or accept
-tabular-figure Vazirmatn as the intentional substitute).
+**Arabic safety, which is the real risk this face carries.** IBM Plex Mono is
+Latin-only, and the design's own `netBadge` renders «مدى» in it. The fallback
+chain is `Vazirmatn → IBMPlexSansArabic → Alexandria`, Vazirmatn first so
+Arabic mono copy matches the rest of the interface. A widget test renders «مدى»
+through it and asserts no exception and the correct fallback chain.
+
+**Applied where the design calls for it, and nowhere else:** the card-network
+badge (`--f-mono` in the prototype's `netBadge`). It is not a body face and the
+contract test exists partly to keep it from becoming one.
+
+Status: **MATCH**.
 
 ---
 
-## 6. PDF report face
+## 6. PDF report face — CLOSED 2026-09-18 (owner: align)
 
-The PDF renderer still draws with IBM Plex Sans Arabic, so the exported report
-and the screen no longer share a face.
+`ReportFonts` now loads **Vazirmatn** at all four weights — the same family the
+screen uses. The renderer had claimed "one family serves the whole document"
+and briefly lost that property when the UI moved; it holds again.
 
-Status: **OPEN — deliberate**, recorded in `app_typography.dart`. The PDF is a
-separate pipeline with its own layout metrics; changing its face changes
-exported documents, not app screens, and should be decided on that basis.
+**Verified by rendering, not by reasoning.** Both probe reports were generated
+and inspected as images:
+
+| | |
+|---|---|
+| `build/report_probe_ar.pdf` | Arabic shaping correct (التقرير المالي joins properly), RTL layout, tiles right-to-left, Latin "IKEA" correctly placed inside Arabic bidi, Western tabular numerals, income green / expense red |
+| `build/report_probe_en.pdf` | LTR layout, Latin glyphs, tabular numerals, same semantics |
+
+Report tests pass (16). Privacy masking, pagination, layout and the
+share/print/export path are untouched — only the font bytes the renderer loads
+changed.
+
+Status: **MATCH**.
 
 ---
 

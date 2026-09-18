@@ -147,6 +147,18 @@ flutter:
           weight: 600
         - asset: assets/fonts/Alexandria-Bold.ttf
           weight: 700
+    # `--f-mono` from the design prototype: IBM Plex Mono, for technical and
+    # monospaced detail strings only (card-network badges, build/version lines,
+    # report page numbers and rank positions). BUNDLED (SIL OFL 1.1, licence in
+    # assets/fonts/IBMPlexMono-OFL.txt) — the app never fetches type over a
+    # network. Latin-only by design, so AppTypography.mono falls back to the UI
+    # family for Arabic; see the typography contract test.
+    - family: IBMPlexMono
+      fonts:
+        - asset: assets/fonts/IBMPlexMono-Regular.ttf
+          weight: 400
+        - asset: assets/fonts/IBMPlexMono-Bold.ttf
+          weight: 700
     # The PRIMARY UI family (see the note above). The PDF renderer loads these
     # same TTF bytes directly, so the exported report matches the screen.
     - family: IBMPlexSansArabic
