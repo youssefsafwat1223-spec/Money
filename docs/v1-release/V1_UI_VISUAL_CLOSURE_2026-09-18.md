@@ -394,12 +394,14 @@ The four from 2026-09-17 stand. Five added:
 
 * **The persisted language may not survive a process restart** — §5. Outside
   the visual scope, and larger than it.
-* **`notification_journey_service.dart:114-134`** composes campaign
+* ~~**`notification_journey_service.dart:114-134`** composes campaign
   notifications from `titleAr`/`bodyAr` unconditionally, so an English user
-  would *receive* an Arabic notification. Same family as §3 (1), but a
-  notification is not a visual surface and the fix needs the
-  `notificationLanguage` pattern rather than a context. Out of scope for a
-  visual pass; flagged rather than silently widened into one.
+  would *receive* an Arabic notification.~~ **FIXED 2026-09-18**, once English
+  became reachable and made it a real defect. The choice moved to
+  `core/i18n/bilingual_copy.dart`, which carries the same fallback the banners
+  use and needs no `BuildContext`; the service resolves it from
+  `user_settings.language`, which it already had open. The last exemption in
+  `no_arabic_only_server_copy_test` is gone, so the guard now covers the file.
 * **Dashboard metric trio** renders `−0.00` for a zero "Spent today". Cosmetic,
   pre-existing, on a surface accepted in the previous pass.
 

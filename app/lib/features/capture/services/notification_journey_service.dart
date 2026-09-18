@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../../../core/i18n/bilingual_copy.dart';
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
@@ -44,10 +45,18 @@ class NotificationJourneyService {
     }
 
     final profile = await _readProfile();
-    // Same source `localeProvider` reads, so a notification speaks the
-    // language the app is actually in.
+    // `user_settings.language` — the same row `localeProvider` reads, so a
+    // notification speaks the language the app is actually in. Read here, in
+    // the service that already holds the database, rather than pulled from a
+    // widget: this code runs with no element tree and must not depend on one.
     final lang =
         (await DriftUserSettingsRepository(_database).getSettings()).language;
+    // The Android channel NAME follows the same language as the copy. The two
+    // are set from one value here so a notification cannot arrive in English
+    // inside a channel called «رسائل ونصائح قرش» — `_channel` and the channel
+    // copy read this field, and `evaluateAfterCapture` can run before anything
+    // in the widget tree has pushed it.
+    _localNotifications.notificationLanguage = lang;
     final candidates = _journeysFor(profile, preferences.inboxState, now);
     for (final journey in candidates) {
       preferences = await _loadPreferences();
@@ -76,7 +85,7 @@ class NotificationJourneyService {
       await _savePreferences(preferences.copyWith(inboxState: updatedInbox));
       break;
     }
-    await _evaluateRemoteNotificationCampaign(profile, now);
+    await _evaluateRemoteNotificationCampaign(profile, now, lang);
   }
 
   Future<void> evaluateAfterCapture() => evaluate();
@@ -84,6 +93,7 @@ class NotificationJourneyService {
   Future<void> _evaluateRemoteNotificationCampaign(
     _NotificationProfile profile,
     DateTime now,
+    String lang,
   ) async {
     final campaignsDao = _campaignsDao;
     if (campaignsDao == null) return;
@@ -108,13 +118,17 @@ class NotificationJourneyService {
       }
       final decision = _canSendMarketing(campaign.id, preferences, now);
       if (!decision.allowed) continue;
+      // Server-authored copy in the user's language. `titleIn`/`bodyIn` carry
+      // the same fallback the banners use — an empty English field falls back
+      // to Arabic rather than sending a blank notification.
+      final title = campaign.titleIn(lang);
+      final body = campaign.bodyIn(lang)?.trim();
+      final resolvedBody = body?.isNotEmpty == true ? body! : title;
       await _localNotifications.showMarketingNotification(
         // 31-bit-safe: a raw hashCode > 2^31 is dropped by the Android plugin.
         id: campaign.id.hashCode & 0x7FFFFFFF,
-        title: campaign.titleAr,
-        body: campaign.bodyAr?.trim().isNotEmpty == true
-            ? campaign.bodyAr!.trim()
-            : campaign.titleAr,
+        title: title,
+        body: resolvedBody,
         preferences: preferences,
         route: campaign.actionRoute?.trim().isNotEmpty == true
             ? campaign.actionRoute!.trim()
@@ -126,12 +140,14 @@ class NotificationJourneyService {
           .markImpression(campaign.id)
           .addHistory(
             NotificationHistoryEntry(
+              // The in-app record of what was sent. It keeps the real copy
+              // even when the OS banner was redacted, so it has to be in the
+              // reader's language too — this is the surface they open to find
+              // out what the notification said.
               id: campaign.id,
               kind: 'campaign',
-              title: campaign.titleAr,
-              body: campaign.bodyAr?.trim().isNotEmpty == true
-                  ? campaign.bodyAr!.trim()
-                  : campaign.titleAr,
+              title: title,
+              body: resolvedBody,
               route: campaign.actionRoute,
               sentAt: now,
             ),

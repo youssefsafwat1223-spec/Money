@@ -18,8 +18,18 @@ import 'package:flutter_test/flutter_test.dart';
 /// measure and nothing to report — "0 untranslated strings" was true and said
 /// nothing about any of them.
 ///
-/// `features/announcements/announcement_text.dart` is where the locale choice
-/// belongs; widgets call `titleFor(context)` and friends.
+/// `core/i18n/bilingual_copy.dart` is where the locale choice belongs: widgets
+/// call `titleFor(context)` through the adapter in
+/// `features/announcements/announcement_text.dart`, and code with no element
+/// tree calls `titleIn(languageCode)` directly.
+///
+/// `notification_journey_service.dart` was the last exemption to this rule and
+/// held it for a reason that expired: it composes campaign notifications with
+/// no `BuildContext`, so there was nowhere context-free to make the choice. It
+/// was also unreachable as a defect while English was — English shipped
+/// complete and with no way for a user to select it. Settings → Language ended
+/// both, so the exemption is gone and the file resolves campaign copy from
+/// `user_settings.language`.
 void main() {
   /// Files allowed to name the Arabic column directly.
   const allowed = <String>{
@@ -30,12 +40,6 @@ void main() {
     // Chooses inline with an explicit `en ?` on every line; correct, and left
     // alone rather than refactored.
     'lib/features/announcements/announcements_screen.dart',
-    // NOT a widget: composes a scheduled notification from a background
-    // isolate with no BuildContext. It is Arabic-only today and that is a real
-    // gap, recorded in the visual-closure report — but it needs the
-    // `notificationLanguage` pattern, not a context, so it is out of scope for
-    // a rule about widgets.
-    'lib/features/capture/services/notification_journey_service.dart',
   };
 
   test('no widget reads the Arabic column of a bilingual server row', () {

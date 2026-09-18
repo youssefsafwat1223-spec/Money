@@ -185,11 +185,22 @@ Consequence worth stating: with English reachable, the cold-start prompt defect
 that was previously *unreachable* becomes real, which is why it was fixed in the
 same change rather than deferred.
 
-Also worth stating, and **not** fixed: `notification_journey_service.dart`
-composes campaign notifications Arabic-only from a background isolate with no
-`BuildContext`. It needs the `notificationLanguage` pattern, not a context. An
-English user will receive those particular notifications in Arabic. Recorded in
-`V1_UI_VISUAL_CLOSURE_2026-09-18.md` §8 and unchanged by this work.
+The same consequence reached one more surface, and it was closed with it.
+`notification_journey_service.dart` composed **growth-campaign** notifications
+from `titleAr`/`bodyAr` unconditionally — in the banner and in the in-app
+history entry beside it — so an English user would have been notified in Arabic
+and found the record of it in Arabic too. (The journey notifications were
+already bilingual; only the server-authored campaign half was not.) It had been
+exempt from the Arabic-only guard because there was nowhere context-free to
+make the choice and because English was unreachable anyway. Both reasons
+expired on the same day.
+
+The rule now lives once, in `core/i18n/bilingual_copy.dart`, with no
+`BuildContext`: the banners reach it through a thin adapter, and the service
+reaches it from `user_settings.language`, which it already had open. The
+Android channel name is set from the same value, so English copy cannot arrive
+inside a channel called «رسائل ونصائح قرش». Redaction is untouched — it happens
+below this, in `_show`, and was already language-aware.
 
 ## 4. Deferred infrastructure
 

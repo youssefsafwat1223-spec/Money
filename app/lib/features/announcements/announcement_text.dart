@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 
+import '../../core/i18n/bilingual_copy.dart';
 import '../../data/catalog/catalog_daos.dart';
 
 /// Server-authored announcement and campaign copy, in the reader's language.
@@ -24,41 +25,30 @@ import '../../data/catalog/catalog_daos.dart';
 /// The fallback is deliberate: an empty English field falls back to Arabic
 /// rather than rendering a blank banner. A row whose translation the operator
 /// has not filled in yet should still say something.
-String _pick(String ar, String? en, bool english) {
-  if (!english) return ar;
-  final value = en?.trim();
-  return (value == null || value.isEmpty) ? ar : value;
-}
-
-String? _pickOptional(String? ar, String? en, bool english) {
-  if (!english) return ar;
-  final value = en?.trim();
-  if (value != null && value.isNotEmpty) return value;
-  return ar;
-}
-
-/// True when the reader's language is English.
-bool _isEnglish(BuildContext context) =>
-    Localizations.localeOf(context).languageCode == 'en';
+///
+/// That rule now lives in `core/i18n/bilingual_copy.dart`, which needs no
+/// `BuildContext` — because the same rows are also read where there is no
+/// element tree at all: `NotificationJourneyService` composes campaign
+/// notifications from a background-safe service. This file is the widget
+/// adapter over it, so a banner and a notification built from the same row
+/// cannot disagree about which language they are in.
+String _language(BuildContext context) =>
+    Localizations.localeOf(context).languageCode;
 
 extension RemoteAnnouncementText on RemoteAnnouncement {
-  String titleFor(BuildContext context) =>
-      _pick(titleAr, titleEn, _isEnglish(context));
+  String titleFor(BuildContext context) => titleIn(_language(context));
 
-  String? bodyFor(BuildContext context) =>
-      _pickOptional(bodyAr, bodyEn, _isEnglish(context));
+  String? bodyFor(BuildContext context) => bodyIn(_language(context));
 
   String? actionLabelFor(BuildContext context) =>
-      _pickOptional(actionLabelAr, actionLabelEn, _isEnglish(context));
+      actionLabelIn(_language(context));
 }
 
 extension RemoteGrowthCampaignText on RemoteGrowthCampaign {
-  String titleFor(BuildContext context) =>
-      _pick(titleAr, titleEn, _isEnglish(context));
+  String titleFor(BuildContext context) => titleIn(_language(context));
 
-  String? bodyFor(BuildContext context) =>
-      _pickOptional(bodyAr, bodyEn, _isEnglish(context));
+  String? bodyFor(BuildContext context) => bodyIn(_language(context));
 
   String? actionLabelFor(BuildContext context) =>
-      _pickOptional(actionLabelAr, actionLabelEn, _isEnglish(context));
+      actionLabelIn(_language(context));
 }

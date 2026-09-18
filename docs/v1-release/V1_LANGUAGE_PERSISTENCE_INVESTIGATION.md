@@ -227,11 +227,26 @@ enforced rather than asserted.
 iOS keychain items outlive the app container. After a **reinstall** the mirror
 survives while the database returns to its default, so a user who had chosen
 English and reinstalled sees one English prompt over an Arabic app until they
-choose again. Closing it means seeding the mirror where the settings row is
-created — inside `AppDatabase`, which every unit test opens without a keychain.
-One wrong-language prompt in a rare path, in the language the user last asked
-for, was not worth putting a platform channel in the data layer's constructor
-path. Recorded, not traded away quietly.
+choose again.
+
+Two fixes were considered and both rejected on their merits, not skipped:
+
+1. **Seed the mirror where the settings row is created.** It does not work.
+   The seed runs during bootstrap, and the gate prompts from a post-frame
+   callback on frame 1 — it loses the same race the mirror exists to win, so
+   the first launch after a reinstall, the only launch that matters here, is
+   unchanged. It would also put a platform channel in `AppDatabase`'s
+   constructor path, which every unit test opens.
+2. **Move the mirror from the keychain to a file in the app container.** This
+   would genuinely close it: a fresh container has no file, so the read returns
+   the default. It was rejected for what it costs — it moves a value out of the
+   keychain, where every other app-level flag lives, into storage that is less
+   protected and travels in device backups; and it re-breaks the same eleven
+   suites a second way, at release closure, for a cosmetic edge.
+
+What is left is one wrong-language prompt, in a rare path, in the language the
+user last asked for. Nothing about the lock's timing, its authentication, or
+what it protects is affected either way. Recorded, not traded away quietly.
 
 ### 6.4 Device evidence — one install, eight launches, both directions
 
@@ -300,4 +315,4 @@ screen rendering entirely in its own language.
 | App-lock prompt on cold start | **FIXED** — both languages verified on device and in unit tests |
 | Language reachability | **CLOSED** — Settings → Language ships; Arabic still the default |
 | Reinstall carrying a stale mirror | **OPEN, recorded** — §6.3 |
-| Arabic-only campaign notifications | **OPEN, recorded** — `notification_journey_service.dart`; needs the `notificationLanguage` pattern, not a context |
+| Arabic-only campaign notifications | **CLOSED** — `core/i18n/bilingual_copy.dart` holds the rule context-free; `notification_journey_service.dart` resolves campaign copy from `user_settings.language` and the guard's last exemption is gone |
