@@ -678,8 +678,12 @@ class _BudgetCard extends StatelessWidget {
                 width: 50,
                 height: 50,
                 decoration: BoxDecoration(
-                  color: category?.tileColor ?? progressColor,
-                  borderRadius: BorderRadius.circular(AppRadius.md),
+                  // `.icobox { background: var(--c-*-bg) }` — the category's
+                  // colour at wash strength, not the colour itself. Solid
+                  // tiles read as heavy dark blocks down the list.
+                  color: (category?.tileColor ?? progressColor)
+                      .withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(AppRadius.card),
                 ),
                 child: CategoryGlyph(
                   name: isGeneral
@@ -934,8 +938,8 @@ class _BudgetHistoryRow extends StatelessWidget {
             width: 42,
             height: 42,
             decoration: BoxDecoration(
-              color: iconColor,
-              borderRadius: BorderRadius.circular(AppRadius.md),
+              color: iconColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(AppRadius.card),
             ),
             child: CategoryGlyph(
               name:
@@ -1093,8 +1097,9 @@ class _BudgetPeriodDetailsSheet extends StatelessWidget {
                   width: 48,
                   height: 48,
                   decoration: BoxDecoration(
-                    color: category?.tileColor ?? progressColor,
-                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    color: (category?.tileColor ?? progressColor)
+                        .withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(AppRadius.card),
                   ),
                   child: CategoryGlyph(
                     name: entry.budget.isAllExpenses

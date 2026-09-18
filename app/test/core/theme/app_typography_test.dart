@@ -10,7 +10,7 @@ void main() {
   // test that asserted the literal `GoogleFonts.alexandria` spelling and thereby
   // cemented the runtime-fetch anti-pattern). These check the rendered/declared
   // font CONFIGURATION, so a formatting-only refactor cannot fail the contract.
-  group('IBM Plex Sans Arabic bundled font contract', () {
+  group('bundled font contract', () {
     test(
         'pubspec registers ONE IBMPlexSansArabic family with the '
         '400/500/600/700 weight→file mapping and no runtime google_fonts', () {
@@ -33,12 +33,22 @@ void main() {
       expect(pubspec, isNot(contains('google_fonts:')));
     });
 
-    test('custom() uses the bundled IBMPlexSansArabic family + fallbacks', () {
+    // PRIMARY FAMILY CHANGED, 2026-09-18. This contract asserted
+    // IBMPlexSansArabic because that was the approved family at the time. The
+    // design prototype names Vazirmatn first (`--f: "Vazirmatn Local",
+    // "Vazirmatn",…`) and the owner has made the prototype the authority for
+    // typography, so the assertions were updated rather than left to hold the
+    // old face in place.
+    //
+    // What the contract is actually FOR is unchanged and still asserted: one
+    // bundled family per face, every weight mapped, no runtime network fetch,
+    // and Arabic + Latin from the same primary.
+    test('custom() uses the bundled Vazirmatn family + fallbacks', () {
       final s =
           AppTypography.custom(size: 16, weight: FontWeight.w400, height: 1.5);
-      expect(s.fontFamily, 'IBMPlexSansArabic');
+      expect(s.fontFamily, 'Vazirmatn');
       expect(s.fontFamilyFallback,
-          containsAllInOrder(['Vazirmatn', 'Alexandria']));
+          containsAllInOrder(['IBMPlexSansArabic', 'Alexandria']));
     });
 
     test('every requested weight is preserved on the primary family', () {
@@ -52,7 +62,7 @@ void main() {
         FontWeight.w700,
       ]) {
         final s = AppTypography.custom(size: 16, weight: w, height: 1.5);
-        expect(s.fontFamily, 'IBMPlexSansArabic');
+        expect(s.fontFamily, 'Vazirmatn');
         expect(s.fontWeight, w);
       }
     });
@@ -68,14 +78,14 @@ void main() {
       const c = Color(0xFF000000);
       final body = AppTypography.body(c);
       expect((body.fontFamily, body.fontSize, body.fontWeight, body.height),
-          ('IBMPlexSansArabic', 16.0, FontWeight.w400, 1.50));
+          ('Vazirmatn', 16.0, FontWeight.w400, 1.50));
       final t2 = AppTypography.title2(c);
       // §7 Title-2: SemiBold. (Size is one step below the spec's 22 by the
       // documented density deviation — see app_typography.dart.)
       expect((t2.fontFamily, t2.fontSize, t2.fontWeight, t2.height),
-          ('IBMPlexSansArabic', 20.0, FontWeight.w600, 1.24));
+          ('Vazirmatn', 20.0, FontWeight.w600, 1.24));
       final hero = AppTypography.amountHero(c);
-      expect(hero.fontFamily, 'IBMPlexSansArabic');
+      expect(hero.fontFamily, 'Vazirmatn');
       expect(hero.fontSize, 40);
       expect(hero.fontFeatures, contains(const FontFeature.tabularFigures()));
     });
@@ -83,9 +93,9 @@ void main() {
     test('textTheme maps Material slots to the primary family with metrics',
         () {
       final theme = AppTypography.textTheme(const Color(0xFF111111));
-      expect(theme.bodyLarge!.fontFamily, 'IBMPlexSansArabic');
+      expect(theme.bodyLarge!.fontFamily, 'Vazirmatn');
       expect(theme.bodyLarge!.fontSize, 16);
-      expect(theme.headlineMedium!.fontFamily, 'IBMPlexSansArabic'); // title2
+      expect(theme.headlineMedium!.fontFamily, 'Vazirmatn'); // title2
       expect(theme.headlineMedium!.fontSize, 20);
       expect(theme.headlineMedium!.fontWeight, FontWeight.w600); // §7 SemiBold
     });
@@ -110,7 +120,7 @@ void main() {
       ));
       expect(tester.takeException(), isNull);
       expect(tester.widget<Text>(find.text('مصروفات اليوم')).style!.fontFamily,
-          'IBMPlexSansArabic');
+          'Vazirmatn');
       expect(find.text('Balance 1,250.00 EGP'), findsOneWidget);
     });
   });

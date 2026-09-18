@@ -262,8 +262,10 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                       width: 36,
                       height: 36,
                       decoration: BoxDecoration(
-                        color: category.tileColor,
-                        borderRadius: BorderRadius.circular(11),
+                        // `.catgrid .c .icobox` — a 36px tile at radius 12,
+                        // on the category's wash rather than its full colour.
+                        color: category.tileColor.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       child: CategoryGlyph(
                         name: category.iconName,

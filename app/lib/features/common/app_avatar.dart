@@ -33,7 +33,18 @@ class AppAvatar extends StatelessWidget {
         _color = null,
         _tone = AppAvatarTone.solid;
 
-  /// تايل تصنيف — إيموجي التصنيف على لونه الثابت، أو أول حرف من [merchantName].
+  /// تايل تصنيف — إيموجي التصنيف على خلفية لونه الهادئة، أو أول حرف من
+  /// [merchantName].
+  ///
+  /// The tone is SOFT, per the design prototype: a category tile is
+  /// `.icobox { background: var(--c-food-bg); color: var(--c-food-ink) }` — a
+  /// pale tint of the category's own colour, not the colour itself. Solid
+  /// tiles rendered as dark brown/olive blocks down the ledger and the budget
+  /// list, which is heavier than the design and fights the category emoji
+  /// sitting on top of them.
+  ///
+  /// [merchantName] initials keep the solid treatment, because a letter needs
+  /// a filled tile to read as a tile at all — see [build].
   const AppAvatar.category({
     super.key,
     CategoryView? category,
@@ -48,7 +59,7 @@ class AppAvatar extends StatelessWidget {
         _label = merchantName,
         _icon = null,
         _color = color,
-        _tone = AppAvatarTone.solid;
+        _tone = AppAvatarTone.soft;
 
   /// تايل أيقونة عام (إعدادات، حالات، إجراءات).
   const AppAvatar.icon({
@@ -96,7 +107,10 @@ class AppAvatar extends StatelessWidget {
         : resolvedIconName != null
             ? categoryTileColor(resolvedIconName)
             : (_color ?? _category?.color ?? c.primary);
-    final isSoft = _tone == AppAvatarTone.soft;
+    // An initial is white-on-colour and needs the filled tile to stay legible;
+    // a glyph sits on the tint. Without this the merchant initials in the
+    // ledger dropped to white-on-pale.
+    final isSoft = _tone == AppAvatarTone.soft && initial == null;
 
     return Container(
       width: size,
@@ -124,7 +138,9 @@ class AppAvatar extends StatelessWidget {
               : CategoryGlyph(
                   name: resolvedIconName ?? 'receipt-text',
                   size: size * 0.46,
-                  color: Colors.white,
+                  // Ignored by CategoryGlyph — the emoji carries its own
+                  // colour. Passed for the call-site contract only.
+                  color: isSoft ? tileColor : Colors.white,
                 ),
     );
   }

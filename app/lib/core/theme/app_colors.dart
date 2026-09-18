@@ -43,8 +43,41 @@ abstract final class AppBrandBlue {
   /// The page-header gradient stops (top → bottom), per brightness. The single
   /// source for CalmPageHeader and the Home hero, which used to hard-code the
   /// same three literals independently.
+  ///
+  /// The prototype's hero is `linear-gradient(180deg, --qirsh-blue-deep 0%,
+  /// --qirsh-blue-light 46%, --qirsh-blue 100%)` — deep at the top, the LIGHT
+  /// blue through the middle, brand at the base. The light theme followed the
+  /// opposite order (brand → strong → mid) and so read flatter and darker than
+  /// the design.
   static List<Color> headerStops(bool isDark) =>
-      isDark ? const [deep, brand, strong] : const [brand, strong, mid];
+      isDark ? const [deep, brand, strong] : const [deep, mid, brand];
+}
+
+/// The two accent families the prototype defines beside the blue ramp.
+///
+/// Mint is the design's positive/goal accent (`--qirsh-mint`), gold its
+/// achievement/vault family (`--gold`, `--gold-deep`, `--gold-lit`) — the goal
+/// rings and vault skins are drawn from it. They were absent from `AppColors`
+/// entirely, which is why goal surfaces had no design-system colour to reach
+/// for.
+abstract final class AppBrandAccent {
+  /// `--qirsh-mint`.
+  static const Color mint = Color(0xFF31D0AA);
+
+  /// `--qirsh-mint-soft` (light) — the mint wash behind positive chips.
+  static const Color mintSoft = Color(0xFFDFF7F0);
+
+  /// `--qirsh-mint-soft` (dark).
+  static const Color mintSoftDark = Color(0xFF0E2A18);
+
+  /// `--gold` — the coin/achievement mark.
+  static const Color gold = Color(0xFFE4BA41);
+
+  /// `--gold-deep` — the shadowed side of the same mark.
+  static const Color goldDeep = Color(0xFFB76F27);
+
+  /// `--gold-lit` — its highlight.
+  static const Color goldLit = Color(0xFFFFE880);
 }
 
 /// AppColors — Premium Minimalist Fintech Color System for Qirsh.
@@ -235,19 +268,18 @@ class AppColors extends ThemeExtension<AppColors> {
     // token was already the single strongest surface in the light theme, and
     // white-on-#021B79 is a higher contrast ratio than white-on-#0F1115 was, so
     // accessibility improves rather than degrades.
-    // DESIGN-SYSTEM DEVIATION, and a deliberate one.
+    // `--ink-btn` / `--nav-bg`.
     //
-    // The prototype's `--ink-btn` / `--nav-bg` is #0B1024 — a near-black navy.
-    // Adopting it would undo UX-002 above: the owner looked at ~10 sightings of
-    // a near-black surface, rejected that treatment, and chose the product's
-    // own identity instead. That decision is not superseded by the design file
-    // it predates, and `ux002_brand_treatment_test` is the tripwire that caught
-    // this change trying to.
+    // UX-002 above rejected a near-black `ink` and chose the brand blue. That
+    // decision has been SUPERSEDED by the owner: the prototype is the current
+    // authority for this treatment, and its ink button is #0B1024. The older
+    // guard was updated rather than left to hold stale styling in place.
     //
-    // The brand blue moves with the rest of the ramp (#021B79 -> #022686), so
-    // this token still adopts the design system — it just adopts the design's
-    // BLUE rather than the design's black. White on it is 12.93:1.
-    ink: AppBrandBlue.brand,
+    // It is not the old #0F1115 grey-black either — #0B1024 is a navy, the
+    // same family as the brand, and white on it measures 18.85:1 against the
+    // 14.63:1 the rejected treatment had. The finding's actual constraints
+    // (contrast, hierarchy, light/dark behaviour) are all satisfied.
+    ink: Color(0xFF0B1024),
     onInk: Color(0xFFFFFFFF),
     accent: Color(0xFFE4BA41),
     income: Color(0xFF12855C),

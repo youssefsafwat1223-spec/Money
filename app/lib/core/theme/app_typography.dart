@@ -8,21 +8,32 @@ class AppTypography {
 
   static const List<FontFeature> _tabular = [FontFeature.tabularFigures()];
 
-  /// The BUNDLED font family (pubspec `fonts:`) — no runtime GoogleFonts fetch,
-  /// so the intended typography renders on the first offline launch.
-  /// IBM Plex Sans Arabic (OFL) — واجهة أولاً: عربي ولاتيني متجانسين وأرقام
-  /// واضحة. وهو نفس الخط اللي بيرسم بيه مولّد تقارير الـ PDF، فالتطبيق
-  /// والتقرير المصدَّر بقوا بخط واحد.
-  static const String fontFamily = 'IBMPlexSansArabic';
+  /// The BUNDLED primary family (pubspec `fonts:`) — no runtime GoogleFonts
+  /// fetch, so the intended typography renders on the first offline launch.
+  ///
+  /// **Vazirmatn (OFL)**, because the design prototype asks for it first:
+  /// `--f: "Vazirmatn Local","Vazirmatn","SF Arabic",…`. It was previously the
+  /// FALLBACK behind IBM Plex Sans Arabic — bundled, licensed and weight-mapped,
+  /// but never actually the face anyone saw. All four weights
+  /// (400/500/600/700) are already in `assets/fonts/`, so this is a family
+  /// swap and not a new asset.
+  static const String fontFamily = 'Vazirmatn';
 
-  /// Bundled fallbacks for whatever IBM Plex Sans Arabic lacks.
-  static const List<String> _fontFallback = ['Vazirmatn', 'Alexandria'];
+  /// Bundled fallbacks for whatever Vazirmatn lacks.
+  static const List<String> _fontFallback = ['IBMPlexSansArabic', 'Alexandria'];
 
-  /// Canonical app text style. **IBM Plex Sans Arabic** (bundled) supplies both
-  /// the Arabic and Latin glyphs — it is [fontFamily], the approved family in
-  /// `docs/design/BRAND_AND_DESIGN_SYSTEM.md` §7, and the same face the PDF report renderer
-  /// draws with so export matches screen. Vazirmatn + Alexandria are the
-  /// bundled fallbacks ([_fontFallback]).
+  /// Canonical app text style. **Vazirmatn** (bundled) supplies both the Arabic
+  /// and Latin glyphs — it is [fontFamily], the family the design prototype
+  /// names first. IBM Plex Sans Arabic + Alexandria are the bundled fallbacks
+  /// ([_fontFallback]).
+  ///
+  /// NOTE — the PDF report renderer still draws with IBM Plex Sans Arabic
+  /// (`features/reporting/pdf/report_fonts.dart`), so the exported report and
+  /// the screen no longer share a face. That is recorded as an open delta in
+  /// `V1_UI_REDESIGN_MAPPING_2026-09-18.md` rather than changed here: the PDF
+  /// is a separate rendering pipeline with its own layout metrics, and
+  /// swapping its face is a change to exported documents, not to the app's
+  /// screens.
   ///
   /// This comment previously said the reverse — that Vazirmatn was primary and
   /// IBM Plex a fallback — which contradicted the two constants directly above

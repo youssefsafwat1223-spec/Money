@@ -64,8 +64,8 @@ class MaliGlass extends StatefulWidget {
   final Widget child;
   final MaliGlassVariant variant;
 
-  /// Corner radius override; defaults per variant (pill 999 / card 28 /
-  /// nav 26 / sheet top-only 28). The override is uniform — sheet keeps its
+  /// Corner radius override; defaults per variant (pill 999 / card 18 /
+  /// nav pill / sheet top-only 28). The override is uniform — sheet keeps its
   /// top-only shape only when this is null.
   final double? radius;
 
@@ -472,7 +472,9 @@ class _MaliGlassSpec {
         );
       case MaliGlassVariant.card:
         return const _MaliGlassSpec(
-          borderRadius: BorderRadius.all(Radius.circular(AppRadius.xxl)),
+          // `--r-card: 18px`. This was `xxl`, which the design reserves for
+          // larger flagship surfaces — a glass CARD is a card.
+          borderRadius: BorderRadius.all(Radius.circular(AppRadius.card)),
           padding: EdgeInsets.all(AppSpacing.cardPadding),
           blurSigma: 20,
           shadow: [
@@ -487,7 +489,8 @@ class _MaliGlassSpec {
         // Matches the nav bar fallback exactly (radius 26, blur 24, and the
         // mode-dependent drop shadow it has always used).
         return _MaliGlassSpec(
-          borderRadius: const BorderRadius.all(Radius.circular(26)),
+          // `.bnav { border-radius:var(--r-pill) }` — the nav is a pill.
+          borderRadius: const BorderRadius.all(Radius.circular(AppRadius.nav)),
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
           blurSigma: 24,
           shadow: [

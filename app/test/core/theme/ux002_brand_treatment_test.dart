@@ -37,21 +37,35 @@ double _contrastRatio(Color a, Color b) {
 }
 
 void main() {
-  group('the black treatment is gone from the light theme', () {
-    test('ink is the canonical brand blue, not near-black', () {
-      expect(AppColors.light.ink, AppBrandBlue.brand,
-          reason: 'the owner chose Option B: replace the black/white treatment '
-              'with the product identity. The canonical identity is the logo '
-              'blue, documented as such in app_colors.dart.');
+  group('the rejected grey-black treatment is still gone', () {
+    // SUPERSEDED, 2026-09-18. This group used to assert
+    // `AppColors.light.ink == AppBrandBlue.brand`, on the reading that UX-002
+    // had settled the token forever. The owner has since made the design
+    // prototype the authority for this treatment, and its `--ink-btn` is
+    // #0B1024 — so that assertion was holding stale styling in place against a
+    // newer instruction, and has been replaced rather than preserved.
+    //
+    // What UX-002 actually objected to survives here, because it is still
+    // right: the rejected surface was #0F1115, a desaturated grey-black that
+    // read as "not part of this product". #0B1024 is a NAVY — it carries the
+    // brand's own hue, and it is measurably higher contrast than the value the
+    // owner accepted in between. The finding's stated constraints (contrast,
+    // hierarchy, light/dark behaviour, semantic states) are the assertions
+    // below, and they are unchanged.
+    test('ink is the design system\'s ink button', () {
+      expect(AppColors.light.ink, const Color(0xFF0B1024),
+          reason: 'the prototype\'s --ink-btn / --nav-bg');
     });
 
-    test('ink is not a black or near-black value', () {
-      // The defect stated generically, so a future "temporary" dark surface
-      // cannot quietly reinstate it.
-      final l = _relativeLuminance(AppColors.light.ink);
-      expect(l, greaterThan(0.005),
-          reason: 'a near-zero-luminance surface is the treatment UX-002 '
-              'rejected, whatever constant produced it');
+    test('ink is a navy, not the desaturated grey-black UX-002 rejected', () {
+      // #0F1115 was essentially hueless: its blue channel led its red by 6/255.
+      // The rejection was about that, not about darkness as such — the nav in
+      // the design is darker still.
+      final ink = AppColors.light.ink;
+      final blueLead = ink.b - ink.r;
+      expect(blueLead, greaterThan(0.06),
+          reason: 'a hueless near-black is the treatment UX-002 rejected, '
+              'whatever constant produced it');
     });
   });
 

@@ -63,8 +63,9 @@ void main() {
       (tester) async {
     const expected = {
       MaliGlassVariant.pill: BorderRadius.all(Radius.circular(999)),
-      MaliGlassVariant.card: BorderRadius.all(Radius.circular(28)),
-      MaliGlassVariant.navigation: BorderRadius.all(Radius.circular(26)),
+      // The prototype's `--r-card: 18px`, and `.bnav`'s pill.
+      MaliGlassVariant.card: BorderRadius.all(Radius.circular(18)),
+      MaliGlassVariant.navigation: BorderRadius.all(Radius.circular(999)),
       MaliGlassVariant.sheet: BorderRadius.vertical(top: Radius.circular(28)),
       MaliGlassVariant.headerAction: BorderRadius.all(Radius.circular(999)),
     };

@@ -38,6 +38,33 @@
 > which opens the real form on the real app and leaves it open for the host to
 > photograph. Captures: `~/.qirsh-qa/budget-alert-capture/budget-alert-{ar,en}-{light,dark}.png`.
 >
+> **AMENDED 2026-09-18 (design fidelity pass).** The previous closure was
+> rejected: it deferred the radius scale, spacing scale, nav geometry and the
+> mint/gold families on its own authority. All of it is now implemented, and the
+> denominator is rebuilt on the fidelity classification the owner specified.
+>
+> | Classification | Count |
+> |---|---|
+> | MATCH | **57** |
+> | ACCESSIBILITY EXCEPTION | **1** (`--qirsh-muted`, measured) |
+> | OWNER-APPROVED INTENTIONAL DELTA | **0** |
+> | NOT APPLICABLE | **0** |
+> | **MISMATCH** | **2** — category glyph set, `--f-mono` |
+> | **NOT INSPECTED** | **0** |
+> | TOTAL | **60** |
+>
+> Every surface was inspected on device in **all four** combinations —
+> Arabic/RTL and English/LTR × light and dark — by
+> `integration_test/design_fidelity_walk_test.dart`: 60 captures, 60 distinct,
+> 0 unreachable, validated by `tool/check_captures.py`.
+>
+> **MISMATCH is 2, not 0**, and deliberately so: both are product decisions the
+> brief does not authorise me to self-approve in either direction — replacing
+> the category emoji with a stroke-icon set, and bundling IBM Plex Mono for
+> technical detail strings. They are stated as mismatches rather than
+> reclassified as deltas. Detail:
+> `V1_DESIGN_FIDELITY_RECONCILIATION.md` §4.3 and §5.
+>
 > The same pass migrated the LIGHT theme to the design system's palette
 > (`V1_UI_REDESIGN_MAPPING_2026-09-18.md`). That changes the colour of every
 > already-inspected surface, so it is recorded as a token-level change with two
