@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backend/metrics_client.dart';
+import 'package:money_companion/core/router/modal_route_observer.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/ads/ad_placement.dart';
 import 'package:money_companion/features/ads/banner_ad_controller.dart';
@@ -427,7 +428,49 @@ void main() {
     });
   });
 
-  // ── 6. Rebuild does not duplicate ─────────────────────────────────────────
+  // ── 6. The gap between deciding and requesting ────────────────────────────
+
+  testWidgets('a gate that closes between build and the post-frame callback '
+      'cancels the request', (tester) async {
+    // `build` decides and a post-frame callback acts, with a frame boundary
+    // between them. An earlier draft reported this as unproven because
+    // `tester.pump()` runs post-frame callbacks inside the same frame, leaving
+    // no window.
+    //
+    // There IS a window, and this is how to open it. The gate must close in the
+    // SAME frame in which the banner decides to request — not the frame before,
+    // which the build-time gate already catches and which would let this test
+    // pass for the wrong reason.
+    //
+    // So the closer watches the very provider whose resolution unblocks the
+    // request. On the frame where eligibility turns true: the parent rebuilds
+    // first and registers its callback first, the banner then builds and
+    // schedules `_maybeRequest`, and post-frame callbacks run in registration
+    // order. The gate shuts between the decision and the act, exactly once,
+    // deterministically.
+    addTearDown(() => modalRouteOpen.value = false);
+    await tester.pumpWidget(_app(Scaffold(
+      body: Consumer(
+        builder: (context, ref, _) {
+          final eligible = ref
+              .watch(bannerEligibilityProvider(AdPlacement.transactionsList))
+              .valueOrNull;
+          if (eligible == true) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              modalRouteOpen.value = true;
+            });
+          }
+          return const QirshAdBanner(placement: AdPlacement.transactionsList);
+        },
+      ),
+    )));
+    await _settle(tester);
+
+    expect(_SpyLoader.loadCalls, 0,
+        reason: 'the sheet opened before the request was issued');
+  });
+
+  // ── 7. Rebuild does not duplicate ─────────────────────────────────────────
 
   testWidgets('a parent rebuild does not buy a second ad', (tester) async {
     final notifier = ValueNotifier<int>(0);

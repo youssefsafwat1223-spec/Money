@@ -64,10 +64,30 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
     _controller = null;
   }
 
+  /// Every gate that `build` checked, re-read right now.
+  ///
+  /// `build` decides, a post-frame callback acts, and a frame boundary sits
+  /// between them. In that gap the shell tab can change, a route can be pushed,
+  /// a sheet can open, or the entitlement future can complete as ad-free — and
+  /// the decision that scheduled the request was made before any of that.
+  ///
+  /// Nothing here is expensive: three synchronous lookups and a `ref.read`. It
+  /// is the eligibility one that matters most, because the cost of getting it
+  /// wrong is showing an ad to someone who paid not to see one.
+  bool get _gatesStillOpen {
+    if (!mounted) return false;
+    if (!Visibility.of(context)) return false;
+    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return false;
+    if (modalRouteOpen.value) return false;
+    return ref.read(bannerEligibilityProvider(widget.placement)).valueOrNull ==
+        true;
+  }
+
   /// Start exactly one request, if every gate is open. Called from `build` via
   /// a post-frame callback so the available width is known.
   void _maybeRequest(double width) {
     if (_controller != null) return;
+    if (!_gatesStillOpen) return;
     final unitId = bannerUnitFor(widget.placement, defaultTargetPlatform);
     if (unitId == null) return;
 
