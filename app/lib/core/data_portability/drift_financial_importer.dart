@@ -1,3 +1,4 @@
+import '../../domain/entities/budget_entity.dart';
 import 'dart:convert';
 
 import 'package:drift/drift.dart';
@@ -416,8 +417,8 @@ class DriftFinancialImporter {
         await _db.customStatement('''
           INSERT INTO budgets(id,account_id,category_id,currency,amount,amount_minor,period,start_date,
             is_active,last_notified_spent_amount,last_notified_spent_amount_minor,
-            last_notified_period_start,show_on_header,deleted_at)
-          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
+            last_notified_period_start,show_on_header,alert_threshold_percent,deleted_at)
+          VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)
           ON CONFLICT(id) DO UPDATE SET account_id=excluded.account_id,
             category_id=excluded.category_id,currency=excluded.currency,
             amount=excluded.amount,amount_minor=excluded.amount_minor,
@@ -425,7 +426,8 @@ class DriftFinancialImporter {
             is_active=excluded.is_active,last_notified_spent_amount=excluded.last_notified_spent_amount,
             last_notified_spent_amount_minor=excluded.last_notified_spent_amount_minor,
             last_notified_period_start=excluded.last_notified_period_start,
-            show_on_header=excluded.show_on_header,deleted_at=NULL;
+            show_on_header=excluded.show_on_header,
+            alert_threshold_percent=excluded.alert_threshold_percent,deleted_at=NULL;
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
@@ -440,6 +442,12 @@ class DriftFinancialImporter {
           kMoneyCodec.toMinor(budgetNotified),
           _or(row['last_notified_period_start'], '2000-01-01T00:00:00Z'),
           _boolInt(row['show_on_header']),
+          // A file written by an older build has no such column; those budgets
+          // import at the default, which is what they behaved as.
+          BudgetEntity.normalizeAlertThreshold(
+            int.tryParse(row['alert_threshold_percent']?.toString() ?? '') ??
+                BudgetEntity.defaultAlertThresholdPercent,
+          ),
         ]);
       case 'subscriptions':
         final merchantId =

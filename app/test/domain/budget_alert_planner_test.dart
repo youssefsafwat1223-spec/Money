@@ -51,7 +51,7 @@ void main() {
   const planner = BudgetAlertPlanner();
   final now = DateTime.utc(2026, 7, 15);
 
-  test('no alert below 75% spent', () {
+  test('no alert below the budget\'s threshold (default 80)', () {
     final content = planner.plan(
       entry: _entry(amountMinor: 100000, spentMinor: 50000),
       now: now,
@@ -62,7 +62,7 @@ void main() {
     expect(content, isNull);
   });
 
-  test('75%-89% spent produces a warning alert mentioning the category', () {
+  test('at the threshold, a warning alert names the category', () {
     final content = planner.plan(
       entry: _entry(amountMinor: 100000, spentMinor: 80000),
       now: now,
@@ -75,7 +75,7 @@ void main() {
     expect(content.title, contains('الطعام'));
   });
 
-  test('90%-99% spent produces the "about to run out" warning', () {
+  test('90%-99% spent produces the "about to run out" escalation', () {
     final content = planner.plan(
       entry: _entry(amountMinor: 100000, spentMinor: 95000),
       now: now,

@@ -360,12 +360,14 @@ const _tableSpecs = <_ExportTableSpec>[
     'last_notified_spent_amount_minor',
     'last_notified_period_start',
     'show_on_header',
+    'alert_threshold_percent',
   ], '''
     SELECT b.id AS record_id, b.account_id AS account_record_id,
            b.category_id AS category_record_id, c.key AS category_key,
            b.currency, b.amount, b.amount_minor, b.period, b.start_date, b.is_active,
            b.last_notified_spent_amount, b.last_notified_spent_amount_minor,
-           b.last_notified_period_start, b.show_on_header
+           b.last_notified_period_start, b.show_on_header,
+           b.alert_threshold_percent
     FROM budgets b LEFT JOIN categories c ON c.id = b.category_id
     WHERE b.deleted_at IS NULL ORDER BY b.id;
   '''),

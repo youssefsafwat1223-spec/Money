@@ -616,7 +616,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     ),
                   ),
                   _SwitchTile(
-                    title: context.l10n.setBudget80Alert,
+                    title: context.l10n.setBudgetAlerts,
                     icon: AppLucideIcons.alertTriangle,
                     iconColor: c.accent,
                     value: prefs.budgetWarning,

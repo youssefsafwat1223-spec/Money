@@ -1168,6 +1168,18 @@ class AppL10nEn extends AppL10n {
   String get setBaseCurrency => 'Base currency';
 
   @override
+  String get bfBudgetAlert => 'Budget alert';
+
+  @override
+  String get bfBudgetAlertHint =>
+      'We will warn you when your spending reaches this much of the budget.';
+
+  @override
+  String bfBudgetAlertValue(String percent) {
+    return '$percent% of the budget';
+  }
+
+  @override
   String get setLanguage => 'Language';
 
   @override
@@ -1309,7 +1321,7 @@ class AppL10nEn extends AppL10n {
   String get setQirshMessages => 'Qirsh messages and tips';
 
   @override
-  String get setBudget80Alert => 'Alert at 80% of a budget';
+  String get setBudgetAlerts => 'Budget alerts';
 
   @override
   String get setBudgetOverAlert => 'Alert when a budget is exceeded';

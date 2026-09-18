@@ -113,8 +113,9 @@ class DriftBudgetRepository implements BudgetRepository {
           INSERT INTO budgets(
             id, category_id, currency, amount, amount_minor, period, start_date,
             is_active, last_notified_spent_amount, last_notified_spent_amount_minor,
-            last_notified_period_start, show_on_header, account_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            last_notified_period_start, show_on_header, account_id,
+            alert_threshold_percent
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         ''',
           variables: [
             Variable.withString(budget.id),
@@ -132,6 +133,12 @@ class DriftBudgetRepository implements BudgetRepository {
             budget.accountId == null
                 ? const Variable<String>(null)
                 : Variable.withString(budget.accountId!),
+            // Normalized on the way in as well as the way out: the column is
+            // the persisted answer to "when do you want to hear about this
+            // budget", and it should never hold a value the form could not
+            // have produced.
+            Variable.withInt(BudgetEntity.normalizeAlertThreshold(
+                budget.alertThresholdPercent)),
           ],
         );
         await _outboxQueue?.enqueueBudget(PlanningSyncOperation.create, budget);
@@ -142,7 +149,7 @@ class DriftBudgetRepository implements BudgetRepository {
           SET category_id = ?, amount = ?, amount_minor = ?, period = ?,
               start_date = ?, is_active = ?, last_notified_spent_amount = ?,
               last_notified_spent_amount_minor = ?, last_notified_period_start = ?,
-              show_on_header = ?, account_id = ?
+              show_on_header = ?, account_id = ?, alert_threshold_percent = ?
           WHERE id = ?;
         ''',
           variables: [
@@ -159,6 +166,8 @@ class DriftBudgetRepository implements BudgetRepository {
             budget.accountId == null
                 ? const Variable<String>(null)
                 : Variable.withString(budget.accountId!),
+            Variable.withInt(BudgetEntity.normalizeAlertThreshold(
+                budget.alertThresholdPercent)),
             Variable.withString(budget.id),
           ],
         );

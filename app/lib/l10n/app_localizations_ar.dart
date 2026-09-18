@@ -1151,6 +1151,18 @@ class AppL10nAr extends AppL10n {
   String get setBaseCurrency => 'العملة الأساسية';
 
   @override
+  String get bfBudgetAlert => 'تنبيه الميزانية';
+
+  @override
+  String get bfBudgetAlertHint =>
+      'ننبّهك عند بلوغ إنفاقك هذه النسبة من الميزانية.';
+
+  @override
+  String bfBudgetAlertValue(String percent) {
+    return '$percent٪ من الميزانية';
+  }
+
+  @override
   String get setLanguage => 'اللغة';
 
   @override
@@ -1284,7 +1296,7 @@ class AppL10nAr extends AppL10n {
   String get setQirshMessages => 'رسائل ونصائح قرش';
 
   @override
-  String get setBudget80Alert => 'تنبيه 80% من الميزانية';
+  String get setBudgetAlerts => 'تنبيهات الميزانية';
 
   @override
   String get setBudgetOverAlert => 'تنبيه تجاوز الميزانية';

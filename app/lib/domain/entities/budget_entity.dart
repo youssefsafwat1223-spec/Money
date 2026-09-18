@@ -3,6 +3,33 @@ import '../finance/money.dart';
 enum BudgetPeriod { daily, weekly, monthly, yearly }
 
 class BudgetEntity {
+  /// The early-warning threshold a budget has unless the user chooses another.
+  ///
+  /// 80 because that is what the Settings copy has always promised
+  /// («تنبيه 80% من الميزانية» / "Alert at 80% of a budget"), and because every
+  /// budget that predates this column is migrated to it — nobody's alerts move
+  /// the day they update.
+  static const int defaultAlertThresholdPercent = 80;
+
+  /// The selectable range, in whole percent. 5% steps between these.
+  static const int minAlertThresholdPercent = 10;
+  static const int maxAlertThresholdPercent = 100;
+  static const int alertThresholdStepPercent = 5;
+
+  /// Clamps [value] onto the selectable range and step grid. Used by the form,
+  /// by the repository on the way in, and by the decoder on the way out, so a
+  /// value that is out of range in the database cannot produce a threshold the
+  /// UI could not have chosen.
+  static int normalizeAlertThreshold(int value) {
+    final clamped = value.clamp(
+      minAlertThresholdPercent,
+      maxAlertThresholdPercent,
+    );
+    final snapped =
+        (clamped / alertThresholdStepPercent).round() * alertThresholdStepPercent;
+    return snapped.clamp(minAlertThresholdPercent, maxAlertThresholdPercent);
+  }
+
   static const allExpensesCategoryId = '__all_expenses__';
   static const allExpensesCategoryKey = 'all_expenses';
 
@@ -32,6 +59,7 @@ class BudgetEntity {
     required this.lastNotifiedPeriodStart,
     this.showOnHeader = false,
     this.accountId,
+    this.alertThresholdPercent = defaultAlertThresholdPercent,
   });
 
   final String id;
@@ -55,6 +83,18 @@ class BudgetEntity {
   final bool showOnHeader;
   final String? accountId;
 
+  /// When Qirsh warns about this budget, as a whole percentage of its amount.
+  ///
+  /// Per budget, because the answer is per budget: a grocery budget you want to
+  /// hear about at 50% is not the rent budget you only want to hear about when
+  /// it is nearly gone. Chosen in the budget form; [defaultAlertThresholdPercent]
+  /// for a new budget and for every budget that existed before the column did.
+  ///
+  /// It replaces the early-warning threshold only. The 100% exceeded alert is
+  /// not a warning and is not configurable — a budget you have gone past is a
+  /// fact about your money, not a preference.
+  final int alertThresholdPercent;
+
   bool get isAllExpenses => categoryId == allExpensesCategoryId;
 
   /// DISPLAY-ONLY compatibility getters (§7). These project canonical Money to a
@@ -75,6 +115,7 @@ class BudgetEntity {
     DateTime? lastNotifiedPeriodStart,
     bool? showOnHeader,
     String? accountId,
+    int? alertThresholdPercent,
   }) {
     return BudgetEntity(
       id: id ?? this.id,
@@ -90,6 +131,8 @@ class BudgetEntity {
           lastNotifiedPeriodStart ?? this.lastNotifiedPeriodStart,
       showOnHeader: showOnHeader ?? this.showOnHeader,
       accountId: accountId ?? this.accountId,
+      alertThresholdPercent:
+          alertThresholdPercent ?? this.alertThresholdPercent,
     );
   }
 }

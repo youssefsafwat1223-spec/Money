@@ -111,6 +111,9 @@ class BackupSnapshotBuilder {
       'show_on_header',
       'amount_minor',
       'last_notified_spent_amount_minor',
+      // User-authored: when they asked to be warned about this budget. A
+      // restore that dropped it would silently move everyone back to 80.
+      'alert_threshold_percent',
     ],
     'goals': [
       'id',

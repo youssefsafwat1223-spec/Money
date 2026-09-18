@@ -310,6 +310,14 @@ BudgetEntity budgetFromRow(QueryRow row) {
             '2000-01-01T00:00:00Z'),
     showOnHeader: sqlToBool(row.readNullable<int>('show_on_header') ?? 0),
     accountId: row.readNullable<String>('account_id'),
+    // `readNullable` + normalize: a row written by an older build has no such
+    // column, and a row that arrived from a server or a backup could carry any
+    // integer. Normalizing on the way out means the rest of the app only ever
+    // sees a threshold the form could have produced.
+    alertThresholdPercent: BudgetEntity.normalizeAlertThreshold(
+      row.readNullable<int>('alert_threshold_percent') ??
+          BudgetEntity.defaultAlertThresholdPercent,
+    ),
   );
 }
 

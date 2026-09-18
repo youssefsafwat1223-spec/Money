@@ -921,6 +921,10 @@ class AppDatabase extends GeneratedDatabase {
       await requireColumn(f.table, f.minorColumn);
     }
     await requireColumn('budgets', 'currency');
+    // The per-budget alert threshold. A database that reached this point
+    // without it would silently warn everyone at the default, so the
+    // postflight fails closed rather than letting that ship.
+    await requireColumn('budgets', 'alert_threshold_percent');
     await requireColumn('goals', 'currency');
     await requireColumn('user_settings', 'planning_cutover_state');
   }
@@ -1436,6 +1440,7 @@ class AppDatabase extends GeneratedDatabase {
         last_notified_period_start TEXT NOT NULL DEFAULT '2000-01-01T00:00:00Z',
         show_on_header INTEGER NOT NULL DEFAULT 0,
         account_id TEXT NULL,
+        alert_threshold_percent INTEGER NOT NULL DEFAULT 80,
         server_id TEXT NULL,
         synced_at TEXT NULL,
         server_updated_at TEXT NULL,
@@ -1889,6 +1894,11 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn(
         'budgets', 'show_on_header', 'INTEGER NOT NULL DEFAULT 0');
     await _ensureColumn('budgets', 'account_id', 'TEXT NULL');
+    // The DEFAULT is what migrates existing budgets: every row that predates
+    // this column gets 80, which is the threshold the Settings copy has always
+    // promised. Nobody's alerts change the day they update.
+    await _ensureColumn(
+        'budgets', 'alert_threshold_percent', 'INTEGER NOT NULL DEFAULT 80');
     await _ensureColumn('goals', 'account_id', 'TEXT NULL');
     // recurring auto-save per goal (fixed amount every week/month).
     await _ensureColumn('goals', 'auto_save_amount', 'REAL NULL');

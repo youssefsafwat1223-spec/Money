@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 
+import '../entities/budget_entity.dart';
 import '../entities/engagement_entities.dart';
 import '../finance/money.dart';
 
@@ -38,9 +39,28 @@ class BudgetAlertContent {
 }
 
 /// Turns a budget's current spend snapshot into a local-notification payload
-/// once it crosses the 75%/90%/100% thresholds. Pure and side-effect free —
+/// once it crosses one of the budget's thresholds. Pure and side-effect free —
 /// callers (SMS capture, manual transaction add) own the actual
 /// LocalNotificationService.showBudgetAlert call and its dedup id.
+///
+/// ## The thresholds
+///
+/// The EARLY WARNING is the budget's own `alertThresholdPercent`, chosen by the
+/// user in the budget form. It used to be a hardcoded 75, which was also a
+/// quiet lie: the Settings toggle beside it has always read «تنبيه 80% من
+/// الميزانية» / "Alert at 80% of a budget".
+///
+/// Above it sit two thresholds that are NOT preferences:
+///
+///  * 90% — the "almost used up" escalation, kept because a warning at 30% and
+///    silence from there to 100% is worse than either. It is skipped when the
+///    user's own threshold is 90 or higher, so the two can never collide or
+///    fire out of order.
+///  * 100% — exceeded. Not a warning and not configurable: a budget you have
+///    gone past is a fact about your money, not a preference.
+///
+/// Buckets stay strictly ordered for any threshold in 10..100, which is what
+/// keeps the dedup id below meaningful — see [_thresholdsFor].
 class BudgetAlertPlanner {
   const BudgetAlertPlanner();
 
@@ -65,14 +85,29 @@ class BudgetAlertPlanner {
     String lang = 'ar',
   }) {
     final ratio = entry.ratio;
-    final bucket = ratio >= 1.0
-        ? 3
-        : ratio >= 0.9
-            ? 2
-            : ratio >= 0.75
-                ? 1
-                : 0;
-    if (bucket == 0) return null;
+    final thresholds = _thresholdsFor(entry.budget.alertThresholdPercent);
+    // The HIGHEST crossed threshold wins, so crossing straight from 40% to
+    // 120% in one transaction reports "exceeded" and not "you reached 50%".
+    var crossed = -1;
+    for (var i = 0; i < thresholds.length; i++) {
+      if (ratio >= thresholds[i] / 100) crossed = i;
+    }
+    if (crossed < 0) return null;
+    final percent = thresholds[crossed];
+    // The dedup bucket is the PERCENTAGE, not the index. Two budgets with
+    // different thresholds then never share a notification id, and a user who
+    // moves their threshold mid-period gets one alert for the new threshold
+    // rather than a silent one suppressed by the old bucket number.
+    final bucket = percent;
+    final isExceeded = percent >= 100;
+    // The crossed threshold is either the user's own or the fixed 90%
+    // escalation — never both, because `_thresholdsFor` drops the 90 when the
+    // user's threshold has reached it. Testing `percent >= 90` instead of
+    // "is this the user's number" made a 95% threshold report "almost used up"
+    // and never mention 95 at all.
+    final isEscalation = !isExceeded &&
+        percent != BudgetEntity.normalizeAlertThreshold(
+            entry.budget.alertThresholdPercent);
 
     final budget = entry.budget;
     final daysTotal =
@@ -114,7 +149,7 @@ class BudgetAlertPlanner {
 
     final String title;
     final String body;
-    if (bucket == 3) {
+    if (isExceeded) {
       final over = fmt(entry.spent - budget.amountMoney);
       title = en ? 'You went over $categoryLabel' : 'تجاوزت $categoryLabel';
       body = en
@@ -122,7 +157,7 @@ class BudgetAlertPlanner {
               'you spent $over $currencyLabel over it.'
           : 'ميزانية $scope بلغت ١٠٠٪ من حدّها — '
               'أنفقت $over $currencyLabel زيادة عنها.';
-    } else if (bucket == 2) {
+    } else if (isEscalation) {
       final left = fmt(remaining);
       title = en
           ? '$categoryLabel is almost used up'
@@ -135,27 +170,31 @@ class BudgetAlertPlanner {
               'فقط، ومعدّلك الحالي سيستهلكها خلال ${_arDays(daysRemaining)}.';
     } else {
       final left = fmt(remaining);
+      // The percentage in the words is the user's own threshold. Saying "75%"
+      // to someone who asked to be told at 30% describes a moment that has not
+      // happened yet, and is how a correct alert reads as a wrong one.
+      final pct = _percentIn(percent, en);
       title = en
-          ? '$categoryLabel has reached 75%'
-          : 'وصلت ٧٥٪ من $categoryLabel';
+          ? '$categoryLabel has reached $pct'
+          : 'وصلت $pct من $categoryLabel';
       if (projected.compareTo(budget.amountMoney) > 0) {
         final overBy = fmt(projected - budget.amountMoney);
         body = en
-            ? 'The $scope budget reached 75% — $left $currencyLabel left. '
+            ? 'The $scope budget reached $pct — $left $currencyLabel left. '
                 'At your current rate you may go over by '
                 '$overBy $currencyLabel.'
-            : 'ميزانية $scope بلغت ٧٥٪ — تبقّى لك $left $currencyLabel. '
+            : 'ميزانية $scope بلغت $pct — تبقّى لك $left $currencyLabel. '
                 'إذا استمرّ معدّلك فقد تتجاوز الميزانية بـ$overBy $currencyLabel.';
       } else {
         body = en
-            ? 'The $scope budget reached 75% — $left $currencyLabel left '
+            ? 'The $scope budget reached $pct — $left $currencyLabel left '
                 'for the rest of the period.'
-            : 'ميزانية $scope بلغت ٧٥٪ — تبقّى لك $left $currencyLabel '
+            : 'ميزانية $scope بلغت $pct — تبقّى لك $left $currencyLabel '
                 'حتى نهاية الفترة.';
       }
     }
 
-    final type = bucket == 3
+    final type = isExceeded
         ? NotificationType.budgetOver
         : NotificationType.budgetWarning;
 
@@ -181,3 +220,28 @@ String _arDays(int n) => switch (n) {
     };
 
 String _enDays(int n) => n == 1 ? '1 day' : '$n days';
+
+/// The ordered percentages this budget can alert at.
+///
+/// Always ends at 100. The 90% escalation is included only when the user's own
+/// threshold is below it, so the list is strictly increasing for every
+/// threshold in 10..100 and no two buckets can describe the same crossing.
+List<int> _thresholdsFor(int alertThresholdPercent) {
+  final warn = BudgetEntity.normalizeAlertThreshold(alertThresholdPercent);
+  return <int>[
+    if (warn < 100) warn,
+    if (warn < 90) 90,
+    100,
+  ];
+}
+
+/// A percentage in the reader's own digits. Arabic copy in this app uses
+/// Eastern Arabic numerals — «٧٥٪» — and a bare "75%" inside an Arabic
+/// sentence is the kind of mixed-script detail that reads as untranslated.
+String _percentIn(int percent, bool english) {
+  if (english) return '$percent%';
+  const eastern = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+  final digits =
+      percent.toString().split('').map((d) => eastern[int.parse(d)]).join();
+  return '$digits٪';
+}

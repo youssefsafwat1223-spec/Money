@@ -2149,6 +2149,24 @@ abstract class AppL10n {
   /// **'العملة الأساسية'**
   String get setBaseCurrency;
 
+  /// No description provided for @bfBudgetAlert.
+  ///
+  /// In ar, this message translates to:
+  /// **'تنبيه الميزانية'**
+  String get bfBudgetAlert;
+
+  /// No description provided for @bfBudgetAlertHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'ننبّهك عند بلوغ إنفاقك هذه النسبة من الميزانية.'**
+  String get bfBudgetAlertHint;
+
+  /// No description provided for @bfBudgetAlertValue.
+  ///
+  /// In ar, this message translates to:
+  /// **'{percent}٪ من الميزانية'**
+  String bfBudgetAlertValue(String percent);
+
   /// No description provided for @setLanguage.
   ///
   /// In ar, this message translates to:
@@ -2413,11 +2431,11 @@ abstract class AppL10n {
   /// **'رسائل ونصائح قرش'**
   String get setQirshMessages;
 
-  /// No description provided for @setBudget80Alert.
+  /// No description provided for @setBudgetAlerts.
   ///
   /// In ar, this message translates to:
-  /// **'تنبيه 80% من الميزانية'**
-  String get setBudget80Alert;
+  /// **'تنبيهات الميزانية'**
+  String get setBudgetAlerts;
 
   /// No description provided for @setBudgetOverAlert.
   ///

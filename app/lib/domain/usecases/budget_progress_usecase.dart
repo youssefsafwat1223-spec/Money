@@ -66,9 +66,17 @@ class BudgetProgressUseCase {
           ? 0.0
           : spent.toDouble() / normalizedBudget.amountMoney.toDouble();
       final remaining = normalizedBudget.amountMoney - spent;
+      // The budget's OWN threshold, not a constant. This was a hardcoded 0.8
+      // and was the second place the number lived — the alert planner had its
+      // own 0.75, so the bar could read "warning" while no alert had been sent,
+      // or the reverse. Both now read the same persisted field.
+      final warnAt = BudgetEntity.normalizeAlertThreshold(
+            normalizedBudget.alertThresholdPercent,
+          ) /
+          100;
       final health = ratio >= 1
           ? BudgetHealth.over
-          : ratio >= 0.8
+          : ratio >= warnAt
               ? BudgetHealth.warning
               : BudgetHealth.safe;
       final entry = BudgetProgressEntry(

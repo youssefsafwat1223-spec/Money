@@ -1,6 +1,7 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:intl/intl.dart';
 import '../../core/utils/l10n_ext.dart';
 
 import '../../core/di/app_providers.dart';
@@ -144,6 +145,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   final _formKey = GlobalKey<FormState>();
   final _amountController = TextEditingController();
   BudgetPeriod _period = BudgetPeriod.monthly;
+  int _alertThreshold = BudgetEntity.defaultAlertThresholdPercent;
   String? _categoryId;
   String? _accountId;
   bool _didSeedInitialState = false;
@@ -281,6 +283,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                       _refreshSuggestedAmount();
                     },
                   ),
+                  const SizedBox(height: AppSpacing.s4),
+                  _AlertThresholdField(
+                    value: _alertThreshold,
+                    onChanged: (value) =>
+                        setState(() => _alertThreshold = value),
+                  ),
                   if (accounts.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.s4),
                     DropdownButtonFormField<String>(
@@ -409,6 +417,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
         period: _period,
         showOnHeader: false,
         accountId: selectedAccount?.id,
+        alertThresholdPercent: _alertThreshold,
       );
       await ref.read(saveBudgetUseCaseProvider).call(budget);
       if (!mounted) return;
@@ -478,8 +487,9 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     _amountController.text = budget.amountMoney.toDecimalString();
     _period = budget.period;
     _categoryId = budget.categoryId;
-    _categoryId = budget.categoryId;
     _accountId = budget.accountId;
+    _alertThreshold =
+        BudgetEntity.normalizeAlertThreshold(budget.alertThresholdPercent);
   }
 
   AccountEntity? _selectedAccount(List<AccountEntity> accounts) {
@@ -711,6 +721,102 @@ class _PeriodSelector extends StatelessWidget {
                 active ? Colors.white : c.textLight),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// WHEN this budget should warn you — a real persisted setting, not a
+/// decoration on the form.
+///
+/// Per budget, because the answer is per budget: the grocery budget you want to
+/// hear about at 50% is not the rent budget you only want to hear about when it
+/// is nearly gone. 10–100 in 5% steps, so 30 / 50 / 80 are all reachable
+/// without hunting, and the chosen value stays on screen while the thumb moves —
+/// a slider whose value you can only read after letting go is a slider you
+/// cannot aim.
+class _AlertThresholdField extends StatelessWidget {
+  const _AlertThresholdField({required this.value, required this.onChanged});
+
+  final int value;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final l10n = context.l10n;
+    // The percentage in the reader's own digits — Arabic copy in this app uses
+    // Eastern Arabic numerals, and a bare Latin "50%" inside an Arabic sentence
+    // reads as untranslated.
+    final display = NumberFormat.decimalPattern(
+      Localizations.localeOf(context).toString(),
+    ).format(value);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.s4, AppSpacing.s3, AppSpacing.s4, AppSpacing.s2),
+      decoration: BoxDecoration(
+        color: c.surface.withValues(alpha: 0.15),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: c.border.withValues(alpha: 0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  l10n.bfBudgetAlert,
+                  style: _alex(13, FontWeight.w700, 1.2, c.textLight),
+                ),
+              ),
+              // Stays visible while dragging: this is the value being chosen,
+              // not a summary of a choice already made.
+              Text(
+                l10n.bfBudgetAlertValue(display),
+                style: _alex(15, FontWeight.w800, 1.2, c.primary,
+                    tabular: true),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.s1),
+          Text(
+            l10n.bfBudgetAlertHint,
+            style: _alex(12, FontWeight.w600, 1.35, c.textLight),
+          ),
+          SliderTheme(
+            // Themed rather than replaced: a custom-painted control would lose
+            // the platform's own slider semantics and keyboard/VoiceOver
+            // handling, which this one keeps.
+            data: SliderTheme.of(context).copyWith(
+              activeTrackColor: c.primary,
+              inactiveTrackColor: c.border.withValues(alpha: 0.45),
+              thumbColor: c.primary,
+              overlayColor: c.primary.withValues(alpha: 0.12),
+              trackHeight: 4,
+              thumbShape:
+                  const RoundSliderThumbShape(enabledThumbRadius: 9),
+            ),
+            child: Slider(
+              value: value.toDouble(),
+              min: BudgetEntity.minAlertThresholdPercent.toDouble(),
+              max: BudgetEntity.maxAlertThresholdPercent.toDouble(),
+              divisions: (BudgetEntity.maxAlertThresholdPercent -
+                      BudgetEntity.minAlertThresholdPercent) ~/
+                  BudgetEntity.alertThresholdStepPercent,
+              // VoiceOver reads the purpose and the value, not "slider, 50".
+              label: l10n.bfBudgetAlertValue(display),
+              semanticFormatterCallback: (v) =>
+                  '${l10n.bfBudgetAlert}: ${l10n.bfBudgetAlertValue(
+                NumberFormat.decimalPattern(
+                  Localizations.localeOf(context).toString(),
+                ).format(v.round()),
+              )}',
+              onChanged: (v) => onChanged(
+                  BudgetEntity.normalizeAlertThreshold(v.round())),
+            ),
+          ),
+        ],
       ),
     );
   }
