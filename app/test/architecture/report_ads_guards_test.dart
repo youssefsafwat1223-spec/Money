@@ -282,6 +282,7 @@ void main() {
     // fails closed — a new placement cannot ship without editing this list.
     const approved = {
       'lib/features/transactions/transactions_screen.dart',
+      'lib/features/achievements/achievements_screen.dart',
     };
     final found = <String>{};
     for (final f in _allLibDart()) {

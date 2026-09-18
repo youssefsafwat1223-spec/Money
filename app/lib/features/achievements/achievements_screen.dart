@@ -7,6 +7,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
+import '../ads/ad_placement.dart';
+import '../ads/qirsh_ad_banner.dart';
 import '../common/app_card.dart';
 import '../common/premium_loading.dart';
 import 'achievements_providers.dart';
@@ -206,6 +208,29 @@ class AchievementsScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
+                ),
+                // A DIRECT child of the ListView, deliberately.
+                //
+                // `SliverList` materialises its direct children lazily, so a
+                // banner here buys nothing until the user has scrolled past the
+                // badge grid. Move it inside the `Padding` above and it becomes
+                // part of that child, which is built as one unit — and the ad
+                // would be requested on arrival for a slot far below the fold.
+                // Verified both ways in banner_placement_mechanics_test.dart.
+                //
+                // After the grid, never inside it: a cell-sized ad among badge
+                // cells reads as a badge.
+                if (data.achievements.isNotEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(
+                        horizontal: AppSpacing.gutter),
+                    child: QirshAdBanner(placement: AdPlacement.achievements),
+                  ),
+                // Clearance for the floating nav bar. An ad the bar sits on top
+                // of is an obscured ad, which is a placement-policy problem and
+                // not a cosmetic one.
+                const SizedBox(
+                  height: AppSpacing.navBarHeight + AppSpacing.navBarInset * 2,
                 ),
               ],
             ),
