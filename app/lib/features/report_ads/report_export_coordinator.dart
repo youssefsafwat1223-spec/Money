@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../ads/interstitial_cooldown.dart';
 import 'ad_consent_service.dart';
 import 'report_ads_analytics.dart';
 import 'report_export_ad_gateway.dart';
@@ -227,6 +228,11 @@ class ReportExportCoordinator {
   void _recordOutcome(ReportAdOutcome outcome) {
     switch (outcome) {
       case ReportAdOutcome.dismissed:
+        // The ONLY outcome that means a human actually saw a full-screen ad.
+        // The Reports banner stays quiet for a while after it, so the two
+        // formats D-19 approved on that one surface cannot read as a single ad
+        // break with two ads in it.
+        InterstitialCooldown.markShown();
         _analytics.adImpression();
         _analytics.adDismissed();
       case ReportAdOutcome.failedToShow:

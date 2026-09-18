@@ -285,6 +285,7 @@ void main() {
       'lib/features/achievements/achievements_screen.dart',
       'lib/features/goals/goals_screen.dart',
       'lib/features/subscriptions/subscriptions_screen.dart',
+      'lib/features/reports/reports_screen.dart',
     };
     final found = <String>{};
     for (final f in _allLibDart()) {

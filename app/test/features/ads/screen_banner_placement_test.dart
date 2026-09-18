@@ -13,6 +13,14 @@ import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/goals/goals_providers.dart';
 import 'package:money_companion/features/goals/goals_screen.dart';
+import 'package:money_companion/domain/entities/category_entity.dart';
+import 'package:money_companion/features/ads/interstitial_cooldown.dart';
+import 'package:money_companion/features/common/category_catalog.dart';
+import 'package:money_companion/features/dashboard/dashboard_providers.dart'
+    show CategorySlice;
+import 'package:money_companion/features/reports/reports_providers.dart';
+import 'package:money_companion/features/reports/reports_screen.dart';
+import 'package:money_companion/features/settings/settings_providers.dart';
 import 'package:money_companion/features/subscriptions/subscriptions_providers.dart';
 import 'package:money_companion/features/subscriptions/subscriptions_screen.dart';
 import 'package:money_companion/features/achievements/achievements_providers.dart';
@@ -22,6 +30,7 @@ import 'package:money_companion/features/ads/banner_ad_controller.dart';
 import 'package:money_companion/features/ads/banner_ads_analytics.dart';
 import 'package:money_companion/features/ads/banner_ads_providers.dart';
 import 'package:money_companion/features/ads/qirsh_ad_banner.dart';
+import 'package:money_companion/features/report_ads/report_entitlement.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
 
 /// THE BANNER, ON EACH APPROVED SCREEN.
@@ -154,10 +163,22 @@ class _CanonicalCutover implements PlanningCutoverCoordinator {
   PlanningCutoverState state() => PlanningCutoverState.canonical;
 }
 
+UserSettingsEntity _settings() => const UserSettingsEntity(
+      id: 'u1',
+      country: 'SA',
+      currency: 'SAR',
+      language: 'ar',
+      theme: 'dark',
+      inputMethod: 'manual',
+      notificationsJson: '{}',
+      privacyModeEnabled: false,
+    );
+
 void main() {
   setUp(() {
     _SpyLoader.reset();
     BannerAdController.resetThrottleForTest();
+    InterstitialCooldown.resetForTest();
   });
 
   group('achievements', () {
@@ -366,6 +387,136 @@ void main() {
 
       expect(find.byType(QirshAdBanner), findsNothing);
       expect(_SpyLoader.loadCalls, 0);
+    });
+  });
+
+  group('reports', () {
+    ReportSection section({int categories = 3}) => ReportSection(
+          total: Money.parse('2400', 'SAR'),
+          prevTotal: Money.parse('2000', 'SAR'),
+          refunds: Money(0, 'SAR'),
+          topCategories: [
+            for (var i = 0; i < categories; i++)
+              CategorySlice(
+                category: CategoryView(CategoryEntity(
+                  id: 'c$i',
+                  key: 'restaurants',
+                  nameAr: 'مطاعم',
+                  icon: 'utensils-crossed',
+                  color: '#FF7043',
+                  isIncome: false,
+                  sort: i,
+                )),
+                total: Money.parse('800', 'SAR'),
+                percent: 0.33,
+              ),
+          ],
+          topMerchants: const [],
+          dailySpend: const [],
+          anomaly: null,
+        );
+
+    List<Override> deps({int categories = 3}) => [
+          baseCurrencyProvider.overrideWith((ref) async => 'SAR'),
+          userSettingsProvider.overrideWith((ref) async => _settings()),
+          reportsProvider.overrideWith((ref) async => ReportsBundle(
+                weekly: section(categories: categories),
+                monthly: section(categories: categories),
+              )),
+        ];
+
+    testWidgets('mounts ONE banner in the header', (tester) async {
+      await tester.pumpWidget(_host(const ReportsScreen(), deps()));
+      await _settle(tester);
+
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1);
+    });
+
+    testWidgets('switching tabs does not buy a second ad', (tester) async {
+      await tester.pumpWidget(_host(const ReportsScreen(), deps()));
+      await _settle(tester);
+      expect(_SpyLoader.loadCalls, 1);
+
+      final controller =
+          DefaultTabController.of(tester.element(find.byType(TabBarView)));
+      controller.animateTo(2);
+      await _settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1);
+    });
+
+    testWidgets('an EMPTY report carries no ad', (tester) async {
+      await tester
+          .pumpWidget(_host(const ReportsScreen(), deps(categories: 0)));
+      await _settle(tester);
+
+      expect(find.byType(QirshAdBanner), findsNothing);
+      expect(_SpyLoader.loadCalls, 0);
+    });
+
+    testWidgets('the ERROR state carries no ad', (tester) async {
+      await tester.pumpWidget(_host(const ReportsScreen(), [
+        baseCurrencyProvider.overrideWith((ref) async => 'SAR'),
+        userSettingsProvider.overrideWith((ref) async => _settings()),
+        reportsProvider.overrideWith((ref) async => throw StateError('boom')),
+      ]));
+      await _settle(tester);
+
+      expect(find.byType(QirshAdBanner), findsNothing);
+      expect(_SpyLoader.loadCalls, 0);
+    });
+  });
+
+  // The cooldown lives in `bannerEligibilityProvider`, which the screen tests
+  // above override wholesale — so it has to be exercised where it actually is.
+  // These drive the REAL provider and override only its inputs.
+  group('reports interstitial cooldown', () {
+    Future<bool?> resolve() async {
+      final container = ProviderContainer(overrides: [
+        bannerPlacementEnabledProvider(AdPlacement.reports)
+            .overrideWithValue(true),
+        bannerEntitlementProvider.overrideWith(
+            (ref) async => ReportEntitlementState.verifiedInactive),
+        bannerConsentProvider.overrideWith((ref) async => true),
+      ]);
+      addTearDown(container.dispose);
+      return container
+          .read(bannerEligibilityProvider(AdPlacement.reports).future);
+    }
+
+    test('blocks Reports right after an interstitial', () async {
+      InterstitialCooldown.markShown();
+      expect(await resolve(), isFalse);
+    });
+
+    test('clears once the window has passed', () async {
+      var now = DateTime.utc(2026, 9, 19, 12);
+      InterstitialCooldown.clock = () => now;
+      InterstitialCooldown.markShown();
+      now = now.add(InterstitialCooldown.window + const Duration(seconds: 1));
+      expect(await resolve(), isTrue);
+    });
+
+    test('never blocks another placement', () async {
+      // Reports is the only surface with two formats. A global cooldown would
+      // silently cost every other placement an ad for two minutes.
+      InterstitialCooldown.markShown();
+      final container = ProviderContainer(overrides: [
+        bannerPlacementEnabledProvider(AdPlacement.goals)
+            .overrideWithValue(true),
+        bannerEntitlementProvider.overrideWith(
+            (ref) async => ReportEntitlementState.verifiedInactive),
+        bannerConsentProvider.overrideWith((ref) async => true),
+      ]);
+      addTearDown(container.dispose);
+      expect(
+        await container
+            .read(bannerEligibilityProvider(AdPlacement.goals).future),
+        isTrue,
+      );
     });
   });
 }

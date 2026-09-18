@@ -7,6 +7,8 @@ import '../../core/utils/async_reload_safe.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
+import '../ads/ad_placement.dart';
+import '../ads/qirsh_ad_banner.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
@@ -86,6 +88,34 @@ class ReportsScreen extends ConsumerWidget {
                                         await showReportAdNotice(context));
                               },
                             ),
+                            // IN THE HEADER, not in the tabs.
+                            //
+                            // Three tab bodies, each its own ListView: a banner
+                            // inside them would be three, and the second tab the
+                            // user opens would request, meet the static
+                            // 30-second per-placement throttle, and show an
+                            // empty slot for the rest of the visit. One shared
+                            // instance here survives both a tab switch and the
+                            // header scrolling away.
+                            //
+                            // This is also the surface D-19 approved for TWO
+                            // formats. They can never be on screen together —
+                            // the export config page is a pushed full-screen
+                            // route, which makes `ModalRoute.isCurrent` false
+                            // and tears this down before it appears — and
+                            // `InterstitialCooldown` keeps them from being
+                            // back-to-back afterwards.
+                            //
+                            // Nothing to report means nothing to advertise
+                            // beside: with no categories the tabs are empty
+                            // charts, and the ad would be the screen's content.
+                            if (section.topCategories.isNotEmpty)
+                              const Padding(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.gutter),
+                                child: QirshAdBanner(
+                                    placement: AdPlacement.reports),
+                              ),
                           ],
                         ),
                       ),
