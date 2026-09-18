@@ -4,6 +4,10 @@ Closes §6 of `V1_UI_ACCEPTANCE_MATRIX_VISUAL_2026-09-17.md`, which named twelve
 shipping surfaces it had never opened, and reconciles the denominator that
 document reported against.
 
+> **AMENDED 2026-09-18 (later).** Settings → Language shipped after this pass,
+> which adds one surface to the denominator (**58**) and closes §5's open item.
+> The amendments are §1a and §5a; the sections they amend are left as written.
+
 ---
 
 ## 0. The contradiction, and what caused it
@@ -58,6 +62,42 @@ Beyond the 57: **13 overlay designs and 9 dialog designs** the Atlas lists and
 neither pass has opened. They are enumerated in §6 rather than folded into the
 total, because folding them in is exactly the move that produced the original
 contradiction.
+
+### 1a. Amended after Settings → Language shipped
+
+| | |
+|---|---|
+| **TOTAL SHIPPING UNIQUE SURFACES** | **58** |
+| **VISUALLY INSPECTED** | **58** |
+| **NOT INSPECTED** | **0** |
+| **MATCH** | **49** |
+| **ACCEPTABLE INTENTIONAL DELTA** | **9** |
+| **MISMATCH** | **0** — 7 found, 7 fixed and verified |
+| **NOT APPLICABLE** | **3** |
+
+The 58th is the **language picker** — `Settings → Language`, a
+`_showSettingsPicker` sheet offering العربية and English as endonyms. It has no
+Atlas design to compare against, because the Atlas was drawn for an app that had
+no such control; it is classified **MATCH** against the pattern it is built
+from, which is the same sheet the Country and Currency rows have used since the
+Atlas was measured — same `RadioListTile`, same navy sheet theme, same
+`showDragHandle`, same title typography. A new control that looks exactly like
+its two neighbours is the correct outcome here, and the deviation worth
+flagging would have been a new one.
+
+Captured on device in both languages by the `ui` phase of
+`tool/language_restart_proof.sh`, which leaves the picker open over the settings
+list: `~/.qirsh-qa/language-restart-proof/language-en.png` (LTR, «English»
+selected) and `…/language-ar.png` (mirrored RTL, «العربية» selected), each over
+a settings screen rendering entirely in its own language.
+
+The same run also produced the first photograph of the **native unlock prompt**
+this programme has managed — `applock-native-prompt-en.png` and
+`applock-native-prompt-ar.png`, iOS's own passcode sheet with the app's string
+inside it, one per language. See §5a.
+
+The 22 further Atlas overlay and dialog designs in §6 remain outside the
+denominator and remain uninspected.
 
 Evidence: `~/.qirsh-qa/visual-closure-2026-09-17/` — **155 captures** across
 `vc/ vc-verify/ onb/ onb-verify5/ boot2/ dlg/ dlg-verify/ applock/`. Device:
@@ -248,6 +288,61 @@ highest-value open item this programme has produced.
 
 ---
 
+### 5a. Amended — the prompt WAS wrong on a cold start, and is now fixed
+
+§5 above says "there is no mismatch in the gate". That is wrong, and the way it
+is wrong is worth keeping: the measurement it rests on backgrounded and resumed
+a running app, by which point the app had long since read its language out of
+the database. **That test could not see the defect it was clearing.**
+
+On a genuine cold start, with English persisted, the gate did hand iOS the
+Arabic string:
+
+```
+persisted=en resolved=en promptSeen=true promptAr=true promptEn=false
+```
+
+`AppLockGate` raises the prompt from a post-frame callback on the FIRST frame —
+deliberately, so nothing protected is ever on screen unauthenticated. At that
+instant the SQLCipher database has not been opened, so `context.l10n` is still
+the app default whatever the user persisted. iOS is handed that string once, by
+value, and draws it.
+
+It was left unfixed at the time on the grounds that no V1 user could reach it —
+`SaveLanguageUseCase` had no callers, so every user's persisted language WAS the
+default. Settings → Language removes that grounds, which is why the fix shipped
+with it rather than after it.
+
+**The fix:** `core/security/lock_prompt_language.dart`, a keychain mirror of
+`user_settings.language` written by every path that writes the column, in the
+same await chain as the write. The gate reads it — one local keychain read, no
+database, no provider, no network, no bootstrap — while the lock screen is
+already up, so it opens no window and changes no authentication behaviour.
+
+An earlier attempt cached the same value from a Riverpod provider. It passed
+once and failed on the next run, because "when a provider runs" is not orderable
+against the process ending; it was reverted rather than shipped. The difference
+is the write site, not the storage.
+
+`test/core/security/app_lock_prompt_language_test.dart` pins the ambient locale
+to Arabic and the mirror to English — the exact cold-start shape — and **fails
+against the pre-fix gate** with `Expected: 'Unlock Qirsh…' Actual: 'افتح قِرش…'`.
+The device half is the `verify` phase of `tool/language_restart_proof.sh`, which
+reads the string off the `local_auth` pigeon channel on a real cold start of an
+install it never reinstalls.
+
+### 5b. Amended — the persistence finding was the installer
+
+§5's "real finding underneath it" — a language written in one process reading
+back as Arabic in the next — **is closed as a harness artifact**. `flutter test`
+uninstalls the app when it finishes, and iOS destroys the data container on
+uninstall, so the "next process" opened a brand-new database whose settings row
+had just been created with its hardcoded default. The value never failed to
+persist; the file it lived in had been deleted. Full account and the
+same-install proof: `V1_LANGUAGE_PERSISTENCE_INVESTIGATION.md`.
+
+---
+
 ## 6. Still not inspected — stated, not absorbed
 
 Excluded from the 57 above rather than hidden inside it.
@@ -340,9 +435,18 @@ the correct language in both cases (§5). That correction is the honest outcome,
 not a reconciliation: the surface now has a passing two-language assertion
 behind it where before it had a screenshot of an app in its default language.
 
-One open item is carried out of this pass rather than closed by it: a language
-written in one process read back as Arabic in the next (§5). It is not a visual
-defect and was not investigated further, per the instruction not to reopen other
-scope.
+One open item was carried out of this pass rather than closed by it: a language
+written in one process read back as Arabic in the next (§5). It has since been
+investigated and closed as a harness artifact — see §5b.
 
 4,034 tests pass. Analyzer clean across `lib`, `test`, `integration_test`.
+
+### Amended verdict — 2026-09-18, after Settings → Language
+
+**58 / 58 / 0 / 0.** The denominator gains the language picker (§1a). §5's
+clearance of the app-lock prompt is withdrawn: the prompt WAS wrong on a cold
+start, it is fixed, and the fix has a test that fails against the old gate
+(§5a). §5's open persistence finding is closed as a harness artifact (§5b).
+
+4,046 tests pass, 2 skipped. Analyzer clean across `lib`, `test`,
+`integration_test`.

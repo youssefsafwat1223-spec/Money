@@ -2,6 +2,53 @@
 
 **This supersedes the verdict in `V1_LOCALIZATION_MATRIX.md`.**
 
+## 0. REACHABILITY — closed 2026-09-18
+
+Everything below this section measures how *well* the app speaks English. None
+of it measured whether a user can **ask** it to, and the answer was no.
+
+`user_settings.language` is created as `'ar'`. `SaveLanguageUseCase` — the only
+code in `lib/` that writes that column — had **zero callers**:
+
+```
+grep -rn "saveLanguageUseCaseProvider" lib/ | grep -v app_providers   → nothing
+grep -rn "SaveLanguageUseCase"        lib/ | grep -v usecases|providers → nothing
+```
+
+No control in Settings, no ARB copy for one, no onboarding step, no migration,
+and nothing seeding from the device locale — `localeProvider` reads the settings
+row and nothing else. **Every V1 user ran in Arabic, permanently.** The English
+localization was complete and unreachable.
+
+That also changes how to read the rest of this document. Every bilingual walk,
+matrix and capture in this programme set the language by writing
+`settings.language` directly — §1 below says so — which is the same non-shipping
+path. The measurements are sound; the state they measured was one no user could
+enter.
+
+### What shipped
+
+**Settings → Language**, offering **العربية** and **English** as endonyms, going
+through `SaveLanguageUseCase` — the app's real write path, still the only one.
+Arabic remains the default for new users; the row is still created `'ar'` and no
+default-language policy changed.
+
+`localeProvider` watches `userSettingsProvider`, so choosing re-renders copy,
+direction, pickers and the material delegates without a restart.
+
+### Evidence
+
+| Check | Where |
+|---|---|
+| The control exists, offers both languages, and goes through the real write path | `test/features/settings/language_selector_test.dart` |
+| What Settings writes is what `localeProvider` reads | same file, last test |
+| A language chosen in Settings survives process termination and relaunch, same install, both directions | `integration_test/language_restart_persistence_test.dart` + `tool/language_restart_proof.sh` |
+| The cold-start unlock prompt follows the persisted language | `test/core/security/app_lock_prompt_language_test.dart` (fails against the pre-fix gate) and the `verify` phase of the device proof |
+
+Device evidence, numbers and the residual gaps: `V1_LANGUAGE_PERSISTENCE_INVESTIGATION.md`.
+
+---
+
 ## 0. The recommendation that is withdrawn
 
 The previous matrix recommended shipping V1 **Arabic-only** and not claiming

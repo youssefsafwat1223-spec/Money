@@ -154,6 +154,43 @@ Neither appears in the bilingual walk's route list, which is the denominator
 every localization and direction figure is reported against. The V1 route
 count is **19**, and it contains no unreachable surface.
 
+## 3b. Language selection — activated 2026-09-18
+
+| Capability | Disposition | Reason |
+|---|---|---|
+| Settings → Language (العربية / English) | **ACTIVATE FOR V1** | Closes a V1 contract requirement that was shipping unreachable |
+
+This is a **closure, not an addition**. The product contract has been Arabic
+(MSA) **+ English** throughout, and the English localization was complete —
+1,619 ARB keys in both languages, every route walked in both, seven
+English-affecting defects found and fixed during the visual pass.
+
+What was missing was the door. `user_settings.language` is created as `'ar'`,
+and `SaveLanguageUseCase` — the only code in `lib/` that writes it — had **zero
+callers**. No control in Settings, no onboarding step, no migration, nothing
+seeding from the device locale. Every V1 user ran in Arabic permanently, and the
+English half of the product was impossible to reach from inside the app. The
+bilingual walks reached it by writing `settings.language` directly, which is not
+a path a user has.
+
+| Property | State |
+|---|---|
+| Default for new users | **`'ar'`, unchanged.** The row is still created Arabic; nothing about the default policy moved |
+| Write path | `SaveLanguageUseCase` → `user_settings.language`. The app's own, and still the only one |
+| Reactivity | `localeProvider` watches `userSettingsProvider`; choosing re-renders copy, direction, pickers and the material delegates without a restart |
+| Persistence | Survives process termination and relaunch on the same install — proven, not asserted; see `V1_LANGUAGE_PERSISTENCE_INVESTIGATION.md` |
+| Cold-start unlock prompt | Follows the persisted language. `LockPromptLanguage` mirrors the column into the keychain at every write, because the gate composes its prompt before the database can be opened |
+
+Consequence worth stating: with English reachable, the cold-start prompt defect
+that was previously *unreachable* becomes real, which is why it was fixed in the
+same change rather than deferred.
+
+Also worth stating, and **not** fixed: `notification_journey_service.dart`
+composes campaign notifications Arabic-only from a background isolate with no
+`BuildContext`. It needs the `notificationLanguage` pattern, not a context. An
+English user will receive those particular notifications in Arabic. Recorded in
+`V1_UI_VISUAL_CLOSURE_2026-09-18.md` §8 and unchanged by this work.
+
 ## 4. Deferred infrastructure
 
 | Item | Disposition | Reason |

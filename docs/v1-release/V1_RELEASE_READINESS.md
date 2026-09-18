@@ -12,6 +12,37 @@ every open security opportunity as a release blocker, which is the wrong test.
 The right ones are "would Apple reject this?" and "is there a concrete
 Qirsh-specific vulnerability?" — not "would a more hardened app have it?"
 
+### Reopened and closed after assessment — language reachability, 2026-09-18
+
+One V1 contract requirement was found to be shipping unreachable rather than
+incomplete, and was closed rather than deferred.
+
+Qirsh's contract is Arabic (MSA) **+ English**. The English localization was
+finished — 1,619 ARB keys in both languages, every route walked in both, seven
+English-affecting defects found and fixed during the visual pass. But
+`user_settings.language` is created `'ar'` and `SaveLanguageUseCase`, the only
+code that writes it, had **zero callers**. There was no way for a user to ask
+for English, so every V1 user ran in Arabic permanently. Every bilingual
+measurement in this programme reached English by writing the column directly,
+which is not a path a user has.
+
+**Shipped:** Settings → Language (العربية / English), through the app's own
+write path. Arabic remains the default for new users; no default-language policy
+changed.
+
+**Consequence taken with it:** the cold-start unlock prompt composed itself from
+`context.l10n` on the first frame, before the encrypted database could be
+opened, so with English persisted iOS was handed the Arabic string. That was
+previously unreachable and recorded as such; making English reachable made it
+real, so it was fixed in the same change — a keychain mirror of the language
+written at every write site, read by the gate while the lock screen is already
+up. The gate's timing, authentication and lock behaviour are unchanged; the
+regression test fails against the pre-fix gate.
+
+Detail: `V1_FEATURE_ACTIVATION_MATRIX.md` §3b,
+`V1_LOCALIZATION_MATRIX_2026-09-17.md` §0,
+`V1_LANGUAGE_PERSISTENCE_INVESTIGATION.md`.
+
 ### The two genuine blockers
 
 | | Blocker | Owner action |

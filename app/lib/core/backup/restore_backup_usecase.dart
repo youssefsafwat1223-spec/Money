@@ -1,5 +1,6 @@
 import 'package:drift/drift.dart';
 
+import '../security/lock_prompt_language.dart';
 import '../../data/db/app_database.dart';
 import '../../data/db/planning_cutover.dart';
 import '../../data/db/money_v30_backfill.dart';
@@ -274,6 +275,25 @@ class RestoreBackupUseCase {
       }
     } catch (_) {
       throw const RestoreCommittedPostStepException('foreignKeyReenable');
+    }
+    // The unlock prompt is composed on the first frame of a cold start, before
+    // the database can be opened, so the restored language is mirrored into the
+    // keychain for it to read. Post-commit, because a rolled-back restore must
+    // not leave the mirror describing data that was never written. See
+    // core/security/lock_prompt_language.dart.
+    try {
+      // `getSingleOrNull`: a synthetic or partial snapshot can leave the
+      // settings row absent, and there is then no language to mirror. Absent is
+      // not a failure — the mirror keeps its current value, which is what the
+      // app will still be reading.
+      final row = await _db
+          .customSelect('SELECT language FROM user_settings LIMIT 1;')
+          .getSingleOrNull();
+      if (row != null) {
+        await LockPromptLanguage.set(row.read<String>('language'));
+      }
+    } catch (_) {
+      throw const RestoreCommittedPostStepException('lockPromptLanguage');
     }
   }
 

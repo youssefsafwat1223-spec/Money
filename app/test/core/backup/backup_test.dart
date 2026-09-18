@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 
 import 'package:cryptography/cryptography.dart';
@@ -38,6 +39,11 @@ Future<AppDatabase> _openDb() => AppDatabase.open(
     );
 
 void main() {
+  // A restore mirrors the restored language into the keychain for the unlock
+  // prompt (core/security/lock_prompt_language.dart); this suite has no
+  // keychain, so it gets an in-memory one.
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   // ── EncryptedBackupBlob serialization ──────────────────────────────────────
   group('EncryptedBackupBlob', () {
     test('toBytes / fromBytes roundtrip is lossless', () {

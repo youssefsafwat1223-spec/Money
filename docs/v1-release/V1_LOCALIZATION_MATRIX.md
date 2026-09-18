@@ -6,7 +6,10 @@
 > requirement. The counts here are also stale — ARB keys went 338 → 930 and
 > routes rendering Arabic under `en` went 15/19 → 10/19.
 >
-> Current state: **`V1_LOCALIZATION_MATRIX_2026-09-17.md`**.
+> Current state: **`V1_LOCALIZATION_MATRIX_2026-09-17.md`**, whose §0 records
+> the closure of the gap none of these counts could see: English was
+> complete and **unreachable** until Settings → Language shipped on
+> 2026-09-18.
 >
 > Kept unedited as the record of what was measured on 2026-09-15/16.
 

@@ -2149,6 +2149,12 @@ abstract class AppL10n {
   /// **'العملة الأساسية'**
   String get setBaseCurrency;
 
+  /// No description provided for @setLanguage.
+  ///
+  /// In ar, this message translates to:
+  /// **'اللغة'**
+  String get setLanguage;
+
   /// No description provided for @setName.
   ///
   /// In ar, this message translates to:

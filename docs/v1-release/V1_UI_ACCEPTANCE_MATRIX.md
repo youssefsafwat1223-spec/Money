@@ -1,8 +1,28 @@
-> **§5 SUPERSEDED — 2026-09-17.** That section accepted visual fidelity on 13
-> route captures. A strict pass has since inspected 45 unique surfaces in both
-> languages, found 11 mismatches and fixed them all. See
-> `V1_UI_ACCEPTANCE_MATRIX_VISUAL_2026-09-17.md`. Sections 1–4 and 6 of this
-> document — the surface inventory and the honest disclaimers — still stand.
+> **§5 SUPERSEDED — 2026-09-17, amended 2026-09-18.** That section accepted
+> visual fidelity on 13 route captures. A strict pass has since inspected 45
+> unique surfaces in both languages, found 11 mismatches and fixed them all
+> (`V1_UI_ACCEPTANCE_MATRIX_VISUAL_2026-09-17.md`); a second pass reconciled the
+> denominator and closed the twelve surfaces that pass had never opened
+> (`V1_UI_VISUAL_CLOSURE_2026-09-18.md`).
+>
+> **Current numbers, after Settings → Language shipped on 2026-09-18:**
+>
+> | | |
+> |---|---|
+> | TOTAL SHIPPING UNIQUE SURFACES | **58** |
+> | VISUALLY INSPECTED | **58** |
+> | NOT INSPECTED | **0** |
+> | MATCH | **49** |
+> | ACCEPTABLE INTENTIONAL DELTA | **9** |
+> | MISMATCH | **0** |
+> | NOT APPLICABLE | **3** |
+>
+> The 58th surface is the language picker; 22 further Atlas overlay and dialog
+> designs remain outside the denominator and uninspected, enumerated in
+> `V1_UI_VISUAL_CLOSURE_2026-09-18.md` §6.
+>
+> Sections 1–4 and 6 of this document — the surface inventory and the honest
+> disclaimers — still stand.
 
 # V1 UI Acceptance Matrix
 

@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../l10n/app_localizations.dart';
 import '../theme/app_colors.dart';
 import '../theme/app_spacing.dart';
 import '../theme/app_typography.dart';
 import '../utils/app_lucide_icons.dart';
 import 'app_lock_service.dart';
+import 'lock_prompt_language.dart';
 import '../utils/l10n_ext.dart';
 
 class AppLockGate extends StatefulWidget {
@@ -83,12 +85,30 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
     await _unlock();
   }
 
+  /// The prompt string handed to iOS, which draws it itself.
+  ///
+  /// NOT `context.l10n.lockPrompt`. The gate raises the prompt from the first
+  /// frame's post-frame callback — deliberately, so nothing protected is ever
+  /// on screen unauthenticated — and at that moment `userSettingsProvider` has
+  /// not opened the encrypted database, so `context.l10n` is still the app
+  /// default rather than the reader's language. Measured on a cold start with
+  /// English persisted: the prompt went out in Arabic.
+  ///
+  /// [LockPromptLanguage] is a keychain mirror of `user_settings.language`
+  /// written by every path that changes it, so this is one local read with no
+  /// database, provider, network or bootstrap behind it — and it runs while the
+  /// lock screen is already up, so it opens no window.
+  Future<String> _promptReason() async {
+    final language = await LockPromptLanguage.read();
+    return (await AppL10n.delegate.load(Locale(language))).lockPrompt;
+  }
+
   Future<void> _unlock() async {
     if (_authenticating || !mounted) return;
     setState(() => _authenticating = true);
     HapticFeedback.selectionClick();
-    final ok = await AppLockService.instance
-        .authenticate(reason: context.l10n.lockPrompt);
+    final reason = await _promptReason();
+    final ok = await AppLockService.instance.authenticate(reason: reason);
     if (!mounted) return;
     setState(() {
       _authenticating = false;

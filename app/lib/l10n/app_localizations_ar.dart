@@ -1151,6 +1151,9 @@ class AppL10nAr extends AppL10n {
   String get setBaseCurrency => 'العملة الأساسية';
 
   @override
+  String get setLanguage => 'اللغة';
+
+  @override
   String get setName => 'الاسم';
 
   @override

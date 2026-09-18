@@ -7,6 +7,13 @@ Three things came out of it. The first closes the finding. The second corrects a
 retraction I made. The third is the fact both of them were standing on, and it
 is the one that needs an owner decision.
 
+> **AMENDED 2026-09-18 (later).** The owner took that decision: English was a
+> V1 contract requirement shipping unreachable, so **Settings → Language**
+> shipped. That makes the cold-start prompt defect in §2 reachable, so it was
+> fixed in the same change. §2's "not a V1 defect" and §3's "OPEN — owner
+> decision" are both superseded by **§6**, which carries the device evidence.
+> The sections they amend are left as written.
+
 ---
 
 ## 1. The persistence finding was a harness artifact — CLOSED
@@ -166,10 +173,131 @@ Neither is in the unit suite: both need a device and a real process restart.
 
 ---
 
-## 5. Status
+## 5. Status — as of the investigation
 
 | | |
 |---|---|
 | Persistence finding | **CLOSED** — harness artifact, proven |
 | App-lock prompt on cold start | Real, **not reachable in V1**, fix reverted as unreliable |
 | No language switcher in V1 | **OPEN — owner decision**, no change made |
+
+---
+
+## 6. Closed, 2026-09-18 — the switcher shipped and the prompt was fixed
+
+### 6.1 Settings → Language
+
+`_showSettingsPicker` offering **العربية** and **English** as endonyms, next to
+Country and Currency, going through `SaveLanguageUseCase` — the app's real write
+path, still the only one. Arabic remains the default for new users; the settings
+row is still created `'ar'` and no default-language policy changed.
+
+Endonyms rather than ARB strings on purpose: a reader looking for their own
+language looks for its own name, and translating the list labels the language
+you cannot read in the language you cannot read.
+
+### 6.2 The prompt fix, and why this cache is not the last one
+
+`core/security/lock_prompt_language.dart` — a keychain mirror of
+`user_settings.language`, written by **every path that writes the column**, in
+the same await chain as the write:
+
+| Writer | Why it writes |
+|---|---|
+| `SaveLanguageUseCase` | Settings → Language; the only path a user can take |
+| `PlanningPullService` | a server row carrying a language — how a second device inherits the first's choice |
+| `RestoreBackupUseCase` | a backup snapshot carrying a language, mirrored **post-commit** so a rolled-back restore leaves the mirror alone |
+
+The gate reads it instead of `context.l10n`: one local keychain read, no
+database, no provider, no network, no bootstrap, taken while the lock screen is
+already up. **The lock still fires on the first protected frame, and nothing
+about authentication changed.**
+
+The earlier attempt cached the same value from a Riverpod provider and was
+reverted after passing once and failing the next run. The difference is not the
+storage, it is the **write site**: "when a provider runs" cannot be ordered
+against the process ending, and "the line after the database write" can.
+
+`test/core/security/lock_prompt_language_test.dart` fails if a fourth writer of
+the column appears without a mirror, so the coverage this argument depends on is
+enforced rather than asserted.
+
+### 6.3 What it does NOT cover, stated
+
+iOS keychain items outlive the app container. After a **reinstall** the mirror
+survives while the database returns to its default, so a user who had chosen
+English and reinstalled sees one English prompt over an Arabic app until they
+choose again. Closing it means seeding the mirror where the settings row is
+created — inside `AppDatabase`, which every unit test opens without a keychain.
+One wrong-language prompt in a rare path, in the language the user last asked
+for, was not worth putting a platform channel in the data layer's constructor
+path. Recorded, not traded away quietly.
+
+### 6.4 Device evidence — one install, eight launches, both directions
+
+`tool/language_restart_proof.sh` installs once and only launches thereafter. The
+language is chosen by **tapping the real Settings screen** — the shell's own
+settings icon, the Language tile, the language — never written behind the UI's
+back, and no `--dart-define` forces it.
+
+```
+=== LANGUAGE: en ===
+[settings] chose=en persisted=en resolved=en mirrored=en   lock armed=true
+=== TERMINATE (process killed; install untouched) ===
+[verify]   persisted=en resolved=en mirrored=en promptSeen=true promptAr=false promptEn=true
+=== TERMINATE ===
+[ui]       persisted=en resolved=en direction=ltr wantedCopyVisible=true otherCopyVisible=false
+
+=== LANGUAGE: ar ===
+[settings] chose=ar persisted=ar resolved=ar mirrored=ar   lock armed=true
+=== TERMINATE ===
+[verify]   persisted=ar resolved=ar mirrored=ar promptSeen=true promptAr=true  promptEn=false
+=== TERMINATE ===
+[ui]       persisted=ar resolved=ar direction=rtl wantedCopyVisible=true otherCopyVisible=false
+
+before: …/Application/FC120938-8349-4BA9-B091-66A4720BC623
+after : …/Application/FC120938-8349-4BA9-B091-66A4720BC623
+SAME container — this was a process restart, NOT a reinstall.
+```
+
+`promptAr=false promptEn=true` under `persisted=en` is the line the whole
+exercise is for: on the pre-fix gate the same cold start produced
+`promptAr=true promptEn=false`.
+
+### 6.5 The prompt, photographed
+
+The `native` phase launches with **nothing intercepting the platform call**, so
+iOS draws its own sheet and the host photographs it. This is the string as a
+user sees it, not as the channel carries it — and it is the capture that every
+earlier attempt at this surface failed to get:
+
+| | |
+|---|---|
+| `~/.qirsh-qa/language-restart-proof/applock-native-prompt-en.png` | **"Unlock Qirsh to protect your financial data."** under the system's own "Enter iPhone Passcode" header |
+| `~/.qirsh-qa/language-restart-proof/applock-native-prompt-ar.png` | «افتح قِرش لحماية بياناتك المالية.» |
+
+The phase is photographed and killed rather than waited on: a native sheet stops
+frame production, so the run hangs behind it by design.
+
+The language picker itself is captured by the `ui` phase, which leaves it open
+over the settings list: `language-en.png` (LTR, «English» selected) and
+`language-ar.png` (mirrored RTL, «العربية» selected), each over a settings
+screen rendering entirely in its own language.
+
+### 6.6 Unit evidence
+
+| Check | File |
+|---|---|
+| The control exists, offers both languages, uses the real write path, and what it writes is what `localeProvider` reads | `test/features/settings/language_selector_test.dart` |
+| The prompt follows the mirror and not the ambient locale — **fails against the pre-fix gate** | `test/core/security/app_lock_prompt_language_test.dart` |
+| The mirror round-trips, degrades safely, and every writer of the column mirrors it | `test/core/security/lock_prompt_language_test.dart` |
+
+### 6.7 Amended status
+
+| | |
+|---|---|
+| Persistence finding | **CLOSED** — harness artifact, proven |
+| App-lock prompt on cold start | **FIXED** — both languages verified on device and in unit tests |
+| Language reachability | **CLOSED** — Settings → Language ships; Arabic still the default |
+| Reinstall carrying a stale mirror | **OPEN, recorded** — §6.3 |
+| Arabic-only campaign notifications | **OPEN, recorded** — `notification_journey_service.dart`; needs the `notificationLanguage` pattern, not a context |

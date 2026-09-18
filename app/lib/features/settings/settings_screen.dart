@@ -155,6 +155,37 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  /// The language names are endonyms, and deliberately NOT ARB strings. A
+  /// reader looking for their own language looks for its own name; translating
+  /// the list labels the language you cannot read in the language you cannot
+  /// read.
+  static const Map<String, String> languageValues = <String, String>{
+    'ar': 'العربية',
+    'en': 'English',
+  };
+
+  static String _languageKey(UserSettingsEntity settings) =>
+      settings.language == 'en' ? 'en' : 'ar';
+
+  void _editLanguage(
+    BuildContext context,
+    WidgetRef ref,
+    UserSettingsEntity settings,
+  ) {
+    _showSettingsPicker(
+      context,
+      ref,
+      title: context.l10n.setLanguage,
+      current: _languageKey(settings),
+      values: languageValues,
+      // `SaveLanguageUseCase` is the app's write path for this value, and the
+      // only one. Choosing here refreshes `userSettingsProvider`, which
+      // `localeProvider` watches, so the app re-renders in the new language and
+      // flips direction without a restart.
+      save: (value) => ref.read(saveLanguageUseCaseProvider).call(value),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final prefsAsync = ref.watch(notificationPreferencesProvider);
@@ -301,6 +332,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                                   ? null
                                   : () => _editCurrency(
                                       context, ref, settings, currencies),
+                            ),
+                            _NavTile(
+                              // Named so the device walk can reach the control
+                              // by identity rather than by a label that changes
+                              // language the moment it is used.
+                              key: const ValueKey('settings-language'),
+                              icon: AppLucideIcons.globe,
+                              title: context.l10n.setLanguage,
+                              subtitle: languageValues[_languageKey(settings)]!,
+                              onTap: () =>
+                                  _editLanguage(context, ref, settings),
                             ),
                           ],
                         ),
@@ -2082,6 +2124,7 @@ class _AppLockTileState extends State<_AppLockTile> {
 
 class _NavTile extends StatelessWidget {
   const _NavTile({
+    super.key,
     required this.icon,
     required this.title,
     this.subtitle,

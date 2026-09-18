@@ -400,6 +400,7 @@
   "setLoadingCurrencies": "Loading currencies…",
   "setCountry": "Country",
   "setBaseCurrency": "Base currency",
+  "setLanguage": "Language",
   "setName": "Name",
   "setNameInApp": "Your name in the app",
   "setAccountData": "Your account details",

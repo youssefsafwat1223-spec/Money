@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
@@ -29,6 +30,11 @@ class _SpyKeyStore implements DatabaseKeyStore {
 const _foreignKeyCanary = 'FOREIGN-KEY-B-CANARY-4c1d';
 
 void main() {
+  // A restore mirrors the restored language into the keychain for the unlock
+  // prompt (core/security/lock_prompt_language.dart); this suite has no
+  // keychain, so it gets an in-memory one.
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   Future<AppDatabase> open(DatabaseKeyStore ks) =>

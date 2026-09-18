@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import '../../core/security/lock_prompt_language.dart';
 import '../entities/account_entity.dart';
 import '../entities/engagement_entities.dart';
 import '../entities/supporting_entities.dart';
@@ -115,6 +116,15 @@ class SaveLanguageUseCase {
 
   Future<UserSettingsEntity> call(String language) async {
     final settings = await _repository.getSettings();
-    return _repository.saveSettings(settings.copyWith(language: language));
+    final saved =
+        await _repository.saveSettings(settings.copyWith(language: language));
+    // The OS unlock prompt is composed on the first frame of a cold start,
+    // before the encrypted database can be opened, so it cannot read this row.
+    // Mirroring here — in the same await chain as the write, not from a
+    // provider that may or may not have run — is what makes the prompt's
+    // language deterministic rather than one launch behind. See
+    // core/security/lock_prompt_language.dart.
+    await LockPromptLanguage.set(saved.language);
+    return saved;
   }
 }

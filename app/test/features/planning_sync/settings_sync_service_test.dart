@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 
 import 'package:drift/native.dart';
@@ -239,6 +240,11 @@ Map<String, dynamic> _remoteSettingsRow({
     };
 
 void main() {
+  // A settings pull mirrors the pulled language into the keychain for the
+  // unlock prompt (core/security/lock_prompt_language.dart); this suite has no
+  // keychain, so it gets an in-memory one.
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase db;

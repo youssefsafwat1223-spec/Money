@@ -516,6 +516,7 @@
   "setLoadingCurrencies": "تحميل العملات...",
   "setCountry": "الدولة",
   "setBaseCurrency": "العملة الأساسية",
+  "setLanguage": "اللغة",
   "setName": "الاسم",
   "setNameInApp": "اسمك في التطبيق",
   "setAccountData": "بيانات حسابك",

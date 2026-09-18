@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -121,6 +122,11 @@ Future<RestorePlan> planFrom(AppDatabase src) async => RestorePreparation.build(
     );
 
 void main() {
+  // A restore mirrors the restored language into the keychain for the unlock
+  // prompt (core/security/lock_prompt_language.dart); this suite has no
+  // keychain, so it gets an in-memory one.
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   TestWidgetsFlutterBinding.ensureInitialized();
 
   Future<AppDatabase> openMemory() => AppDatabase.open(

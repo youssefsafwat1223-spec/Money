@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/security/lock_prompt_language.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/bounded_lookup.dart';
@@ -813,6 +814,15 @@ class PlanningPullService {
           sync_status = 'synced'
       WHERE id = ${sqlString(id)};
     ''');
+    // The unlock prompt is composed before the database can be opened, so the
+    // language is mirrored into the keychain wherever it changes — here, a
+    // second device inheriting the choice made on the first. `keep()` above
+    // leaves the local value alone when the server sends none, and so does
+    // this. See core/security/lock_prompt_language.dart.
+    final pulledLanguage = row['language'] as String?;
+    if (pulledLanguage != null) {
+      await LockPromptLanguage.set(pulledLanguage);
+    }
   }
 
   Future<void> _insertCategory(String id, Map<String, dynamic> row) async {

@@ -1168,6 +1168,9 @@ class AppL10nEn extends AppL10n {
   String get setBaseCurrency => 'Base currency';
 
   @override
+  String get setLanguage => 'Language';
+
+  @override
   String get setName => 'Name';
 
   @override
