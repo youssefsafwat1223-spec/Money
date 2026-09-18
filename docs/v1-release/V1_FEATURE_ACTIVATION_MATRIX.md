@@ -202,6 +202,33 @@ Android channel name is set from the same value, so English copy cannot arrive
 inside a channel called «رسائل ونصائح قرش». Redaction is untouched — it happens
 below this, in `_show`, and was already language-aware.
 
+## 3c. Budget alert threshold — activated 2026-09-18
+
+| Capability | Disposition | Reason |
+|---|---|---|
+| Per-budget warning threshold, 10–100% in 5% steps | **ACTIVATE FOR V1** | Owner-requested; replaces a constant that was wrong in three places |
+| Cloud sync of the threshold | **KEEP DISABLED — V1 RELEASE REASON** | The server's `user_budgets` has no such column and migration 0100 is deferred |
+
+The warning point was hardcoded in three places that disagreed: `0.75` in
+`budget_alert_planner`, `0.8` in `budget_progress_usecase`, and `0.8` again in
+`AppColors.budgetState` — so a bar could read "warning" with no alert sent. All
+three now read `budget.alertThresholdPercent`, and a guard test fails if a bare
+fraction reappears.
+
+The Settings toggle separately promised «تنبيه 80% من الميزانية» / "Alert at 80%
+of a budget" while the engine used 75. It is now "Budget alerts" — the
+percentage is per budget, so a global promise could only become more wrong. The
+toggle remains the master enable; the threshold means nothing when it is off.
+
+**Not configurable, deliberately:** the 100% exceeded alert (a fact about your
+money, not a preference) and a 90% escalation for anyone whose threshold sits
+below it.
+
+**Sync disposition, stated as a decision:** the column is device-local. All
+three push builders are guarded against carrying it and the pull never names it,
+so a sync cannot reset a threshold chosen on this device. When the server
+migration lands, the guard is deleted by the change that adds the column.
+
 ## 4. Deferred infrastructure
 
 | Item | Disposition | Reason |

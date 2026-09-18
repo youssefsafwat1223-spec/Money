@@ -21,6 +21,29 @@
 > designs remain outside the denominator and uninspected, enumerated in
 > `V1_UI_VISUAL_CLOSURE_2026-09-18.md` §6.
 >
+> **AMENDED 2026-09-18 (later) — denominator 59.** The budget form gained a
+> **Budget alert** control (a per-budget warning threshold). It is a new
+> shipping visual surface, so the denominator is recalculated rather than
+> reused:
+>
+> | | |
+> |---|---|
+> | TOTAL SHIPPING UNIQUE SURFACES | **59** |
+> | VISUALLY INSPECTED | **59** |
+> | NOT INSPECTED | **0** |
+> | MISMATCH | **0** |
+>
+> The 59th was inspected on device in all four combinations — Arabic/RTL and
+> English/LTR × light and dark — by `integration_test/budget_alert_capture_test.dart`,
+> which opens the real form on the real app and leaves it open for the host to
+> photograph. Captures: `~/.qirsh-qa/budget-alert-capture/budget-alert-{ar,en}-{light,dark}.png`.
+>
+> The same pass migrated the LIGHT theme to the design system's palette
+> (`V1_UI_REDESIGN_MAPPING_2026-09-18.md`). That changes the colour of every
+> already-inspected surface, so it is recorded as a token-level change with two
+> documented deviations rather than as 58 re-inspections; the dashboard was
+> re-captured on device to confirm the new palette renders.
+>
 > Sections 1–4 and 6 of this document — the surface inventory and the honest
 > disclaimers — still stand.
 

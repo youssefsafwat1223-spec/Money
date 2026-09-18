@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -111,8 +112,12 @@ void main() {
     await settle(tester);
 
     // Open the real budget form the way the app does.
-    await BudgetFormScreen.showSheet(
-        tester.element(find.byType(AppShell)));
+    //
+    // NOT awaited: `showSheet` returns `showModalBottomSheet`'s future, which
+    // completes when the sheet is DISMISSED. Awaiting it waits forever, which
+    // is exactly what the first run of this harness did.
+    unawaited(BudgetFormScreen.showSheet(
+        tester.element(find.byType(AppShell))));
     await settle(tester, budget: const Duration(seconds: 20));
 
     final l10n = await AppL10n.delegate.load(Locale(lang));

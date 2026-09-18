@@ -43,6 +43,35 @@ Detail: `V1_FEATURE_ACTIVATION_MATRIX.md` §3b,
 `V1_LOCALIZATION_MATRIX_2026-09-17.md` §0,
 `V1_LANGUAGE_PERSISTENCE_INVESTIGATION.md`.
 
+### Reopened and closed after assessment — 2026-09-18 (second pass)
+
+Three owner-requested changes. Two are closed; the third is blocked on
+credentials this machine does not have.
+
+**A. Budget alert threshold — CLOSED.** Each budget now carries its own warning
+percentage, chosen on a 10–100% slider in 5% steps. It replaced a constant that
+lived in three places and disagreed with itself, and a Settings string that
+promised a fourth number. The value survives restart, backup/restore and
+export/import; it is deliberately not pushed to a server that has no column for
+it. 31 new tests; both new guards verified to fail on the pre-change code.
+
+**B. Design-system alignment — LIGHT THEME CLOSED, geometry deferred.** Measured
+against the design file, the app's dark theme already carried 17/19 of its
+tokens and the light theme carried 1/24. The light palette is now migrated
+(20/25 exact) with two documented deviations: `ink` keeps the brand blue because
+UX-002 is a standing owner decision against near-black, and muted text is
+darkened to pass AA because the design's own value measures 3.90:1. The radius
+and spacing scales are NOT migrated — that is several hundred call sites for a
+2–6px delta, recorded in `V1_UI_REDESIGN_MAPPING_2026-09-18.md` for the owner to
+schedule.
+
+**C. Real-device cloud QA — BLOCKED, three separate ways.** No BrowserStack
+credentials, no authenticated Google account / absent `gcloud`, and 0 signing
+identities. Android cloud runs need only credentials; iOS cloud runs need
+EB-004 as well. Nothing was faked and no physical-device coverage is claimed —
+`V1_REAL_DEVICE_QA_2026-09-18.md` has the exact per-service position and the
+ordered owner actions.
+
 ### The two genuine blockers
 
 | | Blocker | Owner action |
