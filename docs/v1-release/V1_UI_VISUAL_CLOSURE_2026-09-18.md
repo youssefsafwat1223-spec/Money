@@ -49,9 +49,9 @@ states), 27 overlay designs, 11 dialog designs — reduced to unique surfaces.
 | **TOTAL SHIPPING UNIQUE SURFACES** | **57** |
 | **VISUALLY INSPECTED** | **57** |
 | **NOT INSPECTED** | **0** |
-| **MATCH** | **47** |
+| **MATCH** | **48** |
 | **ACCEPTABLE INTENTIONAL DELTA** | **9** |
-| **MISMATCH** | **1 outstanding** — 8 found, 7 fixed and verified |
+| **MISMATCH** | **0** — 7 found, 7 fixed and verified |
 | **NOT APPLICABLE** | **3** |
 
 Beyond the 57: **13 overlay designs and 9 dialog designs** the Atlas lists and
@@ -79,7 +79,7 @@ iPhone 17 Pro Max, iOS 26.5, 1320×2868, 16-bit RGBA.
 | `StartupLoadingScreen(error:)` | `SHELL-STARTUPLOADING-ERROR` | injected failing runner | ✔ | ✔ | MATCH |
 | `AppBootLoader` | `SHELL-RESTORING` | `appDataRestoring` | ✔ | ✔ | MISMATCH → fixed |
 | `ForceUpdateScreen` | `ONBOARDING-FORCEUPDATE-DEFAULT` | local force-update row | ✔ | ✔ | MISMATCH → fixed |
-| `AppLockGate` | `SHELL-APPLOCK-DEFAULT` | armed flag, host capture | ✔ | ✔ | **MISMATCH — NOT FIXED** |
+| `AppLockGate` | `SHELL-APPLOCK-DEFAULT` | armed flag, prompt read off the platform channel | ✔ | ✔ | MATCH — see §5 |
 | `_DatabaseRecoveryView` | `SHELL-DATABASE-RECOVERY` | injected `database_open` failure | ✔ | ✔ | MISMATCH → fixed |
 | `ReportPreviewScreen` | `REPORTING-REPORTPREVIEW-DEFAULT` | real generation | ✔ | ✔ | MATCH |
 | `PlansScreen` | `PLANS-PLANS-EMPTY` | settings row | ✔ | ✔ | DELTA |
@@ -106,7 +106,7 @@ button that supplies a real one. Both sheets held a defect.
 
 ---
 
-## 3. The eight mismatches
+## 3. The seven mismatches
 
 | # | Surface | Defect | State |
 |---|---|---|---|
@@ -117,9 +117,11 @@ button that supplies a real one. Both sheets held a defect.
 | 5 | welcome story | `TextAlign.right` + `Positioned(left:)`; the halftone ran through English body copy | fixed, verified |
 | 6 | setup country selector | **white text on white pills, both languages**, 1.00:1 | fixed, verified 11.55:1 |
 | 7 | `DLG-DATE-PICKER` | a fully Arabic calendar over an English app | fixed, verified |
-| 8 | `SHELL-APPLOCK-DEFAULT` | the OS unlock prompt rendered Arabic | **NOT FIXED — see §5** |
 
-Seven fixes were verified by re-capture. For (1) and (7), the **Arabic capture
+An eighth was reported on 2026-09-17 — the app-lock prompt — and was **not a
+mismatch**. It is corrected in §5.
+
+All seven fixes were verified by re-capture. For (1) and (7), the **Arabic capture
 is byte-identical before and after** and only the English one moved, which is
 the signature a locale fix should leave.
 
@@ -172,29 +174,77 @@ silently.
 
 ---
 
-## 5. The one outstanding mismatch
+## 5. The app-lock prompt — a finding I got wrong, and what is actually there
 
-**`SHELL-APPLOCK-DEFAULT` — the OS unlock prompt is Arabic.** Captured from the
-host (`applock/applock-en.png`): with the app lock armed, iOS shows
-«افتح قِرش لحماية بياناتك المالية.» The lock fires from a post-frame callback on
-the first frame, before `userSettingsProvider` resolves, so the prompt is
-composed in the app's default language and handed to iOS once.
+**There is no mismatch in the gate.** Measured on the real `AppLockGate`, with
+the real keychain flag, the real 30-second background delay and the real
+lifecycle transition:
 
-**Not fixed, deliberately.** A change was written — make the gate await the
-settings future before composing the prompt — and then reverted, for two
-reasons:
+| persisted | app resolved | prompt handed to iOS |
+|---|---|---|
+| `ar` | `ar` | Arabic only (`ar=true en=false`) |
+| `en` | `en` | **English only** (`ar=false en=true`) |
 
-* It could not be verified. The standalone simulator build will not get past
-  the launch screen, so there is no way to confirm the app was in English at
-  the moment the prompt was captured. The diagnosis is plausible and unproven.
-* It touches the app-lock path at release closure. An unverified change to the
-  gate that stands between a stranger and the user's financial history is worse
-  than a recorded defect.
+`"Unlock Qirsh to protect your financial data."` is what iOS gets when the app
+is in English. The gate composes the prompt from the app's language and always
+did.
 
-This is the owner's call. The evidence is in `applock/`.
+### Why the earlier report said otherwise
 
-Note alongside it: the sheet reads `Enter iPhone Passcode for "قرش"`. That is
-`CFBundleDisplayName`, and the Arabic brand name is intentional.
+The 2026-09-17 closure reported this surface as an outstanding mismatch on the
+strength of a host screenshot showing an Arabic prompt. That screenshot was
+taken against a data container that held **no persisted settings at all** —
+verified afterwards: the container had been recreated and its `Documents`
+directory was empty. The app was therefore in its default language, and the
+Arabic prompt was correct behaviour. The screenshot proved nothing, and the
+finding derived from it was wrong.
+
+Two things made the mistake easy to keep. The prompt cannot be photographed
+from inside a test, and the reason given for that was also wrong: it is not the
+native sheet that freezes the run, it is the `paused` lifecycle state —
+`tester.pump()` after it never returns because frame production has stopped.
+And re-running `app.main()` does not re-arm the gate, because its `State` is
+reused and `initState` never fires again; a run that looked like a cold start
+sat on the dashboard with the lock armed.
+
+### How it is measured now
+
+`integration_test/applock_prompt_language_test.dart` reads the string off the
+`local_auth` pigeon channel, which is the string iOS renders verbatim. The mock
+declines to reply; pigeon raises a connection error; `AppLockService` catches it
+and reports a failed authentication, so **the gate stays locked**. Nothing about
+the gate, the flag, the delay or the lifecycle is stubbed — only the platform
+call at the very end, and only to read what it was given. Both languages are
+asserted, each required to carry its own prompt and not the other's.
+
+No production code was changed for this surface. The change written during the
+earlier pass — making the gate await settings before prompting — was reverted
+and is not needed.
+
+### The real finding underneath it
+
+While establishing the reproduction, something else turned up that is worth
+more than the thing I was asked to fix:
+
+**A language written in one process reads back as Arabic in the next.**
+Measured twice, with nothing running in between:
+
+```
+flutter test integration_test/applock_arm_test.dart -d <udid> \
+  --dart-define=QIRSH_APPLOCK_LANG=en          → PERSISTED language=en
+flutter test integration_test/applock_arm_test.dart -d <udid> \
+  --dart-define=QIRSH_APPLOCK_VERIFY=1         → PERSISTED language=ar
+```
+
+If that reproduces through the app's own settings screen, an English user's app
+comes up Arabic after every restart — and the Arabic unlock prompt reported on
+2026-09-17 was a symptom of it rather than a defect of the gate. It would affect
+every surface in the app, not this one.
+
+It is **not** a UI visual-fidelity defect and I did not investigate the
+mechanism or attempt a fix: the instruction for this pass was not to reopen
+other engineering scope. It is recorded here, with its reproduction, as the
+highest-value open item this programme has produced.
 
 ---
 
@@ -247,7 +297,8 @@ The four from 2026-09-17 stand. Five added:
 
 ## 8. Findings NOT fixed, reported
 
-* **`SHELL-APPLOCK-DEFAULT`** — §5.
+* **The persisted language may not survive a process restart** — §5. Outside
+  the visual scope, and larger than it.
 * **`notification_journey_service.dart:114-134`** composes campaign
   notifications from `titleAr`/`bodyAr` unconditionally, so an English user
   would *receive* an Arabic notification. Same family as §3 (1), but a
@@ -269,6 +320,7 @@ Each verified to fail on the defect and pass on the fix.
 | `no_arabic_only_server_copy_test` | no widget reads `titleAr`/`bodyAr`/`actionLabelAr`; no hardcoded `TextAlign.right`/`left`; no picker pins its own locale; the story keeps `PositionedDirectional` |
 | `locale_holds_across_reload_test` | a settings **error** does not switch an English reader's app to Arabic |
 | `country_pill_contrast_test` | the country selector does not use a themed Material chip |
+| `applock_prompt_language_test` | the unlock prompt iOS is handed carries the app's language, in both directions, on the real gate |
 
 `tool/png_sample.py` and `tool/check_captures.py` are the two measurement tools
 this pass needed and did not have.
@@ -281,9 +333,16 @@ this pass needed and did not have.
 further Atlas overlay and dialog designs outside it are enumerated in §6 rather
 than absorbed.
 
-**MISMATCH = 1**, not 0. Seven of eight are fixed and verified by re-capture;
-the eighth is the app-lock prompt, recorded in §5 with its evidence and the
-reason it was left for the owner. The EB-004 precondition of MISMATCH = 0 is
-therefore **not met**, and that is reported rather than reconciled away.
+**MISMATCH = 0.** Seven were found and all seven are fixed and verified by
+re-capture. The eighth — the app-lock prompt — was never a mismatch: it was
+measured against a container with no persisted settings, and the gate hands iOS
+the correct language in both cases (§5). That correction is the honest outcome,
+not a reconciliation: the surface now has a passing two-language assertion
+behind it where before it had a screenshot of an app in its default language.
+
+One open item is carried out of this pass rather than closed by it: a language
+written in one process read back as Arabic in the next (§5). It is not a visual
+defect and was not investigated further, per the instruction not to reopen other
+scope.
 
 4,034 tests pass. Analyzer clean across `lib`, `test`, `integration_test`.

@@ -41,6 +41,11 @@ const _qaUserId = String.fromEnvironment('QA_USER_ID');
 const _arm = String.fromEnvironment('QIRSH_APPLOCK') == 'on';
 const _lang = String.fromEnvironment('QIRSH_APPLOCK_LANG', defaultValue: 'ar');
 
+/// `1` reads and reports the persisted state WITHOUT changing anything. Used to
+/// prove the language that was actually stored when a capture was taken, rather
+/// than the language the capture was supposed to have been taken under.
+const _verifyOnly = String.fromEnvironment('QIRSH_APPLOCK_VERIFY') == '1';
+
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
   // Clears the flag before anything launches, so an already-armed device can
@@ -113,12 +118,30 @@ void main() {
     final container =
         ProviderScope.containerOf(tester.element(find.byType(AppShell)));
     final repo = container.read(userSettingsRepositoryProvider);
-    final current = await repo.getSettings();
-    await repo.saveSettings(current.copyWith(language: _lang));
-    await settle(tester, budget: const Duration(seconds: 10));
 
-    await SecureStorageOptions.storage
-        .write(key: 'app_lock_enabled', value: _arm ? '1' : '0');
-    debugPrint('[ARM] app lock ${_arm ? "ARMED" : "disarmed"}, language=$_lang');
+    if (!_verifyOnly) {
+      final current = await repo.getSettings();
+      await repo.saveSettings(current.copyWith(language: _lang));
+      await settle(tester, budget: const Duration(seconds: 10));
+      await SecureStorageOptions.storage
+          .write(key: 'app_lock_enabled', value: _arm ? '1' : '0');
+    }
+
+    // READ BACK from the source of truth — the settings repository and the
+    // keychain — rather than reporting what was requested. A capture is only
+    // evidence about a language if the language it was taken under is known,
+    // and "we asked for English" is not that.
+    final persisted = await repo.getSettings();
+    final lockFlag =
+        await SecureStorageOptions.storage.read(key: 'app_lock_enabled');
+    debugPrint('[ARM] mode=${_verifyOnly ? "VERIFY-ONLY" : "WRITE"} '
+        'requested(lang=$_lang arm=$_arm)');
+    debugPrint('[ARM] PERSISTED language=${persisted.language} '
+        'app_lock_enabled=$lockFlag');
+    // The locale the running app actually resolved, from the widget tree.
+    final shellLocale =
+        Localizations.localeOf(tester.element(find.byType(AppShell)))
+            .languageCode;
+    debugPrint('[ARM] RESOLVED app locale=$shellLocale');
   }, timeout: const Timeout(Duration(minutes: 15)));
 }
