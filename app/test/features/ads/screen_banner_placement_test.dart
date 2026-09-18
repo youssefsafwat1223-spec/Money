@@ -7,11 +7,14 @@ import 'package:money_companion/core/backend/metrics_client.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
+import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/goals/goals_providers.dart';
 import 'package:money_companion/features/goals/goals_screen.dart';
+import 'package:money_companion/features/subscriptions/subscriptions_providers.dart';
+import 'package:money_companion/features/subscriptions/subscriptions_screen.dart';
 import 'package:money_companion/features/achievements/achievements_providers.dart';
 import 'package:money_companion/features/achievements/achievements_screen.dart';
 import 'package:money_companion/features/ads/ad_placement.dart';
@@ -289,6 +292,80 @@ void main() {
       await _settle(tester);
       expect(_SpyLoader.loadCalls, 1);
       expect(find.byType(QirshAdBanner), findsOneWidget);
+    });
+  });
+
+  group('subscriptions', () {
+    List<BillEntity> bills(int count) => [
+          for (var i = 0; i < count; i++)
+            BillEntity(
+              id: 'b$i',
+              name: 'اشتراك $i',
+              amountMoney: Money.parse('49', 'SAR'),
+              currency: 'SAR',
+              type: BillType.subscription,
+              frequency: BillFrequency.monthly,
+              nextDueDate: DateTime.utc(2026, 10, 1),
+              reminderOn: true,
+              isConfirmed: true,
+              createdAt: DateTime.utc(2026, 1, 1),
+            ),
+        ];
+
+    List<Override> deps(int count) => [
+          baseCurrencyProvider.overrideWith((ref) async => 'SAR'),
+          billsScopeAccountProvider.overrideWith((ref) async => null),
+          savedBillsProvider.overrideWith((ref) async => bills(count)),
+          subscriptionsProvider.overrideWith((ref) async => []),
+        ];
+
+    testWidgets('mounts ONE banner in the header, above the tab bar',
+        (tester) async {
+      // The header sliver is not lazy, so unlike the list placements this one
+      // is expected to request on arrival — it is on screen on arrival.
+      await tester.pumpWidget(_host(const SubscriptionsScreen(), deps(3)));
+      await _settle(tester);
+
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1);
+    });
+
+    testWidgets('switching tabs does not buy a second ad', (tester) async {
+      await tester.pumpWidget(_host(const SubscriptionsScreen(), deps(3)));
+      await _settle(tester);
+      expect(_SpyLoader.loadCalls, 1);
+
+      final controller =
+          DefaultTabController.of(tester.element(find.byType(TabBarView)));
+      controller.animateTo(1);
+      await _settle(tester);
+      await tester.pump(const Duration(milliseconds: 400));
+
+      expect(find.byType(QirshAdBanner), findsOneWidget,
+          reason: 'one shared instance, not one per tab');
+      expect(_SpyLoader.loadCalls, 1);
+    });
+
+    testWidgets('an EMPTY bills screen carries no ad', (tester) async {
+      await tester.pumpWidget(_host(const SubscriptionsScreen(), deps(0)));
+      await _settle(tester);
+
+      expect(find.byType(QirshAdBanner), findsNothing);
+      expect(_SpyLoader.loadCalls, 0);
+    });
+
+    testWidgets('the ERROR state carries no ad', (tester) async {
+      await tester.pumpWidget(_host(const SubscriptionsScreen(), [
+        baseCurrencyProvider.overrideWith((ref) async => 'SAR'),
+        billsScopeAccountProvider.overrideWith((ref) async => null),
+        savedBillsProvider
+            .overrideWith((ref) async => throw StateError('boom')),
+        subscriptionsProvider.overrideWith((ref) async => []),
+      ]));
+      await _settle(tester);
+
+      expect(find.byType(QirshAdBanner), findsNothing);
+      expect(_SpyLoader.loadCalls, 0);
     });
   });
 }

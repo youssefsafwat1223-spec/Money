@@ -11,6 +11,8 @@ import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
 import '../../core/theme/widgets/mali_glass.dart';
+import '../ads/ad_placement.dart';
+import '../ads/qirsh_ad_banner.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
@@ -99,6 +101,27 @@ class SubscriptionsScreen extends ConsumerWidget {
                             currency: Currency.label(context, baseCur),
                             scopeAccountName: scopeAccount?.name,
                           ),
+                          // IN THE HEADER, not in the tabs.
+                          //
+                          // Each tab body is its own ListView, so a banner
+                          // inside them would be two banners — and the second
+                          // tab the user opens would request, meet the static
+                          // 30-second per-placement throttle, and render an
+                          // empty slot for the rest of the visit. Here it is
+                          // ONE instance shared by both tabs, which survives a
+                          // tab switch and survives the header scrolling away.
+                          // All three behaviours are pinned in
+                          // banner_placement_mechanics_test.dart.
+                          //
+                          // Only when there is something to browse: an ad above
+                          // an empty bills screen is the screen's only content.
+                          if (subs.isNotEmpty || insts.isNotEmpty)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.gutter),
+                              child: QirshAdBanner(
+                                  placement: AdPlacement.subscriptions),
+                            ),
                         ],
                       ),
                     ),
