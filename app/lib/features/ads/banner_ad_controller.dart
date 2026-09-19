@@ -198,8 +198,28 @@ class BannerAdController extends ChangeNotifier {
     DateTime Function()? clock,
   })  : _loader = loader,
         _onEvent = onEvent,
-        _minimumRequestInterval = minimumRequestInterval,
-        _clock = clock ?? DateTime.now;
+        _minimumRequestInterval =
+            debugIntervalOverride ?? minimumRequestInterval,
+        _clock = clock ?? debugClockOverride ?? DateTime.now;
+
+  /// Drives the throttle's sense of time for tests that have to CROSS the
+  /// window.
+  ///
+  /// A widget test's timers are fake and its `DateTime.now` is real, so a
+  /// `tester.pump` long enough to fire the retry timer leaves the throttle
+  /// still counting real milliseconds. Both have to move together or the test
+  /// is measuring neither.
+  @visibleForTesting
+  static DateTime Function()? debugClockOverride;
+
+  /// Shortens the throttle window for tests that have to CROSS it.
+  ///
+  /// The widget constructs its own controller, so a test driving the widget
+  /// cannot pass `minimumRequestInterval`. Waiting 30 real seconds in a widget
+  /// test is not an option, and a fake clock would not fire the retry timer
+  /// that the wait exists to exercise.
+  @visibleForTesting
+  static Duration? debugIntervalOverride;
 
   final AdPlacement placement;
   final BannerAdLoader _loader;
@@ -223,6 +243,27 @@ class BannerAdController extends ChangeNotifier {
 
   BannerAdStatus _status = BannerAdStatus.idle;
   BannerAdStatus get status => _status;
+
+  bool _throttleRefused = false;
+
+  /// This controller asked while the placement was inside its cool-off window
+  /// and was refused. It is terminally failed and will never ask again —
+  /// `_requested` is set before the check, deliberately, so a refusal cannot
+  /// become a retry loop.
+  ///
+  /// That leaves a slot that stays blank until the WIDGET replaces the
+  /// controller. Waiting does not help by itself, which is why the widget needs
+  /// to be told there is something worth waiting for.
+  bool get throttleRefused => _throttleRefused;
+
+  /// How long until this placement may ask again, or null when it may now.
+  Duration? get throttleRemaining {
+    final last = _lastRequestAt[placement];
+    if (last == null) return null;
+    final elapsed = _clock().difference(last);
+    if (elapsed >= _minimumRequestInterval) return null;
+    return _minimumRequestInterval - elapsed;
+  }
 
   int? _heightPx;
 
@@ -260,6 +301,7 @@ class BannerAdController extends ChangeNotifier {
       return;
     }
     if (throttled) {
+      _throttleRefused = true;
       _set(BannerAdStatus.failed);
       return;
     }
@@ -306,7 +348,11 @@ class BannerAdController extends ChangeNotifier {
   }
 
   @visibleForTesting
-  static void resetThrottleForTest() => _lastRequestAt.clear();
+  static void resetThrottleForTest() {
+    _lastRequestAt.clear();
+    debugIntervalOverride = null;
+    debugClockOverride = null;
+  }
 
   @override
   void dispose() {

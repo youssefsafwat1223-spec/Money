@@ -68,6 +68,21 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
   /// it. Keeping the requested width is what makes that detectable.
   int? _requestedWidthPx;
 
+  /// The one-shot wait for a throttled slot.
+  ///
+  /// A request refused by the 30-second throttle leaves a terminally failed
+  /// controller, and the widget holds it — so the slot stays blank until
+  /// something rebuilds the widget from scratch. Waiting past the window does
+  /// nothing on its own. This is what turns the wait into a retry: when the
+  /// window closes, the dead controller is dropped and the ordinary build path
+  /// asks again, with whatever gates and width are true THEN.
+  Timer? _retryTimer;
+
+  /// Exactly one retry per mount. A second refusal means the placement is
+  /// genuinely busy, and retrying again would be the request loop the throttle
+  /// exists to prevent.
+  bool _retried = false;
+
   void _disposeController() {
     _controller?.dispose();
     _controller = null;
@@ -120,7 +135,35 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
   }
 
   void _onControllerChanged() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    _scheduleRetryIfThrottled();
+    setState(() {});
+  }
+
+  /// Arm the one-shot retry, if this controller was refused for the throttle
+  /// and only for that reason. A no-fill or a load failure is a real answer and
+  /// gets no retry.
+  void _scheduleRetryIfThrottled() {
+    if (_retried || _retryTimer != null) return;
+    final controller = _controller;
+    if (controller == null || !controller.throttleRefused) return;
+    final wait = controller.throttleRemaining;
+    if (wait == null) return;
+
+    _retryTimer = Timer(wait + const Duration(milliseconds: 50), () {
+      _retryTimer = null;
+      if (!mounted) return;
+      _retried = true;
+      // Drop the dead controller and nothing else. Every gate — offstage,
+      // route, modal, entitlement, consent, the flags, the Reports
+      // suppression — and the current width are re-evaluated by the normal
+      // build path that follows, because that is the path that owns them. A
+      // gate that closed while we waited simply means no request happens.
+      _controller?.removeListener(_onControllerChanged);
+      _disposeController();
+      _requestedWidthPx = null;
+      setState(() {});
+    });
   }
 
   /// Drop the controller and any ad it holds, after the current frame.
@@ -129,6 +172,10 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
   /// view mid-build is not safe. Idempotent — every gate can call it freely.
   void _tearDownAfterFrame() {
     if (_controller == null) return;
+    // A pending retry belongs to the controller being dropped. Whatever closed
+    // the gate here will re-open the normal request path if it re-opens at all.
+    _retryTimer?.cancel();
+    _retryTimer = null;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _controller?.removeListener(_onControllerChanged);
@@ -140,6 +187,8 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
 
   @override
   void dispose() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
     _controller?.removeListener(_onControllerChanged);
     _disposeController();
     super.dispose();
