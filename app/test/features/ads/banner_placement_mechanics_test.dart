@@ -279,7 +279,8 @@ void main() {
   // ── 4. ModalRoute.isCurrent, for the Reports export flow ──────────────────
 
   group('route coverage', () {
-    testWidgets('pushing a full-screen route tears the banner down, and pop '
+    testWidgets(
+        'pushing a full-screen route tears the banner down, and pop '
         'does NOT bring it back', (tester) async {
       // Plan v3 §C1 claims `showReportConfigPage` — which pushes a
       // `MaterialPageRoute` — already suppresses the reports banner through the
@@ -338,7 +339,12 @@ void main() {
               SliverToBoxAdapter(
                 child: Column(
                   children: [
-                    const SizedBox(height: 120, child: Text('header card')),
+                    // A REAL header's height. `_BillsHeader` and
+                    // `_ReportsHeader` are large summary cards; at the 120 this
+                    // used to be, the whole header sliver stayed inside the
+                    // 250px cache area no matter how far the body scrolled, and
+                    // that is why it looked immune to disposal.
+                    const SizedBox(height: 500, child: Text('header card')),
                     if (bannerInHeader)
                       const QirshAdBanner(
                           placement: AdPlacement.transactionsList),
@@ -356,13 +362,16 @@ void main() {
                   if (!bannerInHeader)
                     const QirshAdBanner(
                         placement: AdPlacement.transactionsList),
-                  const SizedBox(height: 600, child: Text('tab A body')),
+                  // Tall enough that the header can actually scroll out of the
+                  // cache area. The old 600 could not, which is why the test
+                  // that lived here reported the header as immune.
+                  const SizedBox(height: 2500, child: Text('tab A body')),
                 ]),
                 ListView(children: [
                   if (!bannerInHeader)
                     const QirshAdBanner(
                         placement: AdPlacement.transactionsList),
-                  const SizedBox(height: 600, child: Text('tab B body')),
+                  const SizedBox(height: 2500, child: Text('tab B body')),
                 ]),
               ],
             ),
@@ -383,30 +392,67 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
 
       expect(find.byType(QirshAdBanner), findsOneWidget);
-      expect(_SpyLoader.loadCalls, 1, reason: 'no second request on tab switch');
-      expect(_SpyLoader.disposeCalls, 0, reason: 'the header did not rebuild it');
+      expect(_SpyLoader.loadCalls, 1,
+          reason: 'no second request on tab switch');
+      expect(_SpyLoader.disposeCalls, 0,
+          reason: 'the header did not rebuild it');
     });
 
-    testWidgets('a header banner survives scrolling the header away',
-        (tester) async {
-      // The header sits in a `SliverToBoxAdapter`, which is not lazy — but it
-      // can still be unmounted once it is fully past the cache area. If it
-      // were, the header placement would inherit the same lose-it-on-scroll
-      // problem as an in-list one, and the plan's choice of the header would
-      // buy nothing.
+    testWidgets(
+        'a header banner is NOT disposed when the header scrolls away '
+        '— it goes offstage and stays alive', (tester) async {
+      // This test has been wrong twice, in opposite directions. Both times the
+      // mistake was in the instrument, not the widget.
+      //
+      // First it dragged 500px twice against a 120px fake header, which could
+      // never leave the 250px cache area — so "survives" was true but proved
+      // nothing. Then a simulator run reported `reports-foot :: ABSENT` and it
+      // was rewritten to assert DISPOSAL, on the strength of that reading.
+      //
+      // `find.byType` skips offstage elements by DEFAULT. Both the QA harness
+      // and the rewritten test were asking "is it painted", getting "no", and
+      // calling it "unmounted". With `skipOffstage: false` the banner is right
+      // there, and the loader was never disposed.
+      //
+      // So the header placement genuinely does differ from the list ones: a
+      // list banner scrolled out is UNMOUNTED and cannot be re-bought inside
+      // the throttle window, while a header banner is merely unpainted and
+      // comes back intact. The trade is that it holds a native ad view while
+      // off screen, which the list placements do not.
       await tester.pumpWidget(_app(tabbedScreen(bannerInHeader: true)));
       await _settle(tester);
       expect(_SpyLoader.loadCalls, 1);
 
-      await tester.drag(find.text('tab A body'), const Offset(0, -500));
+      final outer =
+          tester.state<ScrollableState>(find.byType(Scrollable).first).position;
+      final inner =
+          tester.state<ScrollableState>(find.byType(Scrollable).last).position;
+      outer.jumpTo(outer.maxScrollExtent);
       await _settle(tester);
-      await tester.drag(find.text('tab A body'), const Offset(0, -500));
+      inner.jumpTo(inner.maxScrollExtent);
       await _settle(tester);
 
+      // Not painted...
+      expect(find.byType(QirshAdBanner), findsNothing,
+          reason: 'scrolled past, so nothing is drawn');
+      // ...but alive, and holding its ad.
+      expect(find.byType(QirshAdBanner, skipOffstage: false), findsOneWidget,
+          reason: 'the header sliver keeps its child mounted');
       expect(_SpyLoader.disposeCalls, 0,
-          reason: 'the NestedScrollView header holds its child while pinned '
-              'slivers keep the outer sliver in the tree');
-      expect(_SpyLoader.loadCalls, 1);
+          reason: 'NOT disposed — this is what separates the header placement '
+              'from the list placements');
+
+      // And back at the top it is the same instance, with no second request.
+      // Inner first: the NestedScrollView only gives the header back once the
+      // body is at its own origin.
+      inner.jumpTo(0);
+      await _settle(tester);
+      outer.jumpTo(0);
+      await _settle(tester);
+      await _settle(tester);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1, reason: 'no re-request, so no throttle');
+      expect(_SpyLoader.disposeCalls, 0);
     });
 
     testWidgets('a per-tab banner is a DEAD SLOT on the second tab',
@@ -430,7 +476,8 @@ void main() {
 
   // ── 6. The gap between deciding and requesting ────────────────────────────
 
-  testWidgets('a gate that closes between build and the post-frame callback '
+  testWidgets(
+      'a gate that closes between build and the post-frame callback '
       'cancels the request', (tester) async {
     // `build` decides and a post-frame callback acts, with a frame boundary
     // between them. An earlier draft reported this as unproven because
