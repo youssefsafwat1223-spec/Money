@@ -12,6 +12,7 @@ import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
 import '../../core/theme/widgets/mali_glass.dart';
 import '../ads/ad_placement.dart';
+import '../ads/banner_ads_providers.dart';
 import '../ads/qirsh_ad_banner.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -32,6 +33,21 @@ String _dueInLabel(BuildContext context, DateTime due) {
   if (days == 0) return context.l10n.subsToday;
   return context.l10n.txnInDays(days);
 }
+
+/// How much of the header's melt the ad band is allowed to consume.
+///
+/// NOT the band's real height. `CalmPageHeader.meltLength` is 220 and the band
+/// is about 230 tall, so charging it its full height spends the entire melt and
+/// leaves the pinned tab bar on the raw page background — continuous, but it
+/// costs the tabs the blue they are designed to sit on.
+///
+/// Giving the band a smaller share keeps the gradient running through it AND
+/// keeps the tabs where they were. The seam this leaves is a few percent of the
+/// fade, which is not visible; the one it replaces was a hard edge.
+///
+/// Local to this screen on purpose — raising `meltLength` globally would
+/// restyle every screen with a calm header.
+const double _adMeltShare = 80;
 
 class SubscriptionsScreen extends ConsumerWidget {
   const SubscriptionsScreen({super.key});
@@ -116,11 +132,18 @@ class SubscriptionsScreen extends ConsumerWidget {
                           // Only when there is something to browse: an ad above
                           // an empty bills screen is the screen's only content.
                           if (subs.isNotEmpty || insts.isNotEmpty)
-                            const Padding(
-                              padding: EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.gutter),
-                              child: QirshAdBanner(
-                                  placement: AdPlacement.subscriptions),
+                            // FULL BLEED melt behind the ad band. The banner
+                            // itself sits inside the gutter, so wrapping it
+                            // there left the page background showing down both
+                            // edges of the band.
+                            const MeltSlice(
+                              height: _adMeltShare,
+                              child: Padding(
+                                padding: EdgeInsets.symmetric(
+                                    horizontal: AppSpacing.gutter),
+                                child: QirshAdBanner(
+                                    placement: AdPlacement.subscriptions),
+                              ),
                             ),
                         ],
                       ),
@@ -131,6 +154,15 @@ class SubscriptionsScreen extends ConsumerWidget {
                         // iOS 26 style: floating glass capsules, no bar box.
                         child: MeltSlice(
                           height: 64.0,
+                        // Resumes where the ad band above it ended, so the
+                        // melt runs header → ad → tabs without a seam. Zero
+                        // when no ad is showing, which is the original
+                        // geometry exactly.
+                        startAt: ref.watch(headerAdExtentProvider(
+                                    AdPlacement.subscriptions)) >
+                                0
+                            ? _adMeltShare
+                            : 0,
                           child: Container(
                             height: 64.0,
                             padding: const EdgeInsets.symmetric(

@@ -266,10 +266,27 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
             final height = controller.heightPx;
             if (height == null) return const SizedBox.shrink();
             final ad = controller.ad;
-            return _BannerSlot(
+            final slot = _BannerSlot(
               height: height.toDouble(),
               ad: ad is BannerAd ? ad : null,
+              // How tall the band is, reported for whoever paints behind it.
+              // The Reports and Subscriptions headers use it to continue their
+              // melt gradient past the ad; nothing reads it to decide whether
+              // an ad may serve. Reported after the frame, because writing
+              // provider state during a build is not allowed.
+              onExtent: (extent) =>
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (!mounted) return;
+                    final n = ref
+                        .read(headerAdExtentProvider(widget.placement).notifier);
+                    if (n.state != extent) n.state = extent;
+                  }),
             );
+            // The melt behind a header band is painted by the SCREEN, not
+            // here: it has to run the full width of the page, and this widget
+            // is mounted inside the gutter padding. All this does is report how
+            // tall the band is.
+            return slot;
           },
         );
       },
@@ -277,12 +294,26 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
   }
 }
 
+/// The slot's total extent for a given ad height: the ad, the label above it
+/// and the padding around both. Kept next to the layout it describes.
+double _slotExtent(double adHeight) =>
+    adHeight + _labelBlock + AppSpacing.s5 * 2;
+
+/// Caption line plus its bottom padding. Close enough for a gradient stop; it
+/// is not used for layout.
+const double _labelBlock = 22;
+
 /// The loaded banner, with its label and its separation from whatever is above
 /// and below it.
 class _BannerSlot extends StatefulWidget {
-  const _BannerSlot({required this.height, required this.ad});
+  const _BannerSlot({
+    required this.height,
+    required this.ad,
+    this.onExtent,
+  });
 
   final double height;
+  final ValueChanged<double>? onExtent;
 
   /// Null while the request is still in flight. The slot renders at its full
   /// size either way — that is the point — but with nothing in it and no label,
@@ -327,6 +358,7 @@ class _BannerSlotState extends State<_BannerSlot> {
     final height = widget.height;
     final ad = widget.ad;
     final waiting = ad == null;
+    widget.onExtent?.call(_slotExtent(height));
     return Padding(
       // Real vertical separation, both sides. The transactions list is made of
       // tappable rows that open a detail sheet; an ad flush against one is the

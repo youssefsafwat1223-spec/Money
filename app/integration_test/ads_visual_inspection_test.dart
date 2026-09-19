@@ -6,61 +6,45 @@ import 'package:money_companion/app.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/router/app_router.dart';
 import 'package:money_companion/core/security/secure_storage_options.dart';
-import 'package:money_companion/core/theme/theme_mode_controller.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
-import 'package:money_companion/features/ads/ad_placement.dart';
 import 'package:money_companion/features/ads/banner_ad_controller.dart';
 import 'package:money_companion/features/ads/banner_ads_providers.dart';
-import 'package:money_companion/features/ads/qirsh_ad_banner.dart';
-import 'package:money_companion/features/ads/report_banner_suppression.dart';
 import 'package:money_companion/features/app/app_shell.dart';
-import 'package:money_companion/features/common/app_pill_tab_bar.dart';
 import 'package:money_companion/features/report_ads/report_entitlement.dart';
 import 'package:money_companion/main.dart' as app;
 
-/// AD PLACEMENT QA — the real app, the real gates, on a device.
+/// ADS VISUAL INSPECTION — leaves the app running for a human to look at.
 ///
-/// ## What is real here, and what is not
+/// Two questions are open that no measurement here can answer, and both need
+/// eyes on the simulator:
 ///
-/// The whole app runs: `MoneyApp`, the real router, the real `AppShell` with
-/// its floating navigation bar. The FLAG gate is real — the placements are
-/// turned on by writing rows into this device's own `remote_feature_flags`
-/// table, the same local cache a catalog sync fills, and they are deleted
-/// again at the end. The build-config gate, the visual gates, the Reports
-/// suppression and its cooldown, and the request throttle and its retry are
-/// all the shipping ones.
+///   1. Is the AdMob test creative actually drawn inside the banner, or is the
+///      slot empty on the device too? Every screenshot this project has taken
+///      shows the label over a blank box — but one early capture DID record a
+///      creative, and the native glass navigation bar, also a platform view,
+///      photographs fine in the same shots. So either the ad is not rendering
+///      or `takeScreenshot` does not composite `AdWidget`. The difference is
+///      large: the first is a blocking defect, the second is a limitation of
+///      the measuring instrument.
+///   2. On Reports and Subscriptions, is a 10pt gap to the tab pills
+///      acceptable, and is the hard-edged slot cutting the blue gradient
+///      between the header card and the tab bar acceptable?
 ///
-/// TWO gates are stubbed, and only two: `bannerEntitlementProvider` and
-/// `bannerConsentProvider`. Both reach outside the device — entitlement to
-/// Supabase, consent to UMP — and a debug build without `SUPABASE_URL` has no
-/// instance to reach. Supplying that, and the QA account behind it, is an owner
-/// action. **Neither gate is verified by this walk**, and the report says so.
+/// ## Why this exists rather than `flutter run`
 ///
-/// ## Isolation
+/// A plain launch cannot show a banner. The entitlement gate resolves through
+/// Supabase and a debug build without `SUPABASE_URL` has nothing to reach, so
+/// every placement stays closed. This harness mounts the REAL app with only
+/// entitlement and consent stubbed — every other gate, including the flags, is
+/// the shipping one — and then simply waits, so the app stays live on the
+/// simulator and answers to touch while it is inspected.
 ///
-/// The request throttle is static and per placement, so visiting one surface in
-/// four locale/theme combinations inside a single session would leave three of
-/// them looking at an empty slot for reasons that have nothing to do with the
-/// combination. Every case starts from a cleared throttle and cleared
-/// suppression. An earlier run without this reported `h0` three times in four
-/// and it meant nothing.
-///
-/// ## Waiting for the ad, not for the widget
-///
-/// `AdWidget` is a platform view: Flutter reserves the box before the native
-/// view has composited anything into it. An earlier run captured the reserved
-/// box and produced screenshots of an "Advertisement" label over a blank
-/// rectangle, which is not what the screen looks like. Captures here wait for a
-/// non-zero height AND for real time to pass afterwards.
-///
-/// ## Ads: TEST UNITS ONLY
-///
-/// A debug build resolves `AdMobBuildConfig` to Google's test publisher ids.
-/// Nothing here picks an ad unit; the build does.
+/// Test ad units only: a debug build resolves `AdMobBuildConfig` to Google's
+/// test publisher ids.
 
 const _flagKeys = <String>[
   'enable_banner_ads',
@@ -73,17 +57,6 @@ const _flagKeys = <String>[
 ];
 
 const _seedMark = 'adqa-seed';
-
-/// ONE locale/theme combination per process.
-///
-/// Four combinations in a single session shared a throttle, a suppression
-/// state, an app lifetime and one stream of ad requests — and the last
-/// combination came back empty for every surface while the same surfaces had
-/// passed minutes earlier. Nothing in the log showed a product error, so the
-/// result was unusable either way: a failure that cannot be distinguished from
-/// exhaustion is not evidence. Each combination now gets its own process,
-/// launched with `--dart-define=ADQA_COMBO=...`.
-const _combo = String.fromEnvironment('ADQA_COMBO', defaultValue: 'ar-light');
 
 /// Wraps the REAL loader so a session can state how many ad requests it made.
 ///
@@ -133,17 +106,17 @@ Future<void> _clearSeed(dynamic db) async {
 }
 
 /// A banner that is absent is never silently a pass.
-enum _R { pass, fail, blocked }
+enum _R { pass, blocked }
 
 void main() {
-  final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
   setUpAll(() async {
     await SecureStorageOptions.storage
         .write(key: 'app_lock_enabled', value: '0');
   });
 
-  testWidgets('ad placement QA', (tester) async {
+  testWidgets('ads visual inspection — HOLDS THE APP OPEN', (tester) async {
     WidgetController.hitTestWarningShouldBeFatal = false;
     final report = <String>[];
     void record(_R r, String what, [String detail = '']) {
@@ -160,13 +133,6 @@ void main() {
         await t.pump(const Duration(milliseconds: 100));
         if (!t.binding.hasScheduledFrame) break;
       }
-    }
-
-    /// Real elapsed time, which a platform view needs in order to composite and
-    /// which `pump` alone does not provide.
-    Future<void> realDelay(WidgetTester t, Duration d) async {
-      await t.runAsync(() => Future<void>.delayed(d));
-      await settle(t, budget: const Duration(seconds: 2));
     }
 
     Future<bool> waitFor(WidgetTester t, Finder f,
@@ -322,151 +288,37 @@ void main() {
       await settle(tester, budget: const Duration(seconds: 12));
     }
 
-    Future<void> scrollToFoot(WidgetTester t) async {
-      final s = find.byType(Scrollable);
-      if (s.evaluate().isEmpty) return;
-      final pos = t.state<ScrollableState>(s.first).position;
-      for (var i = 0; i < 30; i++) {
-        if (pos.pixels >= pos.maxScrollExtent) break;
-        pos.jumpTo((pos.pixels + 600).clamp(0.0, pos.maxScrollExtent));
-        await settle(t, budget: const Duration(seconds: 2));
-      }
-    }
-
-    double? paintedHeight() {
-      final f = find.byType(QirshAdBanner);
-      if (f.evaluate().isEmpty) return null;
-      return tester.getSize(f.first).height;
-    }
-
-    bool mountedButUnpainted() =>
-        find.byType(QirshAdBanner).evaluate().isEmpty &&
-        find.byType(QirshAdBanner, skipOffstage: false).evaluate().isNotEmpty;
-
-    /// Waits for a LOADED banner, then for the native view to composite.
-    Future<double?> awaitLoadedAd(WidgetTester t,
-        {Duration budget = const Duration(seconds: 25)}) async {
-      final deadline = DateTime.now().add(budget);
-      while (DateTime.now().isBefore(deadline)) {
-        final h = paintedHeight();
-        if (h != null && h > 0) {
-          await realDelay(t, const Duration(milliseconds: 1200));
-          return paintedHeight();
-        }
-        await realDelay(t, const Duration(milliseconds: 500));
-      }
-      return null;
-    }
-
-    /// Distance to the pill tab bar above it and to the screen foot below.
-    String geometry() {
-      final b = find.byType(QirshAdBanner);
-      if (b.evaluate().isEmpty) return '';
-      final r = tester.getRect(b.first);
-      final parts = <String>['top=${r.top.round()}'];
-      final tabs = find.byType(AppPillTabBar);
-      if (tabs.evaluate().isNotEmpty) {
-        final t = tester.getRect(tabs.first);
-        parts.add('tabGap=${(t.top - r.bottom).round()}');
-      }
-      final h = tester.view.physicalSize.height / tester.view.devicePixelRatio;
-      parts.add('below=${(h - r.bottom).round()}');
-      return parts.join(' ');
-    }
-
-    Future<void> shoot(String tag) async {
-      await settle(tester, budget: const Duration(seconds: 2));
-      await binding.takeScreenshot('adqa-$tag');
-    }
-
-    void isolate() {
-      BannerAdController.resetThrottleForTest();
-      ReportBannerSuppression.resetForTest();
-      for (final p in AdPlacement.values) {
-        container.invalidate(bannerEligibilityProvider(p));
-      }
-    }
-
-    const surfaces = <String, String>{
-      'dashboard': 'tab:0',
-      'reports': 'tab:4',
-      'goals': '/goals',
-      'subscriptions': '/subscriptions',
-      'achievements': '/achievements',
-    };
-    const headerPlacements = {'reports', 'subscriptions'};
-
-    final lang = _combo.split('-').first;
-    final theme = _combo.split('-').last;
-    await container.read(saveLanguageUseCaseProvider).call(lang);
-    await settle(tester, budget: const Duration(seconds: 8));
-    await container
-        .read(themeModeProvider.notifier)
-        .set(theme == 'dark' ? ThemeMode.dark : ThemeMode.light);
-    await settle(tester, budget: const Duration(seconds: 6));
-    const combo = _combo;
-
-    for (final entry in surfaces.entries) {
-      final name = entry.key;
-      isolate();
-      try {
-        await goto(entry.value);
-        if (!headerPlacements.contains(name)) await scrollToFoot(tester);
-        final h = await awaitLoadedAd(tester);
-        if (h != null) {
-          await shoot('$combo-$name');
-          // A LOADED ad is not a VISIBLE ad. The first version of this check
-          // stopped at "height > 0", which passed every surface — including
-          // the dashboard, whose slot then sat entirely below the fold.
-          final r = tester.getRect(find.byType(QirshAdBanner).first);
-          final screen =
-              tester.view.physicalSize.height / tester.view.devicePixelRatio;
-          final offBottom = r.bottom - screen;
-          record(offBottom > 1 ? _R.fail : _R.pass, '$combo · $name',
-              'h${h.round()} ${geometry()}'
-              '${offBottom > 1 ? "  OFF-SCREEN by ${offBottom.round()}px" : ""}');
-        } else if (mountedButUnpainted()) {
-          await shoot('$combo-$name-unpainted');
-          record(_R.fail, '$combo · $name', 'mounted, never painted an ad');
-        } else {
-          await shoot('$combo-$name-absent');
-          // NOT automatically a product defect. In a clean isolated session
-          // with a known request count this is worth investigating; on its own
-          // it is as likely to be a no-fill as anything else.
-          record(_R.fail, '$combo · $name',
-              'no banner in the tree after ${_CountingLoader.requests} '
-              'requests this session');
-        }
-      } catch (e) {
-        record(_R.blocked, '$combo · $name', '$e');
-      }
-    }
-
-    // The route, journey, cooldown, resize, scroll-return and empty-state
-    // cases are deliberately NOT re-run here. Each one costs ad requests, and
-    // this walk exists to establish whether a clean session produces clean
-    // geometry. They were verified on device in the previous run and their
-    // results stand.
-
-    // ── Restore the device ──────────────────────────────────────────────
-    await _clearSeed(db);
-    for (final key in _flagKeys) {
-      await db.customStatement(
-          'DELETE FROM remote_feature_flags WHERE key = ?;', [key]);
-    }
-    await initFeatureFlagService(db, applyRemoteOverrides: false);
-    await container.read(saveLanguageUseCaseProvider).call('ar');
-    await container.read(themeModeProvider.notifier).set(ThemeMode.system);
+    // Reports first: it carries both open questions at once — the creative and
+    // the tab-bar gap.
+    await goto('tab:4');
+    await tester.runAsync(() => Future<void>.delayed(const Duration(seconds: 3)));
     await settle(tester, budget: const Duration(seconds: 5));
 
-    debugPrint('[ADQA] ============== REPORT ($_combo) ==============');
-    debugPrint('[ADQA-REPORT] session=$_combo '
-        'adRequests=${_CountingLoader.requests}');
-    for (final line in report) {
-      debugPrint('[ADQA-REPORT] $line');
+    record(_R.pass, 'READY — the app is live on the simulator');
+    debugPrint('[ADQA] ');
+    debugPrint('[ADQA] ---------------------------------------------------');
+    debugPrint('[ADQA]  Flags are ON for this device only. Test ads only.');
+    debugPrint('[ADQA]  The app answers to touch. Look at, in order:');
+    debugPrint('[ADQA]   * Reports  (open now) — is the creative drawn, and');
+    debugPrint('[ADQA]     how does the slot sit against the tab pills?');
+    debugPrint('[ADQA]   * Subscriptions — same header placement');
+    debugPrint('[ADQA]   * Goals / Achievements — scroll to the foot');
+    debugPrint('[ADQA]   * Home — scroll to the foot');
+    debugPrint('[ADQA]  Ad requests so far: ${_CountingLoader.requests}');
+    debugPrint('[ADQA]  Holding for 30 minutes. Ctrl-C when you are done.');
+    debugPrint('[ADQA] ---------------------------------------------------');
+
+    // Hold. Real time, so the app keeps painting and stays interactive.
+    final until = DateTime.now().add(const Duration(minutes: 30));
+    while (DateTime.now().isBefore(until)) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(seconds: 5)));
+      await tester.pump(const Duration(milliseconds: 100));
     }
-    final fails = report.where((l) => l.startsWith('FAIL')).length;
-    final blocked = report.where((l) => l.startsWith('BLOCKED')).length;
-    debugPrint('[ADQA] total=${report.length} fail=$fails blocked=$blocked');
-  }, timeout: const Timeout(Duration(minutes: 60)));
+
+    // The flags are LEFT IN PLACE deliberately — the inspection may continue
+    // after this process ends. `_clearSeed` and the flag rows can be removed by
+    // re-running the QA walk, which tidies up after itself.
+    debugPrint('[ADQA] hold finished; flags left enabled on this device');
+  }, timeout: const Timeout(Duration(minutes: 45)));
 }

@@ -298,9 +298,27 @@ class MeltTail extends StatelessWidget {
 /// التبويبات) — التدرّج بيكمّل من وراها بدل ما تبان خلفية الصفحة كلحام تحت
 /// حافة الهيدر مباشرة. الـ [MeltTail] اللي بعدها لازم يبقى `startAt: height`.
 class MeltSlice extends StatelessWidget {
-  const MeltSlice({super.key, required this.height, required this.child});
+  const MeltSlice({
+    super.key,
+    required this.height,
+    required this.child,
+    this.startAt = 0,
+  });
 
   final double height;
+
+  /// How far below the header's edge this slice begins.
+  ///
+  /// Zero — the default, and what every existing caller gets — is the slice
+  /// sitting directly under the header, which is where the pinned tab bars
+  /// are. A slice placed BELOW another one has to start where that one ended,
+  /// or the gradient jumps back toward the header colour at the seam.
+  ///
+  /// Added for the ad section on Reports and Subscriptions, which sits between
+  /// the header card and the tab bar and so pushes the tab bar further down the
+  /// melt.
+  final double startAt;
+
   final Widget child;
 
   @override
@@ -311,8 +329,8 @@ class MeltSlice extends StatelessWidget {
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
           colors: [
-            CalmPageHeader.meltColorAt(context, 0),
-            CalmPageHeader.meltColorAt(context, height),
+            CalmPageHeader.meltColorAt(context, startAt),
+            CalmPageHeader.meltColorAt(context, startAt + height),
           ],
         ),
       ),

@@ -133,6 +133,17 @@ final bannerEligibilityProvider =
   return ref.watch(bannerConsentProvider.future);
 });
 
+/// How tall a header ad band currently is, per placement.
+///
+/// PRESENTATION ONLY — nothing reads this to decide whether an ad may serve.
+/// The melt gradient behind the Reports and Subscriptions headers is drawn in
+/// slices, and a slice has to know where the slice above it ended. The ad band
+/// sits between the header card and the pinned tab bar, so the tab bar's slice
+/// starts at whatever the ad band currently occupies — which is zero when there
+/// is no ad, and the slot's height when there is.
+final headerAdExtentProvider =
+    StateProvider.family<double, AdPlacement>((ref, placement) => 0);
+
 /// Factory seam so widget tests can supply a fake loader.
 final bannerAdLoaderFactoryProvider = Provider<BannerAdLoader Function()>(
   (ref) => AdMobBannerAdLoader.new,
