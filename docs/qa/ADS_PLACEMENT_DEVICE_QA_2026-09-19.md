@@ -53,7 +53,22 @@ rendering in the real app, or `takeScreenshot` is not compositing this
 particular platform view. **Resolving this needs a human looking at the
 simulator.** Until then no visual claim about these placements is supported.
 
-### 2. The Dashboard banner lands entirely below the fold · REAL
+> **Findings 2–4 are FIXED as of `aa43d838` and re-measured on the device.**
+> The slot now takes its space when the height is RESOLVED rather than when the
+> creative arrives, so the list stops growing under a reader already at the end.
+>
+> | Surface | Before | After |
+> |---|---|---|
+> | Dashboard | `top=844 below=-75` | `top=657 below=112` |
+> | Goals | `top=744 below=25` | `top=649 below=120` |
+> | Achievements | `top=864 below=-95` | `top=677 below=92` |
+> | Reports / Subscriptions | `below=485` | `below=485` — unchanged |
+>
+> Every surface now clears its full intended navigation gap with no further
+> scrolling. Finding 1 is untouched and still blocks sign-off. The re-run also
+> degraded in its final locale — see *Run stability* below.
+
+### 2. The Dashboard banner lands entirely below the fold · FIXED
 
 `top=844 below=-75` in all four combinations, on a 956pt screen. The slot's
 bottom edge is 75pt past the bottom of the display.
@@ -67,11 +82,11 @@ the old maximum. Everything the ad added, including its own lower half and the
 An ad that is requested, loaded and never seen is the viewability problem in its
 purest form.
 
-### 3. Achievements has the same defect · REAL
+### 3. Achievements has the same defect · FIXED
 
 `top=864 below=-95` in three of four combinations. Same cause.
 
-### 4. Goals is the near miss · REAL
+### 4. Goals is the near miss · FIXED
 
 `top=744 below=25`. The ad is on screen, but the 120pt navigation clearance
 underneath it is not — the floating bar overlaps the foot of the slot.
@@ -115,8 +130,30 @@ finding 1.
 
 ---
 
+## Run stability — unverified
+
+The re-run produced clean geometry for the first three locale/theme
+combinations and then returned "no banner in the tree" for every surface in the
+fourth, plus two isolated misses earlier. The report never printed; the run
+stopped after the last surface.
+
+The likely cause is request volume: one session now issues upwards of
+twenty-five real requests to Google's test servers, and no-fill under that
+volume would look exactly like this. **That is a guess, not a finding.** Nothing
+in the log shows a product error, and the same surfaces passed with full
+geometry minutes earlier in the same run. It needs either a slower walk or one
+session per combination before any combination can be called covered.
+
 ## Disposition
 
-**Not sufficient to activate any flag.** Findings 1–4 are blockers: one
-unresolved rendering question and three placements whose ad is partly or wholly
-unseeable at the moment it loads.
+**Not sufficient to activate any flag.**
+
+Findings 2–4 are fixed and re-measured. What remains:
+
+- **Finding 1** — no creative in any capture, cause unresolved. Needs a human
+  looking at the simulator. Until then no visual claim is supported.
+- **Finding 5** — the 10pt gap to the tab pills, and the hard-edged block that
+  cuts the gradient on Reports and Subscriptions. A product decision, not a bug.
+- **Run stability** — the last locale produced nothing and the cause is a guess.
+- **Entitlement and consent** are still unverified on device, and real hardware
+  rotation is still untested.
