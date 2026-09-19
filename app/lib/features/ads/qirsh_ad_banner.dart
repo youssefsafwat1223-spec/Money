@@ -258,14 +258,18 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
               return const SizedBox.shrink();
             }
 
+            // Height first, creative second. The slot takes its space as soon
+            // as the size is RESOLVED, so the page stops growing under a reader
+            // who has already reached the end of it; the ad then paints into
+            // space that was already waiting. Null height means idle or failed,
+            // and those collapse.
             final height = controller.heightPx;
+            if (height == null) return const SizedBox.shrink();
             final ad = controller.ad;
-            if (controller.status != BannerAdStatus.loaded ||
-                height == null ||
-                ad is! BannerAd) {
-              return const SizedBox.shrink();
-            }
-            return _BannerSlot(height: height.toDouble(), ad: ad);
+            return _BannerSlot(
+              height: height.toDouble(),
+              ad: ad is BannerAd ? ad : null,
+            );
           },
         );
       },
@@ -279,7 +283,11 @@ class _BannerSlot extends StatefulWidget {
   const _BannerSlot({required this.height, required this.ad});
 
   final double height;
-  final BannerAd ad;
+
+  /// Null while the request is still in flight. The slot renders at its full
+  /// size either way — that is the point — but with nothing in it and no label,
+  /// so a waiting slot reads as blank space rather than as a failed ad.
+  final BannerAd? ad;
 
   @override
   State<_BannerSlot> createState() => _BannerSlotState();
@@ -318,6 +326,7 @@ class _BannerSlotState extends State<_BannerSlot> {
     final c = context.colors;
     final height = widget.height;
     final ad = widget.ad;
+    final waiting = ad == null;
     return Padding(
       // Real vertical separation, both sides. The transactions list is made of
       // tappable rows that open a detail sheet; an ad flush against one is the
@@ -330,26 +339,35 @@ class _BannerSlotState extends State<_BannerSlot> {
           // Says whose content this is. Qirsh's own offer cards carry no such
           // label, so the label IS the distinction between a Qirsh
           // recommendation and a third-party advertisement.
-          Padding(
-            padding: const EdgeInsets.only(bottom: 6),
-            child: Text(
-              context.l10n.adLabel,
-              textAlign: TextAlign.center,
-              style: AppTypography.caption(c.textMuted),
+          // Kept in the layout while waiting, so the reserved height is the
+          // SAME height the loaded slot will have and nothing shifts when the
+          // creative lands. Invisible, because "Advertisement" over an empty
+          // box reads as an ad that failed.
+          Opacity(
+            opacity: waiting ? 0 : 1,
+            child: Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                context.l10n.adLabel,
+                textAlign: TextAlign.center,
+                style: AppTypography.caption(c.textMuted),
+              ),
             ),
           ),
           SizedBox(
             height: height,
-            child: Center(
-              child: SizedBox(
-                width: ad.size.width.toDouble(),
-                height: height,
-                child: IgnorePointer(
-                  ignoring: !_acceptsTaps,
-                  child: AdWidget(ad: ad),
-                ),
-              ),
-            ),
+            child: waiting
+                ? const SizedBox.shrink()
+                : Center(
+                    child: SizedBox(
+                      width: ad.size.width.toDouble(),
+                      height: height,
+                      child: IgnorePointer(
+                        ignoring: !_acceptsTaps,
+                        child: AdWidget(ad: ad),
+                      ),
+                    ),
+                  ),
           ),
         ],
       ),

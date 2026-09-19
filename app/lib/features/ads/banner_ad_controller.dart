@@ -267,9 +267,28 @@ class BannerAdController extends ChangeNotifier {
 
   int? _heightPx;
 
-  /// The slot's height once an ad is loaded, else null. Never changes after it
-  /// becomes non-null for a given mount.
-  int? get heightPx => _status == BannerAdStatus.loaded ? _heightPx : null;
+  /// The slot's height once it is RESOLVED — which is before the creative
+  /// arrives, not after.
+  ///
+  /// It used to be published only in [BannerAdStatus.loaded], so the slot had
+  /// zero height for the whole request and the list grew by ~187pt at the
+  /// moment the ad landed. A reader who had already reached the end of the list
+  /// was then looking at an ad that extended past the bottom of the display:
+  /// measured at 75pt off-screen on the dashboard and 95pt on achievements,
+  /// with the navigation clearance below that entirely out of view.
+  ///
+  /// Anchored adaptive resolves its height from the WIDTH, before any network
+  /// call, so the size is knowable early. Publishing it in `loading` means the
+  /// scroll extent is already correct by the time the reader arrives, and
+  /// nothing moves when the creative paints into the space that was waiting for
+  /// it.
+  ///
+  /// Null in `idle` and in `failed`: a slot that will never carry an ad
+  /// collapses rather than leaving a hole.
+  int? get heightPx => switch (_status) {
+        BannerAdStatus.loading || BannerAdStatus.loaded => _heightPx,
+        BannerAdStatus.idle || BannerAdStatus.failed => null,
+      };
 
   /// The loaded ad object, for the widget to mount. Null unless [status] is
   /// [BannerAdStatus.loaded].
@@ -315,6 +334,13 @@ class BannerAdController extends ChangeNotifier {
     // banner is a legitimate size on every device, and refusing here would
     // silently disable the placement on whatever platform returned null.
     final resolved = height ?? 50;
+    // Reserve BEFORE the network call, not after it. This is the line that
+    // keeps the page from growing under a reader who has already reached the
+    // bottom of it.
+    _heightPx = resolved;
+    // `_set` is a no-op here — the status is already `loading` — so the
+    // reservation would never reach the widget without this.
+    notifyListeners();
 
     final ok = await _loader.load(
       adUnitId: adUnitId,
@@ -328,7 +354,6 @@ class BannerAdController extends ChangeNotifier {
       _emit('banner_ad_failed');
       return;
     }
-    _heightPx = resolved;
     _set(BannerAdStatus.loaded);
     _emit('banner_ad_loaded');
   }
