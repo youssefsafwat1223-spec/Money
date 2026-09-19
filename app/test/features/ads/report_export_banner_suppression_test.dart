@@ -174,8 +174,9 @@ void main() {
 
   test('the banner returns once the journey ends — after the cooldown',
       () async {
-    var now = DateTime.utc(2026, 9, 19, 12);
-    ReportBannerSuppression.clock = () => now;
+    // A real window, just a short one: the expiry is delivered by a timer, so
+    // it has to be crossed rather than simulated.
+    ReportBannerSuppression.cooldown = const Duration(milliseconds: 80);
     final gateway = _HoldingGateway();
     await _coordinator(gateway).run(() async {});
 
@@ -184,7 +185,7 @@ void main() {
     expect(await _mayServe(AdPlacement.reports), isFalse,
         reason: 'the post-interstitial cooldown');
 
-    now = now.add(ReportBannerSuppression.cooldown + const Duration(seconds: 1));
+    await Future<void>.delayed(const Duration(milliseconds: 140));
     expect(await _mayServe(AdPlacement.reports), isTrue);
   });
 

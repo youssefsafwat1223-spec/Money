@@ -91,6 +91,20 @@ final bannerConsentProvider = FutureProvider.autoDispose<bool>(
   (ref) => ref.watch(adConsentServiceProvider).canRequestAds(),
 );
 
+/// Whether the Reports banner is currently suppressed, as a LIVE value.
+///
+/// `ReportBannerSuppression` is static state, and a static read inside
+/// `bannerEligibilityProvider` was computed once and then held for as long as
+/// anything listened — so a `false` taken during the cooldown outlived it. This
+/// subscribes to the notifier and invalidates itself when the answer changes,
+/// which is what lets an existing subscription see the window close.
+final reportBannerSuppressedProvider = Provider<bool>((ref) {
+  void onChange() => ref.invalidateSelf();
+  ReportBannerSuppression.revision.addListener(onChange);
+  ref.onDispose(() => ReportBannerSuppression.revision.removeListener(onChange));
+  return ReportBannerSuppression.active;
+});
+
 /// Every non-visual gate for [placement], resolved together.
 ///
 /// Visual gates — offstage, covered by a route, covered by a modal, an empty
@@ -105,7 +119,10 @@ final bannerEligibilityProvider =
   // notice, native presentation, generation — and for a cooldown after a
   // full-screen ad was actually shown. See `ReportBannerSuppression` for why
   // the route gate alone is not enough.
-  if (placement == AdPlacement.reports && ReportBannerSuppression.active) {
+  // Watched, not read: the cooldown ends on its own, and an existing listener
+  // has to see that happen.
+  if (placement == AdPlacement.reports &&
+      ref.watch(reportBannerSuppressedProvider)) {
     return false;
   }
   if (!AdMobBuildConfig.isBannerConfiguredFor(defaultTargetPlatform)) {

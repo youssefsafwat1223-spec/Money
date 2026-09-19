@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 /// Why the Reports banner is not allowed to serve right now.
@@ -34,36 +36,63 @@ import 'package:flutter/foundation.dart';
 class ReportBannerSuppression {
   ReportBannerSuppression._();
 
-  static const Duration cooldown = Duration(seconds: 120);
+  /// Not `const`: a test needs to cross this window for real, because the
+  /// expiry is delivered by a timer rather than by asking again later.
+  @visibleForTesting
+  static Duration cooldown = const Duration(seconds: 120);
 
   /// A COUNTER, not a flag. Single-flight should mean one journey at a time,
   /// but a counter cannot be left stuck open by an overlapping pair, and
   /// "stuck open" here means the banner never returns.
   static int _journeyDepth = 0;
   static DateTime? _adShownAt;
+  static Timer? _expiry;
 
-  /// Overridable so a test can cross the cooldown without waiting it out.
-  @visibleForTesting
-  static DateTime Function() clock = DateTime.now;
+  /// Bumped whenever the answer to [active] could have changed.
+  ///
+  /// Reading a static told nobody. `bannerEligibilityProvider` computed the
+  /// answer once and, while anything kept listening to it, held that answer —
+  /// so a `false` taken during the cooldown outlived the cooldown, and the
+  /// Reports banner stayed gone until something unrelated invalidated the
+  /// provider. A banner that never comes back is the same bug as a banner that
+  /// never leaves, just quieter.
+  ///
+  /// The expiry arrives on ONE timer set when the ad is shown. No polling: the
+  /// only moment the answer changes by itself is the moment that timer fires.
+  static final ValueNotifier<int> revision = ValueNotifier<int>(0);
+
+  static void _changed() => revision.value++;
 
   /// The export ad journey has started: entitlement, consent, preload, notice,
   /// presentation and the generation that follows. Paired with [endJourney] in
   /// a `finally`.
-  static void beginJourney() => _journeyDepth++;
+  static void beginJourney() {
+    _journeyDepth++;
+    _changed();
+  }
 
   static void endJourney() {
     if (_journeyDepth > 0) _journeyDepth--;
+    _changed();
   }
 
   /// A full-screen ad was actually PRESENTED — not requested, not loaded.
-  static void markAdShown() => _adShownAt = clock();
+  static void markAdShown() {
+    _adShownAt = DateTime.now();
+    _expiry?.cancel();
+    _expiry = Timer(cooldown, () {
+      _expiry = null;
+      _changed();
+    });
+    _changed();
+  }
 
   static bool get journeyActive => _journeyDepth > 0;
 
   static bool get inCooldown {
     final shown = _adShownAt;
     if (shown == null) return false;
-    return clock().difference(shown) < cooldown;
+    return DateTime.now().difference(shown) < cooldown;
   }
 
   /// Either reason. This is what the eligibility gate reads.
@@ -73,6 +102,9 @@ class ReportBannerSuppression {
   static void resetForTest() {
     _journeyDepth = 0;
     _adShownAt = null;
-    clock = DateTime.now;
+    _expiry?.cancel();
+    _expiry = null;
+    cooldown = const Duration(seconds: 120);
+    revision.value = 0;
   }
 }

@@ -495,14 +495,6 @@ void main() {
       expect(await resolve(), isFalse);
     });
 
-    test('clears once the window has passed', () async {
-      var now = DateTime.utc(2026, 9, 19, 12);
-      ReportBannerSuppression.clock = () => now;
-      ReportBannerSuppression.markAdShown();
-      now = now.add(ReportBannerSuppression.cooldown + const Duration(seconds: 1));
-      expect(await resolve(), isTrue);
-    });
-
     test('never blocks another placement', () async {
       // Reports is the only surface with two formats. A global cooldown would
       // silently cost every other placement an ad for two minutes.
@@ -534,7 +526,7 @@ void main() {
     // nothing to do with ads.
     //
     // So: the error path is pumped for real, and the structural claim — that
-    // the banner is a SIBLING of `_Sheet` rather than a descendant of it — is
+    // the banner is a SIBLING of `_Sheet` rather than a descendant — is
     // checked against the source. That claim is the one that matters, because
     // everything inside `_Sheet` is built as one list child and a banner there
     // would request on arrival regardless of viewport.
