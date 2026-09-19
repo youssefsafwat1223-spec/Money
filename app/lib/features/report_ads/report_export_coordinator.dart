@@ -1,6 +1,6 @@
 import 'dart:async';
 
-import '../ads/interstitial_cooldown.dart';
+import '../ads/report_banner_suppression.dart';
 import 'ad_consent_service.dart';
 import 'report_ads_analytics.dart';
 import 'report_export_ad_gateway.dart';
@@ -86,6 +86,12 @@ class ReportExportCoordinator {
   }) async {
     if (_inFlight) return; // single-flight: ignore repeated taps
     _inFlight = true;
+    // The Reports banner stays down for the WHOLE journey from here: resolving
+    // entitlement, UMP, preloading, the notice, the native presentation and the
+    // generation after it. The route gate covers only the Flutter routes in
+    // that sequence, and a native interstitial is not one — it pushes no route
+    // at all, so nothing else would suppress the banner underneath it.
+    ReportBannerSuppression.beginJourney();
     final attempt = _mintAttemptId();
     _currentAttemptId = attempt;
     _analytics.exportRequested();
@@ -162,6 +168,10 @@ class ReportExportCoordinator {
       // here and generates exactly once.
       await advanceOnce();
     } finally {
+      // Always paired, on every exit: an early return, a cancellation, a
+      // supersession or a throw. A journey left open is a banner that never
+      // comes back.
+      ReportBannerSuppression.endJourney();
       if (_currentAttemptId == attempt) {
         _inFlight = false;
         _currentAttemptId = null;
@@ -232,7 +242,7 @@ class ReportExportCoordinator {
         // The Reports banner stays quiet for a while after it, so the two
         // formats D-19 approved on that one surface cannot read as a single ad
         // break with two ads in it.
-        InterstitialCooldown.markShown();
+        ReportBannerSuppression.markAdShown();
         _analytics.adImpression();
         _analytics.adDismissed();
       case ReportAdOutcome.failedToShow:

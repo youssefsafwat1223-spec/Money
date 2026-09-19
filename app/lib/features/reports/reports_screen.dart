@@ -103,7 +103,7 @@ class ReportsScreen extends ConsumerWidget {
                             // the export config page is a pushed full-screen
                             // route, which makes `ModalRoute.isCurrent` false
                             // and tears this down before it appears — and
-                            // `InterstitialCooldown` keeps them from being
+                            // `ReportBannerSuppression` keeps them from being
                             // back-to-back afterwards.
                             //
                             // Nothing to report means nothing to advertise

@@ -16,7 +16,7 @@ import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/goals/goals_providers.dart';
 import 'package:money_companion/features/goals/goals_screen.dart';
 import 'package:money_companion/domain/entities/category_entity.dart';
-import 'package:money_companion/features/ads/interstitial_cooldown.dart';
+import 'package:money_companion/features/ads/report_banner_suppression.dart';
 import 'package:money_companion/features/common/category_catalog.dart';
 import 'package:money_companion/features/dashboard/dashboard_providers.dart'
     show CategorySlice, dashboardDataProvider;
@@ -181,7 +181,7 @@ void main() {
   setUp(() {
     _SpyLoader.reset();
     BannerAdController.resetThrottleForTest();
-    InterstitialCooldown.resetForTest();
+    ReportBannerSuppression.resetForTest();
   });
 
   group('achievements', () {
@@ -491,22 +491,22 @@ void main() {
     }
 
     test('blocks Reports right after an interstitial', () async {
-      InterstitialCooldown.markShown();
+      ReportBannerSuppression.markAdShown();
       expect(await resolve(), isFalse);
     });
 
     test('clears once the window has passed', () async {
       var now = DateTime.utc(2026, 9, 19, 12);
-      InterstitialCooldown.clock = () => now;
-      InterstitialCooldown.markShown();
-      now = now.add(InterstitialCooldown.window + const Duration(seconds: 1));
+      ReportBannerSuppression.clock = () => now;
+      ReportBannerSuppression.markAdShown();
+      now = now.add(ReportBannerSuppression.cooldown + const Duration(seconds: 1));
       expect(await resolve(), isTrue);
     });
 
     test('never blocks another placement', () async {
       // Reports is the only surface with two formats. A global cooldown would
       // silently cost every other placement an ad for two minutes.
-      InterstitialCooldown.markShown();
+      ReportBannerSuppression.markAdShown();
       final container = ProviderContainer(overrides: [
         bannerPlacementEnabledProvider(AdPlacement.goals)
             .overrideWithValue(true),

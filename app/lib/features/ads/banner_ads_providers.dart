@@ -10,7 +10,7 @@ import 'ad_placement.dart';
 import 'admob_build_config.dart';
 import 'banner_ad_controller.dart';
 import 'banner_ads_analytics.dart';
-import 'interstitial_cooldown.dart';
+import 'report_banner_suppression.dart';
 
 /// Banner master kill switch. Seeded OFF and fail-closed, like every other
 /// product-rollout flag. `StateError` means the flag service has not
@@ -101,11 +101,11 @@ final bannerEligibilityProvider =
     FutureProvider.autoDispose.family<bool, AdPlacement>((ref, placement) async {
   if (!ref.watch(bannerPlacementEnabledProvider(placement))) return false;
   // Reports is the one surface carrying both a banner and the export
-  // interstitial. Read at watch time rather than kept live: this provider is
-  // autoDispose, the banner is torn down while the export's full-screen route
-  // covers the screen, and the fresh watch on return is exactly when the
-  // question needs asking.
-  if (placement == AdPlacement.reports && InterstitialCooldown.active) {
+  // interstitial. Suppressed for the whole export ad journey — preparation,
+  // notice, native presentation, generation — and for a cooldown after a
+  // full-screen ad was actually shown. See `ReportBannerSuppression` for why
+  // the route gate alone is not enough.
+  if (placement == AdPlacement.reports && ReportBannerSuppression.active) {
     return false;
   }
   if (!AdMobBuildConfig.isBannerConfiguredFor(defaultTargetPlatform)) {
