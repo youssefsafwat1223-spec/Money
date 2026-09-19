@@ -2,137 +2,121 @@
 
 Simulator: iPhone 17 Pro Max, debug build, Google TEST ad units.
 Harness: `app/integration_test/ads_placement_qa_test.dart`.
-Implementation under test: `b5112f25` (five placements) + `91325e3b` (corrected
-mechanics test and this walk).
+Baseline: `7ff3585b` — the five placements plus the four blocker fixes.
 
-**Nothing was activated.** `_defaults` is untouched, every flag is still `false`,
-and no Remote Config was changed. The walk enabled the placements by writing
-rows into the simulator's own `remote_feature_flags` table and deleted them
-again. No file under `ios/`, `android/`, `codemagic.yaml` or any `ADMOB_*` input
-was touched.
+**Nothing was activated.** `_defaults` is untouched and every flag is still
+`false`. The walk turned the placements on by writing rows into this device's
+own `remote_feature_flags` table and deleted them again. No file under `ios/`,
+`android/`, `codemagic.yaml` or any `ADMOB_*` input was touched.
 
----
+## What was real, and what was not
 
-## What the walk covered
+The whole app ran — `MoneyApp`, the real router, the real `AppShell` with its
+floating navigation bar. The **flag gate was the real one** this time; an
+earlier run wrote the flag rows and then also overrode the provider that reads
+them, so the writes did nothing. The build-config gate, the visual gates, the
+Reports suppression and cooldown, and the throttle and its retry were all the
+shipping code.
 
-59 captures: ar/en × light/dark across Dashboard, Goals, Subscriptions, Reports
-and Achievements, at the top of each screen and at its foot; tab switching on
-Subscriptions and Reports; a landscape pass; and a push/pop route cycle.
+Two gates were stubbed, and only two: `bannerEntitlementProvider` and
+`bannerConsentProvider`. Both reach off-device and a debug build without
+`SUPABASE_URL` has nothing to reach. **Neither is verified here.** They need a
+signed-in pass with QA credentials, which is an owner action.
 
-## Geometry readings
-
-`h<n>` = painted with that height · `h0` = mounted, no ad · `OFFSTAGE` = mounted
-but not painted · `NOT-IN-TREE` = not built.
-
-| Surface | Reading | Verdict |
-|---|---|---|
-| `dashboard-top` | `NOT-IN-TREE` | **correct** — below the fold, sliver laziness holds |
-| `dashboard-foot` | `h187 top=657 below=112` | mounts and loads; 112px clearance below |
-| `goals-top` | `h0` / `h187 top=744` | mounts |
-| `goals-foot` | `h187 top=649 below=120` | 120px clearance below |
-| `subscriptions-top` | `h187 top=284 below=672` | header placement, above the tab bar |
-| `subscriptions-foot` | `OFFSTAGE` | alive, unpainted — see below |
-| `reports-top` | `h187 top=284 below=485` | header placement |
-| `reports-foot` | `OFFSTAGE` | same |
-| `reports-tab1/tab2` | `OFFSTAGE` | one instance survives tab switches |
-| `achievements-foot` | `h187 top=677 below=92` | mounts below the badge grid |
-| `route-covered` | `OFFSTAGE` | **suppressed under a pushed route** |
-| `route-back` | mounted | returns |
+Every case started from a cleared throttle and cleared suppression. Without
+that, an earlier run read `h0` in three combinations out of four and it meant
+nothing.
 
 ---
 
-## CONFIRMED
+## RESULT: NOT A PASS
 
-**1. Sliver laziness holds on a device.** `dashboard-top :: NOT-IN-TREE` and then
-mounted at the foot. The placement rule the implementation rests on is real
-outside a widget test.
+The run recorded 30/30 PASS. **That label was wrong**, because the pass
+criterion was "an ad loaded with a height > 0" rather than "an ad is visible".
+The criterion has since been tightened; the findings below are what the
+geometry in that run actually shows.
 
-**2. Route coverage suppresses the banner.** `route-before` mounted →
-`route-covered :: OFFSTAGE` → `route-back` mounted. This is the mechanism the
-Reports export-flow suppression depends on, now verified on a device.
+### 1. No ad creative appeared in ANY capture — unresolved · BLOCKS SIGN-OFF
 
-**3. The header placement is ONE instance and survives tab switches.** Reports
-tab1 and tab2 both report the same single banner, no second request.
+Every screenshot shows the "Advertisement" label over an **empty box**. That
+includes Goals, where the slot sits fully on screen with room to spare.
 
-**4. A header banner scrolled away is OFFSTAGE, not disposed.** This is what
-corrected an earlier, wrong withdrawal — see the entry below.
+This is not simply a capture artifact: an early run of an earlier harness DID
+capture a test creative on Achievements, so the pipeline can record a platform
+view, and the native glass navigation bar — also a platform view — renders in
+these very captures. The current run waits for a non-zero height and then for
+1.2 s of REAL time before shooting, so the earlier timing explanation no longer
+covers it.
 
-**5. The clearance below the banner is real.** 112px on Dashboard, 120px on
-Goals, 92px on Achievements.
+Two possibilities remain and the evidence does not separate them: the ad is not
+rendering in the real app, or `takeScreenshot` is not compositing this
+particular platform view. **Resolving this needs a human looking at the
+simulator.** Until then no visual claim about these placements is supported.
+
+### 2. The Dashboard banner lands entirely below the fold · REAL
+
+`top=844 below=-75` in all four combinations, on a 956pt screen. The slot's
+bottom edge is 75pt past the bottom of the display.
+
+The cause is sequencing, not layout. The banner is the last direct child of the
+list, so it materialises only when the reader reaches the end — and the ad
+arrives *after* that, growing the list by 187pt while the scroll offset stays at
+the old maximum. Everything the ad added, including its own lower half and the
+112pt navigation clearance, is below the fold until the reader scrolls again.
+
+An ad that is requested, loaded and never seen is the viewability problem in its
+purest form.
+
+### 3. Achievements has the same defect · REAL
+
+`top=864 below=-95` in three of four combinations. Same cause.
+
+### 4. Goals is the near miss · REAL
+
+`top=744 below=25`. The ad is on screen, but the 120pt navigation clearance
+underneath it is not — the floating bar overlaps the foot of the slot.
+
+### 5. Reports and Subscriptions sit 10pt from the tab pills · NEEDS A DECISION
+
+`tabGap=10` on both, in all four combinations. Ten logical points between an
+advertisement and a tab control is the adjacency Google's discouraged-placements
+guidance names, and the label plus the 800 ms tap shield do not settle it.
+
+The captures show a second problem at the same spot: the reserved slot is a
+hard-edged rectangle that cuts the blue gradient between the header card and the
+tab bar. Whatever is decided about the gap, that block needs design review.
+
+### 6. One case recorded PASS without running · FIXED IN THE HARNESS
+
+`goals · scrolled far away and back` reported PASS with `loaded=null` — no ad
+ever loaded, so the case never exercised anything. It now records BLOCKED.
 
 ---
 
-## A CLAIM THAT WAS WITHDRAWN AND THEN RESTORED
+## What the run did establish
 
-The first walk reported `reports-foot :: ABSENT` and I began recording that the
-header placement is disposed on scroll — withdrawing the plan's claim that it
-survives. That was wrong.
+- **The flag gate works end to end.** Writing the rows turned the placements on;
+  deleting them turned them off.
+- **A pushed route suppresses the banner** — verified on device, not inferred.
+- **The export ad journey suppresses it** (`during=true`) — blocker 1, on device.
+- **The cooldown ends without a rebuild** (`hiddenDuring=true returned=187`) —
+  blocker 3, on device.
+- **A resize drops the stale creative** on both a header and a list placement —
+  blocker 2, on device.
+- **One banner instance across tab switches** on Reports (3 tabs) and
+  Subscriptions (2 tabs), tapped by label so RTL is not a coin toss.
+- **The empty state carries no ad.**
 
-`find.byType` **skips offstage elements by default**. Both this harness and the
-rewritten widget test were asking "is it painted", getting no, and calling it
-"unmounted". With `skipOffstage: false` the banner is present and the loader was
-never disposed.
+## Still not covered
 
-The real, now-pinned behaviour: a **list** banner scrolled out is UNMOUNTED and
-cannot be re-bought inside the 30-second throttle; a **header** banner is merely
-UNPAINTED and comes back intact. The trade is that the header placement holds a
-native ad view while off screen and the list placements do not.
-
----
-
-## NOT CONFIRMED — the ad's appearance
-
-Most captures show the "Advertisement" label above an **empty block** where the
-creative should be. That is **not** a confirmed paint defect: the identical
-screen and placement (Achievements) rendered the test creative fully in an
-earlier run and blank in this one. Same code, same device, different run.
-
-The cause is capture timing — `AdWidget` is a platform view and had not been
-composited when `takeScreenshot` fired. The walk settles ~4s before capturing,
-which is not always enough.
-
-**Consequence: this run verifies GEOMETRY, not APPEARANCE.** The visual
-questions the walk exists for — does the ad crowd the pinned tab bar, how does
-it read in RTL — are not answered by these captures.
-
----
-
-## HARNESS DEFECTS FOUND (each produced a false product finding first)
-
-1. **`tester.drag` was not scrolling the dashboard list.** Reported the banner
-   ABSENT in all four combinations. Driving `ScrollPosition` directly mounts it.
-2. **Seeded goals had a null `accountId`.** `goalsListProvider` filters by the
-   selected/default account, so Goals showed its empty state and the banner was
-   correctly suppressed — of data the harness failed to create.
-3. **Tab switching was silently skipped everywhere.** The harness looked for
-   Material `Tab`; these screens use `AppPillTabBar`.
-4. **`find.byType` offstage default** — see above.
-
-## HARNESS GAPS STILL OPEN
-
-- **The throttle poisons every combination after the first.** The 30-second
-  per-placement throttle is static and the walk visits the same placement four
-  times in one session, so three of four combinations read `h0`. **ar/en ×
-  light/dark is therefore NOT covered with a loaded ad.**
-- **Arabic tab switching taps the wrong tab.** The tap is computed as a fraction
-  from the left, but `AppPillTabBar` uses a direction-aware `Row`.
-- **The screens are rendered without `AppShell`**, so `below=` measures distance
-  to the screen edge, not clearance from the real floating navigation bar.
-- **`setSurfaceSize` is not device rotation.** It resizes Flutter's test
-  surface; it cannot exercise native adaptive re-sizing. No loaded ad was
-  present in the landscape pass anyway.
-- **`bannerEligibilityProvider` is overridden**, which bypasses the flag gates
-  and the Reports cooldown as well as entitlement and consent. Writing the local
-  flag rows has no effect on this path.
-- **Entitlement and consent are unverified on device.** They need a signed-in
-  pass with QA credentials, which is an owner action.
+Entitlement and consent on device; real hardware rotation (the walk resizes the
+test surface, which is not the same thing); and any visual claim at all, pending
+finding 1.
 
 ---
 
 ## Disposition
 
-This is a **partial** pass. Placement geometry, laziness, route suppression, tab
-behaviour and clearance are confirmed. Appearance, navigation-bar overlap, real
-rotation, the flag gates and the entitlement/consent gates are not.
-
-**Not sufficient to activate any flag.**
+**Not sufficient to activate any flag.** Findings 1–4 are blockers: one
+unresolved rendering question and three placements whose ad is partly or wholly
+unseeable at the moment it loads.
