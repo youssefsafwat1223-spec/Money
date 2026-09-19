@@ -59,6 +59,15 @@ class QirshAdBanner extends ConsumerStatefulWidget {
 class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
   BannerAdController? _controller;
 
+  /// The width the current controller asked for.
+  ///
+  /// An anchored adaptive banner's height is derived from the width at REQUEST
+  /// time, and the creative that comes back is sized for it. Nothing about it
+  /// re-adapts afterwards — so an ad loaded in landscape and carried into
+  /// portrait keeps its old dimensions while Flutter squeezes the box around
+  /// it. Keeping the requested width is what makes that detectable.
+  int? _requestedWidthPx;
+
   void _disposeController() {
     _controller?.dispose();
     _controller = null;
@@ -103,6 +112,7 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
           ref.read(bannerAdsAnalyticsProvider).record(event, placementKey),
     );
     _controller = controller;
+    _requestedWidthPx = width.floor();
     controller.addListener(_onControllerChanged);
     // Fire-and-forget: the controller notifies when it reaches a terminal
     // state, and every failure path inside it is silent by design.
@@ -123,6 +133,7 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
       if (!mounted) return;
       _controller?.removeListener(_onControllerChanged);
       _disposeController();
+      _requestedWidthPx = null;
       if (mounted) setState(() {});
     });
   }
@@ -167,29 +178,47 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
           return const SizedBox.shrink();
         }
 
-        final controller = _controller;
-        if (controller == null) {
-          return LayoutBuilder(
-            builder: (context, constraints) {
-              final width = constraints.maxWidth;
+        // The LayoutBuilder wraps EVERY state, not just the un-requested one.
+        // It used to guard only the request, so once a controller existed the
+        // available width was never looked at again — a banner loaded at one
+        // width rendered at its old size for the rest of its life, whatever the
+        // box around it did. Rotation and any resize hit that.
+        return LayoutBuilder(
+          builder: (context, constraints) {
+            final width = constraints.maxWidth;
+            final controller = _controller;
+
+            if (controller == null) {
               if (width.isFinite && width > 0) {
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   if (mounted) _maybeRequest(width);
                 });
               }
               return const SizedBox.shrink();
-            },
-          );
-        }
+            }
 
-        final height = controller.heightPx;
-        final ad = controller.ad;
-        if (controller.status != BannerAdStatus.loaded ||
-            height == null ||
-            ad is! BannerAd) {
-          return const SizedBox.shrink();
-        }
-        return _BannerSlot(height: height.toDouble(), ad: ad);
+            // The width moved under a live request. Drop the creative rather
+            // than paint one sized for a box that no longer exists; the next
+            // build re-requests at the new width, and the ordinary throttle
+            // applies to that request like any other.
+            final requested = _requestedWidthPx;
+            if (width.isFinite &&
+                requested != null &&
+                width.floor() != requested) {
+              _tearDownAfterFrame();
+              return const SizedBox.shrink();
+            }
+
+            final height = controller.heightPx;
+            final ad = controller.ad;
+            if (controller.status != BannerAdStatus.loaded ||
+                height == null ||
+                ad is! BannerAd) {
+              return const SizedBox.shrink();
+            }
+            return _BannerSlot(height: height.toDouble(), ad: ad);
+          },
+        );
       },
     );
   }
