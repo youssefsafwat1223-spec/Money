@@ -276,22 +276,23 @@ workflows:
       - ${IOS_RELEASE_IPA}.provenance
       - /tmp/xcodebuild_logs/*.log
     publishing:
-      # AUTO-SUBMIT IS OFF — 2026-09-04, deliberate.
+      # AUTO-SUBMIT IS ON — 2026-09-26, for the 1.0.0 (41) TestFlight release.
       #
-      # This flag was previously ENABLED, which uploads to TestFlight on
-      # EVERY successful run of this workflow. Submission to Apple is not
-      # authorised, no iOS build has ever been exercised on a physical device
-      # (every iOS Runtime/Device cell in FEATURE_MATRIX.md is still ❌), and
-      # until 2026-09-03 the app did not compile for iOS at all. A workflow that
-      # publishes as a side effect of succeeding is the wrong default while any
-      # of that is true.
+      # It was turned OFF on 2026-09-04 because submission was not authorised, no
+      # iOS build had been exercised on a physical device, and until 2026-09-03
+      # the app did not compile for iOS at all. That note said to re-enable this
+      # "only when submission is explicitly authorised".
       #
-      # With this false, a successful build produces a signed, provenance-stamped
-      # IPA as an artifact and stops. Upload it deliberately — or re-enable this
-      # — only when submission is explicitly authorised.
+      # All three have now changed: the owner authorised TestFlight upload for
+      # this build, 1.0.0 (41) was exercised on a physical iPhone 13 through the
+      # isolated QA instance, and iOS Release builds clean.
+      #
+      # TESTFLIGHT ONLY — this uploads for internal distribution and does NOT
+      # submit for App Review. If a later build is not authorised for upload, set
+      # this back to false rather than relying on the run being noticed.
       app_store_connect:
         auth: integration
-        submit_to_testflight: false
+        submit_to_testflight: true
       email:
         recipients:
           - youssefsafwat1278@gmail.com
