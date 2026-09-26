@@ -95,11 +95,36 @@ void main() {
 
   group('toolchain pinning', () {
     test('Flutter and JDK are pinned on the compile workflow', () {
+      // 3.44.2 -> 3.47.3 on 2026-09-26. The literal tracks the locally proven
+      // SDK, so it moves when that does; this is the pin being maintained, not
+      // relaxed.
       final quality = _workflow('backend-and-quality-gates');
-      expect(quality, contains('flutter: 3.44.2'),
+      expect(quality, contains('flutter: 3.47.3'),
           reason: 'the compile must reproduce the locally proven Flutter');
       expect(quality, contains('java: 17'),
           reason: 'AGP 9 + jvmTarget 17 require JDK 17');
+    });
+
+    test('EVERY workflow pins the same Flutter, not just the compile gate', () {
+      // Codemagic build 64 died at `flutter pub get` before compiling anything:
+      // ios-signed-release still pinned 3.44.2, whose flutter_localizations
+      // requires intl 0.20.2 exactly, while pubspec.lock was resolved against
+      // 3.47.3 which requires ^0.20.3. Two SDK-pinned constraints, no solution.
+      //
+      // The compile gate alone was pinned, so nothing noticed the other three
+      // drifting. This pins the AGREEMENT: one SDK across every workflow.
+      final ci = File('../codemagic.yaml').readAsStringSync();
+      final pins = RegExp(r'^\s*flutter:\s*([0-9]+\.[0-9]+\.[0-9]+)\s*$',
+              multiLine: true)
+          .allMatches(ci)
+          .map((m) => m.group(1))
+          .toList();
+
+      expect(pins, isNotEmpty, reason: 'no Flutter pins found at all');
+      expect(pins.toSet(), hasLength(1),
+          reason: 'workflows disagree on the Flutter SDK: $pins — a lagging '
+              'pin is what broke build 64');
+      expect(pins.first, '3.47.3');
     });
 
     test('the pinned NDK is installed rather than assumed', () {

@@ -33,7 +33,7 @@ workflows:
     environment:
       groups:
         - supabase
-      flutter: 3.44.2
+      flutter: 3.47.3
       xcode: latest
       cocoapods: default
       vars:
@@ -335,7 +335,7 @@ workflows:
         # Gradle build; Google's test publisher in a release build also fails;
         # absent is legal and warns that the release ships with ads off.
         - admob
-      flutter: 3.44.2
+      flutter: 3.47.3
       vars:
         PACKAGE_NAME: "com.youssefsafwat.mali"
     scripts:
@@ -504,7 +504,7 @@ workflows:
           - 'docs/**'
           - '**/*.md'
     environment:
-      flutter: 3.44.2
+      flutter: 3.47.3
       # JDK 17 is what the project actually requires (sourceCompatibility /
       # targetCompatibility VERSION_17, jvmTarget JVM_17) and what AGP 9 needs.
       # Pinned so the Android compile gate below reproduces the locally-proven
