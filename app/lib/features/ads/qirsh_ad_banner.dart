@@ -140,15 +140,31 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
     setState(() {});
   }
 
-  /// Arm the one-shot retry, if this controller was refused for the throttle
-  /// and only for that reason. A no-fill or a load failure is a real answer and
-  /// gets no retry.
+  /// Arm the one-shot retry.
+  ///
+  /// Two causes qualify, and both are the ABSENCE of an answer rather than an
+  /// answer:
+  ///
+  ///   * the per-placement throttle refused the request outright;
+  ///   * our own client-side timer gave up before the SDK replied.
+  ///
+  /// A no-fill or a reported load failure is a real answer and still gets no
+  /// retry — `onAdFailedToLoad` fired, the network said no, and asking again
+  /// immediately would be both pointless and impolite.
+  ///
+  /// The timeout case is what makes a cold start recoverable. The first request
+  /// after `MobileAds.initialize()` was measured at 20072ms against warm loads
+  /// of 492-1945ms, so it lost the 20s race and the slot collapsed for the whole
+  /// mount. Now it collapses, waits out the throttle, and asks once more — which
+  /// lands in the warm case.
   void _scheduleRetryIfThrottled() {
     if (_retried || _retryTimer != null) return;
     final controller = _controller;
-    if (controller == null || !controller.throttleRefused) return;
-    final wait = controller.throttleRemaining;
-    if (wait == null) return;
+    if (controller == null) return;
+    if (!controller.throttleRefused && !controller.loadTimedOut) return;
+    // Even a timeout waits for the throttle window: one slow request is not a
+    // licence to bypass the per-placement rate limit.
+    final wait = controller.throttleRemaining ?? Duration.zero;
 
     _retryTimer = Timer(wait + const Duration(milliseconds: 50), () {
       _retryTimer = null;
@@ -166,11 +182,32 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
     });
   }
 
+  /// Publish how tall the ad band currently is, after the frame.
+  ///
+  /// ZERO is as important as any other value. This provider is only ever read
+  /// by a screen painting a melt gradient behind the band, and it was previously
+  /// written ONLY when a slot appeared — never when one went away. So once an ad
+  /// had shown, the extent stayed at its last value forever, and a screen with
+  /// no ad on it went on reserving melt for a band that was not there. On
+  /// Reports that showed up as the blue cutting off hard above the tab row.
+  void _reportExtent(double extent) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final n = ref.read(headerAdExtentProvider(widget.placement).notifier);
+      if (n.state != extent) n.state = extent;
+    });
+  }
+
   /// Drop the controller and any ad it holds, after the current frame.
   ///
   /// Deferred because this is reached from `build`, and disposing a platform
   /// view mid-build is not safe. Idempotent — every gate can call it freely.
   void _tearDownAfterFrame() {
+    // BEFORE the early return. A placement whose gate closed without ever
+    // having had a controller — no ad yet, or not eligible at all — still has
+    // to retract any melt the screen is reserving for it, and that is the
+    // common case on arrival rather than an edge case.
+    _reportExtent(0);
     if (_controller == null) return;
     // A pending retry belongs to the controller being dropped. Whatever closed
     // the gate here will re-open the normal request path if it re-opens at all.
@@ -243,6 +280,7 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
                   if (mounted) _maybeRequest(width);
                 });
               }
+              _reportExtent(0);
               return const SizedBox.shrink();
             }
 
@@ -264,7 +302,11 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
             // space that was already waiting. Null height means idle or failed,
             // and those collapse.
             final height = controller.heightPx;
-            if (height == null) return const SizedBox.shrink();
+            if (height == null) {
+              // Idle or failed: no band, so no melt is reserved for one.
+              _reportExtent(0);
+              return const SizedBox.shrink();
+            }
             final ad = controller.ad;
             final slot = _BannerSlot(
               height: height.toDouble(),
@@ -274,13 +316,7 @@ class _QirshAdBannerState extends ConsumerState<QirshAdBanner> {
               // melt gradient past the ad; nothing reads it to decide whether
               // an ad may serve. Reported after the frame, because writing
               // provider state during a build is not allowed.
-              onExtent: (extent) =>
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (!mounted) return;
-                    final n = ref
-                        .read(headerAdExtentProvider(widget.placement).notifier);
-                    if (n.state != extent) n.state = extent;
-                  }),
+              onExtent: _reportExtent,
             );
             // The melt behind a header band is painted by the SCREEN, not
             // here: it has to run the full width of the page, and this widget

@@ -204,6 +204,24 @@ class _HomeBody extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.s6),
                 _MonthlySection(data: data, privacyMode: privacyMode),
               ],
+              // THE BANNER — after the first content block, whether that block
+              // is the ledger sections or the empty-state card.
+              //
+              // It used to be a direct sibling of `_Sheet` at the very foot of
+              // the page, for sliver laziness: the slot was far below the fold
+              // and materialising it early would have requested an ad the user
+              // might never reach. Here it is deliberately inside the sheet and
+              // therefore built with it — which is correct now that the slot is
+              // in the upper-middle of the page and visible on arrival. Laziness
+              // only ever mattered because the old position was unreachable.
+              const SizedBox(height: AppSpacing.s6),
+              // NO horizontal padding here. `_Sheet` already insets its child by
+              // `AppSpacing.gutter` on both sides, so wrapping the banner in
+              // another gutter made the slot 310pt on a 390pt screen — under the
+              // 320 minimum `BannerAdController.request()` enforces, which
+              // refused the request before `resolveHeight` and left the slot at
+              // zero height. The banner inherits the sheet's inset instead.
+              const QirshAdBanner(placement: AdPlacement.dashboard),
               // UX-010 — a section with nothing in it still renders its header
               // and says which of the two it is, rather than vanishing.
               const SizedBox(height: AppSpacing.s6),
@@ -220,27 +238,6 @@ class _HomeBody extends ConsumerWidget {
             ],
           ),
         ),
-        // A DIRECT child of the ListView.
-        //
-        // Everything above lives inside `_Sheet`, which is ONE list child — so
-        // a banner placed among those sections would be built with the whole
-        // sheet on arrival, for a slot the user may never scroll to. As a
-        // sibling of the sheet it is materialised only when reached. Both
-        // behaviours are pinned in banner_placement_mechanics_test.dart.
-        //
-        // Dashboard is the first screen after launch and the last placement in
-        // the rollout order for that reason; the foot of the page is the
-        // quietest spot on it.
-        //
-        // No transactions in the period means no ad. The sheet still renders
-        // the budgets, subscriptions and goals the user owns — those are not a
-        // function of the selected range — but an advertisement below an
-        // otherwise empty ledger is the loudest thing on the screen.
-        if (!data.isEmpty)
-          const Padding(
-            padding: EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-            child: QirshAdBanner(placement: AdPlacement.dashboard),
-          ),
         // The nav-bar clearance that used to close `_Sheet`. Moved out so it
         // sits BELOW the banner — an ad the floating bar covers is an obscured
         // ad.

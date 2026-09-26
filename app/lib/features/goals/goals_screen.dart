@@ -70,6 +70,16 @@ class GoalsScreen extends ConsumerWidget {
                     onAdd: () => GoalFormScreen.showSheet(context),
                   ),
                 ),
+                // BELOW the create-your-first-goal card, never beside it: the
+                // card is the screen's call to action and an ad flush against it
+                // reads as part of it. A placement may not depend on the user
+                // having goals, but it must not compete with the prompt either.
+                const Padding(
+                  padding:
+                      EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                  child: QirshAdBanner(placement: AdPlacement.goals),
+                ),
+                const SizedBox(height: 120),
               ],
             );
           }
@@ -85,33 +95,47 @@ class GoalsScreen extends ConsumerWidget {
                   currencyLabel: currencyLabel,
                   onAdd: () => GoalFormScreen.showSheet(context),
                 ),
+                // The FIRST goal card, on its own, so the banner can follow
+                // it. Splitting the list this way is what lets the ad sit after
+                // the first meaningful content block instead of at the foot of
+                // the page, while every card keeps the same gutter and rhythm.
                 Padding(
-                  padding: const EdgeInsets.all(AppSpacing.gutter),
-                  child: Column(
-                    children: [
-                      for (final goal in visibleGoals) ...[
-                        _GoalCard(
-                          goal: goal,
-                          currencyLabel: Currency.label(context, goal.currency),
-                        ),
-                        const SizedBox(height: AppSpacing.s4),
-                      ],
-                    ],
+                  padding: const EdgeInsets.fromLTRB(AppSpacing.gutter,
+                      AppSpacing.gutter, AppSpacing.gutter, 0),
+                  child: _GoalCard(
+                    goal: visibleGoals.first,
+                    currencyLabel:
+                        Currency.label(context, visibleGoals.first.currency),
                   ),
                 ),
-                // A DIRECT child of the ListView — the goal cards are not, so
-                // putting the banner among them would build it with the whole
-                // Column regardless of viewport. Here `SliverList` materialises
-                // it only when the user has scrolled to it.
+                // A DIRECT child of the ListView, bracketed by real content:
+                // one card above, the rest below. The old position was after
+                // ALL the cards and required scrolling to the bottom.
                 //
-                // Two goals minimum. With one, an ad is the second thing on a
-                // nearly empty screen; with none, the empty state is a
-                // create-your-first-goal prompt and gets no ad at all.
-                if (visibleGoals.length >= 2)
-                  const Padding(
-                    padding:
-                        EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                    child: QirshAdBanner(placement: AdPlacement.goals),
+                // The `visibleGoals.length >= 2` gate is gone — availability no
+                // longer depends on how many goals exist.
+                const Padding(
+                  padding: EdgeInsets.symmetric(
+                      horizontal: AppSpacing.gutter,
+                      vertical: AppSpacing.s4),
+                  child: QirshAdBanner(placement: AdPlacement.goals),
+                ),
+                if (visibleGoals.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.gutter),
+                    child: Column(
+                      children: [
+                        for (final goal in visibleGoals.skip(1)) ...[
+                          _GoalCard(
+                            goal: goal,
+                            currencyLabel:
+                                Currency.label(context, goal.currency),
+                          ),
+                          const SizedBox(height: AppSpacing.s4),
+                        ],
+                      ],
+                    ),
                   ),
                 // The nav-bar clearance that used to close the Column above.
                 // Moved out so it sits BELOW the banner rather than between the

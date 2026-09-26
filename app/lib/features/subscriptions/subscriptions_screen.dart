@@ -1,3 +1,5 @@
+import 'dart:ui' show ImageFilter;
+
 import 'package:flutter/material.dart';
 import '../../domain/finance/money_format.dart';
 import 'package:flutter/services.dart';
@@ -47,7 +49,13 @@ String _dueInLabel(BuildContext context, DateTime due) {
 ///
 /// Local to this screen on purpose — raising `meltLength` globally would
 /// restyle every screen with a calm header.
-const double _adMeltShare = 80;
+/// The pinned tab row's height. Also how much melt it consumes.
+///
+/// 76 rather than 64: the pill row is 44 and the group now sits on a frosted
+/// backing panel with 8pt of padding all round (44 + 16 = 60), which needs 8pt
+/// of air above and below or the panel reads as a bar wedged against the edges.
+/// `meltBelowTabs` is derived from this, so the melt under the tabs follows.
+const double _tabBarHeight = 76.0;
 
 class SubscriptionsScreen extends ConsumerWidget {
   const SubscriptionsScreen({super.key});
@@ -80,6 +88,13 @@ class SubscriptionsScreen extends ConsumerWidget {
         final insts =
             bills.where((b) => b.type == BillType.installment).toList();
         final suggestions = suggestionsAsync.valueOrNull ?? [];
+        // The ad band's REAL pixel height, or zero when no ad is showing.
+        // `MeltSlice.height` is the gradient RANGE, not the box height, so a
+        // fixed share made the melt crawl through the ad band and then jump
+        // through the tab row — a visible crease. See reports_screen.dart.
+        final adExtent =
+            ref.watch(headerAdExtentProvider(AdPlacement.subscriptions));
+        final meltBelowTabs = adExtent + _tabBarHeight;
         // MALI-064n: projected monthly recurring obligation (frequency-
         // normalized, active subscriptions only) — the ONE canonical metric.
         // Summed EXACTLY as Money in the base display currency (currency-
@@ -129,16 +144,20 @@ class SubscriptionsScreen extends ConsumerWidget {
                           // All three behaviours are pinned in
                           // banner_placement_mechanics_test.dart.
                           //
-                          // Only when there is something to browse: an ad above
-                          // an empty bills screen is the screen's only content.
-                          if (subs.isNotEmpty || insts.isNotEmpty)
+                          // No content gate. It used to require at least one
+                          // bill or installment; availability may no longer
+                          // depend on the user having either. The position is
+                          // unchanged — directly under the hero, above the tab
+                          // bar — which already satisfies the empty-state rule
+                          // (hero, then banner, then the tabs' own empty CTA).
+                          //
                             // FULL BLEED melt behind the ad band. The banner
                             // itself sits inside the gutter, so wrapping it
                             // there left the page background showing down both
                             // edges of the band.
-                            const MeltSlice(
-                              height: _adMeltShare,
-                              child: Padding(
+                            MeltSlice(
+                              height: adExtent,
+                              child: const Padding(
                                 padding: EdgeInsets.symmetric(
                                     horizontal: AppSpacing.gutter),
                                 child: QirshAdBanner(
@@ -153,24 +172,21 @@ class SubscriptionsScreen extends ConsumerWidget {
                       delegate: _TabBarDelegate(
                         // iOS 26 style: floating glass capsules, no bar box.
                         child: MeltSlice(
-                          height: 64.0,
+                          height: _tabBarHeight,
                         // Resumes where the ad band above it ended, so the
                         // melt runs header → ad → tabs without a seam. Zero
                         // when no ad is showing, which is the original
                         // geometry exactly.
-                        startAt: ref.watch(headerAdExtentProvider(
-                                    AdPlacement.subscriptions)) >
-                                0
-                            ? _adMeltShare
-                            : 0,
+                        startAt: adExtent,
                           child: Container(
-                            height: 64.0,
+                            height: _tabBarHeight,
                             padding: const EdgeInsets.symmetric(
                               horizontal: AppSpacing.gutter,
                             ),
                             alignment: Alignment.center,
-                            child: Builder(
-                              builder: (context) {
+                            child: _TabGroupPanel(
+                              child: Builder(
+                                builder: (context) {
                                 final controller =
                                     DefaultTabController.of(context);
                                 return AnimatedBuilder(
@@ -183,8 +199,9 @@ class SubscriptionsScreen extends ConsumerWidget {
                                     selectedIndex: controller.index,
                                     onSelected: controller.animateTo,
                                   ),
-                                );
-                              },
+                                  );
+                                },
+                              ),
                             ),
                           ),
                         ),
@@ -197,11 +214,15 @@ class SubscriptionsScreen extends ConsumerWidget {
                 body: TabBarView(
                   children: [
                     _SubscriptionsTab(
+                      meltStartAt: meltBelowTabs,
                       bills: subs,
                       suggestions: suggestions,
                       baseCurrency: baseCur,
                     ),
-                    _InstallmentsTab(bills: insts),
+                    _InstallmentsTab(
+                      meltStartAt: meltBelowTabs,
+                      bills: insts,
+                    ),
                   ],
                 ),
               ),
@@ -213,14 +234,74 @@ class SubscriptionsScreen extends ConsumerWidget {
   }
 }
 
+/// The frosted backing layer behind the WHOLE tab group.
+///
+/// Not the pills — `AppPillTabBar` still owns those, and its labels, selected
+/// state and styling are untouched. This is only the group background.
+///
+/// ## Why the tint is barely there
+///
+/// A first attempt used white at 0.20 alpha. Over a saturated blue that is not
+/// glass, it is a WHITE BAND: it read as blue, then white, then blue, which is
+/// exactly the hard horizontal cut this is supposed to remove. The fix is to
+/// make the panel a lift in brightness rather than a layer of its own — white
+/// at 0.10 falling to 0.03, with no border at all, so every edge is defined by
+/// the blur and the gradient rather than by a line.
+///
+/// ## Why not `GlassSurface`
+///
+/// It is the app's frosted primitive, but it fills with `c.surface` at 0.66-0.72
+/// alpha and draws a full-weight `Border.all`. Both are the opposite of what is
+/// needed here. This uses the same primitives it is built from — `ClipRRect` +
+/// `BackdropFilter` + a `LinearGradient` — with the app's shared blur sigma and
+/// radius tokens.
+class _TabGroupPanel extends StatelessWidget {
+  const _TabGroupPanel({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final radius = BorderRadius.circular(AppRadius.xxl);
+    return ClipRRect(
+      borderRadius: radius,
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.s2, vertical: AppSpacing.s2),
+          decoration: BoxDecoration(
+            borderRadius: radius,
+            // Diagonal, to sit with the hero's own top-right to bottom-left
+            // light rather than across it.
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                Colors.white.withValues(alpha: isDark ? 0.09 : 0.10),
+                Colors.white.withValues(alpha: isDark ? 0.03 : 0.03),
+              ],
+            ),
+            // NO border. Any line here becomes the hard edge the panel exists
+            // to remove.
+          ),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
 class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   _TabBarDelegate({required this.child});
   final Widget child;
 
   @override
-  double get minExtent => 64.0;
+  double get minExtent => _tabBarHeight;
   @override
-  double get maxExtent => 64.0;
+  double get maxExtent => _tabBarHeight;
 
   @override
   Widget build(
@@ -342,10 +423,14 @@ class _AddButton extends StatelessWidget {
 
 class _SubscriptionsTab extends StatelessWidget {
   const _SubscriptionsTab({
+    required this.meltStartAt,
     required this.bills,
     required this.suggestions,
     required this.baseCurrency,
   });
+
+  /// Melt already consumed by the header, the ad band and the tab row.
+  final double meltStartAt;
 
   final List<BillEntity> bills;
   final List<dynamic> suggestions;
@@ -355,17 +440,25 @@ class _SubscriptionsTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     if (bills.isEmpty && suggestions.isEmpty) {
-      return _EmptyState(
-        icon: AppLucideIcons.repeat,
-        title: context.l10n.subsEmptyTitle,
-        body: context.l10n.txnSubsEmptyBody,
-        actionLabel: context.l10n.txnAddSub,
-        onAction: () =>
-            BillFormSheet.show(context, initialType: BillType.subscription),
+      // The melt wraps the EMPTY state too. It used to return the bare card,
+      // which skipped `MeltTail` entirely — so the blue stopped dead at the tab
+      // row and the page below it started as flat canvas, with no fade at all.
+      // An empty tab is exactly where that seam is most visible, because there
+      // is no content to distract from it.
+      return MeltTail(
+        startAt: meltStartAt,
+        child: _EmptyState(
+          icon: AppLucideIcons.repeat,
+          title: context.l10n.subsEmptyTitle,
+          body: context.l10n.txnSubsEmptyBody,
+          actionLabel: context.l10n.txnAddSub,
+          onAction: () =>
+              BillFormSheet.show(context, initialType: BillType.subscription),
+        ),
       );
     }
     return MeltTail(
-        startAt: 64,
+        startAt: meltStartAt,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
               AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, 120),
@@ -667,20 +760,28 @@ class _SuggestionCard extends StatelessWidget {
 // ─── Installments Tab ────────────────────────────────────────────────────────
 
 class _InstallmentsTab extends StatelessWidget {
-  const _InstallmentsTab({required this.bills});
+  const _InstallmentsTab({required this.meltStartAt, required this.bills});
+
+  /// Melt already consumed by the header, the ad band and the tab row.
+  final double meltStartAt;
   final List<BillEntity> bills;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     if (bills.isEmpty) {
-      return _EmptyState(
-        icon: AppLucideIcons.repeat,
-        title: context.l10n.subsInstEmptyTitle,
-        body: context.l10n.subsInstEmptyBody,
-        actionLabel: context.l10n.txnAddInstalment,
-        onAction: () =>
-            BillFormSheet.show(context, initialType: BillType.installment),
+      // Same as the subscriptions tab: the melt has to wrap the empty state, or
+      // the blue ends in a hard line under the tab row.
+      return MeltTail(
+        startAt: meltStartAt,
+        child: _EmptyState(
+          icon: AppLucideIcons.repeat,
+          title: context.l10n.subsInstEmptyTitle,
+          body: context.l10n.subsInstEmptyBody,
+          actionLabel: context.l10n.txnAddInstalment,
+          onAction: () =>
+              BillFormSheet.show(context, initialType: BillType.installment),
+        ),
       );
     }
     // One cross-bill display total, computed EXACTLY as Money and currency-
@@ -698,7 +799,7 @@ class _InstallmentsTab extends StatelessWidget {
         bills.isEmpty ? 'SAR' : Currency.label(context, bills.first.currency);
 
     return MeltTail(
-        startAt: 64,
+        startAt: meltStartAt,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
               AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, 120),

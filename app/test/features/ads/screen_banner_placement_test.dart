@@ -43,7 +43,9 @@ import 'package:money_companion/l10n/app_localizations.dart';
 ///
 ///   * exactly ONE banner is mounted, never two;
 ///   * a rebuild or a tab switch does not buy a second ad;
-///   * the empty and error states carry NO ad;
+///   * the EMPTY state still carries exactly ONE ad — content availability is
+///     no longer an eligibility condition (see `_noContentGuards` below), while
+///     the ERROR state still carries none;
 ///   * the banner is a DIRECT child of the scroll view, so sliver laziness
 ///     applies — verified in `banner_placement_mechanics_test.dart` and relied
 ///     on here.
@@ -264,8 +266,10 @@ void main() {
           goalsListProvider.overrideWith((ref) async => _goals(count)),
         ];
 
-    testWidgets('mounts exactly one banner, below the goal cards',
+    testWidgets('mounts exactly one banner, after the FIRST goal card',
         (tester) async {
+      // Was "below the goal cards". The banner now follows the first card so it
+      // does not require scrolling to the foot of the page.
       await tester.pumpWidget(_host(const GoalsScreen(), deps(4)));
       await _settle(tester);
       await _scrollToBottom(tester);
@@ -274,24 +278,43 @@ void main() {
       expect(_SpyLoader.loadCalls, 1);
     });
 
-    testWidgets('a single goal carries no ad', (tester) async {
-      // One goal makes the ad the second thing on a nearly empty screen.
+    testWidgets('a SINGLE goal carries exactly one ad', (tester) async {
+      // INVERTED. This asserted `findsNothing` under the old rule, which
+      // required two goals before an ad was allowed. Availability no longer
+      // depends on how many goals exist.
       await tester.pumpWidget(_host(const GoalsScreen(), deps(1)));
       await _settle(tester);
       await _scrollToBottom(tester);
 
-      expect(find.byType(QirshAdBanner), findsNothing);
-      expect(_SpyLoader.loadCalls, 0);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1);
     });
 
-    testWidgets('the EMPTY state carries no ad', (tester) async {
-      // That branch is a create-your-first-goal prompt and a separate ListView.
+    testWidgets('the EMPTY state carries exactly one ad', (tester) async {
+      // INVERTED, and the heart of the new contract: the
+      // create-your-first-goal branch is a DIFFERENT ListView, so it needs its
+      // own banner — and exactly one, never a second from the populated branch.
       await tester.pumpWidget(_host(const GoalsScreen(), deps(0)));
       await _settle(tester);
       await _scrollToBottom(tester);
 
-      expect(find.byType(QirshAdBanner), findsNothing);
-      expect(_SpyLoader.loadCalls, 0);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1);
+    });
+
+    testWidgets('EMPTY then POPULATED never yields two banners',
+        (tester) async {
+      // The regression this guards: two branches each carrying a placement.
+      // Whichever renders, there must be one — and rebuilding across the
+      // boundary must not leave the other behind.
+      await tester.pumpWidget(_host(const GoalsScreen(), deps(0)));
+      await _settle(tester);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+
+      await tester.pumpWidget(_host(const GoalsScreen(), deps(3)));
+      await _settle(tester);
+      await _scrollToBottom(tester);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
     });
 
     testWidgets('the ERROR state carries no ad', (tester) async {
@@ -370,12 +393,26 @@ void main() {
       expect(_SpyLoader.loadCalls, 1);
     });
 
-    testWidgets('an EMPTY bills screen carries no ad', (tester) async {
+    testWidgets('an EMPTY bills screen carries exactly one ad',
+        (tester) async {
+      // INVERTED. The banner sits in the header, under the hero and above the
+      // tab bar, so the empty-state CTA inside the tabs still comes after it
+      // without the ad ever replacing the explanation.
       await tester.pumpWidget(_host(const SubscriptionsScreen(), deps(0)));
       await _settle(tester);
 
-      expect(find.byType(QirshAdBanner), findsNothing);
-      expect(_SpyLoader.loadCalls, 0);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1);
+    });
+
+    testWidgets('EMPTY and POPULATED both yield exactly one', (tester) async {
+      await tester.pumpWidget(_host(const SubscriptionsScreen(), deps(0)));
+      await _settle(tester);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+
+      await tester.pumpWidget(_host(const SubscriptionsScreen(), deps(2)));
+      await _settle(tester);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
     });
 
     testWidgets('the ERROR state carries no ad', (tester) async {
@@ -451,13 +488,28 @@ void main() {
       expect(_SpyLoader.loadCalls, 1);
     });
 
-    testWidgets('an EMPTY report carries no ad', (tester) async {
+    testWidgets('an EMPTY report carries exactly one ad', (tester) async {
+      // INVERTED. `ReportBannerSuppression` is a separate, still-active gate and
+      // is exercised in the cooldown group below — it is about not stacking two
+      // ad formats, not about how much data exists.
       await tester
           .pumpWidget(_host(const ReportsScreen(), deps(categories: 0)));
       await _settle(tester);
 
-      expect(find.byType(QirshAdBanner), findsNothing);
-      expect(_SpyLoader.loadCalls, 0);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+      expect(_SpyLoader.loadCalls, 1);
+    });
+
+    testWidgets('EMPTY and POPULATED both yield exactly one', (tester) async {
+      await tester
+          .pumpWidget(_host(const ReportsScreen(), deps(categories: 0)));
+      await _settle(tester);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
+
+      await tester
+          .pumpWidget(_host(const ReportsScreen(), deps(categories: 4)));
+      await _settle(tester);
+      expect(find.byType(QirshAdBanner), findsOneWidget);
     });
 
     testWidgets('the ERROR state carries no ad', (tester) async {
@@ -525,11 +577,8 @@ void main() {
     // than a banner placement earns, and it would break on changes that have
     // nothing to do with ads.
     //
-    // So: the error path is pumped for real, and the structural claim — that
-    // the banner is a SIBLING of `_Sheet` rather than a descendant — is
-    // checked against the source. That claim is the one that matters, because
-    // everything inside `_Sheet` is built as one list child and a banner there
-    // would request on arrival regardless of viewport.
+    // So: the error path is pumped for real, and the structural claims are
+    // checked against the source.
 
     testWidgets('the ERROR state carries no ad', (tester) async {
       await tester.pumpWidget(_host(const DashboardScreen(), [
@@ -542,7 +591,15 @@ void main() {
       expect(_SpyLoader.loadCalls, 0);
     });
 
-    test('the banner is a sibling of _Sheet, not a descendant', () {
+    test('the banner is INSIDE _Sheet now, and there is exactly one', () {
+      // INVERTED from "sibling of _Sheet, not a descendant".
+      //
+      // The old position was a direct ListView sibling at the foot of the page,
+      // chosen so `SliverList` would materialise it lazily and not request an ad
+      // for a slot the user might never reach. The banner is now in the
+      // upper-middle of the sheet, where it IS on screen on arrival, so building
+      // it with the sheet is correct rather than wasteful. Laziness only ever
+      // mattered because the slot was unreachable.
       final src = File('lib/features/dashboard/dashboard_screen.dart')
           .readAsStringSync();
       final lines = src.split('\n');
@@ -552,26 +609,99 @@ void main() {
         return line.length - line.trimLeft().length;
       }
 
-      // The banner's ENTRY in the children list — the `if` that introduces it —
-      // is what has to be a sibling. Its own line is two wrapper levels deeper
-      // (the conditional, then the Padding), which says nothing about nesting.
-      final entryIndent =
-          indentOf((l) => l.trimLeft().startsWith('if (!data.isEmpty)'));
+      final bannerIndent = indentOf(
+          (l) => l.contains('QirshAdBanner(placement: AdPlacement.dashboard)'));
       final sheetIndent = indentOf((l) => l.trimLeft().startsWith('_Sheet('));
 
-      expect(entryIndent, sheetIndent,
-          reason: 'the banner must sit at the same list level as _Sheet. '
-              'Nested inside it, it is built with the whole sheet on arrival — '
-              'see banner_placement_mechanics_test.dart.');
+      expect(bannerIndent, greaterThan(sheetIndent),
+          reason: 'the banner now lives inside the sheet, above the budgets '
+              'section, so it is reachable without scrolling to the bottom');
+      expect('AdPlacement.dashboard'.allMatches(src).length, 1,
+          reason: 'exactly one dashboard placement, never two');
+    });
+  });
+
+  /// THE NEW PRODUCT RULE, encoded once for every surface.
+  ///
+  /// Banner availability must not depend on the user having content. Each of
+  /// these five conditions used to gate a placement and has been removed; a
+  /// reintroduction is the regression this catches.
+  ///
+  /// Dashboard and Transactions are asserted at source level rather than by
+  /// pumping. `DashboardScreen` is documented above as too heavy to pump for a
+  /// placement claim, and `TransactionsScreen` is the same shape — its list is
+  /// fed by an `AutoDisposeAsyncNotifierProvider` and the screen watches the
+  /// search field, filter bar and period totals besides. The other three are
+  /// pumped for real in their own groups above, with zero data.
+  group('content availability is not an ad gate', () {
+    String read(String p) => File(p).readAsStringSync();
+
+    test('no surface guards its banner on a content count', () {
+      final offenders = <String>[];
+
+      void check(String path, String placement, List<String> forbidden) {
+        final src = read(path);
+        final at = src.indexOf(placement);
+        expect(at, greaterThan(-1), reason: '$placement missing from $path');
+        // Only the text between the enclosing build and the placement can gate
+        // it; a mention further down the file is unrelated.
+        final before = src.substring(0, at);
+        for (final f in forbidden) {
+          // The LAST occurrence before the placement is the one that could
+          // still wrap it.
+          if (before.contains(f)) offenders.add('$path :: $f');
+        }
+      }
+
+      check('lib/features/dashboard/dashboard_screen.dart',
+          'QirshAdBanner(placement: AdPlacement.dashboard)', [
+        'if (!data.isEmpty)\n          const Padding',
+      ]);
+      check('lib/features/reports/reports_screen.dart',
+          'QirshAdBanner(\n                                      placement: AdPlacement.reports)',
+          ['if (section.topCategories.isNotEmpty)']);
+      check('lib/features/subscriptions/subscriptions_screen.dart',
+          'QirshAdBanner(\n                                    placement: AdPlacement.subscriptions)',
+          ['if (subs.isNotEmpty || insts.isNotEmpty)']);
+
+      expect(offenders, isEmpty,
+          reason: 'a content count must not decide whether an ad may serve');
     });
 
-    test('the banner is guarded by the empty-ledger check', () {
-      final src = File('lib/features/dashboard/dashboard_screen.dart')
-          .readAsStringSync();
-      final at = src.indexOf('AdPlacement.dashboard');
-      expect(at, greaterThan(-1));
-      expect(src.substring(0, at), contains('if (!data.isEmpty)'),
-          reason: 'no transactions in the period means no ad');
+    test('transactions no longer requires a second date section', () {
+      final src = read('lib/features/transactions/transactions_screen.dart');
+      expect(src.contains('sections.length > 1'), isFalse,
+          reason: 'the two-section requirement was a content gate');
+      // The workflow rule is NOT a content rule and must survive.
+      expect(src, contains('if (itemIndex == 0 && !pendingOnly)'),
+          reason: 'the pending-review filter still carries no ad');
+    });
+
+    test('transactions and goals carry a banner in their EMPTY branch', () {
+      // Both screens return a different subtree when empty, so the placement
+      // has to exist in that subtree too — and in exactly one other place.
+      for (final e in {
+        'lib/features/transactions/transactions_screen.dart':
+            'AdPlacement.transactionsList',
+        'lib/features/goals/goals_screen.dart': 'AdPlacement.goals',
+      }.entries) {
+        expect(e.value.allMatches(read(e.key)).length, 2,
+            reason: '${e.key}: one for the empty branch, one for the populated '
+                'branch — they are mutually exclusive, so at most one renders');
+      }
+    });
+
+    test('the REAL gates are untouched', () {
+      // The gates that must keep deciding: nothing here may be weakened by the
+      // content-guard removal.
+      final src = read('lib/features/ads/banner_ads_providers.dart');
+      expect(src, contains('bannerPlacementEnabledProvider'));
+      expect(src, contains("featureFlags.getBool('enable_banner_ads')"));
+      expect(src, contains('ReportEntitlementState.verifiedInactive'));
+      expect(src, contains('bannerConsentProvider'));
+      expect(src, contains('AdMobBuildConfig.isBannerConfiguredFor'));
+      expect(src, contains('reportBannerSuppressedProvider'),
+          reason: 'report suppression stays, it is not a content rule');
     });
   });
 }

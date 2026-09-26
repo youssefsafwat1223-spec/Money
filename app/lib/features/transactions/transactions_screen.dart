@@ -315,11 +315,28 @@ class TransactionsScreen extends ConsumerWidget {
                               }
                               final itemIndex = index - 4;
                               if (view.transactions.isEmpty) {
-                                return AppEmptyState(
-                                  icon: AppLucideIcons.inbox,
-                                  title: context.l10n.txnEmptyPeriodTitle,
-                                  subtitle:
-                                      context.l10n.txnEmptyPeriodBody,
+                                // EMPTY STATE — the message first, the banner
+                                // after it. A placement may not depend on the
+                                // user having data, but it must still sit below
+                                // the explanation rather than replace it.
+                                return Column(
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.stretch,
+                                  children: [
+                                    AppEmptyState(
+                                      icon: AppLucideIcons.inbox,
+                                      title: context.l10n.txnEmptyPeriodTitle,
+                                      subtitle:
+                                          context.l10n.txnEmptyPeriodBody,
+                                    ),
+                                    if (!pendingOnly) ...[
+                                      const SizedBox(height: AppSpacing.s4),
+                                      const QirshAdBanner(
+                                        placement:
+                                            AdPlacement.transactionsList,
+                                      ),
+                                    ],
+                                  ],
                                 );
                               }
                               if (itemIndex >= sections.length) {
@@ -371,10 +388,16 @@ class TransactionsScreen extends ConsumerWidget {
                                     // That list is a correction workflow — the
                                     // user is fixing how their money was
                                     // classified — and an advertisement does
-                                    // not belong in the middle of it.
-                                    if (itemIndex == 0 &&
-                                        !pendingOnly &&
-                                        sections.length > 1)
+                                    // not belong in the middle of it. That is a
+                                    // workflow rule, not a content rule, so it
+                                    // stays.
+                                    //
+                                    // A SECOND date section used to be
+                                    // required as well, so the ad was always
+                                    // bracketed by another day. Dropped:
+                                    // availability may no longer depend on how
+                                    // much data exists.
+                                    if (itemIndex == 0 && !pendingOnly)
                                       const QirshAdBanner(
                                         placement:
                                             AdPlacement.transactionsList,

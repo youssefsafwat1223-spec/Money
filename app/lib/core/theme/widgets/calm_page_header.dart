@@ -343,8 +343,29 @@ class _MetricStrip extends StatelessWidget {
   const _MetricStrip({required this.metrics});
   final List<CalmMetric> metrics;
 
+  /// How many metrics share one row.
+  ///
+  /// Every cell is an `Expanded` with ellipsis, so past a point extra metrics
+  /// stop making the strip denser and start TRUNCATING it. But the rows also
+  /// have to be BALANCED: a flat "two per row" turned Goals' three metrics into
+  /// 2 + 1, which reads as a layout accident rather than a grid.
+  ///
+  ///   1..3 -> one row   (3 fits comfortably at phone width)
+  ///   4    -> 2 + 2     (Subscriptions; 3 + 1 would be lopsided)
+  ///   5,6  -> 3 + 2/3
+  ///
+  /// Screens passing one or two metrics render byte-identically to before.
+  static int _rowSize(int n) => n <= 3 ? n : (n + 1) ~/ 2;
+
   @override
   Widget build(BuildContext context) {
+    final perRow = _rowSize(metrics.length);
+    final rows = <List<CalmMetric>>[];
+    for (var i = 0; i < metrics.length; i += perRow) {
+      rows.add(metrics.sublist(
+          i, i + perRow > metrics.length ? metrics.length : i + perRow));
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(
           vertical: AppSpacing.s4, horizontal: AppSpacing.s2),
@@ -352,41 +373,78 @@ class _MetricStrip extends StatelessWidget {
         color: Colors.white.withValues(alpha: 0.13),
         borderRadius: BorderRadius.circular(22),
       ),
-      child: Row(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          for (var i = 0; i < metrics.length; i++) ...[
-            if (i > 0)
+          for (var r = 0; r < rows.length; r++) ...[
+            if (r > 0) ...[
+              const SizedBox(height: AppSpacing.s4),
+              // The horizontal counterpart of the vertical cell divider, at the
+              // same weight and opacity, so a wrapped strip reads as one object.
               Container(
-                  width: 1,
-                  height: 30,
-                  color: Colors.white.withValues(alpha: 0.2)),
-            Expanded(
-              child: Column(
-                children: [
-                  Text(
-                    metrics[i].value,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: AppTypography.bodyStrong(Colors.white),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    metrics[i].label,
-                    textAlign: TextAlign.center,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    // 11px per the mockup `.metastrip span` (caption is 12).
-                    style: AppTypography.caption(
-                            Colors.white.withValues(alpha: 0.72))
-                        .copyWith(fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
+                  height: 1, color: Colors.white.withValues(alpha: 0.2)),
+              const SizedBox(height: AppSpacing.s4),
+            ],
+            _MetricRow(metrics: rows[r], fill: perRow),
           ],
         ],
       ),
+    );
+  }
+}
+
+class _MetricRow extends StatelessWidget {
+  const _MetricRow({required this.metrics, required this.fill});
+
+  final List<CalmMetric> metrics;
+
+  /// How many cells the row is divided into, so a trailing odd metric keeps the
+  /// same width as the cell above it rather than stretching across the strip.
+  final int fill;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        for (var i = 0; i < metrics.length; i++) ...[
+          if (i > 0)
+            Container(
+                width: 1,
+                height: 30,
+                color: Colors.white.withValues(alpha: 0.2)),
+          Expanded(
+            child: Column(
+              children: [
+                Text(
+                  metrics[i].value,
+                  textAlign: TextAlign.center,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: AppTypography.bodyStrong(Colors.white),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  metrics[i].label,
+                  textAlign: TextAlign.center,
+                  // Three across leaves roughly 111pt per cell at phone width,
+                  // where a one-line Arabic label ellipsizes. A second line is
+                  // allowed only when the row is that tight; two-metric rows
+                  // keep the original single line.
+                  maxLines: fill >= 3 ? 2 : 1,
+                  overflow: TextOverflow.ellipsis,
+                  // 11px per the mockup `.metastrip span` (caption is 12).
+                  style: AppTypography.caption(
+                          Colors.white.withValues(alpha: 0.72))
+                      .copyWith(fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ],
+        // Keeps the last row's cells aligned with the row above when the metric
+        // count is odd.
+        for (var i = metrics.length; i < fill; i++) const Spacer(),
+      ],
     );
   }
 }

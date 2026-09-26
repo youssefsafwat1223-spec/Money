@@ -55,8 +55,26 @@ abstract class BannerAdLoader {
   void dispose();
 }
 
+/// OPTIONAL capability: a loader that can say whether its last failure was our
+/// own client-side timeout rather than an answer from the network.
+///
+/// Deliberately a SEPARATE interface. Dart's `implements` does not inherit
+/// concrete members, so putting this on [BannerAdLoader] — even with a default —
+/// is a breaking change for every one of the ten test doubles that implement it.
+/// As its own interface, a loader opts in and everything else is unaffected and
+/// keeps meaning "this was a real answer".
+abstract interface class TimeoutAwareBannerLoader {
+  /// True when the last `load` returned false because our timer gave up, not
+  /// because the SDK reported a failure or a no-fill.
+  ///
+  /// The distinction is the whole point: a no-fill is an answer and deserves no
+  /// retry, while a timeout is the absence of one.
+  bool get lastLoadTimedOut;
+}
+
 /// The real google_mobile_ads implementation.
-class AdMobBannerAdLoader implements BannerAdLoader {
+class AdMobBannerAdLoader
+    implements BannerAdLoader, TimeoutAwareBannerLoader {
   BannerAd? _ad;
   bool _disposed = false;
 
@@ -70,6 +88,11 @@ class AdMobBannerAdLoader implements BannerAdLoader {
   AdSize? _resolvedSize;
 
   static const Duration _loadTimeout = Duration(seconds: 20);
+
+  bool _lastLoadTimedOut = false;
+
+  @override
+  bool get lastLoadTimedOut => _lastLoadTimedOut;
 
   @override
   Object? get loadedAd => _ad;
@@ -105,6 +128,7 @@ class AdMobBannerAdLoader implements BannerAdLoader {
     required int heightPx,
     VoidCallback? onImpression,
   }) async {
+    _lastLoadTimedOut = false;
     if (_disposed) return false;
     await MobileAdsInitializer.ensureInitialized();
     if (!MobileAdsInitializer.isInitialized || _disposed) return false;
@@ -143,6 +167,12 @@ class AdMobBannerAdLoader implements BannerAdLoader {
       unawaited(ad.load().catchError((Object _) => finish(false)));
       final ok = await completer.future.timeout(_loadTimeout, onTimeout: () {
         // A dead callback must not leave the slot in `loading` forever.
+        //
+        // Recorded rather than swallowed: on a cold start the SDK's first
+        // response arrives AFTER this window (measured at 20072ms against warm
+        // loads of 492-1945ms), and collapsing the slot permanently for that is
+        // wrong. The controller reads this and allows exactly one retry.
+        _lastLoadTimedOut = true;
         return false;
       });
       if (!ok || _disposed) {
@@ -256,6 +286,12 @@ class BannerAdController extends ChangeNotifier {
   /// to be told there is something worth waiting for.
   bool get throttleRefused => _throttleRefused;
 
+  /// True when this controller's single request ended in a client-side timeout.
+  /// Distinct from a no-fill, which is a real answer — see
+  /// [BannerAdLoader.lastLoadTimedOut].
+  bool get loadTimedOut => _loadTimedOut;
+  bool _loadTimedOut = false;
+
   /// How long until this placement may ask again, or null when it may now.
   Duration? get throttleRemaining {
     final last = _lastRequestAt[placement];
@@ -350,6 +386,12 @@ class BannerAdController extends ChangeNotifier {
     );
     if (_disposed) return;
     if (!ok) {
+      // Explicit cast rather than relying on promotion: the two interfaces are
+      // unrelated, and a loader that does not opt in simply reports no timeout.
+      final loader = _loader;
+      _loadTimedOut = loader is TimeoutAwareBannerLoader
+          ? (loader as TimeoutAwareBannerLoader).lastLoadTimedOut
+          : false;
       _set(BannerAdStatus.failed);
       _emit('banner_ad_failed');
       return;

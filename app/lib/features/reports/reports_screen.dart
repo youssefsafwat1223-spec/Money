@@ -45,7 +45,9 @@ import 'reports_providers.dart';
 ///
 /// Local to this screen on purpose — raising `meltLength` globally would
 /// restyle every screen with a calm header.
-const double _adMeltShare = 80;
+/// The pinned tab row's height. Also how much melt it consumes.
+const double _tabBarHeight = 64.0;
+
 
 class ReportsScreen extends ConsumerWidget {
   const ReportsScreen({super.key});
@@ -69,6 +71,18 @@ class ReportsScreen extends ConsumerWidget {
           error: (e, _) => Center(child: Text(context.l10n.txnError)),
           data: (bundle) {
             final section = bundle.monthly;
+            // The ad band's REAL pixel height, or zero when no ad is showing.
+            //
+            // `MeltSlice.height` sets the gradient RANGE, not the box height —
+            // the box is sized by its child. Feeding it a fixed 80 "share"
+            // while the band actually rendered ~160px made the melt advance at
+            // HALF rate through the ad and then at full rate through the tabs,
+            // and that rate change is the hard blue crease above the tab row.
+            // Passing the true extent makes one uniform melt from the header
+            // all the way down.
+            final adExtent =
+                ref.watch(headerAdExtentProvider(AdPlacement.reports));
+            final meltBelowTabs = adExtent + _tabBarHeight;
             return SafeArea(
                 top: false,
                 bottom: false,
@@ -122,17 +136,20 @@ class ReportsScreen extends ConsumerWidget {
                             // `ReportBannerSuppression` keeps them from being
                             // back-to-back afterwards.
                             //
-                            // Nothing to report means nothing to advertise
-                            // beside: with no categories the tabs are empty
-                            // charts, and the ad would be the screen's content.
-                            if (section.topCategories.isNotEmpty)
+                            // No content gate. It used to require at least one
+                            // category; availability may no longer depend on
+                            // that. `ReportBannerSuppression` is UNTOUCHED and
+                            // still applies — it lives in
+                            // `bannerEligibilityProvider`, is about not stacking
+                            // two ad formats back to back, and is not a content
+                            // rule.
                               // FULL BLEED melt behind the ad band. The banner
                               // itself sits inside the gutter, so wrapping it
                               // there left the page background showing down
                               // both edges of the band.
-                              const MeltSlice(
-                                height: _adMeltShare,
-                                child: Padding(
+                              MeltSlice(
+                                height: adExtent,
+                                child: const Padding(
                                   padding: EdgeInsets.symmetric(
                                       horizontal: AppSpacing.gutter),
                                   child: QirshAdBanner(
@@ -147,16 +164,12 @@ class ReportsScreen extends ConsumerWidget {
                         delegate: _TabBarDelegate(
                           // iOS 26 style: floating glass capsules, no bar box.
                           child: MeltSlice(
-                            height: 64.0,
+                            height: _tabBarHeight,
                           // Resumes where the ad band above it ended, so the
                           // melt runs header → ad → tabs without a seam. Zero
                           // when no ad is showing, which is the original
                           // geometry exactly.
-                          startAt: ref.watch(headerAdExtentProvider(
-                                      AdPlacement.reports)) >
-                                  0
-                              ? _adMeltShare
-                              : 0,
+                          startAt: adExtent,
                             child: Container(
                               height: 64.0,
                               padding: const EdgeInsets.symmetric(
@@ -190,17 +203,20 @@ class ReportsScreen extends ConsumerWidget {
                   body: TabBarView(
                     children: [
                       _OverviewTab(
+                        meltStartAt: meltBelowTabs,
                         section: section,
                         weekly: bundle.weekly,
                         currencyLabel: currencyLabel,
                         privacyMode: privacyMode,
                       ),
                       _TrendsTab(
+                        meltStartAt: meltBelowTabs,
                         section: section,
                         currencyLabel: currencyLabel,
                         privacyMode: privacyMode,
                       ),
                       _DetailsTab(
+                        meltStartAt: meltBelowTabs,
                         section: section,
                         currencyLabel: currencyLabel,
                         privacyMode: privacyMode,
@@ -231,11 +247,15 @@ String _dateLabel(DateTime day) => '${day.day}/${day.month}';
 
 class _OverviewTab extends StatelessWidget {
   const _OverviewTab({
+    required this.meltStartAt,
     required this.section,
     required this.weekly,
     required this.currencyLabel,
     required this.privacyMode,
   });
+
+  /// Melt already consumed by the header, the ad band and the tab row.
+  final double meltStartAt;
 
   final ReportSection section;
   final ReportSection weekly;
@@ -245,7 +265,7 @@ class _OverviewTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MeltTail(
-        startAt: 64,
+        startAt: meltStartAt,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
@@ -308,10 +328,14 @@ class _OverviewTab extends StatelessWidget {
 
 class _TrendsTab extends StatelessWidget {
   const _TrendsTab({
+    required this.meltStartAt,
     required this.section,
     required this.currencyLabel,
     required this.privacyMode,
   });
+
+  /// Melt already consumed by the header, the ad band and the tab row.
+  final double meltStartAt;
 
   final ReportSection section;
   final String currencyLabel;
@@ -323,7 +347,7 @@ class _TrendsTab extends StatelessWidget {
     final delta = section.deltaPercent;
     final anomaly = section.anomaly;
     return MeltTail(
-        startAt: 64,
+        startAt: meltStartAt,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
@@ -385,10 +409,14 @@ class _TrendsTab extends StatelessWidget {
 
 class _DetailsTab extends StatelessWidget {
   const _DetailsTab({
+    required this.meltStartAt,
     required this.section,
     required this.currencyLabel,
     required this.privacyMode,
   });
+
+  /// Melt already consumed by the header, the ad band and the tab row.
+  final double meltStartAt;
 
   final ReportSection section;
   final String currencyLabel;
@@ -397,7 +425,7 @@ class _DetailsTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MeltTail(
-        startAt: 64,
+        startAt: meltStartAt,
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.gutter),
           children: [
@@ -1091,9 +1119,9 @@ class _TabBarDelegate extends SliverPersistentHeaderDelegate {
   final Widget child;
 
   @override
-  double get minExtent => 64.0;
+  double get minExtent => _tabBarHeight;
   @override
-  double get maxExtent => 64.0;
+  double get maxExtent => _tabBarHeight;
 
   @override
   Widget build(
