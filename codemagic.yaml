@@ -148,7 +148,16 @@ workflows:
       ios_signing:
         distribution_type: app_store
         bundle_identifier: com.youssefsafwat.mali
-      flutter: 3.44.2
+      # Must match the SDK the lockfile was resolved with.
+      #
+      # 3.44.2 ships flutter_localizations pinned to intl 0.20.2, while this
+      # project resolves against 3.47.3, whose flutter_localizations pins
+      # intl ^0.20.3. `pub get` therefore failed on Codemagic with a version
+      # solve that CANNOT succeed whatever the app declares — the conflict is
+      # between two SDK-pinned constraints, not between the app and a package.
+      # The fix is to build on the SDK that produced pubspec.lock rather than
+      # bend the app down to an older framework.
+      flutter: 3.47.3
       xcode: latest
       cocoapods: default
       vars:

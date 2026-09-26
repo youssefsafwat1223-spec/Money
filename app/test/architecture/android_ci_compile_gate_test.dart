@@ -259,17 +259,29 @@ void main() {
   // what a SUCCESSFUL build does, which is the part nobody looks at until it has
   // already happened.
   group('iOS release config safety', () {
-    test('a successful signed build does NOT auto-submit to Apple', () {
-      // `submit_to_testflight: true` uploads on EVERY successful run. Submission
-      // is not authorised, no iOS build has ever run on a physical device, and
-      // until 2026-09-03 iOS did not compile at all. Publishing as a side effect
-      // of succeeding is the wrong default; the IPA is an artifact until someone
-      // decides otherwise.
+    test('auto-submit is on ONLY with the authorisation recorded beside it', () {
+      // INVERTED 2026-09-26, deliberately.
+      //
+      // This asserted `submit_to_testflight: true` was absent, because on
+      // 2026-09-04 submission was not authorised, no iOS build had run on a
+      // physical device, and until 2026-09-03 iOS did not compile at all. All
+      // three have since changed and the owner authorised TestFlight upload for
+      // 1.0.0 (41).
+      //
+      // The guard is not dropped, because what it was really protecting against
+      // was auto-submit arriving SILENTLY. So it still has teeth: if the flag is
+      // on, the block must carry the dated authorisation note and say in as many
+      // words that this is TestFlight and not App Review. Turning it on without
+      // saying why still fails.
       final ios = _workflow('ios-signed-release');
-      expect(ios.contains('submit_to_testflight: true'), isFalse,
-          reason: 'auto-submit to TestFlight must stay off until submission is '
-              'explicitly authorised — flip it deliberately, not by inheriting '
-              'a default');
+      if (!ios.contains('submit_to_testflight: true')) return;
+
+      expect(ios.contains('AUTO-SUBMIT IS ON'), isTrue,
+          reason: 'auto-submit may only be enabled alongside a dated note '
+              'recording who authorised it and why');
+      expect(ios.contains('TESTFLIGHT ONLY'), isTrue,
+          reason: 'the block must state that this uploads for internal '
+              'distribution and does NOT submit for App Review');
     });
 
     test('release config carries no placeholder bundle identifier', () {
