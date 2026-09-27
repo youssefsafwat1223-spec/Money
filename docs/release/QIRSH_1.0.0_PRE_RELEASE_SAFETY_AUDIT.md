@@ -11,7 +11,7 @@ claim.
 |---|---|
 | Version | 1.0.0 |
 | Build AUDITED | 41 |
-| Current release-candidate build | **42** |
+| Current release-candidate build | **43** — 42 is occupied in App Store Connect, see below |
 | Release branch | `release/ios-1.0.0-build41` |
 | Date | 2026-09-27 |
 | **Audited code HEAD** | `b744e2de1afd724ed713c45bb0622d0c594f5aaa` (`b744e2de`) |
@@ -490,12 +490,40 @@ Final `Runner.app` inspection:
 | `NSLocation*` keys — Runner | **0** |
 | `NSLocation*` keys — ShareBankMessage | **0** |
 | `mali/device_timezone` present | **yes** |
-| Runner version / build | **1.0.0 (42)** |
-| ShareBankMessage version / build | **1.0.0 (42)** |
+| Runner version / build | **1.0.0 (42)** at `3c450796`; **1.0.0 (43)** at the bump below |
+| ShareBankMessage version / build | **1.0.0 (42)** at `3c450796`; **1.0.0 (43)** at the bump below |
 
 Both targets take their version from `$(FLUTTER_BUILD_NAME)` /
 `$(FLUTTER_BUILD_NUMBER)`, so the single `pubspec.yaml` bump propagates to the
 app and the extension together — verified in the built plists rather than assumed.
+
+### Build 42 is occupied in App Store Connect — next target is 43
+
+Codemagic **Build 68** built a valid, signed **1.0.0 (42)** IPA: the archive,
+signing and the strict gate all succeeded. **Publishing was rejected** by App
+Store Connect solely as a duplicate build number:
+
+```
+previousBundleVersion = 42
+"The bundle version must be higher than the previously uploaded version."
+```
+
+Build number 42 had already been consumed on App Store Connect, so no binary
+from Build 68 was accepted. Only the build number moves for the retry — version
+stays 1.0.0, and production code, signing, provisioning, Flutter version, AdMob,
+Supabase, feature flags, bundle IDs and the TestFlight submission configuration
+are all unchanged. Both targets read the number from `$(FLUTTER_BUILD_NUMBER)`,
+so the single `pubspec.yaml` bump carries Runner and ShareBankMessage together.
+
+| | |
+|---|---|
+| Rejected upload | Codemagic Build 68 — 1.0.0 (42), duplicate build number |
+| Next upload target | **1.0.0 (43)** |
+
+Because no new binary was accepted, **ITMS-90683 remains unconfirmed**. The
+1.0.0 (42) IPA that carried the fix never reached Apple's analysis, so the
+warning's status is exactly what it was before Build 68: pending confirmation by
+the next upload that is actually accepted.
 
 ### Notes on the build itself
 
