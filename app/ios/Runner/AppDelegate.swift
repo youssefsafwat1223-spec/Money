@@ -100,6 +100,20 @@ enum ApnsEnvironment {
 @main
 @objc class AppDelegate: FlutterAppDelegate {
   private var captureChannel: FlutterMethodChannel?
+
+  /// The controller whose binaryMessenger [captureChannel] is bound to.
+  ///
+  /// WEAK on purpose, and identity-compared rather than counted. `captureChannel
+  /// != nil` is not idempotency: iOS can disconnect and reconnect the scene,
+  /// which builds a NEW FlutterViewController and a new messenger while this
+  /// AppDelegate survives. The old channel object is still non-nil, so a
+  /// nil-check would no-op and leave every native call wired to a dead
+  /// messenger — silently, because sending to it neither throws nor returns.
+  ///
+  /// Weak also means a deallocated controller reads back as nil, which compares
+  /// unequal to the current one and forces a rebind rather than pinning a dead
+  /// view controller in memory.
+  private weak var captureChannelController: FlutterViewController?
   private var exportProtectionChannel: FlutterMethodChannel?
   private var nativeGlassChannel: FlutterMethodChannel?
   private var didRegisterPendingMessagesObserver = false
@@ -173,9 +187,17 @@ enum ApnsEnvironment {
   }
 
   func configureNativeCaptureChannelIfNeeded() {
-    guard captureChannel == nil, let controller = rootFlutterViewController() else {
+    guard let controller = rootFlutterViewController() else {
       return
     }
+    // Idempotent against the CURRENT controller, not against "a channel exists".
+    if captureChannel != nil, captureChannelController === controller {
+      return
+    }
+    // A different (or newly created) controller: drop the old handler before
+    // rebinding, so exactly one handler is installed and the previous closure
+    // is released along with the messenger it answered on.
+    captureChannel?.setMethodCallHandler(nil)
 
     let channel = FlutterMethodChannel(
       name: "money_companion/native_capture",
@@ -305,6 +327,7 @@ enum ApnsEnvironment {
       }
     }
     captureChannel = channel
+    captureChannelController = controller
     registerPendingMessagesObserverIfNeeded()
   }
 
