@@ -14,7 +14,14 @@ claim.
 | Next intended build | 42 |
 | Release branch | `release/ios-1.0.0-build41` |
 | Date | 2026-09-27 |
-| Current HEAD | `b744e2de1afd724ed713c45bb0622d0c594f5aaa` (`b744e2de`) |
+| **Audited code HEAD** | `b744e2de1afd724ed713c45bb0622d0c594f5aaa` (`b744e2de`) |
+| **Release record commit** | `351c2ad92d7e0658cd1aff3532dff28399ac2c61` |
+
+`b744e2de` is the **production-code snapshot the audit was performed against**.
+It does not contain this document. The release record was written afterwards and
+committed separately as `351c2ad9`, which changed documentation only. Any
+correction to this record advances the record commit and leaves the audited code
+HEAD unchanged — the two must not be conflated when reproducing the evidence.
 
 ## Executive summary
 
@@ -36,6 +43,11 @@ claim.
 
 These three landed before the audit pass and are recorded here because the audit
 exists largely to prove they are closed and to stop them recurring.
+
+Two were **genuine reachable defects** — `ac622970` (which caused real user data
+loss) and `e542b450` (the lifecycle window that made it destructive). The third,
+`5efdf846`, was **invariant hardening, not a reachable bug**; it is grouped here
+because it guards the same class of outcome, and its entry says so explicitly.
 
 ### `ac622970` — ownership transition: purge before wipe
 
@@ -60,16 +72,45 @@ The fix reorders the sequence to **invalidate → purge → (if purge fails, STO
 do not wipe, do not claim) → wipe → claim**, so data is never destroyed by a
 transition that cannot finish recording itself.
 
-### `5efdf846` — DB key-store invariant hardening
+### `5efdf846` — DB key-store invariant hardening (defence in depth)
 
-A new database encryption key may only be minted when there is positive proof
-there is nothing to lose. "Could not read the key" is **not** "no key exists" —
-collapsing the two turns a transient Keychain failure into a fresh key written
-over an existing encrypted database, which does not fail loudly. It opens onto
-nothing, and the only thing that could have decrypted the real data has been
-overwritten. Read outcomes are now explicitly typed (`found` / `absent` /
-`readError` / `invalid`), the existence probe is a required constructor
-parameter so no call site can skip it, and minting is single-flight.
+**This was not a reachable production defect, and no user data was lost through
+it.** It is recorded here as invariant hardening, alongside the two genuine
+fixes, because it concerns the same class of catastrophic outcome.
+
+**Why the outcome would be catastrophic.** Minting a replacement encryption key
+for an existing encrypted database is unrecoverable. It does not fail loudly: the
+database opens onto nothing, and the only key that could have decrypted the real
+data has been overwritten. "Could not read the key" is **not** "no key exists",
+and any code that collapses the two converts a transient Keychain failure into
+permanent data loss.
+
+**What the shipped app actually did.** The audit confirmed the
+`AppDatabase.open` path was **already fail-closed** before this commit:
+
+- Keychain read exceptions **propagated** — they were never caught and never
+  treated as absence;
+- the existing-database-plus-missing-key state **already raised**
+  `LocalDatabaseKeyUnavailableException` via `_resolveKeyStateOrThrow`;
+- **no existing user was proven to have lost data through this key path.**
+
+**What `5efdf846` hardened.** Four structural weaknesses, none of them
+individually reachable in the shipped flow:
+
+- the safety invariant lived in the **caller** rather than inside
+  `readOrCreateKey` itself, so it held only for callers that remembered to
+  classify the key state first;
+- a **new direct call site, or a reordered startup flow**, could therefore have
+  bypassed it without touching the guard or failing any test;
+- **concurrent callers could race** key creation;
+- the `absent` / `readError` / `invalid` states were **not represented
+  distinctly** enough for a caller to tell an unreadable key from a missing one.
+
+The fix moves the invariant to where the key is minted: read outcomes are
+explicitly typed (`found` / `absent` / `readError` / `invalid`), the
+database-existence probe is a **required constructor parameter** so no call site
+can skip it, and minting is single-flight. The guarantee now holds wherever the
+store is used rather than only on the path that remembered to check.
 
 ### `e542b450` — UIScene / native channel registration + per-controller rebind
 
@@ -260,7 +301,7 @@ failures — or, worse, appear to skip them — for reasons unrelated to the cod
 | Commit | What it does |
 |---|---|
 | `ac622970` | Ownership transition reordered to purge before wipe; never destroys data it cannot finish claiming. Fixes the destructive loop. |
-| `5efdf846` | A new database encryption key may only be minted with positive proof there is nothing to lose; typed read outcomes; required existence probe. |
+| `5efdf846` | Defence in depth, **not a reachable defect** — the shipped open path was already fail-closed. Moves the no-mint-over-an-existing-database invariant inside the key store: typed read outcomes, a required existence probe, single-flight minting. |
 | `e542b450` | Registers the capture channel at scene connect and rebinds it per controller, closing both the startup window and the reconnect hole. |
 | `a05f029b` | Pins the runtime SQLite engine past the WAL-reset fix. |
 
@@ -321,5 +362,7 @@ passes. Audits 11 and 14 remain PARTIAL until then.
 
 ---
 
-*Record compiled 2026-09-27 at HEAD `b744e2de`. No code was modified while
-writing this document, and no secrets are contained in it.*
+*Record compiled 2026-09-27 against audited code HEAD `b744e2de` on branch
+`release/ios-1.0.0-build41`. This document is tracked separately from the code it
+describes — first committed as `351c2ad9`, documentation only. No code was
+modified while writing or correcting it, and no secrets are contained in it.*
