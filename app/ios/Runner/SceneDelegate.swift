@@ -30,10 +30,14 @@ class SceneDelegate: FlutterSceneDelegate {
   ) {
     super.scene(scene, willConnectTo: session, options: connectionOptions)
     if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
-      // Idempotent: `configureNativeCaptureChannelIfNeeded` returns early once
-      // `captureChannel != nil`, so the later lifecycle call sites remain as
-      // defence in depth without ever installing a second handler.
+      // Both are idempotent against the CURRENT FlutterViewController, so the
+      // later lifecycle call sites remain defence in depth without ever
+      // installing a second handler — and a scene reconnect, which builds a NEW
+      // controller, correctly rebinds instead of returning early.
       appDelegate.configureNativeCaptureChannelIfNeeded()
+      // Same window, same reasoning: Dart asks for the device zone during
+      // bootstrap (notifications_init), before the first frame.
+      appDelegate.configureDeviceTimezoneChannelIfNeeded()
     }
   }
 
@@ -43,6 +47,7 @@ class SceneDelegate: FlutterSceneDelegate {
       .set(true, forKey: Self.foregroundKey)
     if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
       appDelegate.configureNativeCaptureChannelIfNeeded()
+      appDelegate.configureDeviceTimezoneChannelIfNeeded()
     }
   }
 

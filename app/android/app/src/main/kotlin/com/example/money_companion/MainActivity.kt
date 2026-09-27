@@ -168,6 +168,30 @@ class MainActivity : FlutterFragmentActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        // The device's IANA timezone identifier, for scheduling local
+        // notifications in the user's own zone.
+        //
+        // Replaces the flutter_timezone package, which was removed because its
+        // iOS public header carries an unused `#import <CoreLocation/
+        // CoreLocation.h>` that put a location-framework reference in an app
+        // with no location feature (Apple ITMS-90683). Android was never the
+        // problem, but the package is cross-platform, so its one call site
+        // needs an implementation on both sides.
+        //
+        // A SEPARATE channel from the capture drain, deliberately: that one
+        // carries per-controller rebind logic on iOS and is the path a previous
+        // data-loss defect ran through. A timezone lookup has no business
+        // sharing it.
+        MethodChannel(
+            flutterEngine.dartExecutor.binaryMessenger,
+            "mali/device_timezone",
+        ).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "getLocalTimezone" -> result.success(java.util.TimeZone.getDefault().id)
+                else -> result.notImplemented()
+            }
+        }
     }
 
     /**

@@ -116,6 +116,11 @@ enum ApnsEnvironment {
   private weak var captureChannelController: FlutterViewController?
   private var exportProtectionChannel: FlutterMethodChannel?
   private var nativeGlassChannel: FlutterMethodChannel?
+  private var deviceTimezoneChannel: FlutterMethodChannel?
+
+  /// The controller [deviceTimezoneChannel] is bound to — weak, and identity
+  /// compared, for the same reason as [captureChannelController]. See Audit 3A.
+  private weak var deviceTimezoneChannelController: FlutterViewController?
   private var didRegisterPendingMessagesObserver = false
   private var privacySnapshotView: UIView?
   private static let apnsRegistrationFailureKey = "apns_registration_failure"
@@ -138,6 +143,7 @@ enum ApnsEnvironment {
     configureNativeCaptureChannelIfNeeded()
     configureExportProtectionChannelIfNeeded()
     configureNativeGlassChannelIfNeeded()
+    configureDeviceTimezoneChannelIfNeeded()
     if let remote = launchOptions?[.remoteNotification] as? [AnyHashable: Any] {
       SharedCaptureStore.enqueueNotificationRoute(userInfo: remote)
     }
@@ -151,6 +157,7 @@ enum ApnsEnvironment {
     configureNativeCaptureChannelIfNeeded()
     configureExportProtectionChannelIfNeeded()
     configureNativeGlassChannelIfNeeded()
+    configureDeviceTimezoneChannelIfNeeded()
   }
 
   /// Answers the one question Dart needs before building glass surfaces:
@@ -174,6 +181,60 @@ enum ApnsEnvironment {
       }
     }
     nativeGlassChannel = channel
+  }
+
+  /// The device's IANA timezone identifier, for scheduling local notifications
+  /// in the user's own zone.
+  ///
+  /// This replaces the `flutter_timezone` package, whose public ObjC header
+  /// carries a stray `#import <CoreLocation/CoreLocation.h>`. That header is
+  /// pulled into Runner through GeneratedPluginRegistrant.m, which put a
+  /// location-framework reference in an app that has no location feature and
+  /// triggered Apple's ITMS-90683. The import is unused by the plugin (its
+  /// implementation is Swift and reads the zone from Foundation), and it is
+  /// still present upstream as of 5.1.0, so removing the dependency is the only
+  /// way to remove the reference.
+  ///
+  /// `TimeZone.current` is Foundation. It reads the system zone setting and
+  /// needs no CoreLocation and no authorization of any kind.
+  ///
+  /// LIFECYCLE: this deliberately mirrors `configureNativeCaptureChannelIfNeeded`
+  /// rather than the simpler `nativeGlassChannel` shape. Dart reaches this
+  /// channel from `LocalNotificationService.initialize()`, which bootstrap runs
+  /// at `notifications_init` — the same pre-first-frame window in which the
+  /// capture purge once got MissingPluginException. So it registers from
+  /// `scene(_:willConnectTo:)` too, and it is idempotent against the CURRENT
+  /// controller instead of against "a channel object exists", so a scene
+  /// reconnect rebinds rather than stranding the channel on a dead messenger.
+  /// A separate channel from the capture drain, but not a weaker one.
+  func configureDeviceTimezoneChannelIfNeeded() {
+    guard let controller = rootFlutterViewController() else {
+      return
+    }
+    // Idempotent against the CURRENT controller, not against "a channel exists".
+    if deviceTimezoneChannel != nil,
+       deviceTimezoneChannelController === controller {
+      return
+    }
+    // A different (or newly created) controller: drop the old handler before
+    // rebinding, so exactly one handler is installed and the previous closure is
+    // released along with the messenger it answered on.
+    deviceTimezoneChannel?.setMethodCallHandler(nil)
+
+    let channel = FlutterMethodChannel(
+      name: "mali/device_timezone",
+      binaryMessenger: controller.binaryMessenger
+    )
+    channel.setMethodCallHandler { call, result in
+      switch call.method {
+      case "getLocalTimezone":
+        result(TimeZone.current.identifier)
+      default:
+        result(FlutterMethodNotImplemented)
+      }
+    }
+    deviceTimezoneChannel = channel
+    deviceTimezoneChannelController = controller
   }
 
   override func applicationDidEnterBackground(_ application: UIApplication) {

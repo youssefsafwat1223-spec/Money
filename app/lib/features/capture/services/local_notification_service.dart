@@ -5,10 +5,10 @@ import 'dart:io';
 import 'package:drift/drift.dart' show Variable;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:flutter_timezone/flutter_timezone.dart';
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
+import '../../../core/platform/device_timezone.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/ownership_guard.dart';
 import '../../../domain/entities/engagement_entities.dart';
@@ -310,11 +310,16 @@ class LocalNotificationService {
   /// if the platform can't report a zone (never leave scheduling broken).
   Future<void> _configureLocalTimezone() async {
     try {
-      final name = await FlutterTimezone.getLocalTimezone();
-      tz.setLocalLocation(tz.getLocation(name));
+      final name = await DeviceTimezone.getLocalTimezone();
+      if (name != null) {
+        tz.setLocalLocation(tz.getLocation(name));
+        return;
+      }
     } catch (_) {
-      tz.setLocalLocation(tz.getLocation('Asia/Riyadh'));
+      // An unreachable channel or an unknown zone name falls through to the
+      // default below, exactly as before.
     }
+    tz.setLocalLocation(tz.getLocation('Asia/Riyadh'));
   }
 
   Future<void> requestPermissionsIfNeeded() async {
