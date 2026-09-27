@@ -15,7 +15,7 @@ claim.
 | Release branch | `release/ios-1.0.0-build41` |
 | Date | 2026-09-27 |
 | **Audited code HEAD** | `b744e2de1afd724ed713c45bb0622d0c594f5aaa` (`b744e2de`) |
-| **Current release candidate HEAD** | `b95e21163f754f69c2e5d063afbd6c4b2dcec86b` (`b95e2116`) |
+| **Release-candidate code HEAD** | `3c45079688f61235dd73167d4c61456774d15de0` (`3c450796`) |
 | Release record commit (first) | `351c2ad92d7e0658cd1aff3532dff28399ac2c61` |
 
 `b744e2de` is the **production-code snapshot the 15-part audit was performed
@@ -376,9 +376,10 @@ re-opened or re-ran it.
 | | |
 |---|---|
 | Original audited code HEAD | `b744e2de` — unchanged, and the scope of every status above |
-| Current release candidate HEAD | `b95e2116` |
+| Release-candidate code HEAD | `3c450796` — the build-42 bump |
 | ITMS-90683 fix | `5f570064` |
-| Build-number bump + this section | `b95e2116` |
+| Build-number bump | `3c450796` |
+| This section | committed with the bump; the hash below was filled in by a follow-up documentation-only commit, since a commit cannot contain its own hash |
 
 ### Why `flutter_timezone` was removed
 
