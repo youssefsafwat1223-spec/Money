@@ -10,18 +10,24 @@ claim.
 | | |
 |---|---|
 | Version | 1.0.0 |
-| Current build | 41 |
-| Next intended build | 42 |
+| Build AUDITED | 41 |
+| Current release-candidate build | **42** |
 | Release branch | `release/ios-1.0.0-build41` |
 | Date | 2026-09-27 |
 | **Audited code HEAD** | `b744e2de1afd724ed713c45bb0622d0c594f5aaa` (`b744e2de`) |
-| **Release record commit** | `351c2ad92d7e0658cd1aff3532dff28399ac2c61` |
+| **Current release candidate HEAD** | `b95e21163f754f69c2e5d063afbd6c4b2dcec86b` (`b95e2116`) |
+| Release record commit (first) | `351c2ad92d7e0658cd1aff3532dff28399ac2c61` |
 
-`b744e2de` is the **production-code snapshot the audit was performed against**.
-It does not contain this document. The release record was written afterwards and
-committed separately as `351c2ad9`, which changed documentation only. Any
-correction to this record advances the record commit and leaves the audited code
-HEAD unchanged — the two must not be conflated when reproducing the evidence.
+`b744e2de` is the **production-code snapshot the 15-part audit was performed
+against**, and it is the scope of every status in this record. It does not contain
+this document, and it does not contain the post-audit changes.
+
+The release candidate has since moved on: see
+[Post-audit release changes](#post-audit-release-changes) for the ITMS-90683 fix
+and the build bump to 42. **The audit was not re-run against the current HEAD**,
+and these two values must never be conflated when reproducing the evidence — a
+documentation correction or a post-audit fix advances the candidate HEAD and
+leaves the audited HEAD exactly where it is.
 
 ## Executive summary
 
@@ -359,6 +365,160 @@ checklist or the live backend verification.
 All release-blocking device checks must pass, and any required live backend
 verification must be **recorded** — not assumed, and not inferred from the static
 passes. Audits 11 and 14 remain PARTIAL until then.
+
+## Post-audit release changes
+
+Everything above was audited against **`b744e2de`**. This section records what
+changed *after* that snapshot, so the audit's scope stays honest: the 15-part
+red-team pass did **not** run against the commits below, and nothing here
+re-opened or re-ran it.
+
+| | |
+|---|---|
+| Original audited code HEAD | `b744e2de` — unchanged, and the scope of every status above |
+| Current release candidate HEAD | `b95e2116` |
+| ITMS-90683 fix | `5f570064` |
+| Build-number bump + this section | `b95e2116` |
+
+### Why `flutter_timezone` was removed
+
+Apple accepted build 41 but reported **ITMS-90683** — a missing
+`NSLocationWhenInUseUsageDescription` in `Runner.app`.
+
+The audit traced it to exactly one place: `flutter_timezone`'s iOS public header
+opens with `#import <CoreLocation/CoreLocation.h>`, and
+`GeneratedPluginRegistrant.m` pulls that header into Runner's own compilation
+unit. The import is unused — the plugin's implementation is Swift and reads the
+zone from Foundation — and it is **still present upstream in 5.1.0**, so
+upgrading was not a remedy. Nothing else in the dependency tree referenced
+location: no location package, no `CoreLocation` reference across 2044 Pods
+files, no `CoreLocation.framework` load command, and no `CLLocationManager`
+symbol in the built binary.
+
+Adding the purpose string was rejected on its own merits, not only because it
+would have been misleading: `ios_privacy_manifest_test` already asserts all four
+`NSLocation*` keys stay absent (MALI-043), since an unjustified permission is a
+review risk. Declaring one would have turned `flutter test` red.
+
+So the dependency was dropped and its single call site — `getLocalTimezone()`,
+used to schedule local notifications in the user's own zone — replaced with a
+`mali/device_timezone` method channel: `TimeZone.current.identifier` on iOS,
+`TimeZone.getDefault().id` on Android. Foundation and `java.util` only; no
+location, no permission.
+
+### The lifecycle defect found during review of the fix
+
+**The first implementation of that channel was wrong, and the review caught it.**
+It mirrored the simpler `nativeGlassChannel` pattern and so carried all three
+defects Audit 3A had just closed on the capture channel:
+
+- it registered only from `didFinishLaunchingWithOptions` (where
+  `rootFlutterViewController()` is nil under UIScene, so the call silently
+  no-ops) and `applicationDidBecomeActive` — both **after** Dart is running;
+- it guarded on `deviceTimezoneChannel == nil`, the bare nil-check that no-ops on
+  a scene reconnect and strands the channel on a dead messenger;
+- it tracked no controller identity at all.
+
+This was not theoretical. Dart reaches the channel from
+`LocalNotificationService.initialize()`, which bootstrap runs at
+`notifications_init` — **the same pre-first-frame window** in which the capture
+purge once got `MissingPluginException` and, with the ownership ordering of the
+time, cost users their financial data (`ac622970`).
+
+The consequence would have been quieter than that but still wrong: an ordinary
+cold-start race would have pinned the user to the `Asia/Riyadh` fallback for the
+whole session, firing every scheduled notification at the wrong local time, with
+nothing to indicate why.
+
+### The hardened final implementation
+
+- registers from **`scene(_:willConnectTo:)`**, the earliest deterministic
+  UIScene point, and from `sceneDidBecomeActive` as defence in depth;
+- **idempotent against the CURRENT `FlutterViewController`**, not against "a
+  channel object exists", so a scene reconnect rebinds;
+- the old handler is cleared with `setMethodCallHandler(nil)` **before** the new
+  channel is constructed, so exactly one handler is installed;
+- the tracked controller is a **`weak`** reference, so a deallocated controller
+  reads back nil and forces a correct rebind;
+- no force unwraps on the registration path;
+- a **bounded retry for `MissingPluginException` only** — 5 attempts × 100 ms,
+  400 ms worst case before first frame. A `PlatformException` is the handler
+  having run and refused and is **not** retried; `null` stays `null`.
+
+It remains a **separate** channel from `money_companion/native_capture`
+deliberately — that one carries the per-controller rebind logic and was the path
+a data-loss defect ran through — but separate no longer means weaker.
+
+Scheduling behaviour is otherwise unchanged: a reported zone becomes `tz.local`;
+`null`, an exhausted budget, a real native failure or a zone the tz database does
+not know all still fall back to `Asia/Riyadh`, so schedules never break.
+
+### Mutation evidence
+
+20 new tests (12 behavioural + 8 architecture guards). Four mutations, each
+killed, with the baseline confirmed green before and after:
+
+| Mutation | Result |
+|---|---|
+| Revert to the bare `deviceTimezoneChannel == nil` guard | KILLED |
+| Drop the `scene(_:willConnectTo:)` registration | KILLED |
+| Make the controller reference strong instead of `weak` | KILLED |
+| Remove the bounded retry (`channelRetries = 1`) | KILLED |
+
+The guards also assert that **no `CoreLocation` import can return to
+`AppDelegate.swift`** — so the fix cannot reintroduce the defect it fixes.
+
+### Final results at the release candidate
+
+| Check | Result |
+|---|---|
+| `flutter analyze` | **0 issues** |
+| `flutter test` | **4297 passed, 2 skipped, 0 failed** |
+| Focused timezone / privacy / lifecycle tests | **40 passed** |
+| `tools/ci_gates.sh` (strict) | **13/13 mandatory passed** |
+| Clean iOS Release build | ✓ `Runner.app`, 60.1 MB |
+| Android compile | ✓ channel present in dex, 0 `flutter_timezone` entries |
+
+Final `Runner.app` inspection:
+
+| Criterion | Result |
+|---|---|
+| `flutter_timezone.framework` | **0** |
+| `CoreLocation.framework` load commands | **0** |
+| `CLLocationManager` / `CLGeocoder` / `CLPlacemark` | **0** |
+| `NSLocation*` keys — Runner | **0** |
+| `NSLocation*` keys — ShareBankMessage | **0** |
+| `mali/device_timezone` present | **yes** |
+| Runner version / build | **1.0.0 (42)** |
+| ShareBankMessage version / build | **1.0.0 (42)** |
+
+Both targets take their version from `$(FLUTTER_BUILD_NAME)` /
+`$(FLUTTER_BUILD_NUMBER)`, so the single `pubspec.yaml` bump propagates to the
+app and the extension together — verified in the built plists rather than assumed.
+
+### Notes on the build itself
+
+The first clean build attempt **failed**, and not because of the code:
+`flutter clean` had wiped the cached `libsqlite3mc.arm64.ios.dylib` (the
+SQLCipher native library) and the re-download from GitHub release assets was
+interrupted mid-stream — `HttpException: Connection closed while receiving data`.
+A subsequent fully clean build (fresh `pod install`, wiped DerivedData) succeeded
+in 99 s. Worth knowing before a CI run is blamed on a code change.
+
+### What this section does NOT change
+
+- Audits **11** and **14** remain **PARTIAL — STATIC PASS / LIVE BLOCKED**. No
+  live Supabase verification was performed here.
+- The **physical-device checklist is still entirely unchecked**, and this fix
+  adds to it: the scene-reconnect rebind for the new channel is guarded by
+  source-shape assertions, not by execution on hardware.
+- ITMS-90683 itself is **not confirmed resolved**. The reference is gone from the
+  binary, which removes the only trigger the audit could find, but confirmation
+  comes only from the next App Store Connect upload.
+- The **P2** (`ledger_sync_outbox` has no owner column) is untouched and still
+  tracked.
+- No TestFlight upload has been performed.
+
 
 ---
 
