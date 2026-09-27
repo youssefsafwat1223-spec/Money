@@ -227,21 +227,37 @@ class AppSession extends ValueNotifier<SessionStatus> {
       _pendingOwnerConflictUid = uid;
       return false;
     }
-    // MALI-069n §Blocker-1: invalidate the admission generation BEFORE the
-    // ownership-change wipe, so a background job from the previous owner is
-    // rejected before any destructive step and the incoming owner mints a fresh
+    // MALI-069n §Blocker-1: invalidate the admission generation BEFORE anything
+    // destructive, so a background job from the previous owner is rejected
+    // before any destructive step and the incoming owner mints a fresh
     // generation on claim below.
     await _invalidateOwnerGeneration();
-    await wipe();
-    // MALI-054n: a DIFFERENT identity must NOT be admitted until the previous
-    // owner's native/filesystem capture residue is confirmed purged. Fail closed
-    // — keep the (old) owner marker and defer; bootstrap/retry re-runs this once
-    // the purge hook is available or the transient purge failure clears.
+
+    // PURGE BEFORE WIPE. The order used to be wipe → purge → claim, and that
+    // ordering is what destroyed TestFlight users' data on EVERY launch.
+    //
+    // The purge calls a native method channel. Under the UIScene lifecycle the
+    // Flutter view controller does not exist during
+    // `didFinishLaunchingWithOptions`, so `rootFlutterViewController()` returns
+    // nil, the capture channel is not registered yet, and the call raises
+    // MissingPluginException. Dart bootstrap runs inside that window. The old
+    // order had already wiped by then, and the `!residuePurged` bail-out
+    // returned WITHOUT clearing or re-claiming the owner marker — so the next
+    // launch saw the same mismatch, wiped again, and failed again. A permanent
+    // destructive loop from a transient startup race.
+    //
+    // Purging first makes that impossible: nothing is destroyed until the step
+    // that must follow it is known to have succeeded. Admission is still
+    // withheld on failure (fail closed, MALI-054n), so a different identity
+    // still never lands on the previous owner's rows — it simply lands on
+    // nothing having been destroyed either.
     final residuePurged = await _runResiduePurge();
     if (!residuePurged) {
       _pendingOwnerConflictUid = uid;
       return false;
     }
+
+    await wipe();
     await _storage.delete(key: _kLocalDataOwnerUid);
     _pendingOwnerConflictUid = null;
     await _claimLocalDataOwnerIfUnclaimed(uid);

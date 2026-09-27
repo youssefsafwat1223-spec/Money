@@ -74,7 +74,21 @@ void main() {
       throwsA(isA<LocalDataOwnershipException>()),
     );
 
-    expect(wipeCalls, greaterThanOrEqualTo(1), reason: 'A\'s Drift data wiped');
+    // CONTRACT CHANGE (2026-09-27): A's data is NOT wiped here any more.
+    //
+    // This used to assert `wipeCalls >= 1` — the transition wiped first and
+    // purged second. That ordering destroyed every TestFlight user's data on
+    // every launch: the purge calls a method channel that is not registered
+    // during `didFinishLaunchingWithOptions` under the UIScene lifecycle, so it
+    // failed, the bail-out below left the owner marker stranded, and the next
+    // launch repeated the wipe. See ownership_transition_order_test.dart.
+    //
+    // The security property this test is actually about is untouched and still
+    // asserted: B is REFUSED and the DB stays owned by A. Not destroying A's
+    // rows on the way to refusing B is strictly safer — B is never admitted, so
+    // there is nothing for the wipe to protect against here.
+    expect(wipeCalls, 0,
+        reason: 'a purge that cannot be confirmed must not cost A their data');
     expect(await owner(), 'uid-a',
         reason: 'ownership NOT transferred to B while residue may remain');
     expect(AppSession.instance.status, isNot(SessionStatus.authenticated));

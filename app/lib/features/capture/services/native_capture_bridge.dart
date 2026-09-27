@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import '../../../domain/entities/captured_message.dart';
@@ -465,15 +466,56 @@ class NativeCaptureBridge {
   /// purge on this platform). Returns false when it could NOT be confirmed
   /// (channel/plugin error) — callers MUST treat false as "residue may remain"
   /// and fail closed at user-admission boundaries.
+  /// How long to keep waiting for the native channel during startup.
+  ///
+  /// Under the UIScene lifecycle the capture channel cannot be registered in
+  /// `didFinishLaunchingWithOptions` — there is no FlutterViewController yet, so
+  /// `rootFlutterViewController()` returns nil and registration is deferred to
+  /// `applicationDidBecomeActive`. Dart bootstrap runs inside that window, so
+  /// the first call here can legitimately find no handler. That is "not ready",
+  /// NOT "failed", and the two must not be confused: the ownership transition
+  /// treats a failed purge as a reason to withhold admission, and treating a
+  /// startup race as a permanent failure is what stranded the owner marker.
+  ///
+  /// Bounded on purpose. Six attempts at 150ms is ~0.9s of patience, which
+  /// comfortably covers scene attachment without turning a genuinely absent
+  /// handler (a build with the channel removed) into an indefinite hang.
+  @visibleForTesting
+  static const int purgeChannelRetries = 6;
+  @visibleForTesting
+  static const Duration purgeChannelRetryDelay = Duration(milliseconds: 150);
+
+  /// Test seam: lets a test drive the retry loop without real delays.
+  @visibleForTesting
+  static Future<void> Function(Duration)? debugDelayOverride;
+
+  /// Test seam: the retry only exists on the platforms that have the channel,
+  /// and a host test runs on neither. Without this the loop is unreachable.
+  @visibleForTesting
+  static bool debugTreatHostAsNative = false;
+
   static Future<bool> purgeAllCaptureState() async {
-    if (!Platform.isIOS && !Platform.isAndroid) return true;
-    try {
-      final ok = await _channel.invokeMethod<bool>('purgeAllCaptureState');
-      return ok ?? false;
-    } on MissingPluginException {
-      return false;
-    } on PlatformException {
-      return false;
+    if (!debugTreatHostAsNative && !Platform.isIOS && !Platform.isAndroid) {
+      return true;
+    }
+    for (var attempt = 0; ; attempt++) {
+      try {
+        final ok = await _channel.invokeMethod<bool>('purgeAllCaptureState');
+        return ok ?? false;
+      } on MissingPluginException {
+        // Channel not registered YET. Retry — but never forever.
+        if (attempt >= purgeChannelRetries - 1) return false;
+        final delay = debugDelayOverride;
+        if (delay != null) {
+          await delay(purgeChannelRetryDelay);
+        } else {
+          await Future<void>.delayed(purgeChannelRetryDelay);
+        }
+      } on PlatformException {
+        // A real native failure. The handler ran and refused; retrying would
+        // just repeat it, and pretending it is a startup race would hide it.
+        return false;
+      }
     }
   }
 
