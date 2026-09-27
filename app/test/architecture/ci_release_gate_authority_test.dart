@@ -171,6 +171,37 @@ void main() {
     });
   });
 
+  group('iOS release build-number collision preflight', () {
+    test('queries the exact app and version before building the signed IPA',
+        () {
+      final steps = _steps('ios-signed-release');
+      final preflightAt = _firstStep(
+          steps, 'Resolve next iOS build number from App Store Connect');
+      final buildAt = _firstStep(steps, 'Build signed IPA');
+
+      expect(preflightAt, greaterThan(-1));
+      expect(preflightAt, lessThan(buildAt));
+      final preflight = steps[preflightAt].script;
+      expect(preflight, contains('app-store-connect apps list'));
+      expect(
+          preflight, contains('--bundle-id-identifier com.youssefsafwat.mali'));
+      expect(preflight, contains('--strict-match-identifier'));
+      expect(preflight, contains('app-store-connect get-latest-build-number'));
+      expect(preflight, contains('--version-string "\$MARKETING_VERSION"'));
+      expect(preflight,
+          contains('IOS_BUILD_NUMBER=\$((LATEST_BUILD_NUMBER + 1))'));
+      expect(preflight, contains('>> "\$CM_ENV"'));
+    });
+
+    test('passes the resolved marketing version and build number to Flutter',
+        () {
+      final steps = _steps('ios-signed-release');
+      final build = steps[_firstStep(steps, 'Build signed IPA')].script;
+      expect(build, contains('--build-name="\$IOS_MARKETING_VERSION"'));
+      expect(build, contains('--build-number="\$IOS_BUILD_NUMBER"'));
+    });
+  });
+
   group('trigger safety (requirements 10 / 11)', () {
     test('release/artifact workflows are NOT auto-triggered', () {
       for (final wf in _artifactWorkflows) {

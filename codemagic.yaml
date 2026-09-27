@@ -184,6 +184,37 @@ workflows:
         working_directory: app
         script: flutter pub get
 
+      - name: Resolve next iOS build number from App Store Connect
+        script: |
+          set -eu
+          MARKETING_VERSION="$(sed -n 's/^version: *\([0-9.]*\).*/\1/p' app/pubspec.yaml)"
+          [ -n "$MARKETING_VERSION" ] || {
+            echo "ERROR: could not read the marketing version from app/pubspec.yaml."
+            exit 1
+          }
+
+          # The configured Codemagic integration supplies the App Store Connect
+          # credentials. Discover the non-secret Apple app id from the exact
+          # production bundle id so it cannot drift or require another secret.
+          APP_JSON="$(app-store-connect apps list --silent --json \
+            --bundle-id-identifier com.youssefsafwat.mali \
+            --strict-match-identifier)"
+          APP_STORE_APPLE_ID="$(printf '%s' "$APP_JSON" | python3 -c 'import json, sys; payload = json.load(sys.stdin); items = payload if isinstance(payload, list) else payload.get("data", []); ids = [str(item.get("id", "")) for item in items if item.get("id")]; len(ids) == 1 or sys.exit(f"expected exactly one App Store Connect app, found {len(ids)}"); print(ids[0])')"
+
+          LATEST_BUILD_NUMBER="$(app-store-connect get-latest-build-number \
+            --silent --platform IOS --version-string "$MARKETING_VERSION" \
+            "$APP_STORE_APPLE_ID")"
+          case "$LATEST_BUILD_NUMBER" in
+            ''|*[!0-9]*)
+              echo "ERROR: App Store Connect did not return a numeric build number."
+              exit 1
+              ;;
+          esac
+          IOS_BUILD_NUMBER=$((LATEST_BUILD_NUMBER + 1))
+          printf 'IOS_MARKETING_VERSION=%s\nIOS_BUILD_NUMBER=%s\n' \
+            "$MARKETING_VERSION" "$IOS_BUILD_NUMBER" >> "$CM_ENV"
+          echo "App Store Connect preflight: $MARKETING_VERSION ($LATEST_BUILD_NUMBER) exists; building ($IOS_BUILD_NUMBER)."
+
       # Audit H-15: the canonical gate runs BEFORE any signing material is set up
       # or any artifact is built, so a mandatory-gate failure structurally makes
       # provisioning, the signed build, and the TestFlight submission below
@@ -273,6 +304,8 @@ workflows:
           # stale single IPA cannot masquerade as output from this build.
           rm -rf build/ios/ipa
           flutter build ipa --release \
+            --build-name="$IOS_MARKETING_VERSION" \
+            --build-number="$IOS_BUILD_NUMBER" \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
             --dart-define=SUPABASE_ANON_KEY="${SUPABASE_ANON_KEY:-}" \
             --dart-define=SUPABASE_ENV=production \

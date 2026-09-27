@@ -525,6 +525,45 @@ Because no new binary was accepted, **ITMS-90683 remains unconfirmed**. The
 warning's status is exactly what it was before Build 68: pending confirmation by
 the next upload that is actually accepted.
 
+### Build 43 is occupied in App Store Connect — next target is 44
+
+Codemagic **Build 70** produced a valid, signed **1.0.0 (43)** IPA. Compilation,
+archive, signing and export succeeded. Publishing alone was rejected by App Store
+Connect because build 43 had already been uploaded:
+
+```
+previousBundleVersion = 43
+"The bundle version must be higher than the previously uploaded version."
+```
+
+No new binary was accepted. The next target is therefore **1.0.0 (44)**. The
+marketing version remains 1.0.0; production code, signing, provisioning,
+Supabase, AdMob, feature flags, bundle identifiers and release behaviour are
+unchanged.
+
+The consecutive 42/43 collisions happened because the release workflow took
+`CFBundleVersion` only from the manually edited `pubspec.yaml`. It never queried
+App Store Connect before building, so repository history could not reveal build
+numbers already consumed by earlier uploads. The repository does not identify
+which earlier jobs consumed 42 and 43; App Store Connect is the authority for
+that history.
+
+The signed workflow now uses its existing App Store Connect integration to find
+the app by the exact production bundle identifier, query the highest build across
+App Store and TestFlight for the current marketing version, and pass
+`highestExistingBuild + 1` to Flutter. The lookup fails closed if the app is not
+unique or the returned build number is not numeric. API credentials remain
+managed by Codemagic and are never printed.
+
+| | |
+|---|---|
+| Rejected upload | Codemagic Build 70 — valid signed 1.0.0 (43), duplicate build number |
+| Next upload target | **1.0.0 (44)** |
+| Future selection | **Automatic: highest App Store Connect build for the marketing version + 1** |
+
+Because Build 70 was not accepted, **ITMS-90683 remains unconfirmed**. It can
+only be confirmed after Apple accepts and analyzes a new binary.
+
 ### Notes on the build itself
 
 The first clean build attempt **failed**, and not because of the code:
