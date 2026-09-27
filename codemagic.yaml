@@ -63,7 +63,22 @@ workflows:
           fi
           ( cd admin && npm ci )
           security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
-          REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
+          # The canonical gate runs with the Supabase build credentials UNSET.
+          #
+          # They belong to the build step, not to a code-correctness gate. With
+          # them visible here the skip/ignore manifest fails honestly and
+          # unhelpfully: the workflow supplies SUPABASE_URL and
+          # SUPABASE_ANON_KEY but no SUPABASE_SERVICE_ROLE_KEY, so the
+          # `supabaseServiceRole` group is half-configured and the checker
+          # rejects it with "configure all or none" — which is the rule working,
+          # not a false positive. Unsetting them makes this step see the same
+          # credential state it sees locally and on GitHub, where the manifest is
+          # satisfied. The manifest keeps every tooth: an unexpected skip, a
+          # changed reason, a stale pattern or a re-quarantined known failure all
+          # still fail. The build step below is untouched and still receives the
+          # real values.
+          env -u SUPABASE_URL -u SUPABASE_ANON_KEY -u SUPABASE_SERVICE_ROLE_KEY \
+            REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
 
       - name: Assert production Supabase config
         script: |
@@ -184,7 +199,22 @@ workflows:
           fi
           ( cd admin && npm ci )
           security unlock-keychain -p "" ~/Library/Keychains/login.keychain-db 2>/dev/null || true
-          REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
+          # The canonical gate runs with the Supabase build credentials UNSET.
+          #
+          # They belong to the build step, not to a code-correctness gate. With
+          # them visible here the skip/ignore manifest fails honestly and
+          # unhelpfully: the workflow supplies SUPABASE_URL and
+          # SUPABASE_ANON_KEY but no SUPABASE_SERVICE_ROLE_KEY, so the
+          # `supabaseServiceRole` group is half-configured and the checker
+          # rejects it with "configure all or none" — which is the rule working,
+          # not a false positive. Unsetting them makes this step see the same
+          # credential state it sees locally and on GitHub, where the manifest is
+          # satisfied. The manifest keeps every tooth: an unexpected skip, a
+          # changed reason, a stale pattern or a re-quarantined known failure all
+          # still fail. The build step below is untouched and still receives the
+          # real values.
+          env -u SUPABASE_URL -u SUPABASE_ANON_KEY -u SUPABASE_SERVICE_ROLE_KEY \
+            REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
 
       - name: Set up provisioning profiles
         # THREE bundle ids exist in this project, not one:
@@ -362,7 +392,22 @@ workflows:
             export PATH="$HOME/.deno/bin:$PATH"
           fi
           ( cd admin && npm ci )
-          REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
+          # The canonical gate runs with the Supabase build credentials UNSET.
+          #
+          # They belong to the build step, not to a code-correctness gate. With
+          # them visible here the skip/ignore manifest fails honestly and
+          # unhelpfully: the workflow supplies SUPABASE_URL and
+          # SUPABASE_ANON_KEY but no SUPABASE_SERVICE_ROLE_KEY, so the
+          # `supabaseServiceRole` group is half-configured and the checker
+          # rejects it with "configure all or none" — which is the rule working,
+          # not a false positive. Unsetting them makes this step see the same
+          # credential state it sees locally and on GitHub, where the manifest is
+          # satisfied. The manifest keeps every tooth: an unexpected skip, a
+          # changed reason, a stale pattern or a re-quarantined known failure all
+          # still fail. The build step below is untouched and still receives the
+          # real values.
+          env -u SUPABASE_URL -u SUPABASE_ANON_KEY -u SUPABASE_SERVICE_ROLE_KEY \
+            REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
 
       - name: Assert production Supabase config
         script: |
@@ -525,7 +570,22 @@ workflows:
           fi
           ( cd admin && npm ci )      # ci_gates runs the admin authorization suite
           ( cd app && flutter pub get )
-          REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
+          # The canonical gate runs with the Supabase build credentials UNSET.
+          #
+          # They belong to the build step, not to a code-correctness gate. With
+          # them visible here the skip/ignore manifest fails honestly and
+          # unhelpfully: the workflow supplies SUPABASE_URL and
+          # SUPABASE_ANON_KEY but no SUPABASE_SERVICE_ROLE_KEY, so the
+          # `supabaseServiceRole` group is half-configured and the checker
+          # rejects it with "configure all or none" — which is the rule working,
+          # not a false positive. Unsetting them makes this step see the same
+          # credential state it sees locally and on GitHub, where the manifest is
+          # satisfied. The manifest keeps every tooth: an unexpected skip, a
+          # changed reason, a stale pattern or a re-quarantined known failure all
+          # still fail. The build step below is untouched and still receives the
+          # real values.
+          env -u SUPABASE_URL -u SUPABASE_ANON_KEY -u SUPABASE_SERVICE_ROLE_KEY \
+            REQUIRE_ALL_GATES=1 bash tools/ci_gates.sh
 
       # ── Android compile gate (R8C) ─────────────────────────────────────────
       # Android compilation used to happen ONLY in `android-release`: on release

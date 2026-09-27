@@ -181,7 +181,13 @@ test('C2 touches no closed contract and bumps no client schema', () => {
   // v33 is owned by Proof-Carrying (capture_work_items, capture_review_labels).
   // A literal pin here rots on every legitimate bump, so the load-bearing claim
   // is the SQL assertion below; this line only catches an UNAPPROVED bump.
-  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 35;/);
+  // Schema 35 -> 38. The pin is an ABSOLUTE version by design: it fails if a
+  // SERVER migration bumps the CLIENT schema. It also has to be re-pinned
+  // whenever the client legitimately migrates, which is what went stale here —
+  // the client reached 38 on 2026-09-06 (cd7174a0, correctness provenance),
+  // weeks after these tests were last touched, and none of those bumps came
+  // from the server migration under test. Assertion unchanged, value current.
+  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 38;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });
 

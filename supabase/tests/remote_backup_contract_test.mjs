@@ -95,7 +95,16 @@ test('the UI derives Protected from the typed state, not a boolean', () => {
 
   // Scoped to the _run coordinator itself — checking the whole file would be
   // vacuous, because refresh() carries its own earlier `if (_busy)` guard.
-  const run = controller.match(/Future<T\?> _run<T>[\s\S]*?\n  \}/);
+  //
+  // The scope starts AFTER `async {`, not at the signature. `_run` gained a
+  // named parameter and its signature wrapped onto several lines, which put a
+  // `\n  }` (the closing `})` of the parameter list) BEFORE the body — so the
+  // old non-greedy match ended there and captured only the parameter list. The
+  // three assertions below then ran against text that could never contain them.
+  // The guard was intact the whole time; the scope was wrong. Same class of
+  // formatting-fragility the comment above says this test was rewritten to
+  // avoid.
+  const run = controller.match(/Future<T\?> _run<T>[\s\S]*?async \{[\s\S]*?\n  \}/);
   assert.ok(run, 'the _run operation coordinator must exist');
   const body = run[0];
 
@@ -113,6 +122,18 @@ test('the UI derives Protected from the typed state, not a boolean', () => {
   //    never wedge the coordinator shut.
   assert.match(body, /finally\s*\{[\s\S]*?_busy\s*=\s*false\s*;/);
   const screen = read('app/lib/features/backup/backup_screen.dart');
-  assert.match(screen, /remoteBackupStateLabel\(state\)/);
+  // `remoteBackupStateLabel(state)` became `_stateLabel(context, state)` in
+  // 2619d4bd, when the labels were localised and therefore needed a
+  // BuildContext. The property being pinned is unchanged, and is asserted more
+  // directly than before: the label is produced by a function that takes the
+  // TYPED state rather than a boolean, and Protected is still read from
+  // `state.isProtected`, which RemoteBackupStateX derives as
+  // `this == RemoteBackupState.enabledIdle`.
+  assert.match(screen, /_stateLabel\(context, state\)/);
+  assert.match(
+    screen,
+    /String _stateLabel\(BuildContext context, RemoteBackupState s\)/,
+    'the label must be derived from the typed state, not from a bool',
+  );
   assert.match(screen, /state\.isProtected/);
 });
