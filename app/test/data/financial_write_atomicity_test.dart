@@ -146,6 +146,13 @@ Future<String?> _syncStatus(
   return row?.readNullable<String>('sync_status');
 }
 
+Future<int> _amountMinor(AppDatabase db, String id) async {
+  final row = await db
+      .customSelect("SELECT amount_minor FROM transactions WHERE id = '$id';")
+      .getSingle();
+  return row.read<int>('amount_minor');
+}
+
 void main() {
   late AppDatabase db;
 
@@ -214,6 +221,81 @@ void main() {
       1,
     );
     expect(await _syncStatus(db, 'transactions', 'tx-succeeds'), 'pending');
+  });
+
+  // AUDIT 7 — add and delete were covered here; EDIT was not. An edit writes
+  // three things inside one transaction: the row itself, the outbox `update`
+  // row, and the Proof correction-provenance entry. If the enqueue fails after
+  // the row is rewritten, a non-atomic edit leaves the user's amount changed
+  // locally with nothing queued to tell the server — a silent divergence that
+  // survives forever, because nothing later re-reconciles a row it believes is
+  // already synced.
+  test('editing a transaction and its outbox row commit or roll back together',
+      () async {
+    final repository = DriftTransactionRepository(
+      db,
+      outboxQueue: _ledgerQueue(db),
+    );
+    await repository.saveTransaction(
+      transaction: _transaction('tx-edit'),
+      categoryKey: null,
+    );
+    final originalMinor = await _amountMinor(db, 'tx-edit');
+    expect(originalMinor, 12500, reason: 'the fixture must be real');
+
+    // Fires only on the enqueue: the edit's own UPDATE does not touch
+    // sync_status, so this injects a failure strictly AFTER the row is
+    // rewritten.
+    await db.customStatement(
+      "CREATE TRIGGER fail_edit_enqueue "
+      "BEFORE UPDATE OF sync_status ON transactions "
+      "BEGIN SELECT RAISE(ABORT, 'injected edit enqueue failure'); END;",
+    );
+
+    await expectLater(
+      repository.updateTransaction(
+        transactionId: 'tx-edit',
+        amount: Money.fromLegacyReal(999, 'SAR'),
+        currency: 'SAR',
+        type: TransactionTypeEntity.payment,
+        occurredAt: DateTime.utc(2026, 7, 29, 12),
+        rawMerchant: 'Edited Store',
+        categoryId: null,
+        note: 'edited',
+      ),
+      throwsA(anything),
+    );
+
+    // THE assertion: the amount must be the ORIGINAL. A partially-applied edit
+    // is worse than a failed one.
+    expect(await _amountMinor(db, 'tx-edit'), originalMinor,
+        reason: 'the edit was applied without its outbox row');
+    expect(
+      await _outboxCount(db, 'ledger_sync_outbox', 'transaction_id', 'tx-edit'),
+      1,
+      reason: 'only the original create row — no orphan update row',
+    );
+    // The merchant the failed edit would have created must not be left behind.
+    final orphan = await db
+        .customSelect("SELECT COUNT(*) AS total FROM merchants "
+            "WHERE raw_name = 'Edited Store';")
+        .getSingle();
+    expect(orphan.read<int>('total'), 0);
+
+    await db.customStatement('DROP TRIGGER fail_edit_enqueue;');
+    await repository.updateTransaction(
+      transactionId: 'tx-edit',
+      amount: Money.fromLegacyReal(999, 'SAR'),
+      currency: 'SAR',
+      type: TransactionTypeEntity.payment,
+      occurredAt: DateTime.utc(2026, 7, 29, 12),
+      rawMerchant: 'Edited Store',
+      categoryId: null,
+      note: 'edited',
+    );
+
+    expect(await _amountMinor(db, 'tx-edit'), 99900);
+    expect(await _syncStatus(db, 'transactions', 'tx-edit'), 'pending');
   });
 
   test('goal contribution, total, and child outbox are atomic', () async {
