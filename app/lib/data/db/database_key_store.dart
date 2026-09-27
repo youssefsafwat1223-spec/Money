@@ -38,6 +38,39 @@ DatabaseKeyState classifyDatabaseKeyState({
   return DatabaseKeyState.freshInstall;
 }
 
+/// Why a key read ended the way it did. Deliberately NOT collapsed into a
+/// nullable String: "absent" and "could not read" are different facts, and
+/// treating the second as the first is how a transient Keychain failure turns
+/// into a brand-new key over an existing encrypted database.
+enum DatabaseKeyReadOutcome {
+  /// A usable key came back.
+  found,
+
+  /// Secure storage answered, and there is genuinely no key stored.
+  absent,
+
+  /// Secure storage could not answer. NOT evidence of absence.
+  readError,
+
+  /// A key exists but is unusable (empty). Never silently replaced — doing so
+  /// would destroy whatever the real key still protects.
+  invalid,
+}
+
+/// The result of one key read.
+class DatabaseKeyRead {
+  const DatabaseKeyRead(this.outcome, {this.key, this.error});
+
+  final DatabaseKeyReadOutcome outcome;
+
+  /// Set only for [DatabaseKeyReadOutcome.found].
+  final String? key;
+
+  /// Set only for [DatabaseKeyReadOutcome.readError]. Carries the platform
+  /// error so a caller can log a cause; never the key.
+  final Object? error;
+}
+
 /// Thrown when an encrypted local database exists but its SQLCipher key is missing
 /// from platform secure storage. Distinguishable programmatically from a wrong
 /// backup passphrase (a backup-decryption error) and from a corrupt-DB open
@@ -155,9 +188,19 @@ Future<SecureStorageWipeResult> wipeSecureStoragePreservingDatabaseKey({
 
 class SecureDatabaseKeyStore implements DatabaseKeyStore {
   SecureDatabaseKeyStore({
+    required this.databaseExists,
     FlutterSecureStorage? storage,
     this.storageKey = defaultStorageKey,
   }) : _storage = storage ?? SecureStorageOptions.storage;
+
+  /// Proves whether a prior encrypted database is already on disk.
+  ///
+  /// REQUIRED, and required on purpose. A new key may only be minted when this
+  /// says there is nothing to lose. `AppDatabase.open` already checks the same
+  /// thing before calling in, but that left the invariant in the CALLER: a
+  /// second call site, or a reordering, would silently reintroduce a key that
+  /// orphans an existing database. Holding it here makes that unexpressible.
+  final Future<bool> Function() databaseExists;
 
   /// Secure-storage key under which the SQLCipher DB key is kept. Exposed so
   /// account/data wipes can preserve it — deleting it while the encrypted DB
@@ -169,11 +212,54 @@ class SecureDatabaseKeyStore implements DatabaseKeyStore {
 
   static final Random _random = Random.secure();
 
+  /// Single-flight. Two concurrent callers that both found no key would each
+  /// mint one and the second write would win — leaving one of them holding a
+  /// key the database was not encrypted with.
+  Future<String>? _inFlight;
+
+  /// Classifies one read without collapsing the outcomes.
+  Future<DatabaseKeyRead> readKeyOutcome() async {
+    final String? raw;
+    try {
+      raw = await _storage.read(key: storageKey);
+    } catch (e) {
+      // Could not ask. This is NOT "there is no key".
+      return DatabaseKeyRead(DatabaseKeyReadOutcome.readError, error: e);
+    }
+    if (raw == null) {
+      return const DatabaseKeyRead(DatabaseKeyReadOutcome.absent);
+    }
+    if (raw.isEmpty) {
+      return const DatabaseKeyRead(DatabaseKeyReadOutcome.invalid);
+    }
+    return DatabaseKeyRead(DatabaseKeyReadOutcome.found, key: raw);
+  }
+
   @override
-  Future<String> readOrCreateKey() async {
-    final existing = await _storage.read(key: storageKey);
-    if (existing != null && existing.isNotEmpty) {
-      return existing;
+  Future<String> readOrCreateKey() =>
+      _inFlight ??= _readOrCreate().whenComplete(() => _inFlight = null);
+
+  Future<String> _readOrCreate() async {
+    final read = await readKeyOutcome();
+    switch (read.outcome) {
+      case DatabaseKeyReadOutcome.found:
+        return read.key!;
+      case DatabaseKeyReadOutcome.readError:
+      case DatabaseKeyReadOutcome.invalid:
+        // Fail closed. Minting here would orphan whatever the real key still
+        // protects, and would do it silently.
+        throw const LocalDatabaseKeyUnavailableException();
+      case DatabaseKeyReadOutcome.absent:
+        break;
+    }
+
+    // Absent is necessary but NOT sufficient. A key may only be created when we
+    // can positively prove there is no prior encrypted database — a restore
+    // that brings back the DB file without the Keychain (accessibility is
+    // `first_unlock_this_device`, so Keychain items do not transfer) lands
+    // exactly here, and minting would strand the restored data forever.
+    if (await databaseExists()) {
+      throw const LocalDatabaseKeyUnavailableException();
     }
 
     final bytes = List<int>.generate(32, (_) => _random.nextInt(256));

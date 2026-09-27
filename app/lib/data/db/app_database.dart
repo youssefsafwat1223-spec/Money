@@ -205,7 +205,13 @@ class AppDatabase extends GeneratedDatabase {
     @visibleForTesting Future<bool> Function()? databaseFileExists,
     @visibleForTesting Future<void> Function(String phase)? debugFailInit,
   }) async {
-    final resolvedKeyStore = keyStore ?? SecureDatabaseKeyStore();
+    // The existence probe goes INTO the store: the no-mint-over-an-existing-DB
+    // invariant then holds wherever the store is used, not only on the path
+    // that remembers to check first.
+    final resolvedKeyStore = keyStore ??
+        SecureDatabaseKeyStore(
+          databaseExists: databaseFileExists ?? _encryptedDatabaseExists,
+        );
     if (executor != null) {
       // In-memory/test path. Only exercise the key-state gate when a test opts
       // in by injecting databaseFileExists (avoids touching path_provider, which
