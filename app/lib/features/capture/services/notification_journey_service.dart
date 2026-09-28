@@ -8,6 +8,14 @@ import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/usecases/user_settings_usecases.dart';
 import 'local_notification_service.dart';
 
+typedef MarketingNotificationSink = Future<void> Function({
+  required int id,
+  required String title,
+  required String body,
+  required NotificationPreferences preferences,
+  required String route,
+});
+
 class NotificationJourneyService {
   NotificationJourneyService({
     required AppDatabase database,
@@ -15,6 +23,7 @@ class NotificationJourneyService {
     required SaveNotificationPreferencesUseCase savePreferences,
     RemoteGrowthCampaignsDao? campaignsDao,
     LocalNotificationService? localNotifications,
+    MarketingNotificationSink? showMarketingNotification,
     DateTime Function()? now,
   })  : _database = database,
         _loadPreferences = loadPreferences,
@@ -22,6 +31,22 @@ class NotificationJourneyService {
         _campaignsDao = campaignsDao,
         _localNotifications =
             localNotifications ?? LocalNotificationService.instance,
+        _showMarketingNotification = showMarketingNotification ??
+            (({
+              required id,
+              required title,
+              required body,
+              required preferences,
+              required route,
+            }) =>
+                (localNotifications ?? LocalNotificationService.instance)
+                    .showMarketingNotification(
+                  id: id,
+                  title: title,
+                  body: body,
+                  preferences: preferences,
+                  route: route,
+                )),
         _now = now ?? (() => DateTime.now().toUtc());
 
   static const Duration marketingCooldown = Duration(hours: 24);
@@ -32,9 +57,22 @@ class NotificationJourneyService {
   final SaveNotificationPreferencesUseCase _savePreferences;
   final RemoteGrowthCampaignsDao? _campaignsDao;
   final LocalNotificationService _localNotifications;
+  final MarketingNotificationSink _showMarketingNotification;
   final DateTime Function() _now;
+  Future<void>? _evaluation;
 
-  Future<void> evaluate() async {
+  Future<void> evaluate() {
+    final active = _evaluation;
+    if (active != null) return active;
+    late final Future<void> tracked;
+    tracked = _evaluateOnce().whenComplete(() {
+      if (identical(_evaluation, tracked)) _evaluation = null;
+    });
+    _evaluation = tracked;
+    return tracked;
+  }
+
+  Future<void> _evaluateOnce() async {
     var preferences = await _loadPreferences();
     final now = _now().toUtc();
     var inbox = preferences.inboxState;
@@ -64,7 +102,7 @@ class NotificationJourneyService {
       if (!decision.allowed) {
         continue;
       }
-      await _localNotifications.showMarketingNotification(
+      await _showMarketingNotification(
         id: journey.notificationId,
         title: journey.titleIn(lang),
         body: journey.bodyIn(lang),
@@ -124,7 +162,7 @@ class NotificationJourneyService {
       final title = campaign.titleIn(lang);
       final body = campaign.bodyIn(lang)?.trim();
       final resolvedBody = body?.isNotEmpty == true ? body! : title;
-      await _localNotifications.showMarketingNotification(
+      await _showMarketingNotification(
         // 31-bit-safe: a raw hashCode > 2^31 is dropped by the Android plugin.
         id: campaign.id.hashCode & 0x7FFFFFFF,
         title: title,

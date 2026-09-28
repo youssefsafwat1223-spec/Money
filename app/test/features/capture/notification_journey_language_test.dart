@@ -212,4 +212,46 @@ void main() {
     );
     expect(LocalNotificationService.instance.notificationLanguage, 'en');
   });
+
+  test('concurrent lifecycle triggers emit the welcome journey only once',
+      () async {
+    final db = await AppDatabase.open(
+      executor: NativeDatabase.memory(),
+      keyStore: _MemoryKeyStore(),
+    );
+    addTearDown(db.close);
+    final settings = DriftUserSettingsRepository(db);
+    var displayCalls = 0;
+    final service = NotificationJourneyService(
+      database: db,
+      loadPreferences: LoadNotificationPreferencesUseCase(settings),
+      savePreferences: SaveNotificationPreferencesUseCase(settings),
+      showMarketingNotification: ({
+        required id,
+        required title,
+        required body,
+        required preferences,
+        required route,
+      }) async {
+        displayCalls++;
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      },
+      now: () => DateTime.utc(2026, 9, 18, 12),
+    );
+
+    await Future.wait([service.evaluate(), service.evaluate()]);
+
+    expect(displayCalls, 1,
+        reason: 'cold-start, resume and capture triggers may overlap but must '
+            'share one journey evaluation');
+    final persisted = await LoadNotificationPreferencesUseCase(settings).call();
+    expect(persisted.inboxState.hasSentJourney('welcome'), isTrue);
+    expect(
+      persisted.inboxState.history
+          .where((entry) => entry.id == 'welcome')
+          .length,
+      1,
+      reason: 'the single display must produce one persisted journey marker',
+    );
+  });
 }

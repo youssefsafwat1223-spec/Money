@@ -591,16 +591,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
     switch (state.event) {
       case supabase.AuthChangeEvent.signedOut:
       case supabase.AuthChangeEvent.userDeleted:
-        if (!isGuest && authMethod != null) {
-          try {
-            await signOut();
-          } catch (_) {
-            // This is a server-driven sign-out with no interactive context
-            // to surface a retry prompt in. The explicit, user-initiated
-            // sign-out path is where a wipe failure must block and report —
-            // see AppSession.signOut's doc comment.
-          }
-        }
+        // A server-driven auth loss is not an explicit request to destroy the
+        // local-first database. It can be emitted during cold-start token
+        // recovery, resume, revocation, or account deletion. With the old call
+        // to signOut() here, every such emission wiped every user-scoped Drift
+        // table, including settings and the persisted notification journey
+        // state. Keep the encrypted local data owned by this UID and withhold
+        // access until the user re-authenticates. Explicit UI logout still
+        // calls signOut() directly and therefore retains its intentional wipe.
+        markSessionInvalid();
         return;
       case supabase.AuthChangeEvent.initialSession:
       case supabase.AuthChangeEvent.signedIn:

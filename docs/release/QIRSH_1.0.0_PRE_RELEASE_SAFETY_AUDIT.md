@@ -564,6 +564,34 @@ managed by Codemagic and are never printed.
 Because Build 70 was not accepted, **ITMS-90683 remains unconfirmed**. It can
 only be confirmed after Apple accepts and analyzes a new binary.
 
+### Build 44 persistence/lifecycle release fix
+
+The Build 44 source review found two independent release-blocking defects:
+
+1. Supabase `signedOut` / `userDeleted` auth-state events entered the explicit
+   user `signOut()` path. That path intentionally runs the complete local data
+   wipe, so a recovered, expired or revoked server session could erase the
+   local-first database during launch/resume. Server-driven auth loss now marks
+   the session invalid and requires reauthentication without clearing the local
+   owner or encrypted data. Explicit logout, privacy deletion and different-user
+   ownership transitions retain their destructive isolation semantics.
+2. Concurrent notification-journey evaluations could both read an unsent
+   welcome marker before either persisted it, displaying the journey twice.
+   Evaluations now share one in-flight operation, producing one display decision
+   and one persisted marker.
+
+Regression coverage includes server-driven sign-out, missing-session recovery,
+explicit destructive logout, cross-account isolation, notification concurrency,
+and a same-install five-process-restart harness covering language, theme,
+account/default-account, transaction, budget, goal and welcome-marker state.
+Mutation runs proved that restoring either old condition fails its corresponding
+regression.
+
+This patch does **not** select a new App Store build number. The signed Codemagic
+workflow remains authoritative: immediately before building it queries App Store
+Connect for the highest build of marketing version 1.0.0 and uses that value plus
+one. No TestFlight upload or production-backend deployment is part of this fix.
+
 ### Notes on the build itself
 
 The first clean build attempt **failed**, and not because of the code:
