@@ -195,7 +195,7 @@ void main() {
     // Scoped to the owner gate itself: `await wipe();` anywhere in the file
     // would also be satisfied by the unrelated sign-out wipe.
     final gate = session.substring(
-        session.indexOf('Future<bool> _ensureLocalDataOwnedBy'));
+        session.indexOf('Future<LocalDataOwnership> _resolveLocalDataOwnership'));
     final body = gate.substring(0, gate.indexOf('\n  }'));
     expect(body.contains('await wipe();'), isTrue,
         reason: 'owner-change wipe removed — QA must not change product safety');

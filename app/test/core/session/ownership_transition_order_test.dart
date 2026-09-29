@@ -185,22 +185,29 @@ void main() {
         '${Directory.current.path}/lib/core/session/app_session.dart',
       ).readAsStringSync();
 
-      final fn = src.substring(src.indexOf('Future<bool> _ensureLocalDataOwnedBy'));
+      final fn = src.substring(
+          src.indexOf('Future<LocalDataOwnership> _resolveLocalDataOwnership'));
       final body = fn.substring(0, fn.indexOf('\n  }'));
 
       final purgeAt = body.indexOf('_runResiduePurge()');
+      // The pre-wipe proof: the transition sentinel written and read back.
+      final sentinelAt = body.indexOf('_kOwnerTransitionPrefix');
       final wipeAt = body.indexOf('await wipe();');
-      // LAST occurrence: the no-conflict branch claims earlier in the same
+      // LAST occurrence: the unowned branch claims earlier in the same
       // function, and that one is legitimately above the wipe.
-      final claimAt = body.lastIndexOf('_claimLocalDataOwnerIfUnclaimed');
+      final claimAt = body.lastIndexOf('_writeOwnerMarkerVerified(uid)');
 
       expect(purgeAt, greaterThan(-1));
+      expect(sentinelAt, greaterThan(-1));
       expect(wipeAt, greaterThan(-1));
       expect(claimAt, greaterThan(-1));
 
-      expect(purgeAt, lessThan(wipeAt),
+      expect(purgeAt, lessThan(sentinelAt),
           reason: 'PURGE MUST PRECEDE WIPE — reversing these is the exact bug '
               'that wiped every TestFlight user on every launch');
+      expect(sentinelAt, lessThan(wipeAt),
+          reason: 'the marker must be proven writable before anything is '
+              'destroyed');
       expect(wipeAt, lessThan(claimAt),
           reason: 'the claim records a transition that already happened');
     });

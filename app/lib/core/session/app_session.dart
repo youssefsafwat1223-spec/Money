@@ -31,6 +31,21 @@ class LocalDataOwnershipException implements Exception {
       'un-purged data/residue from a previous account.';
 }
 
+/// Outcome of reconciling the local-data owner marker with an identity.
+enum LocalDataOwnership {
+  /// The marker was READ BACK equal to the identity. Safe to admit.
+  owned,
+
+  /// The wipe hook is not registered yet (the first reconcile runs before
+  /// `database_open`). Nothing was attempted; bootstrap resolves it through
+  /// [AppSession.resolvePendingLocalDataOwnerConflict].
+  deferred,
+
+  /// Ownership could not be conclusively established. Local data is
+  /// PRESERVED and the identity must not be admitted.
+  unresolved,
+}
+
 /// حالة الجلسة (للتحكّم في عرض الـ Onboarding مقابل التطبيق).
 ///
 /// ValueNotifier حتى يُستخدم كـ refreshListenable في go_router دون Riverpod.
@@ -102,6 +117,25 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// [resolvePendingLocalDataOwnerConflict] right after registering the wipe.
   String? _pendingOwnerConflictUid;
 
+  /// Owner-marker value while an ownership transition is in flight. Never a
+  /// valid uid, so every reader of the marker treats it as "not this user" and
+  /// fails closed. A crash mid-transition leaves it behind, and the next
+  /// reconcile redoes the transition rather than admitting onto un-wiped rows.
+  static const String _kOwnerTransitionPrefix = 'owner-transition-pending:';
+
+  /// Serialises every ownership reconcile. Bootstrap, the auth stream
+  /// (initialSession / signedIn / tokenRefreshed), AppShell resume
+  /// revalidation and interactive sign-in can all reach
+  /// [_ensureLocalDataOwnedBy] in the same instant; running them one at a time
+  /// means a transition happens once and the rest observe its verified result.
+  Future<void> _ownershipTail = Future<void>.value();
+
+  /// A uid whose ownership could not be resolved in THIS process. Automatic
+  /// paths (auth events, resume, bootstrap re-entry) short-circuit to
+  /// [LocalDataOwnership.unresolved] instead of re-attempting on every event;
+  /// an interactive sign-in ([setIdentity]) clears it for one fresh attempt.
+  String? _unresolvedOwnerUid;
+
   SessionStatus get status => value;
 
   void configureCaptureDeviceUnlink(Future<void> Function()? unlink) {
@@ -151,32 +185,41 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<String?> readLocalDataOwnerUid() =>
       _storage.read(key: _kLocalDataOwnerUid);
 
-  /// يسجّل مالك البيانات المحلية فقط إذا لم تكن مُطالَبة فعلاً من هوية أخرى
-  /// — أول هوية "تطالب" بالبيانات المحلية بعد مسحها هي التي تُسجَّل. تعارض
-  /// قائم (uid مختلف مخزَّن مسبقاً) لا يُستبدَل صامتاً؛ يجب أن يمسحه تسجيل
-  /// الخروج أولاً.
-  Future<void> _claimLocalDataOwnerIfUnclaimed(String uid) async {
-    final existing = await _storage.read(key: _kLocalDataOwnerUid);
-    if (existing == null || existing == uid) {
+  /// Writes [value] to the owner marker and reads it back. True ONLY when the
+  /// read-back equals [value].
+  ///
+  /// Always writes — never gated on the prior read. On iOS the plugin's
+  /// `delete` filters on kSecAttrAccessible while `read` does not, so an owner
+  /// marker written by an older build survives `delete` silently and keeps
+  /// reading back as the previous uid (proven on a real keychain). Its `write`
+  /// path does repair such an item. The read-back is the only evidence that
+  /// counts; a claim that is not verified must never be reported as success.
+  Future<bool> _writeOwnerMarkerVerified(String value) async {
+    try {
+      await _storage.write(key: _kLocalDataOwnerUid, value: value);
+    } on PlatformException catch (e) {
+      if (e.code != '-25299') return false;
+      // Keychain item already exists and overriding failed: delete and retry.
       try {
-        await _storage.write(key: _kLocalDataOwnerUid, value: uid);
-      } on PlatformException catch (e) {
-        if (e.code == '-25299') {
-          // Keychain item already exists, and overriding failed. Delete and retry.
-          await _storage.delete(key: _kLocalDataOwnerUid);
-          await _storage.write(key: _kLocalDataOwnerUid, value: uid);
-        } else {
-          rethrow;
-        }
+        await _storage.delete(key: _kLocalDataOwnerUid);
+        await _storage.write(key: _kLocalDataOwnerUid, value: value);
+      } catch (_) {
+        return false;
       }
-      // MALI-069n §Blocker-1: mint a fresh admission generation ONLY when none
-      // exists (a genuine (re-)admission — sign-out/wipe/ownership-change cleared
-      // it). An idempotent reconcile of the SAME live session keeps its generation,
-      // so its own in-flight background jobs stay valid; a real re-login always
-      // sees the generation absent and rotates, rejecting the previous session's
-      // jobs — even for the same UID.
-      await _mintOwnerGenerationIfAbsent();
+    } catch (_) {
+      return false;
     }
+    try {
+      return await _storage.read(key: _kLocalDataOwnerUid) == value;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Records [uid] as unresolved for this process and reports it.
+  LocalDataOwnership _markOwnershipUnresolved(String uid) {
+    _unresolvedOwnerUid = uid;
+    return LocalDataOwnership.unresolved;
   }
 
   /// Writes a fresh cryptographically-random admission generation iff none is
@@ -200,32 +243,78 @@ class AppSession extends ValueNotifier<SessionStatus> {
     return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join();
   }
 
+  /// Serialised entry point for every ownership reconcile. See
+  /// [_ownershipTail] and [_resolveLocalDataOwnership].
+  Future<LocalDataOwnership> _ensureLocalDataOwnedBy(String uid) {
+    final run = _ownershipTail.then((_) => _resolveLocalDataOwnership(uid));
+    _ownershipTail = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
   /// Ensures the shared local DB belongs to [uid] BEFORE the session is
   /// admitted (MALI-002). A stored owner with a different UID means the
   /// previous user's session ended without the sign-out wipe (expiry,
   /// revocation, crash) — their financial data must never become visible to
-  /// the new identity. If the wipe hook is registered, wipe + re-claim here;
-  /// if not (first reconcile runs before `database_open`), defer: record the
-  /// conflict and return false so the caller withholds admission until
+  /// the new identity.
+  ///
+  /// INVARIANT: if ownership is unresolved, preserve local data and deny
+  /// access. Never destroy data because ownership could not be resolved. A
+  /// destructive transition happens only after the marker has been PROVEN
+  /// writable (a sentinel write that reads back), and admission ([owned]) only
+  /// after the new owner has been READ BACK from the marker. An unverified
+  /// claim previously reported success while the marker kept the old uid, so
+  /// every later reconcile wiped the user's data again.
+  ///
+  /// If the wipe hook is not registered (first reconcile runs before
+  /// `database_open`), nothing is attempted: the conflict is recorded and
+  /// [LocalDataOwnership.deferred] returned until
   /// [resolvePendingLocalDataOwnerConflict] runs.
-  Future<bool> _ensureLocalDataOwnedBy(String uid) async {
-    final existing = await _storage.read(key: _kLocalDataOwnerUid);
-    if (existing == null || existing == uid) {
+  Future<LocalDataOwnership> _resolveLocalDataOwnership(String uid) async {
+    final String? existing;
+    try {
+      existing = await _storage.read(key: _kLocalDataOwnerUid);
+    } catch (_) {
+      return _markOwnershipUnresolved(uid);
+    }
+
+    if (existing == uid) {
+      // The read itself proves the marker is consistent. No write needed.
       _pendingOwnerConflictUid = null;
-      if (existing == null) {
-        // Claiming a currently-unowned DB. Best-effort residue purge as defense
-        // in depth (e.g. a prior reset whose purge failed): a genuinely fresh
-        // install has nothing to purge, so this is a no-op and never blocks
-        // first-run admission (the hook may not be registered this early).
-        await _runResiduePurge();
+      _unresolvedOwnerUid = null;
+      // MALI-069n §Blocker-1: mint a fresh admission generation ONLY when none
+      // exists (a genuine (re-)admission — sign-out/wipe/ownership-change
+      // cleared it). An idempotent reconcile of the SAME live session keeps its
+      // generation, so its own in-flight background jobs stay valid; a real
+      // re-login always sees the generation absent and rotates, rejecting the
+      // previous session's jobs — even for the same UID.
+      await _mintOwnerGenerationIfAbsent();
+      return LocalDataOwnership.owned;
+    }
+
+    if (existing == null) {
+      _pendingOwnerConflictUid = null;
+      // Claiming a currently-unowned DB. Best-effort residue purge as defense
+      // in depth (e.g. a prior reset whose purge failed): a genuinely fresh
+      // install has nothing to purge, so this is a no-op and never blocks
+      // first-run admission (the hook may not be registered this early).
+      await _runResiduePurge();
+      if (!await _writeOwnerMarkerVerified(uid)) {
+        return _markOwnershipUnresolved(uid);
       }
-      await _claimLocalDataOwnerIfUnclaimed(uid);
-      return true;
+      await _mintOwnerGenerationIfAbsent();
+      _unresolvedOwnerUid = null;
+      return LocalDataOwnership.owned;
+    }
+
+    // CONFLICT: another uid, or a leftover transition sentinel.
+    if (_unresolvedOwnerUid == uid) {
+      // Already failed in this process; do not retry on every auth event.
+      return LocalDataOwnership.unresolved;
     }
     final wipe = _wipeLocalFinancialData;
     if (wipe == null) {
       _pendingOwnerConflictUid = uid;
-      return false;
+      return LocalDataOwnership.deferred;
     }
     // MALI-069n §Blocker-1: invalidate the admission generation BEFORE anything
     // destructive, so a background job from the previous owner is rejected
@@ -254,14 +343,39 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final residuePurged = await _runResiduePurge();
     if (!residuePurged) {
       _pendingOwnerConflictUid = uid;
-      return false;
+      return _markOwnershipUnresolved(uid);
     }
 
-    await wipe();
-    await _storage.delete(key: _kLocalDataOwnerUid);
+    // PRE-WIPE PROOF. Nothing has been destroyed yet; if the marker cannot be
+    // made to say what we write, a wipe would only repeat forever. The sentinel
+    // is never a valid uid, so a crash between here and the final claim leaves
+    // a marker that the next reconcile treats as a conflict and redoes.
+    if (!await _writeOwnerMarkerVerified('$_kOwnerTransitionPrefix$uid')) {
+      _pendingOwnerConflictUid = uid;
+      return _markOwnershipUnresolved(uid);
+    }
+
+    try {
+      await wipe();
+    } catch (_) {
+      // The wipe is transactional, so nothing was destroyed. Put the marker
+      // back to the previous owner: a failed transition must not move
+      // ownership, or the previous owner signing back in would take the
+      // conflict path and lose their own data. Best-effort; if even this
+      // cannot be verified the sentinel stays and every reader fails closed.
+      await _writeOwnerMarkerVerified(existing);
+      _pendingOwnerConflictUid = uid;
+      rethrow;
+    }
+
+    if (!await _writeOwnerMarkerVerified(uid)) {
+      _pendingOwnerConflictUid = uid;
+      return _markOwnershipUnresolved(uid);
+    }
+    await _mintOwnerGenerationIfAbsent();
     _pendingOwnerConflictUid = null;
-    await _claimLocalDataOwnerIfUnclaimed(uid);
-    return true;
+    _unresolvedOwnerUid = null;
+    return LocalDataOwnership.owned;
   }
 
   /// Completes an owner conflict deferred by [_ensureLocalDataOwnedBy] once
@@ -275,8 +389,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
     if (_pendingOwnerConflictUid == null) return;
     if (_wipeLocalFinancialData == null) return;
     final uid = _pendingOwnerConflictUid!;
-    final owned = await _ensureLocalDataOwnedBy(uid);
-    if (!owned) return;
+    final ownership = await _ensureLocalDataOwnedBy(uid);
+    if (ownership == LocalDataOwnership.unresolved) {
+      markSessionInvalid();
+      return;
+    }
+    if (ownership != LocalDataOwnership.owned) return;
     await _reconcileSupabaseSession(client.auth.currentSession);
   }
 
@@ -369,14 +487,17 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // identity is stored — user B must start from a clean local DB, never
     // on top of user A's rows.
     if (userId != null && userId.isNotEmpty) {
-      final owned = await _ensureLocalDataOwnedBy(userId);
-      if (!owned && _wipeLocalFinancialData != null) {
-        // The wipe hook IS registered (not the early-bootstrap defer case), so a
-        // not-owned result here means the previous owner's data/residue could
-        // not be fully cleared. Fail closed (MALI-054n): do NOT admit this
-        // identity onto it. The interactive sign-in caller catches this and
-        // surfaces an error. (When the hook is absent — first reconcile before
-        // database_open — admission is deferred, not blocked, as before.)
+      // Interactive sign-in is explicit user intent: allow one fresh attempt
+      // even if an earlier automatic reconcile latched this uid unresolved.
+      if (_unresolvedOwnerUid == userId) _unresolvedOwnerUid = null;
+      final ownership = await _ensureLocalDataOwnedBy(userId);
+      if (ownership == LocalDataOwnership.unresolved) {
+        // Ownership could not be established (previous owner's data/residue
+        // not cleared, or the owner marker could not be verified). Fail closed
+        // (MALI-054n): do NOT admit this identity. Local data is preserved.
+        // The interactive sign-in caller catches this and surfaces an error.
+        // (`deferred` — hook absent before database_open — continues as
+        // before: admission is deferred, not blocked.)
         throw const LocalDataOwnershipException();
       }
     }
@@ -536,6 +657,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     email = null;
     _currentAccountKey = null;
     _onboardingDone = false;
+    _unresolvedOwnerUid = null;
     value = SessionStatus.needsOnboarding;
   }
 
@@ -632,8 +754,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // (first reconcile runs before database_open), leave the coarse status
     // untouched — the boot loader is showing — and let bootstrap resolve the
     // conflict via resolvePendingLocalDataOwnerConflict, which re-enters here.
-    final owned = await _ensureLocalDataOwnedBy(session.user.id);
-    if (!owned) return;
+    final ownership = await _ensureLocalDataOwnedBy(session.user.id);
+    if (ownership == LocalDataOwnership.deferred) return;
+    if (ownership == LocalDataOwnership.unresolved) {
+      // Fail closed: local data is preserved but must not be shown to an
+      // identity whose ownership could not be verified. Route to sign-in.
+      markSessionInvalid();
+      return;
+    }
     final remoteEmail = session.user.email;
     final previousEmail = email;
     final accountKey = _accountKey(
@@ -763,6 +891,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _welcomeManifestoSeen = false;
     _currentAccountKey = null;
     _completedAccountKeys.clear();
+    _unresolvedOwnerUid = null;
     value = SessionStatus.needsOnboarding;
     // In-memory state is signed-out first, so a reported failure still leaves
     // the app in a safe state — but the failure IS reported: a wipe that left
