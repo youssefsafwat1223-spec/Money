@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../diagnostics/persistence_probe.dart'; // TEMP-PROBE
 
 import '../security/lock_prompt_language.dart';
 import '../../data/db/app_database.dart';
@@ -98,6 +99,7 @@ class RestoreBackupUseCase {
     // failure; the whole restore must then roll back with the DB unchanged.
     void Function(String point)? onFaultPoint,
   }) async {
+    await PersistenceProbe.record('restore.replace.requested', caller: StackTrace.current); // TEMP-PROBE
     void fault(String point) => onFaultPoint?.call(point);
     final schemaVersion = _schemaVersion(snapshot);
     if (schemaVersion > currentSchemaVersion) {

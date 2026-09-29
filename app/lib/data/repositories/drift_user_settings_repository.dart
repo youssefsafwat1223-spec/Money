@@ -1,4 +1,5 @@
 import 'package:drift/drift.dart';
+import '../../core/diagnostics/persistence_probe.dart'; // TEMP-PROBE
 
 import '../../domain/entities/supporting_entities.dart';
 import '../../domain/repositories/user_settings_repository.dart';
@@ -44,6 +45,11 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
       // former forced-true clamp made the privacy toggles meaningless.
       final requiredSettings = settings;
       final previousSettings = await getSettings();
+      await PersistenceProbe.record('settings.save', fields: { // TEMP-PROBE
+        'previousLanguage': previousSettings.language,
+        'incomingLanguage': settings.language,
+        'sameSettingsRow': previousSettings.id == settings.id,
+      }, caller: StackTrace.current);
       final consentChanged =
           previousSettings.aiConsentState != requiredSettings.aiConsentState ||
               previousSettings.cloudConsentState !=

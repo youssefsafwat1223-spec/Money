@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/utils/id_generator.dart';
+import '../../core/diagnostics/persistence_probe.dart'; // TEMP-PROBE
 import 'database_key_store.dart';
 import 'database_lease.dart';
 import 'database_process_liveness.dart';
@@ -355,6 +356,8 @@ class AppDatabase extends GeneratedDatabase {
   /// (runMigrations=false) skips the pipeline entirely.
   static Future<AppDatabase> _finishOpen(
       AppDatabase db, bool runMigrations) async {
+    await PersistenceProbe.snapshot(
+        'database.before_initialize', db); // TEMP-PROBE
     db._lifecycle = DatabaseLifecycleState.opening;
     if (!runMigrations) {
       db._lifecycle = DatabaseLifecycleState.open;
@@ -368,6 +371,8 @@ class AppDatabase extends GeneratedDatabase {
       rethrow;
     }
     db._lifecycle = DatabaseLifecycleState.open;
+    await PersistenceProbe.snapshot(
+        'database.after_initialize', db); // TEMP-PROBE
     return db;
   }
 
@@ -389,12 +394,14 @@ class AppDatabase extends GeneratedDatabase {
   /// the recovery screen when the file can't be decrypted/opened — the data is
   /// unrecoverable without the key, so a clean recreate is the only way forward.
   static Future<void> deleteDatabaseFile() async {
+    await PersistenceProbe.record('database.delete.requested', caller: StackTrace.current); // TEMP-PROBE
     final directory = await getApplicationSupportDirectory();
     for (final suffix in const ['', '-wal', '-shm']) {
       final file =
           File(p.join(directory.path, 'money_companion.sqlite$suffix'));
       if (await file.exists()) {
-        await file.delete();
+        await PersistenceProbe.mutation('FILE_DELETE', 'encrypted_database$suffix',
+            file.delete, destructive: true); // TEMP-PROBE
       }
     }
   }
@@ -484,6 +491,7 @@ class AppDatabase extends GeneratedDatabase {
   ///    Rebuilding a *referenced* table (as MALI-026 may need) would require
   ///    foreign_keys=OFF outside the txn — a documented limitation, out of scope.
   Future<void> _runInitialize() async {
+    await PersistenceProbe.record('migration.initialize', caller: StackTrace.current); // TEMP-PROBE
     // Phase 1 — connection-level FK enforcement (non-transactional; set first).
     // Then VERIFY it actually took: if enforcement is not active we cannot make
     // the integrity guarantees below, so fail closed (unconditional, runs in
@@ -1199,17 +1207,37 @@ class AppDatabase extends GeneratedDatabase {
   static String? targetTableOf(String sql) =>
       _dmlTargetTable.firstMatch(sql)?.group(1);
 
+  // TEMP-PROBE: distinguish executed statements from committed transactions.
+  @override
+  Future<T> transaction<T>(Future<T> Function() action, {bool requireNew = false}) async {
+    if (!PersistenceProbe.enabled) return super.transaction(action, requireNew: requireNew);
+    final parent = Zone.current[PersistenceProbe.transactionKey];
+    final id = ++PersistenceProbe.sequence;
+    await PersistenceProbe.record('transaction.begin', fields: {'id': id, 'parent': parent});
+    try {
+      final result = await super.transaction(
+        () => runZoned(action, zoneValues: {PersistenceProbe.transactionKey: id}),
+        requireNew: requireNew);
+      await PersistenceProbe.record(parent == null ? 'transaction.committed' : 'transaction.nested_completed',
+          fields: {'id': id, 'parent': parent});
+      return result;
+    } catch (_) {
+      await PersistenceProbe.record('transaction.failed', fields: {'id': id, 'parent': parent});
+      rethrow;
+    }
+  }
+
   @override
   Future<int> customInsert(
     String query, {
     List<Variable> variables = const [],
     Set<ResultSetImplementation<dynamic, dynamic>>? updates,
   }) async {
-    final result = await super.customInsert(
+    final result = await PersistenceProbe.sql(query, () => super.customInsert( // TEMP-PROBE
       query,
       variables: variables,
       updates: updates,
-    );
+    ), db: this);
     _notifyManualRevision(targetTableOf(query));
     return result;
   }
@@ -1221,19 +1249,19 @@ class AppDatabase extends GeneratedDatabase {
     Set<ResultSetImplementation<dynamic, dynamic>>? updates,
     UpdateKind? updateKind,
   }) async {
-    final result = await super.customUpdate(
+    final result = await PersistenceProbe.sql(query, () => super.customUpdate( // TEMP-PROBE
       query,
       variables: variables,
       updates: updates,
       updateKind: updateKind,
-    );
+    ), db: this);
     _notifyManualRevision(targetTableOf(query));
     return result;
   }
 
   @override
   Future<void> customStatement(String statement, [List<dynamic>? args]) async {
-    await super.customStatement(statement, args);
+    await PersistenceProbe.sql(statement, () => super.customStatement(statement, args), db: this); // TEMP-PROBE
     if (_looksLikeDataWrite(statement)) {
       _notifyManualRevision(targetTableOf(statement));
     }
@@ -3175,6 +3203,7 @@ class AppDatabase extends GeneratedDatabase {
   }
 
   Future<void> _seedIfNeeded() async {
+    await PersistenceProbe.record('defaults.seed.check', caller: StackTrace.current); // TEMP-PROBE
     if (await count('categories') == 0) {
       for (final category in DatabaseSeed.categories) {
         await customInsert(

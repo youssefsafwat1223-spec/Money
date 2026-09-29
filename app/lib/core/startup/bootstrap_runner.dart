@@ -35,6 +35,7 @@ import '../backend/supabase_config.dart';
 import '../di/app_providers.dart';
 import '../privacy/data_wipe_service.dart';
 import '../session/app_session.dart';
+import '../diagnostics/persistence_probe.dart'; // TEMP-PROBE
 
 /// Thrown when [BootstrapRunner.run] exceeds [BootstrapRunner.timeout].
 class BootstrapTimeoutException implements Exception {
@@ -102,6 +103,7 @@ class BootstrapRunner {
   }
 
   Future<AppDatabase> _runSteps() async {
+    if (PersistenceProbe.enabled) PersistenceProbe.bootstrapGeneration++; // TEMP-PROBE
     // Runs in EVERY build mode. In release a missing/non-production Supabase
     // configuration throws (fail closed → startup error screen) instead of
     // silently proceeding into stub auth / no cloud (MALI-003).
@@ -395,6 +397,7 @@ class BootstrapRunner {
         '[Bootstrap] done — session=${AppSession.instance.status.name}',
       );
     }
+    await PersistenceProbe.snapshot('startup.after', database); // TEMP-PROBE
     return database;
   }
 
@@ -438,11 +441,18 @@ class BootstrapRunner {
   }
 
   Future<T> _step<T>(String name, Future<T> Function() run) async {
+    await PersistenceProbe.record('bootstrap.$name.before'); // TEMP-PROBE
     _lastStep = name;
     final start = DateTime.now();
     if (kDebugMode) debugPrint('[Bootstrap] $name start');
     try {
-      final result = await run();
+      final result = await runZoned(run, zoneValues: { // TEMP-PROBE
+        PersistenceProbe.reasonKey: 'bootstrap.$name',
+      });
+      if (_database != null) {
+        // TEMP-PROBE
+        await PersistenceProbe.snapshot('bootstrap.$name.after', _database!);
+      }
       if (kDebugMode) {
         final ms = DateTime.now().difference(start).inMilliseconds;
         debugPrint('[Bootstrap] $name ok (${ms}ms)');

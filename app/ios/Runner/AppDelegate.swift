@@ -268,6 +268,17 @@ enum ApnsEnvironment {
       switch call.method {
       case "consumePendingSharedInput":
         result(SharedCaptureStore.consumePendingText())
+      // TEMP-PROBE: metadata only, fixed DB path; no caller-supplied paths.
+      // Invoked only by QA_PERSISTENCE_TRACE Dart builds; remove with the probe.
+      case "TEMP-PROBE.persistenceMetadata":
+        let directory = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
+        let path = directory.appendingPathComponent("money_companion.sqlite").path
+        let attributes = try? FileManager.default.attributesOfItem(atPath: path)
+        result([
+          "inode": attributes?[.systemFileNumber] ?? NSNull(),
+          "nativeDbPath": path,
+          "nativeDbSize": attributes?[.size] ?? NSNull()
+        ])
       case "consumePendingSharedMessages":
         result(SharedCaptureStore.consumePendingPayloadsJSON())
       case "peekPendingSharedMessages":

@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/db/app_database.dart';
 import '../di/app_providers.dart';
+import '../diagnostics/persistence_probe.dart'; // TEMP-PROBE
 
 /// حذف كل البيانات المالية المحلية والشخصية (Privacy → «حذف كل بياناتي»،
 /// وتسجيل الخروج العادي — انظر AppSession.signOut).
@@ -87,6 +88,9 @@ class DataWipeService {
   ];
 
   Future<void> wipeAll() async {
+    await PersistenceProbe.record('wipeAll.enter',
+        caller: StackTrace.current); // TEMP-PROBE
+    await PersistenceProbe.snapshot('wipeAll.before', _db); // TEMP-PROBE
     // MALI-011: the wipe must be ATOMIC. A crash mid-loop previously left a
     // partially-deleted database that the owner gate would then treat as
     // "owned" once the owner uid was (re)claimed — leaking one user's residue
@@ -106,6 +110,7 @@ class DataWipeService {
       ''');
       await _db.reseedDefaultsAfterWipe();
     });
+    await PersistenceProbe.snapshot('wipeAll.after', _db); // TEMP-PROBE
   }
 }
 

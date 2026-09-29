@@ -215,6 +215,10 @@ workflows:
             "$MARKETING_VERSION" "$IOS_BUILD_NUMBER" >> "$CM_ENV"
           echo "App Store Connect preflight: $MARKETING_VERSION ($LATEST_BUILD_NUMBER) exists; building ($IOS_BUILD_NUMBER)."
 
+      - name: TEMP-PROBE recorder privacy and durability tests
+        working_directory: app
+        script: flutter test --dart-define=QA_PERSISTENCE_TRACE=true test/core/diagnostics/persistence_probe_test.dart
+
       # Audit H-15: the canonical gate runs BEFORE any signing material is set up
       # or any artifact is built, so a mandatory-gate failure structurally makes
       # provisioning, the signed build, and the TestFlight submission below
@@ -304,6 +308,7 @@ workflows:
           # stale single IPA cannot masquerade as output from this build.
           rm -rf build/ios/ipa
           flutter build ipa --release \
+            --dart-define=QA_PERSISTENCE_TRACE=true \
             --build-name="$IOS_MARKETING_VERSION" \
             --build-number="$IOS_BUILD_NUMBER" \
             --dart-define=SUPABASE_URL="${SUPABASE_URL:-}" \
@@ -342,6 +347,11 @@ workflows:
           }
           bash ../tools/stamp_ios_provenance.sh "$IPA"
           bash ../tools/verify_ios_release_artifact.sh "$IPA"
+          # TEMP-PROBE: block publication unless BOTH signed targets match Build 45.
+          PROBE_BUNDLE="$(mktemp -d /tmp/qirsh-probe-entitlements.XXXXXX)"
+          unzip -q "$IPA" -d "$PROBE_BUNDLE"
+          python3 ../tools/compare_persistence_probe_entitlements.py \
+            ../tools/qa/build45_signed_entitlements.json "$PROBE_BUNDLE/Payload/Runner.app"
     artifacts:
       # App Store Connect receives the only collected .ipa: the exact path above.
       - $IOS_RELEASE_IPA

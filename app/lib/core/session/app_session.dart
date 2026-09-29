@@ -11,6 +11,7 @@ import '../../data/db/database_key_store.dart';
 import '../backend/supabase_config.dart';
 import '../tracking/user_activity_service.dart';
 import '../security/secure_storage_options.dart';
+import '../diagnostics/persistence_probe.dart'; // TEMP-PROBE
 
 /// [sessionExpired] is distinct from [needsOnboarding]: onboarding metadata
 /// (auth method, completed-account keys) stays intact — only the *live*
@@ -134,6 +135,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// at identity-admission boundaries MUST treat false as "residue may remain"
   /// and fail closed.
   Future<bool> _runResiduePurge() async {
+    await PersistenceProbe.record('residue.purge.requested', caller: StackTrace.current); // TEMP-PROBE
     final purge = _purgeLocalResidue;
     if (purge == null) return false;
     try {
@@ -210,6 +212,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// [resolvePendingLocalDataOwnerConflict] runs.
   Future<bool> _ensureLocalDataOwnedBy(String uid) async {
     final existing = await _storage.read(key: _kLocalDataOwnerUid);
+    await PersistenceProbe.record('owner.check',
+        fields: {
+          // TEMP-PROBE
+          'ownerPresent': existing != null,
+          'incomingMatchesOwner': existing == uid,
+          'pendingPresent': _pendingOwnerConflictUid != null,
+          'pendingMatchesIncoming': _pendingOwnerConflictUid == uid,
+          'wipeRegistered': _wipeLocalFinancialData != null,
+        },
+        caller: StackTrace.current);
     if (existing == null || existing == uid) {
       _pendingOwnerConflictUid = null;
       if (existing == null) {
@@ -495,6 +507,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   Future<void> signOut() async {
+    await PersistenceProbe.record('explicit_signOut',
+        caller: StackTrace.current); // TEMP-PROBE
     // MALI-069n §Blocker-1: invalidate the admission generation FIRST, before any
     // purge/wipe begins, so an in-flight background job bound to this session is
     // rejected at its next validation boundary and can neither commit nor
@@ -579,6 +593,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// without touching onboarding completion, the stored identity, or any
   /// unrelated local preference — only the *live* session judgment changes.
   void markSessionInvalid() {
+    unawaited(PersistenceProbe.record('session.invalidate', caller: StackTrace.current)); // TEMP-PROBE
     if (isGuest || authMethod == null) return;
     if (value == SessionStatus.sessionExpired) return;
     value = SessionStatus.sessionExpired;
@@ -588,6 +603,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   Future<void> _handleSupabaseAuthChange(supabase.AuthState state) async {
+    if (PersistenceProbe.enabled) PersistenceProbe.sessionGeneration++; // TEMP-PROBE
+    await PersistenceProbe.record('auth.${state.event.name}'); // TEMP-PROBE
     switch (state.event) {
       case supabase.AuthChangeEvent.signedOut:
       case supabase.AuthChangeEvent.userDeleted:

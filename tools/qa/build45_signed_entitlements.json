@@ -1,0 +1,34 @@
+{
+  "baselineBuild": "1.0.0 (45)",
+  "codemagicBuild": "6abaca6c45f9b71f3f80ad1f",
+  "sourceCommit": "3ca2a8a029ee010e8847b27b564808957ed365af",
+  "Runner": {
+    "aps-environment": "production",
+    "keychain-access-groups": [
+      "5TWARK8A23.com.youssefsafwat.mali",
+      "5TWARK8A23.com.youssefsafwat.mali.shared"
+    ],
+    "com.apple.developer.applesignin": [
+      "Default"
+    ],
+    "com.apple.developer.team-identifier": "5TWARK8A23",
+    "application-identifier": "5TWARK8A23.com.youssefsafwat.mali",
+    "beta-reports-active": true,
+    "com.apple.security.application-groups": [
+      "group.com.youssefsafwat.mali"
+    ],
+    "get-task-allow": false
+  },
+  "ShareBankMessage": {
+    "application-identifier": "5TWARK8A23.com.youssefsafwat.mali.ShareBankMessage",
+    "beta-reports-active": true,
+    "get-task-allow": false,
+    "keychain-access-groups": [
+      "5TWARK8A23.com.youssefsafwat.mali.shared"
+    ],
+    "com.apple.developer.team-identifier": "5TWARK8A23",
+    "com.apple.security.application-groups": [
+      "group.com.youssefsafwat.mali"
+    ]
+  }
+}
