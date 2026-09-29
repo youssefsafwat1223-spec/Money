@@ -3,7 +3,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -181,16 +180,6 @@ abstract final class PersistenceProbe {
               .customSelect('SELECT language FROM user_settings LIMIT 1')
               .getSingleOrNull()
           : null;
-      Map<String, Object?> native = {'inode': 'unavailable'};
-      if (Platform.isIOS) {
-        try {
-          native = Map<String, Object?>.from(
-              await const MethodChannel('money_companion/native_capture')
-                      .invokeMapMethod<String, Object?>(
-                          'TEMP-PROBE.persistenceMetadata') ??
-                  native);
-        } catch (_) {}
-      }
       final language = settings?.read<String>('language');
       final theme =
           await SecureStorageOptions.storage.read(key: 'app_theme_mode');
@@ -198,7 +187,6 @@ abstract final class PersistenceProbe {
         'dbPath': path,
         'dbExists': await file.exists(),
         'dbSize': await file.exists() ? await file.length() : null,
-        ...native,
         'walPresent': await File('$path-wal').exists(),
         'shmPresent': await File('$path-shm').exists(),
         'counts': counts,

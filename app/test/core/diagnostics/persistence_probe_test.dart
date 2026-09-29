@@ -93,7 +93,7 @@ void main() {
   });
 
   test('disk writes capture state and distinguish rollback from commit', () async {
-    final file = File('${directory.path}/test.sqlite');
+    final file = File('${directory.path}/money_companion.sqlite');
     final db = await AppDatabase.open(executor: NativeDatabase(file), keyStore: _TestKeyStore());
     try {
       await db.transaction(() => db.customStatement("UPDATE user_settings SET language = 'en'"));
@@ -113,6 +113,18 @@ void main() {
     try {
       expect((await reopened.customSelect('SELECT language FROM user_settings').getSingle()).read<String>('language'), 'en');
       expect((await events()).any((r) => r['event'] == 'transaction.failed'), isTrue);
+      await PersistenceProbe.snapshot('test.reopened.snapshot', reopened);
+      final snapshot = (await events()).last;
+      expect(snapshot['event'], 'test.reopened.snapshot');
+      expect(snapshot['dbPath'], file.path);
+      expect(snapshot['dbExists'], isTrue);
+      expect(snapshot['dbSize'], await file.length());
+      expect(snapshot['counts']['user_settings'], 1);
+      expect(snapshot['language'], 'en');
+      expect(snapshot.containsKey('inode'), isFalse);
+      expect(snapshot.containsKey('nativeDbPath'), isFalse);
+      expect(snapshot.containsKey('nativeDbSize'), isFalse);
+      expect(await trace().readAsString(), isNot(contains('PRIVATE_')));
     } finally { await reopened.close(); }
   });
 }
