@@ -1,3 +1,4 @@
+import '../sync/sync_health.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -497,6 +498,7 @@ void _startSenderBankMappingSync(
   AppDatabase database,
   SupabaseClient client,
 ) {
+  unawaited(SyncHealth.shared.attach(database));
   final service = SenderBankMappingSyncService(
     db: database,
     remoteStore: SupabaseSenderBankMappingRemoteStore(client),
@@ -506,6 +508,7 @@ void _startSenderBankMappingSync(
     mayEgress: () => ConsentAuthority(
           () => DriftUserSettingsRepository(database).getSettings(),
         ).allows(EgressClass.senderBankMappings),
+    health: SyncHealth.shared,
   );
   unawaited(service.sync());
   client.auth.onAuthStateChange.listen((state) {

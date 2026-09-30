@@ -1,3 +1,4 @@
+import '../../../core/sync/sync_health.dart';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -84,7 +85,9 @@ class SmartInboxSyncService {
     /// C-3 — Smart Inbox items are user data. Defaults to DENY.
     Future<bool> Function()? mayEgress,
     int pageSize = 200,
+    SyncHealth? health,
   })  : assert(pageSize > 0),
+        _health = health,
         _db = db,
         _isPullEnabled = isPullEnabled,
         _remoteSource = remoteSource ?? const SupabaseSmartInboxRemoteSource(),
@@ -106,6 +109,7 @@ class SmartInboxSyncService {
   final AppDatabase _db;
   final bool Function() _isPullEnabled;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
   final SmartInboxRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
   final int _pageSize;
@@ -119,7 +123,10 @@ class SmartInboxSyncService {
     // C-3 — Smart Inbox items are user data. `isPullEnabled` is a FEATURE gate
     // (and was wired to a hardcoded `() => true`); consent is a separate
     // question, asked fresh at egress.
-    if (!await _mayEgress()) return 0;
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.smartInbox);
+      return 0;
+    }
     if (!_isPullEnabled()) return 0;
     final userId = await _getAuthUserId();
     if (userId == null) return 0;
@@ -144,6 +151,7 @@ class SmartInboxSyncService {
         pushed++;
       } catch (e) {
         // offline / خطأ مؤقت — يبقى pending_sync=1 للمحاولة في الدورة التالية.
+        _health?.noteFailure(SyncDomain.smartInbox, e);
         if (kDebugMode) debugPrint('[SmartInboxSync] push item skipped: $e');
       }
     }
@@ -155,7 +163,10 @@ class SmartInboxSyncService {
     SyncCursor? from,
     bool Function()? isAdmitted,
   }) async {
-    if (!await _mayEgress()) return const SmartInboxSyncResult();
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.smartInbox);
+      return const SmartInboxSyncResult();
+    }
     if (!_isPullEnabled()) return const SmartInboxSyncResult();
 
     final userId = await _getAuthUserId();
@@ -222,6 +233,7 @@ class SmartInboxSyncService {
       // Lifecycle/ownership cancellation, not a transport failure.
       if (kDebugMode) debugPrint('[SmartInboxSync] reconciliation cancelled');
     } catch (e) {
+      _health?.noteFailure(SyncDomain.smartInbox, e);
       if (kDebugMode) debugPrint('[SmartInboxSync] pull error: $e');
     }
     final status =

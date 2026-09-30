@@ -1,3 +1,4 @@
+import '../../../core/sync/sync_health.dart';
 import 'dart:convert';
 
 import 'package:drift/drift.dart' show QueryRow;
@@ -175,8 +176,15 @@ class PlanningPullService {
     /// Consent is asked fresh at egress and defaults to DENY, so a caller that
     /// omits it performs no network at all.
     Future<bool> Function()? mayEgress,
+    /// `user_settings` carries PII (profile) — a separate egress class. Falls
+    /// back to [mayEgress] (and therefore to DENY) when omitted.
+    Future<bool> Function()? mayEgressProfile,
+    SyncHealth? health,
     int pageSize = 200,
   })  : assert(pageSize > 0),
+        _mayEgressProfile =
+            mayEgressProfile ?? mayEgress ?? _denyEgressByDefault,
+        _health = health,
         _db = db,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
@@ -191,6 +199,8 @@ class PlanningPullService {
   final PlanningRemoteSource _remoteSource;
   final PlanningOutboxQueue? _outboxQueue;
   final Future<bool> Function() _mayEgress;
+  final Future<bool> Function() _mayEgressProfile;
+  final SyncHealth? _health;
 
   static Future<bool> _denyEgressByDefault() async => false;
   final int _pageSize;
@@ -235,7 +245,15 @@ class PlanningPullService {
     // C-3 — one check for the whole pull, before any cursor is read. Placing it
     // per-entity inside the loop would let a revocation mid-pull leave some
     // entities advanced and others not.
-    if (!await _mayEgress()) return const PlanningPullResult();
+    final financialAllowed = await _mayEgress();
+    final profileAllowed = await _mayEgressProfile();
+    if (!financialAllowed && !profileAllowed) {
+      _health?.noteConsentBlocked(SyncDomain.planning);
+      return const PlanningPullResult();
+    }
+    if (!financialAllowed || !profileAllowed) {
+      _health?.noteConsentBlocked(SyncDomain.planning);
+    }
     final userId = await _getAuthUserId();
     if (userId == null) return const PlanningPullResult();
     final admitted = isAdmitted ?? alwaysAdmitted;
@@ -250,6 +268,8 @@ class PlanningPullService {
       final entityType = entry.key;
       final remoteTable = entry.value;
       if (!_isEnabled(entityType)) continue;
+      final isSettings = entityType == PlanningOutboxQueue.settingsEntityType;
+      if (!(isSettings ? profileAllowed : financialAllowed)) continue;
 
       try {
         final cursorKey = 'planning_$entityType';
@@ -355,6 +375,7 @@ class PlanningPullService {
           debugPrint('[PlanningPull] $entityType reconciliation cancelled');
         }
       } catch (e) {
+        _health?.noteFailure(SyncDomain.planning, e);
         if (kDebugMode) debugPrint('[PlanningPull] $entityType pull: $e');
       }
     }

@@ -1,3 +1,4 @@
+import '../../../core/sync/sync_health.dart';
 import 'dart:convert';
 
 import 'package:drift/drift.dart' show QueryRow;
@@ -101,7 +102,9 @@ class AccountsPullService {
     Future<String?> Function()? getAuthUserId,
     AccountsRemoteSource? remoteSource,
     int pageSize = 200,
+    SyncHealth? health,
   })  : assert(pageSize > 0),
+        _health = health,
         _db = db,
         _isEnabled = isEnabled,
         _mayEgress = mayEgress ?? _denyEgressByDefault,
@@ -112,6 +115,7 @@ class AccountsPullService {
   final AppDatabase _db;
   final bool Function() _isEnabled;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
 
   static Future<bool> _denyEgressByDefault() async => false;
   final Future<String?> Function() _getAuthUserId;
@@ -139,7 +143,10 @@ class AccountsPullService {
     SyncCursor? from,
     bool Function()? isAdmitted,
   }) async {
-    if (!await _mayEgress()) return const AccountsPullResult();
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.accounts);
+      return const AccountsPullResult();
+    }
     if (!_isEnabled()) return const AccountsPullResult();
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPullResult();
@@ -222,6 +229,7 @@ class AccountsPullService {
       // no backoff, no remote-failure diagnostic. Leaves the pull non-completed.
       if (kDebugMode) debugPrint('[AccountsPull] reconciliation cancelled');
     } catch (e) {
+      _health?.noteFailure(SyncDomain.accounts, e);
       if (kDebugMode) debugPrint('[AccountsPull] pull error: $e');
     }
 

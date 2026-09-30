@@ -313,6 +313,7 @@ void main() {
     await q.enqueueBudget(PlanningSyncOperation.create, budget());
     final sink = _CapturingSink();
     final result = await PlanningPushService(
+      mayEgress: () async => true,
       db: db,
       queue: q,
       isEnabled: (_) => true,
@@ -444,6 +445,7 @@ void main() {
           getAuthUserId: () async => 'user-1',
           remote: remote,
           coordinator: _canonical,
+          mayEgress: () async => true,
         );
 
     // Capability UNKNOWN → contribution deferred (gate closed), no RPC, durable.

@@ -1,3 +1,4 @@
+import '../../../core/sync/sync_health.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -59,7 +60,9 @@ class LedgerPushService implements LedgerPushAdapter {
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
     /// C-3 — consulted at the moment of egress; defaults to DENY.
     Future<bool> Function()? mayEgress,
+    SyncHealth? health,
   })  : _db = db,
+        _health = health,
         _queue = queue,
         _isPushEnabled = isPushEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
@@ -86,6 +89,7 @@ class LedgerPushService implements LedgerPushAdapter {
   final AppDatabase _db;
   final LedgerOutboxQueue _queue;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
   final bool Function() _isPushEnabled;
   final Future<String?> Function() _getAuthUserId;
   final SupabaseClient Function() _getClient;
@@ -103,7 +107,10 @@ class LedgerPushService implements LedgerPushAdapter {
   @override
   Future<LedgerPushResult> push() async {
     // C-3 — transactions are money. Without cloud consent they stay on device.
-    if (!await _mayEgress()) return const LedgerPushResult();
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.ledger);
+      return const LedgerPushResult();
+    }
     if (!_isPushEnabled()) return const LedgerPushResult();
 
     final userId = await _getAuthUserId();
@@ -138,9 +145,11 @@ class LedgerPushService implements LedgerPushAdapter {
           case _PushOutcome.parked:
             // Held durably; not sent, not synced, not a failure/retry.
             parked++;
+            _health?.noteCapabilityParked(SyncDomain.ledger);
         }
       } catch (e) {
         failed++;
+        _health?.noteFailure(SyncDomain.ledger, e);
         await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
         if (kDebugMode) debugPrint('[LedgerPush] item error: $e');
       }

@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/sync/conflict_resolver.dart';
+import '../../../core/sync/sync_health.dart';
 import '../../../data/db/legacy_financial_cache_reconciler.dart';
 import '../../app/legacy_reconcile_domains.dart';
 import 'accounts_pull_service.dart';
@@ -37,7 +38,9 @@ class PlanningSyncEngine {
     required PlanningChildSyncService planningChildSyncService,
     required PlanningStartupRegistrationService startupRegistrationService,
     required UniversalConflictResolver conflictResolver,
-  })  : _accountsPush = accountsPushService,
+    SyncHealth? health,
+  })  : _health = health,
+        _accountsPush = accountsPushService,
         _accountsPull = accountsPullService,
         _planningPush = planningPushService,
         _planningPull = planningPullService,
@@ -52,6 +55,26 @@ class PlanningSyncEngine {
   final PlanningChildSyncService _planningChildren;
   final PlanningStartupRegistrationService _startupRegistration;
   final UniversalConflictResolver _conflictResolver;
+  final SyncHealth? _health;
+
+  /// Runs one phase: isolated (never rethrows) and recorded in [SyncHealth].
+  Future<void> _phase(
+    SyncDomain domain,
+    SyncDirection direction,
+    Future<void> Function() body,
+    String label,
+  ) async {
+    final health = _health;
+    try {
+      if (health == null) {
+        await body();
+      } else {
+        await health.runPhase(domain, direction, body, rethrowErrors: true);
+      }
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PlanningSync] $label error: $e');
+    }
+  }
 
   Future<void> sync({LegacyFinancialCacheReconciler? reconciler}) async {
     final parents = await syncParents(reconciler: reconciler);
@@ -69,20 +92,14 @@ class PlanningSyncEngine {
   Future<SyncParentsOutcome> syncParents({
     LegacyFinancialCacheReconciler? reconciler,
   }) async {
-    try {
-      await _accountsPush.push();
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PlanningSync] accounts push error: $e');
-    }
+    await _phase(SyncDomain.accounts, SyncDirection.push,
+        () => _accountsPush.push(), 'accounts push');
     final accounts = await reconcileOrPull(
       reconciler: reconciler,
       domain: accountsReconcileDomain(_accountsPull),
       normalPull: (admitted) async {
-        try {
-          await _accountsPull.pull(isAdmitted: admitted);
-        } catch (e) {
-          if (kDebugMode) debugPrint('[PlanningSync] accounts pull error: $e');
-        }
+        await _phase(SyncDomain.accounts, SyncDirection.pull,
+            () => _accountsPull.pull(isAdmitted: admitted), 'accounts pull');
       },
     );
     if (accounts == ReconcileDomainResult.cancelled) {
@@ -91,11 +108,8 @@ class PlanningSyncEngine {
         planning: ReconcileDomainResult.noDirtyState,
       );
     }
-    try {
-      await _planningPush.push();
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PlanningSync] planning push error: $e');
-    }
+    await _phase(SyncDomain.planning, SyncDirection.push,
+        () => _planningPush.push(), 'planning push');
     // Auto-resolve low-stakes config conflicts (cards/categories/settings) in
     // favour of the server BEFORE the pull, so the pull overwrites the local
     // copy within this same pass — they never sit stuck in `conflict` awaiting a
@@ -121,13 +135,11 @@ class PlanningSyncEngine {
       reconciler: reconciler,
       domain: planningReconcileDomain(_planningPull),
       normalPull: (admitted) async {
-        try {
+        await _phase(SyncDomain.planning, SyncDirection.pull, () async {
           final result = await _planningPull.pull(isAdmitted: admitted);
           settingsPullCompleted = result.completedEntities
               .contains(PlanningOutboxQueue.settingsEntityType);
-        } catch (e) {
-          if (kDebugMode) debugPrint('[PlanningSync] planning pull error: $e');
-        }
+        }, 'planning pull');
       },
     );
     if (planning == ReconcileDomainResult.cancelled) {
@@ -137,23 +149,18 @@ class PlanningSyncEngine {
     // Pull first so an existing remote singleton wins over freshly seeded
     // defaults. Only genuinely missing settings/custom categories are queued —
     // and the settings singleton only under the positive authority above.
-    try {
+    await _phase(SyncDomain.planning, SyncDirection.push, () async {
       await _startupRegistration.registerMissingRows(
           settingsPullCompleted: settingsPullCompleted);
       await _planningPush.push();
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PlanningSync] registration error: $e');
-    }
+    }, 'registration');
     return SyncParentsOutcome(accounts: accounts, planning: planning);
   }
 
   /// Called after ledger sync so bill-payment transaction references and plan
   /// links can resolve both sides on their first pass.
   Future<void> syncChildren() async {
-    try {
-      await _planningChildren.sync();
-    } catch (e) {
-      if (kDebugMode) debugPrint('[PlanningSync] children error: $e');
-    }
+    await _phase(SyncDomain.children, SyncDirection.push,
+        () => _planningChildren.sync(), 'children');
   }
 }

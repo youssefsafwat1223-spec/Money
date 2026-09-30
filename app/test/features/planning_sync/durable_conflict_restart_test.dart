@@ -130,6 +130,7 @@ void main() {
       db: db, isSyncEnabled: (_) => true, getAuthUserId: () async => 'user-1');
   PlanningPushService push(AppDatabase db, PlanningOutboxQueue q, _Server s) =>
       PlanningPushService(
+        mayEgress: () async => true,
         db: db,
         queue: q,
         isEnabled: (_) => true,

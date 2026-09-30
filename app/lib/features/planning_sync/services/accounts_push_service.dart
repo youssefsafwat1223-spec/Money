@@ -1,3 +1,4 @@
+import '../../../core/sync/sync_health.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -261,7 +262,9 @@ class AccountsPushService {
     /// C-3 — consulted at the moment of egress. Defaults to DENY so a caller
     /// that forgets it gets no network.
     Future<bool> Function()? mayEgress,
+    SyncHealth? health,
   })  : _db = db,
+        _health = health,
         _mayEgress = mayEgress ?? _denyEgressByDefault,
         _queue = queue,
         _isEnabled = isEnabled,
@@ -277,6 +280,7 @@ class AccountsPushService {
   final AppDatabase _db;
   final PlanningOutboxQueue _queue;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
   final bool Function() _isEnabled;
   final Future<String?> Function() _getAuthUserId;
   final AccountsRemoteSink _remoteSink;
@@ -303,7 +307,10 @@ class AccountsPushService {
     // C-3 — money must not leave the device without cloud consent. This is the
     // headline of F-025: the privacy screen promises the switch disables
     // synchronisation, and it did not.
-    if (!await _mayEgress()) return const AccountsPushResult();
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.accounts);
+      return const AccountsPushResult();
+    }
     if (!_isEnabled()) return const AccountsPushResult();
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPushResult();
@@ -335,9 +342,11 @@ class AccountsPushService {
             abandoned++;
           case _AccountsPushOutcome.parked:
             parked++;
+            _health?.noteCapabilityParked(SyncDomain.accounts);
         }
       } catch (e) {
         failed++;
+        _health?.noteFailure(SyncDomain.accounts, e);
         await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
         if (kDebugMode) debugPrint('[AccountsPush] item error: $e');
       }
@@ -366,6 +375,7 @@ class AccountsPushService {
         pushed++;
       } catch (e) {
         failed++;
+        _health?.noteFailure(SyncDomain.accounts, e);
         await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
         if (kDebugMode) debugPrint('[AccountsPush] default command error: $e');
       }

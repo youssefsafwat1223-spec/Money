@@ -71,6 +71,7 @@ void main() {
   tearDown(() => db.close());
 
   EngagementEventService service() => EngagementEventService(
+        mayEgress: () async => true,
         db: db,
         recorder: recorder,
         isSyncEnabled: () => true,

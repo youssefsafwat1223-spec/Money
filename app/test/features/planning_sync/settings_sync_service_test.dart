@@ -180,6 +180,7 @@ PlanningOutboxQueue _queue(AppDatabase db) => PlanningOutboxQueue(
 PlanningPushService _push(AppDatabase db, PlanningOutboxQueue q, _FakeRemote r,
         {bool revisionCasEnabled = false}) =>
     PlanningPushService(
+        mayEgress: () async => true,
         db: db,
         queue: q,
         isEnabled: (_) => true,

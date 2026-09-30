@@ -236,6 +236,7 @@ void main() {
 
   PlanningPushService push(_DeleteSink sink, {required bool casEnabled}) =>
       PlanningPushService(
+        mayEgress: () async => true,
         db: db,
         queue: queue,
         isEnabled: (_) => true,

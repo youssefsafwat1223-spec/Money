@@ -1,3 +1,6 @@
+import '../../../core/privacy/consent_authority.dart';
+import '../../../core/sync/sync_health.dart';
+import '../../../data/repositories/drift_user_settings_repository.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -12,7 +15,16 @@ import '../../../data/db/sql_value_codec.dart';
 /// MALI-024 — the server-authoritative engagement-event service.
 final engagementEventServiceProvider =
     Provider<EngagementEventService>((ref) {
-  return EngagementEventService(db: ref.watch(appDatabaseProvider));
+  return EngagementEventService(
+    db: ref.watch(appDatabaseProvider),
+    health: ref.watch(syncHealthProvider),
+    // C-3 — engagement events describe what the user did in the app. Read fresh
+    // per push so a revocation is observed by the next drain.
+    mayEgress: () => ConsentAuthority(
+          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+              .getSettings(),
+        ).allows(EgressClass.gamification),
+  );
 });
 
 /// MALI-024 — server-authoritative, idempotent engagement events.
@@ -114,7 +126,13 @@ class EngagementEventService {
     EngagementRemoteRecorder? recorder,
     bool Function()? isSyncEnabled,
     Future<String?> Function()? getAuthUserId,
-  })  : _db = db,
+    /// C-3 — consulted at the moment of egress; defaults to DENY so a caller
+    /// that omits it makes no network call and leaves events pending.
+    Future<bool> Function()? mayEgress,
+    SyncHealth? health,
+  })  : _mayEgress = mayEgress ?? _denyEgressByDefault,
+        _health = health,
+        _db = db,
         _recorder = recorder ?? const SupabaseEngagementRecorder(),
         _isSyncEnabled = isSyncEnabled ?? (() => SupabaseConfig.isConfigured),
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
@@ -123,6 +141,10 @@ class EngagementEventService {
   final EngagementRemoteRecorder _recorder;
   final bool Function() _isSyncEnabled;
   final Future<String?> Function() _getAuthUserId;
+  final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
+
+  static Future<bool> _denyEgressByDefault() async => false;
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -174,6 +196,10 @@ class EngagementEventService {
   Future<int> push() async {
     if (!_isSyncEnabled()) return 0;
     if (await _getAuthUserId() == null) return 0;
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.engagement);
+      return 0;
+    }
 
     final now = dateTimeToSql(DateTime.now().toUtc());
     final pending = await _db.customSelect(
@@ -203,6 +229,7 @@ class EngagementEventService {
         synced++;
       } catch (e) {
         final failure = classifyOutboxError(e);
+        _health?.noteFailure(SyncDomain.engagement, e);
         // A permanent/validation error (unknown type, unsupported version) or an
         // exhausted retry dead-letters; otherwise it stays pending for retry.
         await _markFailure(eventId, failure);

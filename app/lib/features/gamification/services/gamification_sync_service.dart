@@ -1,3 +1,4 @@
+import '../../../core/sync/sync_health.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -29,6 +30,7 @@ final gamificationSyncServiceProvider = Provider((ref) {
           () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
               .getSettings(),
         ).allows(EgressClass.gamification),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -39,7 +41,9 @@ class GamificationSyncService {
     required this.gamificationRepo,
     Future<String?> Function()? getAuthUserId,
     Future<bool> Function()? mayEgress,
-  })  : _getAuthUserId =
+    SyncHealth? health,
+  })  : _health = health,
+        _getAuthUserId =
             getAuthUserId ?? (() async => supabase.auth.currentUser?.id),
         // Defaults CLOSED. A caller that forgets to pass a gate gets no
         // egress rather than silent egress — which is the habit that produced
@@ -52,6 +56,7 @@ class GamificationSyncService {
   final GamificationRepository gamificationRepo;
   final Future<String?> Function() _getAuthUserId;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
 
   Future<void> performSync() async {
     // Read fresh on every call rather than capturing at provider-construction
@@ -73,6 +78,7 @@ class GamificationSyncService {
     // Consulted at the moment of egress, not at construction: consent can be
     // revoked between a decision and a retry.
     if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.engagement);
       if (kDebugMode) debugPrint('[GamificationSync] denied: cloud consent off');
       return;
     }

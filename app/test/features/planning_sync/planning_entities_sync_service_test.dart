@@ -312,6 +312,7 @@ void main() {
       final remote = _FakePlanningRemote();
       final queue = _queue(db, enabled: true);
       final push = PlanningPushService(
+        mayEgress: () async => true,
         db: db,
         queue: queue,
         isEnabled: (_) => true,
@@ -518,6 +519,7 @@ void main() {
       final remote = _FakePlanningRemote();
       final queue = _queue(db, enabled: true);
       final push = PlanningPushService(
+        mayEgress: () async => true,
         db: db,
         queue: queue,
         isEnabled: (_) => true,
@@ -560,6 +562,7 @@ void main() {
       final remote = _FakePlanningRemote();
       final queue = _queue(db, enabled: true);
       final push = PlanningPushService(
+        mayEgress: () async => true,
         db: db,
         queue: queue,
         isEnabled: (_) => true,
@@ -605,6 +608,7 @@ void main() {
       final remote = _FakePlanningRemote();
       final queue = _queue(db, enabled: true);
       final push = PlanningPushService(
+        mayEgress: () async => true,
         db: db,
         queue: queue,
         isEnabled: (_) => true,

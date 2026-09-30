@@ -11,6 +11,7 @@ import '../backend/supabase_config.dart';
 import '../sync/conflict_policy.dart';
 import '../sync/conflict_resolver.dart';
 import '../sync/sync_capabilities.dart';
+import '../sync/sync_health.dart';
 import '../sync/sync_wakeup.dart';
 import '../session/app_session.dart';
 import '../session/unsynced_inventory.dart';
@@ -532,6 +533,14 @@ final planningOutboxQueueProvider = Provider<PlanningOutboxQueue>((ref) {
   );
 });
 
+/// C-3 — one fresh-per-call consent read for an egress class. Settings are read
+/// on every call (never cached) so a revocation is observed by the next drain.
+Future<bool> Function() _consentGate(Ref ref, EgressClass egressClass) =>
+    () => ConsentAuthority(
+          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+              .getSettings(),
+        ).allows(egressClass);
+
 final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return AccountsPushService(
@@ -546,6 +555,7 @@ final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
           () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
               .getSettings(),
         ).allows(EgressClass.financialSync),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -562,6 +572,8 @@ final accountsPullServiceProvider = Provider<AccountsPullService>((ref) {
     db: ref.watch(appDatabaseProvider),
     isEnabled: () =>
         _planningAccountsSyncEnabled() && exactPullAllowed(pullCap),
+    mayEgress: _consentGate(ref, EgressClass.financialSync),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -574,6 +586,9 @@ final planningPushServiceProvider = Provider<PlanningPushService>((ref) {
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
     planningCurrencyCapability: () =>
         ref.read(planningServerCurrencyCapabilityProvider),
+    mayEgress: _consentGate(ref, EgressClass.financialSync),
+    mayEgressProfile: _consentGate(ref, EgressClass.profileAndSettings),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -622,6 +637,9 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
         _planningEntitySyncEnabledWithCurrency(
             entityType, planningCap, pullCap),
     outboxQueue: ref.watch(planningOutboxQueueProvider),
+    mayEgress: _consentGate(ref, EgressClass.financialSync),
+    mayEgressProfile: _consentGate(ref, EgressClass.profileAndSettings),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -648,6 +666,8 @@ final planningChildSyncServiceProvider =
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
     pullCapability: () => ref.read(exactPullTransportCapabilityProvider),
+    mayEgress: _consentGate(ref, EgressClass.financialSync),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -670,6 +690,7 @@ final planningSyncEngineProvider = Provider<PlanningSyncEngine>((ref) {
     startupRegistrationService:
         ref.watch(planningStartupRegistrationServiceProvider),
     conflictResolver: ref.watch(conflictResolverProvider),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -687,6 +708,7 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
           () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
               .getSettings(),
         ).allows(EgressClass.financialSync),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -1063,6 +1085,7 @@ final senderBankMappingSyncServiceProvider =
           () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
               .getSettings(),
         ).allows(EgressClass.senderBankMappings),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -1169,13 +1192,21 @@ final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
     transactionRepository: DriftTransactionRepository(db),
     dedupStore: DriftDedupStore(db),
     isPullEnabled: () => exactPullAllowed(pullCap),
+    mayEgress: _consentGate(ref, EgressClass.financialSync),
+    health: ref.watch(syncHealthProvider),
   );
 });
+
+/// Outbox depth for the sync-health surface (counts only).
+final syncQueueCountsProvider = FutureProvider.autoDispose<SyncQueueCounts>(
+  (ref) => SyncHealth.queueCounts(ref.watch(appDatabaseProvider)),
+);
 
 final ledgerSyncEngineProvider = Provider<LedgerSyncEngine>((ref) {
   return LedgerSyncEngine(
     pushService: ref.watch(ledgerPushServiceProvider),
     pullService: ref.watch(ledgerSyncServiceProvider),
+    health: ref.watch(syncHealthProvider),
   );
 });
 
@@ -1190,6 +1221,7 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
       () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
           .getSettings(),
     ).allows(EgressClass.smartInbox),
+    health: ref.watch(syncHealthProvider),
   );
 });
 

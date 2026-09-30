@@ -130,7 +130,9 @@ void main() {
       reason: 'authority must come from the per-entity completion set',
     );
     final assignIdx = source.indexOf('settingsPullCompleted = result');
-    final catchIdx = source.indexOf('planning pull error', assignIdx);
+    // The swallowing catch now lives in the engine's `_phase` wrapper, which the
+    // pull body is passed to together with its 'planning pull' label.
+    final catchIdx = source.indexOf("'planning pull'", assignIdx);
     expect(assignIdx, greaterThan(0));
     expect(catchIdx, greaterThan(assignIdx),
         reason: 'the assignment must sit on the success path before the '

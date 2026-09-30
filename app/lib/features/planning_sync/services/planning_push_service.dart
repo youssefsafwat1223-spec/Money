@@ -5,6 +5,7 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/guarded_mutation.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/sync_capabilities.dart';
+import '../../../core/sync/sync_health.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
@@ -272,7 +273,19 @@ class PlanningPushService {
     // column), independent of the exact decimal-string transport capability.
     ExactTransportCapability Function() planningCurrencyCapability =
         _defaultPushCapability,
-  })  : _db = db,
+    /// C-3 / G13 — budgets, goals, plans, subscriptions, cards and categories
+    /// are financial data. Consent is asked fresh per push and defaults to
+    /// DENY, so a caller that omits it performs no network at all.
+    Future<bool> Function()? mayEgress,
+    /// `user_settings` carries PII (profile) — a separate egress class. Falls
+    /// back to [mayEgress] (and therefore to DENY) when omitted.
+    Future<bool> Function()? mayEgressProfile,
+    SyncHealth? health,
+  })  : _mayEgress = mayEgress ?? _denyEgressByDefault,
+        _mayEgressProfile =
+            mayEgressProfile ?? mayEgress ?? _denyEgressByDefault,
+        _health = health,
+        _db = db,
         _queue = queue,
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
@@ -284,6 +297,17 @@ class PlanningPushService {
 
   static ExactTransportCapability _defaultPushCapability() =>
       ExactTransportCapability.unknown;
+
+  static Future<bool> _denyEgressByDefault() async => false;
+
+  final Future<bool> Function() _mayEgress;
+  final Future<bool> Function() _mayEgressProfile;
+  final SyncHealth? _health;
+
+  /// Outbox ids whose consent revocation was already delivered while consent is
+  /// off — the row stays pending (its full payload must not egress) so this
+  /// avoids re-sending the same narrow patch on every drain.
+  final Set<String> _revocationDelivered = <String>{};
 
   static const _planningCurrencyEntityTypes = {
     PlanningOutboxQueue.budgetsEntityType,
@@ -361,11 +385,33 @@ class PlanningPushService {
     var abandoned = 0;
     var parked = 0;
 
+    // Consent is read fresh, per egress class, before any row is touched. A
+    // denied class leaves its rows pending: no network, no attempt consumed.
+    final financialAllowed = await _mayEgress();
+    final profileAllowed = await _mayEgressProfile();
+    if (!financialAllowed || !profileAllowed) {
+      _health?.noteConsentBlocked(SyncDomain.planning);
+    }
+
     for (final entityType in _entityTable.keys) {
       if (!_isEnabled(entityType)) continue;
+      final isSettings = entityType == PlanningOutboxQueue.settingsEntityType;
+      final allowed = isSettings ? profileAllowed : financialAllowed;
+      if (!allowed && !isSettings) continue;
       final items = await _queue.pendingItems(entityType: entityType);
       for (final item in items) {
         try {
+          if (!allowed) {
+            // The ONE deliberate exception: a consent REVOCATION must still
+            // reach the server (user_settings is its consent authority).
+            if (_consentOffPatch(item) == null) continue;
+            if (item.payloadJson['consent_only'] != true) {
+              await _deliverRevocationOnly(item);
+              continue;
+            }
+            // A pre-bind consent-only create carries no other column: send it
+            // exactly as before.
+          }
           final outcome = await _process(item, userId);
           switch (outcome) {
             case _PlanningPushOutcome.pushed:
@@ -377,9 +423,11 @@ class PlanningPushService {
             case _PlanningPushOutcome.parked:
               // Held durably; not sent, synced, failed, or retried.
               parked++;
+              _health?.noteCapabilityParked(SyncDomain.planning);
           }
         } catch (e) {
           failed++;
+          _health?.noteFailure(SyncDomain.planning, e);
           await _queue.markFailed(
               item.id, e.toString(), classifyOutboxError(e));
           if (kDebugMode) debugPrint('[PlanningPush] item error: $e');
@@ -400,6 +448,24 @@ class PlanningPushService {
       abandoned: abandoned,
       parked: parked,
     );
+  }
+
+  /// Consent is OFF and this settings row is a revocation whose payload is a
+  /// full row (display name, phone, date of birth, ...). Only the consent-OFF
+  /// columns may leave the device; the full row stays pending until consent
+  /// returns. Needs a bound server row — an unbound singleton is covered by the
+  /// separate consent-only create.
+  Future<void> _deliverRevocationOnly(PlanningOutboxItem item) async {
+    if (_revocationDelivered.contains(item.id)) return;
+    final localTable = _localTable[item.entityType]!;
+    final serverId = await _serverIdForLocal(localTable, item.entityId);
+    if (serverId == null) return;
+    final response = await _remoteSink.updateByServerId(
+        _entityTable[item.entityType]!, serverId, _consentOffPatch(item)!);
+    if (response == null) {
+      throw StateError('settings_consent_revocation_not_synced');
+    }
+    _revocationDelivered.add(item.id);
   }
 
   Future<_PlanningPushOutcome> _process(

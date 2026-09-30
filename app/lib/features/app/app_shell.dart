@@ -1,3 +1,4 @@
+import '../../core/sync/sync_health.dart';
 import 'dart:async';
 import 'dart:ui';
 
@@ -788,11 +789,13 @@ class _AppShellState extends ConsumerState<AppShell> {
       }
     }
     final planning = ref.read(planningSyncEngineProvider);
+    final health = ref.read(syncHealthProvider);
     var cancelled = false;
     try {
       final parents = await planning.syncParents(reconciler: reconciler);
       cancelled = parents.cancelled;
     } catch (error) {
+      health.recordFailure(SyncDomain.planning, error);
       if (kDebugMode) {
         debugPrint('[PlanningSync] parent sync skipped: ${error.runtimeType}');
       }
@@ -805,6 +808,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           await ref.read(ledgerSyncEngineProvider).sync(reconciler: reconciler);
       if (ledger == ReconcileDomainResult.cancelled) return;
     } catch (error) {
+      health.recordFailure(SyncDomain.ledger, error);
       if (kDebugMode) {
         debugPrint('[LedgerEngine] sync skipped: ${error.runtimeType}');
       }
@@ -813,12 +817,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     // داخليًا من التفعيل، فنستدعيها دائمًا (offline-safe).
     try {
       final smartInbox = ref.read(smartInboxSyncServiceProvider);
-      await smartInbox.push();
+      await health.runPhase(
+          SyncDomain.smartInbox, SyncDirection.push, () => smartInbox.push(),
+          rethrowErrors: true);
       final inbox = await reconcileOrPull(
         reconciler: reconciler,
         domain: smartInboxReconcileDomain(smartInbox),
         normalPull: (admitted) async {
-          await smartInbox.pull(isAdmitted: admitted);
+          await health.runPhase(SyncDomain.smartInbox, SyncDirection.pull,
+              () => smartInbox.pull(isAdmitted: admitted),
+              rethrowErrors: true);
         },
       );
       if (inbox == ReconcileDomainResult.cancelled) return;
@@ -839,14 +847,18 @@ class _AppShellState extends ConsumerState<AppShell> {
     // once), then pull the acknowledged server aggregate (MALI-024 — the client
     // never uploads a total).
     try {
-      await ref.read(engagementEventServiceProvider).push();
+      await health.runPhase(SyncDomain.engagement, SyncDirection.push,
+          () => ref.read(engagementEventServiceProvider).push(),
+          rethrowErrors: true);
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[Engagement] push skipped: ${error.runtimeType}');
       }
     }
     try {
-      await ref.read(gamificationSyncServiceProvider).performSync();
+      await health.runPhase(SyncDomain.engagement, SyncDirection.pull,
+          () => ref.read(gamificationSyncServiceProvider).performSync(),
+          rethrowErrors: true);
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[GamificationSync] sync skipped: ${error.runtimeType}');

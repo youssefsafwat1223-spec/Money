@@ -1,3 +1,4 @@
+import '../../../core/sync/sync_health.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -112,7 +113,9 @@ class LedgerSyncService implements LedgerPullAdapter {
     LedgerRemoteSource? remoteSource,
     Future<String?> Function()? getAuthUserId,
     int pageSize = 200,
+    SyncHealth? health,
   })  : assert(pageSize > 0),
+        _health = health,
         _db = db,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
@@ -141,6 +144,7 @@ class LedgerSyncService implements LedgerPullAdapter {
   final DriftDedupStore _dedupStore;
   final bool Function() _isPullEnabled;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
 
   static Future<bool> _denyEgressByDefault() async => false;
   final LedgerRemoteSource _remoteSource;
@@ -194,7 +198,10 @@ class LedgerSyncService implements LedgerPullAdapter {
     SyncCursor? from,
     bool Function()? isAdmitted,
   }) async {
-    if (!await _mayEgress()) return const LedgerSyncResult();
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.ledger);
+      return const LedgerSyncResult();
+    }
     if (!_isPullEnabled()) return const LedgerSyncResult();
 
     final userId = await _getAuthUserId();
@@ -269,6 +276,7 @@ class LedgerSyncService implements LedgerPullAdapter {
       // Lifecycle/ownership cancellation, not a transport failure.
       if (kDebugMode) debugPrint('[LedgerSync] reconciliation cancelled');
     } catch (e) {
+      _health?.noteFailure(SyncDomain.ledger, e);
       if (kDebugMode) debugPrint('[LedgerSync] pull error: $e');
     } finally {
       _clearResolutionCaches();

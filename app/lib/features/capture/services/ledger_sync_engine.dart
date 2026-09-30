@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/sync/sync_health.dart';
 import '../../../data/db/financial_cache_health.dart';
 import '../../../data/db/financial_cache_reconcile_map.dart';
 import '../../../data/db/legacy_financial_cache_reconciler.dart';
@@ -28,8 +29,21 @@ class LedgerSyncEngine {
   LedgerSyncEngine({
     required LedgerPushAdapter pushService,
     required LedgerPullAdapter pullService,
+    SyncHealth? health,
   })  : _push = pushService,
-        _pull = pullService;
+        _pull = pullService,
+        _health = health;
+
+  final SyncHealth? _health;
+
+  /// Runs one ledger phase and records its outcome in [SyncHealth]. Errors keep
+  /// propagating to the caller exactly as before.
+  Future<T> _phase<T>(SyncDirection direction, Future<T> Function() body) async {
+    final health = _health;
+    if (health == null) return body();
+    return (await health.runPhase(SyncDomain.ledger, direction, body,
+        rethrowErrors: true)) as T;
+  }
 
   final LedgerPushAdapter _push;
   final LedgerPullAdapter _pull;
@@ -43,7 +57,7 @@ class LedgerSyncEngine {
     LegacyFinancialCacheReconciler? reconciler,
   }) async {
     try {
-      await _push.push();
+      await _phase(SyncDirection.push, () => _push.push());
     } catch (e) {
       if (kDebugMode) debugPrint('[LedgerEngine] push error: $e');
     }
@@ -54,8 +68,10 @@ class LedgerSyncEngine {
         entities: const {transactionsCacheEntityType},
         isEnabled: () => true,
         runFromEpoch: ({required dirtyEntities, required isAdmitted}) async {
-          final r = await _pull.pull(
-              from: const SyncCursor.epoch(), isAdmitted: isAdmitted);
+          final r = await _phase(
+              SyncDirection.pull,
+              () => _pull.pull(
+                  from: const SyncCursor.epoch(), isAdmitted: isAdmitted));
           return r.status == SyncPullStatus.completed
               ? const {transactionsCacheEntityType}
               : const <String>{};
@@ -63,7 +79,8 @@ class LedgerSyncEngine {
       ),
       normalPull: (admitted) async {
         try {
-          await _pull.pull(isAdmitted: admitted);
+          await _phase(
+              SyncDirection.pull, () => _pull.pull(isAdmitted: admitted));
         } catch (e) {
           if (kDebugMode) debugPrint('[LedgerEngine] pull error: $e');
         }

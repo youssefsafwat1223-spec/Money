@@ -122,6 +122,7 @@ PlanningOutboxQueue _queue(
 PlanningPushService _push(
         AppDatabase db, PlanningOutboxQueue q, _FakeRemote r) =>
     PlanningPushService(
+        mayEgress: () async => true,
         db: db,
         queue: q,
         isEnabled: (_) => true,

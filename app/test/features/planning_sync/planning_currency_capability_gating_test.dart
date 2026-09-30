@@ -278,6 +278,7 @@ void main() {
       required PlanningRemoteSink sink,
     }) =>
         PlanningPushService(
+          mayEgress: () async => true,
           db: db,
           queue: q,
           isEnabled: (_) => true,

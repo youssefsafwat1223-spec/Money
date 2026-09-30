@@ -1,3 +1,4 @@
+import '../../core/sync/sync_health.dart';
 import 'package:drift/drift.dart' show QueryRow;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -103,7 +104,9 @@ class SenderBankMappingSyncService {
     /// backup upload shipped ungated.
     Future<bool> Function()? mayEgress,
     int pageSize = 200,
+    SyncHealth? health,
   })  : assert(pageSize > 0),
+        _health = health,
         _db = db,
         _remoteStore = remoteStore,
         _currentUserId = currentUserId,
@@ -116,6 +119,7 @@ class SenderBankMappingSyncService {
   final SenderMappingRemoteStore _remoteStore;
   final String? Function() _currentUserId;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
   final int _pageSize;
 
   static const _cursorKey = 'sender_bank_mappings';
@@ -128,11 +132,24 @@ class SenderBankMappingSyncService {
     // C-3 — which banks a user holds is a direct read on their financial life.
     // This service had NO consent check at all: with the cloud switch off, a
     // signed-in user still uploaded their sender→bank mappings.
-    if (!await _mayEgress()) return const SenderMappingSyncResult();
+    final health = _health;
+    if (!await _mayEgress()) {
+      await health?.runPhase(SyncDomain.senderMappings, SyncDirection.push,
+          () async => health.noteConsentBlocked(SyncDomain.senderMappings));
+      return const SenderMappingSyncResult();
+    }
     // Push local edits/deletes FIRST so they become the newest server version,
     // then pull remote changes.
-    final pushResult = await push(userId);
-    final pullResult = await pull(userId);
+    final pushResult = health == null
+        ? await push(userId)
+        : (await health.runPhase(
+                SyncDomain.senderMappings, SyncDirection.push, () => push(userId))) ??
+            (0, 0);
+    final pullResult = health == null
+        ? await pull(userId)
+        : (await health.runPhase(
+                SyncDomain.senderMappings, SyncDirection.pull, () => pull(userId))) ??
+            (imported: 0, updated: 0, tombstoned: 0);
     return SenderMappingSyncResult(
       imported: pullResult.imported,
       updated: pullResult.updated,
@@ -147,7 +164,10 @@ class SenderBankMappingSyncService {
     final userId = forUserId ?? _currentUserId();
     if (userId == null || userId.trim().isEmpty) return (0, 0);
     // Gated independently of sync(): push/pull are public and called directly.
-    if (!await _mayEgress()) return (0, 0);
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.senderMappings);
+      return (0, 0);
+    }
 
     // Uploadable = confirmed/rejected mappings OR any tombstone, that are not
     // already synced.
@@ -212,6 +232,7 @@ class SenderBankMappingSyncService {
         pushed++;
       } catch (e) {
         final failureClass = classifyOutboxError(e);
+        _health?.noteFailure(SyncDomain.senderMappings, e);
         await _markFailed(id);
         failed++;
         if (kDebugMode) {
@@ -236,6 +257,7 @@ class SenderBankMappingSyncService {
     }
     // Gated independently of sync(); see push().
     if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.senderMappings);
       return (imported: 0, updated: 0, tombstoned: 0);
     }
 
@@ -279,6 +301,7 @@ class SenderBankMappingSyncService {
         if (rows.length < _pageSize) break;
       }
     } catch (e) {
+      _health?.noteFailure(SyncDomain.senderMappings, e);
       if (kDebugMode) debugPrint('[SenderMappingSync] pull error: $e');
     }
     return (imported: imported, updated: updated, tombstoned: tombstoned);

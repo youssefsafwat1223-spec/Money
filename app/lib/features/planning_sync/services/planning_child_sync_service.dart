@@ -1,3 +1,4 @@
+import '../../../core/sync/sync_health.dart';
 import 'dart:convert';
 
 import 'package:drift/drift.dart' show Variable;
@@ -173,7 +174,9 @@ class PlanningChildSyncService {
         const SchemaV29PlanningCutoverCoordinator(),
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
     ExactTransportCapability Function() pullCapability = _defaultPullCapability,
+    SyncHealth? health,
   })  : assert(pageSize > 0),
+        _health = health,
         _db = db,
         _queue = queue,
         _isPushEnabled = isEnabled,
@@ -199,6 +202,7 @@ class PlanningChildSyncService {
   final ExactTransportCapability Function() _pushCapability;
   final ExactTransportCapability Function() _pullCapability;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
 
   static ExactTransportCapability _defaultPushCapability() =>
       ExactTransportCapability.unknown;
@@ -218,6 +222,12 @@ class PlanningChildSyncService {
   Future<void> sync() async {
     final userId = await _getAuthUserId();
     if (userId == null) return;
+    // C-3 / G13 — child rows carry money; with consent off nothing is pushed or
+    // pulled, and the outbox rows (including parked ones) are left untouched.
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.children);
+      return;
+    }
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
       await _queue.reArmParked();
     }
@@ -247,11 +257,13 @@ class PlanningChildSyncService {
               item.id,
               exactMoneyTransportUnverifiedReason,
             );
+            _health?.noteCapabilityParked(SyncDomain.children);
             continue;
           }
           await _pushItem(userId, item);
           await _queue.markSuccess(item.id);
         } catch (error) {
+          _health?.noteFailure(SyncDomain.children, error);
           await _queue.markFailed(
             item.id,
             error.toString(),
@@ -508,6 +520,7 @@ class PlanningChildSyncService {
         if (rows.length < _pageSize) break;
       }
     } catch (error) {
+      _health?.noteFailure(SyncDomain.children, error);
       if (kDebugMode) debugPrint('[PlanningChildSync] pull $table: $error');
     }
   }
