@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -90,6 +91,7 @@ import '../../features/capture/services/notification_journey_service.dart';
 import '../../features/capture/services/capture_backend_client.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
 import '../../features/capture/services/capture_sync_service.dart';
+import '../../features/capture/services/native_capture_bridge.dart';
 import '../../features/capture/services/notification_log_service.dart';
 import '../../features/capture/services/notification_log_sync_service.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
@@ -1119,6 +1121,7 @@ final notificationLogSyncServiceProvider =
 
 final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
+  final ingest = ref.watch(ingestCapturedMessageUseCaseProvider);
   return CaptureSyncService(
     settingsRepository: DriftUserSettingsRepository(db),
     // Relay captures land in Drift AND enqueue on the ledger outbox, so the
@@ -1137,6 +1140,20 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
     accountRepository: ref.watch(accountRepositoryProvider),
     client: ref.watch(captureBackendClientProvider),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
+    isLocalAutoConfirmV2: () => featureFlags.getBool('local_auto_confirm_v2'),
+    // Strictly on-device retry of a backend-rejected capture (no AI, bank
+    // discovery or merchant enrichment).
+    recoverLocally: (message) =>
+        ingest.fromCapturedMessage(message, onDeviceOnly: true),
+    // Native raw text for the same payloadId (iOS only; no match => null).
+    lookupNativeCapture: (payloadId) async {
+      if (!Platform.isIOS) return null;
+      final pending = await NativeCaptureBridge.peekPendingSharedMessages();
+      for (final m in pending) {
+        if (m.id?.trim() == payloadId) return m;
+      }
+      return null;
+    },
   );
 });
 

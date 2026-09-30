@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/db/ownership_guard.dart';
@@ -7,12 +9,14 @@ import '../../../data/repositories/drift_suspected_duplicate_repository.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/entities/account_entity.dart';
+import '../../../domain/entities/captured_message.dart';
 import '../../../domain/entities/suspected_duplicate_entity.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/finance/money.dart';
 import '../../../domain/repositories/account_repository.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
+import '../../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../../../engine/privacy/sms_sanitizer.dart';
 import '../../../engine/parser/capture_money.dart';
 import 'capture_backend_client.dart';
@@ -30,6 +34,10 @@ class CaptureSyncResult {
   final Set<String> importedPayloadIds;
   final Set<String> ackedPayloadIds;
   final List<String> needsReviewTransactionIds;
+}
+
+class _RecoveryDeclined implements Exception {
+  const _RecoveryDeclined();
 }
 
 class CaptureSyncService {
@@ -51,7 +59,19 @@ class CaptureSyncService {
     // numeric-only (no exact amount_text) capture unconditionally pending.
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
-  })  : _settingsRepository = settingsRepository,
+    // `local_auto_confirm_v2` on-device recovery of a backend-rejected capture.
+    // All three are injected (no use case is built here). The recovery callback
+    // MUST be strictly on-device (`onDeviceOnly: true`): no AI, discovery or
+    // enrichment. Absent callback or flag off/throwing => today's behaviour.
+    Future<CapturedMessageResult> Function(CapturedMessage message)?
+        recoverLocally,
+    Future<SharedCapturedMessage?> Function(String payloadId)?
+        lookupNativeCapture,
+    bool Function()? isLocalAutoConfirmV2,
+  })  : _recoverLocally = recoverLocally,
+        _lookupNativeCapture = lookupNativeCapture,
+        _isLocalAutoConfirmV2 = isLocalAutoConfirmV2,
+        _settingsRepository = settingsRepository,
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
         _smartInboxRepository = smartInboxRepository,
@@ -81,6 +101,11 @@ class CaptureSyncService {
   final bool? _backendConfigured;
   final Future<String> Function()? _loadInstallId;
   final PlanningCutoverCoordinator _coordinator;
+  final Future<CapturedMessageResult> Function(CapturedMessage message)?
+      _recoverLocally;
+  final Future<SharedCapturedMessage?> Function(String payloadId)?
+      _lookupNativeCapture;
+  final bool Function()? _isLocalAutoConfirmV2;
 
   // مزامنة واحدة في الرحلة الواحدة: الاستئناف (resume) وضغطة الإشعار يصلان
   // في نفس اللحظة تقريبًا، وبدون هذا القفل يجلب الاثنان نفس صفوف الـ relay
@@ -354,6 +379,14 @@ class CaptureSyncService {
             _string(parsed['rawMessage']) ??
                 'Backend capture ${capture.payloadId} could not be parsed',
           );
+    if (capture.status == 'rejected' &&
+        await _recoverRejectedLocally(
+          capture,
+          serverText: rawMessage,
+          requireCurrentAdmission: requireCurrentAdmission,
+        )) {
+      return;
+    }
     await _saveUnprocessableCaptureAndMarker(
       payloadId: capture.payloadId,
       rawMessage: rawMessage,
@@ -362,6 +395,85 @@ class CaptureSyncService {
       receivedAt: _date(parsed['comparisonTimestamp']) ?? capture.createdAt,
       requireCurrentAdmission: requireCurrentAdmission,
     );
+  }
+
+  bool _localRecoveryEnabled() {
+    final read = _isLocalAutoConfirmV2;
+    if (read == null || _recoverLocally == null) return false;
+    try {
+      return read() == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// One strictly on-device retry of a backend-rejected capture with the app's
+  /// richer parser. Prefers the native raw text (same payloadId) over the
+  /// server-sanitized text. Returns true only when a confirmed local
+  /// transaction was written and the payload marker points at it; every other
+  /// outcome (invalid, ignored, duplicate, pending, exception) rolls back any
+  /// write the ingest made and returns false so the Smart Inbox path runs.
+  /// A [StaleOwnershipException] propagates (caller's transaction rolls back).
+  Future<bool> _recoverRejectedLocally(
+    ProcessedCaptureDto capture, {
+    required String serverText,
+    required Future<void> Function() requireCurrentAdmission,
+  }) async {
+    if (!_localRecoveryEnabled()) return false;
+    try {
+      SharedCapturedMessage? native;
+      try {
+        final candidate = await _lookupNativeCapture?.call(capture.payloadId);
+        if (candidate != null &&
+            candidate.id?.trim() == capture.payloadId &&
+            candidate.text.trim().isNotEmpty) {
+          native = candidate;
+        }
+      } catch (_) {
+        native = null;
+      }
+      final parsed = capture.parsed;
+      final message = CapturedMessage(
+        text: native?.text ?? serverText,
+        senderId: native?.sender ?? _string(parsed['senderId']),
+        source: native?.source ?? CapturedMessageSource.unknown,
+        receivedAt: native?.receivedAt ??
+            _date(parsed['comparisonTimestamp']) ??
+            capture.createdAt,
+      );
+      await requireCurrentAdmission();
+      // Nested (savepoint) transaction: a declined result rolls back whatever
+      // the ingest wrote (e.g. a suspected-duplicate row) without touching the
+      // outer transaction; the outer one still owns the marker write.
+      final transactionId = await _dedupStore.runAtomically(() async {
+        final result = await _recoverLocally!(message);
+        final transaction = result.addTransactionResult.transaction;
+        if (result.disposition == CapturedMessageDisposition.notifyOnly &&
+            result.addTransactionResult.outcome ==
+                AddTransactionOutcome.added &&
+            transaction != null) {
+          return transaction.id;
+        }
+        throw const _RecoveryDeclined();
+      });
+      await requireCurrentAdmission();
+      await markPayloadImported(
+        payloadId: capture.payloadId,
+        transactionId: transactionId,
+      );
+      if (kDebugMode) {
+        debugPrint(
+          '[Capture] backend rejected recovered on-device '
+          'source=${native != null ? 'native_raw' : 'server_sanitized'}',
+        );
+      }
+      return true;
+    } on StaleOwnershipException {
+      rethrow;
+    } catch (_) {
+      // Includes _RecoveryDeclined: fall back to the Smart Inbox item.
+      return false;
+    }
   }
 
   Future<String?> _importCapture(
