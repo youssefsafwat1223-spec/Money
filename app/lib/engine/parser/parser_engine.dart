@@ -292,6 +292,13 @@ class ParserEngine {
       txn,
       bankKey: bank?.bankKey,
       catalogRuleId: catalogMatch?.rule.id,
+      catalogAmountCorroborated:
+          catalogMatch != null && ruleAmount != null
+              ? catalogAmountCorroborated
+              : null,
+      typeUndetected: type == TransactionType.unknown,
+      amountAmbiguous: amountExtraction.hasAmbiguity,
+      dateAmbiguous: dateResult.ambiguous,
     );
   }
 

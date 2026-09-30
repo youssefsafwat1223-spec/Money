@@ -18,6 +18,7 @@ import '../../engine/parser/bank_sender_filter.dart';
 import '../../data/db/planning_cutover.dart';
 import '../../engine/parser/capture_money.dart';
 import '../../engine/parser/direction_signal.dart';
+import '../../engine/parser/local_validity.dart';
 import '../../engine/parser/parser_engine.dart';
 import '../../engine/parser/parser_isolate.dart';
 import '../../engine/parser/parse_result.dart';
@@ -329,7 +330,12 @@ class AddTransactionUseCase {
     // test) keeps working unchanged; when omitted this instance owns its own,
     // which still collapses the previous two constructions per call into one.
     MerchantIntelligenceStore? merchantIntelligence,
-  })  : _transactionRepository = transactionRepository,
+    // `local_auto_confirm_v2`: binary local acceptance (valid => confirmed,
+    // invalid => "local produced no transaction"). Injected so the domain layer
+    // stays flag-free; absent or throwing fails CLOSED (legacy behaviour).
+    bool Function()? isLocalAutoConfirmV2,
+  })  : _isLocalAutoConfirmV2 = isLocalAutoConfirmV2,
+        _transactionRepository = transactionRepository,
         _merchantIntelligence =
             merchantIntelligence ?? MerchantIntelligenceStore(),
         _coordinator = coordinator,
@@ -542,6 +548,42 @@ class AddTransactionUseCase {
   static const double autoConfirmThreshold = 0.92;
   static const double categoryAutoConfirmThreshold = 0.80;
 
+  final bool Function()? _isLocalAutoConfirmV2;
+
+  bool _localAutoConfirmV2Enabled() {
+    final read = _isLocalAutoConfirmV2;
+    if (read == null) return false;
+    try {
+      return read() == true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Local validity for the V2 flow, computed before the AI decision. The
+  /// proof gate is evaluated here on the local parse's own values; the final
+  /// (post-reclassification) values are re-guarded before saving.
+  LocalValidityResult _checkLocalValidity(
+      ParseResult parseResult, String rawMessage) {
+    final base = LocalValidity.check(
+        parse: parseResult, rawMessage: rawMessage, proofWithholds: false);
+    if (!base.isValid) return base;
+    final txn = parseResult.transaction!;
+    final money = parseCaptureMoney(txn.amountText!, txn.currency);
+    final eval = _evaluateProofGate(
+      rawMessage: rawMessage,
+      type: txn.type,
+      amountMinorUnits: money.minorUnits,
+      currencyIso: txn.currency.trim().toUpperCase(),
+      parseConfidence: txn.parseConfidence,
+    );
+    return LocalValidity.check(
+      parse: parseResult,
+      rawMessage: rawMessage,
+      proofWithholds: eval.decision.withholdsConfirmation,
+    );
+  }
+
   final TransactionRepository _transactionRepository;
   final PlanningCutoverCoordinator _coordinator;
   final MerchantCategoryRepository _merchantCategoryRepository;
@@ -623,13 +665,24 @@ class AddTransactionUseCase {
         ) ??
         ParseResult.notTransaction();
 
+    // `local_auto_confirm_v2`: a local parse is either VALID (confirmed) or
+    // INVALID, and invalid means "local produced no transaction".
+    final localV2 = _localAutoConfirmV2Enabled();
+    final localAccepted = localV2
+        ? _checkLocalValidity(parseResult, rawMessage).isValid
+        : parseResult.isTransaction;
+    // What a rejected result reports as the local parse: nothing.
+    final reportedParse = localV2 && parseResult.isTransaction && !localAccepted
+        ? ParseResult.notTransaction(bankKey: parseResult.bankKey)
+        : parseResult;
+
     // Local parser first: AI is consulted ONLY when the local parser produced
-    // no transaction at all. A local transaction never triggers an AI call.
+    // no (valid) transaction. A local transaction never triggers an AI call.
     final aiFirstAttempt = wasIgnored || onDeviceOnly
         ? _AiFirstAttempt.skipped(
             wasIgnored ? 'message_ignored' : 'on_device_only',
           )
-        : parseResult.isTransaction
+        : localAccepted
             ? const _AiFirstAttempt.skipped('local_transaction')
             : await _tryAiParseFirst(
                 rawMessage: rawMessage,
@@ -646,8 +699,7 @@ class AddTransactionUseCase {
       );
     }
 
-    final localParsed =
-        parseResult.isTransaction ? parseResult.transaction : null;
+    final localParsed = localAccepted ? parseResult.transaction : null;
     if (localParsed != null) {
       await _logMetric?.call('parse_success', dimension: parseResult.bankKey);
     }
@@ -675,7 +727,9 @@ class AddTransactionUseCase {
     } else if (localParsed != null) {
       parsed = localParsed;
     } else {
-      final fallbackParsed = aiFirstAttempt.failureReason == null
+      // V2 has no pending stage for new captures, so the low-confidence
+      // last-resort parse (always pending) is not offered.
+      final fallbackParsed = !localV2 && aiFirstAttempt.failureReason == null
           ? _lastResortParse(rawMessage)
           : null;
       if (fallbackParsed != null) {
@@ -685,7 +739,7 @@ class AddTransactionUseCase {
         // read it. For a bank-like sender, surface that it was dropped by parsing
         // so the UI can avoid a noisy "unreadable message" dead end.
         final droppedByParser = isLikelyBank && !wasIgnored;
-        return AddTransactionResult.notTransaction(parseResult,
+        return AddTransactionResult.notTransaction(reportedParse,
             droppedByParser: droppedByParser,
             aiFailureReason: aiFirstAttempt.failureReason ??
                 (aiFirstAttempt.response == null
@@ -856,7 +910,7 @@ class AddTransactionUseCase {
         DirectionSignal.contradicts(rawMessage, effectiveParsed.type)) {
       AiSenderFailureTracker.instance
           .recordFailure(aiFirstAttempt.senderId);
-      return AddTransactionResult.notTransaction(parseResult,
+      return AddTransactionResult.notTransaction(reportedParse,
           droppedByParser: isLikelyBank && !wasIgnored,
           aiFailureReason: 'ai_response_rejected_by_grounding');
     }
@@ -923,7 +977,7 @@ class AddTransactionUseCase {
     // A validator-accepted AI transaction bypasses the confidence / category /
     // new-merchant gates (AI confidence never decides acceptance). Its final
     // direction contradiction was already rejected above.
-    final canAutoConfirm = aiValidated
+    final canAutoConfirm = aiValidated || localV2
         ? true
         : effectiveParsed.parseConfidence >= autoConfirmThreshold &&
             effectiveCategory.confidence >= categoryAutoConfirmThreshold &&
@@ -1038,13 +1092,27 @@ class AddTransactionUseCase {
     );
     // Outcome label plus two integers. No message text, no amount, no merchant:
     // recording a shadow verdict must never become an exfiltration path.
+    // V2: a local parse that was VALID when read must still be valid after
+    // reclassification (type/direction/proof). If not, it is "local produced no
+    // transaction" — never a pending row. AI was already decided upstream.
+    if (localV2 &&
+        localParsed != null &&
+        (directionContradiction ||
+            (!foreignUnpriced && proofEval.decision.withholdsConfirmation))) {
+      return AddTransactionResult.notTransaction(reportedParse,
+          droppedByParser: isLikelyBank && !wasIgnored,
+          aiFailureReason: 'local_invalid_after_reclassification');
+    }
     final primaryCommit = CaptureCommitDecision.primary(
       canAutoConfirm: canAutoConfirm,
-      foreignUnpriced: foreignUnpriced,
+      // V2: pricing uncertainty is not a confirmation state (the row is
+      // confirmed with amount 0 and its pricing state is awaitingFx).
+      foreignUnpriced: localV2 ? false : foreignUnpriced,
       requiresReview: requiresReview,
       // The deterministic validator is the gate for AI captures: the proof
       // gate withholds local parses only. (Still evaluated/recorded above.)
-      proofGate: aiValidated ? null : proofEval.decision,
+      // V2 folds the proof gate into local validity, checked above.
+      proofGate: aiValidated || localV2 ? null : proofEval.decision,
     );
 
     final transaction = TransactionEntity(
@@ -1145,7 +1213,7 @@ class AddTransactionUseCase {
       parseResult,
       // A validated AI capture is confirmed: a new merchant must not reopen
       // the confirm sheet through `requiresConfirmation`.
-      isNewMerchant: aiValidated ? false : isNewMerchant,
+      isNewMerchant: aiValidated || localV2 ? false : isNewMerchant,
       secondary: secondary,
     );
   }

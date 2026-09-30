@@ -27,6 +27,7 @@ class AppTransactionRow extends StatelessWidget {
     this.categoryColor,
     this.brandLogoUrl,
     this.isPending = false,
+    this.awaitingPrice = false,
     this.isAi = false,
     this.confidencePercent,
     this.isConfirmed = true,
@@ -50,6 +51,9 @@ class AppTransactionRow extends StatelessWidget {
   /// brand logo instead of the category icon.
   final String? brandLogoUrl;
   final bool isPending;
+
+  /// Confirmed row whose home-currency value has not been entered yet.
+  final bool awaitingPrice;
   final bool isAi;
   final int? confidencePercent;
   final bool isConfirmed;
@@ -81,6 +85,7 @@ class AppTransactionRow extends StatelessWidget {
     final semantics = semanticsLabel ??
         '$title$sep${isDebit ? l.a11yDebit : l.a11yCredit} $formattedAmount'
             '${isPending ? '$sep${l.a11yPending}' : ''}'
+            '${awaitingPrice ? '$sep${l.txnAwaitingPrice}' : ''}'
             '${isAi ? '$sep${l.a11yAi}' : ''}';
 
     return Semantics(
@@ -125,6 +130,8 @@ class AppTransactionRow extends StatelessWidget {
                           ),
                           if (isPending)
                             _RowBadge(label: context.l10n.commonUnderReview, color: c.warning),
+                          if (awaitingPrice)
+                            _RowBadge(label: context.l10n.txnAwaitingPrice, color: c.warning),
                           if (isAi) _RowBadge(label: context.l10n.commonSmart, color: c.cta),
                         ],
                       ),

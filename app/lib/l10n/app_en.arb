@@ -3031,5 +3031,6 @@
   "smartConsentStatusConnecting": "Connecting…",
   "smartConsentStatusConnected": "Smart Analysis is connected",
   "smartConsentStatusFailed": "Smart Analysis isn't connected, so bank messages are read on this device only until it connects.",
-  "smartConsentRetry": "Retry"
+  "smartConsentRetry": "Retry",
+  "txnAwaitingPrice": "Awaiting price"
 }

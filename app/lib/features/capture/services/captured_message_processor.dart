@@ -177,6 +177,8 @@ class CapturedMessageProcessor {
           // actually flows, so a use case constructed without it would default
           // to shadow (safe) but record NOTHING — and Tier 2 would count zero
           // from the only path that matters at volume.
+          // `local_auto_confirm_v2`, read at call time (remote kill switch).
+          isLocalAutoConfirmV2: () => featureFlags.getBool('local_auto_confirm_v2'),
           proofGateMode: () => featureFlags.getBool('enable_proof_autocommit')
               ? ProofGateMode.armed
               : ProofGateMode.shadow,

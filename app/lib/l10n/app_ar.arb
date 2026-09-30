@@ -3148,5 +3148,6 @@
   "smartConsentStatusConnecting": "جارٍ الاتصال…",
   "smartConsentStatusConnected": "التحليل الذكي متصل",
   "smartConsentStatusFailed": "التحليل الذكي غير متصل، لذا تُقرأ رسائل البنك على هذا الجهاز فقط حتى يتم الاتصال.",
-  "smartConsentRetry": "إعادة المحاولة"
+  "smartConsentRetry": "إعادة المحاولة",
+  "txnAwaitingPrice": "بانتظار السعر"
 }

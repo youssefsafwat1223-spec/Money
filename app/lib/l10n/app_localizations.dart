@@ -9894,6 +9894,12 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'إعادة المحاولة'**
   String get smartConsentRetry;
+
+  /// No description provided for @txnAwaitingPrice.
+  ///
+  /// In ar, this message translates to:
+  /// **'بانتظار السعر'**
+  String get txnAwaitingPrice;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

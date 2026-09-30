@@ -5842,4 +5842,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smartConsentRetry => 'إعادة المحاولة';
+
+  @override
+  String get txnAwaitingPrice => 'بانتظار السعر';
 }

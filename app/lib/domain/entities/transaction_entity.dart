@@ -26,6 +26,10 @@ enum ComparisonTimestampSource { smsBody, receivedAt }
 
 enum DuplicateStatus { normal, suspiciousDuplicate }
 
+/// Pricing is a separate axis from [TransactionStatus]: a foreign-currency
+/// spend parked with amount 0 is CONFIRMED and merely awaits a home value.
+enum TransactionPricingState { priced, awaitingFx }
+
 enum SyncStatus { localOnly, synced, pending, conflict }
 
 class TransactionEntity {
@@ -104,6 +108,13 @@ class TransactionEntity {
   double get amount => amountMoney.toDouble();
   double? get balanceAfter => balanceAfterMoney?.toDouble();
   double? get foreignAmount => foreignMoney?.toDouble();
+
+  /// Derived, never stored: amount 0 with a foreign amount means the home-currency
+  /// value has not been entered yet.
+  TransactionPricingState get pricingState =>
+      amountMoney.isZero && foreignMoney != null
+          ? TransactionPricingState.awaitingFx
+          : TransactionPricingState.priced;
 
   TransactionEntity copyWith({
     String? id,

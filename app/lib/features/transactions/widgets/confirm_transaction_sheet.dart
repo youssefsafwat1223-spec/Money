@@ -81,7 +81,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
   /// A foreign-currency spend parked in the home account with no home value yet
   /// (amount 0). The user prices it by entering the home-currency amount.
   bool _awaitingPricing(TransactionEntity tx) =>
-      tx.amountMoney.isZero && tx.foreignMoney != null;
+      tx.pricingState == TransactionPricingState.awaitingFx;
 
   /// Selectable categories with the currently-selected one pinned first, so it
   /// is always visible (otherwise a selection like "أخرى" sits off-screen at the

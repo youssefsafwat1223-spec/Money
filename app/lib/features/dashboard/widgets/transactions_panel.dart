@@ -171,6 +171,7 @@ class TransactionsPanel extends StatelessWidget {
       categoryColor: category?.color,
       brandLogoUrl: BrandMark.logoFor(title, merchantLogos),
       isPending: tx.status == TransactionStatus.pending,
+      awaitingPrice: tx.pricingState == TransactionPricingState.awaitingFx,
       isAi: tx.source == TransactionSourceEntity.aiParsed,
       isDebit: transactionIsDebit(tx),
       privacyMode: privacyMode,

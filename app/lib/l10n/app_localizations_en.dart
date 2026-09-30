@@ -5844,4 +5844,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smartConsentRetry => 'Retry';
+
+  @override
+  String get txnAwaitingPrice => 'Awaiting price';
 }

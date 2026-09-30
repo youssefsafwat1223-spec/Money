@@ -1231,6 +1231,8 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     // PHASE 11 — Proof gate config, read at CALL TIME so a remote flag flip
     // takes effect on the next capture without rebuilding the use case. This is
     // the kill switch's propagation path.
+    // `local_auto_confirm_v2`, read at call time (remote kill switch).
+    isLocalAutoConfirmV2: () => featureFlags.getBool('local_auto_confirm_v2'),
     proofGateMode: () => featureFlags.getBool('enable_proof_autocommit')
         ? ProofGateMode.armed
         : ProofGateMode.shadow,

@@ -1065,6 +1065,14 @@ class DriftTransactionRepository implements TransactionRepository {
     }).toList();
   }
 
+  /// A confirmed foreign spend still awaiting its home value (amount 0 with a
+  /// foreign amount) is not a priced row: it must not add to row counts, day
+  /// denominators or recurrence detection. Sums are unaffected (it is 0).
+  String _pricedOnly([String? alias]) {
+    final p = alias == null ? '' : '$alias.';
+    return 'NOT (${p}amount_minor = 0 AND ${p}foreign_amount IS NOT NULL)';
+  }
+
   @override
   Future<List<DailySpend>> dailyExpenseTotals({
     required DateTime from,
@@ -1082,6 +1090,7 @@ class DriftTransactionRepository implements TransactionRepository {
                COALESCE(SUM(${aggregate.signedAmountMinor}), 0) AS total
         FROM transactions
         WHERE ${aggregate.where}
+          AND ${_pricedOnly()}
           AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}
           AND UPPER(currency) = ?
         GROUP BY date(occurred_at, 'localtime')
@@ -1128,6 +1137,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions
         WHERE ${aggregate.where}
           AND category_id IS NOT NULL
+          AND ${_pricedOnly()}
           AND occurred_at >= ? AND occurred_at < ?${_accountClause(accountId)}${_currencyClause(currency)}
         GROUP BY category_id
         ORDER BY total DESC;
@@ -1211,6 +1221,7 @@ class DriftTransactionRepository implements TransactionRepository {
         FROM transactions t
         INNER JOIN merchants m ON m.id = t.merchant_id
         WHERE ${aggregate.where}
+          AND ${_pricedOnly('t')}
           AND t.occurred_at >= ? AND t.occurred_at < ?$accountClause
           AND UPPER(t.currency) = ?
         GROUP BY t.merchant_id
@@ -1254,7 +1265,7 @@ class DriftTransactionRepository implements TransactionRepository {
                     AND cards.deleted_at IS NULL
                   ORDER BY cards.updated_at DESC LIMIT 1) AS accent_hex
         FROM transactions
-        WHERE card_last4 IS NOT NULL AND status = 'confirmed'
+        WHERE card_last4 IS NOT NULL AND status = 'confirmed' AND ${_pricedOnly()}
         GROUP BY card_last4, UPPER(currency)
         ORDER BY card_last4 ASC, currency ASC;
       ''',
@@ -1297,7 +1308,7 @@ class DriftTransactionRepository implements TransactionRepository {
                     AND cards.deleted_at IS NULL
                   ORDER BY cards.updated_at DESC LIMIT 1) AS accent_hex
         FROM transactions
-        WHERE card_last4 IS NOT NULL AND status = 'confirmed'
+        WHERE card_last4 IS NOT NULL AND status = 'confirmed' AND ${_pricedOnly()}
         GROUP BY card_last4, account_id, UPPER(currency);
       ''',
     ).get();
@@ -1369,6 +1380,7 @@ class DriftTransactionRepository implements TransactionRepository {
           FROM transactions t
           INNER JOIN merchants m ON m.id = t.merchant_id
           WHERE t.type = 'payment' AND t.status = 'confirmed'
+            AND ${_pricedOnly('t')}
             $accountClause
           GROUP BY t.merchant_id, UPPER(t.currency)
         )

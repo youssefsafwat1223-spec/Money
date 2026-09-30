@@ -95,6 +95,11 @@ const Map<String, Object> _defaults = {
   // Kill switch: lets a durable native capture the backend failed to analyse
   // use the in-app AI fallback (still consent-gated). Seeded OFF.
   'capture_ai_fallback_enabled': false,
+  // Binary local acceptance: a capture the local parser reads as VALID is
+  // confirmed (no pending stage); an INVALID one is treated as "local produced
+  // no transaction" (AI + validator when allowed, else Smart Inbox). Seeded OFF;
+  // OFF is the legacy confidence/pending behaviour, byte for byte.
+  'local_auto_confirm_v2': false,
   // MALI-034: the obsolete Supabase-primary financial-authority flags
   // (accounts/transactions/budgets/goals/subscriptions/plans_supabase_primary,
   // smart_inbox_supabase_primary, dashboard_supabase_summary,

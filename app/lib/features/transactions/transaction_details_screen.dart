@@ -178,12 +178,12 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       fit: BoxFit.scaleDown,
                       child: AnimatedAmountText(
                         amount:
-                            (tx.amountMoney.isZero && tx.foreignMoney != null)
+                            (tx.pricingState == TransactionPricingState.awaitingFx)
                                 ? tx.foreignAmount!
                                 : tx.amount,
                         color: amountColor,
                         suffix:
-                            (tx.amountMoney.isZero && tx.foreignMoney != null)
+                            (tx.pricingState == TransactionPricingState.awaitingFx)
                                 ? ' ${tx.foreignCurrency}'
                                 : ' ${Currency.label(context, tx.currency)}',
                         style: AppTypography.amountHero(amountColor),
@@ -209,8 +209,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                             .copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
-                    if (tx.amountMoney.isZero &&
-                        tx.foreignMoney != null &&
+                    if (tx.pricingState == TransactionPricingState.awaitingFx &&
                         tx.foreignCurrency != null) ...[
                       const SizedBox(height: AppSpacing.s3),
                       AppButton(
