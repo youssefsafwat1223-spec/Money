@@ -250,7 +250,11 @@ void main() {
       expect(m.syncStatus, SenderBankMappingSyncStatus.pending);
     });
 
-    test('user confirm() stamps accepted_by = user', () async {
+    // Changed from "stamps 'user'": a non-null accepted_by in the sync payload
+    // is rejected by production PostgREST until migration 0101 is deployed.
+    // NULL already means user/legacy-accepted (isUserAccepted).
+    test('user confirm() leaves accepted_by NULL and is user-accepted',
+        () async {
       final s = await repo.saveSuggestion(const SenderBankMappingDraft(
         senderId: 'ACME',
         suggestedBankName: 'B',
@@ -258,7 +262,8 @@ void main() {
         confidence: 0.9,
       ));
       final c = await repo.confirm(mappingId: s.id, bankKey: 'adib');
-      expect(c.acceptedBy, SenderBankMappingAcceptedBy.user);
+      expect(c.acceptedBy, isNull);
+      expect(c.isUserAccepted, isTrue);
     });
 
     test('a. user-confirmed mapping is never modified', () async {
@@ -272,7 +277,8 @@ void main() {
       expect(await ai('mashreq'), AiMappingOutcome.blockedUserAccepted);
       final m = (await repo.getBySender('acme'))!;
       expect(m.bankKey, 'adib');
-      expect(m.acceptedBy, SenderBankMappingAcceptedBy.user);
+      expect(m.acceptedBy, isNull);
+      expect(m.isUserAccepted, isTrue);
     });
 
     test('a. legacy NULL accepted_by confirmed row is user-accepted', () async {

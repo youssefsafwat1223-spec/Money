@@ -86,8 +86,10 @@ Adds the nullable `sender_bank_mappings.accepted_by` provenance column
 no RLS change.
 
 **Condition for activation: activate and deploy BEFORE enabling the app-read
-flag `ai_sender_mapping_auto`.** The app omits `accepted_by` from sync payloads
-when it is null, so the column is not required while the flag is off.
+flag `ai_sender_mapping_auto`.** The client only writes `accepted_by` for
+AI-validated mappings, which only exist while `ai_sender_mapping_auto` is ON;
+user confirmations leave it NULL; therefore sync payloads never contain
+`accepted_by` while the flag is OFF, and the column is not required until then.
 
 **Activation ordering.** The active chain ends at 0099, so both 0100 and 0101
 sit deferred at the tail. Activate 0100 first, then 0101, so the chain stays

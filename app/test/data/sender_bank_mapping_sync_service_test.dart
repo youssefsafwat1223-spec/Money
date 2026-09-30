@@ -2,6 +2,9 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/repositories/drift_sender_bank_mapping_repository.dart';
+import 'package:money_companion/domain/entities/sender_bank_mapping_entity.dart';
+import 'package:money_companion/domain/repositories/sender_bank_mapping_repository.dart';
 import 'package:money_companion/data/sync/sender_bank_mapping_sync_service.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
@@ -127,7 +130,7 @@ void main() {
         remoteStore: server,
         currentUserId: () => 'user-1',
         pageSize: pageSize,
-      
+
         // C-3: these cover push/pull MECHANICS; consent enforcement is
         // asserted separately in sender_bank_mapping_consent_test.dart.
         mayEgress: () async => true,
@@ -207,7 +210,8 @@ void main() {
       expect(await localCount('deleted_at IS NULL'), 3);
     });
 
-    test('equal timestamps across a page boundary are not skipped (id tiebreak)',
+    test(
+        'equal timestamps across a page boundary are not skipped (id tiebreak)',
         () async {
       server.putEqualTimestamp('a', 'b', '2026-05-05T05:05:05Z');
       server.put('c'); // later timestamp
@@ -221,12 +225,14 @@ void main() {
       server.put('x');
       await service().pull();
       expect(
-          await localCount("normalized_sender_id='x' AND deleted_at IS NULL"), 1);
+          await localCount("normalized_sender_id='x' AND deleted_at IS NULL"),
+          1);
       server.put('x', deleted: true); // device B deletes it
       final r = await service().pull();
       expect(r.tombstoned, 1);
       expect(
-          await localCount("normalized_sender_id='x' AND deleted_at IS NOT NULL"),
+          await localCount(
+              "normalized_sender_id='x' AND deleted_at IS NOT NULL"),
           1);
     });
 
@@ -291,7 +297,8 @@ void main() {
   });
 
   group('typed errors', () {
-    test('an unrelated unique-constraint error does NOT falsely resolve the item',
+    test(
+        'an unrelated unique-constraint error does NOT falsely resolve the item',
         () async {
       await seedLocal('u', status: 'confirmed');
       server.failUpsertWith =
@@ -361,6 +368,86 @@ void main() {
   });
 
   group('accepted_by provenance', () {
+    Future<SenderBankMappingEntity> suggest(
+            DriftSenderBankMappingRepository repo, String id) =>
+        repo.saveSuggestion(SenderBankMappingDraft(
+          senderId: id,
+          suggestedBankName: 'Bank',
+          suggestedCountry: 'SA',
+          confidence: 0.9,
+        ));
+
+    test('push payload of a user-confirmed mapping has no accepted_by',
+        () async {
+      final repo = DriftSenderBankMappingRepository(db);
+      final s = await suggest(repo, 'conf');
+      await repo.confirm(mappingId: s.id, bankKey: 'alrajhi');
+      await service().push();
+      expect(server.rows['CONF']!['status'], 'confirmed');
+      expect(server.rows['CONF']!.containsKey('accepted_by'), isFalse);
+    });
+
+    test('batch of user-confirmed + legacy rows has no accepted_by', () async {
+      final repo = DriftSenderBankMappingRepository(db);
+      final s = await suggest(repo, 'conf');
+      await repo.confirm(mappingId: s.id, bankKey: 'alrajhi');
+      await seedLocal('legacy1');
+      await seedLocal('legacy2');
+      await service().push();
+      expect(server.upsertCalls, 1);
+      expect(server.rows.keys, containsAll(['CONF', 'legacy1', 'legacy2']));
+      for (final r in server.rows.values) {
+        expect(r.containsKey('accepted_by'), isFalse);
+      }
+    });
+
+    test('AI path still writes ai_validated and pushes it', () async {
+      final repo = DriftSenderBankMappingRepository(db);
+      await repo.upsertAiValidated(
+          senderId: 'AISND',
+          bankKey: 'alrajhi',
+          bankName: 'Bank',
+          country: 'SA');
+      await service().push();
+      expect(server.rows['AISND']!['accepted_by'], 'ai_validated');
+    });
+
+    test(
+        'guard (flag OFF): confirm/reject/saveSuggestion/upsertRemote/pull '
+        'never yield accepted_by in any push payload', () async {
+      final repo = DriftSenderBankMappingRepository(db);
+      final a = await suggest(repo, 'aaa');
+      await repo.confirm(mappingId: a.id, bankKey: 'alrajhi');
+      final b = await suggest(repo, 'bbb');
+      await repo.reject(mappingId: b.id, cooldown: const Duration(days: 30));
+      await suggest(repo, 'ccc'); // stays a pending suggestion
+      final now = DateTime.utc(2026, 1, 1);
+      await repo.upsertRemote(SenderBankMappingEntity(
+        id: 'r1',
+        senderId: 'ddd',
+        normalizedSenderId: 'ddd',
+        bankKey: 'alrajhi',
+        suggestedBankName: 'Bank',
+        suggestedCountry: 'SA',
+        confidence: 0.9,
+        status: SenderBankMappingStatus.confirmed,
+        source: SenderBankMappingSource.userManual,
+        firstSeenAt: now,
+        lastSeenAt: now,
+        confirmedAt: now,
+        createdAt: now,
+        updatedAt: now,
+        syncStatus: SenderBankMappingSyncStatus.pending,
+      ));
+      server.put('eee'); // remote row pulled via the pull/upsertRemote path
+      await service().pull();
+      await service().push();
+      expect(server.rows.keys, containsAll(['AAA', 'BBB', 'eee']));
+      for (final r in server.rows.values) {
+        expect(r.containsKey('accepted_by'), isFalse);
+      }
+    });
+
     test('push omits accepted_by when null (legacy/user row)', () async {
       await seedLocal('legacy');
       await service().push();

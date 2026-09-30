@@ -180,7 +180,6 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
         SET status = 'confirmed',
             bank_key = ?,
             confirmed_at = ?,
-            accepted_by = 'user',
             rejected_at = NULL,
             rejection_expires_at = NULL,
             updated_at = ?,
