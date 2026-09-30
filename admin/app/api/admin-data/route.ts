@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAdmin } from "@/lib/auth-guard";
+import { adminAuthErrorResponse, requireAdmin } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase-server";
 import { guardParserWrite, ParserValidationError } from "@/lib/parser-validation-guard.mjs";
 
@@ -40,7 +40,11 @@ function cleanParser(input: Record<string, unknown>) {
 }
 
 export async function GET(req: NextRequest) {
-  await requireAdmin();
+  try {
+    await requireAdmin();
+  } catch (e) {
+    return adminAuthErrorResponse(e);
+  }
   const resource = resourceFrom(req.nextUrl.searchParams.get("resource"));
   if (!resource) return NextResponse.json({ error: "invalid_resource" }, { status: 400 });
 
@@ -65,7 +69,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  await requireAdmin();
+  try {
+    await requireAdmin();
+  } catch (e) {
+    return adminAuthErrorResponse(e);
+  }
   const body = await req.json() as Record<string, unknown>;
   const resource = resourceFrom(typeof body.resource === "string" ? body.resource : null);
   if (resource !== "banks" && resource !== "sms_parsers") {
@@ -93,11 +101,20 @@ export async function POST(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
-  await requireAdmin();
+  try {
+    await requireAdmin();
+  } catch (e) {
+    return adminAuthErrorResponse(e);
+  }
   const body = await req.json() as Record<string, unknown>;
   const resource = resourceFrom(typeof body.resource === "string" ? body.resource : null);
   const id = typeof body.id === "string" ? body.id : "";
   if (!resource || !id) return NextResponse.json({ error: "invalid_request" }, { status: 400 });
+  // WP5-Lite: flag writes are unvalidated and unaudited here. They go through
+  // /api/feature-flags/apply (audited RPC) only.
+  if (resource === "feature_flags") {
+    return NextResponse.json({ error: "use_feature_flags_api" }, { status: 405 });
+  }
   const client = await createAdminClient();
   // F-011: promotion to `passed` is not an editing operation. The guard needs
   // the CURRENT row, because "may this edit change the status" depends on what
@@ -120,20 +137,18 @@ export async function PATCH(req: NextRequest) {
   }
   const result = resource === "banks"
     ? await client.from("banks").update(cleanBank(body)).eq("id", id).select().single()
-    : resource === "sms_parsers"
-      ? await client.from("sms_parsers").update(parserPatch!).eq("id", id).select().single()
-      : await client.from("feature_flags").update({
-          is_active: body.is_active,
-          value: body.value,
-          rollout_percent: body.rollout_percent,
-        }).eq("id", id).select().single();
+    : await client.from("sms_parsers").update(parserPatch!).eq("id", id).select().single();
   const { data, error } = result;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ data });
 }
 
 export async function DELETE(req: NextRequest) {
-  await requireAdmin();
+  try {
+    await requireAdmin();
+  } catch (e) {
+    return adminAuthErrorResponse(e);
+  }
   const resource = resourceFrom(req.nextUrl.searchParams.get("resource"));
   const id = req.nextUrl.searchParams.get("id");
   if ((resource !== "banks" && resource !== "sms_parsers") || !id) {
