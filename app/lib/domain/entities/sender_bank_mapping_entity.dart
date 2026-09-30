@@ -2,6 +2,13 @@ enum SenderBankMappingStatus { pending, confirmed, rejected }
 
 enum SenderBankMappingSource { gemini, userManual, remote }
 
+/// Who accepted a confirmed mapping. Provenance only: never a substitute for
+/// validation, and `ai` never claims a user confirmed it.
+class SenderBankMappingAcceptedBy {
+  static const user = 'user';
+  static const aiValidated = 'ai_validated';
+}
+
 enum SenderBankMappingSyncStatus { pending, synced, failed }
 
 class SenderBankMappingEntity {
@@ -25,6 +32,7 @@ class SenderBankMappingEntity {
     this.rejectedAt,
     this.rejectionExpiresAt,
     this.syncedAt,
+    this.acceptedBy,
   });
 
   final String id;
@@ -46,6 +54,14 @@ class SenderBankMappingEntity {
   final DateTime updatedAt;
   final DateTime? syncedAt;
   final SenderBankMappingSyncStatus syncStatus;
+
+  /// 'user' | 'ai_validated' | null (legacy row = user-accepted).
+  final String? acceptedBy;
+
+  /// True for every mapping a user accepted, including legacy NULL rows.
+  bool get isUserAccepted =>
+      source == SenderBankMappingSource.userManual ||
+      acceptedBy != SenderBankMappingAcceptedBy.aiValidated;
 
   bool get isTrusted => status == SenderBankMappingStatus.confirmed;
 
@@ -76,6 +92,7 @@ class SenderBankMappingEntity {
     DateTime? updatedAt,
     Object? syncedAt = _sentinel,
     SenderBankMappingSyncStatus? syncStatus,
+    Object? acceptedBy = _sentinel,
   }) {
     return SenderBankMappingEntity(
       id: id ?? this.id,
@@ -102,6 +119,8 @@ class SenderBankMappingEntity {
       updatedAt: updatedAt ?? this.updatedAt,
       syncedAt: syncedAt == _sentinel ? this.syncedAt : syncedAt as DateTime?,
       syncStatus: syncStatus ?? this.syncStatus,
+      acceptedBy:
+          acceptedBy == _sentinel ? this.acceptedBy : acceptedBy as String?,
     );
   }
 }

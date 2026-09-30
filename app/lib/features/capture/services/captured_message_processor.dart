@@ -253,6 +253,9 @@ class CapturedMessageProcessor {
           resolveBankForSenderUseCase: ResolveBankForSenderUseCase(
             mappingRepository: senderBankMappingRepository,
           ),
+          senderBankMappingRepository: senderBankMappingRepository,
+          isAiSenderMappingAuto: () =>
+              featureFlags.getBool('ai_sender_mapping_auto'),
           bankDiscoveryService: bankDiscoveryClient == null
               ? null
               : BankDiscoveryService(

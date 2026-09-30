@@ -2105,6 +2105,9 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn('sender_bank_mappings', 'deleted_at', 'TEXT NULL');
     await _ensureColumn(
         'sender_bank_mappings', 'server_updated_at', 'TEXT NULL');
+    // Provenance of an accepted mapping: 'user' | 'ai_validated' (enforced in
+    // code). NULL = legacy row, treated as user-accepted. Additive + nullable.
+    await _ensureColumn('sender_bank_mappings', 'accepted_by', 'TEXT NULL');
     // v16: Phase D — local outbox for push sync.
     await customStatement('''
       CREATE TABLE IF NOT EXISTS ledger_sync_outbox (
@@ -2412,6 +2415,7 @@ class AppDatabase extends GeneratedDatabase {
         synced_at TEXT NULL,
         sync_status TEXT NOT NULL DEFAULT 'pending'
           CHECK(sync_status IN ('pending', 'synced', 'failed')),
+        accepted_by TEXT NULL,
         CHECK(status != 'confirmed' OR confirmed_at IS NOT NULL),
         CHECK(status != 'rejected' OR rejected_at IS NOT NULL)
       );

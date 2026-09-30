@@ -17,12 +17,17 @@ class BankSenderResolution {
     required this.bankProfiles,
     this.profile,
     this.mapping,
+    this.contentBankKey,
   });
 
   final BankSenderResolutionSource source;
   final List<BankProfile> bankProfiles;
   final BankProfile? profile;
   final SenderBankMappingEntity? mapping;
+
+  /// Set only when the message CONTENT alone identified exactly one bank.
+  /// Side-effect evidence only; it does not affect resolution.
+  final String? contentBankKey;
 
   bool get hasTrustedProfile =>
       source == BankSenderResolutionSource.directProfile ||
@@ -56,6 +61,7 @@ class ResolveBankForSenderUseCase {
         source: BankSenderResolutionSource.directProfile,
         bankProfiles: bankProfiles,
         profile: contentMatch,
+        contentBankKey: _uniqueContentBankKey(text, bankProfiles),
       );
     }
 
@@ -132,6 +138,28 @@ class ResolveBankForSenderUseCase {
       bankProfiles: bankProfiles,
       mapping: mapping,
     );
+  }
+
+  String? _uniqueContentBankKey(
+      String normalizedText, List<BankProfile> bankProfiles) {
+    final text = normalizedText.toLowerCase();
+    final compactText = text.replaceAll(RegExp(r'[^a-z0-9\u0600-\u06ff]+'), '');
+    final keys = <String>{};
+    for (final profile in [...bankProfiles, ...BankProfiles.all]) {
+      for (final keyword in profile.keywords) {
+        final rawKeyword = keyword.trim().toLowerCase();
+        final compactKeyword = rawKeyword.replaceAll(
+          RegExp(r'[^a-z0-9\u0600-\u06ff]+'),
+          '',
+        );
+        if (rawKeyword.isEmpty || compactKeyword.isEmpty) continue;
+        if (text.contains(rawKeyword) || compactText.contains(compactKeyword)) {
+          keys.add(profile.bankKey);
+          break;
+        }
+      }
+    }
+    return keys.length == 1 ? keys.first : null;
   }
 
   BankProfile? _detectByContent(

@@ -1357,6 +1357,8 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     loadInstallId: InstallId.get,
     resolveBankForSenderUseCase: ref.watch(resolveBankForSenderUseCaseProvider),
     bankDiscoveryService: ref.watch(bankDiscoveryServiceProvider),
+    senderBankMappingRepository: ref.watch(senderBankMappingRepositoryProvider),
+    isAiSenderMappingAuto: () => featureFlags.getBool('ai_sender_mapping_auto'),
     suspectedDuplicateRepository:
         ref.watch(suspectedDuplicateRepositoryProvider),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),

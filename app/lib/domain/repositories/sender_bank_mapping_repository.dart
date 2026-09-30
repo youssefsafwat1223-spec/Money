@@ -22,6 +22,15 @@ class SenderBankMappingDraft {
   final DateTime? now;
 }
 
+enum AiMappingOutcome {
+  created,
+  unchanged,
+  tombstonedConflict,
+  blockedUserAccepted,
+  blockedRejected,
+  blockedPending,
+}
+
 abstract class SenderBankMappingRepository {
   Future<SenderBankMappingEntity?> getBySender(String senderId);
 
@@ -42,6 +51,25 @@ abstract class SenderBankMappingRepository {
   Future<SenderBankMappingEntity> confirm({
     required String mappingId,
     String? bankKey,
+    DateTime? now,
+  });
+
+  /// Automatic mapping for a validated AI capture whose bank matched exactly
+  /// one catalog bank. Provenance is 'ai_validated' (never 'user').
+  Future<AiMappingOutcome> upsertAiValidated({
+    required String senderId,
+    required String bankKey,
+    required String bankName,
+    required String country,
+    DateTime? now,
+  });
+
+  /// Tombstones an AI-accepted mapping for [senderId] whose bank differs from
+  /// [contentBankKey] (deterministic content evidence). User/legacy mappings
+  /// are never touched. Returns true when a tombstone was written.
+  Future<bool> tombstoneAiMappingIfContradicted({
+    required String senderId,
+    required String contentBankKey,
     DateTime? now,
   });
 

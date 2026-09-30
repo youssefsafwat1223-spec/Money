@@ -107,6 +107,24 @@ class _MemorySenderBankMappingRepository
   }
 
   @override
+  Future<bool> tombstoneAiMappingIfContradicted({
+    required String senderId,
+    required String contentBankKey,
+    DateTime? now,
+  }) async =>
+      false;
+
+  @override
+  Future<AiMappingOutcome> upsertAiValidated({
+    required String senderId,
+    required String bankKey,
+    required String bankName,
+    required String country,
+    DateTime? now,
+  }) async =>
+      AiMappingOutcome.blockedPending;
+
+  @override
   Future<SenderBankMappingEntity> reject({
     required String mappingId,
     required Duration cooldown,

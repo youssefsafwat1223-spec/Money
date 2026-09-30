@@ -180,6 +180,7 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
         SET status = 'confirmed',
             bank_key = ?,
             confirmed_at = ?,
+            accepted_by = 'user',
             rejected_at = NULL,
             rejection_expires_at = NULL,
             updated_at = ?,
@@ -197,6 +198,116 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
       ],
     );
     return _getById(mappingId);
+  }
+
+  @override
+  Future<AiMappingOutcome> upsertAiValidated({
+    required String senderId,
+    required String bankKey,
+    required String bankName,
+    required String country,
+    DateTime? now,
+  }) async {
+    final normalized = normalizeSenderId(senderId);
+    if (normalized.isEmpty || bankKey.trim().isEmpty) {
+      throw ArgumentError('Sender ID and bank key must not be empty.');
+    }
+    final timestamp = (now ?? DateTime.now()).toUtc();
+    final existing = await getBySender(senderId);
+    if (existing != null) {
+      if (existing.status == SenderBankMappingStatus.rejected) {
+        return AiMappingOutcome.blockedRejected;
+      }
+      if (existing.status == SenderBankMappingStatus.pending) {
+        return AiMappingOutcome.blockedPending;
+      }
+      if (existing.isUserAccepted) {
+        return AiMappingOutcome.blockedUserAccepted;
+      }
+      // Existing AI mapping.
+      if (existing.bankKey == bankKey) return AiMappingOutcome.unchanged;
+      await _tombstone(existing.id, timestamp);
+      return AiMappingOutcome.tombstonedConflict;
+    }
+    final ts = Variable.withString(dateTimeToSql(timestamp));
+    // ON CONFLICT re-uses a tombstoned row (the normalized id is UNIQUE);
+    // live rows were excluded above.
+    await _db.customInsert(
+      '''
+        INSERT INTO sender_bank_mappings(
+          id, sender_id, normalized_sender_id, bank_key,
+          suggested_bank_name, suggested_country, confidence,
+          reason, status, source, first_seen_at, last_seen_at,
+          confirmed_at, rejected_at, rejection_expires_at,
+          created_at, updated_at, synced_at, sync_status, accepted_by
+        ) VALUES (?, ?, ?, ?, ?, ?, 1.0, 'ai_validated_capture', 'confirmed',
+          'gemini', ?, ?, ?, NULL, NULL, ?, ?, NULL, 'pending', 'ai_validated')
+        ON CONFLICT(normalized_sender_id) DO UPDATE SET
+          sender_id = excluded.sender_id,
+          bank_key = excluded.bank_key,
+          suggested_bank_name = excluded.suggested_bank_name,
+          suggested_country = excluded.suggested_country,
+          confidence = excluded.confidence,
+          reason = excluded.reason,
+          status = 'confirmed',
+          source = 'gemini',
+          last_seen_at = excluded.last_seen_at,
+          confirmed_at = excluded.confirmed_at,
+          rejected_at = NULL,
+          rejection_expires_at = NULL,
+          updated_at = excluded.updated_at,
+          synced_at = NULL,
+          deleted_at = NULL,
+          sync_status = 'pending',
+          accepted_by = 'ai_validated';
+      ''',
+      variables: [
+        Variable.withString(IdGenerator.next()),
+        Variable.withString(senderId.trim()),
+        Variable.withString(normalized),
+        Variable.withString(bankKey),
+        Variable.withString(bankName),
+        Variable.withString(country),
+        ts,
+        ts,
+        ts,
+        ts,
+        ts,
+      ],
+    );
+    return AiMappingOutcome.created;
+  }
+
+  @override
+  Future<bool> tombstoneAiMappingIfContradicted({
+    required String senderId,
+    required String contentBankKey,
+    DateTime? now,
+  }) async {
+    final existing = await getBySender(senderId);
+    if (existing == null ||
+        existing.status != SenderBankMappingStatus.confirmed ||
+        existing.isUserAccepted ||
+        existing.bankKey == null ||
+        existing.bankKey == contentBankKey) {
+      return false;
+    }
+    await _tombstone(existing.id, (now ?? DateTime.now()).toUtc());
+    return true;
+  }
+
+  Future<void> _tombstone(String id, DateTime timestamp) async {
+    final ts = dateTimeToSql(timestamp);
+    await _db.customUpdate(
+      'UPDATE sender_bank_mappings '
+      "SET deleted_at = ?, updated_at = ?, sync_status = 'pending' "
+      'WHERE id = ? AND deleted_at IS NULL;',
+      variables: [
+        Variable.withString(ts),
+        Variable.withString(ts),
+        Variable.withString(id),
+      ],
+    );
   }
 
   @override
@@ -284,8 +395,8 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
           suggested_bank_name, suggested_country, confidence,
           reason, status, source, first_seen_at, last_seen_at,
           confirmed_at, rejected_at, rejection_expires_at,
-          created_at, updated_at, synced_at, sync_status
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced')
+          created_at, updated_at, synced_at, sync_status, accepted_by
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'synced', ?)
         ON CONFLICT(normalized_sender_id) DO UPDATE SET
           sender_id = excluded.sender_id,
           bank_key = excluded.bank_key,
@@ -303,7 +414,8 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
           created_at = excluded.created_at,
           updated_at = excluded.updated_at,
           synced_at = excluded.synced_at,
-          sync_status = 'synced';
+          sync_status = 'synced',
+          accepted_by = excluded.accepted_by;
       ''',
       variables: [
         Variable.withString(id),
@@ -324,6 +436,7 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
         Variable.withString(dateTimeToSql(remote.createdAt)),
         Variable.withString(dateTimeToSql(remote.updatedAt)),
         Variable.withString(dateTimeToSql(syncTime)),
+        _nullableString(remote.acceptedBy),
       ],
     );
     return (await getBySender(remote.senderId))!;
@@ -433,6 +546,7 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
       updatedAt: dateTimeFromSql(row.read<String>('updated_at')),
       syncedAt: _dateTimeOrNull(row.readNullable<String>('synced_at')),
       syncStatus: _syncStatusFromSql(row.read<String>('sync_status')),
+      acceptedBy: row.readNullable<String>('accepted_by'),
     );
   }
 

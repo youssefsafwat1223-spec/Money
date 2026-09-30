@@ -359,4 +359,41 @@ void main() {
       expect(await localCount("id='loc-c' AND sync_status='synced'"), 1);
     });
   });
+
+  group('accepted_by provenance', () {
+    test('push omits accepted_by when null (legacy/user row)', () async {
+      await seedLocal('legacy');
+      await service().push();
+      expect(server.rows['legacy']!.containsKey('accepted_by'), isFalse);
+    });
+
+    test('push includes accepted_by when set', () async {
+      await seedLocal('aisender');
+      await db.customStatement(
+          "UPDATE sender_bank_mappings SET accepted_by = 'ai_validated' "
+          "WHERE normalized_sender_id = 'aisender';");
+      await service().push();
+      expect(server.rows['aisender']!['accepted_by'], 'ai_validated');
+    });
+
+    test('pull reads accepted_by (import and update) and tolerates absence',
+        () async {
+      server.put('remote-ai');
+      server.rows['remote-ai']!['accepted_by'] = 'ai_validated';
+      server.put('remote-old');
+      await service().pull();
+      Future<String?> local(String n) async => (await db
+              .customSelect('SELECT accepted_by FROM sender_bank_mappings '
+                  "WHERE normalized_sender_id = '$n';")
+              .getSingle())
+          .readNullable<String>('accepted_by');
+      expect(await local('remote-ai'), 'ai_validated');
+      expect(await local('remote-old'), isNull);
+
+      server.put('remote-old');
+      server.rows['remote-old']!['accepted_by'] = 'user';
+      await service().pull();
+      expect(await local('remote-old'), 'user');
+    });
+  });
 }

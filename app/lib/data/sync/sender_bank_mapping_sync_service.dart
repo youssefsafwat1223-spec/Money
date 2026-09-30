@@ -325,6 +325,7 @@ class SenderBankMappingSyncService {
           rejected_at = ${sqlNullableString(_ts(row['rejected_at']))},
           rejection_expires_at =
             ${sqlNullableString(_ts(row['rejection_expires_at']))},
+          accepted_by = ${sqlNullableString(row['accepted_by'] as String?)},
           updated_at = ${sqlString(_ts(serverUpdatedAt) ?? now)},
           server_updated_at = ${sqlNullableString(serverUpdatedAt)},
           synced_at = ${sqlString(now)},
@@ -342,7 +343,7 @@ class SenderBankMappingSyncService {
         suggested_country, confidence, reason, status, source,
         first_seen_at, last_seen_at, confirmed_at, rejected_at,
         rejection_expires_at, created_at, updated_at, synced_at,
-        server_updated_at, sync_status, deleted_at
+        server_updated_at, sync_status, deleted_at, accepted_by
       ) VALUES (
         ${sqlString(row['id'] as String? ?? normalized)},
         ${sqlString(row['sender_id'] as String? ?? '')},
@@ -364,7 +365,8 @@ class SenderBankMappingSyncService {
         ${sqlString(now)},
         ${sqlNullableString(serverUpdatedAt)},
         'synced',
-        NULL
+        NULL,
+        ${sqlNullableString(row['accepted_by'] as String?)}
       );
     ''');
     return _Outcome.imported;
@@ -404,6 +406,7 @@ class SenderBankMappingSyncService {
 
   Map<String, dynamic> _toServerRow(dynamic row, String userId) {
     String? read(String c) => row.readNullable<String>(c) as String?;
+    final acceptedBy = read('accepted_by');
     return {
       'user_id': userId,
       'sender_id': row.read<String>('sender_id'),
@@ -422,6 +425,9 @@ class SenderBankMappingSyncService {
       'rejection_expires_at': read('rejection_expires_at'),
       'created_at': row.read<String>('created_at'),
       'deleted_at': read('deleted_at'),
+      // Only when set, so a server without the column still accepts
+      // legacy/user rows.
+      if (acceptedBy != null) 'accepted_by': acceptedBy,
       // updated_at is deliberately omitted — server-authoritative (0069).
     };
   }

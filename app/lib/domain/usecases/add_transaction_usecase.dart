@@ -30,9 +30,11 @@ import '../entities/suspected_duplicate_entity.dart';
 import '../entities/transaction_entity.dart';
 import '../finance/money.dart';
 import '../finance/money_input.dart';
+import '../entities/bank_discovery_models.dart';
 import '../repositories/account_repository.dart';
 import '../repositories/dedup_store.dart';
 import '../repositories/merchant_category_repository.dart';
+import '../repositories/sender_bank_mapping_repository.dart';
 import '../repositories/suspected_duplicate_repository.dart';
 import '../repositories/transaction_repository.dart';
 import '../services/bank_discovery_service.dart';
@@ -334,7 +336,14 @@ class AddTransactionUseCase {
     // invalid => "local produced no transaction"). Injected so the domain layer
     // stays flag-free; absent or throwing fails CLOSED (legacy behaviour).
     bool Function()? isLocalAutoConfirmV2,
+    // `ai_sender_mapping_auto`: persist a sender->bank mapping after a
+    // validated AI capture matched exactly one catalog bank. Injected and
+    // fail-closed: absent, throwing or non-true means nothing is persisted.
+    SenderBankMappingRepository? senderBankMappingRepository,
+    bool Function()? isAiSenderMappingAuto,
   })  : _isLocalAutoConfirmV2 = isLocalAutoConfirmV2,
+        _senderBankMappingRepository = senderBankMappingRepository,
+        _isAiSenderMappingAuto = isAiSenderMappingAuto,
         _transactionRepository = transactionRepository,
         _merchantIntelligence =
             merchantIntelligence ?? MerchantIntelligenceStore(),
@@ -618,6 +627,8 @@ class AddTransactionUseCase {
   final Future<String> Function()? _loadInstallId;
   final ResolveBankForSenderUseCase? _resolveBankForSenderUseCase;
   final BankDiscoveryService? _bankDiscoveryService;
+  final SenderBankMappingRepository? _senderBankMappingRepository;
+  final bool Function()? _isAiSenderMappingAuto;
 
   /// Fail closed: no callback, a throw, or anything but `true` means no
   /// enrichment egress.
@@ -646,6 +657,7 @@ class AddTransactionUseCase {
       bankProfiles: loadedBankProfiles,
     );
     final bankProfiles = bankResolution.bankProfiles;
+    await _dropContradictedAiMapping(senderId, bankResolution.contentBankKey);
     final defaultAccount = await _accountRepository?.getDefault();
 
     // Pre-classify message before parsing so we can surface unprocessable cases.
@@ -689,8 +701,9 @@ class AddTransactionUseCase {
                 senderId: senderId,
               );
 
+    BankDiscoveryResult? discovery;
     if (!onDeviceOnly) {
-      await _runBankDiscoveryIfEligible(
+      discovery = await _runBankDiscoveryIfEligible(
         rawMessage: rawMessage,
         senderId: senderId,
         bankProfiles: loadedBankProfiles,
@@ -1169,6 +1182,10 @@ class AddTransactionUseCase {
       );
     }
 
+    if (aiValidated && saved.status == TransactionStatus.confirmed) {
+      await _persistAiSenderMapping(senderId: senderId, discovery: discovery);
+    }
+
     // Mark dedup hash after successful save. Keyed on the originally parsed
     // identity (not the reclassified type) so it matches the pre-save lookup
     // even when an external transfer is re-typed to income/expense.
@@ -1426,7 +1443,49 @@ class AddTransactionUseCase {
     }
   }
 
-  Future<void> _runBankDiscoveryIfEligible({
+  /// Side effect only: content-detected bank Y contradicts an AI mapping to X
+  /// for this sender, so the AI mapping is tombstoned. Swallows everything.
+  Future<void> _dropContradictedAiMapping(
+      String? senderId, String? contentBankKey) async {
+    final repo = _senderBankMappingRepository;
+    final sender = senderId?.trim();
+    if (repo == null || contentBankKey == null) return;
+    if (sender == null || sender.isEmpty) return;
+    try {
+      await repo.tombstoneAiMappingIfContradicted(
+        senderId: sender,
+        contentBankKey: contentBankKey,
+      );
+    } catch (_) {}
+  }
+
+  /// Fail closed; never throws into the capture path.
+  Future<void> _persistAiSenderMapping({
+    required String? senderId,
+    required BankDiscoveryResult? discovery,
+  }) async {
+    final repo = _senderBankMappingRepository;
+    final flag = _isAiSenderMappingAuto;
+    final suggestion = discovery?.suggestion;
+    final sender = senderId?.trim();
+    if (repo == null || flag == null || suggestion == null) return;
+    if (sender == null || sender.isEmpty) return;
+    final bankKey = suggestion.bankKeySuggestion;
+    if (bankKey == null || bankKey.isEmpty) return;
+    try {
+      if (flag() != true) return;
+      await repo.upsertAiValidated(
+        senderId: sender,
+        bankKey: bankKey,
+        bankName: suggestion.suggestedBankName,
+        country: suggestion.country,
+      );
+    } catch (_) {
+      // Advisory: a mapping failure must never affect the saved transaction.
+    }
+  }
+
+  Future<BankDiscoveryResult?> _runBankDiscoveryIfEligible({
     required String rawMessage,
     required String? senderId,
     required List<BankProfile> bankProfiles,
@@ -1434,9 +1493,9 @@ class AddTransactionUseCase {
     String? localeHint,
   }) async {
     final service = _bankDiscoveryService;
-    if (service == null) return;
+    if (service == null) return null;
     try {
-      await service.discoverIfEligible(
+      return await service.discoverIfEligible(
         rawSms: rawMessage,
         senderId: senderId,
         availableProfiles: bankProfiles,
@@ -1445,6 +1504,7 @@ class AddTransactionUseCase {
       );
     } catch (_) {
       // Bank discovery is advisory only; parsing and local capture must continue.
+      return null;
     }
   }
 
