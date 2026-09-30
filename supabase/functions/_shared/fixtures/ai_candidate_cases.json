@@ -1,0 +1,584 @@
+[
+  {
+    "name": "grounded plain amount, AI-only",
+    "sanitized_text": "تم خصم 1250.00 EGP من بطاقتك لدى NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 1250,
+      "amount_text": "1250.00",
+      "currency": "EGP",
+      "merchant": "NOON",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": "NOON",
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "ungrounded amount rejected",
+    "sanitized_text": "Purchase 500.00 EGP at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 900,
+      "amount_text": "900.00",
+      "currency": "EGP",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "amount_not_grounded"
+    }
+  },
+  {
+    "name": "zero amount rejected",
+    "sanitized_text": "Purchase 0.00 EGP at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 0,
+      "amount_text": "0",
+      "currency": "EGP"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "amount_not_grounded"
+    }
+  },
+  {
+    "name": "thousands separator grounded",
+    "sanitized_text": "Purchase 1,250.50 EGP at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 1250.5,
+      "amount_text": "1250.50",
+      "currency": "EGP",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "Arabic-Indic digits grounded (grouped, Arabic separators)",
+    "sanitized_text": "تم خصم ١٬٢٥٠٫٠٠ EGP لدى نون",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 1250,
+      "amount_text": "1250.00",
+      "currency": "EGP",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "Arabic-Indic digits grounded (plain dot)",
+    "sanitized_text": "تم خصم ١٢٥٠.٠٠ EGP لدى نون",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 1250,
+      "amount_text": "1250.00",
+      "currency": "EGP",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "amount_text missing rejected",
+    "sanitized_text": "Purchase 75.00 SAR at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "currency": "SAR"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "amount_text_missing"
+    }
+  },
+  {
+    "name": "amount_text ambiguous comma not canonical",
+    "sanitized_text": "Purchase 12.50 EGP at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 12.5,
+      "amount_text": "12,50",
+      "currency": "EGP"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "amount_text_not_canonical"
+    }
+  },
+  {
+    "name": "amount_text over-precision not canonical",
+    "sanitized_text": "Purchase 1250.00 EGP at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 1250,
+      "amount_text": "1250.001",
+      "currency": "EGP"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "amount_text_not_canonical"
+    }
+  },
+  {
+    "name": "amount_text non-numeric not canonical",
+    "sanitized_text": "Purchase 75.00 SAR at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "seventy five",
+      "currency": "SAR"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "amount_text_not_canonical"
+    }
+  },
+  {
+    "name": "hybrid accepted when amount+currency match local",
+    "sanitized_text": "Purchase 100.00 EGP at LOCAL SHOP",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": {
+      "amount": 100,
+      "amount_text": "100.00",
+      "currency": "EGP",
+      "direction": null,
+      "merchant": "LOCAL SHOP"
+    },
+    "ai": {
+      "amount": 100,
+      "amount_text": "100.00",
+      "currency": "EGP",
+      "merchant": "LOCAL SHOP"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": "LOCAL SHOP",
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "currency mismatch with local rejected",
+    "sanitized_text": "Purchase 100.00 EGP / 100.00 SAR",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": {
+      "amount": 100,
+      "amount_text": "100.00",
+      "currency": "EGP",
+      "direction": "debit",
+      "merchant": null
+    },
+    "ai": {
+      "amount": 100,
+      "amount_text": "100.00",
+      "currency": "SAR"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "currency_mismatch_local"
+    }
+  },
+  {
+    "name": "amount mismatch with local rejected",
+    "sanitized_text": "Purchase 100.00 EGP then 200.00 EGP",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": {
+      "amount": 100,
+      "amount_text": "100.00",
+      "currency": "EGP",
+      "direction": "debit",
+      "merchant": null
+    },
+    "ai": {
+      "amount": 200,
+      "amount_text": "200.00",
+      "currency": "EGP"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "amount_mismatch_local"
+    }
+  },
+  {
+    "name": "ungrounded currency rejected",
+    "sanitized_text": "Paid 75.00 at SHOP",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "currency_not_grounded"
+    }
+  },
+  {
+    "name": "ISO currency grounded",
+    "sanitized_text": "Paid 75.00 SAR at SHOP",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "currency alias ر.س grounded",
+    "sanitized_text": "خصم 75.00 ر.س لدى المتجر",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "currency alias ج.م grounded",
+    "sanitized_text": "شراء 300.00 ج.م من المتجر",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 300,
+      "amount_text": "300.00",
+      "currency": "EGP",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "currency alias ريال grounded",
+    "sanitized_text": "خصم 40.00 ريال من حسابك",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 40,
+      "amount_text": "40.00",
+      "currency": "SAR",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "currency alias جنيه grounded",
+    "sanitized_text": "دفع 55.00 جنيه للمتجر",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 55,
+      "amount_text": "55.00",
+      "currency": "EGP",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "currency alias wrong family rejected",
+    "sanitized_text": "خصم 75.00 ر.س لدى المتجر",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "EGP"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "currency_not_grounded"
+    }
+  },
+  {
+    "name": "dollar symbol grounded",
+    "sanitized_text": "Purchase $20.00 at SHOP",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 20,
+      "amount_text": "20.00",
+      "currency": "USD"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "USD",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "merchant not in text dropped",
+    "sanitized_text": "Purchase 75.00 SAR at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR",
+      "merchant": "AMAZON"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "merchant grounded case/space-insensitive",
+    "sanitized_text": "Purchase 75.00 SAR at Noon  Shop",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR",
+      "merchant": "NOON SHOP"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": "NOON SHOP",
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "ungrounded AI merchant falls back to local merchant",
+    "sanitized_text": "Purchase 100.00 EGP at LOCAL SHOP",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": {
+      "amount": 100,
+      "amount_text": "100.00",
+      "currency": "EGP",
+      "direction": null,
+      "merchant": "LOCAL SHOP"
+    },
+    "ai": {
+      "amount": 100,
+      "amount_text": "100.00",
+      "currency": "EGP",
+      "merchant": "AMAZON"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": "LOCAL SHOP",
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "date inside window kept",
+    "sanitized_text": "Purchase 75.00 SAR at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR",
+      "occurred_at": "2026-06-15T10:00:00Z"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": null,
+      "occurred_at_kept": true
+    }
+  },
+  {
+    "name": "date older than 31 days dropped",
+    "sanitized_text": "Purchase 75.00 SAR at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR",
+      "occurred_at": "2026-01-01T00:00:00Z"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "date more than 1 day in the future dropped",
+    "sanitized_text": "Purchase 75.00 SAR at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR",
+      "occurred_at": "2026-06-20T00:00:00Z"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "date missing is not kept",
+    "sanitized_text": "Purchase 75.00 SAR at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 75,
+      "amount_text": "75.00",
+      "currency": "SAR"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "SAR",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "direction contradiction rejected (deposit text, payment type)",
+    "sanitized_text": "تم إيداع 500.00 EGP في حسابك",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 500,
+      "amount_text": "500.00",
+      "currency": "EGP",
+      "type": "payment"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "direction_contradiction"
+    }
+  },
+  {
+    "name": "direction contradiction rejected (purchase text, income type)",
+    "sanitized_text": "Purchase 500.00 EGP at NOON",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 500,
+      "amount_text": "500.00",
+      "currency": "EGP",
+      "type": "income"
+    },
+    "expected": {
+      "accepted": false,
+      "reason": "direction_contradiction"
+    }
+  },
+  {
+    "name": "transfer type never contradicts",
+    "sanitized_text": "تم إيداع 500.00 EGP في حسابك",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 500,
+      "amount_text": "500.00",
+      "currency": "EGP",
+      "type": "transfer"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "consistent direction accepted",
+    "sanitized_text": "تم إيداع 500.00 EGP في حسابك",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 500,
+      "amount_text": "500.00",
+      "currency": "EGP",
+      "type": "income"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  },
+  {
+    "name": "both-direction wording is not decisive",
+    "sanitized_text": "Purchase 500.00 EGP refund pending",
+    "received_at": "2026-06-16T12:00:00Z",
+    "local": null,
+    "ai": {
+      "amount": 500,
+      "amount_text": "500.00",
+      "currency": "EGP",
+      "type": "income"
+    },
+    "expected": {
+      "accepted": true,
+      "currency": "EGP",
+      "merchant": null,
+      "occurred_at_kept": false
+    }
+  }
+]
