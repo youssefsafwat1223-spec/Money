@@ -316,12 +316,156 @@ void main() {
     final client = _ConsentRecordingClient()..consentThrows = true;
     await androidService(client).syncBackendState(); // must not throw
   });
+
+  // ── WP1 registration status ───────────────────────────────────────────────
+
+  const sentinel = 'SENTINEL-secret-message-do-not-leak';
+
+  CaptureDeviceRegistrationService iosService(
+    _ConsentRecordingClient c, {
+    ApnsTokenLoader? loadApnsToken,
+  }) =>
+      CaptureDeviceRegistrationService(
+        settingsRepository: settingsRepository,
+        client: c,
+        storage: const FlutterSecureStorage(),
+        isIos: () => true,
+        isAndroid: () => false,
+        isBackendConfigured: () => true,
+        loadInstallId: () async => 'install-id',
+        writeNativeBackendConfig: ({
+          required cloudProcessingEnabled,
+          required installId,
+          deviceSecret,
+          required backendUrl,
+          required anonKey,
+          required aiConsentGranted,
+        }) async {},
+        loadApnsToken: loadApnsToken ?? () async => null,
+      );
+
+  const connected =
+      CaptureRegistrationStatus(CaptureRegistrationPhase.connected);
+  CaptureRegistrationStatus failed(String code) =>
+      CaptureRegistrationStatus(CaptureRegistrationPhase.failed, code);
+
+  test('status starts notRequested', () {
+    expect(iosService(_ConsentRecordingClient()).status.value.phase,
+        CaptureRegistrationPhase.notRequested);
+  });
+
+  test('iOS registerDevice throw: failed(register_failed), still propagates; '
+      'retry never throws and reaches connected', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final client = _ConsentRecordingClient()..registerThrowsMessage = sentinel;
+    final service = iosService(client);
+    await expectLater(service.syncBackendState(), throwsA(anything));
+    expect(service.status.value, failed('register_failed'));
+    expect(service.status.value.failureCode, isNot(contains(sentinel)));
+
+    await service.retry(); // still failing: must not throw
+    expect(service.status.value, failed('register_failed'));
+
+    client.registerThrowsMessage = null;
+    await service.retry();
+    expect(service.status.value, connected);
+  });
+
+  test('iOS consent off: notRequested and no registerDevice call', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: false, cloud: false);
+    final client = _ConsentRecordingClient();
+    final service = iosService(client);
+    await service.syncBackendState();
+    expect(service.status.value.phase, CaptureRegistrationPhase.notRequested);
+    expect(client.registeredPlatforms, isEmpty);
+  });
+
+  test('iOS setDeviceConsent failure while granting: consent_sync_failed',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: true, cloud: true);
+    final client = _ConsentRecordingClient()..consentThrows = true;
+    final service = iosService(client);
+    await service.syncBackendState(); // swallow behaviour unchanged
+    expect(service.status.value, failed('consent_sync_failed'));
+  });
+
+  test('iOS failed consent push during revocation stays notRequested',
+      () async {
+    FlutterSecureStorage.setMockInitialValues(
+        {'qirsh_capture_device_secret': 'existing'});
+    await setConsent(ai: false, cloud: false);
+    final client = _ConsentRecordingClient()..consentThrows = true;
+    final service = iosService(client);
+    await service.syncBackendState();
+    expect(service.status.value.phase, CaptureRegistrationPhase.notRequested);
+  });
+
+  test('iOS APNs failure is best-effort: still connected', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    final service = iosService(
+      _ConsentRecordingClient(),
+      loadApnsToken: () async => throw StateError(sentinel),
+    );
+    await service.syncBackendState();
+    expect(service.status.value, connected);
+  });
+
+  test('Android registerDevice throw: failed(register_failed), no throw',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: true, cloud: true);
+    final client = _ConsentRecordingClient()..registerThrowsMessage = sentinel;
+    final service = androidService(client);
+    await service.syncBackendState();
+    expect(service.status.value, failed('register_failed'));
+    expect(service.status.value.failureCode, isNot(contains(sentinel)));
+
+    client.registerThrowsMessage = null;
+    await service.retry();
+    expect(service.status.value, connected);
+  });
+
+  test('overlapping syncs: an older failing run cannot taint the newer run',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: true, cloud: true);
+    final client = _GatedRegisterClient();
+    final service = androidService(client);
+    final older = service.syncBackendState();
+    await client.firstRegisterStarted.future;
+    final newer = service.syncBackendState();
+    await newer;
+    expect(service.status.value, connected);
+    client.firstRegister.completeError(const CaptureBackendException('x'));
+    await older;
+    expect(service.status.value, connected);
+  });
+
+  test('Android consent off: notRequested', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: false, cloud: false);
+    final service = androidService(_ConsentRecordingClient());
+    await service.syncBackendState();
+    expect(service.status.value.phase, CaptureRegistrationPhase.notRequested);
+  });
+
+  test('Android setDeviceConsent failure: consent_sync_failed', () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: true, cloud: true);
+    final service =
+        androidService(_ConsentRecordingClient()..consentThrows = true);
+    await service.syncBackendState();
+    expect(service.status.value, failed('consent_sync_failed'));
+  });
 }
 
 class _ConsentRecordingClient extends _RotatingCaptureClient {
   final registeredPlatforms = <String>[];
   final consentCalls = <({bool ai, bool cloud})>[];
   bool registerThrows = false;
+  String? registerThrowsMessage;
   bool consentThrows = false;
 
   @override
@@ -330,6 +474,8 @@ class _ConsentRecordingClient extends _RotatingCaptureClient {
     String platform = 'ios',
   }) async {
     if (registerThrows) throw const CaptureBackendException('offline');
+    final message = registerThrowsMessage;
+    if (message != null) throw CaptureBackendException(message);
     registeredPlatforms.add(platform);
     return 'android-secret';
   }
@@ -343,5 +489,23 @@ class _ConsentRecordingClient extends _RotatingCaptureClient {
   }) async {
     if (consentThrows) throw const CaptureBackendException('offline');
     consentCalls.add((ai: aiConsentGranted, cloud: cloudProcessingEnabled));
+  }
+}
+
+class _GatedRegisterClient extends _ConsentRecordingClient {
+  final firstRegisterStarted = Completer<void>();
+  final firstRegister = Completer<String>();
+  var _calls = 0;
+
+  @override
+  Future<String> registerDevice({
+    required String installId,
+    String platform = 'ios',
+  }) {
+    if (_calls++ == 0) {
+      firstRegisterStarted.complete();
+      return firstRegister.future;
+    }
+    return super.registerDevice(installId: installId, platform: platform);
   }
 }

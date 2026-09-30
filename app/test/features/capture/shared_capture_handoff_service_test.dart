@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +28,14 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 }
 
 class _FakeRegistrationService implements CaptureDeviceRegistrationService {
+  @override
+  ValueListenable<CaptureRegistrationStatus> get status =>
+      ValueNotifier(const CaptureRegistrationStatus(
+          CaptureRegistrationPhase.notRequested));
+
+  @override
+  Future<void> retry() async {}
+
   @override
   Future<void> linkToCurrentUser() async {}
 

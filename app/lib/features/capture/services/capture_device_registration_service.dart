@@ -22,6 +22,34 @@ typedef NativeBackendConfigWriter = Future<void> Function({
 
 typedef ApnsTokenLoader = Future<ApnsTokenInfo?> Function();
 
+/// Per-run outcome, so overlapping syncs can never pollute each other.
+class _SyncOutcome {
+  bool registerFailed = false;
+  bool consentPushFailed = false;
+}
+
+enum CaptureRegistrationPhase { notRequested, connecting, connected, failed }
+
+/// User-visible device-registration state. [failureCode] is a coarse code only
+/// ('register_failed', 'consent_sync_failed', 'unknown') — never an exception
+/// message, secret, install id or URL.
+@immutable
+class CaptureRegistrationStatus {
+  const CaptureRegistrationStatus(this.phase, [this.failureCode]);
+
+  final CaptureRegistrationPhase phase;
+  final String? failureCode;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CaptureRegistrationStatus &&
+      other.phase == phase &&
+      other.failureCode == failureCode;
+
+  @override
+  int get hashCode => Object.hash(phase, failureCode);
+}
+
 class CaptureDeviceRegistrationService {
   CaptureDeviceRegistrationService({
     required DriftUserSettingsRepository settingsRepository,
@@ -61,6 +89,13 @@ class CaptureDeviceRegistrationService {
   String? _lastSyncedApnsTokenKey;
   DateTime? _apnsRetryBlockedUntil;
 
+  final ValueNotifier<CaptureRegistrationStatus> _status = ValueNotifier(
+    const CaptureRegistrationStatus(CaptureRegistrationPhase.notRequested),
+  );
+  int _syncGeneration = 0;
+
+  ValueListenable<CaptureRegistrationStatus> get status => _status;
+
   static Future<ApnsTokenInfo?> _defaultLoadApnsToken() async {
     return await NativeCaptureBridge.registerForRemoteNotifications() ??
         await NativeCaptureBridge.getApnsToken();
@@ -80,10 +115,60 @@ class CaptureDeviceRegistrationService {
   /// trigger point (registration, consent change, startup, resume) instead of
   /// [syncNativeState] directly.
   Future<void> syncBackendState() async {
-    if (_isIos()) {
-      await syncNativeState();
-    } else if (_isAndroid()) {
-      await _syncAndroidConsentState();
+    final ios = _isIos();
+    if (!ios && !_isAndroid()) return;
+    final generation = ++_syncGeneration;
+    void record(CaptureRegistrationStatus next) {
+      // A newer sync owns the status; never let a stale run overwrite it.
+      if (generation == _syncGeneration) _status.value = next;
+    }
+
+    final outcome = _SyncOutcome();
+    var tracked = false;
+    try {
+      final settings = await _settingsRepository.getSettings();
+      final wantsCloud = ios
+          ? settings.cloudProcessingEnabled
+          : settings.cloudProcessingEnabled || settings.aiConsentGranted;
+      tracked = _isBackendConfigured() && wantsCloud;
+      record(CaptureRegistrationStatus(
+        tracked
+            ? CaptureRegistrationPhase.connecting
+            : CaptureRegistrationPhase.notRequested,
+      ));
+      if (ios) {
+        await _syncNativeState(outcome);
+      } else {
+        await _syncAndroidConsentState(outcome);
+      }
+      if (tracked) {
+        record(outcome.consentPushFailed
+            ? const CaptureRegistrationStatus(
+                CaptureRegistrationPhase.failed, 'consent_sync_failed')
+            : outcome.registerFailed
+                ? const CaptureRegistrationStatus(
+                    CaptureRegistrationPhase.failed, 'register_failed')
+                : const CaptureRegistrationStatus(
+                    CaptureRegistrationPhase.connected));
+      }
+    } catch (_) {
+      if (tracked) {
+        record(CaptureRegistrationStatus(
+          CaptureRegistrationPhase.failed,
+          outcome.registerFailed ? 'register_failed' : 'unknown',
+        ));
+      }
+      if (ios) rethrow;
+    }
+  }
+
+  /// UI-friendly re-run of [syncBackendState]; failures are reflected in
+  /// [status] instead of thrown.
+  Future<void> retry() async {
+    try {
+      await syncBackendState();
+    } catch (_) {
+      // Recorded in [status].
     }
   }
 
@@ -93,7 +178,7 @@ class CaptureDeviceRegistrationService {
   /// mirrors consent onto that verified row. Fail-closed and best-effort: a
   /// failure never blocks local parsing, and a stale/absent server row defaults
   /// consent OFF (never open). No SMS/financial payload is ever sent here.
-  Future<void> _syncAndroidConsentState() async {
+  Future<void> _syncAndroidConsentState(_SyncOutcome outcome) async {
     if (!_isBackendConfigured()) return;
     final settings = await _settingsRepository.getSettings();
     final wantsCloudOrAi =
@@ -111,11 +196,13 @@ class CaptureDeviceRegistrationService {
         );
         await _storage.write(key: _secretKey, value: secret);
       } catch (_) {
+        outcome.registerFailed = true;
         return; // retried on the next sync; nothing leaks, nothing breaks
       }
     }
 
     await _pushDeviceConsent(
+      outcome,
       installId: installId,
       deviceSecret: secret,
       aiConsentGranted: settings.aiConsentGranted,
@@ -123,7 +210,9 @@ class CaptureDeviceRegistrationService {
     );
   }
 
-  Future<void> syncNativeState() async {
+  Future<void> syncNativeState() => _syncNativeState(_SyncOutcome());
+
+  Future<void> _syncNativeState(_SyncOutcome outcome) async {
     if (!_isIos()) return;
     final settings = await _settingsRepository.getSettings();
     final installId = await _loadInstallId();
@@ -142,6 +231,7 @@ class CaptureDeviceRegistrationService {
       // authenticated row to update, so preserve those guards.
       if (_isBackendConfigured() && secret != null && secret.isNotEmpty) {
         await _pushDeviceConsent(
+      outcome,
           installId: installId,
           deviceSecret: secret,
           aiConsentGranted: false,
@@ -164,7 +254,12 @@ class CaptureDeviceRegistrationService {
     }
 
     if (secret == null || secret.isEmpty) {
-      secret = await _backendClient.registerDevice(installId: installId);
+      try {
+        secret = await _backendClient.registerDevice(installId: installId);
+      } catch (_) {
+        outcome.registerFailed = true;
+        rethrow;
+      }
       await _storage.write(key: _secretKey, value: secret);
     }
 
@@ -181,6 +276,7 @@ class CaptureDeviceRegistrationService {
     // moment the user toggles it, since syncNativeState re-runs). Best-effort:
     // a failure here must never block native config or local capture.
     await _pushDeviceConsent(
+      outcome,
       installId: installId,
       deviceSecret: secret,
       aiConsentGranted: settings.aiConsentGranted,
@@ -200,7 +296,8 @@ class CaptureDeviceRegistrationService {
     }
   }
 
-  Future<void> _pushDeviceConsent({
+  Future<bool> _pushDeviceConsent(
+    _SyncOutcome outcome, {
     required String installId,
     required String deviceSecret,
     required bool aiConsentGranted,
@@ -213,9 +310,13 @@ class CaptureDeviceRegistrationService {
         aiConsentGranted: aiConsentGranted,
         cloudProcessingEnabled: cloudProcessingEnabled,
       );
+      return true;
     } catch (_) {
       // Best-effort: startup/resume/next capture sync retries the same absolute
       // consent state. No SMS or financial payload is sent by this call.
+      // While granting, the caller surfaces this as consent_sync_failed.
+      if (cloudProcessingEnabled) outcome.consentPushFailed = true;
+      return false;
     }
   }
 

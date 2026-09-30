@@ -3137,5 +3137,16 @@
     }
   },
   "cardSourceAuto": "اتُعرِّفت من رسائل البنك",
-  "cardSourceManual": "أضفتها بنفسك"
+  "cardSourceManual": "أضفتها بنفسك",
+  "smartConsentTitle": "التحليل الذكي والمزامنة السحابية",
+  "smartConsentBullet1": "تُرسَل رسائل البنك التي تلتقطها إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، ويحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.",
+  "smartConsentBullet2": "كما تتم مزامنة معاملاتك وحساباتك وميزانياتك وأهدافك وإعداداتك ونسخها احتياطيًا في حسابك السحابي على قِرش.",
+  "smartConsentBullet3": "يمكنك إيقاف أيٍّ منهما في أي وقت من الإعدادات ← الخصوصية.",
+  "smartConsentEnable": "تفعيل التحليل الذكي والمزامنة السحابية",
+  "smartConsentNotNow": "ليس الآن",
+  "smartConsentPrivacyLink": "إعدادات الخصوصية",
+  "smartConsentStatusConnecting": "جارٍ الاتصال…",
+  "smartConsentStatusConnected": "التحليل الذكي متصل",
+  "smartConsentStatusFailed": "التحليل الذكي غير متصل، لذا تُقرأ رسائل البنك على هذا الجهاز فقط حتى يتم الاتصال.",
+  "smartConsentRetry": "إعادة المحاولة"
 }

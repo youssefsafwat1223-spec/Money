@@ -5805,4 +5805,41 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get cardSourceManual => 'أضفتها بنفسك';
+
+  @override
+  String get smartConsentTitle => 'التحليل الذكي والمزامنة السحابية';
+
+  @override
+  String get smartConsentBullet1 =>
+      'تُرسَل رسائل البنك التي تلتقطها إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، ويحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.';
+
+  @override
+  String get smartConsentBullet2 =>
+      'كما تتم مزامنة معاملاتك وحساباتك وميزانياتك وأهدافك وإعداداتك ونسخها احتياطيًا في حسابك السحابي على قِرش.';
+
+  @override
+  String get smartConsentBullet3 =>
+      'يمكنك إيقاف أيٍّ منهما في أي وقت من الإعدادات ← الخصوصية.';
+
+  @override
+  String get smartConsentEnable => 'تفعيل التحليل الذكي والمزامنة السحابية';
+
+  @override
+  String get smartConsentNotNow => 'ليس الآن';
+
+  @override
+  String get smartConsentPrivacyLink => 'إعدادات الخصوصية';
+
+  @override
+  String get smartConsentStatusConnecting => 'جارٍ الاتصال…';
+
+  @override
+  String get smartConsentStatusConnected => 'التحليل الذكي متصل';
+
+  @override
+  String get smartConsentStatusFailed =>
+      'التحليل الذكي غير متصل، لذا تُقرأ رسائل البنك على هذا الجهاز فقط حتى يتم الاتصال.';
+
+  @override
+  String get smartConsentRetry => 'إعادة المحاولة';
 }

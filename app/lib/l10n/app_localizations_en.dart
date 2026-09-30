@@ -5807,4 +5807,41 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cardSourceManual => 'You added it yourself';
+
+  @override
+  String get smartConsentTitle => 'Smart Analysis & Cloud Sync';
+
+  @override
+  String get smartConsentBullet1 =>
+      'Bank messages you capture are sent to Qirsh servers, with card numbers, account numbers, phone numbers and codes removed, and analysed by an AI service to read the amount, merchant and bank.';
+
+  @override
+  String get smartConsentBullet2 =>
+      'Your transactions, accounts, budgets, goals and settings are also synced and backed up to your Qirsh cloud account.';
+
+  @override
+  String get smartConsentBullet3 =>
+      'You can turn either off at any time in Settings → Privacy.';
+
+  @override
+  String get smartConsentEnable => 'Enable Smart Analysis & Cloud Sync';
+
+  @override
+  String get smartConsentNotNow => 'Not now';
+
+  @override
+  String get smartConsentPrivacyLink => 'Privacy settings';
+
+  @override
+  String get smartConsentStatusConnecting => 'Connecting…';
+
+  @override
+  String get smartConsentStatusConnected => 'Smart Analysis is connected';
+
+  @override
+  String get smartConsentStatusFailed =>
+      'Smart Analysis isn\'t connected, so bank messages are read on this device only until it connects.';
+
+  @override
+  String get smartConsentRetry => 'Retry';
 }

@@ -3020,5 +3020,16 @@
     }
   },
   "cardSourceAuto": "Detected from bank messages",
-  "cardSourceManual": "You added it yourself"
+  "cardSourceManual": "You added it yourself",
+  "smartConsentTitle": "Smart Analysis & Cloud Sync",
+  "smartConsentBullet1": "Bank messages you capture are sent to Qirsh servers, with card numbers, account numbers, phone numbers and codes removed, and analysed by an AI service to read the amount, merchant and bank.",
+  "smartConsentBullet2": "Your transactions, accounts, budgets, goals and settings are also synced and backed up to your Qirsh cloud account.",
+  "smartConsentBullet3": "You can turn either off at any time in Settings → Privacy.",
+  "smartConsentEnable": "Enable Smart Analysis & Cloud Sync",
+  "smartConsentNotNow": "Not now",
+  "smartConsentPrivacyLink": "Privacy settings",
+  "smartConsentStatusConnecting": "Connecting…",
+  "smartConsentStatusConnected": "Smart Analysis is connected",
+  "smartConsentStatusFailed": "Smart Analysis isn't connected, so bank messages are read on this device only until it connects.",
+  "smartConsentRetry": "Retry"
 }

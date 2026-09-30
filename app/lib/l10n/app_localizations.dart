@@ -9828,6 +9828,72 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'أضفتها بنفسك'**
   String get cardSourceManual;
+
+  /// No description provided for @smartConsentTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'التحليل الذكي والمزامنة السحابية'**
+  String get smartConsentTitle;
+
+  /// No description provided for @smartConsentBullet1.
+  ///
+  /// In ar, this message translates to:
+  /// **'تُرسَل رسائل البنك التي تلتقطها إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، ويحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.'**
+  String get smartConsentBullet1;
+
+  /// No description provided for @smartConsentBullet2.
+  ///
+  /// In ar, this message translates to:
+  /// **'كما تتم مزامنة معاملاتك وحساباتك وميزانياتك وأهدافك وإعداداتك ونسخها احتياطيًا في حسابك السحابي على قِرش.'**
+  String get smartConsentBullet2;
+
+  /// No description provided for @smartConsentBullet3.
+  ///
+  /// In ar, this message translates to:
+  /// **'يمكنك إيقاف أيٍّ منهما في أي وقت من الإعدادات ← الخصوصية.'**
+  String get smartConsentBullet3;
+
+  /// No description provided for @smartConsentEnable.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل التحليل الذكي والمزامنة السحابية'**
+  String get smartConsentEnable;
+
+  /// No description provided for @smartConsentNotNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'ليس الآن'**
+  String get smartConsentNotNow;
+
+  /// No description provided for @smartConsentPrivacyLink.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعدادات الخصوصية'**
+  String get smartConsentPrivacyLink;
+
+  /// No description provided for @smartConsentStatusConnecting.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ الاتصال…'**
+  String get smartConsentStatusConnecting;
+
+  /// No description provided for @smartConsentStatusConnected.
+  ///
+  /// In ar, this message translates to:
+  /// **'التحليل الذكي متصل'**
+  String get smartConsentStatusConnected;
+
+  /// No description provided for @smartConsentStatusFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'التحليل الذكي غير متصل، لذا تُقرأ رسائل البنك على هذا الجهاز فقط حتى يتم الاتصال.'**
+  String get smartConsentStatusFailed;
+
+  /// No description provided for @smartConsentRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة المحاولة'**
+  String get smartConsentRetry;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

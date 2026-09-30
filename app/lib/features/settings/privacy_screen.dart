@@ -18,6 +18,8 @@ import '../../core/config/legal_urls.dart';
 import '../../core/privacy/consent_authority.dart';
 import '../../core/privacy/diagnostics_consent_gate.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import '../capture/services/capture_device_registration_service.dart';
+import '../consent/smart_analysis_consent_sheet.dart';
 import '../onboarding/widgets/neon_illustration.dart';
 import 'settings_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
@@ -112,6 +114,15 @@ class PrivacyScreen extends ConsumerWidget {
                               ),
                             ),
                           ),
+                          if (settings.cloudProcessingEnabled &&
+                              ref
+                                      .watch(captureRegistrationStatusProvider)
+                                      .phase !=
+                                  CaptureRegistrationPhase.notRequested)
+                            const Padding(
+                              padding: EdgeInsets.only(bottom: AppSpacing.s3),
+                              child: SmartAnalysisRegistrationStatus(),
+                            ),
                           // COUPONS Phase 1 — merchant personalization.
                           //
                           // Sits here, next to the cloud and AI consents,

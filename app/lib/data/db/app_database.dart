@@ -522,9 +522,10 @@ class AppDatabase extends GeneratedDatabase {
       await _runCompatibilityMigrations(); // idempotent historical repairs
       await _phase('postAlter'); // after schema/ALTER work
       await _seedIfNeeded();
-      // Cloud/AI processing consent is the USER's choice (MALI-001): the seed
-      // defaults new installs to enabled, but a persisted "disabled" is never
-      // coerced back on — the capture/sync/backup gates honor the stored value.
+      // Cloud/AI processing consent is the USER's choice (MALI-001): consent
+      // defaults OFF (NULL state = off, MALI-059n), and a persisted "disabled"
+      // is never coerced back on — the capture/sync/backup gates honor the
+      // stored value.
       await _phase('postSeed'); // during/after seed work
       await _dedupeCategoryRows();
       await _backfillSystemTransactionCategories();

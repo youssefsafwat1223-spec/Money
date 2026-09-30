@@ -1083,6 +1083,23 @@ final captureDeviceRegistrationServiceProvider =
   );
 });
 
+/// Live device-registration status, mirrored from the service's ValueListenable.
+final captureRegistrationStatusProvider =
+    NotifierProvider<_CaptureRegistrationStatusNotifier,
+        CaptureRegistrationStatus>(_CaptureRegistrationStatusNotifier.new);
+
+class _CaptureRegistrationStatusNotifier
+    extends Notifier<CaptureRegistrationStatus> {
+  @override
+  CaptureRegistrationStatus build() {
+    final source = ref.watch(captureDeviceRegistrationServiceProvider).status;
+    void onChange() => state = source.value;
+    source.addListener(onChange);
+    ref.onDispose(() => source.removeListener(onChange));
+    return source.value;
+  }
+}
+
 /// Phase 1 notification tracking (docs/NOTIFICATION_PIPELINE_AUDIT.md).
 final notificationLogServiceProvider = Provider<NotificationLogService>((ref) {
   return NotificationLogService(ref.watch(appDatabaseProvider));
