@@ -1305,6 +1305,11 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
             return null;
           }
         : null,
+    // C-3 — the merchant name comes from a financial message; enrichment needs
+    // fresh cloud consent, read at call time.
+    mayEnrichMerchant: () => ConsentAuthority(
+          () => DriftUserSettingsRepository(db).getSettings(),
+        ).allows(EgressClass.financialSync),
     accountRepository: ref.watch(accountRepositoryProvider),
     dedupStore: DriftDedupStore(db),
     aiClient: SupabaseConfig.isConfigured

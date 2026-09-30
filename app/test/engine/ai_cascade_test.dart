@@ -1095,6 +1095,7 @@ void main() {
       loadAiConsent: () async => true,
       aiClient: aiClient,
       dedupStore: _NoDedupStore(),
+      mayEnrichMerchant: () async => true,
       resolveMerchantCategory: (merchant) async {
         mapsLookupCount++;
         expect(merchant, 'BDC OROBA');
@@ -1143,6 +1144,7 @@ void main() {
       loadAiConsent: () async => true,
       aiClient: aiClient,
       dedupStore: _NoDedupStore(),
+      mayEnrichMerchant: () async => true,
       resolveMerchantCategory: (merchant) async {
         mapsLookupCount++;
         expect(merchant, 'STARBUCKS');
@@ -1198,6 +1200,99 @@ void main() {
     expect(result.outcome, AddTransactionOutcome.added);
     expect(savedCategory, 'shopping');
     expect(result.requiresConfirmation, isTrue);
+  });
+
+  group('merchant enrichment consent gate', () {
+    Future<({int calls, String? category, AddTransactionResult result})> run({
+      Future<bool> Function()? consent,
+      bool hasConsentCallback = true,
+      bool onDeviceOnly = false,
+      Future<String?> Function()? resolve,
+    }) async {
+      final parsed = ParsedTransaction(
+        amountText: '40',
+        amount: 40.0,
+        currency: 'EGP',
+        type: TransactionType.payment,
+        source: TransactionSource.bank,
+        rawMerchant: 'RANDOM SHOP',
+        parseConfidence: 0.79,
+      );
+      const aiClient = _FixedResponseAiClient(AiParseResponse(
+        amount: 40.0,
+        currency: 'EGP',
+        type: 'payment',
+        merchantName: 'RANDOM SHOP',
+        categoryKey: 'other',
+      ));
+      var calls = 0;
+      String? savedCategory;
+      TransactionEntity? saved;
+      final useCase = AddTransactionUseCase(
+        transactionRepository: _CapturingTransactionRepo(
+          onSave: (t) => saved = t,
+          onSaveCategory: (category) => savedCategory = category,
+        ),
+        merchantCategoryRepository: _StubMerchantRepo(),
+        parserIsolate: _FakeParserIsolate(ParseResult.success(parsed)),
+        loadAiConsent: () async => true,
+        aiClient: aiClient,
+        dedupStore: _NoDedupStore(),
+        resolveMerchantCategory: (_) async {
+          calls++;
+          return resolve != null ? resolve() : 'cafes';
+        },
+        mayEnrichMerchant: hasConsentCallback ? consent : null,
+      );
+      final result = await useCase(
+        rawMessage: 'Purchase EGP 40.00 At RANDOM SHOP on 08/06',
+        senderId: 'CIB',
+        onDeviceOnly: onDeviceOnly,
+      );
+      expect(saved, isNotNull);
+      return (calls: calls, category: savedCategory, result: result);
+    }
+
+    test('consent OFF: resolver not called, transaction saved', () async {
+      final r = await run(consent: () async => false);
+      expect(r.calls, 0);
+      expect(r.category, 'shopping');
+    });
+
+    test('callback absent: fails closed', () async {
+      final r = await run(hasConsentCallback: false);
+      expect(r.calls, 0);
+      expect(r.category, 'shopping');
+    });
+
+    test('callback throws: fails closed, transaction saved', () async {
+      final r = await run(consent: () async => throw StateError('boom'));
+      expect(r.calls, 0);
+      expect(r.category, 'shopping');
+    });
+
+    test('consent ON: resolver runs once and its category is applied',
+        () async {
+      final r = await run(consent: () async => true);
+      expect(r.calls, 1);
+      expect(r.category, 'cafes');
+    });
+
+    test('consent ON + resolver throws: saved with fallback category',
+        () async {
+      final r = await run(
+        consent: () async => true,
+        resolve: () async => throw StateError('network'),
+      );
+      expect(r.calls, 1);
+      expect(r.category, 'shopping');
+    });
+
+    test('onDeviceOnly + consent ON: resolver not called', () async {
+      final r = await run(consent: () async => true, onDeviceOnly: true);
+      expect(r.calls, 0);
+      expect(r.category, 'shopping');
+    });
   });
 
   test(

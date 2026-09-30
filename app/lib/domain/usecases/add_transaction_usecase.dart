@@ -307,6 +307,9 @@ class AddTransactionUseCase {
     Future<void> Function(String normalizedMerchant)? noteMerchantFeedback,
     Future<String?> Function(String normalizedMerchant)?
         resolveMerchantCategory,
+    // Merchant enrichment sends a name derived from a financial message to the
+    // cloud, so it needs FRESH cloud consent. Absent or throwing = no enrichment.
+    Future<bool> Function()? mayEnrichMerchant,
     AccountRepository? accountRepository,
     DedupStore? dedupStore,
     AiParserClient? aiClient,
@@ -342,6 +345,7 @@ class AddTransactionUseCase {
         _loadRemoteKeywords = loadRemoteKeywords,
         _noteMerchantFeedback = noteMerchantFeedback,
         _resolveMerchantCategory = resolveMerchantCategory,
+        _mayEnrichMerchant = mayEnrichMerchant,
         _accountRepository = accountRepository,
         _dedupStore = dedupStore,
         _aiClient = aiClient,
@@ -543,6 +547,7 @@ class AddTransactionUseCase {
   final MerchantCategoryRepository _merchantCategoryRepository;
   final SuspectedDuplicateRepository? _suspectedDuplicateRepository;
   final ParserIsolate _parserIsolate;
+
   /// The on-device merchant model, built once. See [MerchantIntelligenceStore].
   final MerchantIntelligenceStore _merchantIntelligence;
   final RecordEngagementUseCase? _recordEngagementUseCase;
@@ -562,6 +567,7 @@ class AddTransactionUseCase {
   final Future<void> Function(String normalizedMerchant)? _noteMerchantFeedback;
   final Future<String?> Function(String normalizedMerchant)?
       _resolveMerchantCategory;
+  final Future<bool> Function()? _mayEnrichMerchant;
   final AccountRepository? _accountRepository;
   final DedupStore? _dedupStore;
   final AiParserClient? _aiClient;
@@ -570,6 +576,18 @@ class AddTransactionUseCase {
   final Future<String> Function()? _loadInstallId;
   final ResolveBankForSenderUseCase? _resolveBankForSenderUseCase;
   final BankDiscoveryService? _bankDiscoveryService;
+
+  /// Fail closed: no callback, a throw, or anything but `true` means no
+  /// enrichment egress.
+  Future<bool> _mayEnrichMerchantNow() async {
+    final check = _mayEnrichMerchant;
+    if (check == null) return false;
+    try {
+      return await check() == true;
+    } catch (_) {
+      return false;
+    }
+  }
 
   Future<AddTransactionResult> call({
     required String rawMessage,
@@ -851,7 +869,14 @@ class AddTransactionUseCase {
         // function also writes the result into merchant_keywords, so every other
         // device picks it up on the next catalog sync.
         final resolver = onDeviceOnly ? null : _resolveMerchantCategory;
-        final resolved = resolver != null ? await resolver(normalized) : null;
+        String? resolved;
+        if (resolver != null && await _mayEnrichMerchantNow()) {
+          try {
+            resolved = await resolver(normalized);
+          } catch (_) {
+            resolved = null; // enrichment is best-effort; keep the fallback.
+          }
+        }
         if (resolved != null && resolved.isNotEmpty && resolved != 'other') {
           effectiveCategory =
               CategoryResult(resolved, CategorySource.keyword, 0.85);
@@ -1157,6 +1182,7 @@ class AddTransactionUseCase {
     DateTime? transactionTimeFromSms,
     DateTime? smsReceivedAt,
     required ComparisonTimestampSource comparisonTimestampSource,
+
     /// True when Proof withheld the PRIMARY row. The fee is a leg of the same
     /// captured message, so it must not stand alone as a confirmed row.
     bool primaryWithheldByProof = false,

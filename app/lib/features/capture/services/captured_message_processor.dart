@@ -234,6 +234,11 @@ class CapturedMessageProcessor {
                   return null;
                 }
               : null,
+          // C-3 — the merchant name comes from a financial message; enrichment
+          // needs fresh cloud consent, read at call time.
+          mayEnrichMerchant: () => ConsentAuthority(
+                () => settingsRepository.getSettings(),
+              ).allows(EgressClass.financialSync),
           aiClient: aiParserClient,
           loadAiConsent: () async =>
               ConsentAuthority.decide(EgressClass.aiProcessing,
