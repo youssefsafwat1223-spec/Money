@@ -76,3 +76,22 @@ until it is applied the client's ad-key events are silently dropped by
 the function enforces only `length <= 128` (`0100:72`) while a comment claims the
 client can only pass a placement key. A `p_dimension ~ '^[a-z0-9_]{1,32}$'` guard
 closes it.
+
+---
+
+## 0101_sender_mapping_accepted_by.sql — DEFERRED 2026-09-30
+
+Adds the nullable `sender_bank_mappings.accepted_by` provenance column
+(`user` | `ai_validated`; NULL = legacy, treated as user-accepted). Additive,
+no RLS change.
+
+**Condition for activation: activate and deploy BEFORE enabling the app-read
+flag `ai_sender_mapping_auto`.** The app omits `accepted_by` from sync payloads
+when it is null, so the column is not required while the flag is off.
+
+**Activation ordering.** The active chain ends at 0099, so both 0100 and 0101
+sit deferred at the tail. Activate 0100 first, then 0101, so the chain stays
+gapless. If 0101 is activated on its own (0100 stays deferred), renumber 0101
+(and its rollback) to the next free active number first — the lint requires a
+gapless active chain, and it must not be moved back as 0101 while 0100 is
+absent.
