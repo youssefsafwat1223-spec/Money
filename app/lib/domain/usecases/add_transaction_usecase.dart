@@ -740,25 +740,18 @@ class AddTransactionUseCase {
     } else if (localParsed != null) {
       parsed = localParsed;
     } else {
-      // V2 has no pending stage for new captures, so the low-confidence
-      // last-resort parse (always pending) is not offered.
-      final fallbackParsed = !localV2 && aiFirstAttempt.failureReason == null
-          ? _lastResortParse(rawMessage)
-          : null;
-      if (fallbackParsed != null) {
-        parsed = fallbackParsed;
-      } else {
-        // The AI had the first chance and the rule-based parser still couldn't
-        // read it. For a bank-like sender, surface that it was dropped by parsing
-        // so the UI can avoid a noisy "unreadable message" dead end.
-        final droppedByParser = isLikelyBank && !wasIgnored;
-        return AddTransactionResult.notTransaction(reportedParse,
-            droppedByParser: droppedByParser,
-            aiFailureReason: aiFirstAttempt.failureReason ??
-                (aiFirstAttempt.response == null
-                    ? null
-                    : 'ai_response_rejected_by_grounding'));
-      }
+      // AI validator FAIL (or no transaction) means NO transaction: no
+      // low-confidence pending fallback is offered.
+      // The AI had the first chance and the rule-based parser still couldn't
+      // read it. For a bank-like sender, surface that it was dropped by parsing
+      // so the UI can avoid a noisy "unreadable message" dead end.
+      final droppedByParser = isLikelyBank && !wasIgnored;
+      return AddTransactionResult.notTransaction(reportedParse,
+          droppedByParser: droppedByParser,
+          aiFailureReason: aiFirstAttempt.failureReason ??
+              (aiFirstAttempt.response == null
+                  ? null
+                  : 'ai_response_rejected_by_grounding'));
     }
     final now = DateTime.now().toUtc();
     final receivedAt = (smsReceivedAt ?? now).toUtc();
@@ -1751,62 +1744,6 @@ class AddTransactionUseCase {
     return null;
   }
 
-  static ParsedTransaction? _lastResortParse(String rawMessage) {
-    final amountCurrency = _extractAmountCurrency(rawMessage);
-    if (amountCurrency == null) return null;
-    final lower = rawMessage.toLowerCase();
-    final merchant = _extractMerchantName(rawMessage);
-    final direction = DirectionSignal.detect(rawMessage);
-    final type = _lastResortType(
-      lower: lower,
-      direction: direction,
-      merchantName: merchant,
-    );
-
-    return ParsedTransaction(
-      amountText: amountCurrency.amountText,
-      amount: amountCurrency.heuristicAmount,
-      currency: amountCurrency.currency,
-      type: type,
-      source: TransactionSource.unknown,
-      rawMerchant: merchant,
-      occurredAt: _extractLooseArabicDateTime(rawMessage),
-      parseConfidence: 0.55,
-    );
-  }
-
-  static DateTime? _extractLooseArabicDateTime(String rawMessage) {
-    final match = RegExp(
-      r'(?:يوم|بتاريخ)\s+([0-9]{1,2})(?:[/-]([0-9]{1,2}))?(?:[/-]([0-9]{2,4}))?.{0,24}?(?:الساعة|الساعه|at)?\s*([0-9]{1,2}):([0-9]{2})',
-      caseSensitive: false,
-    ).firstMatch(rawMessage);
-    if (match == null) return null;
-    final now = DateTime.now();
-    final day = int.parse(match.group(1)!);
-    final month =
-        match.group(2) == null ? now.month : int.parse(match.group(2)!);
-    final rawYear = match.group(3);
-    final year =
-        rawYear == null ? now.year : _normalizeLooseYear(int.parse(rawYear));
-    final hour = int.parse(match.group(4)!);
-    final minute = int.parse(match.group(5)!);
-    final parsed = DateTime(year, month, day, hour, minute);
-    if (parsed.year != year || parsed.month != month || parsed.day != day) {
-      return null;
-    }
-    if (rawYear == null && parsed.isAfter(now.add(const Duration(days: 1)))) {
-      final previousMonth = month == 1 ? 12 : month - 1;
-      final previousYear = month == 1 ? year - 1 : year;
-      return DateTime(previousYear, previousMonth, day, hour, minute);
-    }
-    return parsed;
-  }
-
-  static int _normalizeLooseYear(int year) {
-    if (year < 100) return 2000 + year;
-    return year;
-  }
-
   static ({String amountText, double heuristicAmount, String currency})?
       _extractAmountCurrency(String rawMessage) {
     const codes = 'EGP|SAR|AED|USD|EUR|GBP|KWD|QAR|BHD|OMR|JOD';
@@ -1865,47 +1802,6 @@ class AddTransactionUseCase {
         currency: currency.toUpperCase(),
       );
     }
-  }
-
-  static String? _extractMerchantName(String rawMessage) {
-    final match = RegExp(
-      r'(?:@|\bat\b)\s*([^,.;\n]+)',
-      caseSensitive: false,
-    ).firstMatch(rawMessage);
-    final merchant = match?.group(1);
-    if (merchant == null) return null;
-    final cleaned = merchant
-        .replaceFirst(RegExp(r'\s+\bon\b.+$', caseSensitive: false), '')
-        .replaceFirst(RegExp(r'\s+\d{1,2}[/-]\d{1,2}.*$'), '')
-        .replaceFirst(
-            RegExp(r'\s+\bat\b\s*\d{1,2}:\d{2}.*$', caseSensitive: false), '')
-        .replaceAll(RegExp(r'[.;،]+$'), '')
-        .trim();
-    return cleaned.isEmpty ? null : cleaned;
-  }
-
-  static TransactionType _lastResortType({
-    required String lower,
-    required TxnDirection? direction,
-    required String? merchantName,
-  }) {
-    if (lower.contains('ipn transfer') ||
-        lower.contains('transfer') ||
-        lower.contains('تحويل') ||
-        lower.contains('حوالة')) {
-      return TransactionType.transfer;
-    }
-    if (BankProfiles.detect('', senderId: merchantName ?? '') != null ||
-        lower.contains('atm') ||
-        lower.contains('cash withdrawal') ||
-        lower.contains('سحب')) {
-      return TransactionType.withdrawal;
-    }
-    if (direction == TxnDirection.credit &&
-        (lower.contains('salary') || lower.contains('راتب'))) {
-      return TransactionType.income;
-    }
-    return TransactionType.payment;
   }
 
   static String _bestEffortMerchantCategory(String merchantName) {

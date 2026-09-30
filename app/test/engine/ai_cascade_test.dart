@@ -745,7 +745,8 @@ void main() {
     expect(secondResult.outcome, AddTransactionOutcome.added);
   });
 
-  test('Arabic day and time fallback preserves occurred date', () async {
+  test('AI null on an Arabic transfer SMS saves nothing (no last-resort row)',
+      () async {
     TransactionEntity? saved;
     final useCase = AddTransactionUseCase(
       transactionRepository: _CapturingTransactionRepo(
@@ -761,12 +762,8 @@ void main() {
 
     final result = await useCase(rawMessage: rawSms, senderId: 'CIB');
 
-    expect(result.outcome, AddTransactionOutcome.added);
-    expect(saved, isNotNull);
-    final localTime = saved!.occurredAt.toLocal();
-    expect(localTime.day, 6);
-    expect(localTime.hour, 13);
-    expect(localTime.minute, 29);
+    expect(result.outcome, AddTransactionOutcome.notTransaction);
+    expect(saved, isNull);
   });
 
   test('AI category wins over the merchant keyword category', () async {
@@ -954,7 +951,7 @@ void main() {
     expect(result.aiFailureReason, isNull);
   });
 
-  test('amount and currency fallback saves pending transaction after AI null',
+  test('AI null on an amount+currency message saves nothing (no last resort)',
       () async {
     TransactionEntity? saved;
     String? savedCategory;
@@ -975,13 +972,9 @@ void main() {
       senderId: 'CIB',
     );
 
-    expect(result.outcome, AddTransactionOutcome.added);
-    expect(result.requiresConfirmation, isTrue);
-    expect(saved, isNotNull);
-    expect(saved!.amount, 40);
-    expect(saved!.currency, 'EGP');
-    expect(saved!.rawMerchant, 'RANDOM SHOP');
-    expect(savedCategory, 'shopping');
+    expect(result.outcome, AddTransactionOutcome.notTransaction);
+    expect(saved, isNull);
+    expect(savedCategory, isNull);
   });
 
   test(

@@ -111,6 +111,67 @@ void main() {
     });
   });
 
+  group('flag OFF: AI validator FAIL means no transaction (no last resort)',
+      () {
+    // Parses fine for the old last-resort regex (currency + amount).
+    const text = 'Purchase SAR 42.00 At STARBUCKS';
+
+    test('AI response rejected by the validator => no transaction', () async {
+      final repo = StoringTransactionRepo();
+      final ai = CountingAiClient(const AiParseResponse(
+        amount: 99.0, // not grounded in the message => validator rejects
+        amountText: '99.00',
+        currency: 'SAR',
+        type: 'payment',
+        merchantName: 'STARBUCKS',
+      ));
+      final result = await _useCase(
+        repo: repo,
+        parse: ParseResult.notTransaction(),
+        flag: () => false,
+        ai: ai,
+      )(rawMessage: text, senderId: 'SNB');
+      expect(ai.callCount, 1);
+      expect(result.outcome, AddTransactionOutcome.notTransaction);
+      expect(result.droppedByParser, isTrue);
+      expect(result.aiFailureReason, 'ai_response_rejected_by_grounding');
+      expect(repo.saveCount, 0);
+    });
+
+    test('AI returns nothing (is_transaction false) => no transaction',
+        () async {
+      final repo = StoringTransactionRepo();
+      final ai = CountingAiClient(); // null response
+      final result = await _useCase(
+        repo: repo,
+        parse: ParseResult.notTransaction(),
+        flag: () => false,
+        ai: ai,
+      )(rawMessage: text, senderId: 'SNB');
+      expect(ai.callCount, 1);
+      expect(result.outcome, AddTransactionOutcome.notTransaction);
+      expect(result.droppedByParser, isTrue);
+      expect(repo.saveCount, 0);
+    });
+
+    test('AI skipped (no consent) and locally unparseable => unchanged',
+        () async {
+      final repo = StoringTransactionRepo();
+      final ai = CountingAiClient();
+      final result = await _useCase(
+        repo: repo,
+        parse: ParseResult.notTransaction(),
+        flag: () => false,
+        ai: ai,
+        consent: false,
+      )(rawMessage: text, senderId: 'SNB');
+      expect(ai.callCount, 0);
+      expect(result.outcome, AddTransactionOutcome.notTransaction);
+      expect(result.droppedByParser, isTrue);
+      expect(repo.saveCount, 0);
+    });
+  });
+
   group('flag ON: valid local parse is confirmed', () {
     for (final entry in {
       'generic 0.75': (0.75, 'STARBUCKS'),
