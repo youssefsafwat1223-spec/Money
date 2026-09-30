@@ -97,3 +97,30 @@ gapless. If 0101 is activated on its own (0100 stays deferred), renumber 0101
 (and its rollback) to the next free active number first — the lint requires a
 gapless active chain, and it must not be moved back as 0101 while 0100 is
 absent.
+
+---
+
+## 0102_feature_flag_admin_audit.sql — DEFERRED 2026-09-30
+
+WP5-Lite admin feature-flag control plane. Adds the append-only
+`feature_flag_admin_audit` table (no actor column on `feature_flags`: it has an
+anon SELECT policy), an `updated_at`
+trigger on `feature_flags` (reuses `set_updated_at()`), the authorization seam
+`admin_can_change_flag(actor, key)` and the service-role-only
+`admin_apply_feature_flag_changes(p_actor, p_reason, p_operation_id, p_changes)`
+RPC (atomic, row-locked, optimistic on `expected_updated_at`, per-field
+validation, idempotent on `operation_id`, blocks enabling
+`ai_sender_mapping_auto` while `sender_bank_mappings.accepted_by` is missing).
+
+**Condition for activation: deploy together with the Admin release that ships
+`/api/feature-flags`.** Until then the Admin page lists flags read-only (audit
+history reports "unavailable") and `/apply` fails closed — the generic
+`/api/admin-data` PATCH no longer writes `feature_flags`.
+
+**Ordering.** After 0101 (the active chain ends at 0099; 0100, 0101 and 0102 are
+all deferred at the tail). Activate 0100, then 0101, then 0102 so the chain stays
+gapless. If 0102 is activated while 0100/0101 stay deferred, renumber it (and its
+rollback) to the next free active number first.
+
+SQL proof: `supabase/tests/feature_flag_admin_audit_0102.sql` (run inside a
+rolled-back transaction on a LOCAL Postgres; the header has the command).

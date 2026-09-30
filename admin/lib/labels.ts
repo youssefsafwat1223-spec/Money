@@ -245,10 +245,15 @@ const FLAG_DESCRIPTION: Record<string, string> = {
  * routing). Verified against the client source: no `featureFlag(...)` call site
  * references them. Flipping one of these changes nothing, and an operator has
  * no way to discover that from the panel — so the panel says it.
+ *
+ * WP5-Lite: `transactions_supabase_primary` (and `capture_direct_supabase_write`)
+ * were listed here but the Edge Functions still read them
+ * (supabase/functions/_shared/ledger.ts). They are "retired but still read" — see
+ * lib/flag-registry.ts, the source of truth — and must NOT be labelled as having
+ * no effect.
  */
 const RETIRED_FLAG_KEYS = new Set([
   "accounts_supabase_primary",
-  "transactions_supabase_primary",
   "budgets_supabase_primary",
   "goals_supabase_primary",
   "plans_supabase_primary",
