@@ -65,12 +65,15 @@ void main() {
 
   // ── enqueue guards ────────────────────────────────────────────────────────
 
-  test('enqueue does nothing when flag is OFF', () async {
+  test('enqueue with the push flag OFF still records the sync intent (A-2 G5)',
+      () async {
+    // A local mutation must never commit without a durable sync intent. The flag
+    // only gates SENDING (LedgerPushService checks it), not recording.
     await _insertTx(db);
     final q = _queue(db, flagOn: false);
     final tx = (await DriftTransactionRepository(db).getById('tx-001'))!;
     await q.enqueue(OutboxOperation.create, tx);
-    expect((await q.pendingItems()).length, 0);
+    expect((await q.pendingItems()).length, 1);
   });
 
   test('enqueue does nothing for a guest (no session)', () async {
@@ -339,7 +342,7 @@ void main() {
 
     final items = await q.pendingItems();
     expect(items.length, 1);
-    await q.markSuccess(items.first.id);
+    await q.markSuccess(items.first);
 
     expect((await q.pendingItems()).length, 0);
   });

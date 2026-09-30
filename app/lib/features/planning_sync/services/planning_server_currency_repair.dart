@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/sync/guarded_mutation.dart';
+import '../../../core/sync/sync_health.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../domain/finance/currency_scale.dart';
@@ -44,6 +45,10 @@ enum PlanningRepairOutcome {
   unsupportedCurrency,
   notSignedIn,
   unknownEntity,
+
+  /// Cloud consent (financial sync) is off: nothing was sent, the quarantine is
+  /// untouched. A STATE, not a failure — resolves when consent returns.
+  consentBlocked,
 }
 
 /// The narrow server surface the repair flow needs. Injectable (mirrors
@@ -121,10 +126,22 @@ class PlanningServerCurrencyRepairService {
     required PlanningPullService pull,
     required PlanningRepairRemote remote,
     required Future<String?> Function() getAuthUserId,
+    /// A-2 — the repair WRITES to and READS from the server, so it is an egress
+    /// like every other sync path: consulted fresh per call, defaults to DENY
+    /// (fail-closed) so a caller that omits it performs no network at all.
+    Future<bool> Function()? mayEgress,
+    SyncHealth? health,
   })  : _db = db,
         _pull = pull,
         _remote = remote,
-        _getAuthUserId = getAuthUserId;
+        _getAuthUserId = getAuthUserId,
+        _mayEgress = mayEgress ?? _denyEgressByDefault,
+        _health = health;
+
+  static Future<bool> _denyEgressByDefault() async => false;
+
+  final Future<bool> Function() _mayEgress;
+  final SyncHealth? _health;
 
   final AppDatabase _db;
   final PlanningPullService _pull;
@@ -195,6 +212,19 @@ class PlanningServerCurrencyRepairService {
     if (table == null) return PlanningRepairOutcome.unknownEntity;
     final uid = await _getAuthUserId();
     if (uid == null) return PlanningRepairOutcome.notSignedIn;
+
+    // A-2 — consent is read FRESH for this call, before any remote access. A
+    // failing consent read fails closed.
+    var allowed = false;
+    try {
+      allowed = await _mayEgress();
+    } catch (_) {
+      allowed = false;
+    }
+    if (!allowed) {
+      _health?.recordConsentBlocked(SyncDomain.planning);
+      return PlanningRepairOutcome.consentBlocked;
+    }
 
     Map<String, dynamic>? row;
     try {

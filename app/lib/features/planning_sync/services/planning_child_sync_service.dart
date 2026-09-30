@@ -231,6 +231,8 @@ class PlanningChildSyncService {
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
       await _queue.reArmParked();
     }
+    // A-2 (G18): only rows recorded for THIS identity may be sent.
+    await _queue.reconcileOwnership(userId);
     if (kDebugMode) debugPrint('[PlanningChildSync] start');
     await _push(userId);
     await _pull();
@@ -261,7 +263,7 @@ class PlanningChildSyncService {
             continue;
           }
           await _pushItem(userId, item);
-          await _queue.markSuccess(item.id);
+          await _queue.markSuccess(item);
         } catch (error) {
           _health?.noteFailure(SyncDomain.children, error);
           await _queue.markFailed(
@@ -310,6 +312,9 @@ class PlanningChildSyncService {
     final goal = Map<String, dynamic>.from(result['goal'] as Map);
     await _markChildSynced('goal_contributions', item.entityId, row);
     final now = dateTimeToSql(DateTime.now().toUtc());
+    // A-2 (G15): this push settles the CHILD only. The parent goal's own
+    // sync_status is deliberately left untouched — marking it `synced` here hid
+    // a still-pending goal edit (its own outbox row) from every sync surface.
     if (_coordinator.state() == PlanningCutoverState.canonical) {
       // §8/§9: exact — the 0077-era RPC returns the goal's new saved amount as a
       // ::text NUMERIC + its currency, so write the `_minor` authority + the REAL
@@ -326,8 +331,7 @@ class PlanningChildSyncService {
           saved_amount = ${kMoneyCodec.sqlRealLiteral(saved)},
           saved_amount_minor = ${kMoneyCodec.sqlMinorLiteral(saved)},
           server_updated_at = ${sqlNullableString(goal['updated_at'] as String?)},
-          synced_at = ${sqlString(now)},
-          sync_status = 'synced'
+          synced_at = ${sqlString(now)}
         WHERE server_id = ${sqlString(goalId)};
       ''');
       return;
@@ -336,8 +340,7 @@ class PlanningChildSyncService {
     await _db.customStatement('''
       UPDATE goals SET saved_amount = ${(goal['saved_amount'] as num).toDouble()},
         server_updated_at = ${sqlNullableString(goal['updated_at'] as String?)},
-        synced_at = ${sqlString(now)},
-        sync_status = 'synced'
+        synced_at = ${sqlString(now)}
       WHERE server_id = ${sqlString(goalId)};
     ''');
   }

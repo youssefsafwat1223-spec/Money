@@ -80,7 +80,10 @@ void main() {
   /// to a resolved or superseded item, never the financial row itself.
   ///   conflict_resolver (2)        outbox rows for a resolved conflict
   ///   ledger_outbox_queue (2)      coalesced + acknowledged rows
-  ///   planning_outbox_queue (2)    same, planning side
+  ///   planning_outbox_queue (3)    same, planning side, plus (A-2) the parked
+  ///                                dependency_wait row of a never-synced,
+  ///                                accountless card that is then deleted
+  ///                                (a parked row is never in flight)
   ///   planning_child_sync (1)      parked child rows for one table
   ///   planning_pull_service (1)    parked rows superseded by a fresh pull
   ///   planning_server_currency_repair (1)  parked rows after repair
@@ -106,7 +109,7 @@ void main() {
     // E
     'lib/core/sync/conflict_resolver.dart': 2,
     'lib/features/capture/services/ledger_outbox_queue.dart': 2,
-    'lib/features/planning_sync/services/planning_outbox_queue.dart': 2,
+    'lib/features/planning_sync/services/planning_outbox_queue.dart': 3,
     'lib/features/planning_sync/services/planning_child_sync_service.dart': 1,
     'lib/features/planning_sync/services/planning_pull_service.dart': 1,
     'lib/features/planning_sync/services/planning_server_currency_repair.dart': 1,

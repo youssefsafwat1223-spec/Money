@@ -14,6 +14,8 @@ import '../sync/sync_capabilities.dart';
 import '../sync/sync_health.dart';
 import '../sync/sync_wakeup.dart';
 import '../session/app_session.dart';
+import '../../features/planning_sync/services/outbox_queue_factory.dart'
+    show localDataOwnerUid;
 import '../session/unsynced_inventory.dart';
 import '../data_portability/app_data_portability_service.dart';
 import '../data_portability/data_portability_models.dart';
@@ -481,6 +483,7 @@ final ledgerOutboxQueueProvider = Provider<LedgerOutboxQueue>((ref) {
     db: db,
     isPushEnabled: () => true,
     onQueued: SyncWakeup.notify,
+    getOwnerUid: localDataOwnerUid,
     getAuthUserId: () async {
       if (!SupabaseConfig.isConfigured) return null;
       try {
@@ -528,6 +531,7 @@ final planningOutboxQueueProvider = Provider<PlanningOutboxQueue>((ref) {
     db: db,
     isSyncEnabled: _planningEntitySyncEnabled,
     getAuthUserId: _currentSupabaseUserId,
+    getOwnerUid: localDataOwnerUid,
     onQueued: SyncWakeup.notify,
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
   );

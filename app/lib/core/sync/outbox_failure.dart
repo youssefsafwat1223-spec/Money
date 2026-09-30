@@ -50,6 +50,35 @@ String? coalesceOutboxOperation(String existing, String incoming) {
   return incoming;
 }
 
+/// A-2 (G18): park reasons recorded in `failure_class` of a `parked` outbox row.
+/// Parked rows are never sent, never deleted and never consume a retry attempt;
+/// each is self-healing (re-evaluated at the start of the next push cycle) and
+/// observable through SyncHealth.queueCounts.
+///
+/// The row was recorded for a DIFFERENT local-data owner than the identity that
+/// is currently authenticated. Re-armed only when the owner signs back in.
+const String kParkOwnerMismatch = 'owner_mismatch';
+
+/// A legacy row (no owner uid) whose local-data ownership for the current
+/// identity is not verified as `owned`. Never uploaded under an unverified uid.
+const String kParkOwnerUnverified = 'owner_unverified';
+
+/// The row depends on something that does not exist yet (budget category,
+/// card account, bound settings row). Unparked once the dependency resolves.
+const String kParkDependencyWait = 'dependency_wait';
+
+/// Park reasons owned by the A-2 outbox-correctness layer (as opposed to the
+/// exact-money-transport reason, which is re-armed by a verified capability).
+const Set<String> kOutboxSelfHealingParkReasons = {
+  kParkOwnerMismatch,
+  kParkOwnerUnverified,
+  kParkDependencyWait,
+};
+
+/// SQL list literal of [kOutboxSelfHealingParkReasons].
+const String kOutboxSelfHealingParkReasonsSql =
+    "('$kParkOwnerMismatch','$kParkOwnerUnverified','$kParkDependencyWait')";
+
 /// MALI-023: after this many retryable failures a row is dead-lettered so a
 /// permanently-failing item can never hot-loop. Re-armable on app/schema upgrade.
 const int kOutboxMaxAttempts = 12;

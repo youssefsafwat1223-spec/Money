@@ -239,8 +239,8 @@ void main() {
   });
 
   test(
-      'F-029: an unresolvable category FAILS CLOSED — nothing is queued, and '
-      'the local id never reaches the wire', () async {
+      'F-029: an unresolvable category FAILS CLOSED — the intent is parked '
+      '(dependency_wait), and the local id never reaches the wire', () async {
     // Independent review (docs/plans/QIRSH_MASTER_PLAN_V2.md §3, F-029) flagged that the
     // id→key lookup failed OPEN: when the category row could not be resolved it
     // transmitted the known-invalid local id anyway. That is the exact value
@@ -248,8 +248,10 @@ void main() {
     // on every other device — i.e. the fallback re-created the bug the fix
     // exists to prevent, in the one case where we KNOW the value is wrong.
     //
-    // Correct behaviour: refuse to enqueue. The budget stays local (recoverable,
-    // still visible to its owner) rather than corrupting a row other devices read.
+    // Correct behaviour: never put the local id on the wire. A-2 (G5): the sync
+    // intent is still recorded — PARKED `dependency_wait` with no category — so
+    // the budget is neither silently local-only forever nor corrupting a row
+    // other devices read; it is pushed once the category resolves.
     final q = canonicalQueue();
     final queued = await q.enqueueBudget(
       PlanningSyncOperation.create,
@@ -266,16 +268,20 @@ void main() {
       ),
     );
 
-    expect(queued, isFalse,
-        reason: 'an unresolvable category must not produce a wire payload');
+    expect(queued, isTrue, reason: 'the intent is recorded, not dropped');
     final rows = await db
         .customSelect(
-          "SELECT COUNT(*) AS c FROM planning_sync_outbox "
+          "SELECT status, failure_class, payload_json FROM planning_sync_outbox "
           "WHERE entity_id = 'b-dangling';",
         )
-        .getSingle();
-    expect(rows.read<int>('c'), 0,
-        reason: 'nothing may be queued for an unresolvable category');
+        .get();
+    expect(rows, hasLength(1));
+    expect(rows.single.read<String>('status'), 'parked');
+    expect(rows.single.read<String>('failure_class'), 'dependency_wait');
+    final payload = rows.single.read<String>('payload_json');
+    expect(payload.contains('cat-does-not-exist'), isFalse,
+        reason: 'the local category id must never be in a wire payload');
+    expect(payload.contains('"category_id":null'), isTrue);
   });
 
   test('F-029: the all-expenses sentinel travels as its key form', () async {

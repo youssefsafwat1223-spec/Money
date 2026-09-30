@@ -378,7 +378,6 @@ class PlanningPushService {
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
       await _queue.reArmParked();
     }
-
     var pushed = 0;
     var conflicts = 0;
     var failed = 0;
@@ -391,6 +390,16 @@ class PlanningPushService {
     final profileAllowed = await _mayEgressProfile();
     if (!financialAllowed || !profileAllowed) {
       _health?.noteConsentBlocked(SyncDomain.planning);
+    }
+
+    // A-2: unpark rows whose dependency resolved (settings bound / budget
+    // category / card account), THEN enforce row ownership so a dependency row
+    // recorded for another owner is parked again before anything is sent (G18).
+    // Skipped entirely while BOTH egress classes are denied: with consent off
+    // the outbox is left exactly as it is.
+    if (financialAllowed || profileAllowed) {
+      await _queue.resolveDependencies();
+      await _queue.reconcileOwnership(userId);
     }
 
     for (final entityType in _entityTable.keys) {
@@ -494,7 +503,7 @@ class PlanningPushService {
     final remoteTable = _entityTable[item.entityType];
     final localTable = _localTable[item.entityType];
     if (remoteTable == null || localTable == null) {
-      await _queue.markSuccess(item.id);
+      await _queue.markSuccess(item);
       return _PlanningPushOutcome.abandoned;
     }
 
@@ -527,13 +536,12 @@ class PlanningPushService {
         // The row stays unbound; the genuine pull binds it and (for a local
         // revocation) preserves the OFF consent, re-queuing the merged update.
         if (item.payloadJson['consent_only'] == true) {
-          await _queue.markSuccess(item.id);
+          await _queue.markSuccess(item);
           return _PlanningPushOutcome.pushed;
         }
         await _attachServerId(localTable, item.entityId,
             response['id'] as String, response['updated_at'] as String?,
-            serverRevision: response['revision'] as int?);
-        await _queue.markSuccess(item.id);
+            serverRevision: response['revision'] as int?, item: item);
         return _PlanningPushOutcome.pushed;
       }
 
@@ -550,8 +558,7 @@ class PlanningPushService {
         }
         await _attachServerId(localTable, item.entityId,
             response['id'] as String, response['updated_at'] as String?,
-            serverRevision: response['revision'] as int?);
-        await _queue.markSuccess(item.id);
+            serverRevision: response['revision'] as int?, item: item);
         return _PlanningPushOutcome.pushed;
       }
 
@@ -575,8 +582,7 @@ class PlanningPushService {
       }
       await _attachServerId(localTable, item.entityId, response['id'] as String,
           response['updated_at'] as String?,
-          serverRevision: response['revision'] as int?);
-      await _queue.markSuccess(item.id);
+          serverRevision: response['revision'] as int?, item: item);
       return _PlanningPushOutcome.pushed;
     } catch (e) {
       if (_isConflict(e)) {
@@ -611,13 +617,13 @@ class PlanningPushService {
         response['id'] as String,
         response['updated_at'] as String?,
         serverRevision: response['revision'] as int?,
+        item: item,
       );
-      await _queue.markSuccess(item.id);
       return _PlanningPushOutcome.pushed;
     }
 
     await _markConflict(localTable, item.entityId);
-    await _queue.markSuccess(item.id);
+    await _queue.markSuccess(item);
     return _PlanningPushOutcome.conflict;
   }
 
@@ -647,8 +653,7 @@ class PlanningPushService {
     ))?['id'] as String?;
     if (serverId == null) {
       // Never reached the server — nothing to tombstone.
-      await _markSynced(localTable, item.entityId, null);
-      await _queue.markSuccess(item.id);
+      await _markSynced(localTable, item.entityId, null, item: item);
       return _PlanningPushOutcome.pushed;
     }
 
@@ -663,8 +668,7 @@ class PlanningPushService {
         final ack = await _remoteSink.casTombstone(
             remoteTable, serverId, expectedRevision);
         if (ack != null) {
-          await _markSynced(localTable, item.entityId, serverId);
-          await _queue.markSuccess(item.id);
+          await _markSynced(localTable, item.entityId, serverId, item: item);
           return _PlanningPushOutcome.pushed;
         }
         return await _resolveDeleteConflict(remoteTable, serverId, localTable, item);
@@ -674,15 +678,14 @@ class PlanningPushService {
       final ack =
           await _remoteSink.guardedTombstone(remoteTable, serverId, base);
       if (ack != null) {
-        await _markSynced(localTable, item.entityId, serverId);
-        await _queue.markSuccess(item.id);
+        await _markSynced(localTable, item.entityId, serverId, item: item);
         return _PlanningPushOutcome.pushed;
       }
       return await _resolveDeleteConflict(remoteTable, serverId, localTable, item);
     } catch (e) {
       if (_isConflict(e)) {
         await _markConflict(localTable, item.entityId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         return _PlanningPushOutcome.conflict;
       }
       rethrow;
@@ -703,12 +706,11 @@ class PlanningPushService {
   ) async {
     final state = await _remoteSink.fetchRowState(remoteTable, serverId);
     if (state != null && state['deleted_at'] != null) {
-      await _markSynced(localTable, item.entityId, serverId); // A
-      await _queue.markSuccess(item.id);
+      await _markSynced(localTable, item.entityId, serverId, item: item); // A
       return _PlanningPushOutcome.pushed;
     }
     await _markConflict(localTable, item.entityId); // B (live) or C (absent)
-    await _queue.markSuccess(item.id);
+    await _queue.markSuccess(item);
     return _PlanningPushOutcome.conflict;
   }
 
@@ -721,38 +723,65 @@ class PlanningPushService {
     return row?.readNullable<String>('server_id');
   }
 
+  /// A-2 (G3): ACK [item] and persist the server row identity in ONE local
+  /// transaction. The entity is marked `synced` only when no outbox row remains
+  /// for it (an edit folded in while the push was in flight keeps it pending);
+  /// its server id / version are persisted regardless, so the next push is an
+  /// update of the same server row.
   Future<void> _attachServerId(
     String table,
     String localId,
     String serverId,
     String? serverUpdatedAt, {
     int? serverRevision,
-  }) async {
+    required PlanningOutboxItem item,
+  }) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customStatement('''
-      UPDATE $table
-      SET server_id = ${sqlString(serverId)},
-          synced_at = ${sqlString(now)},
-          server_updated_at = ${sqlNullableString(serverUpdatedAt)},
-          ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
-          sync_status = 'synced'
-      WHERE id = ${sqlString(localId)};
-    ''');
+    return _db.transaction(() async {
+      await _queue.acknowledge(
+        item,
+        serverUpdatedAt: serverUpdatedAt,
+        serverRevision: serverRevision,
+      );
+      await _db.customStatement('''
+        UPDATE $table
+        SET server_id = ${sqlString(serverId)},
+            synced_at = ${sqlString(now)},
+            server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+            ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
+            sync_status = CASE WHEN ${_outboxRowExists(item.entityType, localId)}
+              THEN sync_status ELSE 'synced' END
+        WHERE id = ${sqlString(localId)};
+      ''');
+    });
   }
 
+  /// SQL predicate: an outbox row still exists for this entity.
+  static String _outboxRowExists(String entityType, String localId) =>
+      'EXISTS (SELECT 1 FROM planning_sync_outbox '
+      'WHERE entity_type = ${sqlString(entityType)} '
+      'AND entity_id = ${sqlString(localId)})';
+
+  /// A-2 (G15): a tombstone/idempotent-delete ACK settles the entity (guarded
+  /// the same way: never while another edit is still queued for it).
   Future<void> _markSynced(
     String table,
     String localId,
-    String? serverId,
-  ) async {
+    String? serverId, {
+    required PlanningOutboxItem item,
+  }) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customStatement('''
-      UPDATE $table
-      SET ${serverId == null ? '' : 'server_id = ${sqlString(serverId)},'}
-          synced_at = ${sqlString(now)},
-          sync_status = 'synced'
-      WHERE id = ${sqlString(localId)};
-    ''');
+    return _db.transaction(() async {
+      await _queue.acknowledge(item);
+      await _db.customStatement('''
+        UPDATE $table
+        SET ${serverId == null ? '' : 'server_id = ${sqlString(serverId)},'}
+            synced_at = ${sqlString(now)},
+            sync_status = CASE WHEN ${_outboxRowExists(item.entityType, localId)}
+              THEN sync_status ELSE 'synced' END
+        WHERE id = ${sqlString(localId)};
+      ''');
+    });
   }
 
   Future<void> _markConflict(String table, String localId) async {

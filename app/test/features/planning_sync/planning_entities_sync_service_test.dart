@@ -287,14 +287,15 @@ void main() {
       await db.close();
     });
 
-    test('planning flags OFF do not queue writes', () async {
+    test('planning flags OFF still record sync intent (A-2 G5)', () async {
       final queue = _queue(db, enabled: false);
       await DriftBudgetRepository(db, outboxQueue: queue).save(_budget('b1'));
       await DriftBillRepository(db, outboxQueue: queue).save(_bill('s1'));
       await DriftGoalRepository(db, outboxQueue: queue).save(_goal('g1'));
       await DriftPlanRepository(db, outboxQueue: queue).save(_plan('p1'));
 
-      expect(await _outboxCount(db), 0);
+      // The flag gates sending (the push checks it), never recording intent.
+      expect(await _outboxCount(db), 4);
     });
 
     test('guest user does not queue planning writes when flags are ON',

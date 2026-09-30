@@ -123,6 +123,10 @@ class LedgerPushService implements LedgerPushAdapter {
       await _queue.reArmParked();
     }
 
+    // A-2 (G18): only rows recorded for THIS identity may be sent; foreign and
+    // unverified legacy rows are parked (observable, never deleted, never sent).
+    await _queue.reconcileOwnership(userId);
+
     final items = await _queue.pendingItems();
     if (items.isEmpty) return const LedgerPushResult();
 
@@ -227,19 +231,18 @@ class LedgerPushService implements LedgerPushAdapter {
           .single();
 
       final serverId = response['id'] as String;
-      await _attachServerId(
-        item.transactionId,
+      await _ackAndAttach(
+        item,
         serverId,
         serverUpdatedAt: response['updated_at'] as String?,
         serverRevision: response['revision'] as int?,
       );
-      await _queue.markSuccess(item.id);
       return _PushOutcome.pushed;
     } catch (e) {
       // Conflict detected by server (e.g. row already exists with newer updated_at).
       if (_isConflict(e)) {
         await _markConflict(item.transactionId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         return _PushOutcome.conflict;
       }
       rethrow;
@@ -287,16 +290,15 @@ class LedgerPushService implements LedgerPushAdapter {
         if (updated == null) {
           // 0 rows matched → the server moved past our base revision.
           await _markConflict(item.transactionId);
-          await _queue.markSuccess(item.id);
+          await _queue.markSuccess(item);
           return _PushOutcome.conflict;
         }
-        await _attachServerId(
-          item.transactionId,
+        await _ackAndAttach(
+          item,
           serverId,
           serverUpdatedAt: updated['updated_at'] as String?,
           serverRevision: updated['revision'] as int?,
         );
-        await _queue.markSuccess(item.id);
         return _PushOutcome.pushed;
       }
 
@@ -331,22 +333,21 @@ class LedgerPushService implements LedgerPushAdapter {
         // base. Both are conflicts; the guard no longer needs to distinguish
         // them with a second read.
         await _markConflict(item.transactionId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         return _PushOutcome.conflict;
       }
-      await _attachServerId(
-        item.transactionId,
+      await _ackAndAttach(
+        item,
         serverId,
         // Store the version our update produced — the next edit's outbox
         // payload carries it as the base token (MALI-009).
         serverUpdatedAt: updated['updated_at'] as String?,
       );
-      await _queue.markSuccess(item.id);
       return _PushOutcome.pushed;
     } catch (e) {
       if (_isConflict(e)) {
         await _markConflict(item.transactionId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         return _PushOutcome.conflict;
       }
       rethrow;
@@ -363,8 +364,10 @@ class LedgerPushService implements LedgerPushAdapter {
     serverId ??= await _findServerId(localId, userId);
 
     if (serverId == null) {
-      // Row never reached the server; just remove outbox item.
-      await _queue.markSuccess(item.id);
+      // `_findServerId` returns null ONLY on a confirmed empty result (any
+      // lookup error rethrows into the retryable failure path), so the row
+      // truly never reached the server; just remove the outbox item.
+      await _ackTombstone(item);
       return _PushOutcome.pushed;
     }
 
@@ -386,7 +389,7 @@ class LedgerPushService implements LedgerPushAdapter {
             .select(_casAckCols);
         final ack = guardedAck(rows, 'ledger.casTombstone');
         if (ack != null) {
-          await _queue.markSuccess(item.id);
+          await _ackTombstone(item);
           return _PushOutcome.pushed;
         }
         return await _resolveDeleteConflict(item, serverId);
@@ -411,14 +414,14 @@ class LedgerPushService implements LedgerPushAdapter {
               .select('id, updated_at');
       final ack = guardedAck(rows, 'ledger.guardedTombstone');
       if (ack != null) {
-        await _queue.markSuccess(item.id);
+        await _ackTombstone(item);
         return _PushOutcome.pushed;
       }
       return await _resolveDeleteConflict(item, serverId);
     } catch (e) {
       if (_isConflict(e)) {
         await _markConflict(item.transactionId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         return _PushOutcome.conflict;
       }
       rethrow;
@@ -443,26 +446,72 @@ class LedgerPushService implements LedgerPushAdapter {
         .eq('id', serverId)
         .maybeSingle();
     if (state != null && state['deleted_at'] != null) {
-      await _queue.markSuccess(item.id); // A
+      await _ackTombstone(item); // A
       return _PushOutcome.pushed;
     }
     await _markConflict(item.transactionId); // B (live) or C (absent)
-    await _queue.markSuccess(item.id);
+    await _queue.markSuccess(item);
     return _PushOutcome.conflict;
   }
 
+  /// Resolves the server id by the stable client request id. Returns null ONLY
+  /// on a confirmed empty result. Any error (network, auth, server) PROPAGATES:
+  /// swallowing it made a delete look "never reached the server" and ACK the
+  /// row, silently losing the remote delete on a flaky connection.
   Future<String?> _findServerId(String localId, String userId) async {
-    try {
-      final row = await _getClient()
-          .from('user_transactions')
-          .select('id')
-          .eq('user_id', userId)
-          .eq('client_request_id', localId)
-          .maybeSingle();
-      return row?['id'] as String?;
-    } catch (_) {
-      return null;
-    }
+    final row = await _getClient()
+        .from('user_transactions')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('client_request_id', localId)
+        .maybeSingle();
+    return row?['id'] as String?;
+  }
+
+  /// A-2 (G3): ACK + persist the server row identity in ONE local transaction
+  /// (a crash cannot leave the row consumed without the server id).
+  Future<void> _ackAndAttach(
+    OutboxItem item,
+    String serverId, {
+    String? serverUpdatedAt,
+    int? serverRevision,
+  }) {
+    return _db.transaction(() async {
+      await _queue.acknowledge(
+        item,
+        serverId: serverId,
+        serverUpdatedAt: serverUpdatedAt,
+        serverRevision: serverRevision,
+      );
+      await _attachServerId(
+        item.transactionId,
+        serverId,
+        serverUpdatedAt: serverUpdatedAt,
+        serverRevision: serverRevision,
+      );
+    });
+  }
+
+  /// A-2 (G15): a tombstone ACK settles the entity too (it used to stay
+  /// 'pending' forever) — unless another edit is still queued for it.
+  Future<void> _ackTombstone(OutboxItem item) {
+    return _db.transaction(() async {
+      await _queue.acknowledge(item);
+      await _markSyncedIfClear(item.transactionId);
+    });
+  }
+
+  Future<void> _markSyncedIfClear(String transactionId) async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    await _db.customStatement('''
+      UPDATE transactions
+      SET sync_status = 'synced', synced_at = ${sqlString(now)}
+      WHERE id = ${sqlString(transactionId)}
+        AND sync_status != 'conflict'
+        AND NOT EXISTS (
+          SELECT 1 FROM ledger_sync_outbox
+          WHERE transaction_id = ${sqlString(transactionId)});
+    ''');
   }
 
   Future<void> _attachServerId(
@@ -478,7 +527,13 @@ class LedgerPushService implements LedgerPushAdapter {
           synced_at = ${sqlString(now)},
           ${serverUpdatedAt != null ? 'server_updated_at = ${sqlString(serverUpdatedAt)},' : ''}
           ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
-          sync_status = 'synced'
+          -- A-2 (G3): 'synced' only when no outbox row remains for this
+          -- transaction (an edit folded in while the push was in flight keeps
+          -- it pending; its server id/version are persisted regardless).
+          sync_status = CASE WHEN EXISTS (
+            SELECT 1 FROM ledger_sync_outbox
+            WHERE transaction_id = ${sqlString(transactionId)})
+            THEN sync_status ELSE 'synced' END
       WHERE id = ${sqlString(transactionId)};
     ''');
   }

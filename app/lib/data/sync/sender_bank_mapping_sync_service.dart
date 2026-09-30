@@ -200,6 +200,7 @@ class SenderBankMappingSyncService {
           await _markSynced(
             row.read<String>('id'),
             updatedByKey[row.read<String>('normalized_sender_id')],
+            pushedUpdatedAt: row.read<String>('updated_at'),
           );
         }
       });
@@ -228,7 +229,8 @@ class SenderBankMappingSyncService {
         final stored = await _remoteStore.upsert([_toServerRow(row, userId)]);
         final serverUpdatedAt =
             stored.isEmpty ? null : stored.first['updated_at'] as String?;
-        await _markSynced(id, serverUpdatedAt);
+        await _markSynced(id, serverUpdatedAt,
+            pushedUpdatedAt: row.read<String>('updated_at'));
         pushed++;
       } catch (e) {
         final failureClass = classifyOutboxError(e);
@@ -455,7 +457,15 @@ class SenderBankMappingSyncService {
     };
   }
 
-  Future<void> _markSynced(String id, String? serverUpdatedAt) async {
+  /// A-2 (G3): settles the mapping ONLY if it is unchanged since it was read for
+  /// this push ([pushedUpdatedAt] — every local edit bumps `updated_at`). A
+  /// mapping edited while the push was in flight stays `pending` and is pushed
+  /// on the next cycle instead of being silently marked synced.
+  Future<void> _markSynced(
+    String id,
+    String? serverUpdatedAt, {
+    required String pushedUpdatedAt,
+  }) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     final serverCols = serverUpdatedAt != null
         ? 'server_updated_at = ${sqlString(serverUpdatedAt)}, '
@@ -466,7 +476,8 @@ class SenderBankMappingSyncService {
       SET sync_status = 'synced',
           $serverCols
           synced_at = ${sqlString(now)}
-      WHERE id = ${sqlString(id)};
+      WHERE id = ${sqlString(id)}
+        AND updated_at = ${sqlString(pushedUpdatedAt)};
     ''');
   }
 

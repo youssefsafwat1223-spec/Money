@@ -267,7 +267,9 @@ class BootstrapRunner {
           await RunGoalAutoSavesUseCase(
             DriftGoalRepository(
               database,
-              outboxQueue: buildPlanningOutboxQueue(database),
+              outboxQueue: buildPlanningOutboxQueue(database,
+                  coordinator: FixedPlanningCutoverCoordinator(
+                      planningCutoverState)),
             ),
           ).call();
         } catch (_) {
@@ -316,7 +318,9 @@ class BootstrapRunner {
           await AccountCurrencyRepairService(
             accounts: DriftAccountRepository(
               database,
-              outboxQueue: buildPlanningOutboxQueue(database),
+              outboxQueue: buildPlanningOutboxQueue(database,
+                  coordinator: FixedPlanningCutoverCoordinator(
+                      planningCutoverState)),
             ),
             // Both outboxes are wired deliberately: the repair changes real
             // financial state, so it must still reach other devices exactly as
@@ -324,7 +328,9 @@ class BootstrapRunner {
             // queue — is what stops repeat boots from re-enqueueing.
             transactions: DriftTransactionRepository(
               database,
-              outboxQueue: buildLedgerOutboxQueue(database),
+              outboxQueue: buildLedgerOutboxQueue(database,
+                  coordinator: FixedPlanningCutoverCoordinator(
+                      planningCutoverState)),
             ),
           ).run(fallbackCurrency: settings.currency);
         } catch (_) {
@@ -344,7 +350,9 @@ class BootstrapRunner {
           // manual cards. Best-effort; never block startup.
           await DriftCardRepository(
             database,
-            outboxQueue: buildPlanningOutboxQueue(database),
+            outboxQueue: buildPlanningOutboxQueue(database,
+                  coordinator: FixedPlanningCutoverCoordinator(
+                      planningCutoverState)),
           ).backfillFromTransactions();
         } catch (_) {
           // Backfill is opportunistic; a failure leaves cards empty, not broken.

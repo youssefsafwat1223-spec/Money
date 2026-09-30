@@ -313,8 +313,9 @@ void main() {
       expect(money.availableCreditMoney, isNull);
     });
 
-    test('planning_accounts_sync OFF does not queue local account writes',
-        () async {
+    test(
+        'planning_accounts_sync OFF still records the sync intent, never loses '
+        'the local write (A-2 G5)', () async {
       final repo = DriftAccountRepository(
         db,
         outboxQueue: _queue(db, enabled: false),
@@ -323,7 +324,8 @@ void main() {
       final saved = await repo.create(_account('account-off'));
 
       expect(saved.id, 'account-off');
-      expect(await _outboxCount(db), 0);
+      expect(await _outboxCount(db), 1,
+          reason: 'the flag gates sending, not recording intent');
       expect((await repo.getById('account-off'))?.name, 'Main account-off');
     });
 
@@ -817,8 +819,9 @@ void main() {
       expect(money.availableCreditMoney, isNull);
     });
 
-    test('planning_accounts_sync OFF does not queue local account writes',
-        () async {
+    test(
+        'planning_accounts_sync OFF still records the sync intent, never loses '
+        'the local write (A-2 G5)', () async {
       final repo = DriftAccountRepository(
         db,
         outboxQueue: _queue(db, enabled: false),
@@ -827,7 +830,8 @@ void main() {
       final saved = await repo.create(_account('account-off'));
 
       expect(saved.id, 'account-off');
-      expect(await _outboxCount(db), 0);
+      expect(await _outboxCount(db), 1,
+          reason: 'the flag gates sending, not recording intent');
       expect((await repo.getById('account-off'))?.name, 'Main account-off');
     });
 

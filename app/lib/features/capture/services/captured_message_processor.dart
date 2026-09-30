@@ -126,8 +126,11 @@ class CapturedMessageProcessor {
           deviceRegistration.readDeviceSecret();
       // Background/native captures must enter the sync pipeline like every
       // other write. The queues are auth-gated internally (guest → local-only).
-      final ledgerOutbox = buildLedgerOutboxQueue(db);
-      final planningOutbox = buildPlanningOutboxQueue(db);
+      // A-2 (G14): same cutover authority as the foreground, so a background-
+      // enqueued money row is serialized exactly like a foreground one.
+      final cutover = await resolveCutoverCoordinator(db);
+      final ledgerOutbox = buildLedgerOutboxQueue(db, coordinator: cutover);
+      final planningOutbox = buildPlanningOutboxQueue(db, coordinator: cutover);
       final engagementUseCase = RecordEngagementUseCase(
         gamificationRepository: DriftGamificationRepository(db),
         transactionRepository: DriftTransactionRepository(db),

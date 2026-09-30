@@ -126,6 +126,7 @@ class SyncQueueCounts {
     this.pending = 0,
     this.parked = 0,
     this.deadLetter = 0,
+    this.parkedByReason = const {},
     this.senderMappingsPending = 0,
     this.senderMappingsFailed = 0,
     this.smartInboxPendingSync = 0,
@@ -134,8 +135,13 @@ class SyncQueueCounts {
   /// Ledger + planning outbox rows awaiting push.
   final int pending;
 
-  /// Ledger + planning rows held durably for an unverified transport.
+  /// Ledger + planning rows held durably: an unverified transport, a foreign /
+  /// unverified owner (`owner_mismatch`, `owner_unverified`) or a missing
+  /// dependency (`dependency_wait`). Always the SUM of [parkedByReason].
   final int parked;
+
+  /// A-2: [parked] broken down by park reason (the row's `failure_class`).
+  final Map<String, int> parkedByReason;
 
   /// Ledger + planning rows that exhausted retries / failed permanently.
   final int deadLetter;
@@ -203,6 +209,12 @@ class SyncHealth {
   // --- services report into the enclosing phase -----------------------------
 
   void noteConsentBlocked(SyncDomain d) => _note(d).consentBlocked = true;
+
+  /// Records a consent-blocked STATE for an egress that runs outside any sync
+  /// phase (e.g. a user-triggered repair). Same one-state semantics as a phase
+  /// that ended consent-blocked: re-entering it does not bump failures.
+  void recordConsentBlocked(SyncDomain d) =>
+      _recordBlocked(d, SyncErrorClass.consentBlocked);
 
   void noteCapabilityParked(SyncDomain d) => _note(d).capabilityParked = true;
 
@@ -323,9 +335,24 @@ class SyncHealth {
             "WHERE status = '$status'") +
         await n("SELECT COUNT(*) AS n FROM planning_sync_outbox "
             "WHERE status = '$status'");
+    final parkedByReason = <String, int>{};
+    for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
+      final rows = await db.customSelect(
+        "SELECT COALESCE(failure_class, 'unknown') AS reason, COUNT(*) AS n "
+        "FROM $table WHERE status = 'parked' GROUP BY reason",
+      ).get();
+      for (final r in rows) {
+        parkedByReason.update(
+          r.read<String>('reason'),
+          (v) => v + r.read<int>('n'),
+          ifAbsent: () => r.read<int>('n'),
+        );
+      }
+    }
     return SyncQueueCounts(
       pending: await outbox('pending'),
-      parked: await outbox('parked'),
+      parked: parkedByReason.values.fold<int>(0, (a, b) => a + b),
+      parkedByReason: parkedByReason,
       deadLetter: await outbox('dead_letter'),
       senderMappingsPending: await n("SELECT COUNT(*) AS n FROM "
           "sender_bank_mappings WHERE sync_status = 'pending'"),

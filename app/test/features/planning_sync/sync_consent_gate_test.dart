@@ -143,10 +143,10 @@ void main() {
     await db.customStatement('''
       INSERT INTO planning_sync_outbox(
         id, entity_type, entity_id, operation, payload_json,
-        attempt_count, created_at, updated_at, status
+        attempt_count, created_at, updated_at, status, owner_uid
       ) VALUES ('$id', '$type', '$entityId', '$op',
         '${jsonEncode(p).replaceAll("'", "''")}', 0,
-        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'pending');
+        '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'pending', 'user-1');
     ''');
   }
 
@@ -535,9 +535,9 @@ void main() {
         () async {
       await db.customStatement('''
         INSERT INTO ledger_sync_outbox(id, transaction_id, operation,
-          payload_json, attempt_count, status, created_at, updated_at)
+          payload_json, attempt_count, status, created_at, updated_at, owner_uid)
         VALUES ('l1', 't1', 'create', '{}', 0, 'pending',
-          '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z');
+          '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 'user-1');
       ''');
       final before = await rows('ledger_sync_outbox');
       var clientCalls = 0;

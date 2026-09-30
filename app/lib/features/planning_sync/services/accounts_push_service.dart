@@ -318,6 +318,8 @@ class AccountsPushService {
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
       await _queue.reArmParked();
     }
+    // A-2 (G18): only rows recorded for THIS identity may be sent.
+    await _queue.reconcileOwnership(userId);
 
     int pushed = 0;
     int conflicts = 0;
@@ -371,7 +373,7 @@ class AccountsPushService {
           continue;
         }
         await _remoteSink.setDefaultAccount(serverId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         pushed++;
       } catch (e) {
         failed++;
@@ -434,8 +436,7 @@ class AccountsPushService {
         final serverId = response['id'] as String;
         await _attachServerId(
             item.entityId, serverId, response['updated_at'] as String?,
-            serverRevision: response['revision'] as int?);
-        await _queue.markSuccess(item.id);
+            serverRevision: response['revision'] as int?, item: item);
         return _AccountsPushOutcome.pushed;
       }
 
@@ -450,7 +451,7 @@ class AccountsPushService {
             await _remoteSink.casUpdateAccount(serverId, expectedRevision, row);
         if (response == null) {
           await _markConflict(item.entityId);
-          await _queue.markSuccess(item.id);
+          await _queue.markSuccess(item);
           return _AccountsPushOutcome.conflict;
         }
       } else {
@@ -476,7 +477,7 @@ class AccountsPushService {
       // an NPE on the ack.
       if (response == null) {
         await _markConflict(item.entityId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         return _AccountsPushOutcome.conflict;
       }
 
@@ -484,13 +485,12 @@ class AccountsPushService {
       // changes go exclusively through the dedicated default command.
       await _attachServerId(
           item.entityId, serverId, response['updated_at'] as String?,
-          serverRevision: response['revision'] as int?);
-      await _queue.markSuccess(item.id);
+          serverRevision: response['revision'] as int?, item: item);
       return _AccountsPushOutcome.pushed;
     } catch (e) {
       if (_isConflict(e)) {
         await _markConflict(item.entityId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         return _AccountsPushOutcome.conflict;
       }
       rethrow;
@@ -505,8 +505,7 @@ class AccountsPushService {
     serverId ??= (await _remoteSink.findAccountByLocalId(
         userId, item.entityId))?['id'] as String?;
     if (serverId == null) {
-      await _markSynced(item.entityId, null);
-      await _queue.markSuccess(item.id);
+      await _markSynced(item.entityId, null, item: item);
       return _AccountsPushOutcome.pushed;
     }
 
@@ -520,8 +519,7 @@ class AccountsPushService {
         final ack =
             await _remoteSink.casTombstoneAccount(serverId, expectedRevision);
         if (ack != null) {
-          await _markSynced(item.entityId, serverId);
-          await _queue.markSuccess(item.id);
+          await _markSynced(item.entityId, serverId, item: item);
           return _AccountsPushOutcome.pushed;
         }
         return await _resolveDeleteConflict(serverId, item);
@@ -530,15 +528,14 @@ class AccountsPushService {
       final base = item.payloadJson['server_updated_at'] as String?;
       final ack = await _remoteSink.guardedTombstoneAccount(serverId, base);
       if (ack != null) {
-        await _markSynced(item.entityId, serverId);
-        await _queue.markSuccess(item.id);
+        await _markSynced(item.entityId, serverId, item: item);
         return _AccountsPushOutcome.pushed;
       }
       return await _resolveDeleteConflict(serverId, item);
     } catch (e) {
       if (_isConflict(e)) {
         await _markConflict(item.entityId);
-        await _queue.markSuccess(item.id);
+        await _queue.markSuccess(item);
         return _AccountsPushOutcome.conflict;
       }
       rethrow;
@@ -554,12 +551,11 @@ class AccountsPushService {
   ) async {
     final state = await _remoteSink.fetchAccountState(serverId);
     if (state != null && state['deleted_at'] != null) {
-      await _markSynced(item.entityId, serverId);
-      await _queue.markSuccess(item.id);
+      await _markSynced(item.entityId, serverId, item: item);
       return _AccountsPushOutcome.pushed;
     }
     await _markConflict(item.entityId);
-    await _queue.markSuccess(item.id);
+    await _queue.markSuccess(item);
     return _AccountsPushOutcome.conflict;
   }
 
@@ -572,33 +568,57 @@ class AccountsPushService {
     return row?.readNullable<String>('server_id');
   }
 
+  /// A-2 (G3): ACK [item] and persist the server row identity in ONE local
+  /// transaction; the account is `synced` only when no outbox row remains for
+  /// it (an edit folded in while the push was in flight keeps it pending).
   Future<void> _attachServerId(
     String localId,
     String serverId,
     String? serverUpdatedAt, {
     int? serverRevision,
-  }) async {
+    required PlanningOutboxItem item,
+  }) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customStatement('''
-      UPDATE accounts
-      SET server_id = ${sqlString(serverId)},
-          synced_at = ${sqlString(now)},
-          server_updated_at = ${sqlNullableString(serverUpdatedAt)},
-          ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
-          sync_status = 'synced'
-      WHERE id = ${sqlString(localId)};
-    ''');
+    return _db.transaction(() async {
+      await _queue.acknowledge(
+        item,
+        serverUpdatedAt: serverUpdatedAt,
+        serverRevision: serverRevision,
+      );
+      await _db.customStatement('''
+        UPDATE accounts
+        SET server_id = ${sqlString(serverId)},
+            synced_at = ${sqlString(now)},
+            server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+            ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
+            sync_status = CASE WHEN ${_outboxRowExists(localId)}
+              THEN sync_status ELSE 'synced' END
+        WHERE id = ${sqlString(localId)};
+      ''');
+    });
   }
 
-  Future<void> _markSynced(String localId, String? serverId) async {
+  static String _outboxRowExists(String localId) =>
+      'EXISTS (SELECT 1 FROM planning_sync_outbox '
+      "WHERE entity_type = 'account' AND entity_id = ${sqlString(localId)})";
+
+  Future<void> _markSynced(
+    String localId,
+    String? serverId, {
+    required PlanningOutboxItem item,
+  }) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customStatement('''
-      UPDATE accounts
-      SET ${serverId == null ? '' : 'server_id = ${sqlString(serverId)},'}
-          synced_at = ${sqlString(now)},
-          sync_status = 'synced'
-      WHERE id = ${sqlString(localId)};
-    ''');
+    return _db.transaction(() async {
+      await _queue.acknowledge(item);
+      await _db.customStatement('''
+        UPDATE accounts
+        SET ${serverId == null ? '' : 'server_id = ${sqlString(serverId)},'}
+            synced_at = ${sqlString(now)},
+            sync_status = CASE WHEN ${_outboxRowExists(localId)}
+              THEN sync_status ELSE 'synced' END
+        WHERE id = ${sqlString(localId)};
+      ''');
+    });
   }
 
   Future<void> _markConflict(String localId) async {

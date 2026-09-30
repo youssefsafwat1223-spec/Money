@@ -177,6 +177,9 @@ void main() {
       pull: _pull(db, _GoalPageRemote(const [])),
       remote: _FakeRepairRemote(server),
       getAuthUserId: () async => 'user-1',
+        // A-2: the repair is an egress; these cover repair MECHANICS with
+        // consent granted (the consent gate has its own test).
+        mayEgress: () async => true,
     );
     final outcome =
         await repair.resolve(entityType: 'goal', serverId: 'g1', currency: 'KWD');

@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import '../../../core/sync/outbox_failure.dart';
+import '../../../core/sync/outbox_owner.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
@@ -20,6 +21,8 @@ class OutboxItem {
     required this.operation,
     required this.payloadJson,
     required this.attemptCount,
+    this.opSeq = 0,
+    this.ownerUid,
     this.lastError,
     this.nextRetryAt,
   });
@@ -29,6 +32,14 @@ class OutboxItem {
   final OutboxOperation operation;
   final Map<String, dynamic> payloadJson;
   final int attemptCount;
+
+  /// A-2 (G3): the row's edit counter when it was read. An ACK deletes the row
+  /// only while this still matches, so an edit folded in while the push was in
+  /// flight is never lost.
+  final int opSeq;
+
+  /// A-2 (G18): the local-data owner the row was recorded for (null = legacy).
+  final String? ownerUid;
   final String? lastError;
   final DateTime? nextRetryAt;
 }
@@ -38,6 +49,12 @@ class LedgerOutboxQueue {
     required AppDatabase db,
     required bool Function() isPushEnabled,
     required Future<String?> Function() getAuthUserId,
+    // A-2 (G18/G5): the LOCAL DATA OWNER uid (AppSession's owner marker) — the
+    // identity admitted as owner of this local DB. Rows are stamped with it and
+    // intent is recorded whenever it exists, even if the live session is
+    // momentarily absent. Defaults to [getAuthUserId] for callers that have no
+    // separate owner concept.
+    Future<String?> Function()? getOwnerUid,
     void Function()? onQueued,
     // MALI-026 (B8-2.10 §10): the money-authority mode. Legacy (v29 today) emits
     // the current JSON-number wire shape; canonical emits the exact decimal
@@ -47,22 +64,46 @@ class LedgerOutboxQueue {
   })  : _db = db,
         _isPushEnabled = isPushEnabled,
         _getAuthUserId = getAuthUserId,
+        _getOwnerUid = getOwnerUid ?? getAuthUserId,
         _onQueued = onQueued,
         _coordinator = coordinator;
 
   final AppDatabase _db;
   final bool Function() _isPushEnabled;
   final Future<String?> Function() _getAuthUserId;
+  final Future<String?> Function() _getOwnerUid;
   final void Function()? _onQueued;
   final PlanningCutoverCoordinator _coordinator;
+
+  /// A-2 (G3): ids of rows handed out by [pendingItems] and not yet settled
+  /// (ACKed / failed / parked) by THIS queue instance. A create cancelled by a
+  /// delete may be on the wire right now, so for such a row the cancel is NOT a
+  /// drop: it becomes a delete (resolved by the push). An untouched row is
+  /// dropped as before. Time-bounded so an abandoned claim cannot linger.
+  final Map<String, DateTime> _inFlight = {};
+  static const Duration _inFlightTtl = Duration(minutes: 5);
+
+  bool _isInFlight(String id) {
+    final at = _inFlight[id];
+    if (at == null) return false;
+    if (DateTime.now().difference(at) > _inFlightTtl) {
+      _inFlight.remove(id);
+      return false;
+    }
+    return true;
+  }
 
   Future<void> enqueue(
     OutboxOperation op,
     TransactionEntity tx,
   ) async {
-    if (!_isPushEnabled()) return;
-    final userId = await _getAuthUserId();
-    if (userId == null) return;
+    // A-2 (G5): a local mutation records sync intent whenever a local owner
+    // identity exists — even with no live session right now or the push flag off
+    // (the push service still requires both before anything is sent). ONLY a
+    // true guest (no owner uid and no session) stays local-only with no intent.
+    final intent = await resolveOutboxIntent(_getOwnerUid, _getAuthUserId);
+    if (intent == null) return;
+    final ownerUid = intent.ownerUid;
 
     final now = dateTimeToSql(DateTime.now().toUtc());
     final payload = _buildPayload(op, tx);
@@ -82,43 +123,55 @@ class LedgerOutboxQueue {
     if (baseRevision != null) payload['server_revision'] = baseRevision;
 
     await _db.transaction(() async {
-      // MALI-052n: coalesce into any existing PENDING row for this transaction.
+      // MALI-052n: coalesce into any existing PENDING row for this transaction
+      // (or a row parked by the A-2 self-healing layer, which is never in
+      // flight). Every coalesce bumps op_seq (A-2 G3).
       final existing = await _db
           .customSelect(
-            "SELECT id, operation FROM ledger_sync_outbox "
-            "WHERE transaction_id = ${sqlString(tx.id)} AND status = 'pending' "
+            "SELECT id, operation, status FROM ledger_sync_outbox "
+            "WHERE transaction_id = ${sqlString(tx.id)} AND $kOutboxCoalescibleSql "
             "ORDER BY created_at ASC LIMIT 1;",
           )
           .getSingleOrNull();
       if (existing != null) {
+        final existingId = existing.read<String>('id');
         final coalesced = coalesceOutboxOperation(
             existing.read<String>('operation'), op.name);
-        if (coalesced == null) {
+        if (coalesced == null &&
+            (existing.read<String>('status') == 'parked' ||
+                !_isInFlight(existingId))) {
+          // Never on the wire (parked, or not handed to a push): create+delete
+          // truly cancels.
           await _db.customStatement(
-            'DELETE FROM ledger_sync_outbox '
-            'WHERE transaction_id = ${sqlString(tx.id)} '
-            "AND status = 'pending';",
+            'DELETE FROM ledger_sync_outbox WHERE id = ${sqlString(existingId)};',
           );
         } else {
+          // A-2 (G3): a create cancelled by a delete while it is IN FLIGHT is
+          // never dropped — it becomes a delete. The push resolves it by
+          // client_request_id: confirmed-absent is ACKed, a row that landed is
+          // tombstoned. Nothing is silently lost.
           await _db.customStatement('''
             UPDATE ledger_sync_outbox
-            SET operation = ${sqlString(coalesced)},
+            SET operation = ${sqlString(coalesced ?? 'delete')},
                 payload_json = ${sqlString(jsonEncode(payload))},
                 attempt_count = 0, status = 'pending', failure_class = NULL,
                 last_error = NULL, next_retry_at = NULL,
+                op_seq = op_seq + 1,
+                owner_uid = COALESCE(owner_uid, ${sqlNullableString(ownerUid)}),
                 updated_at = ${sqlString(now)}
-            WHERE transaction_id = ${sqlString(tx.id)} AND status = 'pending';
+            WHERE id = ${sqlString(existingId)};
           ''');
         }
       } else {
         await _db.customStatement('''
           INSERT INTO ledger_sync_outbox(
             id, transaction_id, operation, payload_json,
-            attempt_count, status, created_at, updated_at
+            attempt_count, status, created_at, updated_at, op_seq, owner_uid
           ) VALUES (
             ${sqlString(IdGenerator.next())}, ${sqlString(tx.id)},
             ${sqlString(op.name)}, ${sqlString(jsonEncode(payload))},
-            0, 'pending', ${sqlString(now)}, ${sqlString(now)}
+            0, 'pending', ${sqlString(now)}, ${sqlString(now)},
+            1, ${sqlNullableString(ownerUid)}
           );
         ''');
       }
@@ -128,14 +181,14 @@ class LedgerOutboxQueue {
         WHERE id = ${sqlString(tx.id)};
       ''');
     });
-    _onQueued?.call();
+    if (_isPushEnabled()) _onQueued?.call();
   }
 
   Future<List<OutboxItem>> pendingItems({int limit = 50}) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     final rows = await _db.customSelect('''
       SELECT id, transaction_id, operation, payload_json,
-             attempt_count, last_error, next_retry_at
+             attempt_count, last_error, next_retry_at, op_seq, owner_uid
       FROM ledger_sync_outbox
       WHERE status = 'pending'
         AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
@@ -143,6 +196,10 @@ class LedgerOutboxQueue {
       LIMIT $limit;
     ''').get();
 
+    final claimedAt = DateTime.now();
+    for (final row in rows) {
+      _inFlight[row.read<String>('id')] = claimedAt;
+    }
     return rows.map((row) {
       final opStr = row.read<String>('operation');
       final op = OutboxOperation.values.firstWhere(
@@ -157,6 +214,8 @@ class LedgerOutboxQueue {
         payloadJson:
             (jsonDecode(row.read<String>('payload_json')) as Map).cast(),
         attemptCount: row.read<int>('attempt_count'),
+        opSeq: row.read<int>('op_seq'),
+        ownerUid: row.readNullable<String>('owner_uid'),
         lastError: row.readNullable<String>('last_error'),
         nextRetryAt:
             retryStr == null ? null : DateTime.tryParse(retryStr)?.toUtc(),
@@ -164,9 +223,72 @@ class LedgerOutboxQueue {
     }).toList();
   }
 
-  Future<void> markSuccess(String id) async {
-    await _db.customStatement(
-      'DELETE FROM ledger_sync_outbox WHERE id = ${sqlString(id)};',
+  /// A-2 (G3): ACK [item]. The row is deleted ONLY while its `op_seq` still
+  /// equals the one that was pushed. If the entity was edited while the push was
+  /// in flight the edit was folded into this same row (op_seq bumped): the row
+  /// stays pending, carrying the server id/version this ACK just produced as its
+  /// new base, so the next cycle is an UPDATE of the same server row — and the
+  /// caller must NOT mark the entity synced. Returns true when the row was
+  /// consumed.
+  Future<bool> acknowledge(
+    OutboxItem item, {
+    String? serverId,
+    String? serverUpdatedAt,
+    int? serverRevision,
+  }) {
+    _inFlight.remove(item.id);
+    return _db.transaction(() async {
+      final deleted = await _db.customUpdate(
+        'DELETE FROM ledger_sync_outbox '
+        'WHERE id = ${sqlString(item.id)} AND op_seq = ${item.opSeq};',
+      );
+      if (deleted > 0) return true;
+      final row = await _db
+          .customSelect(
+            'SELECT operation, payload_json FROM ledger_sync_outbox '
+            'WHERE id = ${sqlString(item.id)} LIMIT 1;',
+          )
+          .getSingleOrNull();
+      if (row == null) return false;
+      final payload =
+          (jsonDecode(row.read<String>('payload_json')) as Map).cast<String, dynamic>();
+      if (serverId != null) payload['server_id'] = serverId;
+      if (serverUpdatedAt != null) {
+        payload['server_updated_at'] = serverUpdatedAt;
+      } else {
+        payload.remove('server_updated_at');
+      }
+      if (serverRevision != null) {
+        payload['server_revision'] = serverRevision;
+      } else {
+        payload.remove('server_revision');
+      }
+      final op = row.read<String>('operation');
+      final now = dateTimeToSql(DateTime.now().toUtc());
+      await _db.customStatement('''
+        UPDATE ledger_sync_outbox
+        SET payload_json = ${sqlString(jsonEncode(payload))},
+            operation = ${sqlString(op == 'create' && serverId != null ? 'update' : op)},
+            attempt_count = 0, next_retry_at = NULL,
+            updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(item.id)};
+      ''');
+      return false;
+    });
+  }
+
+  /// ACK without a server row to persist (conflict/abandon/idempotent delete).
+  Future<bool> markSuccess(OutboxItem item) => acknowledge(item);
+
+  /// A-2 (G18): park rows recorded for another owner / unverified legacy rows,
+  /// and re-arm the ones whose owner is the current identity again. Runs at the
+  /// start of every push cycle, so nothing is ever sent under a different uid.
+  Future<void> reconcileOwnership(String currentUid) async {
+    await reconcileOutboxOwnership(
+      db: _db,
+      table: 'ledger_sync_outbox',
+      currentUid: currentUid,
+      ownershipVerified: await isOutboxOwnerVerified(_getOwnerUid, currentUid),
     );
   }
 
@@ -179,6 +301,7 @@ class LedgerOutboxQueue {
     String error,
     OutboxFailureClass failureClass,
   ) async {
+    _inFlight.remove(id);
     final row = await _db
         .customSelect(
           'SELECT attempt_count FROM ledger_sync_outbox WHERE id = ${sqlString(id)} LIMIT 1;',
@@ -240,6 +363,7 @@ class LedgerOutboxQueue {
   /// NOT marked synced, and does NOT consume a retry attempt. Only pending rows
   /// park (a dead-lettered row stays dead-lettered).
   Future<void> park(String id, String reason) async {
+    _inFlight.remove(id);
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       UPDATE ledger_sync_outbox
@@ -258,7 +382,8 @@ class LedgerOutboxQueue {
       UPDATE ledger_sync_outbox
       SET status = 'pending', failure_class = NULL, next_retry_at = NULL,
           updated_at = ${sqlString(now)}
-      WHERE status = 'parked';
+      WHERE status = 'parked'
+        AND COALESCE(failure_class, '') NOT IN $kOutboxSelfHealingParkReasonsSql;
     ''');
   }
 

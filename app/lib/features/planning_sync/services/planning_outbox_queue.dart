@@ -2,10 +2,13 @@ import 'dart:convert';
 
 import '../../../core/sync/conflict_policy.dart';
 import '../../../core/sync/outbox_failure.dart';
+import '../../../core/sync/outbox_owner.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/repositories/drift_repository_support.dart'
+    show userSettingsFromRow;
 import '../../../domain/entities/account_entity.dart';
 import '../../../domain/entities/bill_entity.dart';
 import '../../../domain/entities/card_entity.dart';
@@ -37,6 +40,8 @@ class PlanningOutboxItem {
     required this.operation,
     required this.payloadJson,
     required this.attemptCount,
+    this.opSeq = 0,
+    this.ownerUid,
     this.lastError,
     this.nextRetryAt,
   });
@@ -47,6 +52,13 @@ class PlanningOutboxItem {
   final PlanningSyncOperation operation;
   final Map<String, dynamic> payloadJson;
   final int attemptCount;
+
+  /// A-2 (G3): the row's edit counter when it was read; an ACK only consumes the
+  /// row while it still matches (an edit folded in flight keeps it pending).
+  final int opSeq;
+
+  /// A-2 (G18): the local-data owner the row was recorded for (null = legacy).
+  final String? ownerUid;
   final String? lastError;
   final DateTime? nextRetryAt;
 }
@@ -56,6 +68,10 @@ class PlanningOutboxQueue {
     required AppDatabase db,
     required bool Function(String entityType) isSyncEnabled,
     required Future<String?> Function() getAuthUserId,
+    // A-2 (G18/G5): the LOCAL DATA OWNER uid (AppSession's owner marker); rows
+    // are stamped with it and intent is recorded whenever it exists, even with
+    // no live session. Defaults to [getAuthUserId].
+    Future<String?> Function()? getOwnerUid,
     void Function()? onQueued,
     // MALI-026 (B8-2.10 §10): the money-authority mode. Legacy (v29 today)
     // emits the current JSON-number wire shape; canonical emits the exact
@@ -65,6 +81,7 @@ class PlanningOutboxQueue {
   })  : _db = db,
         _isSyncEnabled = isSyncEnabled,
         _getAuthUserId = getAuthUserId,
+        _getOwnerUid = getOwnerUid ?? getAuthUserId,
         _onQueued = onQueued,
         _coordinator = coordinator;
 
@@ -94,8 +111,27 @@ class PlanningOutboxQueue {
   final AppDatabase _db;
   final bool Function(String entityType) _isSyncEnabled;
   final Future<String?> Function() _getAuthUserId;
+  final Future<String?> Function() _getOwnerUid;
   final void Function()? _onQueued;
   final PlanningCutoverCoordinator _coordinator;
+
+  /// A-2 (G3): ids of rows handed out by [pendingItems] and not yet settled
+  /// (ACKed / failed / parked) by THIS queue instance. A create cancelled by a
+  /// delete may be on the wire right now, so for such a row the cancel is NOT a
+  /// drop: it becomes a delete (resolved by the push). An untouched row is
+  /// dropped as before. Time-bounded so an abandoned claim cannot linger.
+  final Map<String, DateTime> _inFlight = {};
+  static const Duration _inFlightTtl = Duration(minutes: 5);
+
+  bool _isInFlight(String id) {
+    final at = _inFlight[id];
+    if (at == null) return false;
+    if (DateTime.now().difference(at) > _inFlightTtl) {
+      _inFlight.remove(id);
+      return false;
+    }
+    return true;
+  }
 
   Future<bool> enqueueAccount(
     PlanningSyncOperation op,
@@ -124,9 +160,10 @@ class PlanningOutboxQueue {
     String targetLocalId,
     String operationId,
   ) async {
-    if (!_isSyncEnabled(accountsEntityType)) return false;
-    if (await _getAuthUserId() == null) return false;
+    final intent = await resolveOutboxIntent(_getOwnerUid, _getAuthUserId);
+    if (intent == null) return false;
     await _writeOutbox(
+      ownerUid: intent.ownerUid,
       entityType: accountDefaultCommandType,
       entityId: _accountDefaultCommandKey,
       opName: PlanningSyncOperation.update.name,
@@ -149,20 +186,20 @@ class PlanningOutboxQueue {
     final categoryWireId = op == PlanningSyncOperation.delete
         ? (await _categoryWireId(budget) ?? budget.categoryId)
         : await _categoryWireId(budget);
-    if (categoryWireId == null) {
-      // Fail CLOSED. The only value we could send is the per-device local id —
-      // precisely the value whose arrival on the server silently re-categorises
-      // this budget to `other` on every other device. Refusing to queue keeps
-      // the budget local and recoverable; sending it corrupts a row other
-      // devices read. A delete needs no category, so it is resolved above.
-      return false;
-    }
+    // Fail CLOSED on the wire: the only value we could send for an unresolved
+    // category is the per-device local id — precisely the value whose arrival on
+    // the server silently re-categorises this budget to `other` on every other
+    // device. So it is NEVER put in the payload. A-2 (G5): the intent is still
+    // recorded, PARKED `dependency_wait` with an empty category; the push cycle
+    // fills it in and unparks once the category resolves. A delete needs no
+    // category, so it is resolved above.
     return _enqueue(
       entityType: budgetsEntityType,
       entityId: budget.id,
       op: op,
       table: 'budgets',
       payload: _buildBudgetPayload(op, budget, categoryWireId),
+      parkReason: categoryWireId == null ? kParkDependencyWait : null,
     );
   }
 
@@ -287,8 +324,8 @@ class PlanningOutboxQueue {
     required String transactionId,
     required DateTime createdAt,
   }) async {
-    if (!_isSyncEnabled(planLinksEntityType)) return false;
-    if (await _getAuthUserId() == null) return false;
+    final intent = await resolveOutboxIntent(_getOwnerUid, _getAuthUserId);
+    if (intent == null) return false;
     final entityId = '$planId:$transactionId';
     final payload = _withDelete(op, {
       'local_plan_id': planId,
@@ -296,6 +333,7 @@ class PlanningOutboxQueue {
       'created_at': createdAt.toUtc().toIso8601String(),
     });
     await _writeOutbox(
+      ownerUid: intent.ownerUid,
       entityType: planLinksEntityType,
       entityId: entityId,
       opName: op.name,
@@ -314,15 +352,47 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     CardEntity card,
   ) {
-    if (!kUserCardsCloudV2 && card.accountId == null) {
-      return Future.value(false);
+    final accountless = !kUserCardsCloudV2 && card.accountId == null;
+    if (accountless && op == PlanningSyncOperation.delete) {
+      return _enqueueAccountlessCardDelete(card);
     }
+    // A-2 (G5): an accountless card cannot reach the server yet, but its intent
+    // is recorded, parked `dependency_wait` until an account exists.
     return _enqueue(
       entityType: cardsEntityType,
       entityId: card.id,
       op: op,
       table: 'cards',
       payload: _buildCardPayload(op, card),
+      parkReason: accountless ? kParkDependencyWait : null,
+    );
+  }
+
+  /// Deleting an accountless card: if it never reached the server there is
+  /// nothing remote to delete, so any row parked waiting for its account is
+  /// dropped (a parked row is never in flight). If it DID sync earlier the
+  /// tombstone is a normal delete.
+  Future<bool> _enqueueAccountlessCardDelete(CardEntity card) async {
+    final row = await _db
+        .customSelect(
+          'SELECT server_id FROM cards WHERE id = ${sqlString(card.id)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    if (row?.readNullable<String>('server_id') == null) {
+      await _db.customStatement(
+        'DELETE FROM planning_sync_outbox '
+        'WHERE entity_type = ${sqlString(cardsEntityType)} '
+        'AND entity_id = ${sqlString(card.id)} '
+        "AND status = 'parked' AND failure_class = '$kParkDependencyWait';",
+      );
+      return false;
+    }
+    return _enqueue(
+      entityType: cardsEntityType,
+      entityId: card.id,
+      op: PlanningSyncOperation.delete,
+      table: 'cards',
+      payload: _buildCardPayload(PlanningSyncOperation.delete, card),
     );
   }
 
@@ -358,8 +428,21 @@ class PlanningOutboxQueue {
           .customSelect('SELECT server_id FROM user_settings LIMIT 1;')
           .getSingleOrNull();
       if (bound?.readNullable<String>('server_id') == null) {
-        // Automatic writers must still not upload freshly reseeded defaults.
-        if (!consentChanged) return false;
+        if (!consentChanged) {
+          // Automatic writers must still not upload freshly reseeded defaults.
+          // A-2 (G5): the intent is NOT dropped — it is parked `dependency_wait`
+          // and unparked once the singleton is bound; at that point the payload
+          // is rebuilt from the then-current local row (never from this stale
+          // pre-bind snapshot) and carries no consent columns.
+          return _enqueue(
+            entityType: settingsEntityType,
+            entityId: settings.id,
+            op: effectiveOp,
+            table: 'user_settings',
+            payload: _buildSettingsPayload(settings),
+            parkReason: kParkDependencyWait,
+          );
+        }
         effectiveOp = PlanningSyncOperation.create;
         consentOnly = true;
       }
@@ -427,10 +510,12 @@ class PlanningOutboxQueue {
     required PlanningSyncOperation op,
     required String table,
     required Map<String, dynamic> payload,
+    String? parkReason,
   }) async {
-    if (!_isSyncEnabled(entityType)) return false;
-    final userId = await _getAuthUserId();
-    if (userId == null) return false;
+    // A-2 (G5): record intent whenever a local owner identity exists (even with
+    // no live session / sync flag off). Only a true guest stays local-only.
+    final intent = await resolveOutboxIntent(_getOwnerUid, _getAuthUserId);
+    if (intent == null) return false;
 
     // MALI-022: snapshot the last-known server version as an optimistic base
     // token, so the push can detect a concurrent remote edit and conflict
@@ -461,12 +546,19 @@ class PlanningOutboxQueue {
     };
 
     await _writeOutbox(
+      ownerUid: intent.ownerUid,
       entityType: entityType,
       entityId: entityId,
       opName: op.name,
       payload: enriched,
-      localUpdateSql:
-          "UPDATE $table SET sync_status = 'pending' WHERE id = ${sqlString(entityId)};",
+      // A settings row parked for its bind must NOT flip to 'pending': the pull
+      // treats a pending settings row as a conflict and would refuse to merge
+      // the remote state that binds it.
+      localUpdateSql: entityType == settingsEntityType &&
+              parkReason == kParkDependencyWait
+          ? 'UPDATE $table SET id = id WHERE 1 = 0;'
+          : "UPDATE $table SET sync_status = 'pending' WHERE id = ${sqlString(entityId)};",
+      parkReason: parkReason,
     );
     return true;
   }
@@ -476,57 +568,79 @@ class PlanningOutboxQueue {
   /// entity_id) so consecutive offline edits become one row (one base token,
   /// no self-conflict), then marks the local row pending.
   Future<void> _writeOutbox({
+    required String? ownerUid,
     required String entityType,
     required String entityId,
     required String opName,
     required Map<String, dynamic> payload,
     required String localUpdateSql,
+    String? parkReason,
   }) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.transaction(() async {
+      // Coalesce into a PENDING row, or one parked by the A-2 self-healing layer
+      // (never in flight). Every coalesce bumps op_seq (A-2 G3).
       final existing = await _db.customSelect(
-        'SELECT operation FROM planning_sync_outbox '
+        'SELECT id, operation, status FROM planning_sync_outbox '
         'WHERE entity_type = ${sqlString(entityType)} '
         'AND entity_id = ${sqlString(entityId)} '
-        "AND status = 'pending' ORDER BY created_at ASC LIMIT 1;",
+        'AND $kOutboxCoalescibleSql ORDER BY created_at ASC LIMIT 1;',
       ).getSingleOrNull();
+      String rowId;
       if (existing != null) {
+        rowId = existing.read<String>('id');
         final coalesced =
             coalesceOutboxOperation(existing.read<String>('operation'), opName);
-        final scope = 'entity_type = ${sqlString(entityType)} '
-            'AND entity_id = ${sqlString(entityId)} '
-            "AND status = 'pending'";
-        if (coalesced == null) {
+        if (coalesced == null &&
+            (existing.read<String>('status') == 'parked' ||
+                !_isInFlight(rowId))) {
+          // Never on the wire (parked, or not handed to a push): create+delete
+          // truly cancels.
           await _db.customStatement(
-            'DELETE FROM planning_sync_outbox WHERE $scope;',
+            'DELETE FROM planning_sync_outbox WHERE id = ${sqlString(rowId)};',
           );
-        } else {
-          await _db.customStatement('''
-            UPDATE planning_sync_outbox
-            SET operation = ${sqlString(coalesced)},
-                payload_json = ${sqlString(jsonEncode(payload))},
-                attempt_count = 0, status = 'pending', failure_class = NULL,
-                last_error = NULL, next_retry_at = NULL,
-                updated_at = ${sqlString(now)}
-            WHERE $scope;
-          ''');
+          await _db.customStatement(localUpdateSql);
+          return;
         }
+        // A-2 (G3): a create cancelled by a delete while IN FLIGHT is never
+        // dropped — it becomes a delete, resolved by the push (confirmed-absent
+        // is ACKed, a row that landed is tombstoned).
+        await _db.customStatement('''
+          UPDATE planning_sync_outbox
+          SET operation = ${sqlString(coalesced ?? 'delete')},
+              payload_json = ${sqlString(jsonEncode(payload))},
+              attempt_count = 0, status = 'pending', failure_class = NULL,
+              last_error = NULL, next_retry_at = NULL,
+              op_seq = op_seq + 1,
+              owner_uid = COALESCE(owner_uid, ${sqlNullableString(ownerUid)}),
+              updated_at = ${sqlString(now)}
+          WHERE id = ${sqlString(rowId)};
+        ''');
       } else {
+        rowId = IdGenerator.next();
         await _db.customStatement('''
           INSERT INTO planning_sync_outbox(
             id, entity_type, entity_id, operation, payload_json,
-            attempt_count, status, created_at, updated_at
+            attempt_count, status, created_at, updated_at, op_seq, owner_uid
           ) VALUES (
-            ${sqlString(IdGenerator.next())}, ${sqlString(entityType)},
+            ${sqlString(rowId)}, ${sqlString(entityType)},
             ${sqlString(entityId)}, ${sqlString(opName)},
             ${sqlString(jsonEncode(payload))}, 0, 'pending',
-            ${sqlString(now)}, ${sqlString(now)}
+            ${sqlString(now)}, ${sqlString(now)},
+            1, ${sqlNullableString(ownerUid)}
           );
+        ''');
+      }
+      if (parkReason != null) {
+        await _db.customStatement('''
+          UPDATE planning_sync_outbox
+          SET status = 'parked', failure_class = ${sqlString(parkReason)}
+          WHERE id = ${sqlString(rowId)};
         ''');
       }
       await _db.customStatement(localUpdateSql);
     });
-    _onQueued?.call();
+    if (parkReason == null && _isSyncEnabled(entityType)) _onQueued?.call();
   }
 
   Future<List<PlanningOutboxItem>> pendingItems({
@@ -538,7 +652,7 @@ class PlanningOutboxQueue {
         entityType == null ? '' : 'AND entity_type = ${sqlString(entityType)}';
     final rows = await _db.customSelect('''
       SELECT id, entity_type, entity_id, operation, payload_json,
-             attempt_count, last_error, next_retry_at
+             attempt_count, last_error, next_retry_at, op_seq, owner_uid
       FROM planning_sync_outbox
       WHERE status = 'pending'
         AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
@@ -547,6 +661,10 @@ class PlanningOutboxQueue {
       LIMIT $limit;
     ''').get();
 
+    final claimedAt = DateTime.now();
+    for (final row in rows) {
+      _inFlight[row.read<String>('id')] = claimedAt;
+    }
     return rows.map((row) {
       final opStr = row.read<String>('operation');
       final op = PlanningSyncOperation.values.firstWhere(
@@ -562,6 +680,8 @@ class PlanningOutboxQueue {
         payloadJson:
             (jsonDecode(row.read<String>('payload_json')) as Map).cast(),
         attemptCount: row.read<int>('attempt_count'),
+        opSeq: row.read<int>('op_seq'),
+        ownerUid: row.readNullable<String>('owner_uid'),
         lastError: row.readNullable<String>('last_error'),
         nextRetryAt:
             retryStr == null ? null : DateTime.tryParse(retryStr)?.toUtc(),
@@ -569,10 +689,159 @@ class PlanningOutboxQueue {
     }).toList();
   }
 
-  Future<void> markSuccess(String id) async {
-    await _db.customStatement(
-      'DELETE FROM planning_sync_outbox WHERE id = ${sqlString(id)};',
+  /// A-2 (G3): ACK [item]. The row is deleted ONLY while its `op_seq` still
+  /// equals the pushed one. If the entity was edited while the push was in
+  /// flight the edit was folded into this same row: it stays pending, carrying
+  /// the version this ACK produced as its new base token (the entity row already
+  /// holds the server id), and the caller must NOT mark the entity synced.
+  /// Returns true when the row was consumed.
+  Future<bool> acknowledge(
+    PlanningOutboxItem item, {
+    String? serverUpdatedAt,
+    int? serverRevision,
+  }) {
+    _inFlight.remove(item.id);
+    return _db.transaction(() async {
+      final deleted = await _db.customUpdate(
+        'DELETE FROM planning_sync_outbox '
+        'WHERE id = ${sqlString(item.id)} AND op_seq = ${item.opSeq};',
+      );
+      if (deleted > 0) return true;
+      final row = await _db
+          .customSelect(
+            'SELECT payload_json FROM planning_sync_outbox '
+            'WHERE id = ${sqlString(item.id)} LIMIT 1;',
+          )
+          .getSingleOrNull();
+      if (row == null) return false;
+      final payload = (jsonDecode(row.read<String>('payload_json')) as Map)
+          .cast<String, dynamic>();
+      if (serverUpdatedAt != null) {
+        payload['server_updated_at'] = serverUpdatedAt;
+      } else {
+        payload.remove('server_updated_at');
+      }
+      if (serverRevision != null) {
+        payload['server_revision'] = serverRevision;
+      } else {
+        payload.remove('server_revision');
+      }
+      final now = dateTimeToSql(DateTime.now().toUtc());
+      await _db.customStatement('''
+        UPDATE planning_sync_outbox
+        SET payload_json = ${sqlString(jsonEncode(payload))},
+            attempt_count = 0, next_retry_at = NULL,
+            updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(item.id)};
+      ''');
+      return false;
+    });
+  }
+
+  /// ACK without a server version to carry (conflict/abandon/idempotent delete).
+  Future<bool> markSuccess(PlanningOutboxItem item) => acknowledge(item);
+
+  /// A-2 (G18): park rows recorded for another owner / unverified legacy rows,
+  /// and re-arm the ones whose owner is the current identity again. Runs at the
+  /// start of every push cycle, so nothing is ever sent under a different uid.
+  Future<void> reconcileOwnership(String currentUid) async {
+    await reconcileOutboxOwnership(
+      db: _db,
+      table: 'planning_sync_outbox',
+      currentUid: currentUid,
+      ownershipVerified: await isOutboxOwnerVerified(_getOwnerUid, currentUid),
     );
+  }
+
+  /// A-2 (G5): re-evaluate rows parked `dependency_wait` and unpark the ones
+  /// whose dependency now resolves — settings once the singleton is bound
+  /// (payload rebuilt from the current local row, without consent columns),
+  /// budgets once their category resolves, cards once they have an account.
+  /// Runs at the start of every push cycle. Returns the number unparked.
+  Future<int> resolveDependencies() async {
+    final parked = await _db.customSelect('''
+      SELECT id, entity_type, entity_id, payload_json FROM planning_sync_outbox
+      WHERE status = 'parked' AND failure_class = '$kParkDependencyWait';
+    ''').get();
+    var unparked = 0;
+    for (final row in parked) {
+      final id = row.read<String>('id');
+      final entityId = row.read<String>('entity_id');
+      final payload = (jsonDecode(row.read<String>('payload_json')) as Map)
+          .cast<String, dynamic>();
+      final patched = switch (row.read<String>('entity_type')) {
+        settingsEntityType => await _resolveSettingsDependency(entityId),
+        budgetsEntityType => await _resolveBudgetDependency(entityId, payload),
+        cardsEntityType => await _resolveCardDependency(entityId, payload),
+        _ => null,
+      };
+      if (patched == null) continue;
+      final now = dateTimeToSql(DateTime.now().toUtc());
+      await _db.customStatement('''
+        UPDATE planning_sync_outbox
+        SET payload_json = ${sqlString(jsonEncode(patched))},
+            status = 'pending', failure_class = NULL, attempt_count = 0,
+            next_retry_at = NULL, updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(id)} AND status = 'parked'
+          AND failure_class = '$kParkDependencyWait';
+      ''');
+      unparked++;
+    }
+    if (unparked > 0) _onQueued?.call();
+    return unparked;
+  }
+
+  Future<Map<String, dynamic>?> _resolveSettingsDependency(
+      String entityId) async {
+    final row = await _db
+        .customSelect(
+          'SELECT * FROM user_settings WHERE id = ${sqlString(entityId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    if (row == null || row.readNullable<String>('server_id') == null) {
+      return null;
+    }
+    final payload = _buildSettingsPayload(userSettingsFromRow(row))
+      // Consent is device-local authority and travels only through the explicit
+      // consent paths — a deferred automatic write must never carry it.
+      ..remove('ai_consent_granted')
+      ..remove('cloud_processing_enabled');
+    final updatedAt = row.readNullable<String>('server_updated_at');
+    final revision = row.readNullable<int>('server_revision');
+    if (updatedAt != null) payload['server_updated_at'] = updatedAt;
+    if (revision != null) payload['server_revision'] = revision;
+    return payload;
+  }
+
+  Future<Map<String, dynamic>?> _resolveBudgetDependency(
+      String entityId, Map<String, dynamic> payload) async {
+    final budget = await _db
+        .customSelect(
+          'SELECT category_id FROM budgets WHERE id = ${sqlString(entityId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    final categoryId = budget?.readNullable<String>('category_id');
+    if (categoryId == null) return null;
+    final cat = await _db
+        .customSelect(
+          'SELECT key FROM categories WHERE id = ${sqlString(categoryId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    final key = cat?.readNullable<String>('key');
+    if (key == null) return null;
+    return {...payload, 'category_id': key};
+  }
+
+  Future<Map<String, dynamic>?> _resolveCardDependency(
+      String entityId, Map<String, dynamic> payload) async {
+    final card = await _db
+        .customSelect(
+          'SELECT account_id FROM cards WHERE id = ${sqlString(entityId)} LIMIT 1;',
+        )
+        .getSingleOrNull();
+    final accountId = card?.readNullable<String>('account_id');
+    if (accountId == null) return null;
+    return {...payload, 'local_account_id': accountId};
   }
 
   /// MALI-023: typed failure handling — permanent → dead-letter immediately;
@@ -582,6 +851,7 @@ class PlanningOutboxQueue {
     String error,
     OutboxFailureClass failureClass,
   ) async {
+    _inFlight.remove(id);
     final row = await _db
         .customSelect(
           'SELECT attempt_count FROM planning_sync_outbox WHERE id = ${sqlString(id)} LIMIT 1;',
@@ -639,6 +909,7 @@ class PlanningOutboxQueue {
   /// transport is unverified. Parked rows are excluded from [pendingItems],
   /// retained durably, and consume no retry attempt.
   Future<void> park(String id, String reason) async {
+    _inFlight.remove(id);
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       UPDATE planning_sync_outbox
@@ -656,7 +927,8 @@ class PlanningOutboxQueue {
       UPDATE planning_sync_outbox
       SET status = 'pending', failure_class = NULL, next_retry_at = NULL,
           updated_at = ${sqlString(now)}
-      WHERE status = 'parked';
+      WHERE status = 'parked'
+        AND COALESCE(failure_class, '') NOT IN $kOutboxSelfHealingParkReasonsSql;
     ''');
   }
 
@@ -782,7 +1054,7 @@ class PlanningOutboxQueue {
   Map<String, dynamic> _buildBudgetPayload(
     PlanningSyncOperation op,
     BudgetEntity budget,
-    String categoryWireId,
+    String? categoryWireId,
   ) {
     // MALI-026 (B8-3 §7): canonical planning push is exact — money → decimal
     // STRING (moneyToNumericText) + the row's own currency (server column 0077).

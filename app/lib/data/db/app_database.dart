@@ -2121,7 +2121,9 @@ class AppDatabase extends GeneratedDatabase {
         updated_at TEXT NOT NULL,
         next_retry_at TEXT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
-        failure_class TEXT NULL
+        failure_class TEXT NULL,
+        op_seq INTEGER NOT NULL DEFAULT 0,
+        owner_uid TEXT NULL
       );
     ''');
     await customStatement(
@@ -2174,6 +2176,13 @@ class AppDatabase extends GeneratedDatabase {
     for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
       await _ensureColumn(table, 'status', "TEXT NOT NULL DEFAULT 'pending'");
       await _ensureColumn(table, 'failure_class', 'TEXT NULL');
+      // A-2 (G3): monotonic per-row edit counter. Every insert/coalesce bumps it,
+      // so an ACK can tell "the row I pushed" from "the row edited while in
+      // flight". A-2 (G18): the local-data owner uid the row was recorded for;
+      // NULL = legacy row, stamped lazily at push time only when ownership is
+      // verified.
+      await _ensureColumn(table, 'op_seq', 'INTEGER NOT NULL DEFAULT 0');
+      await _ensureColumn(table, 'owner_uid', 'TEXT NULL');
     }
     // MALI-024 / 0070 — durable local engagement-event outbox. The client
     // records typed events; the server (record_engagement_event RPC) decides the
@@ -2312,7 +2321,9 @@ class AppDatabase extends GeneratedDatabase {
         updated_at TEXT NOT NULL,
         next_retry_at TEXT NULL,
         status TEXT NOT NULL DEFAULT 'pending',
-        failure_class TEXT NULL
+        failure_class TEXT NULL,
+        op_seq INTEGER NOT NULL DEFAULT 0,
+        owner_uid TEXT NULL
       );
     ''');
     await customStatement(

@@ -4,6 +4,7 @@
 // budget AND goal coverage (no goal-equivalence). No float equality.
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/sync/sync_health.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
@@ -127,6 +128,9 @@ PlanningServerCurrencyRepairService _repair(
       pull: pull,
       remote: remote,
       getAuthUserId: () async => 'user-1',
+        // A-2: the repair is an egress; these cover repair MECHANICS with
+        // consent granted (the consent gate has its own test).
+        mayEgress: () async => true,
     );
 
 Future<int> _n(AppDatabase db, String sql) async =>
@@ -287,4 +291,116 @@ void main() {
     await repair.resolve(entityType: 'goal', serverId: 'g1', currency: 'KWD');
     expect((await repair.unresolvedCounts()).total, 0);
   });
+
+  // A-2 — the repair is an egress (it writes to and reads from the server), so
+  // it is consent-gated like every sync path: fresh per call, fail-closed.
+  group('consent gate (A-2)', () {
+    Future<(AppDatabase, _TripRepairRemote)> seeded() async {
+      final db = await _openDb();
+      addTearDown(db.close);
+      await _pull(db, _PageRemote({'user_goals': [_goalRow('g1', null)]})).pull();
+      return (db, _TripRepairRemote());
+    }
+
+    test('consent OFF: ZERO remote calls, quarantine untouched, health records '
+        'consentBlocked', () async {
+      final (db, remote) = await seeded();
+      final health = SyncHealth();
+      final repair = PlanningServerCurrencyRepairService(
+        db: db,
+        pull: _pull(db, _PageRemote({})),
+        remote: remote,
+        getAuthUserId: () async => 'user-1',
+        mayEgress: () async => false,
+        health: health,
+      );
+      final outcome =
+          await repair.resolve(entityType: 'goal', serverId: 'g1', currency: 'KWD');
+      expect(outcome, PlanningRepairOutcome.consentBlocked);
+      expect(remote.calls, 0);
+      expect(await _n(db, "SELECT COUNT(*) n FROM parked_child_rows WHERE server_id='g1'"), 1);
+      expect(health.of(SyncDomain.planning).lastErrorClass,
+          SyncErrorClass.consentBlocked);
+      expect(health.of(SyncDomain.planning).consecutiveFailures, 0,
+          reason: 'consent-off is a STATE, not a failure');
+    });
+
+    test('omitting the gate fails CLOSED', () async {
+      final (db, remote) = await seeded();
+      final repair = PlanningServerCurrencyRepairService(
+        db: db,
+        pull: _pull(db, _PageRemote({})),
+        remote: remote,
+        getAuthUserId: () async => 'user-1',
+      );
+      expect(
+          await repair.resolve(entityType: 'goal', serverId: 'g1', currency: 'KWD'),
+          PlanningRepairOutcome.consentBlocked);
+      expect(remote.calls, 0);
+    });
+
+    test('a THROWING consent read fails closed', () async {
+      final (db, remote) = await seeded();
+      final repair = PlanningServerCurrencyRepairService(
+        db: db,
+        pull: _pull(db, _PageRemote({})),
+        remote: remote,
+        getAuthUserId: () async => 'user-1',
+        mayEgress: () async => throw StateError('settings unreadable'),
+      );
+      expect(
+          await repair.resolve(entityType: 'goal', serverId: 'g1', currency: 'KWD'),
+          PlanningRepairOutcome.consentBlocked);
+      expect(remote.calls, 0);
+    });
+
+    test('consent is read FRESH on every call (revocation observed at once)',
+        () async {
+      final (db, remote) = await seeded();
+      var consent = true;
+      var reads = 0;
+      final repair = PlanningServerCurrencyRepairService(
+        db: db,
+        pull: _pull(db, _PageRemote({})),
+        remote: remote,
+        getAuthUserId: () async => 'user-1',
+        mayEgress: () async {
+          reads++;
+          return consent;
+        },
+      );
+      await repair.resolve(entityType: 'goal', serverId: 'g1', currency: 'KWD');
+      expect(remote.calls, greaterThan(0));
+      final before = remote.calls;
+      consent = false;
+      await repair.resolve(entityType: 'goal', serverId: 'g1', currency: 'KWD');
+      expect(remote.calls, before, reason: 'no call after revocation');
+      expect(reads, 2);
+    });
+  });
+}
+
+class _TripRepairRemote implements PlanningRepairRemote {
+  int calls = 0;
+
+  @override
+  Future<Map<String, dynamic>?> resolveCurrencyIfNull({
+    required String table,
+    required String serverId,
+    required String userId,
+    required String currency,
+  }) async {
+    calls++;
+    return null;
+  }
+
+  @override
+  Future<Map<String, dynamic>?> refetchRow({
+    required String table,
+    required String serverId,
+    required String userId,
+  }) async {
+    calls++;
+    return null;
+  }
 }

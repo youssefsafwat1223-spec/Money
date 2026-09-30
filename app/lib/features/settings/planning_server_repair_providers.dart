@@ -5,6 +5,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../core/privacy/consent_authority.dart';
+import '../../core/sync/sync_health.dart';
+import '../../data/repositories/drift_user_settings_repository.dart';
 import '../../core/session/app_session.dart';
 import '../../features/planning_sync/services/planning_server_currency_repair.dart';
 import '../../features/planning_sync/services/planning_unresolved_currency.dart';
@@ -19,6 +22,12 @@ final planningServerCurrencyRepairServiceProvider =
     pull: ref.watch(planningPullServiceProvider),
     remote: const SupabasePlanningRepairRemote(),
     getAuthUserId: () => AppSession.instance.readLocalDataOwnerUid(),
+    // A-2 — the repair is an egress: financial-sync consent, read fresh per call.
+    mayEgress: () => ConsentAuthority(
+          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+              .getSettings(),
+        ).allows(EgressClass.financialSync),
+    health: ref.watch(syncHealthProvider),
   );
 });
 

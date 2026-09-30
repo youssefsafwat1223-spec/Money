@@ -109,6 +109,9 @@ void main() {
         pull: _pull(db2, _GoalPageRemote(const [])),
         remote: _FakeRepairRemote({'g1': _goalRow('g1', null)}),
         getAuthUserId: () async => 'user-1',
+        // A-2: the repair is an egress; these cover repair MECHANICS with
+        // consent granted (the consent gate has its own test).
+        mayEgress: () async => true,
       );
       final items = await repair.items();
       expect(items.single.serverId, 'g1');

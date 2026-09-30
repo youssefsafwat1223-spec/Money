@@ -28,6 +28,7 @@ class _FakeServer implements SenderMappingRemoteStore {
   int? failFetchOnCall; // throw on the Nth fetch (1-based)
   int _fetchCalls = 0;
   Object? failUpsertWith; // throw this on upsert
+  Future<void> Function()? onUpsert; // runs while the push is "on the wire"
 
   // Normalised (millisecond) ISO so it round-trips through the cursor exactly.
   String _now() => DateTime.utc(2026, 1, 1, 0, 0, ++_tick).toIso8601String();
@@ -97,6 +98,7 @@ class _FakeServer implements SenderMappingRemoteStore {
   Future<List<Map<String, dynamic>>> upsert(
       List<Map<String, dynamic>> incoming) async {
     upsertCalls++;
+    await onUpsert?.call();
     if (failUpsertWith != null) throw failUpsertWith!;
     final out = <Map<String, dynamic>>[];
     for (final r in incoming) {
@@ -168,6 +170,40 @@ void main() {
               'SELECT COUNT(*) AS n FROM sender_bank_mappings WHERE $where;')
           .getSingle())
       .read<int>('n');
+
+  group('A-2 (G3) in-flight edit', () {
+    test('a mapping edited while its push is on the wire stays pending',
+        () async {
+      await seedLocal('snd');
+      await seedLocal('untouched');
+      server.onUpsert = () async {
+        // Every local edit bumps updated_at and re-flags the row pending.
+        await db.customStatement('''
+          UPDATE sender_bank_mappings
+          SET bank_key = 'edited', updated_at = '2026-01-02T00:00:00Z',
+              sync_status = 'pending'
+          WHERE normalized_sender_id = 'snd';
+        ''');
+      };
+      final (pushed, failed) = await service().push();
+      expect(failed, 0);
+      expect(pushed, 2);
+      final edited = await db
+          .customSelect("SELECT sync_status, bank_key FROM sender_bank_mappings "
+              "WHERE normalized_sender_id = 'snd';")
+          .getSingle();
+      expect(edited.read<String>('sync_status'), 'pending',
+          reason: 'the newer edit must be pushed next cycle, not marked synced');
+      expect(edited.read<String>('bank_key'), 'edited');
+      // The untouched mapping still settles normally.
+      expect(await localCount("sync_status = 'synced'"), 1);
+
+      server.onUpsert = null;
+      await service().push();
+      expect(await localCount("sync_status = 'synced'"), 2);
+      expect(server.rows['snd']!['bank_key'], 'edited');
+    });
+  });
 
   group('MALI-029 push batching', () {
     test('N pending mappings push in ONE upsert (not one per row)', () async {
