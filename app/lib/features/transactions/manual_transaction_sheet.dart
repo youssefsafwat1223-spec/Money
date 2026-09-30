@@ -45,12 +45,13 @@ class ManualTransactionSheet extends ConsumerStatefulWidget {
   /// لما تُفتح من صفحة بطاقة معيّنة: العملية الجديدة تُنسب لهذه البطاقة.
   final String? initialCardLast4;
 
-  static Future<void> show(
+  /// Completes with true only when a transaction was saved from the sheet.
+  static Future<bool> show(
     BuildContext context, {
     TransactionEntity? transaction,
     String? cardLast4,
-  }) {
-    return showModalBottomSheet<void>(
+  }) async {
+    final saved = await showModalBottomSheet<bool>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -60,6 +61,7 @@ class ManualTransactionSheet extends ConsumerStatefulWidget {
         initialCardLast4: cardLast4,
       )),
     );
+    return saved ?? false;
   }
 
   @override
@@ -209,7 +211,7 @@ class _ManualTransactionSheetState
         lang: LocalNotificationService.instance.notificationLanguage,
       );
       if (!mounted) return;
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(true);
     } on RepoException catch (e) {
       if (mounted) _snack(repoErrorMessage(context, e));
     } catch (_) {

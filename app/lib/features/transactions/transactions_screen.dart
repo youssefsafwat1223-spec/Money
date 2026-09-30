@@ -7,6 +7,9 @@ import '../../core/utils/async_reload_safe.dart';
 import 'package:flutter/services.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../core/privacy/consent_authority.dart';
+import '../consent/smart_analysis_consent_sheet.dart';
+import '../settings/settings_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -1997,20 +2000,28 @@ class _SmartInboxSheet extends ConsumerWidget {
               ),
             );
           }
-          return _SmartInboxCard(item: items[index - 1]);
+          return SmartInboxCard(item: items[index - 1]);
         },
       ),
     );
   }
 }
 
-class _SmartInboxCard extends ConsumerWidget {
-  const _SmartInboxCard({required this.item});
+class SmartInboxCard extends ConsumerWidget {
+  const SmartInboxCard({super.key, required this.item});
   final SmartInboxItemEntity item;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
+    // Unprocessable captures are saved by DriftSmartInboxRepository
+    // .saveUnprocessableCapture with the deterministic `local_capture:` id and
+    // no transaction.
+    final isUnprocessable =
+        item.id.startsWith('local_capture:') && item.transactionId == null;
+    final settings = ref.watch(userSettingsProvider).valueOrNull;
+    final smartAnalysisOn = settings != null &&
+        ConsentAuthority.decide(EgressClass.aiProcessing, settings);
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -2025,6 +2036,28 @@ class _SmartInboxCard extends ConsumerWidget {
           if (item.body?.isNotEmpty == true) ...[
             const SizedBox(height: 5),
             Text(item.body!, style: AppTypography.caption(c.textMuted)),
+          ],
+          if (isUnprocessable) ...[
+            const SizedBox(height: 10),
+            Wrap(
+              spacing: 8,
+              children: [
+                TextButton(
+                  onPressed: () async {
+                    final saved = await ManualTransactionSheet.show(context);
+                    if (!saved) return;
+                    await ref.read(smartInboxRepositoryProvider).resolve(item.id);
+                    ref.invalidate(smartInboxItemsProvider);
+                  },
+                  child: Text(context.l10n.cesManualEntry),
+                ),
+                if (settings != null && !smartAnalysisOn)
+                  TextButton(
+                    onPressed: () => showSmartAnalysisConsentSheet(context, ref),
+                    child: Text(context.l10n.smartConsentEnable),
+                  ),
+              ],
+            ),
           ],
           const SizedBox(height: 10),
           Row(

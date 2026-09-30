@@ -43,6 +43,10 @@ import '../bank_discovery/bank_discovery_confirmation_sheet.dart';
 import '../budgets/budgets_providers.dart';
 import '../budgets/budgets_screen.dart';
 import '../capture/capture_runtime.dart';
+import '../consent/smart_analysis_consent_sheet.dart';
+import '../transactions/manual_transaction_sheet.dart';
+import '../../core/privacy/consent_authority.dart';
+import 'capture_notification_actions.dart';
 import '../capture/services/capture_notification_content.dart';
 import '../capture/services/capture_sync_service.dart';
 import '../capture/services/captured_message_processor.dart';
@@ -1413,6 +1417,12 @@ class _AppShellState extends ConsumerState<AppShell> {
       _refreshAll();
       if (!mounted) return;
       final route = routes.last;
+      final action = route.action;
+      if (action == kActionAddManually ||
+          action == kActionEnableSmartAnalysis) {
+        await _handleCaptureNotificationAction(route, action!);
+        return;
+      }
       final target = await _routeForCaptureNotification(route, syncResult);
       _handleNotificationRoute(target);
     } finally {
@@ -1446,33 +1456,50 @@ class _AppShellState extends ConsumerState<AppShell> {
     CaptureSyncResult? syncResult,
   ) async {
     final type = route.notificationType;
-    if (type == 'needs_review' || type == 'suspicious_duplicate') {
-      return '/smart-inbox';
-    }
-    final direct = route.transactionId;
-    if (direct != null &&
-        direct.isNotEmpty &&
-        !direct.startsWith('rejected:')) {
-      return '/transaction/$direct';
-    }
+    String? payloadTransactionId;
     final payloadId = route.payloadId ?? route.smartInboxItemId;
-    if (payloadId != null && payloadId.isNotEmpty) {
-      if (syncResult?.importedPayloadIds.contains(payloadId) ?? false) {
-        final txId = await ref
-            .read(captureSyncServiceProvider)
-            .transactionIdForPayload(payloadId);
-        if (txId != null && !txId.startsWith('rejected:')) {
-          return '/transaction/$txId';
-        }
-      }
-      final txId = await ref
+    if (type != 'needs_review' &&
+        type != 'suspicious_duplicate' &&
+        payloadId != null &&
+        payloadId.isNotEmpty) {
+      payloadTransactionId = await ref
           .read(captureSyncServiceProvider)
           .transactionIdForPayload(payloadId);
-      if (txId != null && !txId.startsWith('rejected:')) {
-        return '/transaction/$txId';
-      }
     }
-    return '/smart-inbox';
+    return captureRouteFor(
+      type: type,
+      transactionId: route.transactionId,
+      payloadTransactionId: payloadTransactionId,
+    );
+  }
+
+  Future<void> _handleCaptureNotificationAction(
+    CaptureNotificationRoute route,
+    String action,
+  ) async {
+    final payloadId = route.payloadId ?? route.smartInboxItemId;
+    final marker = payloadId == null || payloadId.isEmpty
+        ? route.transactionId
+        : await ref
+            .read(captureSyncServiceProvider)
+            .transactionIdForPayload(payloadId);
+    if (!mounted) return;
+    await handleCaptureNotificationAction(
+      action: action,
+      smartInboxMarker: marker,
+      showSmartInbox: () => _handleNotificationRoute('/smart-inbox'),
+      openManualSheet: () => ManualTransactionSheet.show(context),
+      resolveItem: (itemId) async {
+        await ref.read(smartInboxRepositoryProvider).resolve(itemId);
+        ref.invalidate(smartInboxItemsProvider);
+      },
+      isSmartAnalysisGranted: () async => ConsentAuthority.decide(
+        EgressClass.aiProcessing,
+        await ref.read(userSettingsRepositoryProvider).getSettings(),
+      ),
+      openConsentSheet: () => showSmartAnalysisConsentSheet(context, ref),
+      openPrivacy: () => context.push('/privacy'),
+    );
   }
 
   Future<void> _openBankDiscoverySheet(SenderBankMappingEntity mapping) async {

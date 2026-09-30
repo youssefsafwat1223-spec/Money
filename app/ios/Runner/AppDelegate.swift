@@ -496,7 +496,11 @@ enum ApnsEnvironment {
     let userInfo = response.notification.request.content.userInfo
     if userInfo["source"] as? String == "ios_shortcut" ||
       userInfo["payloadId"] as? String != nil {
-      SharedCaptureStore.enqueueNotificationRoute(userInfo: userInfo)
+      let actionId = response.actionIdentifier
+      SharedCaptureStore.enqueueNotificationRoute(
+        userInfo: userInfo,
+        action: QirshNotificationCategories.actionIds.contains(actionId) ? actionId : nil
+      )
       captureChannel?.invokeMethod("pendingNotificationRouteAvailable", arguments: nil)
       completionHandler()
       return

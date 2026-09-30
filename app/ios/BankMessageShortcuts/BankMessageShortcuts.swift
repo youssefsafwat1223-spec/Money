@@ -136,7 +136,10 @@ struct PostBankStatusIntent: AppIntent {
 
     let outcome = try? service.capture(request, status: .sent, payloadID: payloadID)
     if case .some(.enqueued) = outcome {
-      await scheduleLocalParsedOrGenericNotification(payloadID: payloadID)
+      await scheduleLocalParsedOrGenericNotification(
+        payloadID: payloadID,
+        offersSmartAnalysis: true
+      )
     }
     return .result()
   }
@@ -185,7 +188,8 @@ struct PostBankStatusIntent: AppIntent {
   private func scheduleNotification(
     _ notification: BackendNotification,
     payloadID: String,
-    identifierPrefix: String
+    identifierPrefix: String,
+    categoryIdentifier: String? = nil
   ) async {
     let notificationLogId = UUID().uuidString.lowercased()
     SharedCaptureStore.enqueueNotificationLogEvent(
@@ -201,6 +205,9 @@ struct PostBankStatusIntent: AppIntent {
     content.title = notification.title
     content.body = notification.body
     content.sound = .default
+    if let categoryIdentifier {
+      content.categoryIdentifier = categoryIdentifier
+    }
     content.userInfo = [
       "payloadId": payloadID,
       "source": "ios_shortcut",
@@ -237,7 +244,14 @@ struct PostBankStatusIntent: AppIntent {
     }
   }
 
-  private func scheduleLocalParsedOrGenericNotification(payloadID: String) async {
+  /// [offersSmartAnalysis] is true only when the backend is not usable
+  /// (consent off OR device not registered — indistinguishable here); the
+  /// generic fallback then invites enabling Smart Analysis. The
+  /// backend-failure path keeps its original copy.
+  private func scheduleLocalParsedOrGenericNotification(
+    payloadID: String,
+    offersSmartAnalysis: Bool = false
+  ) async {
     if let parser = PreviewParser.shared {
       let result = parser.parse(smsText)
       if result.isHighConfidence, let amount = result.amount, let currency = result.currency {
@@ -263,7 +277,10 @@ struct PostBankStatusIntent: AppIntent {
         return
       }
     }
-    await scheduleGenericFallbackNotification(payloadID: payloadID)
+    await scheduleGenericFallbackNotification(
+      payloadID: payloadID,
+      offersSmartAnalysis: offersSmartAnalysis
+    )
   }
 
   /// "اليوم ٩:٤١ م" بأسلوب صريح: اليوم/أمس/د‏/‏ش — بتوقيت الجهاز.
@@ -281,17 +298,37 @@ struct PostBankStatusIntent: AppIntent {
     return "\(dayComps.day ?? 0)/\(dayComps.month ?? 0) \(time)"
   }
 
-  private func scheduleGenericFallbackNotification(payloadID: String) async {
+  private func scheduleGenericFallbackNotification(
+    payloadID: String,
+    offersSmartAnalysis: Bool
+  ) async {
     let sender = firstNonEmpty(senderName, senderID)
+    if offersSmartAnalysis {
+      await QirshNotificationCategories.registerUnrecognizedCapture()
+    }
     await scheduleNotification(
       BackendNotification(
         title: "قِرش رصد رسالة بنك",
-        body: Self.unparseableFallbackBody(sender: sender),
+        body: offersSmartAnalysis
+          ? Self.smartAnalysisInviteBody(sender: sender)
+          : Self.unparseableFallbackBody(sender: sender),
         type: "received"
       ),
       payloadID: payloadID,
-      identifierPrefix: "capture_fallback"
+      identifierPrefix: "capture_fallback",
+      categoryIdentifier: offersSmartAnalysis
+        ? QirshNotificationCategories.unrecognizedCaptureId
+        : nil
     )
+  }
+
+  /// Copy for the backend-unavailable (consent off / not registered) generic
+  /// fallback. One text serves both causes: the extension cannot tell them apart.
+  static func smartAnalysisInviteBody(sender: String?) -> String {
+    guard let sender, !sender.isEmpty else {
+      return "لم نتعرّف على رسالة البنك تلقائيًا. فعّل التحليل الذكي ليحاول قِرش فهم رسائل البنوك الجديدة، أو أضفها يدويًا."
+    }
+    return "لم نتعرّف على رسالة \(sender) تلقائيًا. فعّل التحليل الذكي ليحاول قِرش فهم رسائل البنوك الجديدة، أو أضفها يدويًا."
   }
 
   /// Reached only when neither the backend nor the on-device PreviewParser
@@ -950,5 +987,43 @@ final class PreviewParser {
     let value = nsText.substring(with: match.range(at: 1))
       .trimmingCharacters(in: .whitespacesAndNewlines)
     return value.isEmpty ? nil : value
+  }
+}
+
+/// Notification category for an unrecognized bank message, with the two
+/// foreground actions. Single copy: this file is compiled into the Runner
+/// target, so both AppDelegate (launch) and the Shortcut (before scheduling —
+/// the app may not have launched since an update) call it.
+enum QirshNotificationCategories {
+  static let unrecognizedCaptureId = "QIRSH_UNRECOGNIZED_CAPTURE"
+  static let enableSmartAnalysisActionId = "qirsh.enable_smart_analysis"
+  static let addManuallyActionId = "qirsh.add_manually"
+  static let actionIds: Set<String> = [enableSmartAnalysisActionId, addManuallyActionId]
+
+  static func registerUnrecognizedCapture() async {
+    let category = UNNotificationCategory(
+      identifier: unrecognizedCaptureId,
+      actions: [
+        UNNotificationAction(
+          identifier: enableSmartAnalysisActionId,
+          title: "تفعيل التحليل الذكي",
+          options: [.foreground]
+        ),
+        UNNotificationAction(
+          identifier: addManuallyActionId,
+          title: "إضافة يدويًا",
+          options: [.foreground]
+        ),
+      ],
+      intentIdentifiers: [],
+      options: []
+    )
+    let center = UNUserNotificationCenter.current()
+    // Merge: other components (e.g. flutter_local_notifications) may have
+    // registered their own categories; replace only ours.
+    var categories = await center.notificationCategories()
+    categories = categories.filter { $0.identifier != unrecognizedCaptureId }
+    categories.insert(category)
+    center.setNotificationCategories(categories)
   }
 }

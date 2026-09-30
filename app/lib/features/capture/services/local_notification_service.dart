@@ -14,6 +14,7 @@ import '../../../data/db/ownership_guard.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/notification_capacity_planner.dart';
 import '../../../domain/services/notification_planner.dart';
+import '../../app/capture_notification_actions.dart';
 import '../capture_runtime.dart';
 import 'notification_log_service.dart';
 import 'pending_notification_actions.dart';
@@ -270,6 +271,25 @@ class LocalNotificationService {
               _actionDismiss,
               'تجاهل',
               options: {DarwinNotificationActionOption.destructive},
+            ),
+          ],
+        ),
+        // The plugin REPLACES the app's categories with this list, so ours
+        // must live here (the Shortcut's native registration merges).
+        // Titles are twins of QirshNotificationCategories in
+        // BankMessageShortcuts.swift (pinned by a test).
+        DarwinNotificationCategory(
+          kUnrecognizedCaptureCategory,
+          actions: [
+            DarwinNotificationAction.plain(
+              kActionEnableSmartAnalysis,
+              'تفعيل التحليل الذكي',
+              options: {DarwinNotificationActionOption.foreground},
+            ),
+            DarwinNotificationAction.plain(
+              kActionAddManually,
+              'إضافة يدويًا',
+              options: {DarwinNotificationActionOption.foreground},
             ),
           ],
         ),

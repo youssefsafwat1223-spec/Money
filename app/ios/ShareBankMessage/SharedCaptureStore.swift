@@ -75,6 +75,8 @@ enum SharedCaptureStore {
     let source: String?
     let receivedAt: String?
     let notificationLogId: String?
+    /// Banner action button tapped (nil for a plain banner tap).
+    let action: String?
   }
 
   /// One notification lifecycle event, queued here until the host Flutter
@@ -441,7 +443,10 @@ enum SharedCaptureStore {
     return (token, environment)
   }
 
-  static func enqueueNotificationRoute(userInfo: [AnyHashable: Any]) {
+  static func enqueueNotificationRoute(
+    userInfo: [AnyHashable: Any],
+    action: String? = nil
+  ) {
     let payload = NotificationRoutePayload(
       payloadId: clean(userInfo["payloadId"] as? String),
       transactionId: clean(userInfo["transactionId"] as? String),
@@ -449,7 +454,8 @@ enum SharedCaptureStore {
       notificationType: clean(userInfo["notificationType"] as? String),
       source: clean(userInfo["source"] as? String),
       receivedAt: isoFormatter.string(from: Date()),
-      notificationLogId: clean(userInfo["notificationLogId"] as? String)
+      notificationLogId: clean(userInfo["notificationLogId"] as? String),
+      action: clean(action)
     )
     guard payload.payloadId != nil ||
       payload.transactionId != nil ||
