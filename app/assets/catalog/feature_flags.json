@@ -78,5 +78,13 @@
     "rollout_percent": 100,
     "target_countries": [],
     "is_active": false
+  },
+  {
+    "key": "capture_ai_fallback_enabled",
+    "value_type": "boolean",
+    "value": "false",
+    "rollout_percent": 100,
+    "target_countries": [],
+    "is_active": false
   }
 ]

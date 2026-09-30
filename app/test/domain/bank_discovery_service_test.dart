@@ -98,8 +98,8 @@ const _unknownSender = 'GULFCORP-UNKNOWN';
 
 void main() {
   const highConfidenceSuggestion = BankDiscoverySuggestion(
-    suggestedBankName: 'Unknown Gulf Bank',
-    bankKeySuggestion: 'gulfcorp_ae',
+    suggestedBankName: 'Mashreq Bank UAE',
+    bankKeySuggestion: 'mashreq_ae',
     country: 'AE',
     confidence: 0.97,
     reason: 'Sender and wording match UAE bank alerts.',
@@ -126,9 +126,38 @@ void main() {
 
     expect(client.callCount, 1);
     expect(result.status, BankDiscoveryResultStatus.pendingSuggestion);
-    expect(repo.savedDraft?.suggestedBankName, 'Unknown Gulf Bank');
-    expect(repo.savedDraft?.bankKey, 'gulfcorp_ae');
+    // The invented AI key is resolved onto the existing catalog profile.
+    expect(repo.savedDraft?.suggestedBankName, 'بنك المشرق');
+    expect(repo.savedDraft?.bankKey, 'mashreq');
     expect(repo.savedDraft?.source, SenderBankMappingSource.gemini);
+  });
+
+  test('suggestion with no catalog match saves nothing', () async {
+    final repo = _FakeSenderBankMappingRepository();
+    final client = _FakeBankDiscoveryClient(const BankDiscoverySuggestion(
+      suggestedBankName: 'Totally Invented Bank',
+      bankKeySuggestion: 'invented_ae',
+      country: 'AE',
+      confidence: 0.98,
+      reason: 'Looks like a bank.',
+    ));
+    final service = BankDiscoveryService(
+      mappingRepository: repo,
+      client: client,
+      loadAiConsent: () async => true,
+    );
+
+    final result = await service.discoverIfEligible(
+      rawSms: 'Dear customer, card alerts are now active for your AED account.',
+      senderId: _unknownSender,
+      availableProfiles: const [],
+      parseResult: ParseResult.notTransaction(),
+      now: DateTime.utc(2026, 6, 16),
+    );
+
+    expect(result.status, BankDiscoveryResultStatus.noSuggestion);
+    expect(result.reason, 'no_catalog_match');
+    expect(repo.savedDraft, isNull);
   });
 
   test('low confidence result is ignored without pending prompt', () async {

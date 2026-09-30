@@ -1,8 +1,8 @@
 import '../../core/utils/id_generator.dart';
 import '../../data/catalog/catalog_daos.dart';
+import '../../engine/ai/ai_candidate_validator.dart';
 import '../../engine/ai/ai_parser_client.dart';
 import '../../engine/ai/ai_sender_failure_tracker.dart';
-import '../../engine/ai/grounding_check.dart';
 import '../../engine/categorization/category.dart';
 import '../../engine/categorization/categorizer.dart';
 import '../../engine/intelligence/merchant_intelligence_store.dart';
@@ -596,15 +596,6 @@ class AddTransactionUseCase {
             senderId: senderId, bankProfiles: bankProfiles)
         : false;
 
-    final aiFirstAttempt = wasIgnored || onDeviceOnly
-        ? _AiFirstAttempt.skipped(
-            wasIgnored ? 'message_ignored' : 'on_device_only',
-          )
-        : await _tryAiParseFirst(
-            rawMessage: rawMessage,
-            senderId: senderId,
-          );
-
     final parseResult = await _parserIsolate.parse(
           rawMessage,
           senderId: senderId,
@@ -613,6 +604,23 @@ class AddTransactionUseCase {
           defaultCurrency: defaultAccount?.currency ?? 'SAR',
         ) ??
         ParseResult.notTransaction();
+
+    // Local parser first: AI is only consulted when the local result is not
+    // confident (a transaction at/above the auto-confirm floor whose bank was
+    // resolved).
+    final locallyConfident = parseResult.isTransaction &&
+        parseResult.confidence >= autoConfirmThreshold &&
+        parseResult.bankKey != null;
+    final aiFirstAttempt = wasIgnored || onDeviceOnly
+        ? _AiFirstAttempt.skipped(
+            wasIgnored ? 'message_ignored' : 'on_device_only',
+          )
+        : locallyConfident
+            ? const _AiFirstAttempt.skipped('local_confident')
+            : await _tryAiParseFirst(
+                rawMessage: rawMessage,
+                senderId: senderId,
+              );
 
     if (!onDeviceOnly) {
       await _runBankDiscoveryIfEligible(
@@ -634,6 +642,7 @@ class AddTransactionUseCase {
       attempt: aiFirstAttempt,
       rawMessage: rawMessage,
       localParsed: localParsed,
+      referenceTime: (smsReceivedAt ?? DateTime.now()).toUtc(),
     );
 
     ParsedTransaction parsed;
@@ -1378,19 +1387,18 @@ class AddTransactionUseCase {
     required _AiFirstAttempt attempt,
     required String rawMessage,
     required ParsedTransaction? localParsed,
+    required DateTime referenceTime,
   }) {
     final aiResponse = attempt.response;
     final sanitized = attempt.sanitizedSms;
     if (aiResponse == null || sanitized == null) return null;
-    if (!GroundingCheck.verify(
-      amount: aiResponse.amount,
+    final validation = const AiCandidateValidator().validate(
+      response: aiResponse,
       sanitizedText: sanitized,
-    )) {
-      AiSenderFailureTracker.instance.recordFailure(attempt.senderId);
-      return null;
-    }
-    if (localParsed != null &&
-        !_amountsClose(aiResponse.amount, localParsed.amount)) {
+      localParsed: localParsed,
+      referenceTime: referenceTime,
+    );
+    if (!validation.accepted) {
       AiSenderFailureTracker.instance.recordFailure(attempt.senderId);
       return null;
     }
@@ -1402,7 +1410,7 @@ class AddTransactionUseCase {
       fallback: _parseTypeFromString(aiResponse.type) ??
           localParsed?.type ??
           TransactionType.unknown,
-      merchantName: aiResponse.merchantName ?? localParsed?.rawMerchant,
+      merchantName: validation.merchantName,
     );
     final aiCategoryKey = aiResponse.categoryKey;
     final hasSpecificAiCategory =
@@ -1419,18 +1427,18 @@ class AddTransactionUseCase {
         // pending review at the transaction construction boundary.
         amountText: aiResponse.amountText,
         amount: aiResponse.amount,
-        currency: aiResponse.currency,
+        currency: validation.currency,
         type: aiType,
         source: TransactionSource.aiParsed,
         rawMerchant: PaymentAggregators.resolveMerchant(
-              aiResponse.merchantName,
+              validation.merchantName,
             ) ??
             localParsed?.rawMerchant,
         cardLast4: localParsed?.cardLast4,
         accountNumber: localParsed?.accountNumber,
         balanceAfterText: localParsed?.balanceAfterText,
         balanceAfter: localParsed?.balanceAfter,
-        occurredAt: aiResponse.occurredAt ?? localParsed?.occurredAt,
+        occurredAt: validation.occurredAt,
         foreignAmountText: localParsed?.foreignAmountText,
         foreignAmount: localParsed?.foreignAmount,
         foreignCurrency: localParsed?.foreignCurrency,
@@ -1853,10 +1861,6 @@ class AddTransactionUseCase {
         lower.contains('transaction of');
     if (!hasDebitCard || !hasGenericTransaction) return false;
     return BankProfiles.detect('', senderId: merchantName) != null;
-  }
-
-  static bool _amountsClose(double left, double right) {
-    return (left - right).abs() < 0.01;
   }
 
   static TransactionType? _parseTypeFromString(String? raw) {

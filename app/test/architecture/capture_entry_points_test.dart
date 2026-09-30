@@ -165,10 +165,15 @@ void main() {
           reason: 'notifyOnly/requestConfirmation/duplicate promise a row');
     });
 
-    test('the drain re-ingests on device only', () {
+    test('the drain re-ingests on device only unless the AI fallback rule holds',
+        () {
       final shell = read('lib/features/app/app_shell.dart');
-      expect(shell, contains('onDeviceOnly: true'),
-          reason: 'a later drain must never re-send an SMS to AI/enrichment');
+      expect(shell, contains('onDeviceOnly: !nativeCaptureMayUseAiFallback('),
+          reason: 'a later drain must never re-send an SMS to AI/enrichment '
+              'except a backend-failed `sent` capture, behind consent + flag');
+      expect(shell, contains('EgressClass.aiProcessing'),
+          reason: 'consent is read fresh per message so revocation never re-sends');
+      expect(shell, contains("'capture_ai_fallback_enabled'"));
     });
   });
 

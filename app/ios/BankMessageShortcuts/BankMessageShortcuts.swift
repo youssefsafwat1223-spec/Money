@@ -247,7 +247,7 @@ struct PostBankStatusIntent: AppIntent {
   /// [offersSmartAnalysis] is true only when the backend is not usable
   /// (consent off OR device not registered — indistinguishable here); the
   /// generic fallback then invites enabling Smart Analysis. The
-  /// backend-failure path keeps its original copy.
+  /// backend-failure path uses [backendFailureBody] instead.
   private func scheduleLocalParsedOrGenericNotification(
     payloadID: String,
     offersSmartAnalysis: Bool = false
@@ -303,22 +303,18 @@ struct PostBankStatusIntent: AppIntent {
     offersSmartAnalysis: Bool
   ) async {
     let sender = firstNonEmpty(senderName, senderID)
-    if offersSmartAnalysis {
-      await QirshNotificationCategories.registerUnrecognizedCapture()
-    }
+    await QirshNotificationCategories.registerUnrecognizedCapture()
     await scheduleNotification(
       BackendNotification(
         title: "قِرش رصد رسالة بنك",
         body: offersSmartAnalysis
           ? Self.smartAnalysisInviteBody(sender: sender)
-          : Self.unparseableFallbackBody(sender: sender),
+          : Self.backendFailureBody(sender: sender),
         type: "received"
       ),
       payloadID: payloadID,
       identifierPrefix: "capture_fallback",
-      categoryIdentifier: offersSmartAnalysis
-        ? QirshNotificationCategories.unrecognizedCaptureId
-        : nil
+      categoryIdentifier: QirshNotificationCategories.unrecognizedCaptureId
     )
   }
 
@@ -331,17 +327,15 @@ struct PostBankStatusIntent: AppIntent {
     return "لم نتعرّف على رسالة \(sender) تلقائيًا. فعّل التحليل الذكي ليحاول قِرش فهم رسائل البنوك الجديدة، أو أضفها يدويًا."
   }
 
-  /// Reached only when neither the backend nor the on-device PreviewParser
-  /// could confidently parse the message — no reviewable transaction exists
-  /// anywhere yet. Must say so honestly (matching the server's equivalent
-  /// `rejected`-status wording in process-ios-sms) rather than the previous
-  /// vague "a message was received, go check" text, which implied something
-  /// reviewable already existed in the app when nothing had been captured.
-  static func unparseableFallbackBody(sender: String?) -> String {
+  /// Backend-failure generic fallback (the backend was usable but did not
+  /// answer, and the on-device PreviewParser has no confident result). Says the
+  /// analysis failed for now and points to review / manual entry; the capture is
+  /// already stored durably (`.sent` + failureReason) for the app to import.
+  static func backendFailureBody(sender: String?) -> String {
     guard let sender, !sender.isEmpty else {
-      return "لم نتمكن من تحليل الرسالة البنكية. افتح قِرش لإضافتها يدويًا."
+      return "تعذّر تحليل رسالة البنك الآن. افتح قِرش لمراجعتها أو إضافتها يدويًا."
     }
-    return "لم نتمكن من تحليل رسالة \(sender). افتح قِرش لإضافتها يدويًا."
+    return "تعذّر تحليل رسالة \(sender) الآن. افتح قِرش لمراجعتها أو إضافتها يدويًا."
   }
 
   private func firstNonEmpty(_ values: String?...) -> String? {

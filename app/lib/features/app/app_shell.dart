@@ -46,6 +46,7 @@ import '../capture/capture_runtime.dart';
 import '../consent/smart_analysis_consent_sheet.dart';
 import '../transactions/manual_transaction_sheet.dart';
 import '../../core/privacy/consent_authority.dart';
+import '../capture/services/native_capture_ai_fallback.dart';
 import 'capture_notification_actions.dart';
 import '../capture/services/capture_notification_content.dart';
 import '../capture/services/capture_sync_service.dart';
@@ -997,12 +998,28 @@ class _AppShellState extends ConsumerState<AppShell> {
             // last-resort fallback.
             receivedAt: message.receivedAt,
           );
+          // The durable native copy is the local recovery path. Consent is read
+          // fresh for THIS message so a revoked consent never re-sends its SMS
+          // to AI/discovery/enrichment services. Only a capture the backend
+          // already failed to analyse (`sent` + failureReason: its banner was
+          // shown by the extension) may use the in-app AI fallback, and only
+          // behind the kill switch.
+          final aiAllowed = ConsentAuthority.decide(
+            EgressClass.aiProcessing,
+            await ref.read(userSettingsRepositoryProvider).getSettings(),
+          );
+          var flagEnabled = false;
+          try {
+            flagEnabled = featureFlags.getBool('capture_ai_fallback_enabled');
+          } catch (_) {}
           final result = await ingestUseCase.fromCapturedMessage(
             captured,
-            // The durable native copy is the local recovery path. A later drain
-            // must never re-send its SMS to AI/discovery/enrichment services,
-            // especially after consent has been revoked.
-            onDeviceOnly: true,
+            onDeviceOnly: !nativeCaptureMayUseAiFallback(
+              status: message.status,
+              failureReason: message.failureReason,
+              flagEnabled: flagEnabled,
+              aiAllowed: aiAllowed,
+            ),
           );
           if (kDebugMode) {
             debugPrint(

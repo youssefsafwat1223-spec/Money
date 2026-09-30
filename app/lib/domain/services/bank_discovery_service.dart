@@ -1,5 +1,6 @@
 import '../../engine/ai/bank_discovery_client.dart';
 import '../../engine/models/transaction_type.dart';
+import '../../engine/parser/bank_institution_matcher.dart';
 import '../../engine/parser/bank_profile.dart';
 import '../../engine/parser/bank_sender_filter.dart';
 import '../../engine/parser/parse_result.dart';
@@ -113,17 +114,35 @@ class BankDiscoveryService {
       return const BankDiscoveryResult.noSuggestion('low_confidence');
     }
 
+    // AI never creates a bank: the free-form suggestion must resolve to
+    // exactly one existing catalog profile, otherwise nothing is saved.
+    final profile = BankInstitutionMatcher.match(
+      bankKeySuggestion: suggestion.bankKeySuggestion,
+      suggestedBankName: suggestion.suggestedBankName,
+      country: suggestion.country,
+      availableProfiles: availableProfiles,
+    );
+    if (profile == null) {
+      return const BankDiscoveryResult.noSuggestion('no_catalog_match');
+    }
+
     await _mappingRepository.saveSuggestion(SenderBankMappingDraft(
       senderId: cleanSender,
-      bankKey: suggestion.bankKeySuggestion,
-      suggestedBankName: suggestion.suggestedBankName,
+      bankKey: profile.bankKey,
+      suggestedBankName: profile.displayName,
       suggestedCountry: suggestion.country,
       confidence: suggestion.confidence,
       reason: suggestion.reason,
       source: SenderBankMappingSource.gemini,
       now: now,
     ));
-    return BankDiscoveryResult.pendingSuggestion(suggestion);
+    return BankDiscoveryResult.pendingSuggestion(BankDiscoverySuggestion(
+      suggestedBankName: profile.displayName,
+      bankKeySuggestion: profile.bankKey,
+      country: suggestion.country,
+      confidence: suggestion.confidence,
+      reason: suggestion.reason,
+    ));
   }
 
   static final RegExp _currency = RegExp(

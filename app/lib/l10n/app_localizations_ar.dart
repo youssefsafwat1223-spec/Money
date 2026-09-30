@@ -5573,6 +5573,9 @@ class AppL10nAr extends AppL10n {
   String get bdAskLater => 'اسألني لاحقًا';
 
   @override
+  String get bdChooseMyBank => 'اختر بنكي';
+
+  @override
   String get smsShareTitle => 'شارك رسالة البنك مع قِرش';
 
   @override

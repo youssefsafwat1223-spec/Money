@@ -14,7 +14,31 @@ class GroundingCheck {
     ];
     final all = <String>{...western};
     all.addAll(western.map(_toArabicIndic));
+    // Thousands-separated forms (1,250.00 / ١٬٢٥٠٫٠٠). Additive only.
+    for (final plain in western) {
+      final grouped = _group(plain);
+      if (grouped == plain) continue;
+      all.add(grouped);
+      final arabic = _toArabicIndic(grouped);
+      all.add(arabic);
+      all.add(arabic.replaceAll(',', '٬'));
+      all.add(arabic.replaceAll(',', '٬').replaceAll('.', '٫'));
+    }
     return all.toList();
+  }
+
+  /// Inserts a comma every three integer digits: `1250.00` -> `1,250.00`.
+  static String _group(String plain) {
+    final dot = plain.indexOf('.');
+    final integer = dot < 0 ? plain : plain.substring(0, dot);
+    final fraction = dot < 0 ? '' : plain.substring(dot);
+    if (integer.length <= 3) return plain;
+    final buffer = StringBuffer();
+    for (var i = 0; i < integer.length; i++) {
+      if (i > 0 && (integer.length - i) % 3 == 0) buffer.write(',');
+      buffer.write(integer[i]);
+    }
+    return '$buffer$fraction';
   }
 
   static const _westernDigits = [

@@ -50,27 +50,30 @@ void main() {
         contains('QirshNotificationCategories.registerUnrecognizedCapture()'));
   });
 
-  test('only the canUseBackend==false generic fallback uses category + new copy',
-      () {
+  test('generic fallback uses the category; copy differs by cause', () {
     final generic = shortcut.substring(
         shortcut.indexOf('private func scheduleGenericFallbackNotification'),
         shortcut.indexOf('static func smartAnalysisInviteBody'));
     expect(generic, contains('Self.smartAnalysisInviteBody(sender: sender)'));
-    expect(generic, contains('Self.unparseableFallbackBody(sender: sender)'));
-    expect(generic, contains('categoryIdentifier: offersSmartAnalysis'));
+    expect(generic, contains('Self.backendFailureBody(sender: sender)'));
+    expect(generic,
+        contains('categoryIdentifier: QirshNotificationCategories.unrecognizedCaptureId'));
+    expect(generic.contains('unparseableFallbackBody'), isFalse);
     expect(generic, contains('title: "قِرش رصد رسالة بنك"'));
     expect(generic, contains('type: "received"'));
 
-    // Backend-failure call site keeps the default (old copy); the cloud-off
-    // site opts in and is still stored as `.sent`.
+    // Backend-failure call site uses the default (backend-failure copy) and is
+    // still stored as `.sent` + failureReason; the cloud-off site opts into the
+    // Smart Analysis invite and is stored as `.sent`.
     final perform = shortcut.substring(shortcut.indexOf('if config.canUseBackend {'));
     final backendPart = perform.substring(0, perform.indexOf('let outcome = try?'));
     expect(backendPart,
         contains('await scheduleLocalParsedOrGenericNotification(payloadID: payloadID)'));
+    expect(backendPart, contains('failureReason: attempt.failureReason'));
     final offPart = perform.substring(perform.indexOf('let outcome = try?'));
     expect(offPart, contains('status: .sent'));
     expect(offPart, contains('offersSmartAnalysis: true'));
-    expect(shortcut, contains('static func unparseableFallbackBody'));
+    expect(shortcut.contains('unparseableFallbackBody'), isFalse);
   });
 
   test('new copy text', () {
@@ -78,6 +81,13 @@ void main() {
         contains(r'لم نتعرّف على رسالة \(sender) تلقائيًا. فعّل التحليل الذكي ليحاول قِرش فهم رسائل البنوك الجديدة، أو أضفها يدويًا.'));
     expect(shortcut,
         contains('لم نتعرّف على رسالة البنك تلقائيًا. فعّل التحليل الذكي ليحاول قِرش فهم رسائل البنوك الجديدة، أو أضفها يدويًا.'));
+  });
+
+  test('backend-failure copy text', () {
+    expect(shortcut,
+        contains(r'تعذّر تحليل رسالة \(sender) الآن. افتح قِرش لمراجعتها أو إضافتها يدويًا.'));
+    expect(shortcut,
+        contains('تعذّر تحليل رسالة البنك الآن. افتح قِرش لمراجعتها أو إضافتها يدويًا.'));
   });
 
   test('action is forwarded from didReceive into the route queue', () {

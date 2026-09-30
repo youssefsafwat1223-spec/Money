@@ -5572,6 +5572,9 @@ class AppL10nEn extends AppL10n {
   String get bdAskLater => 'Ask me later';
 
   @override
+  String get bdChooseMyBank => 'Choose my bank';
+
+  @override
   String get smsShareTitle => 'Share a bank message with Qirsh';
 
   @override

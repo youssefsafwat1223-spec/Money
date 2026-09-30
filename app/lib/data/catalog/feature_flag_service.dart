@@ -92,6 +92,9 @@ const Map<String, Object> _defaults = {
   'planning_goals_sync': false,
   'planning_plans_sync': false,
   'capture_direct_ledger_write': false,
+  // Kill switch: lets a durable native capture the backend failed to analyse
+  // use the in-app AI fallback (still consent-gated). Seeded OFF.
+  'capture_ai_fallback_enabled': false,
   // MALI-034: the obsolete Supabase-primary financial-authority flags
   // (accounts/transactions/budgets/goals/subscriptions/plans_supabase_primary,
   // smart_inbox_supabase_primary, dashboard_supabase_summary,

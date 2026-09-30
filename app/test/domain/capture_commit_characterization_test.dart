@@ -362,7 +362,8 @@ void main() {
           reason: 'the local parse still produces the row');
     });
 
-    test('6. AI IS called when consent is ON — the AI-first ordering', () async {
+    test('6. AI is NOT called when consent is ON but local parse is confident',
+        () async {
       final repo = _RecordingRepo();
       final ai = _CountingAiClient();
       final useCase = _useCase(
@@ -378,9 +379,9 @@ void main() {
 
       await useCase(rawMessage: 'شراء 125.75 ر.س', senderId: 'AlRajhi');
 
-      expect(ai.callCount, 1,
-          reason: 'VERIFIED production fact: AI runs first, before the parser '
-              'result is used');
+      expect(ai.callCount, 0,
+          reason: 'local-first: a confident local parse with a resolved bank '
+              'never reaches the AI');
     });
 
     test('7. an AI failure degrades to the local parse without losing the row',

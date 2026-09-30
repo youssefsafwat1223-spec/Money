@@ -357,10 +357,9 @@ void main() {
     AiSenderFailureTracker.instance.resetForTest();
   });
 
-  test('AI-first: clean parse still routes through AI (one call)', () async {
-    // Under AI-first, even a high-confidence on-device parse is sent to the AI
-    // parser (when consent is granted). The AI here returns null, so the trusted
-    // on-device parse is what gets saved — but the call must still have happened.
+  test('local-first: a confident local parse never calls the AI', () async {
+    // A high-confidence on-device parse with a resolved bank is saved as-is;
+    // the AI is only consulted when the local result is not confident.
     final countingClient = _CountingAiClient();
     final fakeParsed = ParsedTransaction(
       amountText: '500',
@@ -387,7 +386,7 @@ void main() {
     );
     await useCase(rawMessage: 'dummy');
 
-    expect(countingClient.callCount, 1);
+    expect(countingClient.callCount, 0);
   });
 
   test('over-precision capture token is retained only as pending legacy fallback',
@@ -419,9 +418,10 @@ void main() {
     expect(saved!.status, TransactionStatus.pending);
   });
 
-  test('AI-first: unsupported-bank generic parse routes through AI (one call)',
+  test('local-first: unsupported-bank generic parse that is confident skips AI',
       () async {
-    // AI returns null → the on-device generic parse is saved (pending).
+    // The on-device generic parse is confident, so the AI is not called and the
+    // local parse is saved (pending).
     final countingClient = _CountingAiClient();
     TransactionEntity? savedTransaction;
     final capturingRepo = _CapturingTransactionRepo(
@@ -442,7 +442,7 @@ void main() {
       senderId: 'ADIB',
     );
 
-    expect(countingClient.callCount, 1);
+    expect(countingClient.callCount, 0);
     expect(savedTransaction, isNotNull);
     expect(savedTransaction!.amount, 50.00);
     expect(savedTransaction!.currency, 'AED');
@@ -700,7 +700,13 @@ void main() {
       dedupStore: _NoDedupStore(),
     );
 
-    final result = await useCase(rawMessage: rawSms, senderId: 'IPN');
+    // The AI date must fall inside the plausibility window around the capture's
+    // receivedAt, so pin receivedAt instead of relying on the wall clock.
+    final result = await useCase(
+      rawMessage: rawSms,
+      senderId: 'IPN',
+      smsReceivedAt: DateTime.utc(2026, 6, 15),
+    );
 
     expect(result.outcome, AddTransactionOutcome.added);
     expect(saved!.amount, 2000);
@@ -1596,5 +1602,124 @@ void main() {
 
     expect(saved, isNotNull);
     expect(saved!.status, TransactionStatus.pending);
+  });
+
+  group('local-first ordering and deterministic AI validation', () {
+    ParsedTransaction local(double confidence) => ParsedTransaction(
+          amountText: '125.75',
+          amount: 125.75,
+          currency: 'SAR',
+          type: TransactionType.payment,
+          source: TransactionSource.bank,
+          rawMerchant: 'STARBUCKS',
+          occurredAt: DateTime.utc(2026, 6, 16, 12),
+          parseConfidence: confidence,
+        );
+
+    AddTransactionUseCase build({
+      required ParseResult parse,
+      required AiParserClient ai,
+      bool consent = true,
+      void Function(TransactionEntity)? onSave,
+    }) =>
+        AddTransactionUseCase(
+          transactionRepository:
+              _CapturingTransactionRepo(onSave: onSave ?? (_) {}),
+          merchantCategoryRepository: _StubMerchantRepoWithKnownMerchant(),
+          parserIsolate: _FakeParserIsolate(parse),
+          loadAiConsent: () async => consent,
+          aiClient: ai,
+          dedupStore: _NoDedupStore(),
+        );
+
+    setUp(() => AiSenderFailureTracker.instance.resetForTest());
+
+    test('locally confident message never reaches the AI client', () async {
+      final ai = _CapturingAiClient(
+        onParse: (_, __, ___) => fail('AI must not be called'),
+      );
+      final result = await build(
+        parse: ParseResult.success(local(0.95), bankKey: 'alrajhi'),
+        ai: ai,
+      )(rawMessage: 'شراء 125.75 ر.س', senderId: 'AlRajhi');
+      expect(result.outcome, AddTransactionOutcome.added);
+    });
+
+    test('confident parse without a resolved bank still consults the AI',
+        () async {
+      final ai = _CountingAiClient();
+      await build(parse: ParseResult.success(local(0.95)), ai: ai)(
+        rawMessage: 'شراء 125.75 ر.س',
+        senderId: 'NEWBANK',
+      );
+      expect(ai.callCount, 1);
+    });
+
+    test('non-confident local parse consults the AI', () async {
+      final ai = _CountingAiClient();
+      await build(
+        parse: ParseResult.success(local(0.60), bankKey: 'alrajhi'),
+        ai: ai,
+      )(rawMessage: 'شراء 125.75 ر.س', senderId: 'AlRajhi');
+      expect(ai.callCount, 1);
+    });
+
+    test('consent off never calls the AI even when local is not confident',
+        () async {
+      final ai = _CapturingAiClient(
+        onParse: (_, __, ___) => fail('AI must not be called'),
+      );
+      await build(
+        parse: ParseResult.success(local(0.60)),
+        ai: ai,
+        consent: false,
+      )(rawMessage: 'شراء 125.75 ر.س', senderId: 'AlRajhi');
+    });
+
+    test('validator rejection writes nothing and keeps droppedByParser',
+        () async {
+      TransactionEntity? saved;
+      final result = await build(
+        parse: ParseResult.notTransaction(),
+        ai: const _FixedResponseAiClient(
+          AiParseResponse(amount: 999, currency: 'SAR'),
+        ),
+        onSave: (t) => saved = t,
+      )(rawMessage: 'تم خصم مبلغ من حسابك لدى متجر', senderId: 'SABB');
+      expect(saved, isNull);
+      expect(result.outcome, AddTransactionOutcome.notTransaction);
+      expect(result.droppedByParser, isTrue);
+      expect(result.aiFailureReason, 'ai_response_rejected_by_grounding');
+    });
+
+    test('AI currency that contradicts the local parse is rejected', () async {
+      TransactionEntity? saved;
+      await build(
+        parse: ParseResult.success(local(0.60)),
+        ai: const _FixedResponseAiClient(
+          AiParseResponse(amount: 125.75, currency: 'USD'),
+        ),
+        onSave: (t) => saved = t,
+      )(rawMessage: 'شراء 125.75 ر.س', senderId: 'AlRajhi');
+      expect(saved!.source, isNot(TransactionSourceEntity.aiParsed));
+      expect(saved!.currency, 'SAR');
+    });
+
+    test('AI-only success is pending and requires confirmation', () async {
+      TransactionEntity? saved;
+      final result = await build(
+        parse: ParseResult.notTransaction(),
+        ai: const _FixedResponseAiClient(
+          AiParseResponse(amount: 75, currency: 'SAR', merchantName: 'نون'),
+        ),
+        onSave: (t) => saved = t,
+      )(
+        rawMessage: 'مشترياتك بقيمة 75 ريال من نون تمت بنجاح',
+        senderId: 'SABB',
+      );
+      expect(saved!.source, TransactionSourceEntity.aiParsed);
+      expect(saved!.status, TransactionStatus.pending);
+      expect(result.requiresConfirmation, isTrue);
+    });
   });
 }
