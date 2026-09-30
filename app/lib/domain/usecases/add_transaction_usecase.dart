@@ -623,18 +623,14 @@ class AddTransactionUseCase {
         ) ??
         ParseResult.notTransaction();
 
-    // Local parser first: AI is only consulted when the local result is not
-    // confident (a transaction at/above the auto-confirm floor whose bank was
-    // resolved).
-    final locallyConfident = parseResult.isTransaction &&
-        parseResult.confidence >= autoConfirmThreshold &&
-        parseResult.bankKey != null;
+    // Local parser first: AI is consulted ONLY when the local parser produced
+    // no transaction at all. A local transaction never triggers an AI call.
     final aiFirstAttempt = wasIgnored || onDeviceOnly
         ? _AiFirstAttempt.skipped(
             wasIgnored ? 'message_ignored' : 'on_device_only',
           )
-        : locallyConfident
-            ? const _AiFirstAttempt.skipped('local_confident')
+        : parseResult.isTransaction
+            ? const _AiFirstAttempt.skipped('local_transaction')
             : await _tryAiParseFirst(
                 rawMessage: rawMessage,
                 senderId: senderId,
@@ -666,6 +662,9 @@ class AddTransactionUseCase {
     ParsedTransaction parsed;
     String? aiCategoryKey;
     TransactionDirectionEntity? aiDirection;
+    // AI ran only because local produced nothing; if the deterministic
+    // validator accepted its candidate the transaction is CONFIRMED.
+    final aiValidated = aiParsed != null && localParsed == null;
     if (aiParsed != null) {
       parsed = aiParsed.transaction;
       aiCategoryKey = aiParsed.categoryKey;
@@ -849,6 +848,19 @@ class AddTransactionUseCase {
       );
     }
 
+    // The AI validator checked the AI's own type; reclassification above can
+    // still change the stored type (e.g. transfer -> payment from the AI
+    // direction). If the FINAL type contradicts the wording, treat it as a
+    // validator rejection: no transaction.
+    if (aiValidated &&
+        DirectionSignal.contradicts(rawMessage, effectiveParsed.type)) {
+      AiSenderFailureTracker.instance
+          .recordFailure(aiFirstAttempt.senderId);
+      return AddTransactionResult.notTransaction(parseResult,
+          droppedByParser: isLikelyBank && !wasIgnored,
+          aiFailureReason: 'ai_response_rejected_by_grounding');
+    }
+
     // Anonymous merchant feedback — ONLY for POS/payment types.
     // Transfers and income carry beneficiary/payer names (real people), not
     // business names. Recording those would be the same privacy leak fixed in
@@ -908,8 +920,12 @@ class AddTransactionUseCase {
     // never auto-confirm — route it to pending for review regardless of score.
     final directionContradiction =
         DirectionSignal.contradicts(rawMessage, effectiveParsed.type);
-    final canAutoConfirm =
-        effectiveParsed.parseConfidence >= autoConfirmThreshold &&
+    // A validator-accepted AI transaction bypasses the confidence / category /
+    // new-merchant gates (AI confidence never decides acceptance). Its final
+    // direction contradiction was already rejected above.
+    final canAutoConfirm = aiValidated
+        ? true
+        : effectiveParsed.parseConfidence >= autoConfirmThreshold &&
             effectiveCategory.confidence >= categoryAutoConfirmThreshold &&
             !isNewMerchant &&
             !directionContradiction;
@@ -1026,7 +1042,9 @@ class AddTransactionUseCase {
       canAutoConfirm: canAutoConfirm,
       foreignUnpriced: foreignUnpriced,
       requiresReview: requiresReview,
-      proofGate: proofEval.decision,
+      // The deterministic validator is the gate for AI captures: the proof
+      // gate withholds local parses only. (Still evaluated/recorded above.)
+      proofGate: aiValidated ? null : proofEval.decision,
     );
 
     final transaction = TransactionEntity(
@@ -1125,7 +1143,9 @@ class AddTransactionUseCase {
     return AddTransactionResult.added(
       saved,
       parseResult,
-      isNewMerchant: isNewMerchant,
+      // A validated AI capture is confirmed: a new merchant must not reopen
+      // the confirm sheet through `requiresConfirmation`.
+      isNewMerchant: aiValidated ? false : isNewMerchant,
       secondary: secondary,
     );
   }
@@ -1423,6 +1443,15 @@ class AddTransactionUseCase {
       sanitizedText: sanitized,
       localParsed: localParsed,
       referenceTime: referenceTime,
+      messageText: rawMessage,
+      normalizedType: _normalizeAiType(
+        rawMessage: rawMessage,
+        categoryKey: aiResponse.categoryKey,
+        fallback: _parseTypeFromString(aiResponse.type) ??
+            localParsed?.type ??
+            TransactionType.unknown,
+        merchantName: aiResponse.merchantName,
+      ),
     );
     if (!validation.accepted) {
       AiSenderFailureTracker.instance.recordFailure(attempt.senderId);
@@ -1439,11 +1468,6 @@ class AddTransactionUseCase {
       merchantName: validation.merchantName,
     );
     final aiCategoryKey = aiResponse.categoryKey;
-    final hasSpecificAiCategory =
-        aiCategoryKey != null && aiCategoryKey != Categories.other.key;
-    final aiTrusted = localParsed != null &&
-        hasSpecificAiCategory &&
-        !DirectionSignal.contradicts(rawMessage, aiType);
 
     return _AppliedAiParse(
       categoryKey: aiCategoryKey,
@@ -1469,7 +1493,7 @@ class AddTransactionUseCase {
         foreignAmount: localParsed?.foreignAmount,
         foreignCurrency: localParsed?.foreignCurrency,
         fundingSource: localParsed?.fundingSource,
-        parseConfidence: aiTrusted ? 0.95 : 0.79,
+        parseConfidence: 0.79,
       ),
     );
   }

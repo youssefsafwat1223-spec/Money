@@ -2991,7 +2991,6 @@
   "bdConfirmThis": "تأكيد هذا البنك",
   "bdNotThis": "ليس هذا البنك",
   "bdAskLater": "اسألني لاحقًا",
-  "bdChooseMyBank": "اختر بنكي",
   "smsShareTitle": "شارك رسالة البنك مع قِرش",
   "smsShareBody": "بدون إذن قراءة الرسائل: افتح رسالة البنك، اضغط «مشاركة»، واختر قِرش. سنحلّل النص على جهازك فقط.",
   "smsShareExample": "مثال: «شراء 45 ريالًا لدى BURGER BOUTIQUE»",

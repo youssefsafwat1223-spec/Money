@@ -2874,7 +2874,6 @@
   "bdConfirmThis": "Yes, this bank",
   "bdNotThis": "Not this bank",
   "bdAskLater": "Ask me later",
-  "bdChooseMyBank": "Choose my bank",
   "smsShareTitle": "Share a bank message with Qirsh",
   "smsShareBody": "Without SMS read permission: open the bank message, tap Share, and choose Qirsh. The text is analysed on your device only.",
   "smsShareExample": "For example: “Purchase SAR 45 at BURGER BOUTIQUE”",

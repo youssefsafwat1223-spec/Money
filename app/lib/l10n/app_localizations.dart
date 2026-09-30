@@ -9409,12 +9409,6 @@ abstract class AppL10n {
   /// **'اسألني لاحقًا'**
   String get bdAskLater;
 
-  /// No description provided for @bdChooseMyBank.
-  ///
-  /// In ar, this message translates to:
-  /// **'اختر بنكي'**
-  String get bdChooseMyBank;
-
   /// No description provided for @smsShareTitle.
   ///
   /// In ar, this message translates to:

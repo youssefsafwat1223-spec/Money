@@ -126,16 +126,8 @@ class BankDiscoveryService {
       return const BankDiscoveryResult.noSuggestion('no_catalog_match');
     }
 
-    await _mappingRepository.saveSuggestion(SenderBankMappingDraft(
-      senderId: cleanSender,
-      bankKey: profile.bankKey,
-      suggestedBankName: profile.displayName,
-      suggestedCountry: suggestion.country,
-      confidence: suggestion.confidence,
-      reason: suggestion.reason,
-      source: SenderBankMappingSource.gemini,
-      now: now,
-    ));
+    // Nothing is persisted here: no UI confirms a suggestion any more, and
+    // automatic persistence of AI mappings is a separate, later package.
     return BankDiscoveryResult.pendingSuggestion(BankDiscoverySuggestion(
       suggestedBankName: profile.displayName,
       bankKeySuggestion: profile.bankKey,

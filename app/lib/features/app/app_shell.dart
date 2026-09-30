@@ -35,11 +35,9 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../domain/entities/captured_message.dart';
 import '../../domain/entities/engagement_entities.dart';
-import '../../domain/entities/sender_bank_mapping_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/services/notification_planner.dart';
 import '../../domain/usecases/ingest_captured_message_usecase.dart';
-import '../bank_discovery/bank_discovery_confirmation_sheet.dart';
 import '../budgets/budgets_providers.dart';
 import '../budgets/budgets_screen.dart';
 import '../capture/capture_runtime.dart';
@@ -92,7 +90,6 @@ class _AppShellState extends ConsumerState<AppShell> {
   StreamSubscription<String>? _confirmSubscription;
   StreamSubscription<CaptureQuickAction>? _quickActionSubscription;
   StreamSubscription<String>? _navigationSubscription;
-  StreamSubscription<SenderBankMappingEntity>? _bankDiscoverySubscription;
   StreamSubscription<void>? _syncWakeupSubscription;
   Timer? _syncDebounceTimer;
   Timer? _syncPollTimer;
@@ -179,10 +176,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
     _navigationSubscription = CaptureRuntime.instance.navigationRequests.listen(
       _handleNotificationRoute,
-    );
-    _bankDiscoverySubscription =
-        CaptureRuntime.instance.bankDiscoveryRequests.listen(
-      _openBankDiscoverySheet,
     );
     _syncWakeupSubscription = SyncWakeup.events.listen((_) {
       // Local activity → return the poll cadence to its base interval so the app
@@ -278,7 +271,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     _confirmSubscription?.cancel();
     _quickActionSubscription?.cancel();
     _navigationSubscription?.cancel();
-    _bankDiscoverySubscription?.cancel();
     _syncWakeupSubscription?.cancel();
     _syncDebounceTimer?.cancel();
     _syncPollTimer?.cancel();
@@ -927,7 +919,6 @@ class _AppShellState extends ConsumerState<AppShell> {
 
       String? pendingConfirmationId;
       String? pendingSecondaryNotice;
-      SenderBankMappingEntity? pendingBankDiscovery;
 
       // Positive per-item acknowledgement: removes the leased message from
       // the native queue only after it was fully handled locally.
@@ -1068,9 +1059,6 @@ class _AppShellState extends ConsumerState<AppShell> {
                   feeNoticeFor(context, result.addTransactionResult.secondary);
             }
           }
-          pendingBankDiscovery ??= await _pendingBankDiscoveryForSender(
-            message.sender,
-          );
         } on AuthRepoException {
           // Every remaining message would fail identically until re-auth —
           // stop draining. Nothing was deleted from the native queue (peek,
@@ -1126,9 +1114,6 @@ class _AppShellState extends ConsumerState<AppShell> {
           secondaryNotice: pendingSecondaryNotice,
         );
       }
-      if (pendingBankDiscovery != null) {
-        await _openBankDiscoverySheet(pendingBankDiscovery);
-      }
     } on StateError catch (_) {
       // The shell is a route, not a permanent host: opening a top-level page
       // (/accounts, /goals, …) disposes it mid-drain, and any of the 22 awaits
@@ -1145,20 +1130,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     } finally {
       _isConsumingSharedInput = false;
     }
-  }
-
-  Future<SenderBankMappingEntity?> _pendingBankDiscoveryForSender(
-    String? senderId,
-  ) async {
-    final cleanSender = senderId?.trim();
-    if (cleanSender == null || cleanSender.isEmpty) return null;
-    final mapping = await ref
-        .read(senderBankMappingRepositoryProvider)
-        .getActiveSuggestionBySender(cleanSender);
-    if (mapping?.status == SenderBankMappingStatus.pending) {
-      return mapping;
-    }
-    return null;
   }
 
   Future<void> _showCapturedMessageNotification(
@@ -1517,13 +1488,6 @@ class _AppShellState extends ConsumerState<AppShell> {
       openConsentSheet: () => showSmartAnalysisConsentSheet(context, ref),
       openPrivacy: () => context.push('/privacy'),
     );
-  }
-
-  Future<void> _openBankDiscoverySheet(SenderBankMappingEntity mapping) async {
-    if (!mounted) {
-      return;
-    }
-    await showBankDiscoveryConfirmationSheet(context, mapping);
   }
 
   void _handleNotificationRoute(String route) {

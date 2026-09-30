@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -8,7 +10,6 @@ import 'package:money_companion/domain/entities/sender_bank_mapping_entity.dart'
 import 'package:money_companion/domain/repositories/sender_bank_mapping_repository.dart';
 import 'package:money_companion/domain/services/bank_discovery_service.dart';
 import 'package:money_companion/engine/ai/bank_discovery_client.dart';
-import 'package:money_companion/engine/parser/bank_profile.dart';
 import 'package:money_companion/engine/parser/parse_result.dart';
 import 'package:money_companion/features/bank_discovery/bank_discovery_confirmation_sheet.dart';
 import 'package:money_companion/features/bank_discovery/bank_discovery_controller.dart';
@@ -166,6 +167,15 @@ class _CountingBankDiscoveryClient implements BankDiscoveryClient {
 }
 
 void main() {
+  test('app shell no longer auto-opens the bank discovery sheet', () {
+    final shell = File('lib/features/app/app_shell.dart').readAsStringSync();
+    expect(shell, isNot(contains('showBankDiscoveryConfirmationSheet')));
+    expect(shell, isNot(contains('_openBankDiscoverySheet')));
+    expect(shell, isNot(contains('_pendingBankDiscoveryForSender')));
+    expect(shell, isNot(contains('bankDiscoveryRequests')));
+    expect(shell, isNot(contains('bank_discovery_confirmation_sheet')));
+  });
+
   test('CaptureRuntime emits pending bank discovery UI trigger state',
       () async {
     final mapping = _pendingMapping();
@@ -256,35 +266,12 @@ void main() {
 
     expect(repository.mapping.status, SenderBankMappingStatus.confirmed);
   });
-
-  testWidgets('Choose my bank saves a userManual mapping confirmed with the key',
-      (tester) async {
-    final repository = _MemorySenderBankMappingRepository(_pendingMapping());
-    const chosen = BankProfile(
-      bankKey: 'test_bank_ae',
-      displayName: 'Test Bank',
-      keywords: ['testbank'],
-      country: 'AE',
-    );
-    await tester.pumpWidget(
-        _TestApp(repository: repository, profiles: const [chosen]));
-
-    await tester.tap(find.text('اختر بنكي'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Test Bank'));
-    await tester.pumpAndSettle();
-
-    expect(repository.mapping.status, SenderBankMappingStatus.confirmed);
-    expect(repository.mapping.source, SenderBankMappingSource.userManual);
-    expect(repository.mapping.bankKey, 'test_bank_ae');
-  });
 }
 
 class _TestApp extends StatelessWidget {
-  const _TestApp({required this.repository, this.profiles});
+  const _TestApp({required this.repository});
 
   final SenderBankMappingRepository repository;
-  final List<BankProfile>? profiles;
 
   @override
   Widget build(BuildContext context) {
@@ -303,10 +290,7 @@ class _TestApp extends StatelessWidget {
         localizationsDelegates: AppL10n.localizationsDelegates,
         supportedLocales: AppL10n.supportedLocales,
         home: Scaffold(
-          body: BankDiscoveryConfirmationSheet(
-            mapping: _pendingMapping(),
-            profiles: profiles,
-          ),
+          body: BankDiscoveryConfirmationSheet(mapping: _pendingMapping()),
         ),
       ),
     );

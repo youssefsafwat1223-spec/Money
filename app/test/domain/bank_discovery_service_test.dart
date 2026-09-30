@@ -105,7 +105,7 @@ void main() {
     reason: 'Sender and wording match UAE bank alerts.',
   );
 
-  test('unknown sender can produce high-confidence pending suggestion',
+  test('unknown sender returns a matched suggestion and persists nothing',
       () async {
     final repo = _FakeSenderBankMappingRepository();
     final client = _FakeBankDiscoveryClient(highConfidenceSuggestion);
@@ -126,10 +126,11 @@ void main() {
 
     expect(client.callCount, 1);
     expect(result.status, BankDiscoveryResultStatus.pendingSuggestion);
-    // The invented AI key is resolved onto the existing catalog profile.
-    expect(repo.savedDraft?.suggestedBankName, 'بنك المشرق');
-    expect(repo.savedDraft?.bankKey, 'mashreq');
-    expect(repo.savedDraft?.source, SenderBankMappingSource.gemini);
+    // The invented AI key is resolved onto the existing catalog profile and
+    // returned in the result only: nothing is written to the repository.
+    expect(result.suggestion?.suggestedBankName, 'بنك المشرق');
+    expect(result.suggestion?.bankKeySuggestion, 'mashreq');
+    expect(repo.savedDraft, isNull);
   });
 
   test('suggestion with no catalog match saves nothing', () async {

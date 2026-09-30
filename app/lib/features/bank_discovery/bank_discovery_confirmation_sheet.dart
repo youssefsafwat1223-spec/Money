@@ -10,7 +10,6 @@ import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
-import '../../engine/parser/bank_profile.dart';
 import 'bank_discovery_controller.dart';
 import '../../core/utils/l10n_ext.dart';
 
@@ -33,14 +32,9 @@ class BankDiscoveryConfirmationSheet extends ConsumerStatefulWidget {
   const BankDiscoveryConfirmationSheet({
     super.key,
     required this.mapping,
-    this.profiles,
   });
 
   final SenderBankMappingEntity mapping;
-
-  /// Banks offered by "Choose my bank". Defaults to the catalog profiles plus
-  /// the built-in ones.
-  final List<BankProfile>? profiles;
 
   @override
   ConsumerState<BankDiscoveryConfirmationSheet> createState() =>
@@ -61,59 +55,6 @@ class _BankDiscoveryConfirmationSheetState
   Future<void> _reject() async {
     await _run(() async {
       await _controller.reject(widget.mapping);
-      await ref.read(senderBankMappingSyncServiceProvider)?.push();
-    });
-  }
-
-  Future<List<BankProfile>> _loadProfiles() async {
-    final provided = widget.profiles;
-    if (provided != null) return provided;
-    var loaded = const <BankProfile>[];
-    try {
-      loaded = await ref.read(rulesClientProvider).localBankProfiles();
-    } catch (_) {}
-    final byKey = <String, BankProfile>{
-      for (final p in BankProfiles.all) p.bankKey: p,
-      for (final p in loaded) p.bankKey: p,
-    };
-    return byKey.values.toList();
-  }
-
-  Future<void> _chooseBank() async {
-    if (_busy) return;
-    final profiles = await _loadProfiles();
-    if (!mounted) return;
-    final country = widget.mapping.suggestedCountry.toUpperCase();
-    final sorted = [...profiles]..sort((a, b) {
-        final ac = a.country?.toUpperCase() == country ? 0 : 1;
-        final bc = b.country?.toUpperCase() == country ? 0 : 1;
-        return ac != bc ? ac - bc : a.displayName.compareTo(b.displayName);
-      });
-    final chosen = await showModalBottomSheet<BankProfile>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      builder: (sheetContext) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(AppSpacing.gutter),
-              child: Text(sheetContext.l10n.bdChooseMyBank),
-            ),
-            for (final profile in sorted)
-              ListTile(
-                title: Text(profile.displayName),
-                subtitle: profile.country == null ? null : Text(profile.country!),
-                onTap: () => Navigator.of(sheetContext).pop(profile),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (chosen == null || !mounted) return;
-    await _run(() async {
-      await _controller.chooseBank(widget.mapping, chosen);
       await ref.read(senderBankMappingSyncServiceProvider)?.push();
     });
   }
@@ -226,10 +167,6 @@ class _BankDiscoveryConfirmationSheetState
                     OutlinedButton(
                       onPressed: _busy ? null : _reject,
                       child: Text(context.l10n.bdNotThis),
-                    ),
-                    TextButton(
-                      onPressed: _busy ? null : _chooseBank,
-                      child: Text(context.l10n.bdChooseMyBank),
                     ),
                     TextButton(
                       onPressed: _busy ? null : _askLater,

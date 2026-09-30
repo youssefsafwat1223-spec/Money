@@ -1,4 +1,7 @@
 import '../models/parsed_transaction.dart';
+import '../models/transaction_type.dart';
+import '../parser/capture_money.dart';
+import '../parser/direction_signal.dart';
 import '../parser/normalizer.dart';
 import 'ai_parser_client.dart';
 import 'grounding_check.dart';
@@ -57,6 +60,8 @@ class AiCandidateValidator {
     required String sanitizedText,
     required ParsedTransaction? localParsed,
     DateTime? referenceTime,
+    String? messageText,
+    TransactionType? normalizedType,
   }) {
     if (!GroundingCheck.verify(
       amount: response.amount,
@@ -74,6 +79,26 @@ class AiCandidateValidator {
       }
     } else if (!_currencyGrounded(currency, sanitizedText)) {
       return const AiCandidateValidation.rejected('currency_not_grounded');
+    }
+
+    // The exact amount text must be present and canonical for the currency
+    // (the same parse the commit path uses), so an accepted candidate can never
+    // be legacy-lossy money that forces review.
+    final amountText = response.amountText;
+    if (amountText == null) {
+      return const AiCandidateValidation.rejected('amount_text_missing');
+    }
+    try {
+      parseCaptureMoney(amountText, currency);
+    } catch (_) {
+      return const AiCandidateValidation.rejected('amount_text_not_canonical');
+    }
+
+    // The AI type must not contradict the message's own direction wording.
+    if (messageText != null &&
+        normalizedType != null &&
+        DirectionSignal.contradicts(messageText, normalizedType)) {
+      return const AiCandidateValidation.rejected('direction_contradiction');
     }
 
     final merchant = _merchantGrounded(response.merchantName, sanitizedText)

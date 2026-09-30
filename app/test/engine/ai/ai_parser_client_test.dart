@@ -30,6 +30,32 @@ void main() {
     expect(response.amount, 19.99);
   });
 
+  test('is_transaction:false is filtered by the client (null response)',
+      () async {
+    final mock = MockClient((req) async =>
+        http.Response(jsonEncode({'is_transaction': false}), 200));
+    final response = await clientWith(mock).parse(
+      sanitizedSms: 'Your OTP is 1234',
+      senderId: 'ACME',
+      installId: 'install-1',
+    );
+    expect(response, isNull);
+  });
+
+  test('a response without amount/currency throws instead of a candidate',
+      () async {
+    final mock = MockClient(
+        (req) async => http.Response(jsonEncode({'type': 'payment'}), 200));
+    await expectLater(
+      clientWith(mock).parse(
+        sanitizedSms: 'x',
+        senderId: 'ACME',
+        installId: 'install-1',
+      ),
+      throwsA(isA<AiParseException>()),
+    );
+  });
+
   test('sends device_secret, request_id and schema_version', () async {
     late Map<String, dynamic> sent;
     final mock = MockClient((req) async {

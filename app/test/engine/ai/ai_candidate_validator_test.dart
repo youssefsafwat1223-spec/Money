@@ -26,16 +26,38 @@ ParsedTransaction _local({
       parseConfidence: 0.6,
     );
 
+// Fills the exact `amountText` the validator now requires, so each case below
+// keeps testing the one rule it names.
+AiParseResponse _withText(AiParseResponse r) => r.amountText != null
+    ? r
+    : AiParseResponse(
+        amount: r.amount,
+        amountText: r.amount == r.amount.roundToDouble()
+            ? r.amount.toInt().toString()
+            : r.amount.toString(),
+        currency: r.currency,
+        merchantName: r.merchantName,
+        type: r.type,
+        categoryKey: r.categoryKey,
+        direction: r.direction,
+        occurredAt: r.occurredAt,
+        modelUsed: r.modelUsed,
+      );
+
 AiCandidateValidation _run(
   AiParseResponse r,
   String text, {
   ParsedTransaction? local,
+  String? messageText,
+  TransactionType? type,
 }) =>
     _validator.validate(
-      response: r,
+      response: _withText(r),
       sanitizedText: text,
       localParsed: local,
       referenceTime: _ref,
+      messageText: messageText,
+      normalizedType: type,
     );
 
 void main() {
@@ -152,6 +174,45 @@ void main() {
           AiParseResponse(amount: 1250, currency: 'EGP', occurredAt: ok),
           text);
       expect(good.occurredAt, ok);
+    });
+
+    test('missing amountText is rejected', () {
+      final v = _validator.validate(
+        response: const AiParseResponse(amount: 1250, currency: 'EGP'),
+        sanitizedText: 'paid EGP 1,250.00',
+        localParsed: null,
+        referenceTime: _ref,
+      );
+      expect(v.accepted, isFalse);
+      expect(v.rejectionReason, 'amount_text_missing');
+    });
+
+    test('non-canonical amountText is rejected', () {
+      for (final bad in ['12,50', '1250.005', 'abc', '']) {
+        final v = _validator.validate(
+          response: AiParseResponse(
+              amount: 1250, amountText: bad, currency: 'EGP'),
+          sanitizedText: 'paid EGP 1,250.00',
+          localParsed: null,
+          referenceTime: _ref,
+        );
+        expect(v.accepted, isFalse, reason: bad);
+        expect(v.rejectionReason, 'amount_text_not_canonical', reason: bad);
+      }
+    });
+
+    test('type contradicting the message direction is rejected', () {
+      final v = _run(const AiParseResponse(amount: 1250, currency: 'EGP'),
+          'received EGP 1,250.00 from Ali',
+          messageText: 'received EGP 1,250.00 from Ali',
+          type: TransactionType.payment);
+      expect(v.accepted, isFalse);
+      expect(v.rejectionReason, 'direction_contradiction');
+      final ok = _run(const AiParseResponse(amount: 1250, currency: 'EGP'),
+          'received EGP 1,250.00 from Ali',
+          messageText: 'received EGP 1,250.00 from Ali',
+          type: TransactionType.income);
+      expect(ok.accepted, isTrue);
     });
 
     test('outcome never depends on provider-supplied metadata fields', () {
