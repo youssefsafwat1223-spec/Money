@@ -143,6 +143,7 @@ class SyncQueueCounts {
     this.nextRetryAt,
     this.conflicts = 0,
     this.unprovenLocalRows = 0,
+    this.networkStalled = 0,
   });
 
   /// D-5: entities in `sync_status = 'conflict'` — a two-device collision the
@@ -152,6 +153,11 @@ class SyncQueueCounts {
   /// D-5: server-less local rows (no `server_id`, not on an outbox, not
   /// deleted/ignored) still awaiting backfill — local-only until uploaded.
   final int unprovenLocalRows;
+
+  /// Pending outbox rows whose last push failed with a transient NETWORK error
+  /// (`failure_class = transientNetwork`): the app is effectively offline for
+  /// them, whatever the run state says.
+  final int networkStalled;
 
   /// Ledger + planning outbox rows awaiting push.
   final int pending;
@@ -440,7 +446,13 @@ class SyncHealth {
       }
       inFlight += agg.readNullable<int>('f') ?? 0;
     }
+    var networkStalled = 0;
+    for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
+      networkStalled += await n("SELECT COUNT(*) AS n FROM $table "
+          "WHERE status = 'pending' AND failure_class = 'transientNetwork'");
+    }
     return SyncQueueCounts(
+      networkStalled: networkStalled,
       conflicts: await countUnresolvedConflicts(db),
       unprovenLocalRows:
           await countUnprovenFinancialRows(db, excludeIgnored: true),
