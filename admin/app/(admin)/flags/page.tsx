@@ -104,7 +104,7 @@ const ERROR_TEXT: Record<string, string> = {
   value_out_of_range: "القيمة خارج النطاق المقبول في التطبيق.",
   rollout_percent_invalid: "نسبة الإطلاق يجب أن تكون عددًا صحيحًا من 0 إلى 100.",
   target_country_invalid: "رموز الدول يجب أن تكون حرفين كبيرين (ISO) مثل EG.",
-  dependency_missing: "يتطلب نشر المهاجرة 0101 قبل تفعيل هذا المفتاح.",
+  dependency_missing: "يتطلب نشر المهاجرة 0100 قبل تفعيل هذا المفتاح.",
   bulk_ineligible: "غير مؤهل للتعديل الجماعي.",
   not_wired_description_only: "مفتاح غير مربوط: يمكن تعديل الوصف فقط.",
   no_effective_changes: "لا توجد تغييرات.",
@@ -313,7 +313,7 @@ export default function FlagsPage() {
       </HelpNote>
       {!auditAvailable && (
         <HelpNote tone="warning">
-          سجل المراجعة غير منشور بعد (المهاجرة 0102). يمكنك الاطلاع على الإعدادات لكن التعديل سيُرفض حتى نشرها.
+          سجل المراجعة غير منشور بعد (المهاجرة 0101). يمكنك الاطلاع على الإعدادات لكن التعديل سيُرفض حتى نشرها.
         </HelpNote>
       )}
       {notice && <Banner tone="success" onDismiss={() => setNotice("")}>{notice}</Banner>}

@@ -2,7 +2,7 @@
 ///
 /// The server advertises app-visible capabilities through the read-only RPC
 /// `qirsh_server_capabilities()` (authenticated, returns jsonb). Before the
-/// deferred migration 0103 is deployed the RPC does not exist, which is itself
+/// deferred migration 0102 is deployed the RPC does not exist, which is itself
 /// the answer: the capability is UNSUPPORTED. Authority is positive-proof only:
 /// a capability is [ServerCapabilityState.verified] only when the RPC returned
 /// its key as `true`, or a send of that shape was accepted ([noteVerified]).
@@ -117,7 +117,7 @@ class ServerCapabilitiesService {
   }
 
   /// A-5: re-probes a cached `unsupported` / `unknown` answer (the server may
-  /// have deployed the capability since — migration 0103 — while this process
+  /// have deployed the capability since — migration 0102 — while this process
   /// kept running), at most once per [minInterval]. A `verified` answer is never
   /// re-probed. Called on app resume; Retry uses `force: true` directly.
   Future<ServerCapabilityState> reprobeIfStale({

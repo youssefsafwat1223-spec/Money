@@ -232,6 +232,7 @@ enum DataPortabilityError {
   fixErrorsFirst,
   externalCsvMergeOnly,
   replaceUnavailableMixed,
+  replaceUnavailableCloud,
   reselectFile,
   csvMappingIncomplete,
   exportTooLarge,

@@ -186,9 +186,9 @@ test("high-risk changes need the typed key; bulk with a high-risk key is refused
   assert.match(read("app/api/feature-flags/apply/route.ts"), /typedConfirmation: body\.typed_confirmation/);
 });
 
-test("ai_sender_mapping_auto carries its 0101 dependency warning; preview probes the column", () => {
+test("ai_sender_mapping_auto carries its 0100 dependency warning; preview probes the column", () => {
   const p = buildPlan([row("ai_sender_mapping_auto")], [{ key: "ai_sender_mapping_auto", expected_updated_at: T0, set: { is_active: true, value: "true", rollout_percent: 100 } }]);
-  assert.ok(p.warnings.some((w) => w.code === "has_dependency" && w.detail.includes("0101")));
+  assert.ok(p.warnings.some((w) => w.code === "has_dependency" && w.detail.includes("0100")));
   assert.match(read("app/api/feature-flags/preview/route.ts"), /acceptedByColumnExists/);
 });
 
@@ -197,8 +197,8 @@ test("no-op edits are rejected", () => {
 });
 
 // ── migration contract (static) ──────────────────────────────────────────────
-test("0102 is deferred, gapless-safe, service-role-only, append-only, idempotent", () => {
-  const sql = read("../supabase/deferred/0102_feature_flag_admin_audit.sql");
+test("0101 is deferred, gapless-safe, service-role-only, append-only, idempotent", () => {
+  const sql = read("../supabase/deferred/0101_feature_flag_admin_audit.sql");
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.admin_apply_feature_flag_changes\(UUID, TEXT, UUID, JSONB\)\s+FROM PUBLIC, anon, authenticated/);
   assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.admin_apply_feature_flag_changes[\s\S]*TO service_role/);
   assert.match(sql, /REVOKE ALL ON TABLE public\.feature_flag_admin_audit FROM PUBLIC, anon, authenticated/);
@@ -210,7 +210,7 @@ test("0102 is deferred, gapless-safe, service-role-only, append-only, idempotent
   assert.doesNotMatch(sql.replace(/^--.*$/gm, ""), /updated_by/, "no actor column on feature_flags (anon SELECT policy)");
   assert.match(sql, /RAISE EXCEPTION 'unsafe_to_arm: %'/);
   assert.match(sql, /BETWEEN 4 AND 500/);
-  assert.match(read("../supabase/deferred/README.md"), /0102_feature_flag_admin_audit\.sql — DEFERRED/);
+  assert.match(read("../supabase/deferred/README.md"), /0101_feature_flag_admin_audit\.sql — DEFERRED/);
 });
 
 test("apply: RPC not deployed (PGRST202 / 42883) -> 503 audit_not_deployed, no console.error", () => {

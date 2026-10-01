@@ -39,6 +39,7 @@ AppDataPortabilityService _service(AppDatabase db) => AppDataPortabilityService(
       categories: DriftCategoryRepository(db),
       transactions: DriftTransactionRepository(db),
       settings: DriftUserSettingsRepository(db),
+      isCloudOwned: () async => false,
     );
 
 /// Seeds one confirmed transaction into [db] (on the seeded default account) so

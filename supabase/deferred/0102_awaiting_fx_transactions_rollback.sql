@@ -1,4 +1,4 @@
--- ROLLBACK for 0103_awaiting_fx_transactions.sql
+-- ROLLBACK for 0102_awaiting_fx_transactions.sql
 --
 -- Refuses while any awaiting-FX row exists: restoring `amount > 0` would violate
 -- them. Resolve first, either by pricing them (set amount > 0 from a real FX
@@ -11,7 +11,7 @@ DECLARE n bigint;
 BEGIN
   SELECT count(*) INTO n FROM public.user_transactions WHERE amount = 0;
   IF n > 0 THEN
-    RAISE EXCEPTION '0103 rollback refused: % awaiting-FX transaction(s) (amount = 0) exist. Price them (set amount > 0) or delete them first; restoring CHECK (amount > 0) would violate them.', n
+    RAISE EXCEPTION '0102 rollback refused: % awaiting-FX transaction(s) (amount = 0) exist. Price them (set amount > 0) or delete them first; restoring CHECK (amount > 0) would violate them.', n
       USING ERRCODE = '23514';
   END IF;
 END $$;

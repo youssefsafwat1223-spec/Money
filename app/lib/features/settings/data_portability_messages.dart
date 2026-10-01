@@ -25,6 +25,7 @@ String dataPortabilityMessage(BuildContext context, DataPortabilityException e) 
     DataPortabilityError.fixErrorsFirst => l.dpeFixErrorsFirst,
     DataPortabilityError.externalCsvMergeOnly => l.dpeExternalCsvMergeOnly,
     DataPortabilityError.replaceUnavailableMixed => l.dpeReplaceUnavailableMixed,
+    DataPortabilityError.replaceUnavailableCloud => l.dpeReplaceUnavailableCloud,
     DataPortabilityError.reselectFile => l.dpeReselectFile,
     DataPortabilityError.csvMappingIncomplete => l.dpeCsvMappingIncomplete,
     DataPortabilityError.exportTooLarge => l.dpeExportTooLarge,

@@ -10,6 +10,7 @@ import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/finance/money_transport.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/category_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
@@ -29,7 +30,11 @@ class AppDataPortabilityService implements DataPortabilityService {
     required TransactionRepository transactions,
     required UserSettingsRepository settings,
     LedgerOutboxQueue? ledgerOutbox,
-  })  : _ledgerOutbox = ledgerOutbox,
+    PlanningOutboxQueue? planningOutbox,
+    required Future<bool> Function() isCloudOwned,
+  })  : _isCloudOwned = isCloudOwned,
+        _ledgerOutbox = ledgerOutbox,
+        _planningOutbox = planningOutbox,
         _db = db,
         _accounts = accounts,
         _categories = categories,
@@ -42,6 +47,8 @@ class AppDataPortabilityService implements DataPortabilityService {
   final TransactionRepository _transactions;
   final UserSettingsRepository _settings;
   final LedgerOutboxQueue? _ledgerOutbox;
+  final PlanningOutboxQueue? _planningOutbox;
+  final Future<bool> Function() _isCloudOwned;
 
   final Map<String, Object> _inspected = {};
 
@@ -140,7 +147,9 @@ class AppDataPortabilityService implements DataPortabilityService {
               entry.key: entry.value.rows.length,
           },
           issues: const [],
-          canReplace: true,
+          // Replace soft-hides children that nothing can delete on the server
+          // (permanent cross-device divergence), so it is local-only (guest).
+          canReplace: !await _isCloudOwned(),
         );
       } catch (error) {
         // Not a valid Qirsh package. Check if it's a ZIP containing a single CSV (e.g. from a bank).
@@ -246,6 +255,14 @@ class AppDataPortabilityService implements DataPortabilityService {
       }
       return _importGeneric(preview);
     }
+    if (mode == ImportMode.replace && await _isCloudOwned()) {
+      // Re-checked live: identity may have changed since the preview, and a
+      // stale/forged `canReplace` must never reach the destructive path.
+      throw const DataPortabilityException(
+        'الاستبدال متاح فقط للبيانات المحلية.',
+        code: DataPortabilityError.replaceUnavailableCloud,
+      );
+    }
     if (mode == ImportMode.replace && !preview.canReplace) {
       throw const DataPortabilityException(
         'الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.', code: DataPortabilityError.replaceUnavailableMixed,
@@ -260,7 +277,8 @@ class AppDataPortabilityService implements DataPortabilityService {
     // server/mixed import RPC branches (and their repairAll/mark-dirty recovery)
     // are retired; local import is transactional and recorded in the local
     // financial_import_runs for idempotency.
-    return DriftFinancialImporter(_db, ledgerOutbox: _ledgerOutbox)
+    return DriftFinancialImporter(_db,
+            ledgerOutbox: _ledgerOutbox, planningOutbox: _planningOutbox)
         .importPackage(package, mode);
   }
 

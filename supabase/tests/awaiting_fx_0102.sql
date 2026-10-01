@@ -1,11 +1,11 @@
--- SQL proof for deferred migration 0103 (awaiting_fx_transactions).
+-- SQL proof for deferred migration 0102 (awaiting_fx_transactions).
 -- Run against a LOCAL throwaway Postgres ONLY (active chain 0001-0099 applied;
--- 0100-0102 NOT required). Everything is rolled back.
+-- 0100-0101 NOT required). Everything is rolled back.
 --
---   sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/deferred/0103_awaiting_fx_transactions_rollback.sql > "$TMPDIR/rb0103.sql"
---   { echo 'BEGIN;'; sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/deferred/0103_awaiting_fx_transactions.sql;
---     cat supabase/tests/awaiting_fx_0103.sql; echo 'ROLLBACK;'; } \
---   | psql "$LOCAL_URL" -v ON_ERROR_STOP=1 -v rb="$TMPDIR/rb0103.sql"
+--   sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/deferred/0102_awaiting_fx_transactions_rollback.sql > "$TMPDIR/rb0102.sql"
+--   { echo 'BEGIN;'; sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/deferred/0102_awaiting_fx_transactions.sql;
+--     cat supabase/tests/awaiting_fx_0102.sql; echo 'ROLLBACK;'; } \
+--   | psql "$LOCAL_URL" -v ON_ERROR_STOP=1 -v rb="$TMPDIR/rb0102.sql"
 --
 -- (The migration's own BEGIN/COMMIT are stripped so the outer ROLLBACK undoes it.)
 
@@ -102,4 +102,4 @@ SELECT pg_temp.expect_err('rollback: amount 0 rejected again',
  $q$INSERT INTO public.user_transactions (user_id, amount, currency, foreign_amount, foreign_currency, occurred_at, source, client_request_id) VALUES ('00000000-0000-0000-0000-0000000000b1',0,'EGP',5,'USD','2026-05-10','manual','z6')$q$, '23514');
 
 SELECT name, CASE WHEN ok THEN 'PASS' ELSE 'FAIL' END AS result, detail FROM _r ORDER BY ok, name;
-DO $$ BEGIN IF EXISTS (SELECT 1 FROM _r WHERE NOT ok) THEN RAISE EXCEPTION 'awaiting_fx_0103 proof FAILED'; END IF; END $$;
+DO $$ BEGIN IF EXISTS (SELECT 1 FROM _r WHERE NOT ok) THEN RAISE EXCEPTION 'awaiting_fx_0102 proof FAILED'; END IF; END $$;

@@ -1,4 +1,4 @@
--- ROLLBACK for 0101_sender_mapping_accepted_by.sql
+-- ROLLBACK for 0100_sender_mapping_accepted_by.sql
 --
 -- Drops the provenance column (and its CHECK constraint with it). Loses only
 -- the user | ai_validated provenance; the mapping rows themselves stay.

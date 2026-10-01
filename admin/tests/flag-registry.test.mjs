@@ -137,7 +137,7 @@ test("server-read flags: retired_but_read is high risk and all-or-nothing; the t
   assert.equal(FLAG_REGISTRY.enable_proof_autocommit.unsafeToArm, true);
   assert.match(FLAG_REGISTRY.enable_proof_autocommit.notes, /يُرفع الحظر فقط عند ربط محرك الإثبات/);
   assert.deepEqual(FLAG_REGISTRY.proof_parser_confidence_min.intRange, [991, 1000]);
-  assert.ok(FLAG_REGISTRY.ai_sender_mapping_auto.dependencies?.join(" ").includes("0101"));
+  assert.ok(FLAG_REGISTRY.ai_sender_mapping_auto.dependencies?.join(" ").includes("0100"));
 });
 
 test("labels.ts no longer calls a still-read key 'retired / no effect'", () => {

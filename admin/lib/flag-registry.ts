@@ -133,7 +133,7 @@ export const FLAG_REGISTRY: Record<string, FlagMeta> = {
     "قبول ربط المُرسِل بالبنك تلقائيًا بعد تحقق الذكاء الاصطناعي." + OVERRIDE_NOTE,
     {
       dependencies: [
-        "يتطلب نشر المهاجرة المؤجلة 0101 (sender_bank_mappings.accepted_by) قبل التفعيل — يمنع الخادم التفعيل بدونها.",
+        "يتطلب نشر المهاجرة المؤجلة 0100 (sender_bank_mappings.accepted_by) قبل التفعيل — يمنع الخادم التفعيل بدونها.",
       ],
     },
   ),

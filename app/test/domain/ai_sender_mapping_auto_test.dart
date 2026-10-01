@@ -210,13 +210,13 @@ void main() {
       await upgraded.close();
     });
 
-    test('supabase migration 0101 is deferred (not active) and additive', () {
-      const name = '0101_sender_mapping_accepted_by.sql';
+    test('supabase migration 0100 is deferred (not active) and additive', () {
+      const name = '0100_sender_mapping_accepted_by.sql';
       // Interpolated so head_completeness's tracked-file scan (which only
       // follows literal paths) does not treat this absence check as a read.
       expect(File('../supabase/migrations/$name').existsSync(), isFalse);
       final sql =
-          File('../supabase/deferred/0101_sender_mapping_accepted_by.sql')
+          File('../supabase/deferred/0100_sender_mapping_accepted_by.sql')
               .readAsStringSync();
       expect(
           sql,
@@ -251,7 +251,7 @@ void main() {
     });
 
     // Changed from "stamps 'user'": a non-null accepted_by in the sync payload
-    // is rejected by production PostgREST until migration 0101 is deployed.
+    // is rejected by production PostgREST until migration 0100 is deployed.
     // NULL already means user/legacy-accepted (isUserAccepted).
     test('user confirm() leaves accepted_by NULL and is user-accepted',
         () async {

@@ -372,6 +372,7 @@ class BootstrapRunner {
               buildPlanningOutboxQueue(database, coordinator: coordinator),
           getOwnerUid: localDataOwnerUid,
           getAuthUserId: currentSupabaseUserId,
+          health: SyncHealth.shared,
           mayEgress: () => ConsentAuthority(
             () => DriftUserSettingsRepository(database).getSettings(),
           ).allows(EgressClass.financialSync),

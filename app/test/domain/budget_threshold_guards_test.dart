@@ -37,7 +37,7 @@ void main() {
   test('the threshold is not pushed to a server with no column for it', () {
     // `alert_threshold_percent` is device-local for V1. The server's
     // `user_budgets` has no such column, adding one needs a migration, and
-    // migration 0100 is deferred by owner decision — a payload carrying an
+    // migration 0103 is deferred by owner decision — a payload carrying an
     // unknown key is rejected outright, so shipping it would break budget sync
     // for every user rather than add a feature.
     //

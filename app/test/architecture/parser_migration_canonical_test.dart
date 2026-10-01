@@ -111,9 +111,9 @@ void main() {
   });
 
   group('deferred telemetry stays deferred and uncollided', () {
-    test('it is numbered 0100 and lives outside migrations/', () {
+    test('it is numbered 0103 and lives outside migrations/', () {
       expect(
-        File('../supabase/deferred/0100_record_metric_ad_keys.sql').existsSync(),
+        File('../supabase/deferred/0103_record_metric_ad_keys.sql').existsSync(),
         isTrue,
       );
       final active = Directory('../supabase/migrations')
@@ -122,7 +122,7 @@ void main() {
           .toList();
       expect(active.any((f) => f.contains('record_metric')), isFalse,
           reason: 'the telemetry migration must not become active');
-      expect(active.any((f) => f.startsWith('0100')), isFalse,
+      expect(active.any((f) => f.startsWith('0103')), isFalse,
           reason: 'no active migration may collide with the deferred number');
     });
 

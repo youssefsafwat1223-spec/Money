@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -2988,6 +2987,10 @@ class AppL10nEn extends AppL10n {
   String get dtxReplace => 'Replace';
 
   @override
+  String get dtxReplaceGuestOnly =>
+      'Replace is only available for data kept on this device. Because your data is synced to your account, Merge is the only option: it adds the package contents and keeps what you already have.';
+
+  @override
   String get dtxConfirmReplace => 'Confirm the replacement';
 
   @override
@@ -5172,6 +5175,10 @@ class AppL10nEn extends AppL10n {
   @override
   String get dpeReplaceUnavailableMixed =>
       'Replace is not available while mixed data sources are active.';
+
+  @override
+  String get dpeReplaceUnavailableCloud =>
+      'Replace is only available for data kept on this device. Because your data is synced to your account, use Merge instead.';
 
   @override
   String get dpeReselectFile => 'Select the file again, then try once more.';

@@ -63,7 +63,7 @@ import 'app_localizations_en.dart';
 /// property.
 abstract class AppL10n {
   AppL10n(String locale)
-    : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
   final String localeName;
 
@@ -85,16 +85,16 @@ abstract class AppL10n {
   /// of delegates is preferred or required.
   static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
       <LocalizationsDelegate<dynamic>>[
-        delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-      ];
+    delegate,
+    GlobalMaterialLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+  ];
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('ar'),
-    Locale('en'),
+    Locale('en')
   ];
 
   /// No description provided for @appTitle.
@@ -5101,6 +5101,12 @@ abstract class AppL10n {
   /// **'استبدال'**
   String get dtxReplace;
 
+  /// No description provided for @dtxReplaceGuestOnly.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاستبدال متاح فقط للبيانات المحفوظة على هذا الجهاز. لأن بياناتك مزامَنة مع حسابك، الدمج هو الخيار الوحيد: يضيف محتوى الحزمة ويُبقي ما لديك.'**
+  String get dtxReplaceGuestOnly;
+
   /// No description provided for @dtxConfirmReplace.
   ///
   /// In ar, this message translates to:
@@ -8773,6 +8779,12 @@ abstract class AppL10n {
   /// **'الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.'**
   String get dpeReplaceUnavailableMixed;
 
+  /// No description provided for @dpeReplaceUnavailableCloud.
+  ///
+  /// In ar, this message translates to:
+  /// **'الاستبدال متاح فقط للبيانات المحفوظة على هذا الجهاز. لأن بياناتك مزامَنة مع حسابك، استخدم «دمج» بدلًا من ذلك.'**
+  String get dpeReplaceUnavailableCloud;
+
   /// No description provided for @dpeReselectFile.
   ///
   /// In ar, this message translates to:
@@ -10144,9 +10156,8 @@ AppL10n lookupAppL10n(Locale locale) {
   }
 
   throw FlutterError(
-    'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
-    'an issue with the localizations generation tool. Please file an issue '
-    'on GitHub with a reproducible sample app and the gen-l10n configuration '
-    'that was used.',
-  );
+      'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
+      'an issue with the localizations generation tool. Please file an issue '
+      'on GitHub with a reproducible sample app and the gen-l10n configuration '
+      'that was used.');
 }

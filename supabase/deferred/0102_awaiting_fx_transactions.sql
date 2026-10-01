@@ -22,9 +22,9 @@
 -- drop a key a shipped client may read.
 --
 -- ACTIVATION CONDITION: deploy before (or with) the app release that writes
--- awaiting-FX rows. Ordering: independent of 0100-0102 (references none of them);
--- the active chain ends at 0099, so renumber to the next free active number if
--- this is activated while 0100-0102 stay deferred.
+-- awaiting-FX rows. Ordering: independent of 0100-0101 (references none of them);
+-- activate it last in the 0100-0102 set (the active chain ends at 0099), or
+-- renumber to the next free active number if activated on its own.
 
 BEGIN;
 

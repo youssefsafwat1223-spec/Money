@@ -23,7 +23,7 @@
 -- all-or-nothing rollout, mirroring resolveUserBooleanFlag which FAILS CLOSED on
 -- rollout < 100 or non-empty target_countries). The one piece of schema
 -- knowledge that belongs here is the ai_sender_mapping_auto dependency on
--- sender_bank_mappings.accepted_by (migration 0101).
+-- sender_bank_mappings.accepted_by (migration 0100).
 --
 -- AUTHORIZATION SEAM
 -- Every change passes through admin_can_change_flag(actor, key). It returns true
@@ -32,8 +32,8 @@
 -- replaces ONE function body; the flag model and the RPC do not change.
 --
 -- ACTIVATION CONDITION: deploy together with the Admin release that ships
--- /api/feature-flags. Ordering: AFTER 0101 (0100, 0101 are also deferred at the
--- tail). If 0100/0101 stay deferred, renumber this file (and its rollback) to the
+-- /api/feature-flags. Ordering: AFTER 0100 (0100-0102 are the deferred activation
+-- set, in that order). If 0100 stays deferred, renumber this file (and its rollback) to the
 -- next free active number before moving it.
 
 BEGIN;
@@ -318,14 +318,14 @@ BEGIN
       RAISE EXCEPTION 'unsafe_to_arm: %', v_key USING ERRCODE = 'P0422';
     END IF;
 
-    -- Dependency: ai_sender_mapping_auto needs migration 0101's column.
+    -- Dependency: ai_sender_mapping_auto needs migration 0100's column.
     IF v_key = 'ai_sender_mapping_auto' AND v_new.is_active
        AND lower(v_new.value) = 'true'
        AND NOT EXISTS (
          SELECT 1 FROM pg_attribute
          WHERE attrelid = to_regclass('public.sender_bank_mappings')
            AND attname = 'accepted_by' AND attnum > 0 AND NOT attisdropped) THEN
-      RAISE EXCEPTION 'dependency_missing: sender_bank_mappings.accepted_by (migration 0101)'
+      RAISE EXCEPTION 'dependency_missing: sender_bank_mappings.accepted_by (migration 0100)'
         USING ERRCODE = 'P0422';
     END IF;
 

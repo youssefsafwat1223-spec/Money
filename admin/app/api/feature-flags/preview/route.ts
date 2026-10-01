@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
     plan.errors.push({
       key: "ai_sender_mapping_auto",
       code: "dependency_missing",
-      detail: "sender_bank_mappings.accepted_by (migration 0101) غير منشورة",
+      detail: "sender_bank_mappings.accepted_by (migration 0100) غير منشورة",
     });
   }
   return NextResponse.json({

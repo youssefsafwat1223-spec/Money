@@ -13,7 +13,7 @@ export async function loadFlagRows(supabase: Admin, changes: ChangeRequest[]) {
 }
 
 /**
- * Probe for migration 0101 (sender_bank_mappings.accepted_by). The RPC is the
+ * Probe for migration 0100 (sender_bank_mappings.accepted_by). The RPC is the
  * authority and blocks enabling ai_sender_mapping_auto without it; this lets
  * /preview say so before the operator reaches confirmation.
  */
@@ -22,7 +22,7 @@ export async function acceptedByColumnExists(supabase: Admin): Promise<boolean> 
   return !error;
 }
 
-/** Maps an RPC SQLSTATE (see supabase/deferred/0102) to the HTTP contract. */
+/** Maps an RPC SQLSTATE (see supabase/deferred/0101) to the HTTP contract. */
 export function rpcErrorStatus(code: string | undefined): number {
   switch (code) {
     case "P0409":
@@ -38,7 +38,7 @@ export function rpcErrorStatus(code: string | undefined): number {
   }
 }
 
-/** PostgREST PGRST202 (function not in schema cache) / 42883 (undefined_function): migration 0102 not deployed. */
+/** PostgREST PGRST202 (function not in schema cache) / 42883 (undefined_function): migration 0101 not deployed. */
 export function isRpcNotDeployed(code: string | undefined): boolean {
   return code === "PGRST202" || code === "42883";
 }

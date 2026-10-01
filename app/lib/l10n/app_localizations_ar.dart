@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -2994,6 +2993,10 @@ class AppL10nAr extends AppL10n {
   String get dtxReplace => 'استبدال';
 
   @override
+  String get dtxReplaceGuestOnly =>
+      'الاستبدال متاح فقط للبيانات المحفوظة على هذا الجهاز. لأن بياناتك مزامَنة مع حسابك، الدمج هو الخيار الوحيد: يضيف محتوى الحزمة ويُبقي ما لديك.';
+
+  @override
   String get dtxConfirmReplace => 'تأكيد الاستبدال';
 
   @override
@@ -5183,6 +5186,10 @@ class AppL10nAr extends AppL10n {
   @override
   String get dpeReplaceUnavailableMixed =>
       'الاستبدال غير متاح أثناء تشغيل مصادر بيانات مختلطة.';
+
+  @override
+  String get dpeReplaceUnavailableCloud =>
+      'الاستبدال متاح فقط للبيانات المحفوظة على هذا الجهاز. لأن بياناتك مزامَنة مع حسابك، استخدم «دمج» بدلًا من ذلك.';
 
   @override
   String get dpeReselectFile => 'أعد اختيار الملف ثم حاول مرة أخرى.';

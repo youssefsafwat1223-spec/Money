@@ -1,6 +1,7 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/unsynced_inventory.dart';
+import 'package:money_companion/core/sync/sync_health.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import '../../harness/seed_test_account.dart';
@@ -104,10 +105,79 @@ void main() {
     expect(inv.hasPendingUserData, isTrue);
   });
 
-  test('local-only (cloud-unsupported) cards are counted as unsynced', () async {
+  test('local-only (cloud-unsupported) cards are counted as unsynced',
+      () async {
     localOnlyCards = 3;
     final inv = await service().collect();
     expect(inv.localOnlyCards, 3);
     expect(inv.hasPendingUserData, isTrue);
+  });
+
+  group('server-backed pending rows with NO outbox row (bypass writers)', () {
+    Future<void> pendingTx(String id,
+            {String status = 'confirmed', String sync = 'pending'}) =>
+        db.customStatement('''
+      INSERT INTO transactions(id, amount, currency, type, source, occurred_at,
+        raw_message, parse_confidence, status, created_at, updated_at,
+        server_id, sync_status)
+      VALUES ('$id', 1, 'SAR', 'payment', 'bank', '2026-06-01T00:00:00Z', '',
+        0.9, '$status', '2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z',
+        'srv-$id', '$sync');
+    ''');
+
+    test('counted for sign-out; synced and outbox-covered rows are not',
+        () async {
+      await markAllAccountsSynced();
+      expect((await service().collect()).hasPendingUserData, isFalse);
+      await pendingTx('t-edit');
+      await pendingTx('t-synced', sync: 'synced');
+      await pendingTx('t-queued');
+      await db.customStatement(
+        "INSERT INTO ledger_sync_outbox(id, transaction_id, operation, "
+        "payload_json, created_at, updated_at) VALUES ('o1', 't-queued', "
+        "'update', '{}', '2026-01-01', '2026-01-01');",
+      );
+      final inv = await service().collect();
+      expect(inv.unprovenFinancialRows, 1);
+      expect(inv.hasPendingUserData, isTrue);
+    });
+
+    test('a pending tombstone (ignored tx / deleted parent) is still counted',
+        () async {
+      await markAllAccountsSynced();
+      await pendingTx('t-gone', status: 'ignored');
+      await db.customStatement("UPDATE accounts SET sync_status = 'pending', "
+          "deleted_at = '2026-06-01T00:00:00Z';");
+      final inv = await service().collect();
+      expect(inv.unprovenFinancialRows, greaterThanOrEqualTo(2));
+      // The status variant (excludeIgnored) hides only never-synced ignored
+      // rows; a server-backed pending delete is still unproven.
+      expect(await countUnprovenFinancialRows(db, excludeIgnored: true),
+          inv.unprovenFinancialRows);
+    });
+
+    test('covers parent tables: goals/budgets/plans/subscriptions/settings',
+        () async {
+      await markAllAccountsSynced();
+      await db.customStatement('''
+        INSERT INTO goals(id, name, target_amount, saved_amount, currency,
+          target_amount_minor, saved_amount_minor,
+          last_notified_saved_amount_minor, vault_skin, status, created_at,
+          server_id, sync_status)
+        VALUES ('goal', 'G', 100, 0, 'SAR', 10000, 0, 0, 'classic', 'active',
+          '2026-07-01T00:00:00Z', 'srv-goal', 'pending');
+      ''');
+      await db.customStatement(
+          "UPDATE user_settings SET server_id = 'srv-set', sync_status = 'pending';");
+      expect((await service().collect()).unprovenFinancialRows, 2);
+    });
+
+    test('SyncHealth.queueCounts (SyncStatus) sees them: not allSynced',
+        () async {
+      await markAllAccountsSynced();
+      await pendingTx('t-edit');
+      final counts = await SyncHealth.queueCounts(db);
+      expect(counts.unprovenLocalRows, 1);
+    });
   });
 }

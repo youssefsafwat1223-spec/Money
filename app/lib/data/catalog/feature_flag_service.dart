@@ -102,7 +102,7 @@ const Map<String, Object> _defaults = {
   'local_auto_confirm_v2': false,
   // A validated AI capture whose bank matched exactly one catalog bank
   // persists a sender->bank mapping (accepted_by='ai_validated'). Stays OFF
-  // until migration 0101 (sender_bank_mappings.accepted_by) is deployed.
+  // until migration 0100 (sender_bank_mappings.accepted_by) is deployed.
   'ai_sender_mapping_auto': false,
   // MALI-034: the obsolete Supabase-primary financial-authority flags
   // (accounts/transactions/budgets/goals/subscriptions/plans_supabase_primary,

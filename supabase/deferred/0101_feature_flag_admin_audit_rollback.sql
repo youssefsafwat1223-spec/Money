@@ -1,4 +1,4 @@
--- ROLLBACK for 0102_feature_flag_admin_audit.sql
+-- ROLLBACK for 0101_feature_flag_admin_audit.sql
 --
 -- Drops the audit history (the append-only trail of who changed which flag) and
 -- the RPC. Flag rows themselves and their values are untouched; only the

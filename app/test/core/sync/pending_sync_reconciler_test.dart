@@ -7,6 +7,8 @@ import 'package:money_companion/core/data_portability/drift_financial_exporter.d
 import 'package:money_companion/core/data_portability/drift_financial_importer.dart';
 import 'package:money_companion/core/data_portability/qirsh_package_codec.dart';
 import 'package:money_companion/core/sync/pending_sync_reconciler.dart';
+import 'package:money_companion/core/sync/sync_health.dart';
+import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
@@ -62,6 +64,23 @@ AccountEntity _acct(String name) => AccountEntity(
       updatedAt: DateTime.utc(2026),
     );
 
+/// Ledger queue whose enqueue throws for ids starting with `bad` (a row the
+/// reconciler cannot map/enqueue).
+class _SelectivelyFailingLedger extends LedgerOutboxQueue {
+  _SelectivelyFailingLedger({
+    required super.db,
+    required super.isPushEnabled,
+    required super.getAuthUserId,
+    required super.getOwnerUid,
+  });
+
+  @override
+  Future<void> enqueue(OutboxOperation op, TransactionEntity tx) {
+    if (tx.id.startsWith('bad')) throw StateError('cannot map ${tx.id}');
+    return super.enqueue(op, tx);
+  }
+}
+
 void main() {
   late AppDatabase db;
 
@@ -79,11 +98,15 @@ void main() {
     String? auth = 'user-1',
     int limit = 500,
     AppDatabase? on,
+    bool failBad = false,
+    SyncHealth? health,
   }) {
     final d = on ?? db;
     return PendingSyncReconciler(
+      health: health,
       db: d,
-      ledgerQueue: LedgerOutboxQueue(
+      ledgerQueue:
+          (failBad ? _SelectivelyFailingLedger.new : LedgerOutboxQueue.new)(
         db: d,
         isPushEnabled: () => true,
         getAuthUserId: () async => auth,
@@ -118,8 +141,7 @@ void main() {
           r.data
       ];
   Future<String?> syncStatus(String table, String id) async => (await db
-          .customSelect(
-              "SELECT sync_status AS s FROM $table WHERE id = '$id';")
+          .customSelect("SELECT sync_status AS s FROM $table WHERE id = '$id';")
           .getSingle())
       .readNullable<String>('s');
 
@@ -166,14 +188,16 @@ void main() {
     });
 
     test('a tombstoned server-backed row records a delete', () async {
-      await _tx(db, 'gone', serverId: 'srv-1', syncStatus: 'pending', status: 'ignored');
+      await _tx(db, 'gone',
+          serverId: 'srv-1', syncStatus: 'pending', status: 'ignored');
       await reconciler().run();
       expect((await ledgerRows()).single['operation'], 'delete');
     });
 
     test('planning tables: budget, goal, plan, category, settings', () async {
       final cat = (await db
-              .customSelect("SELECT id FROM categories WHERE key = 'groceries';")
+              .customSelect(
+                  "SELECT id FROM categories WHERE key = 'groceries';")
               .getSingle())
           .read<String>('id');
       final acct = await DriftAccountRepository(db).create(_acct('main'));
@@ -215,7 +239,8 @@ void main() {
       await reconciler().run();
 
       final types = (await planningRows()).map((r) => r['entity_type']).toSet();
-      expect(types, containsAll(['budget', 'goal', 'plan', 'category', 'settings']));
+      expect(types,
+          containsAll(['budget', 'goal', 'plan', 'category', 'settings']));
       expect(acct.id, isNotEmpty);
     });
 
@@ -252,6 +277,72 @@ void main() {
       expect(await r.run(), 1);
       expect(await r.run(), 0);
       expect(await ledgerRows(), hasLength(5));
+    });
+  });
+
+  group('reconciler starvation (failing rows)', () {
+    Future<void> bulkBadTxs(int n) => db.customStatement('''
+      WITH RECURSIVE seq(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM seq WHERE i < $n)
+      INSERT INTO transactions(
+        id, amount, currency, type, source, occurred_at, raw_message,
+        parse_confidence, status, created_at, updated_at, server_id,
+        sync_status, direction)
+      SELECT 'bad' || printf('%04d', i), 10.0, 'SAR', 'payment', 'bank',
+        '2026-06-01T00:00:00Z', '', 0.9, 'confirmed', '2026-06-01T00:00:00Z',
+        '2026-06-01T00:00:00Z', 'srv-bad-' || i, 'pending', 'debit' FROM seq;
+    ''');
+
+    Future<void> pendingAccount() async {
+      final acct = await DriftAccountRepository(db).create(_acct('main'));
+      await db.customStatement(
+          "UPDATE accounts SET server_id = 'srv-a', sync_status = 'pending' "
+          "WHERE id = '${acct.id}';");
+      await db.customStatement('DELETE FROM planning_sync_outbox;');
+    }
+
+    test('600 unmappable rows do not stop later rows or later tables',
+        () async {
+      await bulkBadTxs(600);
+      await _tx(db, 'good1', serverId: 'srv-g1', syncStatus: 'pending');
+      await _tx(db, 'good2', serverId: 'srv-g2', syncStatus: 'pending');
+      await pendingAccount();
+      final health = SyncHealth();
+
+      final r = reconciler(failBad: true, health: health);
+      expect(await r.run(), 3, reason: '2 good tx + 1 account in ONE run');
+      expect((await ledgerRows()).map((x) => x['transaction_id']),
+          ['good1', 'good2']);
+      expect((await planningRows('account')), hasLength(1));
+      expect(await syncStatus('transactions', 'bad0001'), 'pending',
+          reason: 'failed rows stay pending (visible), never marked synced');
+      expect(health.of(SyncDomain.ledger).consecutiveFailures, greaterThan(0),
+          reason: 'coarse failure recorded');
+
+      // Idempotent: nothing new, no duplicates.
+      expect(await r.run(), 0);
+      expect(await ledgerRows(), hasLength(2));
+      expect(await planningRows('account'), hasLength(1));
+    });
+
+    test('a failing table does not consume the shared budget (fairness)',
+        () async {
+      await bulkBadTxs(30);
+      await pendingAccount();
+      // limit 2: pre-fix the 30 failures would eat the whole budget.
+      expect(await reconciler(failBad: true, limit: 2).run(), 1);
+      expect(await planningRows('account'), hasLength(1));
+    });
+
+    test('budget counts only recorded rows: a hot table cannot starve others',
+        () async {
+      for (var i = 0; i < 6; i++) {
+        await _tx(db, 'ok$i', serverId: 'srv-$i', syncStatus: 'pending');
+      }
+      await pendingAccount();
+      // limit 4 with 6 ready transactions: the account still gets a slot in
+      // the same run.
+      expect(await reconciler(limit: 4).run(), 4);
+      expect(await planningRows('account'), hasLength(1));
     });
   });
 
@@ -306,16 +397,19 @@ void main() {
       expect(await syncStatus('accounts', acct.id), 'pending');
     });
 
-    test('importer: replace marks hidden + overwritten server-backed rows '
+    test(
+        'importer: replace marks hidden + overwritten server-backed rows '
         'pending, merge leaves duplicates alone', () async {
       final source = await AppDatabase.open(
           executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
       addTearDown(source.close);
-      final srcAcct = await DriftAccountRepository(source).create(_acct('main'));
+      final srcAcct =
+          await DriftAccountRepository(source).create(_acct('main'));
       await source.customStatement(
           "UPDATE accounts SET id = 'acct-1' WHERE id = '${srcAcct.id}';");
       final package = decodeQirshPackage(
-          (await DriftFinancialExporter(source).exportFinancialPackage()).bytes);
+          (await DriftFinancialExporter(source).exportFinancialPackage())
+              .bytes);
 
       final acct = await DriftAccountRepository(db).create(_acct('mine'));
       await db.customStatement(
@@ -332,20 +426,19 @@ void main() {
       await DriftFinancialImporter(db).importPackage(package, ImportMode.merge);
       expect(await syncStatus('accounts', 'acct-1'), 'synced');
 
-      await DriftFinancialImporter(db)
-          .importPackage(
-              decodeQirshPackage((await DriftFinancialExporter(source)
-                      .exportFinancialPackage())
+      await DriftFinancialImporter(db).importPackage(
+          decodeQirshPackage(
+              (await DriftFinancialExporter(source).exportFinancialPackage())
                   .bytes),
-              ImportMode.replace);
+          ImportMode.replace);
       expect(await syncStatus('accounts', 'acct-1'), 'pending');
       expect(await syncStatus('transactions', 'hide-me'), 'pending');
       expect(await syncStatus('categories', 'cat-c'), 'pending');
 
       // …and the reconciler turns them into intents (delete for the hidden tx).
       await reconciler().run();
-      final tx = (await ledgerRows()).singleWhere(
-          (r) => r['transaction_id'] == 'hide-me');
+      final tx = (await ledgerRows())
+          .singleWhere((r) => r['transaction_id'] == 'hide-me');
       expect(tx['operation'], 'delete');
     });
   });

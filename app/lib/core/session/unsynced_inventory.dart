@@ -1,4 +1,5 @@
 import '../../data/db/app_database.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 
 /// MALI-053n/011: an authoritative snapshot of locally-pending user artifacts,
 /// taken before a destructive sign-out so unsynced/local-only data is never
@@ -123,6 +124,20 @@ class UnsyncedInventoryService {
 /// D-5: also drives SyncStatus (never "all synced" while such rows await
 /// backfill). [excludeIgnored] additionally skips locally-ignored transactions
 /// (a discarded row is not waiting for anything); sign-out keeps counting them.
+///
+/// Also counts the OPPOSITE class: SERVER-BACKED rows (`server_id` set) left
+/// `sync_status = 'pending'` by a raw-SQL bypass writer (import, backfill,
+/// cutover, restore repair) that have NO outbox row. Until the
+/// PendingSyncReconciler records their intent (it cannot run with consent off
+/// or while a row fails to map) they are local edits the server has never seen,
+/// invisible to both outbox counts. Tombstoned rows (`deleted_at` set, or an
+/// ignored transaction) are included on purpose — a pending DELETE is just as
+/// unsynced — and are therefore NOT affected by [excludeIgnored], which only
+/// hides never-synced ignored rows. Children (bill payments, goal
+/// contributions, plan links) are immutable and never get a bypass `pending`
+/// mark, so only parent tables are checked, with the same predicates the
+/// reconciler uses (including the account-less-card exclusion while cards
+/// cloud v2 is off).
 Future<int> countUnprovenFinancialRows(
   AppDatabase db, {
   bool excludeIgnored = false,
@@ -162,7 +177,9 @@ Future<int> countUnprovenFinancialRows(
         +
         (SELECT COUNT(*) FROM bill_payments bp
            WHERE bp.deleted_at IS NULL AND bp.server_id IS NULL
-             AND bp.id NOT IN (SELECT entity_id FROM planning_sync_outbox)) AS n;
+             AND bp.id NOT IN (SELECT entity_id FROM planning_sync_outbox))
+        +
+        ${_serverBackedPendingWithoutOutbox()} AS n;
     ''').getSingle();
   return row.read<int>('n');
 }
@@ -188,4 +205,26 @@ Future<int> countUnresolvedConflicts(AppDatabase db) async {
     total += row.read<int>('n');
   }
   return total;
+}
+
+String _serverBackedPendingWithoutOutbox() {
+  String planning(String table, String type, [String extra = '']) =>
+      '(SELECT COUNT(*) FROM $table x '
+      "WHERE x.server_id IS NOT NULL AND x.sync_status = 'pending' $extra "
+      'AND x.id NOT IN (SELECT entity_id FROM planning_sync_outbox '
+      "WHERE entity_type = '$type'))";
+  return [
+    '(SELECT COUNT(*) FROM transactions x '
+        "WHERE x.server_id IS NOT NULL AND x.sync_status = 'pending' "
+        'AND x.id NOT IN (SELECT transaction_id FROM ledger_sync_outbox))',
+    planning('accounts', PlanningOutboxQueue.accountsEntityType),
+    planning('budgets', PlanningOutboxQueue.budgetsEntityType),
+    planning('goals', PlanningOutboxQueue.goalsEntityType),
+    planning('subscriptions', PlanningOutboxQueue.subscriptionsEntityType),
+    planning('plans', PlanningOutboxQueue.plansEntityType),
+    planning('cards', PlanningOutboxQueue.cardsEntityType,
+        kUserCardsCloudV2 ? '' : 'AND x.account_id IS NOT NULL'),
+    planning('categories', PlanningOutboxQueue.categoriesEntityType),
+    planning('user_settings', PlanningOutboxQueue.settingsEntityType),
+  ].join(' + ');
 }

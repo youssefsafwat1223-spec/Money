@@ -200,7 +200,7 @@ class TransactionsBackfillService {
 
         // A-6: an awaiting-FX row (amount 0 + foreign amount, including legacy
         // pending foreign-unpriced rows) must never be sent directly — the server
-        // CHECK rejects it until migration 0103 is verified, and one such row used
+        // CHECK rejects it until migration 0102 is verified, and one such row used
         // to abort the whole run. Hand it to the ledger outbox, whose push applies
         // the capability / park rules (parked `awaiting_server_fx_support`).
         final probeCurrency = local.read<String>('currency');

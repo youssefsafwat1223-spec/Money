@@ -19,7 +19,7 @@ export async function GET() {
   const { data: flags, error } = await supabase.from("feature_flags").select("*").order("key");
   if (error) return NextResponse.json({ error: "flags_unavailable" }, { status: 500 });
 
-  // The audit table ships with deferred migration 0102. Until it is deployed the
+  // The audit table ships with deferred migration 0101. Until it is deployed the
   // page still lists flags, but reports that history/apply are unavailable.
   const { data: auditRows, error: auditError } = await supabase
     .from("feature_flag_admin_audit")

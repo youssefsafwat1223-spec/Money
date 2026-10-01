@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     p_changes: plan.rpcChanges,
   });
   if (error) {
-    // Migration 0102 (audited RPC) not deployed yet: clear 503, no log noise.
+    // Migration 0101 (audited RPC) not deployed yet: clear 503, no log noise.
     if (isRpcNotDeployed(error.code)) {
       return NextResponse.json({ error: "audit_not_deployed" }, { status: 503 });
     }

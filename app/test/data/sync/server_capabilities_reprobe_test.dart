@@ -50,7 +50,7 @@ void main() {
     expect(await s.awaitingFxTransactions(), ServerCapabilityState.unsupported);
     expect(calls, 1);
 
-    // Server deploys 0103 while the app keeps running.
+    // Server deploys 0102 while the app keeps running.
     advertised = true;
     now = now.add(const Duration(minutes: 5));
     expect(await s.reprobeIfStale(), ServerCapabilityState.unsupported,

@@ -7,8 +7,10 @@ import '../../data/db/app_database.dart';
 import '../../data/db/money_codec.dart';
 import '../../data/db/sql_value_codec.dart';
 import '../../data/repositories/drift_repository_support.dart'
-    show transactionFromRow;
+    show goalContributionFromRow, transactionFromRow;
+import '../../data/repositories/drift_bill_repository.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
+import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../../domain/finance/money.dart';
 import '../../engine/parser/capture_money.dart';
 import '../../core/utils/id_generator.dart';
@@ -20,8 +22,10 @@ import 'qirsh_package_codec.dart';
 /// Package record IDs are deliberately preserved: rerunning the same package
 /// is idempotent and relationships never depend on Supabase UUIDs.
 class DriftFinancialImporter {
-  const DriftFinancialImporter(this._db, {LedgerOutboxQueue? ledgerOutbox})
-      : _ledgerOutbox = ledgerOutbox;
+  const DriftFinancialImporter(this._db,
+      {LedgerOutboxQueue? ledgerOutbox, PlanningOutboxQueue? planningOutbox})
+      : _ledgerOutbox = ledgerOutbox,
+        _planningOutbox = planningOutbox;
 
   final AppDatabase _db;
 
@@ -29,6 +33,7 @@ class DriftFinancialImporter {
   /// intent in the SAME database transaction (hidden rows → delete; written
   /// rows → create/update). Null keeps the importer purely local (tests).
   final LedgerOutboxQueue? _ledgerOutbox;
+  final PlanningOutboxQueue? _planningOutbox;
 
   Future<ImportResult> importPackage(
     QirshPackageData package,
@@ -91,6 +96,7 @@ class DriftFinancialImporter {
               existed ? OutboxOperation.update : OutboxOperation.create,
             );
           }
+          if (!existed) await _enqueueNewChild(table, row);
           imported += 1;
         }
       }
@@ -133,29 +139,90 @@ class DriftFinancialImporter {
     if (row != null) await queue.enqueue(op, transactionFromRow(row));
   }
 
+  /// A child row inserted by the import (MERGE, or REPLACE of an absent id) must
+  /// record sync intent in the same transaction: the startup backfill only
+  /// triggers on unsynced PARENTS, so a new child under an already-synced
+  /// parent would otherwise never reach the server.
+  Future<void> _enqueueNewChild(String table, Map<String, String> row) async {
+    final queue = _planningOutbox;
+    if (queue == null) return;
+    switch (table) {
+      case 'bill_payments':
+        final id = _required(row, 'record_id');
+        final billId = _required(row, 'subscription_record_id');
+        final payment = (await DriftBillRepository(_db).getPayments(billId))
+            .where((p) => p.id == id)
+            .firstOrNull;
+        if (payment != null) {
+          await queue.enqueueBillPayment(PlanningSyncOperation.create, payment);
+        }
+      case 'goal_contributions':
+        final contribution = await _db.customSelect(
+          'SELECT * FROM goal_contributions WHERE id = ? LIMIT 1;',
+          variables: [Variable.withString(_required(row, 'record_id'))],
+        ).getSingleOrNull();
+        final currency = contribution == null
+            ? null
+            : await _goalCurrency(contribution.read<String>('goal_id'));
+        if (contribution != null && currency != null) {
+          await queue.enqueueGoalContribution(PlanningSyncOperation.create,
+              goalContributionFromRow(contribution, currency));
+        }
+      case 'plan_transaction_links':
+        final link = await _db.customSelect(
+          'SELECT created_at FROM plan_transaction_links '
+          'WHERE plan_id = ? AND transaction_id = ? LIMIT 1;',
+          variables: [
+            Variable.withString(_required(row, 'plan_record_id')),
+            Variable.withString(_required(row, 'transaction_record_id')),
+          ],
+        ).getSingleOrNull();
+        if (link != null) {
+          await queue.enqueuePlanLink(
+            PlanningSyncOperation.create,
+            planId: _required(row, 'plan_record_id'),
+            transactionId: _required(row, 'transaction_record_id'),
+            createdAt: DateTime.parse(link.read<String>('created_at')).toUtc(),
+          );
+        }
+    }
+  }
+
   Future<void> _softHideFinancialData() async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement(
       "UPDATE transactions SET status = 'ignored', updated_at = ?, "
-      "$kMarkPendingIfServerBacked;",
+      "$kMarkPendingIfServerBacked WHERE status != 'ignored';",
       [now],
     );
+    // Only LIVE rows are hidden: re-stamping an already-deleted row would
+    // rewrite its tombstone time and (for server-backed rows) re-mark it pending.
     for (final table in const [
       'budgets',
       'subscriptions',
-      'bill_payments',
       'goals',
-      'goal_contributions',
       'plans',
-      'plan_transaction_links',
       'accounts',
     ]) {
       await _db.customStatement(
-          'UPDATE $table SET deleted_at = ?, $kMarkPendingIfServerBacked;', [now]);
+          'UPDATE $table SET deleted_at = ?, $kMarkPendingIfServerBacked '
+          'WHERE deleted_at IS NULL;',
+          [now]);
+    }
+    // Children are immutable and have no server-delete path, so hiding them
+    // must not flip their sync_status: a same-id child restored by the import
+    // (deleted_at = NULL) then keeps exactly the status it had before.
+    for (final table in const [
+      'bill_payments',
+      'goal_contributions',
+      'plan_transaction_links',
+    ]) {
+      await _db.customStatement(
+          'UPDATE $table SET deleted_at = ? WHERE deleted_at IS NULL;', [now]);
     }
     await _db.customStatement(
       'UPDATE categories SET deleted_at = ?, $kMarkPendingIfServerBacked '
-      "WHERE key GLOB 'custom_*';",
+      "WHERE key GLOB 'custom_*' AND deleted_at IS NULL;",
       [now],
     );
   }

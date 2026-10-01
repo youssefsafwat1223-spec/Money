@@ -5,14 +5,14 @@ import '../../data/db/sql_value_codec.dart';
 import '../../data/repositories/drift_account_repository.dart'
     show accountFromRow;
 import '../../data/repositories/drift_bill_repository.dart';
-import '../../data/repositories/drift_card_repository.dart'
-    show cardFromRow;
+import '../../data/repositories/drift_card_repository.dart' show cardFromRow;
 import '../../data/repositories/drift_plan_repository.dart';
 import '../../data/repositories/drift_repository_support.dart'
     show budgetFromRow, goalFromRow, transactionFromRow, userSettingsFromRow;
 import '../../domain/entities/category_entity.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
+import 'sync_health.dart';
 
 /// A-4b — the general safety net behind the raw-SQL bypass writers.
 ///
@@ -34,8 +34,12 @@ import '../../features/planning_sync/services/planning_outbox_queue.dart';
 ///  - Consent off (or no owner/session, or owner != signed-in uid) ⇒ does
 ///    nothing at all. No intent is lost: the `pending` marker persists on the
 ///    row and the next admitted cycle picks it up.
-///  - Bounded: at most [limit] rows per run in total; the remainder is picked up
-///    by the next cycle.
+///  - Bounded: at most [limit] RECORDED rows per run in total, shared fairly
+///    across tables (each gets a quota first); the remainder is picked up by the
+///    next cycle. Rows that fail to map/enqueue neither consume the budget nor
+///    block later rows/tables (keyset `id > :lastId` per table); they stay
+///    `pending`, are reported once per table per run as a coarse SyncHealth
+///    failure, and remain visible to the unsynced inventory.
 ///  - Child tables (goal_contributions / bill_payments / plan links) are
 ///    immutable once written and are not covered.
 class PendingSyncReconciler {
@@ -46,6 +50,7 @@ class PendingSyncReconciler {
     required Future<String?> Function() getOwnerUid,
     required Future<String?> Function() getAuthUserId,
     Future<bool> Function()? mayEgress,
+    this.health,
     this.limit = 500,
   })  : _db = db,
         _ledger = ledgerQueue,
@@ -62,6 +67,7 @@ class PendingSyncReconciler {
   final Future<String?> Function() _getOwnerUid;
   final Future<String?> Function() _getAuthUserId;
   final Future<bool> Function() _mayEgress;
+  final SyncHealth? health;
   final int limit;
 
   Future<String?> _safe(Future<String?> Function() read) async {
@@ -85,7 +91,8 @@ class PendingSyncReconciler {
 
     var budget = limit;
     var recorded = 0;
-    Future<void> each(
+    final sources = <_Source>[];
+    void each(
       String table,
       String outboxTable,
       String outboxIdCol, {
@@ -93,25 +100,60 @@ class PendingSyncReconciler {
       String extraWhere = '',
       String extraCols = '',
       bool hasDeletedAt = true,
+      SyncDomain domain = SyncDomain.planning,
       required Future<bool> Function(Map<String, Object?> row) enqueue,
-    }) async {
-      if (budget <= 0) return;
-      final typeFilter =
-          outboxEntityType == null ? '' : "WHERE entity_type = '$outboxEntityType'";
-      final rows = await _db.customSelect('''
-        SELECT id, ${hasDeletedAt ? 'deleted_at' : 'NULL AS deleted_at'}$extraCols FROM $table
-        WHERE server_id IS NOT NULL AND sync_status = 'pending' $extraWhere
-          AND id NOT IN (SELECT $outboxIdCol FROM $outboxTable $typeFilter)
-        ORDER BY id LIMIT $budget;
-      ''').get();
-      for (final r in rows) {
-        budget--;
-        try {
-          if (await enqueue(r.data)) recorded++;
-        } catch (_) {
-          // A row that cannot be mapped is left pending and stays observable
-          // in the unsynced inventory; it must not block the others.
+    }) {
+      final typeFilter = outboxEntityType == null
+          ? ''
+          : "WHERE entity_type = '$outboxEntityType'";
+      sources.add(_Source(
+        domain: domain,
+        enqueue: enqueue,
+        // Keyset page: `id > :lastId` so a row that fails is simply stepped
+        // over for this run and can never pin the window.
+        sql: (lastId, pageSize) => '''
+          SELECT id, ${hasDeletedAt ? 'deleted_at' : 'NULL AS deleted_at'}$extraCols FROM $table
+          WHERE server_id IS NOT NULL AND sync_status = 'pending' $extraWhere
+            AND id NOT IN (SELECT $outboxIdCol FROM $outboxTable $typeFilter)
+            AND id > ${sqlString(lastId)}
+          ORDER BY id LIMIT $pageSize;
+        ''',
+      ));
+    }
+
+    // Pass 1 gives every table a fair quota of the shared budget; pass 2 spends
+    // whatever is left in table order. The budget is spent only on rows that are
+    // actually RECORDED — a row that fails to map/enqueue is skipped for this
+    // run (coarse failure to SyncHealth, no row data) without consuming budget
+    // or blocking the rows and tables behind it.
+    Future<void> drain(_Source src, int maxRecorded) async {
+      var got = 0;
+      while (budget > 0 && got < maxRecorded && !src.exhausted) {
+        final rows =
+            await _db.customSelect(src.sql(src.lastId, _pageSize)).get();
+        if (rows.isEmpty) {
+          src.exhausted = true;
+          return;
         }
+        for (final r in rows) {
+          src.lastId = r.data['id']! as String;
+          try {
+            if (await src.enqueue(r.data)) {
+              recorded++;
+              got++;
+              budget--;
+            }
+          } catch (e) {
+            if (!src.failureReported) {
+              src.failureReported = true;
+              health?.recordFailure(src.domain, e);
+            }
+            // The row stays `pending` with no outbox row, so it remains visible
+            // in the unsynced inventory; it must not block the others.
+          }
+          if (budget <= 0 || got >= maxRecorded) return;
+        }
+        if (rows.length < _pageSize) src.exhausted = true;
       }
     }
 
@@ -126,33 +168,37 @@ class PendingSyncReconciler {
             : PlanningSyncOperation.delete;
 
     // Transactions (ledger queue). A soft-deleted (ignored) row is a delete.
-    await each('transactions', 'ledger_sync_outbox', 'transaction_id',
-        extraCols: ', status', hasDeletedAt: false, enqueue: (r) async {
+    each('transactions', 'ledger_sync_outbox', 'transaction_id',
+        extraCols: ', status',
+        hasDeletedAt: false,
+        domain: SyncDomain.ledger, enqueue: (r) async {
       final row = await one('transactions', r['id']);
       if (row == null) return false;
       await _ledger.enqueue(
-        r['status'] == 'ignored' ? OutboxOperation.delete : OutboxOperation.update,
+        r['status'] == 'ignored'
+            ? OutboxOperation.delete
+            : OutboxOperation.update,
         transactionFromRow(row),
       );
       return true;
     });
 
     const pe = 'planning_sync_outbox';
-    await each('accounts', pe, 'entity_id',
+    each('accounts', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.accountsEntityType,
         enqueue: (r) async {
       final row = await one('accounts', r['id']);
       return row != null &&
           await _planning.enqueueAccount(opOf(r), accountFromRow(row));
     });
-    await each('budgets', pe, 'entity_id',
+    each('budgets', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.budgetsEntityType,
         enqueue: (r) async {
       final row = await one('budgets', r['id']);
       return row != null &&
           await _planning.enqueueBudget(opOf(r), budgetFromRow(row));
     });
-    await each('goals', pe, 'entity_id',
+    each('goals', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.goalsEntityType,
         enqueue: (r) async {
       final row = await one('goals', r['id']);
@@ -160,20 +206,20 @@ class PendingSyncReconciler {
           await _planning.enqueueGoal(opOf(r), goalFromRow(row));
     });
     final bills = DriftBillRepository(_db);
-    await each('subscriptions', pe, 'entity_id',
+    each('subscriptions', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.subscriptionsEntityType,
         enqueue: (r) async {
       final bill = await bills.getByIdIncludingDeleted(r['id']! as String);
       return bill != null && await _planning.enqueueSubscription(opOf(r), bill);
     });
     final plans = DriftPlanRepository(_db);
-    await each('plans', pe, 'entity_id',
+    each('plans', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.plansEntityType,
         enqueue: (r) async {
       final plan = await plans.getByIdIncludingDeleted(r['id']! as String);
       return plan != null && await _planning.enqueuePlan(opOf(r), plan);
     });
-    await each('cards', pe, 'entity_id',
+    each('cards', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.cardsEntityType,
         // Account-less cards are local-only while the cards cloud v2 flag is off.
         extraWhere: kUserCardsCloudV2 ? '' : 'AND account_id IS NOT NULL',
@@ -182,7 +228,7 @@ class PendingSyncReconciler {
       return row != null &&
           await _planning.enqueueCard(opOf(r), cardFromRow(row));
     });
-    await each('categories', pe, 'entity_id',
+    each('categories', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.categoriesEntityType,
         enqueue: (r) async {
       final row = await one('categories', r['id']);
@@ -201,15 +247,35 @@ class PendingSyncReconciler {
       );
     });
     // Settings singleton: only ever an update (it is never tombstoned).
-    await each('user_settings', pe, 'entity_id',
+    each('user_settings', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.settingsEntityType,
-        hasDeletedAt: false,
-        enqueue: (r) async {
+        hasDeletedAt: false, enqueue: (r) async {
       final row = await one('user_settings', r['id']);
       return row != null &&
           await _planning.enqueueSettings(
               PlanningSyncOperation.update, userSettingsFromRow(row));
     });
+
+    final quota = (limit / sources.length).ceil().clamp(1, limit);
+    for (final src in sources) {
+      await drain(src, quota);
+    }
+    for (final src in sources) {
+      await drain(src, limit);
+    }
     return recorded;
   }
+
+  static const _pageSize = 100;
+}
+
+class _Source {
+  _Source({required this.domain, required this.enqueue, required this.sql});
+
+  final SyncDomain domain;
+  final Future<bool> Function(Map<String, Object?> row) enqueue;
+  final String Function(String lastId, int pageSize) sql;
+  String lastId = '';
+  bool exhausted = false;
+  bool failureReported = false;
 }

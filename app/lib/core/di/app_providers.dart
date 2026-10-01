@@ -1093,6 +1093,10 @@ final dataPortabilityServiceProvider = Provider<DataPortabilityService>((ref) {
     transactions: ref.watch(transactionRepositoryProvider),
     settings: ref.watch(userSettingsRepositoryProvider),
     ledgerOutbox: ref.watch(ledgerOutboxQueueProvider),
+    planningOutbox: ref.watch(planningOutboxQueueProvider),
+    isCloudOwned: () async =>
+        await localDataOwnerUid() != null ||
+        await _currentSupabaseUserId() != null,
   );
 });
 
@@ -1339,6 +1343,7 @@ final pendingSyncReconcilerProvider = Provider<PendingSyncReconciler>((ref) {
     planningQueue: ref.watch(planningOutboxQueueProvider),
     getOwnerUid: localDataOwnerUid,
     getAuthUserId: _currentSupabaseUserId,
+    health: ref.watch(syncHealthProvider),
     mayEgress: () => ConsentAuthority(
       () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
           .getSettings(),

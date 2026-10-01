@@ -1074,16 +1074,16 @@ void main() {
       expect(await remote.count('user_budgets', u.uid), 1);
     });
 
-    test('S11 awaiting-FX: parked while server lacks 0103; pushed after; '
+    test('S11 awaiting-FX: parked while server lacks 0102; pushed after; '
         'DB restored to 0001-0099', () async {
       final u = await newUser('s11');
       await signIn(u);
       final d = await Device.open();
       addTearDown(d.close);
       final repo = Directory.current.parent.path;
-      final f103 = '$repo/supabase/deferred/0103_awaiting_fx_transactions.sql';
+      final f103 = '$repo/supabase/deferred/0102_awaiting_fx_transactions.sql';
       final f103rb =
-          '$repo/supabase/deferred/0103_awaiting_fx_transactions_rollback.sql';
+          '$repo/supabase/deferred/0102_awaiting_fx_transactions_rollback.sql';
 
       Future<String> fingerprint() => remote.psql(
           sql: "select coalesce((select md5(pg_get_functiondef(p.oid)) from pg_proc p "
@@ -1120,7 +1120,7 @@ void main() {
         categoryKey: null,
       );
 
-      // --- server WITHOUT 0103 ---
+      // --- server WITHOUT 0102 ---
       probe.resetCount();
       final r1 = await d.ledgerPush.push();
       expect(r1.pushed, 1, reason: 'the priced row still goes');
@@ -1137,7 +1137,7 @@ void main() {
           reason: 'exactly one insert (the priced row); ZERO for the FX row');
       expect(await remote.count('user_transactions', u.uid), 1);
 
-      // --- apply 0103 on the local DB ---
+      // --- apply 0102 on the local DB ---
       await remote.psql(file: f103);
       await remote.psql(sql: "NOTIFY pgrst, 'reload schema'");
       await Future<void>.delayed(const Duration(seconds: 2));
@@ -1170,7 +1170,7 @@ void main() {
           reason: 'local DB is back to the 0001-0099 state');
     });
 
-    test('S12 sender mapping pushes WITHOUT accepted_by (server lacks 0101)',
+    test('S12 sender mapping pushes WITHOUT accepted_by (server lacks 0100)',
         () async {
       final u = await newUser('s12');
       await signIn(u);
@@ -1190,7 +1190,7 @@ void main() {
               sql: "select column_name from information_schema.columns where "
                   "table_name='sender_bank_mappings' and column_name='accepted_by'"))
           .trim();
-      expect(cols, isEmpty, reason: 'server has no accepted_by (0101 deferred)');
+      expect(cols, isEmpty, reason: 'server has no accepted_by (0100 deferred)');
 
       final res = await d.senderSync.sync();
       expect(res.pushed, 1);

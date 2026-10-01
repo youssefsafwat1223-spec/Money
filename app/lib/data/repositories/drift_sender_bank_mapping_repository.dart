@@ -186,7 +186,7 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
             synced_at = NULL,
             -- A user confirming an AI-validated mapping takes ownership of it.
             -- Rows that are not ai_validated keep accepted_by NULL: the column
-            -- only exists on servers with migration 0101, and ai_validated
+            -- only exists on servers with migration 0100, and ai_validated
             -- rows only exist while that migration is required.
             accepted_by = CASE
               WHEN accepted_by = 'ai_validated' THEN 'user'

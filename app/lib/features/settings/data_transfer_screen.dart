@@ -649,6 +649,14 @@ class _PreviewPanel extends StatelessWidget {
                 onSelectionChanged: (value) => onModeChanged(value.first),
               ),
             ],
+            if (!preview.canReplace &&
+                preview.format == ImportFormat.qirshPackage) ...[
+              const SizedBox(height: 12),
+              Text(
+                context.l10n.dtxReplaceGuestOnly,
+                style: AppTypography.caption(colors.textSecondary),
+              ),
+            ],
             if (preview.issues.isNotEmpty) ...[
               const SizedBox(height: 12),
               for (final issue in preview.issues.take(8))
