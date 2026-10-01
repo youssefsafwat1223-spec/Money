@@ -33,6 +33,8 @@ If a later migration has since taken the number, renumber the deferred one to th
 new tail before moving it back.
 
 ## Activation set and ordering (renumbered 2026-10-01)
+> **Production status (2026-10-02):** 0100, 0101 and 0102 were applied to production project Qairsh and moved to `supabase/migrations/` (rollbacks in `supabase/rollback/`). Only 0103 (telemetry) remains deferred.
+
 
 The active chain ends at **0099**. The deferred files are numbered so the
 activation set is unambiguous and gapless:
