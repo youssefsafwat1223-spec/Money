@@ -33,6 +33,7 @@ import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../privacy/consent_authority.dart';
+import '../../data/sync/server_capabilities.dart';
 import '../../data/db/ownership_guard.dart';
 import '../../data/db/planning_canonical_invariants.dart';
 import '../../data/db/planning_cutover.dart';
@@ -698,6 +699,24 @@ final planningSyncEngineProvider = Provider<PlanningSyncEngine>((ref) {
   );
 });
 
+/// A-6: server capability probe (awaiting-FX transactions), consent-gated.
+final serverCapabilitiesServiceProvider =
+    Provider<ServerCapabilitiesService>((ref) {
+  return ServerCapabilitiesService(
+    getAuthUserId: () async {
+      if (!SupabaseConfig.isConfigured) return null;
+      try {
+        return supabase.Supabase.instance.client.auth.currentUser?.id;
+      } catch (_) {
+        return null;
+      }
+    },
+    getClient: () => supabase.Supabase.instance.client,
+    mayEgress: _consentGate(ref, EgressClass.financialSync),
+    health: ref.watch(syncHealthProvider),
+  );
+});
+
 final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return LedgerPushService(
@@ -706,6 +725,7 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
     isPushEnabled: () => true,
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
+    capabilities: ref.watch(serverCapabilitiesServiceProvider),
     // C-3 — money must not leave the device without cloud consent. Read fresh
     // per push so a revocation is observed by the next drain, not the next boot.
     mayEgress: () => ConsentAuthority(

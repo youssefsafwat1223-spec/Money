@@ -3,15 +3,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/session/app_session.dart';
+import '../../../core/sync/outbox_failure.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/money_codec.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../domain/finance/money.dart';
 import '../../../data/sync/transaction_server_mappers.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/errors/repo_exceptions.dart';
 import '../../../domain/finance/money_transport.dart';
+import 'ledger_outbox_queue.dart';
 
 const _transactionMoneySelect =
     '*, amount_text:amount::text, balance_after_text:balance_after::text, '
@@ -24,6 +27,8 @@ class TransactionBackfillReport {
     required this.matched,
     required this.mismatchedLocalIds,
     required this.unresolvedAccountLocalIds,
+    this.queuedAwaitingFxLocalIds = const [],
+    this.failedLocalIds = const [],
   });
 
   final int total;
@@ -32,8 +37,19 @@ class TransactionBackfillReport {
   final List<String> mismatchedLocalIds;
   final List<String> unresolvedAccountLocalIds;
 
+  /// A-6: awaiting-FX rows (amount 0 + foreign amount) are never sent directly;
+  /// they were handed to the ledger outbox (parked until the server is verified
+  /// to accept them). Not unresolved — the outbox owns them.
+  final List<String> queuedAwaitingFxLocalIds;
+
+  /// Rows the server rejected permanently (CHECK / business key / schema). They
+  /// were recorded as outbox dead letters (observable) and the run continued.
+  final List<String> failedLocalIds;
+
   bool get isClean =>
-      mismatchedLocalIds.isEmpty && unresolvedAccountLocalIds.isEmpty;
+      mismatchedLocalIds.isEmpty &&
+      unresolvedAccountLocalIds.isEmpty &&
+      failedLocalIds.isEmpty;
 }
 
 /// يُرحِّل كل العمليات المحلية (Drift) إلى user_transactions — بلا ثقة
@@ -52,7 +68,9 @@ class TransactionsBackfillService {
     // STRING (never a JSON number for a canonical Money push).
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
+    LedgerOutboxQueue? outboxQueue,
   })  : _db = db,
+        _outboxOverride = outboxQueue,
         _getClient = getClient ?? (() => Supabase.instance.client),
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _getLocalDataOwnerUid =
@@ -64,6 +82,16 @@ class TransactionsBackfillService {
   final Future<String?> Function() _getAuthUserId;
   final Future<String?> Function() _getLocalDataOwnerUid;
   final PlanningCutoverCoordinator _coordinator;
+  final LedgerOutboxQueue? _outboxOverride;
+
+  late final LedgerOutboxQueue _outbox = _outboxOverride ??
+      LedgerOutboxQueue(
+        db: _db,
+        isPushEnabled: () => true,
+        getAuthUserId: _getAuthUserId,
+        getOwnerUid: _getLocalDataOwnerUid,
+        coordinator: _coordinator,
+      );
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -104,11 +132,10 @@ class TransactionsBackfillService {
     final uid = await _getAuthUserId();
     if (uid == null) throw const AuthRepoException();
     await _assertLocalDataOwnership(uid);
-    if (!await accountsBackfillVerified()) {
-      throw const ValidationRepoException(
-        'Accounts backfill is not verified complete — refusing to start transactions backfill.',
-      );
-    }
+    // No all-accounts gate: a transaction is only ever sent with a verified
+    // account mapping. Rows whose account has no server_id (for example an
+    // account the server rejected) are skipped into `unresolvedAccountLocalIds`
+    // below, so one bad account never blocks the other accounts' history.
 
     // Only rows that never reached the server (server_id IS NULL). A pulled/
     // pushed row already exists server-side; re-pushing it here would mint a
@@ -128,10 +155,36 @@ class TransactionsBackfillService {
     var matched = 0;
     final mismatched = <String>[];
     final unresolvedAccounts = <String>[];
+    final queuedAwaitingFx = <String>[];
+    final failed = <String>[];
 
     for (final local in localRows) {
       final localId = local.read<String>('id');
       final localAccountId = local.readNullable<String>('account_id');
+
+      // A-6: an awaiting-FX row (amount 0 + foreign amount, including legacy
+      // pending foreign-unpriced rows) must never be sent directly — the server
+      // CHECK rejects it until migration 0103 is verified, and one such row used
+      // to abort the whole run. Hand it to the ledger outbox, whose push applies
+      // the capability / park rules (parked `awaiting_server_fx_support`).
+      final probeCurrency = local.read<String>('currency');
+      final probeForeignCurrency =
+          local.readNullable<String>('foreign_currency');
+      if (probeForeignCurrency != null &&
+          kMoneyCodec.readColumn(local, 'amount', probeCurrency).isZero &&
+          kMoneyCodec.readColumnNullable(
+                  local, 'foreign_amount', probeForeignCurrency) !=
+              null) {
+        final entity = await _loadEntity(localId);
+        if (entity != null) {
+          await _outbox.enqueue(OutboxOperation.create, entity);
+          queuedAwaitingFx.add(localId);
+        } else {
+          // Unreadable legacy row: never sent, never aborts the run.
+          failed.add(localId);
+        }
+        continue;
+      }
 
       String? serverAccountId;
       if (localAccountId != null) {
@@ -252,6 +305,17 @@ class TransactionsBackfillService {
           created++;
         }
       } catch (e) {
+        // Per-row isolation: a PERMANENT server rejection of this one row
+        // (23514 / 23505 business key / 42P10 / ...) must not block every other
+        // row's history. Record it observably as an outbox dead letter via the
+        // normal classifier and continue. Transient / auth / network errors
+        // still stop the run (retried later), as before.
+        final failureClass = classifyOutboxError(e);
+        if (e is PostgrestException && failureClass.isPermanent) {
+          await _recordPermanentFailure(localId, e, failureClass);
+          failed.add(localId);
+          continue;
+        }
         throw mapSupabaseError(e);
       }
 
@@ -310,7 +374,34 @@ class TransactionsBackfillService {
       matched: matched,
       mismatchedLocalIds: mismatched,
       unresolvedAccountLocalIds: unresolvedAccounts,
+      queuedAwaitingFxLocalIds: queuedAwaitingFx,
+      failedLocalIds: failed,
     );
+  }
+
+  /// The local entity, or null when the row cannot be parsed (legacy values).
+  Future<TransactionEntity?> _loadEntity(String localId) async {
+    try {
+      return await DriftTransactionRepository(_db).getById(localId);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Records a permanently-rejected backfill row as a ledger outbox dead letter
+  /// (so it is counted by SyncHealth.queueCounts and excluded from later runs).
+  Future<void> _recordPermanentFailure(
+    String localId,
+    Object error,
+    OutboxFailureClass failureClass,
+  ) async {
+    final entity = await _loadEntity(localId);
+    if (entity == null) return;
+    await _outbox.enqueue(OutboxOperation.create, entity);
+    final rowId = await _outbox.outboxRowIdForTransaction(localId);
+    if (rowId != null) {
+      await _outbox.markFailed(rowId, error.toString(), failureClass);
+    }
   }
 
   Future<String?> _categoryKeyForLocalId(String? categoryId) async {

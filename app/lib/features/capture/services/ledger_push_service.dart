@@ -10,6 +10,7 @@ import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/exact_transport_capability.dart';
+import '../../../data/sync/server_capabilities.dart';
 import 'ledger_outbox_queue.dart';
 import 'ledger_payload.dart';
 import 'ledger_sync_engine.dart';
@@ -61,7 +62,11 @@ class LedgerPushService implements LedgerPushAdapter {
     /// C-3 — consulted at the moment of egress; defaults to DENY.
     Future<bool> Function()? mayEgress,
     SyncHealth? health,
+    // A-6: server capability probe. Null = never verified, so awaiting-FX rows
+    // stay parked (fail-safe).
+    ServerCapabilitiesService? capabilities,
   })  : _db = db,
+        _capabilities = capabilities,
         _health = health,
         _queue = queue,
         _isPushEnabled = isPushEnabled,
@@ -90,6 +95,7 @@ class LedgerPushService implements LedgerPushAdapter {
   final LedgerOutboxQueue _queue;
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
+  final ServerCapabilitiesService? _capabilities;
   final bool Function() _isPushEnabled;
   final Future<String?> Function() _getAuthUserId;
   final SupabaseClient Function() _getClient;
@@ -121,6 +127,15 @@ class LedgerPushService implements LedgerPushAdapter {
     // no-op today (nothing is ever parked while the capability is unknown/legacy).
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
       await _queue.reArmParked();
+    }
+
+    // A-6: dead letters caused by the pre-A-6 CHECK rejection of awaiting-FX
+    // rows are recovered to a visible park (idempotent, nothing else touched);
+    // parked awaiting-FX rows drain once the server is verified to accept them.
+    await _queue.recoverAwaitingFxDeadLetters();
+    if (await _queue.hasAwaitingFxParked() &&
+        await _awaitingFxState(userId) == ServerCapabilityState.verified) {
+      await _queue.reArmAwaitingFxParked();
     }
 
     // A-2 (G18): only rows recorded for THIS identity may be sent; foreign and
@@ -202,15 +217,46 @@ class LedgerPushService implements LedgerPushAdapter {
       return _PushOutcome.parked;
     }
 
-    switch (item.operation) {
-      case OutboxOperation.create:
-        return _pushCreate(item, payload, userId);
-      case OutboxOperation.update:
-        return _pushUpdate(item, payload, userId);
-      case OutboxOperation.delete:
-        return _pushDelete(item, payload, userId);
+    // A-6: an awaiting-FX body (amount 0 + foreign amount/currency) is sent only
+    // once the server is verified to accept it; otherwise it is parked, never
+    // sent and never dead-lettered. No converted amount is ever fabricated.
+    final awaitingFx = item.operation != OutboxOperation.delete &&
+        LedgerOutboxQueue.isAwaitingFxPayload(payload);
+    if (awaitingFx &&
+        await _awaitingFxState(userId) != ServerCapabilityState.verified) {
+      await _queue.park(item.id, kParkAwaitingServerFxSupport);
+      return _PushOutcome.parked;
+    }
+
+    try {
+      final outcome = switch (item.operation) {
+        OutboxOperation.create => await _pushCreate(item, payload, userId),
+        OutboxOperation.update => await _pushUpdate(item, payload, userId),
+        OutboxOperation.delete => await _pushDelete(item, payload, userId),
+      };
+      // An accepted awaiting-FX write is positive proof of server support.
+      if (awaitingFx && outcome == _PushOutcome.pushed) {
+        _capabilities?.noteVerified(userId);
+      }
+      return outcome;
+    } on PostgrestException catch (e) {
+      // The CHECK still rejects the awaiting-FX shape: the server does not
+      // support it. Park (not dead-letter), keep the attempt count, and treat
+      // the capability as unsupported for this session. Only when the row was
+      // not edited in flight (an edit may have priced it).
+      if (awaitingFx && e.code == '23514') {
+        _capabilities?.noteUnsupported(userId);
+        await _queue.park(item.id, kParkAwaitingServerFxSupport,
+            ifOpSeq: item.opSeq);
+        return _PushOutcome.parked;
+      }
+      rethrow;
     }
   }
+
+  Future<ServerCapabilityState> _awaitingFxState(String userId) async =>
+      await _capabilities?.awaitingFxTransactions(uid: userId) ??
+      ServerCapabilityState.unknown;
 
   Future<_PushOutcome> _pushCreate(
     OutboxItem item,

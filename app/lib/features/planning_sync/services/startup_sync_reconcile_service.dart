@@ -189,7 +189,9 @@ class StartupSyncReconcileService {
       // them, the sign-out inventory still counts them, and the next cycle
       // retries — every backfill is idempotent on (user_id, local_id).
       final unresolved = accounts.mismatchedLocalIds.length +
+          accounts.failedLocalIds.length +
           transactions.mismatchedLocalIds.length +
+          transactions.failedLocalIds.length +
           transactions.unresolvedAccountLocalIds.length +
           planning.failures.length +
           planning.mismatched.length +

@@ -356,15 +356,101 @@ class LedgerOutboxQueue {
   /// [reason]. The local write already stands; the row is retained DURABLY, is
   /// NOT marked synced, and does NOT consume a retry attempt. Only pending rows
   /// park (a dead-lettered row stays dead-lettered).
-  Future<void> park(String id, String reason) async {
+  Future<void> park(String id, String reason, {int? ifOpSeq}) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       UPDATE ledger_sync_outbox
       SET status = 'parked', failure_class = ${sqlString(reason)},
           last_error = NULL, next_retry_at = NULL, in_flight_seq = NULL,
           updated_at = ${sqlString(now)}
-      WHERE id = ${sqlString(id)} AND status = 'pending';
+      WHERE id = ${sqlString(id)} AND status = 'pending'
+        ${ifOpSeq == null ? '' : 'AND op_seq = $ifOpSeq'};
     ''');
+  }
+
+  /// A-6: true when [payload] is an awaiting-FX create/update body — amount 0
+  /// with a positive foreign amount and a foreign currency. The server only
+  /// accepts that shape once `awaiting_fx_transactions` is verified.
+  static bool isAwaitingFxPayload(Map<String, dynamic> payload) {
+    num? n(Object? v) => v is num ? v : (v is String ? num.tryParse(v) : null);
+    final amount = n(payload['amount']);
+    final foreign = n(payload['foreign_amount']);
+    return amount != null &&
+        amount == 0 &&
+        foreign != null &&
+        foreign > 0 &&
+        payload['foreign_currency'] is String;
+  }
+
+  /// The outbox row id recorded for [transactionId] (most recent), if any.
+  Future<String?> outboxRowIdForTransaction(String transactionId) async {
+    final row = await _db
+        .customSelect(
+          'SELECT id FROM ledger_sync_outbox '
+          'WHERE transaction_id = ${sqlString(transactionId)} '
+          'ORDER BY created_at DESC LIMIT 1;',
+        )
+        .getSingleOrNull();
+    return row?.read<String>('id');
+  }
+
+  /// A-6: whether any row is parked awaiting server FX support.
+  Future<bool> hasAwaitingFxParked() async {
+    final row = await _db
+        .customSelect(
+          "SELECT COUNT(*) AS n FROM ledger_sync_outbox WHERE status = 'parked' "
+          "AND failure_class = ${sqlString(kParkAwaitingServerFxSupport)};",
+        )
+        .getSingle();
+    return row.read<int>('n') > 0;
+  }
+
+  /// A-6: the server now accepts awaiting-FX rows — re-arm the rows parked for
+  /// that reason (same durable rows, no attempt consumed).
+  Future<int> reArmAwaitingFxParked() async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    return _db.customUpdate('''
+      UPDATE ledger_sync_outbox
+      SET status = 'pending', failure_class = NULL, next_retry_at = NULL,
+          updated_at = ${sqlString(now)}
+      WHERE status = 'parked'
+        AND failure_class = ${sqlString(kParkAwaitingServerFxSupport)};
+    ''');
+  }
+
+  /// A-6: recover awaiting-FX creates/updates dead-lettered by the server CHECK
+  /// (amount > 0) before this build: move them to parked
+  /// `awaiting_server_fx_support`. Only rows whose failure was the CHECK class
+  /// (or legacy `permanentValidation` from SQLSTATE 23514) AND whose payload is
+  /// awaiting-FX shaped, and only when no newer active row exists for the same
+  /// transaction. Every other dead letter is left untouched. Returns the count.
+  Future<int> recoverAwaitingFxDeadLetters() async {
+    final rows = await _db.customSelect('''
+      SELECT d.id, d.payload_json FROM ledger_sync_outbox d
+      WHERE d.status = 'dead_letter' AND d.operation != 'delete'
+        AND (d.failure_class = ${sqlString(kFailServerCheckViolation)}
+             OR (d.failure_class = ${sqlString(OutboxFailureClass.permanentValidation.reason)}
+                 AND d.last_error LIKE '%23514%'))
+        AND NOT EXISTS (
+          SELECT 1 FROM ledger_sync_outbox o
+          WHERE o.transaction_id = d.transaction_id
+            AND o.status IN ('pending', 'parked'));
+    ''').get();
+    var recovered = 0;
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    for (final row in rows) {
+      final payload =
+          (jsonDecode(row.read<String>('payload_json')) as Map).cast<String, dynamic>();
+      if (!isAwaitingFxPayload(payload)) continue;
+      recovered += await _db.customUpdate('''
+        UPDATE ledger_sync_outbox
+        SET status = 'parked', failure_class = ${sqlString(kParkAwaitingServerFxSupport)},
+            attempt_count = 0, last_error = NULL, next_retry_at = NULL,
+            in_flight_seq = NULL, updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(row.read<String>('id'))} AND status = 'dead_letter';
+      ''');
+    }
+    return recovered;
   }
 
   /// MALI-026 (B8-2.10 §9): re-arm parked rows once exact push transport is

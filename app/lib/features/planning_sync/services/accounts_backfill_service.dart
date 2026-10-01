@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/session/app_session.dart';
+import '../../../core/sync/outbox_failure.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/money_codec.dart';
 import '../../../data/db/planning_cutover.dart';
@@ -24,6 +25,7 @@ class AccountBackfillReport {
     required this.mismatchedLocalIds,
     required this.defaultResolved,
     required this.defaultWarning,
+    this.failedLocalIds = const [],
   });
 
   final int total;
@@ -33,7 +35,14 @@ class AccountBackfillReport {
   final bool defaultResolved;
   final String? defaultWarning;
 
-  bool get isClean => mismatchedLocalIds.isEmpty && defaultWarning == null;
+  /// Accounts the server rejected permanently; recorded here and skipped so one
+  /// bad row does not stop the others. Counted as unresolved by the reconcile.
+  final List<String> failedLocalIds;
+
+  bool get isClean =>
+      mismatchedLocalIds.isEmpty &&
+      failedLocalIds.isEmpty &&
+      defaultWarning == null;
 }
 
 /// يُرحِّل كل الحسابات المحلية (Drift) إلى user_accounts — بلا ثقة بعمود
@@ -106,6 +115,7 @@ class AccountsBackfillService {
     var created = 0;
     var matched = 0;
     final mismatched = <String>[];
+    final failed = <String>[];
 
     for (final local in localRows) {
       final localId = local.read<String>('id');
@@ -155,6 +165,13 @@ class AccountsBackfillService {
           created++;
         }
       } catch (e) {
+        // Per-row isolation: a permanent server rejection of this account is
+        // recorded and skipped; transient / auth / network errors still stop
+        // the run (retried later).
+        if (e is PostgrestException && classifyOutboxError(e).isPermanent) {
+          failed.add(localId);
+          continue;
+        }
         throw mapSupabaseError(e);
       }
 
@@ -216,6 +233,7 @@ class AccountsBackfillService {
       mismatchedLocalIds: mismatched,
       defaultResolved: resolution == null,
       defaultWarning: resolution,
+      failedLocalIds: failed,
     );
   }
 

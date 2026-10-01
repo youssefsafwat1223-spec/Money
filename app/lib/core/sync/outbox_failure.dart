@@ -122,17 +122,26 @@ const String kParkOwnerUnverified = 'owner_unverified';
 /// card account, bound settings row). Unparked once the dependency resolves.
 const String kParkDependencyWait = 'dependency_wait';
 
-/// Park reasons owned by the A-2 outbox-correctness layer (as opposed to the
+/// A-6: a confirmed awaiting-FX transaction (amount 0 + foreign amount/currency)
+/// is held until the server is verified to accept that shape. Never sent, never
+/// dead-lettered, never consumes an attempt. Re-armed by the capability service
+/// (verified), and coalescible so a later priced edit folds into the same row.
+const String kParkAwaitingServerFxSupport = 'awaiting_server_fx_support';
+
+/// Park reasons owned by the outbox-correctness layer (as opposed to the
 /// exact-money-transport reason, which is re-armed by a verified capability).
+/// Excluded from the generic `reArmParked` and coalescible.
 const Set<String> kOutboxSelfHealingParkReasons = {
   kParkOwnerMismatch,
   kParkOwnerUnverified,
   kParkDependencyWait,
+  kParkAwaitingServerFxSupport,
 };
 
 /// SQL list literal of [kOutboxSelfHealingParkReasons].
 const String kOutboxSelfHealingParkReasonsSql =
-    "('$kParkOwnerMismatch','$kParkOwnerUnverified','$kParkDependencyWait')";
+    "('$kParkOwnerMismatch','$kParkOwnerUnverified','$kParkDependencyWait',"
+    "'$kParkAwaitingServerFxSupport')";
 
 /// MALI-023: after this many retryable failures a row is dead-lettered so a
 /// permanently-failing item can never hot-loop. Re-armable on app/schema upgrade.

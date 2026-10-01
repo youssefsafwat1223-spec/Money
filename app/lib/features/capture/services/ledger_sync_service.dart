@@ -59,8 +59,14 @@ String ledgerTransactionKeysetFilter(SyncCursor after) =>
     throw const MoneyTransportException(
         'foreign_amount_text and foreign_currency must be supplied together');
   }
+  final amountMoney = moneyFromPulledValueRequired(row['amount_text'], currency);
+  // A-6: amount 0 is valid ONLY as an awaiting-FX row (foreign amount present).
+  if (amountMoney.isZero && foreignText == null) {
+    throw const MoneyTransportException(
+        'a zero amount requires a foreign amount (awaiting-FX transaction)');
+  }
   return (
-    amountMoney: moneyFromPulledValueRequired(row['amount_text'], currency),
+    amountMoney: amountMoney,
     balanceAfterMoney:
         moneyFromPulledValue(row['balance_after_text'], currency),
     foreignMoney: foreignCurrency == null

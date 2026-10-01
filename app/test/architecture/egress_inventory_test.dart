@@ -32,6 +32,9 @@ void main() {
         'EgressClass.financialSync — money',
     'features/capture/services/ledger_push_service.dart':
         'EgressClass.financialSync — money',
+    'data/sync/server_capabilities.dart':
+        'EgressClass.financialSync — read-only capability RPC, consent-gated '
+            'via injected mayEgress (A-6 awaiting-FX probe)',
     'features/capture/services/notification_log_sync_service.dart':
         'EgressClass.telemetry — notification delivery/open events',
     'features/capture/services/smart_inbox_sync_service.dart':
