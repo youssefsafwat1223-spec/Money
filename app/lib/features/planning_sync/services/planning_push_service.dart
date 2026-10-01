@@ -17,6 +17,16 @@ import 'planning_outbox_queue.dart';
 const String _ackCols =
     kServerRevisionCas ? 'id, updated_at, revision' : 'id, updated_at';
 
+/// A-3 (G7): remote tables whose `(user_id, local_id)` uniqueness is only a
+/// PARTIAL index (migrations 0021/0055) — `ON CONFLICT (user_id, local_id)`
+/// cannot target it, so creates are INSERT + replay-by-lookup, not upsert.
+const Set<String> kPartialLocalIdIndexTables = {
+  'user_budgets',
+  'user_goals',
+  'user_plans',
+  'user_subscriptions',
+};
+
 class PlanningPushResult {
   const PlanningPushResult({
     this.pushed = 0,
@@ -121,7 +131,7 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
   ) async {
     return await _client
         .from(table)
-        .select('id, updated_at')
+        .select(_ackCols)
         .eq('user_id', userId)
         .eq('local_id', localId)
         .maybeSingle();
@@ -187,6 +197,14 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
     String table,
     Map<String, dynamic> row,
   ) async {
+    // A-3 (G7): these tables only have a PARTIAL unique index
+    // `(user_id, local_id) WHERE local_id IS NOT NULL`, which PostgREST's
+    // `on_conflict=user_id,local_id` cannot target (42P10). A plain INSERT is
+    // used instead; a replay of the same create surfaces as 23505, which the
+    // push service resolves by fetching the existing row.
+    if (kPartialLocalIdIndexTables.contains(table)) {
+      return await _client.from(table).insert(row).select(_ackCols).single();
+    }
     return await _client
         .from(table)
         .upsert(row, onConflict: 'user_id,local_id')
@@ -523,11 +541,39 @@ class PlanningPushService {
     String localTable,
   ) async {
     final row = _toServerRow(item.entityType, item.payloadJson, userId);
-    final serverId = await _serverIdForLocal(localTable, item.entityId);
+    var serverId = await _serverIdForLocal(localTable, item.entityId);
+    // Tokens of the row we are about to update. Normally the locally stored
+    // base; after an idempotent create REPLAY they are the freshly fetched ones.
+    int? expectedRevision = item.payloadJson['server_revision'] as int?;
+    String? base = item.payloadJson['server_updated_at'] as String?;
     try {
-      // CREATE (never synced): upsert to establish the server row.
+      // CREATE (never synced): establish the server row.
       if (serverId == null) {
-        final response = await _remoteSink.upsert(remoteTable, row);
+        Map<String, dynamic> response;
+        try {
+          response = await _remoteSink.upsert(remoteTable, row);
+        } on PostgrestException catch (e) {
+          // A-3 (G7/G16): 23505 on a partial-index table is a REPLAY of a create
+          // that already landed (the ack was lost) only if the row for this
+          // (user_id, local_id) exists. Anything else is a different unique
+          // constraint → rethrown and classified duplicate_business_key.
+          if (e.code != '23505' ||
+              !kPartialLocalIdIndexTables.contains(remoteTable)) {
+            rethrow;
+          }
+          final existing = await _remoteSink.findByLocalId(
+              remoteTable, userId, item.entityId);
+          if (existing == null) rethrow;
+          // Replay: the create landed. Continue as an UPDATE of that row, guarded
+          // by the token we just fetched, so a newer local payload (edits folded
+          // into the create row) is applied without clobbering a concurrent
+          // server change.
+          serverId = existing['id'] as String;
+          expectedRevision = existing['revision'] as int?;
+          base = existing['updated_at'] as String?;
+          return await _guardedUpdate(item, serverId, remoteTable, localTable,
+              row, expectedRevision, base);
+        }
         // Audit NEW-H-3 — a pre-bind CONSENT-ONLY push delivers the revocation
         // and nothing else. It deliberately does NOT bind the local singleton:
         // attaching server_id here would lift the pre-bind guard and let the
@@ -545,51 +591,65 @@ class PlanningPushService {
         return _PlanningPushOutcome.pushed;
       }
 
-      // UPDATE. MALI-022 / 0068 — atomic compare-and-set when the capability is
-      // on AND a base revision is known: the server updates only if `revision`
-      // still matches; a zero-row result is a genuine conflict.
-      final expectedRevision = item.payloadJson['server_revision'] as int?;
-      if (_revisionCasEnabled && expectedRevision != null) {
-        final response = await _remoteSink.casUpdateByServerId(
-            remoteTable, serverId, expectedRevision, row);
-        if (response == null) {
-          return await _resolveUpsertConflict(
-              item, serverId, remoteTable, localTable);
-        }
-        await _attachServerId(localTable, item.entityId,
-            response['id'] as String, response['updated_at'] as String?,
-            serverRevision: response['revision'] as int?, item: item);
-        return _PlanningPushOutcome.pushed;
-      }
-
-      // Fail-safe guarded path (capability OFF, or revision unknown). Only
-      // overwrite the remote row if it hasn't moved since the base version this
-      // edit was made against — otherwise flag a conflict WITHOUT clobbering the
-      // remote edit and WITHOUT discarding the local edit (MALI-009). Never a
-      // blind overwrite.
-      // C-6: when we hold a base token, the guard travels WITH the write. The
-      // previous shape read `updated_at`, compared it, then issued an unguarded
-      // update — between those two round trips another device's push could
-      // land, and this one would overwrite it while believing it had checked.
-      // A null (0-row) result is the same conflict branch the pre-read fed.
-      final base = item.payloadJson['server_updated_at'] as String?;
-      final response = base != null
-          ? await _remoteSink.guardedUpdateByServerId(
-              remoteTable, serverId, base, row)
-          : await _remoteSink.updateByServerId(remoteTable, serverId, row);
-      if (response == null) {
-        return await _resolveUpsertConflict(item, serverId, remoteTable, localTable);
-      }
-      await _attachServerId(localTable, item.entityId, response['id'] as String,
-          response['updated_at'] as String?,
-          serverRevision: response['revision'] as int?, item: item);
-      return _PlanningPushOutcome.pushed;
+      return await _guardedUpdate(item, serverId, remoteTable, localTable, row,
+          expectedRevision, base);
     } catch (e) {
-      if (_isConflict(e)) {
+      if (isTransportConflict(e)) {
         return _resolveUpsertConflict(item, serverId, remoteTable, localTable);
       }
       rethrow;
     }
+  }
+
+  /// UPDATE of a known server row — ALWAYS guarded, never a blind write.
+  ///
+  /// MALI-022 / 0068 — atomic compare-and-set on `revision` when the capability
+  /// is on AND a base revision is known. Otherwise the guard is the server
+  /// `updated_at`: the locally stored base token, or — A-3 (G17) — when there is
+  /// none, the row's CURRENT `updated_at` fetched just now. The guard travels
+  /// WITH the write (C-6), so a change landing between the fetch and the write
+  /// yields zero rows = conflict. Semantics when no base is held: the local
+  /// pending edit wins only if the server row is unchanged since that fetch;
+  /// a zero-row result (changed or vanished) takes the conflict path and the
+  /// local edit is kept, never discarded and never overwriting the server.
+  Future<_PlanningPushOutcome> _guardedUpdate(
+    PlanningOutboxItem item,
+    String serverId,
+    String remoteTable,
+    String localTable,
+    Map<String, dynamic> row,
+    int? expectedRevision,
+    String? base,
+  ) async {
+    if (_revisionCasEnabled && expectedRevision != null) {
+      final response = await _remoteSink.casUpdateByServerId(
+          remoteTable, serverId, expectedRevision, row);
+      if (response == null) {
+        return await _resolveUpsertConflict(
+            item, serverId, remoteTable, localTable);
+      }
+      await _attachServerId(localTable, item.entityId,
+          response['id'] as String, response['updated_at'] as String?,
+          serverRevision: response['revision'] as int?, item: item);
+      return _PlanningPushOutcome.pushed;
+    }
+
+    base ??= await _remoteSink.fetchServerUpdatedAt(remoteTable, serverId);
+    if (base == null) {
+      // The server row is gone: nothing to guard against → conflict.
+      return await _resolveUpsertConflict(
+          item, serverId, remoteTable, localTable);
+    }
+    final response = await _remoteSink.guardedUpdateByServerId(
+        remoteTable, serverId, base, row);
+    if (response == null) {
+      return await _resolveUpsertConflict(
+          item, serverId, remoteTable, localTable);
+    }
+    await _attachServerId(localTable, item.entityId, response['id'] as String,
+        response['updated_at'] as String?,
+        serverRevision: response['revision'] as int?, item: item);
+    return _PlanningPushOutcome.pushed;
   }
 
   /// Settings normally keep the deterministic prefer-remote policy. Consent is
@@ -683,7 +743,7 @@ class PlanningPushService {
       }
       return await _resolveDeleteConflict(remoteTable, serverId, localTable, item);
     } catch (e) {
-      if (_isConflict(e)) {
+      if (isTransportConflict(e)) {
         await _markConflict(localTable, item.entityId);
         await _queue.markSuccess(item);
         return _PlanningPushOutcome.conflict;
@@ -933,13 +993,6 @@ class PlanningPushService {
         },
       _ => throw ArgumentError('Unsupported planning entity: $entityType'),
     };
-  }
-
-  static bool _isConflict(Object e) {
-    final msg = e.toString().toLowerCase();
-    return msg.contains('409') ||
-        msg.contains('conflict') ||
-        msg.contains('duplicate');
   }
 }
 

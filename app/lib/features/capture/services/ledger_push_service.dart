@@ -240,7 +240,7 @@ class LedgerPushService implements LedgerPushAdapter {
       return _PushOutcome.pushed;
     } catch (e) {
       // Conflict detected by server (e.g. row already exists with newer updated_at).
-      if (_isConflict(e)) {
+      if (isTransportConflict(e)) {
         await _markConflict(item.transactionId);
         await _queue.markSuccess(item);
         return _PushOutcome.conflict;
@@ -312,20 +312,20 @@ class LedgerPushService implements LedgerPushAdapter {
       // The predicate now travels WITH the write, exactly as the tombstone
       // branch below already did, so the database enforces it and 0 affected
       // rows IS the conflict signal.
-      final base = payload['server_updated_at'] as String?;
-      final rows = base != null
-          ? await _getClient()
-              .from('user_transactions')
-              .update(serverRow)
-              .eq('id', serverId)
-              .eq('updated_at', base)
-              .select('updated_at')
-          // No base to guard against (first push of an adopted row): a targeted
-          // update by id is the strongest guard available.
+      //
+      // A-3 (G17): with no stored base token, fetch the row's CURRENT updated_at
+      // and guard on that — never a blind id-only write. The local pending edit
+      // wins only if the server row is unchanged since the fetch; zero rows
+      // (changed or vanished) → conflict, local edit kept.
+      final base = payload['server_updated_at'] as String? ??
+          await _fetchServerUpdatedAt(serverId);
+      final rows = base == null
+          ? const <dynamic>[]
           : await _getClient()
               .from('user_transactions')
               .update(serverRow)
               .eq('id', serverId)
+              .eq('updated_at', base)
               .select('updated_at');
       final updated = guardedAck(rows, 'ledger.atomicGuardedUpdate');
       if (updated == null) {
@@ -345,7 +345,7 @@ class LedgerPushService implements LedgerPushAdapter {
       );
       return _PushOutcome.pushed;
     } catch (e) {
-      if (_isConflict(e)) {
+      if (isTransportConflict(e)) {
         await _markConflict(item.transactionId);
         await _queue.markSuccess(item);
         return _PushOutcome.conflict;
@@ -419,7 +419,7 @@ class LedgerPushService implements LedgerPushAdapter {
       }
       return await _resolveDeleteConflict(item, serverId);
     } catch (e) {
-      if (_isConflict(e)) {
+      if (isTransportConflict(e)) {
         await _markConflict(item.transactionId);
         await _queue.markSuccess(item);
         return _PushOutcome.conflict;
@@ -466,6 +466,15 @@ class LedgerPushService implements LedgerPushAdapter {
         .eq('client_request_id', localId)
         .maybeSingle();
     return row?['id'] as String?;
+  }
+
+  Future<String?> _fetchServerUpdatedAt(String serverId) async {
+    final row = await _getClient()
+        .from('user_transactions')
+        .select('updated_at')
+        .eq('id', serverId)
+        .maybeSingle();
+    return row?['updated_at'] as String?;
   }
 
   /// A-2 (G3): ACK + persist the server row identity in ONE local transaction
@@ -544,13 +553,6 @@ class LedgerPushService implements LedgerPushAdapter {
       SET sync_status = 'conflict'
       WHERE id = ${sqlString(transactionId)};
     ''');
-  }
-
-  static bool _isConflict(Object e) {
-    final msg = e.toString().toLowerCase();
-    return msg.contains('409') ||
-        msg.contains('conflict') ||
-        msg.contains('duplicate');
   }
 
   Future<Map<String, dynamic>> _toServerRow(

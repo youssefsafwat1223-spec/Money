@@ -115,24 +115,6 @@ class PlanningOutboxQueue {
   final void Function()? _onQueued;
   final PlanningCutoverCoordinator _coordinator;
 
-  /// A-2 (G3): ids of rows handed out by [pendingItems] and not yet settled
-  /// (ACKed / failed / parked) by THIS queue instance. A create cancelled by a
-  /// delete may be on the wire right now, so for such a row the cancel is NOT a
-  /// drop: it becomes a delete (resolved by the push). An untouched row is
-  /// dropped as before. Time-bounded so an abandoned claim cannot linger.
-  final Map<String, DateTime> _inFlight = {};
-  static const Duration _inFlightTtl = Duration(minutes: 5);
-
-  bool _isInFlight(String id) {
-    final at = _inFlight[id];
-    if (at == null) return false;
-    if (DateTime.now().difference(at) > _inFlightTtl) {
-      _inFlight.remove(id);
-      return false;
-    }
-    return true;
-  }
-
   Future<bool> enqueueAccount(
     PlanningSyncOperation op,
     AccountEntity account,
@@ -581,7 +563,7 @@ class PlanningOutboxQueue {
       // Coalesce into a PENDING row, or one parked by the A-2 self-healing layer
       // (never in flight). Every coalesce bumps op_seq (A-2 G3).
       final existing = await _db.customSelect(
-        'SELECT id, operation, status FROM planning_sync_outbox '
+        'SELECT id, operation, status, in_flight_seq FROM planning_sync_outbox '
         'WHERE entity_type = ${sqlString(entityType)} '
         'AND entity_id = ${sqlString(entityId)} '
         'AND $kOutboxCoalescibleSql ORDER BY created_at ASC LIMIT 1;',
@@ -593,9 +575,9 @@ class PlanningOutboxQueue {
             coalesceOutboxOperation(existing.read<String>('operation'), opName);
         if (coalesced == null &&
             (existing.read<String>('status') == 'parked' ||
-                !_isInFlight(rowId))) {
-          // Never on the wire (parked, or not handed to a push): create+delete
-          // truly cancels.
+                existing.readNullable<int>('in_flight_seq') == null)) {
+          // Never on the wire (parked, or never handed to a push — the durable
+          // in_flight_seq marker is NULL): create+delete truly cancels.
           await _db.customStatement(
             'DELETE FROM planning_sync_outbox WHERE id = ${sqlString(rowId)};',
           );
@@ -650,21 +632,26 @@ class PlanningOutboxQueue {
     final now = dateTimeToSql(DateTime.now().toUtc());
     final entityClause =
         entityType == null ? '' : 'AND entity_type = ${sqlString(entityType)}';
-    final rows = await _db.customSelect('''
-      SELECT id, entity_type, entity_id, operation, payload_json,
-             attempt_count, last_error, next_retry_at, op_seq, owner_uid
-      FROM planning_sync_outbox
-      WHERE status = 'pending'
-        AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
-        $entityClause
-      ORDER BY created_at ASC
-      LIMIT $limit;
-    ''').get();
-
-    final claimedAt = DateTime.now();
-    for (final row in rows) {
-      _inFlight[row.read<String>('id')] = claimedAt;
-    }
+    // A-3: hand-out and the durable "possibly sent" marker are ONE transaction.
+    final rows = await _db.transaction(() async {
+      final picked = await _db.customSelect('''
+        SELECT id, entity_type, entity_id, operation, payload_json,
+               attempt_count, last_error, next_retry_at, op_seq, owner_uid
+        FROM planning_sync_outbox
+        WHERE status = 'pending'
+          AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
+          $entityClause
+        ORDER BY created_at ASC
+        LIMIT $limit;
+      ''').get();
+      for (final row in picked) {
+        await _db.customStatement(
+          'UPDATE planning_sync_outbox SET in_flight_seq = op_seq '
+          'WHERE id = ${sqlString(row.read<String>('id'))};',
+        );
+      }
+      return picked;
+    });
     return rows.map((row) {
       final opStr = row.read<String>('operation');
       final op = PlanningSyncOperation.values.firstWhere(
@@ -700,7 +687,6 @@ class PlanningOutboxQueue {
     String? serverUpdatedAt,
     int? serverRevision,
   }) {
-    _inFlight.remove(item.id);
     return _db.transaction(() async {
       final deleted = await _db.customUpdate(
         'DELETE FROM planning_sync_outbox '
@@ -730,7 +716,7 @@ class PlanningOutboxQueue {
       await _db.customStatement('''
         UPDATE planning_sync_outbox
         SET payload_json = ${sqlString(jsonEncode(payload))},
-            attempt_count = 0, next_retry_at = NULL,
+            attempt_count = 0, next_retry_at = NULL, in_flight_seq = NULL,
             updated_at = ${sqlString(now)}
         WHERE id = ${sqlString(item.id)};
       ''');
@@ -851,7 +837,6 @@ class PlanningOutboxQueue {
     String error,
     OutboxFailureClass failureClass,
   ) async {
-    _inFlight.remove(id);
     final row = await _db
         .customSelect(
           'SELECT attempt_count FROM planning_sync_outbox WHERE id = ${sqlString(id)} LIMIT 1;',
@@ -860,10 +845,19 @@ class PlanningOutboxQueue {
     if (row == null) return;
     final now = dateTimeToSql(DateTime.now().toUtc());
 
+    // A-3: the marker is cleared on a definite outcome. A transport/5xx failure
+    // is AMBIGUOUS (the request may have landed), so the row stays possibly-sent.
+    if (failureClass != OutboxFailureClass.transientNetwork &&
+        failureClass != OutboxFailureClass.serverError) {
+      await _db.customStatement(
+        'UPDATE planning_sync_outbox SET in_flight_seq = NULL WHERE id = ${sqlString(id)};',
+      );
+    }
+
     if (failureClass.isPermanent) {
       await _db.customStatement('''
         UPDATE planning_sync_outbox
-        SET status = 'dead_letter', failure_class = ${sqlString(failureClass.name)},
+        SET status = 'dead_letter', failure_class = ${sqlString(failureClass.reason)},
             last_error = ${sqlString(error)}, updated_at = ${sqlString(now)}
         WHERE id = ${sqlString(id)};
       ''');
@@ -875,7 +869,7 @@ class PlanningOutboxQueue {
       await _db.customStatement('''
         UPDATE planning_sync_outbox
         SET status = 'dead_letter', attempt_count = $attempts,
-            failure_class = ${sqlString(failureClass.name)},
+            failure_class = ${sqlString(failureClass.reason)},
             last_error = ${sqlString(error)}, updated_at = ${sqlString(now)}
         WHERE id = ${sqlString(id)};
       ''');
@@ -887,7 +881,7 @@ class PlanningOutboxQueue {
     );
     await _db.customStatement('''
       UPDATE planning_sync_outbox
-      SET attempt_count = $attempts, failure_class = ${sqlString(failureClass.name)},
+      SET attempt_count = $attempts, failure_class = ${sqlString(failureClass.reason)},
           last_error = ${sqlString(error)}, next_retry_at = ${sqlString(nextRetry)},
           updated_at = ${sqlString(now)}
       WHERE id = ${sqlString(id)};
@@ -909,12 +903,12 @@ class PlanningOutboxQueue {
   /// transport is unverified. Parked rows are excluded from [pendingItems],
   /// retained durably, and consume no retry attempt.
   Future<void> park(String id, String reason) async {
-    _inFlight.remove(id);
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement('''
       UPDATE planning_sync_outbox
       SET status = 'parked', failure_class = ${sqlString(reason)},
-          last_error = NULL, next_retry_at = NULL, updated_at = ${sqlString(now)}
+          last_error = NULL, next_retry_at = NULL, in_flight_seq = NULL,
+          updated_at = ${sqlString(now)}
       WHERE id = ${sqlString(id)} AND status = 'pending';
     ''');
   }

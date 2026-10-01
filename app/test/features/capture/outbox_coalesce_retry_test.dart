@@ -177,6 +177,11 @@ void main() {
       expect(
           classifyOutboxError(
               const PostgrestException(message: 'dup', code: '23505')),
+          OutboxFailureClass.duplicateBusinessKey,
+          reason: 'A-3: a unique violation is never a silent conflict');
+      expect(
+          classifyOutboxError(
+              const PostgrestException(message: 'x', code: '409')),
           OutboxFailureClass.conflict);
       expect(
           classifyOutboxError(const PostgrestException(message: 'x', code: '429')),

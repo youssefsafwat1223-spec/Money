@@ -264,8 +264,20 @@ void main() {
   /// Binds the local singleton to the server row — production state after the
   /// first pull. Ordinary updates only queue once bound; explicit pre-bind
   /// consent changes are the security exception exercised below.
-  Future<void> bind() => db.customStatement(
-      "UPDATE user_settings SET server_id = 'server-user_settings';");
+  ///
+  /// A-3 (G17): an update with no stored base token now fetches the server row
+  /// and guards on it, so the bound server row must actually exist.
+  Future<void> bind() async {
+    remote.rows.putIfAbsent('user_settings', () => {})['user_settings'] ??= {
+      'id': 'server-user_settings',
+      'local_id': 'user_settings',
+      'updated_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+      'revision': 1,
+      'deleted_at': null,
+    };
+    await db.customStatement(
+        "UPDATE user_settings SET server_id = 'server-user_settings';");
+  }
 
   test(
       'changing a cloud setting pushes cloud + profile columns, never '

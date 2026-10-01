@@ -65,26 +65,18 @@ void main() {
     expect(impl, contains('guardedAck'));
   });
 
-  test('the push path no longer reads the base in a separate round-trip', () {
-    // The whole defect is the gap between the read and the write. If the
-    // fetch-then-update sequence survives anywhere in the update path, the race
-    // survives with it.
+  test('the push path never issues an unguarded write by id', () {
+    // A-3 (G17): with no stored base token the push fetches the row's CURRENT
+    // updated_at and guards on it; the write itself is always the guarded one.
+    // The blind `updateAccountByServerId` must not be used by the update path.
     final pushBody = accounts.substring(
-      accounts.indexOf('Future<AccountsPushResult> push()'),
+      accounts.indexOf('Future<_AccountsPushOutcome> _pushUpsert'),
+      accounts.indexOf('Future<_AccountsPushOutcome> _pushDelete'),
     );
-    final fetchAt = pushBody.indexOf('fetchAccountUpdatedAt');
-    if (fetchAt != -1) {
-      // Permitted only for CLASSIFYING a failed guarded write (deciding whether
-      // the row vanished or was overwritten) — never before it.
-      final guardedAt = pushBody.indexOf('guardedUpdateAccount');
-      expect(guardedAt, greaterThan(-1),
-          reason: 'the guarded update must be used');
-      expect(
-        fetchAt,
-        greaterThan(guardedAt),
-        reason: 'reading the base BEFORE the write is the TOCTOU itself',
-      );
-    }
+    expect(pushBody, contains('guardedUpdateAccount'),
+        reason: 'the guarded update must be used');
+    expect(pushBody.contains('updateAccountByServerId'), isFalse,
+        reason: 'a blind id-only update is the last-write-wins defect');
   });
 
   group('ledger push has the same guarantee', () {

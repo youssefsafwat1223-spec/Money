@@ -2123,7 +2123,8 @@ class AppDatabase extends GeneratedDatabase {
         status TEXT NOT NULL DEFAULT 'pending',
         failure_class TEXT NULL,
         op_seq INTEGER NOT NULL DEFAULT 0,
-        owner_uid TEXT NULL
+        owner_uid TEXT NULL,
+        in_flight_seq INTEGER NULL
       );
     ''');
     await customStatement(
@@ -2183,6 +2184,10 @@ class AppDatabase extends GeneratedDatabase {
       // verified.
       await _ensureColumn(table, 'op_seq', 'INTEGER NOT NULL DEFAULT 0');
       await _ensureColumn(table, 'owner_uid', 'TEXT NULL');
+      // A-3: durable "possibly sent" marker — the op_seq this row had when it was
+      // handed to a push. Survives process death, so a create+delete coalesce can
+      // never drop a create that may already have reached the server.
+      await _ensureColumn(table, 'in_flight_seq', 'INTEGER NULL');
     }
     // MALI-024 / 0070 — durable local engagement-event outbox. The client
     // records typed events; the server (record_engagement_event RPC) decides the
@@ -2323,7 +2328,8 @@ class AppDatabase extends GeneratedDatabase {
         status TEXT NOT NULL DEFAULT 'pending',
         failure_class TEXT NULL,
         op_seq INTEGER NOT NULL DEFAULT 0,
-        owner_uid TEXT NULL
+        owner_uid TEXT NULL,
+        in_flight_seq INTEGER NULL
       );
     ''');
     await customStatement(

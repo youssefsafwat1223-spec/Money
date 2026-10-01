@@ -53,27 +53,29 @@ void main() {
               'still open');
     });
 
-    test('the push path no longer reads updated_at before writing', () {
-      // The whole point: the pre-read is GONE from the guarded branch, not
-      // merely accompanied by a guard.
-      final pushBranch = source.substring(
-        source.indexOf("item.payloadJson['server_updated_at']"),
-        source.indexOf("item.payloadJson['server_updated_at']") + 900,
-      );
-      expect(pushBranch.contains('fetchServerUpdatedAt'), isFalse,
-          reason: 'the check-then-write pair must be replaced by one guarded '
-              'statement, not supplemented by it');
-      expect(pushBranch, contains('guardedUpdateByServerId'));
+    test('the update path writes only through the guarded statement', () {
+      // A-3 (G17): the update is ALWAYS guarded. When no base token is stored
+      // the row's current updated_at is fetched first and becomes the guard —
+      // the predicate still travels WITH the write, so a change landing after
+      // the fetch yields zero rows (conflict).
+      final start = source.indexOf('Future<_PlanningPushOutcome> _guardedUpdate');
+      final body = source.substring(
+          start, source.indexOf('Future<_PlanningPushOutcome> _resolveUpsertConflict'));
+      expect(body, contains('guardedUpdateByServerId'));
+      expect(body, contains('fetchServerUpdatedAt'));
+      expect(body.indexOf('fetchServerUpdatedAt'),
+          lessThan(body.indexOf('guardedUpdateByServerId')));
     });
 
-    test('with no base token it falls back to the plain update', () {
-      // A row that has never been synced has nothing to compare against.
-      // Guarding on a null base would make the first push impossible.
-      final i = source.indexOf("final base = item.payloadJson");
-      final branch = source.substring(i, i + 500);
-      expect(branch, contains('base != null'));
-      expect(branch, contains('updateByServerId(remoteTable, serverId, row)'),
-          reason: 'the unguarded path must remain for the no-base case');
+    test('with no base token it fetches one; it never falls back to a blind '
+        'update', () {
+      final start = source.indexOf('Future<_PlanningPushOutcome> _guardedUpdate');
+      final body = source.substring(
+          start, source.indexOf('Future<_PlanningPushOutcome> _resolveUpsertConflict'));
+      expect(body, contains('base ??= await _remoteSink.fetchServerUpdatedAt'));
+      expect(body.contains('updateByServerId(remoteTable, serverId, row)'),
+          isFalse,
+          reason: 'an id-only update is the last-write-wins defect (G17)');
     });
   });
 

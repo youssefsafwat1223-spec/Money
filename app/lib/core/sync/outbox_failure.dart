@@ -23,13 +23,37 @@ enum OutboxFailureClass {
   conflict,
   permanentValidation,
   unsupportedSchema,
-  corruptedPayload;
+  corruptedPayload,
+
+  /// A-3 (G16): a unique constraint OTHER than the entity's own idempotency key
+  /// rejected the write (e.g. card account+last4, category key). Never resolved
+  /// by replacing local data; parked observably as a dead letter.
+  duplicateBusinessKey,
+
+  /// A-3: 42P10 — the server has no unique/exclusion constraint matching the
+  /// ON CONFLICT target. A server/client schema mismatch, not a data conflict.
+  serverSchemaMismatch,
+
+  /// A-3: 23514 — a server CHECK constraint rejected the row.
+  serverCheckViolation;
 
   /// A permanent failure is dead-lettered immediately (no retry).
   bool get isPermanent =>
       this == permanentValidation ||
       this == unsupportedSchema ||
-      this == corruptedPayload;
+      this == corruptedPayload ||
+      this == duplicateBusinessKey ||
+      this == serverSchemaMismatch ||
+      this == serverCheckViolation;
+
+  /// The observable reason stored in `failure_class` (SyncHealth breakdown).
+  /// The A-3 classes use stable snake_case reasons; older classes keep [name].
+  String get reason => switch (this) {
+        duplicateBusinessKey => kFailDuplicateBusinessKey,
+        serverSchemaMismatch => kFailServerSchemaMismatch,
+        serverCheckViolation => kFailServerCheckViolation,
+        _ => name,
+      };
 
   /// A conflict is resolved by the conflict pathway, never by markFailed retry.
   bool get isConflict => this == conflict;
@@ -39,7 +63,8 @@ enum OutboxFailureClass {
 /// same entity, so N consecutive offline edits become ONE row carrying ONE base
 /// token (never self-conflicting). Returns the resulting operation, or null when
 /// the row should be dropped entirely (a create cancelled by a delete before it
-/// ever reached the server).
+/// ever reached the server). A-3: callers must NOT drop when the row's durable
+/// `in_flight_seq` is set — the create may have reached the server.
 String? coalesceOutboxOperation(String existing, String incoming) {
   if (incoming == 'delete') {
     return existing == 'create' ? null : 'delete';
@@ -49,6 +74,36 @@ String? coalesceOutboxOperation(String existing, String incoming) {
   if (existing == 'create') return 'create';
   return incoming;
 }
+
+const String kFailDuplicateBusinessKey = 'duplicate_business_key';
+const String kFailServerSchemaMismatch = 'server_schema_mismatch';
+const String kFailServerCheckViolation = 'server_check_violation';
+
+/// A-3: true when [e] is a unique-violation (23505) raised by the entity's OWN
+/// idempotency key (for example `(user_id, local_id)`), as opposed to some other
+/// unique constraint. Decided from the structured `details`
+/// ("Key (user_id, local_id)=(...) already exists.") or the constraint name in
+/// `message`; callers that cannot tell from the error re-query the server.
+bool isIdempotencyKeyViolation(
+  PostgrestException e, {
+  required String keyColumns,
+  Iterable<String> constraintNames = const [],
+}) {
+  if (e.code != '23505') return false;
+  final details = (e.details?.toString() ?? '').replaceAll(' ', '');
+  if (details.contains('Key($keyColumns)=') ||
+      details.contains('Key(${keyColumns.replaceAll(' ', '')})=')) {
+    return true;
+  }
+  final msg = e.message;
+  return constraintNames.any(msg.contains);
+}
+
+/// A-3: a genuine optimistic-concurrency conflict signalled by the transport
+/// (HTTP 409 / PostgREST code '409'). Everything else — including 23505 — is
+/// classified by [classifyOutboxError], never by message text.
+bool isTransportConflict(Object e) =>
+    e is PostgrestException && e.code == '409';
 
 /// A-2 (G18): park reasons recorded in `failure_class` of a `parked` outbox row.
 /// Parked rows are never sent, never deleted and never consume a retry attempt;
@@ -102,12 +157,19 @@ OutboxFailureClass classifyOutboxError(Object error) {
   if (error is PostgrestException) {
     final code = error.code ?? '';
     // PostgREST/Postgres SQLSTATE-ish codes.
-    if (code == '23505' || code == '409') return OutboxFailureClass.conflict;
+    if (code == '409') return OutboxFailureClass.conflict;
+    // A-3: a unique violation that reaches here was NOT the entity's own
+    // idempotency key (push services handle that replay first) — a business-key
+    // duplicate, never auto-resolved.
+    if (code == '23505') return OutboxFailureClass.duplicateBusinessKey;
+    if (code == '42P10') return OutboxFailureClass.serverSchemaMismatch;
+    if (code == '23514') return OutboxFailureClass.serverCheckViolation;
     if (code == '429') return OutboxFailureClass.rateLimit;
-    if (code == '401' || code == '403') return OutboxFailureClass.auth;
+    if (code == '401' || code == '403' || code == '42501') {
+      return OutboxFailureClass.auth;
+    }
     if (code.startsWith('5')) return OutboxFailureClass.serverError;
     if (code == '23502' ||
-        code == '23514' ||
         code == '22P02' ||
         code == '22023') {
       // not-null / check / invalid-text / invalid-parameter-value. The last
@@ -119,11 +181,7 @@ OutboxFailureClass classifyOutboxError(Object error) {
     if (code == '42703' || code == '42P01' || code == 'PGRST204') {
       return OutboxFailureClass.unsupportedSchema; // unknown column/table/schema-cache
     }
-    // Fall back on the message for versions that don't populate `code`.
-    final msg = error.message.toLowerCase();
-    if (msg.contains('duplicate') || msg.contains('conflict')) {
-      return OutboxFailureClass.conflict;
-    }
+    // A-3: no message matching — an unknown code is a server error (retryable).
     return OutboxFailureClass.serverError;
   }
   if (error is FormatException || error is TypeError) {

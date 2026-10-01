@@ -67,6 +67,9 @@ enum SyncErrorClass {
         case OutboxFailureClass.permanentValidation:
         case OutboxFailureClass.unsupportedSchema:
         case OutboxFailureClass.corruptedPayload:
+        case OutboxFailureClass.duplicateBusinessKey:
+        case OutboxFailureClass.serverSchemaMismatch:
+        case OutboxFailureClass.serverCheckViolation:
           return serverRejected;
         case OutboxFailureClass.missingDependency:
           return unknown;

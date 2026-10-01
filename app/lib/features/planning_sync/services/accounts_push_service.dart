@@ -465,11 +465,14 @@ class AccountsPushService {
         // The predicate now travels WITH the write, exactly as the tombstone
         // path has always done, so the database enforces it and 0 affected rows
         // IS the conflict signal.
-        final base = item.payloadJson['server_updated_at'] as String?;
+        // A-3 (G17): with no stored base token, fetch the row's CURRENT
+        // updated_at and guard on that — never a blind id-only write. The local
+        // pending edit wins only if the server row is unchanged since the fetch;
+        // zero rows (changed or vanished) → conflict, local edit kept.
+        final base = item.payloadJson['server_updated_at'] as String? ??
+            await _remoteSink.fetchAccountUpdatedAt(serverId);
         response = base == null
-            // No base to guard against (first push of a row we adopted): a
-            // targeted update by id is the strongest guard available.
-            ? await _remoteSink.updateAccountByServerId(serverId, row)
+            ? null
             : await _remoteSink.guardedUpdateAccount(serverId, base, row);
       }
 
@@ -488,7 +491,7 @@ class AccountsPushService {
           serverRevision: response['revision'] as int?, item: item);
       return _AccountsPushOutcome.pushed;
     } catch (e) {
-      if (_isConflict(e)) {
+      if (isTransportConflict(e)) {
         await _markConflict(item.entityId);
         await _queue.markSuccess(item);
         return _AccountsPushOutcome.conflict;
@@ -533,7 +536,7 @@ class AccountsPushService {
       }
       return await _resolveDeleteConflict(serverId, item);
     } catch (e) {
-      if (_isConflict(e)) {
+      if (isTransportConflict(e)) {
         await _markConflict(item.entityId);
         await _queue.markSuccess(item);
         return _AccountsPushOutcome.conflict;
@@ -657,13 +660,6 @@ class AccountsPushService {
       'sort_order': payload['sort_order'] ?? 0,
       'created_at': payload['created_at'],
     };
-  }
-
-  static bool _isConflict(Object e) {
-    final msg = e.toString().toLowerCase();
-    return msg.contains('409') ||
-        msg.contains('conflict') ||
-        msg.contains('duplicate');
   }
 }
 

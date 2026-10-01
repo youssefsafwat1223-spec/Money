@@ -92,8 +92,10 @@ void main() {
       final cases = <Object, SyncErrorClass>{
         const SocketException(_sentinel): SyncErrorClass.offline,
         TimeoutException(_sentinel): SyncErrorClass.offline,
-        const PostgrestException(message: _sentinel, code: '23505'):
+        const PostgrestException(message: _sentinel, code: '409'):
             SyncErrorClass.conflict,
+        const PostgrestException(message: _sentinel, code: '23505'):
+            SyncErrorClass.serverRejected,
         const PostgrestException(message: _sentinel, code: '401'):
             SyncErrorClass.auth,
         const PostgrestException(message: _sentinel, code: '23502'):
