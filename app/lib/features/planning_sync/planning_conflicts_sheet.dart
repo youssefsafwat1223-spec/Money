@@ -98,15 +98,18 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
     setState(() => _busy = true);
     try {
       final resolver = ref.read(conflictResolverProvider);
+      var resolved = true;
       if (keepLocal) {
         await resolver.resolveKeepLocal(
             widget.conflict.entityType, widget.conflict.localId);
       } else {
-        await resolver.resolveKeepRemote(
+        // false = the server row could not be fetched/applied; the conflict
+        // stays listed so the user can retry.
+        resolved = await resolver.resolveKeepRemote(
             widget.conflict.entityType, widget.conflict.localId);
       }
       ref.invalidate(conflictsProvider);
-      if (mounted) {
+      if (mounted && resolved) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(keepLocal

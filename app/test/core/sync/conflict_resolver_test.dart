@@ -172,6 +172,99 @@ void main() {
       expect(await outbox('ledger_sync_outbox', "transaction_id='tx1'"), 0);
     });
 
+    group('keep-remote with a registered remote sync', () {
+      late int fetches;
+      late int applies;
+      Object? fetchError;
+      Map<String, dynamic>? fetched;
+
+      UniversalConflictResolver withSync() => UniversalConflictResolver(
+            db: db,
+            reEnqueue: const {},
+            remoteSync: {
+              ConflictEntities.transaction: ConflictRemoteSync(
+                fetch: (serverId) async {
+                  fetches++;
+                  if (fetchError != null) throw fetchError!;
+                  return fetched;
+                },
+                apply: (row) async {
+                  applies++;
+                  // Stand-in for the pull's apply path: write the remote value.
+                  await db.customStatement(
+                      "UPDATE transactions SET amount = ${row['amount']}, "
+                      "server_updated_at = '${row['updated_at']}' "
+                      "WHERE id = 'tx1';");
+                },
+              ),
+            },
+          );
+
+      setUp(() {
+        fetches = 0;
+        applies = 0;
+        fetchError = null;
+        fetched = {'id': 'srv-tx1', 'amount': 20.5, 'updated_at': 'server-ts-2'};
+      });
+
+      test('success: fetches by server id, applies the remote value, then '
+          'marks synced and drops the outbox row', () async {
+        await seedTransaction('tx1');
+        final ok = await withSync()
+            .resolveKeepRemote(ConflictEntities.transaction, 'tx1');
+        expect(ok, isTrue);
+        expect(fetches, 1);
+        expect(applies, 1);
+        final row = await db
+            .customSelect(
+                "SELECT amount, sync_status, server_updated_at FROM transactions WHERE id='tx1';")
+            .getSingle();
+        expect(row.read<double>('amount'), 20.5);
+        expect(row.read<String>('sync_status'), 'synced');
+        expect(row.read<String>('server_updated_at'), 'server-ts-2');
+        expect(await outbox('ledger_sync_outbox', "transaction_id='tx1'"), 0);
+      });
+
+      test('fetch failure (offline/auth/consent): row stays in conflict, '
+          'outbox untouched, returns false', () async {
+        await seedTransaction('tx1');
+        fetchError = StateError('offline');
+        final ok = await withSync()
+            .resolveKeepRemote(ConflictEntities.transaction, 'tx1');
+        expect(ok, isFalse);
+        expect(applies, 0);
+        expect(await statusOf('transactions', 'tx1'), 'conflict');
+        expect(await outbox('ledger_sync_outbox', "transaction_id='tx1'"), 1);
+      });
+
+      test('server row gone: stays in conflict', () async {
+        await seedTransaction('tx1');
+        fetched = null;
+        final ok = await withSync()
+            .resolveKeepRemote(ConflictEntities.transaction, 'tx1');
+        expect(ok, isFalse);
+        expect(await statusOf('transactions', 'tx1'), 'conflict');
+      });
+
+      test('apply failure rolls back: conflict and outbox preserved', () async {
+        await seedTransaction('tx1');
+        final r = UniversalConflictResolver(
+          db: db,
+          reEnqueue: const {},
+          remoteSync: {
+            ConflictEntities.transaction: ConflictRemoteSync(
+              fetch: (_) async => {'id': 'srv-tx1'},
+              apply: (_) async => throw const FormatException('bad money'),
+            ),
+          },
+        );
+        expect(await r.resolveKeepRemote(ConflictEntities.transaction, 'tx1'),
+            isFalse);
+        expect(await statusOf('transactions', 'tx1'), 'conflict');
+        expect(await outbox('ledger_sync_outbox', "transaction_id='tx1'"), 1);
+      });
+    });
+
     test('keep-local rebases to the server version and re-enqueues', () async {
       await seedGoal('g1');
       await db.customStatement('DELETE FROM planning_sync_outbox;');
