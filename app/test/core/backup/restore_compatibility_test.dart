@@ -11,6 +11,7 @@ import 'package:money_companion/core/backup/restore_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import '../../harness/seed_test_account.dart';
 
 // MALI-014 / MALI-076n (Batch-5 closure) §Blocker-2 — preparation-time compatibility
 // adapters, exercised with synthetic legacy snapshot fixtures (not only envelope
@@ -32,8 +33,8 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppDatabase> open() => AppDatabase.open(
-      executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+  Future<AppDatabase> open() => seededDb(AppDatabase.open(
+      executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore()));
 
   Future<int> count(AppDatabase db, String table) async =>
       (await db.customSelect('SELECT COUNT(*) AS n FROM $table;').getSingle())

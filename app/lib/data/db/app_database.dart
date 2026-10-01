@@ -3349,8 +3349,10 @@ class AppDatabase extends GeneratedDatabase {
     await _seedIfNeeded();
   }
 
-  /// ينشئ حساباً افتراضياً واحداً من عملة المستخدم الحالية، ويربط كل العمليات
-  /// والاشتراكات القائمة (بدون حساب) به. آمن وبدون فقدان بيانات.
+  /// A-7: لا يُنشئ أي حساب أبداً. الحسابات تُنشأ فقط بفعل صريح من المستخدم
+  /// (شاشة إعداد الحساب) عبر المستودع. هنا إصلاحات غير منشئة فقط: ترقية أول
+  /// حساب قائم إلى افتراضي إن لم يكن هناك افتراضي، وربط الأهداف اليتيمة
+  /// بالحساب الافتراضي إن وُجد. مع صفر حسابات لا يُمَسّ شيء.
   Future<void> _ensureDefaultAccount() async {
     if (await count('accounts') > 0) {
       // اضمن وجود حساب افتراضي واحد على الأقل.
@@ -3363,43 +3365,8 @@ class AppDatabase extends GeneratedDatabase {
           '(SELECT id FROM accounts ORDER BY sort_order ASC LIMIT 1);',
         );
       }
-    } else {
-      final settingsRow = await customSelect(
-        'SELECT currency FROM user_settings LIMIT 1;',
-      ).getSingleOrNull();
-      final currency = settingsRow?.read<String>('currency') ?? 'SAR';
-      // Stable id (not random) so the reseed after every sign-out is one
-      // identity — otherwise each cycle creates a new account that the sync
-      // backfill pushes to the server, accumulating duplicate default accounts.
-      const accountId = kDefaultAccountLocalId;
-      final now = dateTimeToSql(DateTime.now().toUtc());
-      await customInsert(
-        '''
-          INSERT INTO accounts(
-            id, name, currency, type, initial_balance, current_balance,
-            is_default, sort_order, created_at, updated_at
-          )
-          VALUES (?, ?, ?, 'bank', NULL, NULL, 1, 0, ?, ?);
-        ''',
-        variables: [
-          Variable.withString(accountId),
-          Variable.withString('الحساب الرئيسي'),
-          Variable.withString(currency),
-          Variable.withString(now),
-          Variable.withString(now),
-        ],
-      );
-      // backfill: اربط كل العمليات/الاشتراكات القائمة بالحساب الافتراضي.
-      await customStatement(
-        'UPDATE transactions SET account_id = ${sqlString(accountId)} '
-        'WHERE account_id IS NULL;',
-      );
-      await customStatement(
-        'UPDATE subscriptions SET account_id = ${sqlString(accountId)} '
-        'WHERE account_id IS NULL;',
-      );
+      await _backfillGoalsToDefaultAccount();
     }
-    await _backfillGoalsToDefaultAccount();
   }
 
   Future<void> _backfillGoalsToDefaultAccount() async {

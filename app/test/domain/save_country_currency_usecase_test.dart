@@ -135,7 +135,7 @@ void main() {
       expect(accountRepo.lastUpdated!.currency, 'EGP');
     });
 
-    test('creates the first account for a new Supabase-primary user', () async {
+    test('NEVER creates an account when none exists (A-7)', () async {
       final accountRepo = _FakeAccountRepo(null);
       final settingsRepo = _FakeRepo();
       final useCase = SaveCountryCurrencyUseCase(
@@ -146,9 +146,7 @@ void main() {
 
       await useCase('eg', 'EGP');
 
-      expect(accountRepo.lastCreated, isNotNull);
-      expect(accountRepo.lastCreated!.currency, 'EGP');
-      expect(accountRepo.lastCreated!.isDefault, isTrue);
+      expect(accountRepo.lastCreated, isNull);
       expect((await settingsRepo.getSettings()).currency, 'EGP');
     });
 

@@ -6,6 +6,7 @@ import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/domain/finance/currency_scale.dart';
 import 'package:money_companion/domain/finance/decimal_minor.dart';
+import '../../harness/seed_test_account.dart';
 
 // MALI-026 (Phase-8 B8-3 §5/§6/§7/§33/§34) — the v30 non-planning money backfill:
 // legacy REAL -> checked int64 minor, exact round-trip, adversarial abort, and
@@ -63,6 +64,7 @@ void main() {
   setUp(() async {
     db = await AppDatabase.open(
         executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    await seedTestAccount(db);
     accountId = (await db.customSelect('SELECT id FROM accounts LIMIT 1;')
             .getSingle())
         .read<String>('id');

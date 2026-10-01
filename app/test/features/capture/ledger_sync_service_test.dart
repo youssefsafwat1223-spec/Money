@@ -11,6 +11,7 @@ import 'package:money_companion/data/repositories/drift_transaction_repository.d
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/capture/services/ledger_sync_service.dart';
 import 'package:money_companion/domain/finance/money.dart';
+import '../../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -124,10 +125,10 @@ void main() {
   late _MockRemoteSource remote;
 
   setUp(() async {
-    db = await AppDatabase.open(
+    db = await seededDb(AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
-    );
+    ));
     remote = _MockRemoteSource();
   });
 

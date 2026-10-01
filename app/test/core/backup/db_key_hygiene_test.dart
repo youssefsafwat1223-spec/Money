@@ -9,6 +9,7 @@ import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import '../../harness/seed_test_account.dart';
 
 // MALI-058n — the local SQLCipher key lives ONLY in platform secure storage. It
 // must never be stored in Drift, backed up, synced, exported, logged, or written
@@ -34,10 +35,10 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppDatabase> open([String key = 'device-key']) => AppDatabase.open(
+  Future<AppDatabase> open([String key = 'device-key']) => seededDb(AppDatabase.open(
         executor: NativeDatabase.memory(),
         keyStore: _MemoryKeyStore(key),
-      );
+      ));
 
   Future<String> keyRef(AppDatabase db) async =>
       (await db.customSelect('SELECT db_encryption_key_ref AS r FROM user_settings;')

@@ -63,7 +63,7 @@ import 'app_localizations_en.dart';
 /// property.
 abstract class AppL10n {
   AppL10n(String locale)
-      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+    : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
   final String localeName;
 
@@ -85,16 +85,16 @@ abstract class AppL10n {
   /// of delegates is preferred or required.
   static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
       <LocalizationsDelegate<dynamic>>[
-    delegate,
-    GlobalMaterialLocalizations.delegate,
-    GlobalCupertinoLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
-  ];
+        delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ];
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('ar'),
-    Locale('en')
+    Locale('en'),
   ];
 
   /// No description provided for @appTitle.
@@ -9900,6 +9900,132 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'بانتظار السعر'**
   String get txnAwaitingPrice;
+
+  /// No description provided for @onbCloudTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزامنة السحابية'**
+  String get onbCloudTitle;
+
+  /// No description provided for @onbCloudBullet1.
+  ///
+  /// In ar, this message translates to:
+  /// **'تتم مزامنة معاملاتك وحساباتك وميزانياتك وأهدافك وإعداداتك ونسخها احتياطيًا في حسابك السحابي على قِرش.'**
+  String get onbCloudBullet1;
+
+  /// No description provided for @onbCloudBullet2.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدونها تبقى بياناتك على هذا الهاتف فقط ولا يُحتفظ لها بنسخة احتياطية.'**
+  String get onbCloudBullet2;
+
+  /// No description provided for @onbCloudBullet3.
+  ///
+  /// In ar, this message translates to:
+  /// **'يمكنك إيقافها في أي وقت من الإعدادات ← الخصوصية.'**
+  String get onbCloudBullet3;
+
+  /// No description provided for @onbCloudEnable.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل المزامنة السحابية'**
+  String get onbCloudEnable;
+
+  /// No description provided for @onbAiTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'التحليل الذكي'**
+  String get onbAiTitle;
+
+  /// No description provided for @onbAiBullet1.
+  ///
+  /// In ar, this message translates to:
+  /// **'عندما يعجز هاتفك عن قراءة رسالة بنكية، تُرسَل إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، ويحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.'**
+  String get onbAiBullet1;
+
+  /// No description provided for @onbAiBullet2.
+  ///
+  /// In ar, this message translates to:
+  /// **'يمكنك إيقافه في أي وقت من الإعدادات ← الخصوصية.'**
+  String get onbAiBullet2;
+
+  /// No description provided for @onbAiEnable.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل التحليل الذكي'**
+  String get onbAiEnable;
+
+  /// No description provided for @onbAiNeedsCloud.
+  ///
+  /// In ar, this message translates to:
+  /// **'يحتاج التحليل الذكي إلى المزامنة السحابية، وهي متوقفة الآن. يمكنك تفعيل الاثنين معًا:'**
+  String get onbAiNeedsCloud;
+
+  /// No description provided for @onbAiEnableBoth.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفعيل المزامنة السحابية والتحليل الذكي'**
+  String get onbAiEnableBoth;
+
+  /// No description provided for @onbReadyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حالة الاتصال'**
+  String get onbReadyTitle;
+
+  /// No description provided for @onbReadyBodyOn.
+  ///
+  /// In ar, this message translates to:
+  /// **'يربط قِرش هذا الجهاز بالخدمات السحابية. يمكنك المتابعة بينما ينتهي الاتصال.'**
+  String get onbReadyBodyOn;
+
+  /// No description provided for @onbReadyBodyOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزامنة السحابية والتحليل الذكي متوقفان، لذا تبقى بياناتك على هذا الهاتف. يمكنك تفعيلهما في أي وقت من الإعدادات ← الخصوصية.'**
+  String get onbReadyBodyOff;
+
+  /// No description provided for @onbAccountTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'جهّز حسابك'**
+  String get onbAccountTitle;
+
+  /// No description provided for @onbAccountBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف الحساب الذي تحتفظ فيه بأموالك، مثل حساب بنكي أو نقد أو محفظة. يمكنك إضافة المزيد لاحقًا.'**
+  String get onbAccountBody;
+
+  /// No description provided for @onbAccountExistingTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حساباتك'**
+  String get onbAccountExistingTitle;
+
+  /// No description provided for @onbAccountExistingBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لديك هذه الحسابات بالفعل. يمكنك المتابعة أو إضافة حساب آخر.'**
+  String get onbAccountExistingBody;
+
+  /// No description provided for @onbAccountAddAnother.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة حساب آخر'**
+  String get onbAccountAddAnother;
+
+  /// No description provided for @onbAccountContinue.
+  ///
+  /// In ar, this message translates to:
+  /// **'متابعة'**
+  String get onbAccountContinue;
+
+  /// No description provided for @onbAccountRequired.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف حسابًا لإنهاء الإعداد.'**
+  String get onbAccountRequired;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
@@ -9928,8 +10054,9 @@ AppL10n lookupAppL10n(Locale locale) {
   }
 
   throw FlutterError(
-      'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
-      'an issue with the localizations generation tool. Please file an issue '
-      'on GitHub with a reproducible sample app and the gen-l10n configuration '
-      'that was used.');
+    'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
+    'an issue with the localizations generation tool. Please file an issue '
+    'on GitHub with a reproducible sample app and the gen-l10n configuration '
+    'that was used.',
+  );
 }

@@ -1,7 +1,6 @@
 import 'dart:convert';
 
 import '../../core/security/lock_prompt_language.dart';
-import '../entities/account_entity.dart';
 import '../entities/engagement_entities.dart';
 import '../entities/supporting_entities.dart';
 import '../repositories/account_repository.dart';
@@ -60,29 +59,9 @@ class SaveCountryCurrencyUseCase {
     final settings = await _repository.getSettings();
     final existing = await _transactionRepository.getRecent(limit: 1);
     final account = await _accountRepository.getDefault();
-    if (account == null) {
-      // Supabase-primary users do not inherit the device's seeded Drift account.
-      // Create their first server account during setup before allowing the
-      // onboarding step to complete.
-      final now = DateTime.now().toUtc();
-      await _accountRepository.create(
-        AccountEntity(
-          id: '',
-          // The first account's name is DATA: it is written once and the user
-          // can rename it. Naming it in the language they are setting the app
-          // up in is the honest behaviour — rendering it through the ARB would
-          // silently overwrite a name they chose. `settings` is already loaded
-          // three lines up, so the language costs nothing to read.
-          name: settings.language == 'en' ? 'Main account' : 'الحساب الرئيسي',
-          currency: currency,
-          type: AccountType.bank,
-          isDefault: true,
-          sortOrder: 0,
-          createdAt: now,
-          updatedAt: now,
-        ),
-      );
-    } else if (existing.isEmpty && account.currency != currency) {
+    // A-7: this use case NEVER creates an account — accounts are created only
+    // by the explicit Account Setup step / Create Account form.
+    if (account != null && existing.isEmpty && account.currency != currency) {
       // Existing installs may still have the seeded currency (SAR). Relabel it
       // only before the first transaction so historical money never changes
       // meaning silently.

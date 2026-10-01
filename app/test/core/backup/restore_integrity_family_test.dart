@@ -17,6 +17,7 @@ import 'package:money_companion/core/backup/restore_service.dart';
 import 'package:money_companion/core/session/unsynced_inventory.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import '../../harness/seed_test_account.dart';
 
 /// Cross-model audit **H-20 / H-21** — restore integrity family.
 ///
@@ -72,8 +73,8 @@ Future<RestorePlan> planFrom(AppDatabase src, {String op = 'op-b11'}) async =>
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppDatabase> openMemory() => AppDatabase.open(
-      executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+  Future<AppDatabase> openMemory() => seededDb(AppDatabase.open(
+      executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore()));
 
   group('H-20 — a commit can never be reported as a rollback', () {
     test('the journal REFUSES to relabel a committed operation', () async {

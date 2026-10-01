@@ -76,7 +76,8 @@ void main() {
     addTearDown(db.close);
     await db.initialize();
     expect(await userVersion(db), 38);
-    expect(await count(db, 'accounts'), greaterThan(0));
+    expect(await count(db, 'accounts'), 0,
+        reason: 'A-7: a fresh database has no silent default account');
     expect(await count(db, 'categories'), greaterThan(0));
   });
 

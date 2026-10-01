@@ -14,6 +14,7 @@ import 'package:money_companion/core/backup/restore_plan.dart';
 import 'package:money_companion/core/backup/restore_result.dart';
 import 'package:money_companion/core/backup/restore_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
+import '../../harness/seed_test_account.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 
@@ -129,10 +130,10 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppDatabase> openMemory() => AppDatabase.open(
-      executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
-  Future<AppDatabase> openFile(String path) => AppDatabase.open(
-      executor: NativeDatabase(File(path)), keyStore: _MemoryKeyStore());
+  Future<AppDatabase> openMemory() => seededDb(AppDatabase.open(
+      executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore()));
+  Future<AppDatabase> openFile(String path) => seededDb(AppDatabase.open(
+      executor: NativeDatabase(File(path)), keyStore: _MemoryKeyStore()));
 
   group('§Blocker-3 — rollback at every transaction-boundary fault point leaves '
       'the complete database unchanged', () {

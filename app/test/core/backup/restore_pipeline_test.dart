@@ -18,6 +18,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/database_lease.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/ownership_guard.dart';
+import '../../harness/seed_test_account.dart';
 
 // MALI-014 / MALI-076n (Phase 6 Batch 5) — the restore preparation/mutation
 // pipeline: immutable plan, in-transaction verification, atomic rollback, ownership
@@ -70,8 +71,8 @@ Future<void> _setAdmission(String? uid, String? gen) async {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppDatabase> open() => AppDatabase.open(
-      executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+  Future<AppDatabase> open() => seededDb(AppDatabase.open(
+      executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore()));
 
   Future<int> count(AppDatabase db, String table) async =>
       (await db.customSelect('SELECT COUNT(*) AS n FROM $table;').getSingle())

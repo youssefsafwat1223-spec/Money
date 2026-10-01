@@ -5,6 +5,7 @@ import 'package:money_companion/core/data_portability/portable_csv.dart';
 import 'package:money_companion/core/data_portability/qirsh_package_codec.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import '../../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -22,6 +23,7 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
   });
 
   tearDown(() => db.close());

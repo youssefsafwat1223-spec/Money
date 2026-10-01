@@ -21,6 +21,7 @@ import 'package:money_companion/core/backup/restore_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../harness/seed_test_account.dart';
 
 const _ownerKey = 'backup_owner_uid';
 const _enabledKey = 'backup_enabled';
@@ -237,10 +238,10 @@ Map<String, String> _accountAState() => {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppDatabase> openMemory() => AppDatabase.open(
+  Future<AppDatabase> openMemory() => seededDb(AppDatabase.open(
         executor: NativeDatabase.memory(),
         keyStore: _MemoryKeyStore(),
-      );
+      ));
 
   group('H-23 — enable key-state publication is fail-closed', () {
     // Non-vacuity: with the prior owner-first implementation, every case below
