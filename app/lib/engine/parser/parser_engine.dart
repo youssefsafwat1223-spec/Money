@@ -222,10 +222,10 @@ class ParserEngine {
         )) {
       type = TransactionType.withdrawal;
     }
-    final currency = parseCatalogCurrency(catalogMatch?.currencyText) ??
+    final readCurrency = parseCatalogCurrency(catalogMatch?.currencyText) ??
         amountExtraction.currency ??
-        _extractCurrency(text) ??
-        defaultCurrency;
+        _extractCurrency(text);
+    final currency = readCurrency ?? defaultCurrency;
     final last4 = _extractLast4(text);
     final accountNumber = _extractAccountNumber(text);
     final ruleBalance = parseCatalogAmount(catalogMatch?.balanceText);
@@ -262,7 +262,8 @@ class ParserEngine {
             dateAmbiguous: dateResult.ambiguous,
           );
     if (confidence < pendingThreshold) {
-      return ParseResult.notTransaction(bankKey: bank?.bankKey);
+      return ParseResult.notTransaction(
+          bankKey: bank?.bankKey, amountDetected: true);
     }
 
     final txn = ParsedTransaction(
@@ -299,6 +300,7 @@ class ParserEngine {
       typeUndetected: type == TransactionType.unknown,
       amountAmbiguous: amountExtraction.hasAmbiguity,
       dateAmbiguous: dateResult.ambiguous,
+      currencyDefaulted: readCurrency == null,
     );
   }
 

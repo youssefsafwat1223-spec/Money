@@ -77,6 +77,16 @@ void main() {
         LocalInvalidReason.missingCurrency);
   });
 
+  test('a currency filled in from the account default is invalid', () {
+    expect(_check(ParseResult.success(_txn(), currencyDefaulted: true)).reason,
+        LocalInvalidReason.currencyDefaulted);
+    final parse = const ParserEngine()
+        .parse('Purchase 42.00 At STARBUCKS', senderId: 'AlRajhi');
+    expect(parse.currencyDefaulted, isTrue);
+    final read = const ParserEngine().parse(_raw, senderId: 'AlRajhi');
+    expect(read.currencyDefaulted, isFalse);
+  });
+
   test('unknown or defaulted (undetected) type is invalid', () {
     expect(
         _check(ParseResult.success(_txn(type: TransactionType.unknown)))

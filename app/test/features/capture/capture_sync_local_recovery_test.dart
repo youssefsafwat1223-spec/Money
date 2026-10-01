@@ -113,6 +113,22 @@ ProcessedCaptureDto _rejected(String id, {String? sanitized}) =>
       createdAt: DateTime.utc(2026, 7, 5, 10),
     );
 
+ProcessedCaptureDto _needsReview(String id) => ProcessedCaptureDto(
+      payloadId: id,
+      status: 'needs_review',
+      parsed: const {
+        'senderId': 'SNB',
+        'amount': 45.0,
+        'amount_text': '45.00',
+        'currency': 'SAR',
+        'type': 'payment',
+        'merchant': 'NETFLIX',
+      },
+      notification: const {},
+      sanitizedText: _serverText,
+      createdAt: DateTime.utc(2026, 7, 5, 10),
+    );
+
 void main() {
   late AppDatabase db;
   late _Guard guard;
@@ -322,5 +338,53 @@ void main() {
     expect(await svc.transactionIdForPayload('p7b'), startsWith('smart_inbox:'));
     expect(await DriftSuspectedDuplicateRepository(db).getAll(), isEmpty,
         reason: 'the ingest write is rolled back with the declined recovery');
+  });
+
+  group('server needs_review', () {
+    test('flag ON + valid native raw => confirmed tx + marker, no pending',
+        () async {
+      final backend = _Backend([_needsReview('n1')]);
+      final svc = service(backend, native: nativeMsg('n1', _validRaw));
+
+      await svc.sync();
+
+      final txs = await DriftTransactionRepository(db).getAll();
+      expect(txs, hasLength(1));
+      expect(txs.single.status.name, 'confirmed');
+      expect(await svc.transactionIdForPayload('n1'), txs.single.id);
+      expect(await DriftSmartInboxRepository(db).getOpen(), isEmpty);
+      expect(parserInputs, [_validRaw]);
+      // The native drain's guard: already imported => no double transaction.
+      expect(await svc.isPayloadImported('n1'), isTrue);
+      await svc.sync();
+      expect(await DriftTransactionRepository(db).getAll(), hasLength(1));
+    });
+
+    test('flag ON + locally invalid => Smart Inbox, no pending row', () async {
+      final backend = _Backend([_needsReview('n2')]);
+      final svc =
+          service(backend, native: nativeMsg('n2', 'hello, not a bank text'));
+
+      await svc.sync();
+
+      expect(await DriftTransactionRepository(db).getAll(), isEmpty);
+      expect(await DriftSmartInboxRepository(db).getOpen(), hasLength(1));
+      expect(
+          await svc.transactionIdForPayload('n2'), startsWith('smart_inbox:'));
+    });
+
+    test('flag OFF => unchanged pending transaction', () async {
+      flagOn = false;
+      final backend = _Backend([_needsReview('n3')]);
+      final svc = service(backend, native: nativeMsg('n3', _validRaw));
+
+      await svc.sync();
+
+      expect(recoverCalls, 0);
+      final txs = await DriftTransactionRepository(db).getAll();
+      expect(txs, hasLength(1));
+      expect(txs.single.status.name, 'pending');
+      expect(await DriftSmartInboxRepository(db).getOpen(), isEmpty);
+    });
   });
 }

@@ -81,14 +81,12 @@ class _SchemaMigration {
   final Future<bool> Function(AppDatabase db)? postcondition;
 }
 
-/// Stable local id for the auto-seeded default account ("الحساب الرئيسي").
-/// It must NOT be random: sign-out wipes the accounts table and reseeds this
-/// account, so a random id would mint a brand-new identity every cycle and the
-/// sync backfill would push it to Supabase as yet another account — accounts
-/// accumulate without bound. A fixed sentinel makes the seed idempotent so the
-/// backfill/pull match the existing server row instead of duplicating it.
-/// (User-created accounts keep using random IdGenerator ids — this applies only
-/// to the single auto-seeded default.)
+/// Stable local id reserved for the default account ("الحساب الرئيسي").
+/// No account is auto-seeded (A-7: there is no silent default account); an
+/// existing install's account keeps this id. The id is deliberately NOT random,
+/// so any path that (re)creates it stays idempotent and the sync
+/// backfill/pull matches the existing server row instead of duplicating it.
+/// (User-created accounts keep using random IdGenerator ids.)
 const String kDefaultAccountLocalId = 'default_account';
 
 /// MALI-069n §2 — the database connection lifecycle. A failed open never leaves a

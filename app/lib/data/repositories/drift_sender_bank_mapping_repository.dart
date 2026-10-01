@@ -184,6 +184,14 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
             rejection_expires_at = NULL,
             updated_at = ?,
             synced_at = NULL,
+            -- A user confirming an AI-validated mapping takes ownership of it.
+            -- Rows that are not ai_validated keep accepted_by NULL: the column
+            -- only exists on servers with migration 0101, and ai_validated
+            -- rows only exist while that migration is required.
+            accepted_by = CASE
+              WHEN accepted_by = 'ai_validated' THEN 'user'
+              ELSE accepted_by
+            END,
             sync_status = 'pending',
             sync_attempt_count = 0, sync_next_retry_at = NULL,
             sync_failure_class = NULL, sync_permanent = 0

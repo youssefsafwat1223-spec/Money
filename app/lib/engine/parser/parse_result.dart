@@ -15,6 +15,8 @@ class ParseResult {
     this.typeUndetected = false,
     this.amountAmbiguous = false,
     this.dateAmbiguous = false,
+    this.currencyDefaulted = false,
+    this.amountDetected = false,
   });
 
   factory ParseResult.success(
@@ -25,6 +27,7 @@ class ParseResult {
     bool typeUndetected = false,
     bool amountAmbiguous = false,
     bool dateAmbiguous = false,
+    bool currencyDefaulted = false,
   }) =>
       ParseResult._(
         isTransaction: true,
@@ -36,10 +39,22 @@ class ParseResult {
         typeUndetected: typeUndetected,
         amountAmbiguous: amountAmbiguous,
         dateAmbiguous: dateAmbiguous,
+        currencyDefaulted: currencyDefaulted,
+        amountDetected: true,
       );
 
-  factory ParseResult.notTransaction({String? bankKey}) =>
-      ParseResult._(isTransaction: false, bankKey: bankKey);
+  /// [amountDetected] is true when the engine read a transaction amount but the
+  /// reading fell below the confidence floor, so the message is
+  /// transaction-shaped even though it produced no [transaction].
+  factory ParseResult.notTransaction({
+    String? bankKey,
+    bool amountDetected = false,
+  }) =>
+      ParseResult._(
+        isTransaction: false,
+        bankKey: bankKey,
+        amountDetected: amountDetected,
+      );
 
   final bool isTransaction;
   final ParsedTransaction? transaction;
@@ -67,4 +82,13 @@ class ParseResult {
   /// The date has day and month both <= 12 with no profile guidance (the same
   /// fact that caps `_confidence` at 0.89).
   final bool dateAmbiguous;
+
+  /// True when no currency token was read from the message (neither a catalog
+  /// rule, the amount extraction nor the text) and the engine fell back to the
+  /// caller's default currency. The currency is then a guess, not a reading.
+  final bool currencyDefaulted;
+
+  /// The engine found a transaction amount in the message (true for every
+  /// successful parse, and for a parse rejected only for low confidence).
+  final bool amountDetected;
 }

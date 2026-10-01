@@ -379,7 +379,7 @@ class CaptureSyncService {
             _string(parsed['rawMessage']) ??
                 'Backend capture ${capture.payloadId} could not be parsed',
           );
-    if (capture.status == 'rejected' &&
+    if ((capture.status == 'rejected' || capture.status == 'needs_review') &&
         await _recoverRejectedLocally(
           capture,
           serverText: rawMessage,
@@ -503,6 +503,14 @@ class CaptureSyncService {
     // an intentional drop from missing parsed fields: the native/local ingest
     // path alone produces the separate `ignored` OTP/promo disposition.
     if (capture.status == 'rejected') {
+      await _persistBackendUnprocessableCapture(
+          capture, requireCurrentAdmission);
+      return null;
+    }
+    // Under local_auto_confirm_v2 a server `needs_review` capture is not a
+    // confirmation stage: it gets the same on-device recovery as `rejected`
+    // (valid => confirmed, otherwise Smart Inbox), never a pending row.
+    if (capture.status == 'needs_review' && _localRecoveryEnabled()) {
       await _persistBackendUnprocessableCapture(
           capture, requireCurrentAdmission);
       return null;

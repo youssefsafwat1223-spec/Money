@@ -8,6 +8,7 @@ enum LocalInvalidReason {
   notTransaction,
   nonExactMoney,
   missingCurrency,
+  currencyDefaulted,
   unknownType,
   directionContradiction,
   uncorroboratedCatalogAmount,
@@ -49,6 +50,12 @@ class LocalValidity {
     if (txn.currency.trim().isEmpty) {
       return const LocalValidityResult.invalid(
           LocalInvalidReason.missingCurrency);
+    }
+    // No currency token in the message: the engine filled in the account's
+    // default. That is a guess, so the local reading is not valid.
+    if (parse.currencyDefaulted) {
+      return const LocalValidityResult.invalid(
+          LocalInvalidReason.currencyDefaulted);
     }
     if (txn.type == TransactionType.unknown || parse.typeUndetected) {
       return const LocalValidityResult.invalid(LocalInvalidReason.unknownType);

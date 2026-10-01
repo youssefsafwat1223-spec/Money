@@ -448,6 +448,33 @@ void main() {
       expect(server.rows['AISND']!['accepted_by'], 'ai_validated');
     });
 
+    test('ai_validated -> user confirm => accepted_by user, pushed', () async {
+      final repo = DriftSenderBankMappingRepository(db);
+      await repo.upsertAiValidated(
+          senderId: 'AIUSR',
+          bankKey: 'alrajhi',
+          bankName: 'Bank',
+          country: 'SA');
+      final ai = (await repo.getBySender('AIUSR'))!;
+      expect(ai.acceptedBy, 'ai_validated');
+      final confirmed =
+          await repo.confirm(mappingId: ai.id, bankKey: 'alrajhi');
+      expect(confirmed.acceptedBy, 'user');
+      expect(confirmed.isUserAccepted, isTrue);
+      await service().push();
+      expect(server.rows['AIUSR']!['accepted_by'], 'user');
+    });
+
+    test('legacy NULL confirm stays NULL, payload has no accepted_by',
+        () async {
+      final repo = DriftSenderBankMappingRepository(db);
+      final s = await suggest(repo, 'legnull');
+      final confirmed = await repo.confirm(mappingId: s.id, bankKey: 'alrajhi');
+      expect(confirmed.acceptedBy, isNull);
+      await service().push();
+      expect(server.rows['LEGNULL']!.containsKey('accepted_by'), isFalse);
+    });
+
     test(
         'guard (flag OFF): confirm/reject/saveSuggestion/upsertRemote/pull '
         'never yield accepted_by in any push payload', () async {
