@@ -1842,7 +1842,7 @@ void main() {
       expect(result.droppedByParser, isTrue);
     });
 
-    test('a rejected AI candidate from a non-bank sender is ignored, not dropped',
+    test('a rejected AI candidate from a non-bank sender is still surfaced (not silent)',
         () async {
       final result = await runAi(
         const AiParseResponse(amount: 76, amountText: '76', currency: 'SAR'),
@@ -1850,7 +1850,9 @@ void main() {
         raw: 'مشترياتك بقيمة 75 ريال من نون تمت بنجاح',
       );
       expect(result.outcome, AddTransactionOutcome.notTransaction);
-      expect(result.droppedByParser, isFalse);
+      // Transaction-shaped (AI returned a candidate): never acked silently,
+      // whatever the sender.
+      expect(result.droppedByParser, isTrue);
     });
 
     test('AI confidence-like metadata has no effect on acceptance or status',

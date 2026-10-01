@@ -701,6 +701,22 @@ class AddTransactionUseCase {
                 senderId: senderId,
               );
 
+    // A "no transaction" result is acked away silently UNLESS it is surfaced to
+    // the Smart Inbox. It is surfaced when the sender looks like a bank, OR the
+    // message was transaction-shaped (the local parser read an amount, even if
+    // V2 judged it invalid, or the AI returned a candidate the validator
+    // rejected) — whatever the sender (e.g. a letterless numeric short code).
+    // Intentionally ignored messages (OTP/promo/...) always stay ignored.
+    final transactionShaped = parseResult.isTransaction ||
+        parseResult.amountDetected ||
+        aiFirstAttempt.response != null;
+    final intentionallyIgnored = wasIgnored ||
+        (transactionShaped &&
+            ParserEngine.isIgnoredMessage(rawMessage,
+                senderId: senderId, bankProfiles: bankProfiles));
+    final droppedByParser =
+        !intentionallyIgnored && (isLikelyBank || transactionShaped);
+
     BankDiscoveryResult? discovery;
     if (!onDeviceOnly) {
       discovery = await _runBankDiscoveryIfEligible(
@@ -745,7 +761,6 @@ class AddTransactionUseCase {
       // The AI had the first chance and the rule-based parser still couldn't
       // read it. For a bank-like sender, surface that it was dropped by parsing
       // so the UI can avoid a noisy "unreadable message" dead end.
-      final droppedByParser = isLikelyBank && !wasIgnored;
       return AddTransactionResult.notTransaction(reportedParse,
           droppedByParser: droppedByParser,
           aiFailureReason: aiFirstAttempt.failureReason ??
@@ -917,7 +932,7 @@ class AddTransactionUseCase {
       AiSenderFailureTracker.instance
           .recordFailure(aiFirstAttempt.senderId);
       return AddTransactionResult.notTransaction(reportedParse,
-          droppedByParser: isLikelyBank && !wasIgnored,
+          droppedByParser: droppedByParser,
           aiFailureReason: 'ai_response_rejected_by_grounding');
     }
 
@@ -1106,7 +1121,7 @@ class AddTransactionUseCase {
         (directionContradiction ||
             (!foreignUnpriced && proofEval.decision.withholdsConfirmation))) {
       return AddTransactionResult.notTransaction(reportedParse,
-          droppedByParser: isLikelyBank && !wasIgnored,
+          droppedByParser: droppedByParser,
           aiFailureReason: 'local_invalid_after_reclassification');
     }
     final primaryCommit = CaptureCommitDecision.primary(

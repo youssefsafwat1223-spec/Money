@@ -98,11 +98,15 @@ class PrivacyScreen extends ConsumerWidget {
                             icon: AppLucideIcons.sparkles,
                             title: context.l10n.privAiAnalysis,
                             subtitle:
-                                // The code is AI-FIRST (`_tryAiParseFirst`): with
-                                // this AND cloud processing on, EVERY captured
-                                // message is sent, not only unfamiliar ones.
-                                // The old copy said "unfamiliar messages", which
-                                // understated it.
+                                // The deployed server (process-ios-sms) still
+                                // analyses EVERY consented message with AI, so
+                                // this copy says so rather than "unfamiliar
+                                // messages". On-device parsing runs first and
+                                // AI is consulted only when local parsing
+                                // produces no valid transaction; once the
+                                // process-ios-sms WP4-Lite change is deployed
+                                // the server follows that order too, and this
+                                // copy must be revisited then.
                                 context.l10n.privAiAnalysisBody,
                             value: settings.aiConsentGranted,
                             onChanged: (value) => _setConsent(
