@@ -885,17 +885,20 @@ void main() {
       expect(await localSync(d1, 'tx-b'), 'pending',
           reason: 'untouched server row => plain pending, push will win');
 
-      // (ii) push: b wins (server unchanged since base); a and c hit the
-      // guarded-update 0-row path => conflict, server keeps device 2's value.
+      // (ii) push: b wins (server unchanged since base); a and c are already in
+      // conflict (flagged by the pull) so Phase D holds them for the user's
+      // resolution instead of re-pushing them: never sent, rows kept pending,
+      // server keeps device 2's value.
       final push1 = await d1.ledgerPush.push();
       expect(push1.pushed, 1);
-      expect(push1.conflicts, 2);
+      expect(push1.conflicts, 0);
       expect(await remoteAmt('tx-b'), '31.5');
       expect(await remoteAmt('tx-a'), '20', reason: 'server not clobbered');
       expect(await remoteAmt('tx-c'), '22', reason: 'server not clobbered');
       expect(await localSync(d1, 'tx-a'), 'conflict');
       expect(await localSync(d1, 'tx-c'), 'conflict');
-      expect(await d1.ledgerOutboxCount(), 0);
+      expect(await d1.ledgerOutboxCount(), 2,
+          reason: 'the held edits stay queued for the user (D-1)');
 
       // (iii) documented resolution: transactions are INTERACTIVE.
       expect(conflictPolicyFor(ConflictEntities.transaction).isInteractive, true);
@@ -1003,7 +1006,15 @@ void main() {
           ...await d.sql('SELECT status, failure_class, attempt_count FROM ledger_sync_outbox'),
           ...await d.sql('SELECT status, failure_class, attempt_count FROM planning_sync_outbox'),
         ];
+        // D-4: an RLS denial (42501) while the session is VALID is not an auth
+        // problem: it is a permanent, observable permission_denied dead letter
+        // (re-armable by Retry), no longer hidden forever as auth_required.
+        bool rlsDenied(Map<String, Object?> r) =>
+            v.key == 'anon-role (RLS)' &&
+            r['status'] == 'dead_letter' &&
+            r['failure_class'] == kFailPermissionDenied;
         for (final r in rows) {
+          if (rlsDenied(r)) continue;
           expect(r['status'], isNot('dead_letter'),
               reason: '${v.key}: auth failure must never dead-letter');
         }
@@ -1015,6 +1026,7 @@ void main() {
         // because its parent was not pushed is a missing-dependency wait, not
         // an auth rejection: it stays pending (never dead-lettered).
         for (final r in rows) {
+          if (rlsDenied(r)) continue;
           if (r['status'] == 'parked') {
             expect(r['failure_class'], kParkAuthRequired, reason: v.key);
             expect(r['attempt_count'], 0,
@@ -1030,8 +1042,10 @@ void main() {
             .map((r) => '${r['status']}/${r['failure_class']}')
             .toSet()
             .join(',');
-        expect(rows.where((r) => r['status'] == 'parked'), isNotEmpty,
-            reason: '${v.key}: the rejected rows are parked');
+        expect(
+            rows.where((r) => r['status'] == 'parked' || rlsDenied(r)),
+            isNotEmpty,
+            reason: '${v.key}: the rejected rows are parked / dead-lettered');
         // Local data intact.
         expect(
             (await d.sql('SELECT COUNT(*) n FROM transactions')).single['n'], 1);
@@ -1048,6 +1062,9 @@ void main() {
       probe.bearerOverride = null;
       await d.ledgerQueue.reArmAuthParked();
       await d.planningQueue.reArmAuthParked();
+      // D-4: the RLS-denied dead letters are re-armed by an explicit Retry.
+      await d.ledgerQueue.reArmRetryableDeadLetters();
+      await d.planningQueue.reArmRetryableDeadLetters();
       await d.elapseBackoff();
       expect((await d.accountsPush.push()).failed, 0);
       expect((await d.ledgerPush.push()).pushed, 1);

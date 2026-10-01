@@ -2,6 +2,7 @@ import 'package:drift/drift.dart' hide isNull;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
@@ -616,5 +617,62 @@ void main() {
     expect(row['sync_status'], 'conflict');
     expect(row['server_updated_at'], '2026-01-01T10:00:00.000Z',
         reason: 'base token must not be overwritten by the newer remote');
+  });
+
+  test('pending local edit + remote moved past base → conflict, fields kept; the ambiguous in-flight marker is cleared so keep-remote can resolve (D)',
+      () async {
+    remote.activeRows = [
+      _serverRow(
+        id: 'srv-conf',
+        amount: 100.0,
+        updatedAt: '2026-01-01T10:00:00.000Z',
+      ),
+    ];
+    await _makeSvc(db, remote).pull();
+
+    await db.customStatement('''
+      UPDATE transactions
+      SET amount = 999.0, sync_status = 'pending'
+      WHERE server_id = 'srv-conf';
+    ''');
+    await db.customStatement('''
+      INSERT INTO ledger_sync_outbox(id, transaction_id, operation, payload_json,
+        attempt_count, status, created_at, updated_at, op_seq, in_flight_seq)
+      SELECT 'o1', id, 'update', '{}', 0, 'pending', '2026-07-01T00:00:00Z',
+        '2026-07-01T00:00:00Z', 1, 1 FROM transactions WHERE server_id = 'srv-conf';
+    ''');
+
+    // Remote edited concurrently on another device.
+    remote.activeRows = [
+      _serverRow(
+        id: 'srv-conf',
+        amount: 300.0,
+        updatedAt: '2026-01-03T10:00:00.000Z',
+      ),
+    ];
+    final result = await _makeSvc(db, remote).pull();
+    expect(result.conflicts, 1);
+    expect(
+        (await db.customSelect(
+                "SELECT in_flight_seq AS m FROM ledger_sync_outbox WHERE id = 'o1';")
+            .getSingle())
+            .readNullable<int>('m'),
+        isNull,
+        reason: 'a pull-raised conflict clears the ambiguous marker');
+
+    final row = await localRow('srv-conf');
+    expect(row['amount'], 999.0,
+        reason: 'conflict must not silently pick the remote side');
+    expect(row['sync_status'], 'conflict');
+    expect(row['server_updated_at'], '2026-01-01T10:00:00.000Z',
+        reason: 'base token must not be overwritten by the newer remote');
+    final txId = (await db
+            .customSelect("SELECT id FROM transactions WHERE server_id = 'srv-conf';")
+            .getSingle())
+        .read<String>('id');
+    expect(
+        await UniversalConflictResolver(db: db, reEnqueue: const {})
+            .resolveKeepRemote('transaction', txId),
+        isTrue);
   });
 }

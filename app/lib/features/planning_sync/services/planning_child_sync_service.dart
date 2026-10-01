@@ -231,6 +231,14 @@ class PlanningChildSyncService {
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
       await _queue.reArmParked();
     }
+    // D-7: cold-start auth re-arm (the AuthSessionValid broadcast has no replay).
+    if (outboxHasValidSession()) {
+      await _queue.reArmAuthParked(entityTypes: const [
+        PlanningOutboxQueue.goalContributionsEntityType,
+        PlanningOutboxQueue.billPaymentsEntityType,
+        PlanningOutboxQueue.planLinksEntityType,
+      ]);
+    }
     // A-2 (G18): only rows recorded for THIS identity may be sent.
     await _queue.reconcileOwnership(userId);
     if (kDebugMode) debugPrint('[PlanningChildSync] start');
@@ -255,11 +263,12 @@ class PlanningChildSyncService {
                 cutoverState: _coordinator.state(),
                 pushCapability: _pushCapability(),
               )) {
-            await _queue.park(
+            final parkedNow = await _queue.park(
               item.id,
               exactMoneyTransportUnverifiedReason,
+              ifOpSeq: item.opSeq,
             );
-            _health?.noteCapabilityParked(SyncDomain.children);
+            if (parkedNow) _health?.noteCapabilityParked(SyncDomain.children);
             continue;
           }
           await _pushItem(userId, item);

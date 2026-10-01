@@ -112,6 +112,7 @@ class LedgerOutboxQueue {
           .customSelect(
             "SELECT id, operation, status, in_flight_seq FROM ledger_sync_outbox "
             "WHERE transaction_id = ${sqlString(tx.id)} AND $kOutboxCoalescibleSql "
+            "AND ${outboxOwnerMatchSql(ownerUid)} "
             "ORDER BY created_at ASC LIMIT 1;",
           )
           .getSingleOrNull();
@@ -120,10 +121,10 @@ class LedgerOutboxQueue {
         final coalesced = coalesceOutboxOperation(
             existing.read<String>('operation'), op.name);
         if (coalesced == null &&
-            (existing.read<String>('status') == 'parked' ||
-                existing.readNullable<int>('in_flight_seq') == null)) {
-          // Never on the wire (parked, or never handed to a push — the durable
-          // in_flight_seq marker is NULL): create+delete truly cancels.
+            existing.readNullable<int>('in_flight_seq') == null) {
+          // Never on the wire (never handed to a push — the durable
+          // in_flight_seq marker is NULL; D-6: a PARKED row keeps the marker, so
+          // parking alone never proves it was not sent): create+delete cancels.
           await _db.customStatement(
             'DELETE FROM ledger_sync_outbox WHERE id = ${sqlString(existingId)};',
           );
@@ -176,6 +177,11 @@ class LedgerOutboxQueue {
         FROM ledger_sync_outbox
         WHERE status = 'pending'
           AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
+          -- D-1: an entity awaiting the user's conflict resolution is never pushed.
+          AND NOT EXISTS (
+            SELECT 1 FROM transactions t
+            WHERE t.id = ledger_sync_outbox.transaction_id
+              AND t.sync_status = 'conflict')
         ORDER BY created_at ASC
         LIMIT $limit;
       ''').get();
@@ -239,15 +245,15 @@ class LedgerOutboxQueue {
       final payload =
           (jsonDecode(row.read<String>('payload_json')) as Map).cast<String, dynamic>();
       if (serverId != null) payload['server_id'] = serverId;
+      // D-1: base tokens are replaced ONLY when this ACK produced new ones. A
+      // token-less ACK (conflict / idempotent delete) must keep the existing
+      // base: stripping it made the next push fetch the server's CURRENT token
+      // and overwrite the other device's edit.
       if (serverUpdatedAt != null) {
         payload['server_updated_at'] = serverUpdatedAt;
-      } else {
-        payload.remove('server_updated_at');
       }
       if (serverRevision != null) {
         payload['server_revision'] = serverRevision;
-      } else {
-        payload.remove('server_revision');
       }
       final op = row.read<String>('operation');
       final now = dateTimeToSql(DateTime.now().toUtc());
@@ -402,9 +408,11 @@ class LedgerOutboxQueue {
   /// [reason]. The local write already stands; the row is retained DURABLY, is
   /// NOT marked synced, and does NOT consume a retry attempt. Only pending rows
   /// park (a dead-lettered row stays dead-lettered).
-  Future<void> park(String id, String reason, {int? ifOpSeq}) async {
+  /// Returns true when the row was parked (false: it was no longer pending, or
+  /// [ifOpSeq] no longer matched because an edit was folded in meanwhile).
+  Future<bool> park(String id, String reason, {int? ifOpSeq}) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    await _db.customStatement('''
+    final n = await _db.customUpdate('''
       UPDATE ledger_sync_outbox
       SET status = 'parked', failure_class = ${sqlString(reason)},
           last_error = NULL, next_retry_at = NULL, in_flight_seq = NULL,
@@ -412,6 +420,7 @@ class LedgerOutboxQueue {
       WHERE id = ${sqlString(id)} AND status = 'pending'
         ${ifOpSeq == null ? '' : 'AND op_seq = $ifOpSeq'};
     ''');
+    return n > 0;
   }
 
   /// A-6: true when [payload] is an awaiting-FX create/update body — amount 0

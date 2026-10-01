@@ -228,6 +228,11 @@ class UniversalConflictResolver {
     final policy = conflictPolicyFor(entityType);
     if (!policy.canConflict) return true;
 
+    // D-8: a push of this entity is on the wire (durable in_flight_seq marker).
+    // Dropping its outbox row / applying the remote now would race that push, so
+    // change nothing and let the caller try again later.
+    if (await _hasInFlightOutbox(policy, localId)) return false;
+
     final sync = _remoteSync[entityType];
     final serverId = await _serverId(policy.localTable, localId);
     if (sync == null || serverId == null) {
@@ -292,6 +297,24 @@ class UniversalConflictResolver {
         )
         .getSingleOrNull();
     return row?.readNullable<String>('server_id');
+  }
+
+  Future<bool> _hasInFlightOutbox(
+      EntityConflictPolicy policy, String localId) async {
+    final row = await _db
+        .customSelect(
+          switch (policy.outbox) {
+            OutboxKind.ledger => 'SELECT 1 AS x FROM ledger_sync_outbox '
+                'WHERE transaction_id = ${sqlString(localId)} '
+                'AND in_flight_seq IS NOT NULL LIMIT 1;',
+            OutboxKind.planning => 'SELECT 1 AS x FROM planning_sync_outbox '
+                'WHERE entity_type = ${sqlString(policy.entityType)} '
+                'AND entity_id = ${sqlString(localId)} '
+                'AND in_flight_seq IS NOT NULL LIMIT 1;',
+          },
+        )
+        .getSingleOrNull();
+    return row != null;
   }
 
   Future<void> _removeOutbox(

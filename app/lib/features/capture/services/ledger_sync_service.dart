@@ -409,11 +409,20 @@ class LedgerSyncService implements LedgerPullAdapter {
       if (syncStatus == 'pending') {
         final baseToken = meta.readNullable<String>('server_updated_at');
         if (serverUpdatedAt != baseToken) {
-          await _db.customStatement('''
-            UPDATE transactions
-            SET sync_status = 'conflict'
-            WHERE id = ${sqlString(localId)};
-          ''');
+          await _db.transaction(() async {
+            await _db.customStatement('''
+              UPDATE transactions
+              SET sync_status = 'conflict'
+              WHERE id = ${sqlString(localId)};
+            ''');
+            // The server row demonstrably exists: a kept (ambiguous) in-flight
+            // marker would hold the conflict unresolvable forever (the hold stops
+            // the row being pushed, and keep-remote refuses while it is set).
+            await _db.customStatement(
+              'UPDATE ledger_sync_outbox SET in_flight_seq = NULL '
+              'WHERE transaction_id = ${sqlString(localId)};',
+            );
+          });
           return _RowOutcome.conflict;
         }
         return _RowOutcome.skipped;

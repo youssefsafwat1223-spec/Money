@@ -94,14 +94,40 @@ class UnsyncedInventoryService {
     return row.read<int>('n');
   }
 
-  /// Audit H-3. Active financial rows that carry no `server_id` and are not
-  /// queued on an outbox. Mirrors `StartupSyncReconcileService
-  /// .hasUnsyncedLocalData()` so the two cannot drift: whatever the reconcile
-  /// considers still-pending is exactly what sign-out must not silently
-  /// destroy. Children are included — losing a contribution or a bill payment
-  /// is losing user-authored money.
-  Future<int> _unprovenFinancialRows() async {
-    final row = await _db.customSelect('''
+  Future<int> _unprovenFinancialRows() => countUnprovenFinancialRows(_db);
+
+  Future<int> _unresolvedConflicts() => countUnresolvedConflicts(_db);
+
+  Future<UnsyncedInventory> collect() async {
+    return UnsyncedInventory(
+      ledgerOutbox: await _count('ledger_sync_outbox'),
+      planningOutbox: await _count('planning_sync_outbox'),
+      smartInboxPending: await _count('smart_inbox_items', 'pending_sync = 1'),
+      localOnlyCards: await _localOnlyCardCount(),
+      unprovenFinancialRows: await _unprovenFinancialRows(),
+      unresolvedConflicts: await _unresolvedConflicts(),
+      senderMappingsPending:
+          await _count('sender_bank_mappings', "source != 'remote'"),
+      notificationLogPending: await _count('notification_log_events'),
+    );
+  }
+}
+
+/// Audit H-3. Active financial rows that carry no `server_id` and are not
+/// queued on an outbox. Mirrors `StartupSyncReconcileService
+/// .hasUnsyncedLocalData()` so the two cannot drift: whatever the reconcile
+/// considers still-pending is exactly what sign-out must not silently
+/// destroy. Children are included — losing a contribution or a bill payment
+/// is losing user-authored money.
+///
+/// D-5: also drives SyncStatus (never "all synced" while such rows await
+/// backfill). [excludeIgnored] additionally skips locally-ignored transactions
+/// (a discarded row is not waiting for anything); sign-out keeps counting them.
+Future<int> countUnprovenFinancialRows(
+  AppDatabase db, {
+  bool excludeIgnored = false,
+}) async {
+  final row = await db.customSelect('''
       SELECT
         (SELECT COUNT(*) FROM accounts a
            WHERE a.deleted_at IS NULL AND a.server_id IS NULL
@@ -111,6 +137,7 @@ class UnsyncedInventoryService {
         +
         (SELECT COUNT(*) FROM transactions t
            WHERE t.server_id IS NULL
+             ${excludeIgnored ? "AND t.status != 'ignored'" : ''}
              AND t.id NOT IN (SELECT transaction_id FROM ledger_sync_outbox))
         +
         (SELECT COUNT(*) FROM budgets b
@@ -137,39 +164,28 @@ class UnsyncedInventoryService {
            WHERE bp.deleted_at IS NULL AND bp.server_id IS NULL
              AND bp.id NOT IN (SELECT entity_id FROM planning_sync_outbox)) AS n;
     ''').getSingle();
-    return row.read<int>('n');
-  }
+  return row.read<int>('n');
+}
 
-  /// Rows the sync layer has flagged as a genuine local/remote divergence.
-  /// Their local copy is authoritative-and-unproven until the user resolves it.
-  Future<int> _unresolvedConflicts() async {
-    var total = 0;
-    for (final table in const [
-      'transactions',
-      'accounts',
-      'budgets',
-      'subscriptions',
-      'goals',
-      'plans',
-      'bill_payments',
-      'goal_contributions',
-    ]) {
-      total += await _count(table, "sync_status = 'conflict'");
-    }
-    return total;
+/// Rows the sync layer has flagged as a genuine local/remote divergence.
+/// Their local copy is authoritative-and-unproven until the user resolves it.
+Future<int> countUnresolvedConflicts(AppDatabase db) async {
+  var total = 0;
+  for (final table in const [
+    'transactions',
+    'accounts',
+    'budgets',
+    'subscriptions',
+    'goals',
+    'plans',
+    'bill_payments',
+    'goal_contributions',
+  ]) {
+    final row = await db
+        .customSelect(
+            "SELECT COUNT(*) AS n FROM $table WHERE sync_status = 'conflict';")
+        .getSingle();
+    total += row.read<int>('n');
   }
-
-  Future<UnsyncedInventory> collect() async {
-    return UnsyncedInventory(
-      ledgerOutbox: await _count('ledger_sync_outbox'),
-      planningOutbox: await _count('planning_sync_outbox'),
-      smartInboxPending: await _count('smart_inbox_items', 'pending_sync = 1'),
-      localOnlyCards: await _localOnlyCardCount(),
-      unprovenFinancialRows: await _unprovenFinancialRows(),
-      unresolvedConflicts: await _unresolvedConflicts(),
-      senderMappingsPending:
-          await _count('sender_bank_mappings', "source != 'remote'"),
-      notificationLogPending: await _count('notification_log_events'),
-    );
-  }
+  return total;
 }

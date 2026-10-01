@@ -1,5 +1,6 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_bill_repository.dart';
@@ -512,6 +513,68 @@ void main() {
           .getSingle();
       expect(row.read<String>('name'), 'Travel');
       expect(row.readNullable<String>('sync_status'), 'conflict');
+    });
+
+    test('pull marks pending local planning row as conflict — clears the ambiguous in-flight marker so keep-remote can resolve (D)', () async {
+      final remote = _FakePlanningRemote();
+      await DriftGoalRepository(db).save(_goal('conflict-goal'));
+      await db.customStatement(
+        "UPDATE goals SET sync_status = 'pending' WHERE id = 'conflict-goal';",
+      );
+      await db.customStatement(
+        "INSERT INTO planning_sync_outbox(id, entity_type, entity_id, operation, "
+        "payload_json, attempt_count, status, created_at, updated_at, op_seq, "
+        "in_flight_seq) VALUES ('o1', 'goal', 'conflict-goal', 'update', "
+        "'{}', 0, 'pending', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z', 1, 1);",
+      );
+      remote.rows['user_goals'] = {
+        'conflict-goal': {
+          'id': 'server-conflict-goal',
+          'local_id': 'conflict-goal',
+          'name': 'Remote',
+          'currency': 'SAR',
+          'target_amount': 9000,
+          'saved_amount': 100,
+          'last_notified_saved_amount': 0,
+          'vault_skin': 'classic',
+          'status': 'active',
+          'created_at': DateTime.utc(2026, 7, 1).toIso8601String(),
+          'updated_at': DateTime.utc(2026, 7, 2).toIso8601String(),
+          'deleted_at': null,
+        }
+      };
+
+      final pull = PlanningPullService(
+        db: db,
+        isEnabled: (_) => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
+
+      final result = await pull.pull();
+
+      expect(result.conflicts, 1);
+      expect(
+          (await db.customSelect("SELECT in_flight_seq AS m FROM planning_sync_outbox WHERE id = 'o1';").getSingle())
+              .readNullable<int>('m'),
+          isNull,
+          reason: 'a pull-raised conflict clears the ambiguous marker');
+      final row = await db
+          .customSelect(
+            "SELECT name, sync_status FROM goals WHERE id = 'conflict-goal';",
+          )
+          .getSingle();
+      expect(row.read<String>('name'), 'Travel');
+      expect(row.readNullable<String>('sync_status'), 'conflict');
+      await db.customStatement("UPDATE goals SET server_id = 'server-conflict-goal' WHERE id = 'conflict-goal';");
+      expect(
+          await UniversalConflictResolver(db: db, reEnqueue: const {})
+              .resolveKeepRemote('goal', 'conflict-goal'),
+          isTrue);
     });
 
     test(

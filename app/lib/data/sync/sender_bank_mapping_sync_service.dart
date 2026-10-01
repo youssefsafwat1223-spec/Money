@@ -498,8 +498,18 @@ class SenderBankMappingSyncService {
   /// retried, kept observable; a retryable class backs off exponentially.
   Future<void> _markFailed(String id, OutboxFailureClass failureClass) async {
     // A-5: an auth rejection never consumes an attempt — the row keeps its
-    // state and is retried once the session is valid again.
-    if (failureClass == OutboxFailureClass.auth) return;
+    // state and is retried once the session is valid again. D-4: but it must
+    // back off, or every poll re-sends the same rejected request.
+    if (failureClass == OutboxFailureClass.auth) {
+      final retryAt = dateTimeToSql(
+          DateTime.now().toUtc().add(const Duration(minutes: 2)));
+      await _db.customStatement(
+        'UPDATE sender_bank_mappings '
+        'SET sync_next_retry_at = ${sqlString(retryAt)} '
+        'WHERE id = ${sqlString(id)};',
+      );
+      return;
+    }
     final row = await _db.customSelect(
       'SELECT sync_attempt_count FROM sender_bank_mappings '
       'WHERE id = ${sqlString(id)} LIMIT 1;',

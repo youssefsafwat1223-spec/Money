@@ -69,6 +69,11 @@ class SyncRecoveryService {
       'sync_permanent = 0, sync_attempt_count = 0, sync_next_retry_at = NULL, '
       "sync_failure_class = NULL WHERE sync_status = 'failed';",
     );
+    // D-4: an auth rejection backs a pending mapping off without failing it.
+    await _db.customStatement(
+      'UPDATE sender_bank_mappings SET sync_next_retry_at = NULL '
+      "WHERE sync_status = 'pending' AND sync_next_retry_at IS NOT NULL;",
+    );
     try {
       await _reprobe();
     } catch (_) {

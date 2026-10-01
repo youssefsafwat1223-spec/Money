@@ -96,9 +96,15 @@ class SyncStatus {
         counts.parked +
         counts.smartInboxPendingSync +
         counts.senderMappingsPending +
-        (counts.senderMappingsFailed - counts.senderMappingsPermanentFailed);
+        (counts.senderMappingsFailed - counts.senderMappingsPermanentFailed) +
+        // D-5: server-less local rows awaiting backfill are not in any outbox but
+        // are NOT in the cloud either.
+        counts.unprovenLocalRows;
     final connectionWait = queued - serverWait;
-    final attention = counts.deadLetter + counts.senderMappingsPermanentFailed;
+    // D-5: an unresolved conflict needs the user's decision — never "synced".
+    final attention = counts.deadLetter +
+        counts.senderMappingsPermanentFailed +
+        counts.conflicts;
     final stayFailed = (counts.deadLetterByReason[kFailDuplicateBusinessKey] ??
             0) +
         (counts.deadLetterByReason[kFailUnsupportedOperation] ?? 0);
