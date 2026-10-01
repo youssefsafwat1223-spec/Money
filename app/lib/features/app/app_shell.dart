@@ -768,6 +768,16 @@ class _AppShellState extends ConsumerState<AppShell> {
       // rows stayed invisible to the pre-sign-out inventory.
       if (!outcome.shouldRetry) _didReconcile = true;
     }
+    // A-4b: record sync intent for server-backed rows a bypass writer left
+    // `pending` with no outbox row, BEFORE the push/pull phases (consent and
+    // owner rules are enforced inside). Never blocks the cycle.
+    try {
+      await ref.read(pendingSyncReconcilerProvider).run();
+    } catch (error) {
+      if (kDebugMode) {
+        debugPrint('[PendingSync] reconcile skipped: ${error.runtimeType}');
+      }
+    }
     // MALI-034: in-slot legacy financial-cache reconciliation, built once with
     // THIS run's admission generation. A domain carrying a legacy dirty marker is
     // re-pulled from epoch at its normal post-push pull slot (replacing the

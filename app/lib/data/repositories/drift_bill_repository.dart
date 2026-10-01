@@ -54,6 +54,22 @@ class DriftBillRepository implements BillRepository {
     return rows.map(_fromRow).toList();
   }
 
+  /// A-4b: like [getById] but also returns a soft-deleted row, so the
+  /// PendingSyncReconciler can record a `delete` for a tombstoned bill.
+  Future<BillEntity?> getByIdIncludingDeleted(String id) async {
+    final row = await _db.customSelect(
+      '''
+        SELECT s.*, m.raw_name AS merchant_name
+        FROM subscriptions s
+        LEFT JOIN merchants m ON m.id = s.merchant_id
+        WHERE s.id = ?
+        LIMIT 1;
+      ''',
+      variables: [Variable.withString(id)],
+    ).getSingleOrNull();
+    return row == null ? null : _fromRow(row);
+  }
+
   @override
   Future<BillEntity?> getById(String id) async {
     final row = await _db.customSelect(

@@ -184,7 +184,9 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
             rejection_expires_at = NULL,
             updated_at = ?,
             synced_at = NULL,
-            sync_status = 'pending'
+            sync_status = 'pending',
+            sync_attempt_count = 0, sync_next_retry_at = NULL,
+            sync_failure_class = NULL, sync_permanent = 0
         WHERE id = ?;
       ''',
       variables: [
@@ -258,6 +260,8 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
           synced_at = NULL,
           deleted_at = NULL,
           sync_status = 'pending',
+          sync_attempt_count = 0, sync_next_retry_at = NULL,
+          sync_failure_class = NULL, sync_permanent = 0,
           accepted_by = 'ai_validated';
       ''',
       variables: [
@@ -299,7 +303,9 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
     final ts = dateTimeToSql(timestamp);
     await _db.customUpdate(
       'UPDATE sender_bank_mappings '
-      "SET deleted_at = ?, updated_at = ?, sync_status = 'pending' "
+      "SET deleted_at = ?, updated_at = ?, sync_status = 'pending', "
+      'sync_attempt_count = 0, sync_next_retry_at = NULL, '
+      "sync_failure_class = NULL, sync_permanent = 0 "
       'WHERE id = ? AND deleted_at IS NULL;',
       variables: [
         Variable.withString(ts),
@@ -326,7 +332,9 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
             rejection_expires_at = ?,
             updated_at = ?,
             synced_at = NULL,
-            sync_status = 'pending'
+            sync_status = 'pending',
+            sync_attempt_count = 0, sync_next_retry_at = NULL,
+            sync_failure_class = NULL, sync_permanent = 0
         WHERE id = ?;
       ''',
       variables: [
@@ -502,7 +510,9 @@ class DriftSenderBankMappingRepository implements SenderBankMappingRepository {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customUpdate(
       'UPDATE sender_bank_mappings '
-      "SET deleted_at = ?, updated_at = ?, sync_status = 'pending' "
+      "SET deleted_at = ?, updated_at = ?, sync_status = 'pending', "
+      'sync_attempt_count = 0, sync_next_retry_at = NULL, '
+      "sync_failure_class = NULL, sync_permanent = 0 "
       'WHERE id = ? AND deleted_at IS NULL;',
       variables: [
         Variable.withString(now),

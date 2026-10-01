@@ -266,10 +266,16 @@ class PlanningChildSyncService {
           await _queue.markSuccess(item);
         } catch (error) {
           _health?.noteFailure(SyncDomain.children, error);
+          // G12: an operation the server has no endpoint for is PERMANENT — it
+          // dead-letters at once (observable) instead of being retried 12 times
+          // as a transient failure.
+          final unsupported = error is UnsupportedError;
           await _queue.markFailed(
             item.id,
-            error.toString(),
-            classifyOutboxError(error),
+            unsupported ? 'unsupported_operation: $error' : error.toString(),
+            unsupported
+                ? OutboxFailureClass.permanentValidation
+                : classifyOutboxError(error),
           );
           if (kDebugMode) {
             debugPrint('[PlanningChildSync] push ${item.entityType}: $error');

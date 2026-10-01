@@ -54,9 +54,10 @@ class _FakeRemoteSource implements SmartInboxRemoteSource {
   }
 
   @override
-  Future<void> pushStatus(String serverId, String status) async {
+  Future<int> pushStatus(String serverId, String status) async {
     if (throwOnPush) throw Exception('offline');
     pushed.add((serverId, status));
+    return 1; // A-4 (G11): the server matched the row
   }
 }
 

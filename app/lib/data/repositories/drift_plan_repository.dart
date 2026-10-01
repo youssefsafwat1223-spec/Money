@@ -29,6 +29,15 @@ class DriftPlanRepository implements PlanRepository {
     return rows.map(_fromRow).toList(growable: false);
   }
 
+  /// A-4b: like [getById] but also returns a soft-deleted row (reconciler).
+  Future<PlanEntity?> getByIdIncludingDeleted(String id) async {
+    final row = await _db.customSelect(
+      'SELECT * FROM plans WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(id)],
+    ).getSingleOrNull();
+    return row == null ? null : _fromRow(row);
+  }
+
   @override
   Future<PlanEntity?> getById(String id) async {
     final row = await _db.customSelect(

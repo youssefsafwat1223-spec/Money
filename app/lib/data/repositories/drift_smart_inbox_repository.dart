@@ -107,10 +107,14 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
   Future<void> resolve(String id) => _setStatus(id, 'resolved', false);
 
   Future<void> _setStatus(String id, String status, bool dismissed) async {
-    // pending_sync = 1: تغيير محلي (offline-first) ينتظر الدفع للخادم.
+    // pending_sync = 1: تغيير محلي (offline-first) ينتظر الدفع للخادم. العناصر
+    // المحلية فقط (`local_capture:`) ليس لها صف على الخادم فلا شيء ينتظر الدفع
+    // (G11) — وإلا بقيت pending_sync=1 للأبد.
     await _db.customUpdate(
       'UPDATE smart_inbox_items SET status = ?, dismissed_locally = ?, '
-      'pending_sync = 1, updated_at = ? WHERE id = ? OR server_id = ?;',
+      "pending_sync = CASE WHEN server_id LIKE 'local_capture:%' THEN 0 ELSE 1 END, "
+      'push_attempt_count = 0, push_next_retry_at = NULL, '
+      'updated_at = ? WHERE id = ? OR server_id = ?;',
       variables: [
         Variable.withString(status),
         Variable.withInt(boolToSql(dismissed)),

@@ -1,3 +1,4 @@
+import '../../data/db/sql_value_codec.dart';
 import 'package:drift/drift.dart';
 
 import '../security/lock_prompt_language.dart';
@@ -314,7 +315,8 @@ class RestoreBackupUseCase {
       final cur = decision.currencyForId(id);
       await _db.customStatement(
         'UPDATE budgets SET currency = ?, amount_minor = ?, '
-        'last_notified_spent_amount_minor = ? WHERE id = ?;',
+        'last_notified_spent_amount_minor = ?, $kMarkPendingIfServerBacked '
+        'WHERE id = ?;',
         [
           cur,
           restoreLegacyAmountToMinor(b.read<double>('amount'), cur),
@@ -339,7 +341,8 @@ class RestoreBackupUseCase {
       await _db.customStatement(
         'UPDATE goals SET currency = ?, target_amount_minor = ?, '
         'saved_amount_minor = ?, last_notified_saved_amount_minor = ?, '
-        'auto_save_amount_minor = ? WHERE id = ?;',
+        'auto_save_amount_minor = ?, $kMarkPendingIfServerBacked '
+        'WHERE id = ?;',
         [
           cur,
           restoreLegacyAmountToMinor(g.read<double>('target_amount'), cur),
@@ -386,12 +389,12 @@ class RestoreBackupUseCase {
   Future<void> _sanitizeDanglingReferences() async {
     // transactions.{category_id,merchant_id} — ON DELETE SET NULL.
     await _db.customStatement(
-      'UPDATE transactions SET category_id = NULL '
+      'UPDATE transactions SET category_id = NULL, $kMarkPendingIfServerBacked '
       'WHERE category_id IS NOT NULL '
       'AND category_id NOT IN (SELECT id FROM categories);',
     );
     await _db.customStatement(
-      'UPDATE transactions SET merchant_id = NULL '
+      'UPDATE transactions SET merchant_id = NULL, $kMarkPendingIfServerBacked '
       'WHERE merchant_id IS NOT NULL '
       'AND merchant_id NOT IN (SELECT id FROM merchants);',
     );

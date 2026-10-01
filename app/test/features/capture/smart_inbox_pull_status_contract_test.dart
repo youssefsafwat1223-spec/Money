@@ -53,7 +53,7 @@ class _FakeRemote implements SmartInboxRemoteSource {
   }
 
   @override
-  Future<void> pushStatus(String serverId, String status) async {}
+  Future<int> pushStatus(String serverId, String status) async => 1;
 }
 
 Future<int> _count(AppDatabase db) async =>
