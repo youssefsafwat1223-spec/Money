@@ -8,7 +8,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminAuthErrorResponse, requireAdmin } from "@/lib/auth-guard";
 import { createAdminClient } from "@/lib/supabase-server";
 import { buildPlan, type ChangeRequest } from "@/lib/flag-registry";
-import { loadFlagRows, rpcErrorStatus, UUID_RE } from "@/lib/feature-flags-server";
+import { isRpcNotDeployed, loadFlagRows, rpcErrorStatus, UUID_RE } from "@/lib/feature-flags-server";
 
 type ApplyBody = {
   changes?: ChangeRequest[];
@@ -52,6 +52,10 @@ export async function POST(req: NextRequest) {
     p_changes: plan.rpcChanges,
   });
   if (error) {
+    // Migration 0102 (audited RPC) not deployed yet: clear 503, no log noise.
+    if (isRpcNotDeployed(error.code)) {
+      return NextResponse.json({ error: "audit_not_deployed" }, { status: 503 });
+    }
     const status = rpcErrorStatus(error.code);
     if (status === 500) console.error("[feature-flags/apply]", error);
     return NextResponse.json(

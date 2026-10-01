@@ -986,8 +986,9 @@ final class PreviewParser {
 
 /// Notification category for an unrecognized bank message, with the two
 /// foreground actions. Single copy: this file is compiled into the Runner
-/// target, so both AppDelegate (launch) and the Shortcut (before scheduling —
-/// the app may not have launched since an update) call it.
+/// target. Categories are registered via flutter_local_notifications
+/// initialisation (local_notification_service.dart) and merged by the Shortcut
+/// before scheduling (the app may not have launched since an update).
 enum QirshNotificationCategories {
   static let unrecognizedCaptureId = "QIRSH_UNRECOGNIZED_CAPTURE"
   static let enableSmartAnalysisActionId = "qirsh.enable_smart_analysis"

@@ -1,4 +1,4 @@
-import { createAdminClient } from "@/lib/supabase-server";
+import type { createAdminClient } from "@/lib/supabase-server";
 import type { ChangeRequest, FlagRow } from "@/lib/flag-registry";
 
 type Admin = Awaited<ReturnType<typeof createAdminClient>>;
@@ -36,4 +36,9 @@ export function rpcErrorStatus(code: string | undefined): number {
     default:
       return 500;
   }
+}
+
+/** PostgREST PGRST202 (function not in schema cache) / 42883 (undefined_function): migration 0102 not deployed. */
+export function isRpcNotDeployed(code: string | undefined): boolean {
+  return code === "PGRST202" || code === "42883";
 }
