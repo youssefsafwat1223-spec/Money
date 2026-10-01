@@ -124,3 +124,28 @@ rollback) to the next free active number first.
 
 SQL proof: `supabase/tests/feature_flag_admin_audit_0102.sql` (run inside a
 rolled-back transaction on a LOCAL Postgres; the header has the command).
+
+---
+
+## 0103_awaiting_fx_transactions.sql — DEFERRED 2026-09-30
+
+A-6 server half. Decision (Astra A2 option A): a confirmed foreign-currency
+transaction awaiting FX pricing is stored as `amount = 0` + `foreign_amount > 0` +
+`foreign_currency`; no converted amount is ever fabricated. Replaces
+`chk_user_transactions_amount_positive` with
+`chk_user_transactions_amount_or_awaiting_fx` (negative, or 0 without a foreign
+amount, still rejected), makes `category_spending_summary` (the only server
+aggregate that counts rows) exclude awaiting rows, and adds the read-only
+`qirsh_server_capabilities()` RPC (authenticated only) the app uses as its
+explicit capability check. **Every later migration that adds a capability must
+`CREATE OR REPLACE` that function with the previous keys plus its own.**
+
+**Condition for activation: deploy BEFORE (or with) the app release that writes
+awaiting-FX rows.** Independent of 0100-0102 (no dependency), but the active chain
+ends at 0099: activate after 0100-0102, or renumber to the next free active number.
+
+**Rollback refuses** (RAISE) while any `amount = 0` row exists; the message says
+how to resolve (price or delete them).
+
+SQL proof: `supabase/tests/awaiting_fx_0103.sql` (rolled-back transaction on a
+LOCAL Postgres; the header has the command).
