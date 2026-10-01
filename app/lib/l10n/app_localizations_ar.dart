@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -5845,4 +5846,76 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get txnAwaitingPrice => 'بانتظار السعر';
+
+  @override
+  String get onbCloudTitle => 'المزامنة السحابية';
+
+  @override
+  String get onbCloudBullet1 =>
+      'تتم مزامنة معاملاتك وحساباتك وميزانياتك وأهدافك وإعداداتك ونسخها احتياطيًا في حسابك السحابي على قِرش.';
+
+  @override
+  String get onbCloudBullet2 =>
+      'بدونها تبقى بياناتك على هذا الهاتف فقط ولا يُحتفظ لها بنسخة احتياطية.';
+
+  @override
+  String get onbCloudBullet3 =>
+      'يمكنك إيقافها في أي وقت من الإعدادات ← الخصوصية.';
+
+  @override
+  String get onbCloudEnable => 'تفعيل المزامنة السحابية';
+
+  @override
+  String get onbAiTitle => 'التحليل الذكي';
+
+  @override
+  String get onbAiBullet1 =>
+      'عندما يعجز هاتفك عن قراءة رسالة بنكية، تُرسَل إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، ويحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.';
+
+  @override
+  String get onbAiBullet2 => 'يمكنك إيقافه في أي وقت من الإعدادات ← الخصوصية.';
+
+  @override
+  String get onbAiEnable => 'تفعيل التحليل الذكي';
+
+  @override
+  String get onbAiNeedsCloud =>
+      'يحتاج التحليل الذكي إلى المزامنة السحابية، وهي متوقفة الآن. يمكنك تفعيل الاثنين معًا:';
+
+  @override
+  String get onbAiEnableBoth => 'تفعيل المزامنة السحابية والتحليل الذكي';
+
+  @override
+  String get onbReadyTitle => 'حالة الاتصال';
+
+  @override
+  String get onbReadyBodyOn =>
+      'يربط قِرش هذا الجهاز بالخدمات السحابية. يمكنك المتابعة بينما ينتهي الاتصال.';
+
+  @override
+  String get onbReadyBodyOff =>
+      'المزامنة السحابية والتحليل الذكي متوقفان، لذا تبقى بياناتك على هذا الهاتف. يمكنك تفعيلهما في أي وقت من الإعدادات ← الخصوصية.';
+
+  @override
+  String get onbAccountTitle => 'جهّز حسابك';
+
+  @override
+  String get onbAccountBody =>
+      'أضف الحساب الذي تحتفظ فيه بأموالك، مثل حساب بنكي أو نقد أو محفظة. يمكنك إضافة المزيد لاحقًا.';
+
+  @override
+  String get onbAccountExistingTitle => 'حساباتك';
+
+  @override
+  String get onbAccountExistingBody =>
+      'لديك هذه الحسابات بالفعل. يمكنك المتابعة أو إضافة حساب آخر.';
+
+  @override
+  String get onbAccountAddAnother => 'إضافة حساب آخر';
+
+  @override
+  String get onbAccountContinue => 'متابعة';
+
+  @override
+  String get onbAccountRequired => 'أضف حسابًا لإنهاء الإعداد.';
 }

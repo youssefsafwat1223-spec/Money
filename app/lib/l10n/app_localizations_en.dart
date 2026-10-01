@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -5847,4 +5848,77 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get txnAwaitingPrice => 'Awaiting price';
+
+  @override
+  String get onbCloudTitle => 'Cloud Sync';
+
+  @override
+  String get onbCloudBullet1 =>
+      'Your transactions, accounts, budgets, goals and settings are synced and backed up to your Qirsh cloud account.';
+
+  @override
+  String get onbCloudBullet2 =>
+      'Without it, your data stays only on this phone and is not backed up.';
+
+  @override
+  String get onbCloudBullet3 =>
+      'You can turn it off at any time in Settings → Privacy.';
+
+  @override
+  String get onbCloudEnable => 'Enable Cloud Sync';
+
+  @override
+  String get onbAiTitle => 'Smart Analysis';
+
+  @override
+  String get onbAiBullet1 =>
+      'When your phone can\'t read a bank message, it is sent to Qirsh servers with card numbers, account numbers, phone numbers and codes removed, and analysed by an AI service to read the amount, merchant and bank.';
+
+  @override
+  String get onbAiBullet2 =>
+      'You can turn it off at any time in Settings → Privacy.';
+
+  @override
+  String get onbAiEnable => 'Enable Smart Analysis';
+
+  @override
+  String get onbAiNeedsCloud =>
+      'Smart Analysis requires Cloud Sync, which is off right now. You can enable both together:';
+
+  @override
+  String get onbAiEnableBoth => 'Enable Cloud Sync and Smart Analysis';
+
+  @override
+  String get onbReadyTitle => 'Connection status';
+
+  @override
+  String get onbReadyBodyOn =>
+      'Qirsh is connecting this device for cloud features. You can continue while this finishes.';
+
+  @override
+  String get onbReadyBodyOff =>
+      'Cloud Sync and Smart Analysis are off, so your data stays on this phone. You can turn them on any time in Settings → Privacy.';
+
+  @override
+  String get onbAccountTitle => 'Set up your account';
+
+  @override
+  String get onbAccountBody =>
+      'Add the account where you keep your money, such as a bank account, cash or a wallet. You can add more later.';
+
+  @override
+  String get onbAccountExistingTitle => 'Your accounts';
+
+  @override
+  String get onbAccountExistingBody =>
+      'You already have these accounts. Continue, or add another.';
+
+  @override
+  String get onbAccountAddAnother => 'Add another account';
+
+  @override
+  String get onbAccountContinue => 'Continue';
+
+  @override
+  String get onbAccountRequired => 'Add an account to finish setup.';
 }

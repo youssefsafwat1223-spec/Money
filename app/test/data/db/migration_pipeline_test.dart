@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import '../../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -17,10 +18,10 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   // A fully-initialized DB (mirrors production AppDatabase.open).
-  Future<AppDatabase> open() => AppDatabase.open(
+  Future<AppDatabase> open() => seededDb(AppDatabase.open(
         executor: NativeDatabase.memory(),
         keyStore: _MemoryKeyStore(),
-      );
+      ));
 
   // An UN-initialized DB so a test can drive the real initialize() pipeline
   // itself (memoization / retry / first-run concurrency / historical fixtures).
@@ -304,7 +305,8 @@ void main() {
     db.debugFailAtPhase = null;
     await db.initialize();
     expect(await userVersion(db), 38);
-    expect(await count(db, 'accounts'), greaterThan(0), reason: 'seeded on retry');
+    expect(await count(db, 'accounts'), 0,
+        reason: 'A-7: initialization never seeds an account');
   });
 
   // ───────────────── Historical-version support fixture matrix ──────────────
@@ -380,13 +382,15 @@ void main() {
 
     await assertFullyMigrated(db);
     expect(await txPresent(db, 'legacy_tx'), isTrue, reason: 'data preserved');
-    // The multi-currency migration backfills the legacy row onto the seeded
-    // default account (kDefaultAccountLocalId) rather than leaving it orphaned.
+    // A-7: no account is seeded, so with zero accounts the legacy row is left
+    // untouched (orphan, account_id NULL) rather than attached to an invented
+    // account.
     final accountId = (await db.customSelect(
       "SELECT account_id FROM transactions WHERE id='legacy_tx';",
     ).getSingle())
         .data['account_id'];
-    expect(accountId, kDefaultAccountLocalId);
+    expect(accountId, isNull);
+    expect(await count(db, 'accounts'), 0);
   });
 
   test(

@@ -14,6 +14,7 @@ import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show StorageException;
+import '../../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -33,10 +34,10 @@ BackupCrypto _fastCrypto() => BackupCrypto(
       cipher: AesGcm.with256bits(),
     );
 
-Future<AppDatabase> _openDb() => AppDatabase.open(
+Future<AppDatabase> _openDb() => seededDb(AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
-    );
+    ));
 
 void main() {
   // A restore mirrors the restored language into the keychain for the unlock

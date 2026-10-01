@@ -4,6 +4,7 @@ import 'package:money_companion/core/privacy/data_wipe_service.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import '../../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -14,10 +15,10 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 }
 
 Future<AppDatabase> _openDb() {
-  return AppDatabase.open(
+  return seededDb(AppDatabase.open(
     executor: NativeDatabase.memory(),
     keyStore: _MemoryKeyStore(),
-  );
+  ));
 }
 
 Future<int> _count(AppDatabase db, String table) async {
@@ -155,7 +156,7 @@ void main() {
         reason: 'reset to the app default, not left showing EG');
   });
 
-  test('wipeAll leaves exactly one default account for the app to open into',
+  test('wipeAll leaves ZERO accounts — no silent default is reseeded (A-7)',
       () async {
     final db = await _openDb();
     addTearDown(db.close);
@@ -168,36 +169,19 @@ void main() {
 
     await DataWipeService(db).wipeAll();
 
-    expect(await _count(db, 'accounts'), 1);
-    final defaults = await db
-        .customSelect('SELECT id FROM accounts WHERE is_default = 1;')
-        .get();
-    expect(defaults, hasLength(1));
+    expect(await _count(db, 'accounts'), 0);
+    expect(await _count(db, 'user_settings'), 1,
+        reason: 'the settings row is still reseeded; only accounts are not');
   });
 
-  test(
-      'the reseeded default account keeps a STABLE id across sign-out cycles '
-      '(so sign-in never accumulates duplicate server accounts)', () async {
+  test('repeated sign-out cycles never recreate an account (A-7)', () async {
     final db = await _openDb();
     addTearDown(db.close);
 
-    Future<String> defaultId() async => (await db
-            .customSelect(
-                'SELECT id FROM accounts WHERE is_default = 1 LIMIT 1;')
-            .getSingle())
-        .read<String>('id');
-
-    final first = await defaultId();
     await DataWipeService(db).wipeAll(); // sign-out #1
-    final second = await defaultId();
+    expect(await _count(db, 'accounts'), 0);
     await DataWipeService(db).wipeAll(); // sign-out #2
-    final third = await defaultId();
-
-    expect(first, kDefaultAccountLocalId,
-        reason: 'the auto-seeded default must use the fixed sentinel id');
-    expect(second, first,
-        reason: 'a random id here is exactly what accumulated duplicates');
-    expect(third, first);
+    expect(await _count(db, 'accounts'), 0);
   });
 
   test('wipeAll is idempotent — calling it twice in a row is safe', () async {
@@ -207,7 +191,7 @@ void main() {
     await DataWipeService(db).wipeAll();
     await DataWipeService(db).wipeAll();
 
-    expect(await _count(db, 'accounts'), 1);
+    expect(await _count(db, 'accounts'), 0);
     expect(await _count(db, 'user_settings'), 1);
   });
 

@@ -39,6 +39,27 @@ Future<bool> showSmartAnalysisConsentSheet(
   return granted ?? false;
 }
 
+/// Persists an explicit consent grant (same sequence as
+/// PrivacyScreen._setConsent). Only the flags passed as true are changed; it
+/// never writes `declined`. Throws if the save fails (nothing granted).
+Future<UserSettingsEntity> saveConsentChoice(
+  WidgetRef ref, {
+  bool cloud = false,
+  bool ai = false,
+}) async {
+  final current = await ref.read(userSettingsRepositoryProvider).getSettings();
+  final updated = current.copyWith(
+    cloudConsentState: cloud ? ConsentState.accepted : null,
+    aiConsentState: ai ? ConsentState.accepted : null,
+  );
+  await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
+  ref.invalidate(userSettingsProvider);
+  DiagnosticsConsentGate.set(
+    ConsentAuthority.decide(EgressClass.diagnostics, updated),
+  );
+  return updated;
+}
+
 /// Disclosure + actions, shared by the sheet and the onboarding step.
 /// [onDone] fires with true after a grant (once the user continues past the
 /// live status) or false for "Not now".
@@ -68,25 +89,20 @@ class _SmartAnalysisConsentPanelState
     if (_granting) return;
     setState(() => _granting = true);
     try {
-      // Same sequence as PrivacyScreen._setConsent.
-      final current = await ref.read(userSettingsRepositoryProvider).getSettings();
-      final updated = current.copyWith(
-        cloudConsentState: ConsentState.accepted,
-        aiConsentState: ConsentState.accepted,
-      );
-      await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
-      ref.invalidate(userSettingsProvider);
-      DiagnosticsConsentGate.set(
-        ConsentAuthority.decide(EgressClass.diagnostics, updated),
-      );
-      if (mounted) setState(() => _granted = true);
-      await ref.read(captureDeviceRegistrationServiceProvider).retry();
+      await saveConsentChoice(ref, cloud: true, ai: true);
     } catch (_) {
       // Saving failed: nothing was granted; the user can tap Enable again.
       if (mounted) AppToast.showError(context, context.l10n.setupSaveFailed);
-    } finally {
       if (mounted) setState(() => _granting = false);
+      return;
     }
+    // Consent IS saved from here on. A registration failure is reported by the
+    // live status below (connected / failed + Retry), never as a save failure.
+    if (mounted) setState(() => _granted = true);
+    try {
+      await ref.read(captureDeviceRegistrationServiceProvider).retry();
+    } catch (_) {}
+    if (mounted) setState(() => _granting = false);
   }
 
   @override

@@ -12,6 +12,7 @@ import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
+import '../../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -214,10 +215,10 @@ Map<String, dynamic> _remoteAccountRow(
 }
 
 Future<AppDatabase> _openDb() {
-  return AppDatabase.open(
+  return seededDb(AppDatabase.open(
     executor: NativeDatabase.memory(),
     keyStore: _MemoryKeyStore(),
-  );
+  ));
 }
 
 AccountEntity _account(String id) {

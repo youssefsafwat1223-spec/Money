@@ -15,6 +15,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
+import '../../harness/seed_test_account.dart';
 
 /// THE THRESHOLD HAS TO SURVIVE EVERYTHING.
 ///
@@ -65,6 +66,7 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
     await _seedCategory(db);
     return db;
   }
@@ -106,6 +108,7 @@ void main() {
       executor: NativeDatabase(file),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
     await _seedCategory(db);
     await db.customStatement(
         'ALTER TABLE budgets DROP COLUMN alert_threshold_percent;');
@@ -122,6 +125,7 @@ void main() {
       executor: NativeDatabase(file),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
     addTearDown(db.close);
     expect(await readThreshold(db, 'legacy'), 80,
         reason: 'an existing budget must keep behaving as it always has');
@@ -151,6 +155,7 @@ void main() {
       executor: NativeDatabase(file),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
     await _seedCategory(db);
     await DriftBudgetRepository(db).save(_budget(threshold: 35));
     await db.close();
@@ -159,6 +164,7 @@ void main() {
       executor: NativeDatabase(file),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
     addTearDown(db.close);
     expect((await DriftBudgetRepository(db).getById('b1'))!
         .alertThresholdPercent, 35);

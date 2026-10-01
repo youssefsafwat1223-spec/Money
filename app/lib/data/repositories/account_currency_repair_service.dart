@@ -44,8 +44,8 @@ class AccountCurrencyRepairService {
   static String _normalizeCurrency(String currency) =>
       currency.trim().toUpperCase();
 
-  /// Runs the repair. [fallbackCurrency] seeds the very first account when the
-  /// user has none at all (fresh install).
+  /// Runs the repair. [fallbackCurrency] is retained for call-site compatibility
+  /// and no longer seeds an account (A-7: no silent default account).
   Future<AccountCurrencyRepairResult> run({
     required String fallbackCurrency,
   }) async {
@@ -77,10 +77,9 @@ class AccountCurrencyRepairService {
       return account;
     }
 
-    final baseCurrency = _normalizeCurrency(fallbackCurrency);
-    if (accounts.isEmpty && baseCurrency.isNotEmpty) {
-      await createAccount(baseCurrency);
-    }
+    // A-7: a user with NO accounts is never given one here. The first account
+    // is created only by the user (Account Setup). Only currencies that already
+    // appear on existing transactions get a repaired account below.
 
     // The bounded distinct-currency set (all-time), not the whole ledger.
     for (final raw in await _transactions.distinctCurrencies()) {

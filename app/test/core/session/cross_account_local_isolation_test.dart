@@ -6,6 +6,7 @@ import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import '../../harness/seed_test_account.dart';
 
 /// AUDIT 10 — USER B MUST NEVER SEE USER A's LOCAL DATA.
 ///
@@ -55,6 +56,7 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
     // The REAL wipe service, exactly as bootstrap_runner wires it.
     AppSession.instance.configureLocalDataWipe(DataWipeService(db).wipeAll);
     AppSession.instance.configureLocalResiduePurge(() async => true);
@@ -277,8 +279,8 @@ void main() {
     // Catalog data is reference material and must SURVIVE, or B opens into an
     // app with no categories to spend against.
     expect(await countOf('categories'), greaterThan(0));
-    // The app needs exactly one account to open into.
-    expect(await countOf('accounts'), 1);
+    // A-7: no silent default account — B creates their own in Account Setup.
+    expect(await countOf('accounts'), 0);
     expect(await countOf('user_settings'), 1);
   });
 

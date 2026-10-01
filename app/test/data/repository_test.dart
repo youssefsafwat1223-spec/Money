@@ -24,6 +24,7 @@ import 'package:money_companion/domain/usecases/confirm_transaction_usecase.dart
 import 'package:money_companion/domain/usecases/correct_category_usecase.dart';
 import 'package:money_companion/domain/usecases/save_budget_usecase.dart';
 import 'package:money_companion/domain/usecases/save_goal_usecase.dart';
+import '../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -56,6 +57,7 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
     transactionRepository = DriftTransactionRepository(db);
     accountRepository = DriftAccountRepository(db);
     merchantCategoryRepository = DriftMerchantCategoryRepository(db);

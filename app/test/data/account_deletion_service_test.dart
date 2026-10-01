@@ -20,6 +20,7 @@ import 'package:money_companion/engine/parser/card_network.dart';
 import 'package:money_companion/domain/repositories/bill_repository.dart';
 import 'package:money_companion/domain/usecases/account_deletion.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
+import '../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -84,6 +85,7 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
+    await seedTestAccount(db);
     queue = PlanningOutboxQueue(
       db: db,
       isSyncEnabled: (_) => true,

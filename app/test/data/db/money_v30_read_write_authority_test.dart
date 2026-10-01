@@ -5,6 +5,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
+import '../../harness/seed_test_account.dart';
 
 // MALI-026 (Phase-8 B8-3 §17/§18/§19/§24) — v30 non-planning read/write authority:
 // a repo write dual-binds `_minor` (authoritative) + REAL (shadow) from ONE Money;
@@ -28,6 +29,7 @@ void main() {
   setUp(() async {
     db = await AppDatabase.open(
         executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    await seedTestAccount(db);
     repo = DriftTransactionRepository(db);
     accountId = (await db.customSelect('SELECT id FROM accounts LIMIT 1;')
             .getSingle())

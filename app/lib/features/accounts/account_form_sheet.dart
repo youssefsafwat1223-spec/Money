@@ -62,22 +62,40 @@ Future<void> showAccountForm(
       child: Padding(
         padding:
             EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-        child: _AccountForm(account: account),
+        child: AccountFormPanel(account: account),
       ),
     )),
   );
 }
 
-class _AccountForm extends ConsumerStatefulWidget {
-  const _AccountForm({this.account});
+/// The Create/Edit Account form body, shared by [showAccountForm] (sheet) and
+/// the onboarding Account Setup step so there is ONE create path and ONE
+/// validation implementation.
+///
+/// [initialCurrency] seeds a NEW account's currency (ignored when editing).
+/// [onSaved] runs after a successful save; it defaults to popping the sheet.
+/// The creation id is generated once per State, so a failed save that is
+/// retried re-sends the same id (no duplicate); give the widget a new Key to
+/// start a fresh account.
+class AccountFormPanel extends ConsumerStatefulWidget {
+  const AccountFormPanel({
+    super.key,
+    this.account,
+    this.initialCurrency,
+    this.onSaved,
+    this.showTitle = true,
+  });
 
   final AccountEntity? account;
+  final String? initialCurrency;
+  final VoidCallback? onSaved;
+  final bool showTitle;
 
   @override
-  ConsumerState<_AccountForm> createState() => _AccountFormState();
+  ConsumerState<AccountFormPanel> createState() => _AccountFormState();
 }
 
-class _AccountFormState extends ConsumerState<_AccountForm> {
+class _AccountFormState extends ConsumerState<AccountFormPanel> {
   late final TextEditingController _name;
   late final TextEditingController _startingBalance;
   late final TextEditingController _bankAccountNumber;
@@ -112,7 +130,7 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     _paymentDueDay =
         TextEditingController(text: a?.paymentDueDay?.toString() ?? '');
     _type = a?.type ?? AccountType.bank;
-    _currency = a?.currency ?? 'SAR';
+    _currency = a?.currency ?? widget.initialCurrency ?? 'SAR';
     _isDefault = a?.isDefault ?? false;
     _excludeFromTotals = a?.excludeFromTotals ?? false;
     _walletProvider = a?.walletProvider;
@@ -322,16 +340,32 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
     if (!saved) return;
     ref.invalidate(accountsProvider);
     ref.invalidate(dashboardDataProvider);
-    if (mounted) Navigator.of(context).pop();
+    if (!mounted) return;
+    final onSaved = widget.onSaved;
+    if (onSaved != null) {
+      onSaved();
+    } else {
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _delete() async {
     if (_busy) return;
+    // A-7: never start the delete flow for the only remaining account.
+    if ((await ref.read(accountRepositoryProvider).getAll()).length <= 1) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(context.l10n.afCannotDeleteLast)),
+        );
+      }
+      return;
+    }
     // MALI-016: dependency-aware deletion. Show the impact first; force an
     // explicit reassign-or-archive decision for goals/subscriptions before
     // anything is touched, then execute atomically.
     final service = ref.read(financialAccountDeletionServiceProvider);
     final accountId = widget.account!.id;
+    if (!mounted) return;
     setState(() => _busy = true);
 
     AccountDeletionRequest? request;
@@ -475,9 +509,14 @@ class _AccountFormState extends ConsumerState<_AccountForm> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(editing ? context.l10n.afEditAccount : context.l10n.afNewAccount,
-                style: AppTypography.title2(c.textMain)),
-            const SizedBox(height: AppSpacing.s4),
+            if (widget.showTitle) ...[
+              Text(
+                  editing
+                      ? context.l10n.afEditAccount
+                      : context.l10n.afNewAccount,
+                  style: AppTypography.title2(c.textMain)),
+              const SizedBox(height: AppSpacing.s4),
+            ],
             _field(
               key: const ValueKey('account-name-field'),
               controller: _name,

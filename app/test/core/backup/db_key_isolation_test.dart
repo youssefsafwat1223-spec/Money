@@ -5,6 +5,7 @@ import 'package:money_companion/core/backup/backup_snapshot_builder.dart';
 import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import '../../harness/seed_test_account.dart';
 
 // MALI-058n (closure) — restore can never mutate the destination installation's
 // SQLCipher key, and a missing key never falls back to backup data.
@@ -38,7 +39,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   Future<AppDatabase> open(DatabaseKeyStore ks) =>
-      AppDatabase.open(executor: NativeDatabase.memory(), keyStore: ks);
+      seededDb(AppDatabase.open(executor: NativeDatabase.memory(), keyStore: ks));
 
   Future<String> keyRef(AppDatabase db) async =>
       (await db.customSelect('SELECT db_encryption_key_ref AS r FROM user_settings;')
@@ -86,11 +87,11 @@ void main() {
     final spy = _SpyKeyStore(null); // key absent
 
     await expectLater(
-      AppDatabase.open(
+      seededDb(AppDatabase.open(
         executor: NativeDatabase.memory(),
         keyStore: spy,
         databaseFileExists: () async => true, // an encrypted DB exists
-      ),
+      )),
       throwsA(isA<LocalDatabaseKeyUnavailableException>()),
     );
 

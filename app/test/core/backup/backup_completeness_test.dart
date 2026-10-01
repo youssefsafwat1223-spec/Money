@@ -7,6 +7,7 @@ import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import '../../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -16,10 +17,10 @@ class _MemoryKeyStore implements DatabaseKeyStore {
   Future<String?> readStoredKey() async => 'memory-key';
 }
 
-Future<AppDatabase> _openDb() => AppDatabase.open(
+Future<AppDatabase> _openDb() => seededDb(AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
-    );
+    ));
 
 const _t = '2026-07-01T00:00:00.000Z';
 

@@ -8,6 +8,7 @@ import 'package:money_companion/core/data_portability/qirsh_package_codec.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import '../../harness/seed_test_account.dart';
 
 /// Audit C-2 (data portability) — a round trip must preserve CANONICAL money.
 ///
@@ -35,10 +36,10 @@ class _MemoryKeyStore implements DatabaseKeyStore {
   Future<String?> readStoredKey() async => 'test-key';
 }
 
-Future<AppDatabase> _database() => AppDatabase.open(
+Future<AppDatabase> _database() => seededDb(AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
-    );
+    ));
 
 void main() {
   late AppDatabase source;

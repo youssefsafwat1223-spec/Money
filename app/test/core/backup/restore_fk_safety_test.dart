@@ -7,6 +7,7 @@ import 'package:money_companion/core/backup/restore_backup_usecase.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
+import '../../harness/seed_test_account.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -28,10 +29,10 @@ void main() {
 
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppDatabase> open() => AppDatabase.open(
+  Future<AppDatabase> open() => seededDb(AppDatabase.open(
         executor: NativeDatabase.memory(),
         keyStore: _MemoryKeyStore(),
-      );
+      ));
 
   Future<int> fkEnabled(AppDatabase db) async =>
       (await db.customSelect('PRAGMA foreign_keys;').getSingle())

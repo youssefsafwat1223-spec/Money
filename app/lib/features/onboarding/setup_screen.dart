@@ -15,7 +15,8 @@ import '../../core/utils/l10n_ext.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../l10n/app_localizations.dart';
 import '../capture/services/local_notification_service.dart';
-import '../consent/smart_analysis_consent_sheet.dart';
+import 'onboarding_account_step.dart';
+import 'onboarding_consent_steps.dart';
 import 'onboarding_options.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/app_colors.dart';
@@ -29,19 +30,23 @@ const _setupAccent = AppBrandBlue.pale;
 /// Page 4 of the redesigned onboarding: one activation step at a time.
 ///
 /// Steps, in order:
-///   0. Country / currency   → saves the base currency (required for accounts)
-///   1. Smart Analysis & Cloud Sync consent → explicit opt-in or "Not now"
-///   2. Notifications        → OS permission prompt
-///   3. Shortcut install     → instructions carousel, self-declared
+///   0. Country / currency   → saves the base currency (no account is created)
+///   1. Cloud Sync consent   → explicit "Enable" or "Not now"
+///   2. Smart Analysis (AI) consent → explicit; requires Cloud Sync
+///   3. Readiness            → live registration status (never blocks)
+///   4. Account Setup        → the user creates their first account (local,
+///                             works offline); there is no default account
+///   5. Notifications        → OS permission prompt
+///   6. Shortcut install     → instructions carousel, self-declared
 ///
-/// Cloud and AI processing consent defaults OFF (NULL state = off, MALI-059n);
-/// it is only granted by the explicit opt-in in step 1 or in the privacy
+/// Cloud and AI processing consent default OFF (NULL state = off, MALI-059n);
+/// each is only granted by its explicit opt-in here or in the privacy
 /// settings. It stays the USER's revocable choice (MALI-001): the toggles live
 /// in الإعدادات ← الأمان والخصوصية and every capture/sync/AI path honors the
 /// stored value.
 ///
 /// Completing a step auto-advances to the next one. The final "ابدأ" finishes
-/// onboarding and enters the app once all four are done.
+/// onboarding and enters the app once all steps are done AND an account exists.
 enum OnboardingSetupEntry { full, captureGuide }
 
 class OnboardingSetupScreen extends ConsumerStatefulWidget {
@@ -82,7 +87,8 @@ List<_CountryChoice> _countriesIn(BuildContext context) => <_CountryChoice>[
     ];
 
 class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
-  static const _stepCount = 4;
+  static const _stepCount = 7;
+  static const _accountStep = 4;
 
   final _done = List<bool>.filled(_stepCount, false);
   // The CODE is state; the label is not. Storing a `_CountryChoice` meant
@@ -100,11 +106,12 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
   void initState() {
     super.initState();
     if (widget.entry == OnboardingSetupEntry.captureGuide) {
-      _done
-        ..[0] = true
-        ..[1] = true
-        ..[2] = true;
-      _currentStep = 3;
+      // Restored user: everything up to and including notifications is done;
+      // only the shortcut guide remains. (`_finish` still verifies an account.)
+      for (var i = 0; i < _stepCount - 1; i++) {
+        _done[i] = true;
+      }
+      _currentStep = _stepCount - 1;
       unawaited(_loadRestoredCurrency());
     }
   }
@@ -178,7 +185,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     setState(() => _busy = true);
     try {
       await LocalNotificationService.instance.requestPermissionsIfNeeded();
-      _markDone(2);
+      _markDone(5);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -189,6 +196,22 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     HapticFeedback.lightImpact();
     setState(() => _busy = true);
     try {
+      // Onboarding ends only once an account exists locally.
+      final accounts = await ref.read(accountRepositoryProvider).getAll();
+      if (accounts.isEmpty) {
+        if (!mounted) return;
+        setState(() {
+          _busy = false;
+          _done[_accountStep] = false;
+          _currentStep = _accountStep;
+        });
+        ScaffoldMessenger.of(context)
+          ..hideCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(content: Text(context.l10n.onbAccountRequired)),
+          );
+        return;
+      }
       await AppSession.instance.finishOnboarding();
       if (mounted) context.go('/');
     } catch (_) {
@@ -304,10 +327,25 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
       case 0:
         return _countryStep(l10n);
       case 1:
-        return _consentStep();
+        return OnboardingConsentStep(
+          kind: OnboardingConsentKind.cloud,
+          onDone: (_) => _markDone(1),
+        );
       case 2:
+        return OnboardingConsentStep(
+          kind: OnboardingConsentKind.smartAnalysis,
+          onDone: (_) => _markDone(2),
+        );
+      case 3:
+        return OnboardingReadinessStep(onDone: () => _markDone(3));
+      case _accountStep:
+        return OnboardingAccountStep(
+          currency: _selectedCountry(context).currency,
+          onDone: () => _markDone(_accountStep),
+        );
+      case 5:
         return _actionStep(
-          step: 2,
+          step: 5,
           icon: AppLucideIcons.bellRing,
           title: l10n.setupNotificationsTitle,
           body: l10n.setupNotificationsBody,
@@ -453,21 +491,6 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     );
   }
 
-  /// Consent step: never pre-selected, never blocks. Both "Enable" (after the
-  /// user has seen the live status) and "Not now" advance; a registration
-  /// failure stays visible in Privacy settings.
-  Widget _consentStep() {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter, AppSpacing.s6, AppSpacing.gutter, AppSpacing.s4),
-      child: SmartAnalysisConsentPanel(
-        onDark: true,
-        privacyRoute: '/onboarding/privacy',
-        onDone: (_) => _markDone(1),
-      ),
-    );
-  }
-
   Widget _actionStep({
     required int step,
     required IconData icon,
@@ -499,7 +522,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
   }
 
   Widget _shortcutStep(AppL10n l10n) {
-    const step = 3;
+    const step = 6;
     final steps = <(String, String)>[
       (l10n.setupShortcutStep1Title, l10n.setupShortcutStep1Body),
       (l10n.setupShortcutStep2Title, l10n.setupShortcutStep2Body),
