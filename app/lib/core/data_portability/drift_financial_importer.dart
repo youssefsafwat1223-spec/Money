@@ -6,6 +6,9 @@ import 'package:drift/drift.dart';
 import '../../data/db/app_database.dart';
 import '../../data/db/money_codec.dart';
 import '../../data/db/sql_value_codec.dart';
+import '../../data/repositories/drift_repository_support.dart'
+    show transactionFromRow;
+import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../../domain/finance/money.dart';
 import '../../engine/parser/capture_money.dart';
 import '../../core/utils/id_generator.dart';
@@ -17,9 +20,15 @@ import 'qirsh_package_codec.dart';
 /// Package record IDs are deliberately preserved: rerunning the same package
 /// is idempotent and relationships never depend on Supabase UUIDs.
 class DriftFinancialImporter {
-  const DriftFinancialImporter(this._db);
+  const DriftFinancialImporter(this._db, {LedgerOutboxQueue? ledgerOutbox})
+      : _ledgerOutbox = ledgerOutbox;
 
   final AppDatabase _db;
+
+  /// G6: when set, every transaction the import hides or writes records sync
+  /// intent in the SAME database transaction (hidden rows → delete; written
+  /// rows → create/update). Null keeps the importer purely local (tests).
+  final LedgerOutboxQueue? _ledgerOutbox;
 
   Future<ImportResult> importPackage(
     QirshPackageData package,
@@ -42,7 +51,19 @@ class DriftFinancialImporter {
     var duplicates = 0;
     var quarantined = 0;
     await _db.transaction(() async {
-      if (mode == ImportMode.replace) await _softHideFinancialData();
+      if (mode == ImportMode.replace) {
+        final hiddenIds = _ledgerOutbox == null
+            ? const <String>[]
+            : (await _db.customSelect(
+                "SELECT id FROM transactions WHERE status != 'ignored';",
+              ).get())
+                .map((r) => r.read<String>('id'))
+                .toList();
+        await _softHideFinancialData();
+        for (final id in hiddenIds) {
+          await _enqueueTransaction(id, OutboxOperation.delete);
+        }
+      }
 
       // Resolved once: the base-currency planning tables need an authority, and
       // re-reading it per row would be a query per imported record.
@@ -64,6 +85,12 @@ class DriftFinancialImporter {
             continue;
           }
           await _upsert(table, row, baseCurrency);
+          if (table == 'transactions') {
+            await _enqueueTransaction(
+              _required(row, 'record_id'),
+              existed ? OutboxOperation.update : OutboxOperation.create,
+            );
+          }
           imported += 1;
         }
       }
@@ -94,6 +121,16 @@ class DriftFinancialImporter {
       skipped: quarantined,
       failed: 0,
     );
+  }
+
+  Future<void> _enqueueTransaction(String id, OutboxOperation op) async {
+    final queue = _ledgerOutbox;
+    if (queue == null) return;
+    final row = await _db.customSelect(
+      'SELECT * FROM transactions WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(id)],
+    ).getSingleOrNull();
+    if (row != null) await queue.enqueue(op, transactionFromRow(row));
   }
 
   Future<void> _softHideFinancialData() async {

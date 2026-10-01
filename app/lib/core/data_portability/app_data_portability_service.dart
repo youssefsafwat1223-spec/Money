@@ -9,6 +9,7 @@ import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/finance/money_transport.dart';
+import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../../domain/repositories/account_repository.dart';
 import '../../domain/repositories/category_repository.dart';
 import '../../domain/repositories/transaction_repository.dart';
@@ -27,7 +28,9 @@ class AppDataPortabilityService implements DataPortabilityService {
     required CategoryRepository categories,
     required TransactionRepository transactions,
     required UserSettingsRepository settings,
-  })  : _db = db,
+    LedgerOutboxQueue? ledgerOutbox,
+  })  : _ledgerOutbox = ledgerOutbox,
+        _db = db,
         _accounts = accounts,
         _categories = categories,
         _transactions = transactions,
@@ -38,6 +41,7 @@ class AppDataPortabilityService implements DataPortabilityService {
   final CategoryRepository _categories;
   final TransactionRepository _transactions;
   final UserSettingsRepository _settings;
+  final LedgerOutboxQueue? _ledgerOutbox;
 
   final Map<String, Object> _inspected = {};
 
@@ -256,7 +260,8 @@ class AppDataPortabilityService implements DataPortabilityService {
     // server/mixed import RPC branches (and their repairAll/mark-dirty recovery)
     // are retired; local import is transactional and recorded in the local
     // financial_import_runs for idempotency.
-    return DriftFinancialImporter(_db).importPackage(package, mode);
+    return DriftFinancialImporter(_db, ledgerOutbox: _ledgerOutbox)
+        .importPackage(package, mode);
   }
 
   Future<ImportResult> _importGeneric(ImportPreview preview) async {

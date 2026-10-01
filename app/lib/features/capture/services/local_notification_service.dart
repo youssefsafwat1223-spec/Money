@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:drift/drift.dart' show Variable;
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest.dart' as tz;
@@ -11,6 +10,11 @@ import 'package:timezone/timezone.dart' as tz;
 import '../../../core/platform/device_timezone.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/ownership_guard.dart';
+import '../../../data/db/planning_cutover.dart';
+import '../../../data/repositories/drift_transaction_repository.dart';
+import '../../../domain/entities/transaction_entity.dart';
+import '../../planning_sync/services/outbox_queue_factory.dart';
+import 'ledger_outbox_queue.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/notification_capacity_planner.dart';
 import '../../../domain/services/notification_planner.dart';
@@ -1235,6 +1239,36 @@ class LocalNotificationService {
     _runBackgroundAction(transactionId, confirm: actionId == _actionConfirm);
   }
 
+  /// G6: applies a background confirm/dismiss through the SAME repository calls
+  /// the foreground replay uses, so the outbox state is identical (confirm →
+  /// update; dismiss → soft-delete + `delete`, which coalesces a never-sent
+  /// create away and turns an in-flight create into a delete — it never drops
+  /// an in-flight create or invents a base token). Only a still-`pending` row
+  /// is touched, as before; replay of the recorded action stays idempotent.
+  @visibleForTesting
+  static Future<void> applyBackgroundActionToDb(
+    AppDatabase db,
+    String transactionId, {
+    required bool confirm,
+    PlanningCutoverCoordinator? coordinator,
+    LedgerOutboxQueue? queue,
+  }) async {
+    final repo = DriftTransactionRepository(
+      db,
+      outboxQueue:
+          queue ?? buildLedgerOutboxQueue(db, coordinator: coordinator),
+    );
+    await db.transaction(() async {
+      final tx = await repo.getById(transactionId);
+      if (tx == null || tx.status != TransactionStatus.pending) return;
+      if (confirm) {
+        await repo.confirm(transactionId);
+      } else {
+        await repo.deleteTransaction(transactionId);
+      }
+    });
+  }
+
   static Future<void> _runBackgroundAction(String transactionId,
       {required bool confirm}) async {
     WidgetsFlutterBinding.ensureInitialized();
@@ -1280,67 +1314,14 @@ class LocalNotificationService {
       if (!await ownershipGuard.isCurrent(admissionToken)) {
         return;
       }
-      // تحديث محلي فوري: هو المرجع في وضع Drift، ومجرد تحديث تجميلي للمرآة
-      // في وضع Supabase حتى لا يظهر التناقض قبل إعادة التطبيق أعلاه.
-      if (confirm) {
-        await db.customUpdate(
-          "UPDATE transactions SET status = 'confirmed', updated_at = ? "
-          "WHERE id = ? AND status = 'pending';",
-          variables: [
-            Variable.withString(DateTime.now().toUtc().toIso8601String()),
-            Variable.withString(transactionId),
-          ],
-        );
-      } else {
-        // Atomic: the local delete, the outbox-create removal, and the
-        // tombstone must all commit together, or none — otherwise an
-        // interruption between them could leave the `create` behind and
-        // resurrect the dismissed capture (docs/NOTIFICATION_FORENSIC_AUDIT.md
-        // C1). One Drift transaction = one SQLite write lock, so it is also
-        // serialized against any concurrent connection.
-        await db.transaction(() async {
-          // Read server state BEFORE deleting so we can tombstone if it already
-          // reached Supabase.
-          final existing = await db.customSelect(
-            "SELECT server_id FROM transactions "
-            "WHERE id = ? AND status = 'pending';",
-            variables: [Variable.withString(transactionId)],
-          ).getSingleOrNull();
-          final serverId = existing?.readNullable<String>('server_id');
-
-          await db.customUpdate(
-            "DELETE FROM transactions WHERE id = ? AND status = 'pending';",
-            variables: [Variable.withString(transactionId)],
-          );
-
-          // A captured pending row already enqueued an outbox `create`. Drop it
-          // so a dismissed capture is never pushed to the server...
-          await db.customUpdate(
-            "DELETE FROM ledger_sync_outbox "
-            "WHERE transaction_id = ? AND operation = 'create';",
-            variables: [Variable.withString(transactionId)],
-          );
-          // ...and if it already reached the server, enqueue a tombstone delete
-          // so the next push removes it there too (else the pull re-imports it).
-          if (serverId != null) {
-            final now = DateTime.now().toUtc().toIso8601String();
-            await db.customInsert(
-              "INSERT INTO ledger_sync_outbox(id, transaction_id, operation, "
-              "payload_json, attempt_count, created_at, updated_at) "
-              "VALUES (?, ?, 'delete', ?, 0, ?, ?);",
-              variables: [
-                Variable.withString(
-                    'bgdel_${transactionId}_${DateTime.now().microsecondsSinceEpoch}'),
-                Variable.withString(transactionId),
-                Variable.withString(jsonEncode(
-                    {'local_id': transactionId, 'server_id': serverId})),
-                Variable.withString(now),
-                Variable.withString(now),
-              ],
-            );
-          }
-        });
-      }
+      // تحديث محلي فوري عبر نفس المستودع/الـ outbox المستخدم في الواجهة
+      // (G6): التأكيد/الحذف يسجّلان نية المزامنة في نفس المعاملة المحلية.
+      await applyBackgroundActionToDb(
+        db,
+        transactionId,
+        confirm: confirm,
+        coordinator: await resolveCutoverCoordinator(db),
+      );
     } catch (_) {
       // الإجراء مسجَّل بالفعل لإعادة التطبيق — لا شيء يُفقد هنا.
     } finally {

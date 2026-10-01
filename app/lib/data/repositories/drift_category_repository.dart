@@ -3,16 +3,23 @@ import 'package:drift/drift.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/category_entity.dart';
 import '../../domain/repositories/category_repository.dart';
+import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
+import 'drift_repository_support.dart';
 
 class DriftCategoryRepository implements CategoryRepository {
-  DriftCategoryRepository(this._db, {PlanningOutboxQueue? outboxQueue})
-      : _outboxQueue = outboxQueue;
+  DriftCategoryRepository(
+    this._db, {
+    PlanningOutboxQueue? outboxQueue,
+    LedgerOutboxQueue? ledgerOutboxQueue,
+  })  : _outboxQueue = outboxQueue,
+        _ledgerOutboxQueue = ledgerOutboxQueue;
 
   final AppDatabase _db;
   final PlanningOutboxQueue? _outboxQueue;
+  final LedgerOutboxQueue? _ledgerOutboxQueue;
 
   @override
   Future<List<CategoryEntity>> getAll() async {
@@ -108,10 +115,26 @@ class DriftCategoryRepository implements CategoryRepository {
       if (fallback == null || fallback == id) {
         throw StateError('Fallback category is missing.');
       }
+      // G6: the remap changes synced rows, so every affected row records sync
+      // intent in THIS transaction (same enqueue APIs as a foreground edit).
+      final affectedTxIds = (await _db.customSelect(
+        "SELECT id FROM transactions WHERE category_id = ? AND status != 'ignored';",
+        variables: [Variable.withString(id)],
+      ).get())
+          .map((r) => r.read<String>('id'))
+          .toList();
+      final affectedBudgetIds = (await _db.customSelect(
+        'SELECT id FROM budgets WHERE category_id = ? AND deleted_at IS NULL;',
+        variables: [Variable.withString(id)],
+      ).get())
+          .map((r) => r.read<String>('id'))
+          .toList();
       await _db.customUpdate(
-        'UPDATE transactions SET category_id = ? WHERE category_id = ?;',
+        'UPDATE transactions SET category_id = ?, updated_at = ? '
+        'WHERE category_id = ?;',
         variables: [
           Variable.withString(fallback),
+          Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
           Variable.withString(id),
         ],
       );
@@ -123,6 +146,26 @@ class DriftCategoryRepository implements CategoryRepository {
         'UPDATE budgets SET category_id = ? WHERE category_id = ?;',
         variables: [Variable.withString(fallback), Variable.withString(id)],
       );
+      for (final txId in affectedTxIds) {
+        final row = await _db.customSelect(
+          'SELECT * FROM transactions WHERE id = ? LIMIT 1;',
+          variables: [Variable.withString(txId)],
+        ).getSingleOrNull();
+        if (row != null) {
+          await _ledgerOutboxQueue?.enqueue(
+              OutboxOperation.update, transactionFromRow(row));
+        }
+      }
+      for (final budgetId in affectedBudgetIds) {
+        final row = await _db.customSelect(
+          'SELECT * FROM budgets WHERE id = ? LIMIT 1;',
+          variables: [Variable.withString(budgetId)],
+        ).getSingleOrNull();
+        if (row != null) {
+          await _outboxQueue?.enqueueBudget(
+              PlanningSyncOperation.update, budgetFromRow(row));
+        }
+      }
       await _db.customUpdate(
         'UPDATE categories SET deleted_at = ? WHERE id = ?;',
         variables: [

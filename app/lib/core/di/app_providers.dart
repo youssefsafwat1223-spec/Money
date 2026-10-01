@@ -754,6 +754,7 @@ final accountRepositoryProvider = Provider<AccountRepository>((ref) {
   return DriftAccountRepository(
     db,
     outboxQueue: ref.watch(planningOutboxQueueProvider),
+    ledgerOutboxQueue: ref.watch(ledgerOutboxQueueProvider),
   );
 });
 
@@ -1003,6 +1004,7 @@ final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
   return DriftCategoryRepository(
     db,
     outboxQueue: ref.watch(planningOutboxQueueProvider),
+    ledgerOutboxQueue: ref.watch(ledgerOutboxQueueProvider),
   );
 });
 
@@ -1013,6 +1015,7 @@ final dataPortabilityServiceProvider = Provider<DataPortabilityService>((ref) {
     categories: ref.watch(categoryRepositoryProvider),
     transactions: ref.watch(transactionRepositoryProvider),
     settings: ref.watch(userSettingsRepositoryProvider),
+    ledgerOutbox: ref.watch(ledgerOutboxQueueProvider),
   );
 });
 

@@ -96,6 +96,44 @@ class DriftGoalRepository implements GoalRepository {
     });
   }
 
+  /// G6: links live goals that have no account to the default account and
+  /// records sync intent for each re-pointed goal in the SAME transaction. This
+  /// replaces the silent `AppDatabase` migration backfill (which changed synced
+  /// rows with no outbox row). Idempotent: once linked, a goal is not matched
+  /// again. Returns the number of goals re-pointed.
+  Future<int> repointOrphanGoalsToDefaultAccount() async {
+    _guard.requireMutable();
+    return _db.transaction(() async {
+      final account = await _db.customSelect(
+        'SELECT id FROM accounts WHERE is_default = 1 AND deleted_at IS NULL '
+        'LIMIT 1;',
+      ).getSingleOrNull();
+      final accountId = account?.read<String>('id');
+      if (accountId == null) return 0;
+      final orphanIds = (await _db.customSelect(
+        'SELECT id FROM goals WHERE account_id IS NULL AND deleted_at IS NULL;',
+      ).get())
+          .map((r) => r.read<String>('id'))
+          .toList();
+      for (final goalId in orphanIds) {
+        await _db.customUpdate(
+          'UPDATE goals SET account_id = ? WHERE id = ?;',
+          variables: [
+            Variable.withString(accountId),
+            Variable.withString(goalId),
+          ],
+        );
+        final row = await _db.customSelect(
+          'SELECT * FROM goals WHERE id = ? LIMIT 1;',
+          variables: [Variable.withString(goalId)],
+        ).getSingle();
+        await _outboxQueue?.enqueueGoal(
+            PlanningSyncOperation.update, goalFromRow(row));
+      }
+      return orphanIds.length;
+    });
+  }
+
   @override
   Future<int> countAll() async {
     _requireCanonicalRead();

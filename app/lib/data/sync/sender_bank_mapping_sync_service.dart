@@ -171,9 +171,13 @@ class SenderBankMappingSyncService {
 
     // Uploadable = confirmed/rejected mappings OR any tombstone, that are not
     // already synced.
+    // G10: a terminally failed mapping (sync_permanent = 1) is never retried,
+    // and a retryable failure waits out its backoff (sync_next_retry_at).
+    final nowSql = dateTimeToSql(DateTime.now().toUtc());
     final pending = await _db.customSelect(
       "SELECT * FROM sender_bank_mappings "
-      "WHERE sync_status IN ('pending', 'failed') "
+      "WHERE sync_status IN ('pending', 'failed') AND sync_permanent = 0 "
+      "AND (sync_next_retry_at IS NULL OR sync_next_retry_at <= ${sqlString(nowSql)}) "
       "AND (deleted_at IS NOT NULL OR status IN ('confirmed', 'rejected'));",
     ).get();
 
@@ -235,7 +239,7 @@ class SenderBankMappingSyncService {
       } catch (e) {
         final failureClass = classifyOutboxError(e);
         _health?.noteFailure(SyncDomain.senderMappings, e);
-        await _markFailed(id);
+        await _markFailed(id, failureClass);
         failed++;
         if (kDebugMode) {
           debugPrint(
@@ -323,9 +327,10 @@ class SenderBankMappingSyncService {
         .getSingleOrNull();
 
     if (existing != null) {
-      // Never overwrite a locally pending change on pull — it is pushed and
-      // wins by the server-authoritative timestamp.
-      if (existing.readNullable<String>('sync_status') == 'pending') {
+      // Never overwrite a locally pending OR failed change on pull — a pending
+      // one is pushed and wins by the server-authoritative timestamp; a failed
+      // one still holds the user's unsynced intent (G10).
+      if (_isUnsettledLocal(existing.readNullable<String>('sync_status'))) {
         return _Outcome.skipped;
       }
       // No-op when unchanged since we last synced (avoids UI churn).
@@ -411,7 +416,7 @@ class SenderBankMappingSyncService {
         .getSingleOrNull();
     if (existing == null) return _Outcome.skipped;
     // A locally pending change wins (it will push); don't apply the tombstone.
-    if (existing.readNullable<String>('sync_status') == 'pending') {
+    if (_isUnsettledLocal(existing.readNullable<String>('sync_status'))) {
       return _Outcome.skipped;
     }
     if (existing.readNullable<String>('deleted_at') != null) {
@@ -474,6 +479,8 @@ class SenderBankMappingSyncService {
     await _db.customStatement('''
       UPDATE sender_bank_mappings
       SET sync_status = 'synced',
+          sync_attempt_count = 0, sync_next_retry_at = NULL,
+          sync_failure_class = NULL, sync_permanent = 0,
           $serverCols
           synced_at = ${sqlString(now)}
       WHERE id = ${sqlString(id)}
@@ -481,11 +488,37 @@ class SenderBankMappingSyncService {
     ''');
   }
 
-  Future<void> _markFailed(String id) async {
-    await _db.customStatement(
-      "UPDATE sender_bank_mappings SET sync_status = 'failed' "
-      'WHERE id = ${sqlString(id)};',
-    );
+  /// A mapping with unsynced local intent (pending / failed): a pull must never
+  /// overwrite or tombstone it.
+  static bool _isUnsettledLocal(String? syncStatus) =>
+      syncStatus == 'pending' || syncStatus == 'failed';
+
+  /// G10: typed, bounded failure handling for one mapping. A permanent class (or
+  /// reaching [kOutboxMaxAttempts]) is terminal — `sync_permanent = 1`, never
+  /// retried, kept observable; a retryable class backs off exponentially.
+  Future<void> _markFailed(String id, OutboxFailureClass failureClass) async {
+    final row = await _db.customSelect(
+      'SELECT sync_attempt_count FROM sender_bank_mappings '
+      'WHERE id = ${sqlString(id)} LIMIT 1;',
+    ).getSingleOrNull();
+    if (row == null) return;
+    final attempts = row.read<int>('sync_attempt_count') + 1;
+    final permanent =
+        failureClass.isPermanent || attempts >= kOutboxMaxAttempts;
+    final nextRetry = permanent
+        ? null
+        : dateTimeToSql(DateTime.now()
+            .toUtc()
+            .add(Duration(seconds: 30 * (1 << (attempts - 1).clamp(0, 7)))));
+    await _db.customStatement('''
+      UPDATE sender_bank_mappings
+      SET sync_status = 'failed',
+          sync_attempt_count = $attempts,
+          sync_next_retry_at = ${sqlNullableString(nextRetry)},
+          sync_failure_class = ${sqlString(failureClass.reason)},
+          sync_permanent = ${permanent ? 1 : 0}
+      WHERE id = ${sqlString(id)};
+    ''');
   }
 
   /// Normalises a server timestamp value to the local SQL (ISO8601) form.

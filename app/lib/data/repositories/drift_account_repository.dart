@@ -5,10 +5,12 @@ import 'package:drift/drift.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/repositories/account_repository.dart';
+import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
 import '../db/app_database.dart';
 import '../db/money_codec.dart';
 import '../db/sql_value_codec.dart';
+import 'drift_repository_support.dart' show transactionFromRow;
 
 Map<String, dynamic>? _decodeMetadata(String? raw) {
   if (raw == null || raw.isEmpty) return null;
@@ -71,10 +73,13 @@ class DriftAccountRepository implements AccountRepository {
   DriftAccountRepository(
     this._db, {
     PlanningOutboxQueue? outboxQueue,
-  }) : _outboxQueue = outboxQueue;
+    LedgerOutboxQueue? ledgerOutboxQueue,
+  })  : _outboxQueue = outboxQueue,
+        _ledgerOutboxQueue = ledgerOutboxQueue;
 
   final AppDatabase _db;
   final PlanningOutboxQueue? _outboxQueue;
+  final LedgerOutboxQueue? _ledgerOutboxQueue;
 
   @override
   Future<List<AccountEntity>> getAll() async {
@@ -207,9 +212,28 @@ class DriftAccountRepository implements AccountRepository {
         throw StateError('Cannot delete the last account.');
       }
       // فُكّ ربط عملياته (تبقى محفوظة بلا حساب).
+      // G6: the unlink changes synced rows — record sync intent for each
+      // affected row in this same transaction.
+      final affectedTxIds = (await _db.customSelect(
+        "SELECT id FROM transactions WHERE account_id = ${sqlString(id)} "
+        "AND status != 'ignored';",
+      ).get())
+          .map((r) => r.read<String>('id'))
+          .toList();
       await _db.customStatement(
-        'UPDATE transactions SET account_id = NULL WHERE account_id = ${sqlString(id)};',
+        'UPDATE transactions SET account_id = NULL, '
+        'updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))} '
+        'WHERE account_id = ${sqlString(id)};',
       );
+      for (final txId in affectedTxIds) {
+        final row = await _db.customSelect(
+          'SELECT * FROM transactions WHERE id = ${sqlString(txId)} LIMIT 1;',
+        ).getSingleOrNull();
+        if (row != null) {
+          await _ledgerOutboxQueue?.enqueue(
+              OutboxOperation.update, transactionFromRow(row));
+        }
+      }
       await _db.customStatement(
         'UPDATE accounts SET deleted_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}, '
         'is_default = 0 WHERE id = ${sqlString(id)};',

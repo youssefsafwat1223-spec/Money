@@ -32,18 +32,22 @@ abstract class SmartInboxRemoteSource {
     int limit,
   });
 
-  /// يدفع تغيير الحالة (رفض/معالجة) لصف الخادم المطابق للـ serverId.
-  Future<void> pushStatus(String serverId, String status);
+  /// يدفع تغيير الحالة (رفض/معالجة) لصف الخادم المطابق للـ serverId ويعيد عدد
+  /// الصفوف التي طابقها الخادم فعلًا (G11: صفر ≠ نجاح — لا ACK بلا صف).
+  Future<int> pushStatus(String serverId, String status);
 }
 
 class SupabaseSmartInboxRemoteSource implements SmartInboxRemoteSource {
   const SupabaseSmartInboxRemoteSource();
 
   @override
-  Future<void> pushStatus(String serverId, String status) async {
-    await Supabase.instance.client
+  Future<int> pushStatus(String serverId, String status) async {
+    final rows = await Supabase.instance.client
         .from('user_smart_inbox')
-        .update({'status': status}).eq('id', serverId);
+        .update({'status': status})
+        .eq('id', serverId)
+        .select('id');
+    return (rows as List).length;
   }
 
   @override
@@ -68,6 +72,20 @@ class SupabaseSmartInboxRemoteSource implements SmartInboxRemoteSource {
 
 // The five types the app understands. Unknown types from future server
 // schema additions are silently skipped so forward compatibility is free.
+/// G11: a server update that matched no row is a FAILURE, never an ACK.
+class SmartInboxPushNoRowException implements Exception {
+  const SmartInboxPushNoRowException(this.serverId);
+  final String serverId;
+  @override
+  String toString() => 'SmartInboxPushNoRowException: no server row matched';
+}
+
+/// G11: local-only items (`local_capture:<payloadId>`, see
+/// DriftSmartInboxRepository.saveUnprocessableCapture) have no server row; their
+/// status is purely local and must never be sent to the server.
+bool isLocalOnlySmartInboxId(String serverId) =>
+    serverId.startsWith('local_capture:');
+
 const _knownTypes = {
   'needs_review',
   'suspicious_duplicate',
@@ -131,33 +149,55 @@ class SmartInboxSyncService {
     final userId = await _getAuthUserId();
     if (userId == null) return 0;
 
+    final nowSql = dateTimeToSql(DateTime.now().toUtc());
     final pending = await _db
         .customSelect(
-          'SELECT server_id, status FROM smart_inbox_items '
-          'WHERE pending_sync = 1;',
+          'SELECT server_id, status, push_attempt_count FROM smart_inbox_items '
+          'WHERE pending_sync = 1 AND (push_next_retry_at IS NULL '
+          'OR push_next_retry_at <= ${sqlString(nowSql)});',
         )
         .get();
     var pushed = 0;
     for (final row in pending) {
       final serverId = row.read<String>('server_id');
       final status = row.read<String>('status');
+      if (isLocalOnlySmartInboxId(serverId)) {
+        // No server row exists: the local status IS the truth. Settle it
+        // locally without ever calling the server.
+        await _settle(serverId);
+        continue;
+      }
       try {
-        await _remoteSource.pushStatus(serverId, status);
-        await _db.customStatement(
-          'UPDATE smart_inbox_items SET pending_sync = 0, synced_at = '
-          "${sqlString(dateTimeToSql(DateTime.now().toUtc()))} "
-          'WHERE server_id = ${sqlString(serverId)};',
-        );
+        final matched = await _remoteSource.pushStatus(serverId, status);
+        if (matched < 1) throw SmartInboxPushNoRowException(serverId);
+        await _settle(serverId);
         pushed++;
       } catch (e) {
-        // offline / خطأ مؤقت — يبقى pending_sync=1 للمحاولة في الدورة التالية.
+        // offline / خطأ مؤقت / لا صف مطابق — يبقى pending_sync=1 مع backoff
+        // (G11) بدل إعادة المحاولة في كل دورة، ويُسجَّل في SyncHealth.
         _health?.noteFailure(SyncDomain.smartInbox, e);
+        final attempts = row.read<int>('push_attempt_count') + 1;
+        final nextRetry = dateTimeToSql(DateTime.now()
+            .toUtc()
+            .add(Duration(seconds: 30 * (1 << (attempts - 1).clamp(0, 7)))));
+        await _db.customStatement(
+          'UPDATE smart_inbox_items SET push_attempt_count = $attempts, '
+          'push_next_retry_at = ${sqlString(nextRetry)} '
+          'WHERE server_id = ${sqlString(serverId)};',
+        );
         if (kDebugMode) debugPrint('[SmartInboxSync] push item skipped: $e');
       }
     }
     if (kDebugMode) debugPrint('[SmartInboxSync] push done: pushed=$pushed');
     return pushed;
   }
+
+  Future<void> _settle(String serverId) => _db.customStatement(
+        'UPDATE smart_inbox_items SET pending_sync = 0, '
+        'push_attempt_count = 0, push_next_retry_at = NULL, synced_at = '
+        "${sqlString(dateTimeToSql(DateTime.now().toUtc()))} "
+        'WHERE server_id = ${sqlString(serverId)};',
+      );
 
   Future<SmartInboxSyncResult> pull({
     SyncCursor? from,

@@ -2062,9 +2062,10 @@ class AppDatabase extends GeneratedDatabase {
       'CREATE INDEX IF NOT EXISTS idx_transactions_duplicate_exact '
       'ON transactions(amount, currency, comparison_timestamp);',
     );
-    if (version < 10) {
-      await _backfillGoalsToDefaultAccount();
-    }
+    // G6: the v10 goal→default-account backfill moved out of the schema layer
+    // into DriftGoalRepository.repointOrphanGoalsToDefaultAccount (run at
+    // bootstrap), which records sync intent for every re-pointed goal. A raw
+    // migration write cannot: it has no session/owner context.
     // v15: Phase C — server sync metadata for Supabase ledger pull.
     await _ensureColumn('transactions', 'server_id', 'TEXT NULL');
     await _ensureColumn('transactions', 'synced_at', 'TEXT NULL');
@@ -2108,6 +2109,17 @@ class AppDatabase extends GeneratedDatabase {
     // Provenance of an accepted mapping: 'user' | 'ai_validated' (enforced in
     // code). NULL = legacy row, treated as user-accepted. Additive + nullable.
     await _ensureColumn('sender_bank_mappings', 'accepted_by', 'TEXT NULL');
+    // G10: bounded push retry state. `sync_permanent` is the terminal
+    // "failed_permanent" marker — the sync_status CHECK constraint cannot take a
+    // new value without a table rebuild, so a permanently failed mapping stays
+    // sync_status='failed' with sync_permanent=1 (never retried, never
+    // overwritten by pull, still visible to the unsynced inventory).
+    await _ensureColumn('sender_bank_mappings', 'sync_attempt_count',
+        'INTEGER NOT NULL DEFAULT 0');
+    await _ensureColumn('sender_bank_mappings', 'sync_next_retry_at', 'TEXT NULL');
+    await _ensureColumn('sender_bank_mappings', 'sync_failure_class', 'TEXT NULL');
+    await _ensureColumn(
+        'sender_bank_mappings', 'sync_permanent', 'INTEGER NOT NULL DEFAULT 0');
     // v16: Phase D — local outbox for push sync.
     await customStatement('''
       CREATE TABLE IF NOT EXISTS ledger_sync_outbox (
@@ -2168,6 +2180,10 @@ class AppDatabase extends GeneratedDatabase {
     // S3 gap#1: علم دفع محلي لتغييرات صندوق الوارد (رفض/معالجة) offline-first.
     await _ensureColumn(
         'smart_inbox_items', 'pending_sync', 'INTEGER NOT NULL DEFAULT 0');
+    // G11: bounded push backoff (additive).
+    await _ensureColumn('smart_inbox_items', 'push_attempt_count',
+        'INTEGER NOT NULL DEFAULT 0');
+    await _ensureColumn('smart_inbox_items', 'push_next_retry_at', 'TEXT NULL');
     // v18-v19: Phase G — planning sync foundation.
     await _ensureAccountsSyncSchema();
     await _ensurePlanningEntitySyncSchema();
@@ -3357,8 +3373,8 @@ class AppDatabase extends GeneratedDatabase {
 
   /// A-7: لا يُنشئ أي حساب أبداً. الحسابات تُنشأ فقط بفعل صريح من المستخدم
   /// (شاشة إعداد الحساب) عبر المستودع. هنا إصلاحات غير منشئة فقط: ترقية أول
-  /// حساب قائم إلى افتراضي إن لم يكن هناك افتراضي، وربط الأهداف اليتيمة
-  /// بالحساب الافتراضي إن وُجد. مع صفر حسابات لا يُمَسّ شيء.
+  /// حساب قائم إلى افتراضي إن لم يكن هناك افتراضي. (ربط الأهداف اليتيمة بالحساب
+  /// الافتراضي انتقل إلى DriftGoalRepository ليُسجَّل في الـ outbox.) مع صفر حسابات لا يُمَسّ شيء.
   Future<void> _ensureDefaultAccount() async {
     if (await count('accounts') > 0) {
       // اضمن وجود حساب افتراضي واحد على الأقل.
@@ -3371,20 +3387,7 @@ class AppDatabase extends GeneratedDatabase {
           '(SELECT id FROM accounts ORDER BY sort_order ASC LIMIT 1);',
         );
       }
-      await _backfillGoalsToDefaultAccount();
     }
-  }
-
-  Future<void> _backfillGoalsToDefaultAccount() async {
-    final row = await customSelect(
-      'SELECT id FROM accounts WHERE is_default = 1 LIMIT 1;',
-    ).getSingleOrNull();
-    final accountId = row?.read<String>('id');
-    if (accountId == null) return;
-    await customStatement(
-      'UPDATE goals SET account_id = ${sqlString(accountId)} '
-      'WHERE account_id IS NULL;',
-    );
   }
 
   // Idempotently ensures every seed category (internal + new ones added in

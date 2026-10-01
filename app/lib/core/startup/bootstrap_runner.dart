@@ -342,6 +342,22 @@ class BootstrapRunner {
       });
     }
 
+    await _step('goal_account_repoint', () async {
+      try {
+        // G6: link account-less goals to the default account WITH sync intent
+        // (this was a raw migration write that left no outbox row). Idempotent.
+        await DriftGoalRepository(
+          database,
+          outboxQueue: buildPlanningOutboxQueue(database,
+              coordinator:
+                  FixedPlanningCutoverCoordinator(planningCutoverState)),
+          coordinator: FixedPlanningCutoverCoordinator(planningCutoverState),
+        ).repointOrphanGoalsToDefaultAccount();
+      } catch (_) {
+        // Best-effort: a refused mutation (unresolved cutover) retries next boot.
+      }
+    });
+
     if (!_cardBackfillRan) {
       await _step('card_backfill', () async {
         try {
