@@ -359,6 +359,13 @@ class _AppShellState extends ConsumerState<AppShell> {
         .reprobeIfStale()
         .then((_) {})
         .catchError((_) {}));
+    // Same for the planning-currency capability (0077): re-probed on resume,
+    // throttled inside, consent-gated, never throws into the resume path.
+    unawaited(ref
+        .read(planningCurrencyCapabilityProbeProvider)
+        .reprobeIfStale()
+        .then((_) {})
+        .catchError((_) {}));
     if (runNonCritical) await syncCatalog(ref);
     if (runNonCritical) {
       // R4 §7/§11/§21: warm the report-export entitlement decision on resume,
@@ -655,7 +662,13 @@ class _AppShellState extends ConsumerState<AppShell> {
     // them. Give them a real chance to persist before the user is asked to
     // discard anything — this is the retry the sign-out path was missing.
     await attempt(() async {
-      await ref.read(startupSyncReconcileServiceProvider).run();
+      // Bounded: the whole flush has a 6 s hard timeout (AppSession), which
+      // cannot cancel running work. A cooperative 3 s budget stops the backfill
+      // cleanly; whatever remains is NOT claimed as synced — the sign-out flow's
+      // unsynced-inventory re-check surfaces it in the existing warning dialog.
+      await ref
+          .read(startupSyncReconcileServiceProvider)
+          .run(timeBudget: const Duration(seconds: 3));
     });
     await attempt(() async {
       await ref.read(accountsPushServiceProvider).push();

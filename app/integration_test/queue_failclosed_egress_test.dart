@@ -8,6 +8,7 @@ import 'package:integration_test/integration_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/core/sync/sync_health.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/features/app/app_shell.dart';
 import 'package:money_companion/main.dart' as app;
@@ -199,7 +200,9 @@ void main() {
     return false;
   }
 
-  testWidgets('consent ON, capability unknown: money still does not leave',
+  testWidgets(
+      'consent ON: exact transport is verified; budgets/goals still do not '
+      'leave unless the planning-currency probe verified the server',
       (tester) async {
     if (_qaEmail.isEmpty || _qaPassword.isEmpty || _qaUserId.isEmpty) {
       fail('QA_EMAIL/QA_PASSWORD/QA_USER_ID are required');
@@ -237,19 +240,19 @@ void main() {
     final container =
         ProviderScope.containerOf(tester.element(find.byType(AppShell)));
 
-    // The transport capabilities are the thing under test. If any of them ever
-    // reports `verified`, this test is measuring a different product and must
-    // be rewritten rather than deleted.
-    for (final capability in <Object>[
-      container.read(exactPushTransportCapabilityProvider),
-      container.read(exactPullTransportCapabilityProvider),
-      container.read(planningServerCurrencyCapabilityProvider),
-    ]) {
-      expect(capability.toString(), contains('unknown'),
-          reason: 'this test asserts the fail-closed behaviour of an UNKNOWN '
-              'transport. A capability that is no longer unknown needs a live '
-              'exactness proof, not this test passing by accident');
-    }
+    // A-1b/A-1c: the exact decimal transport (PostgREST NUMERIC string push /
+    // NUMERIC::text pull) is a BUILD-CONSTANT `verifiedExact`, proven against a
+    // real local PostgREST. What is NOT known at build time is whether THIS
+    // server carries migration 0077 (per-row planning currency on budgets/
+    // goals), so that capability is a RUNTIME PROBE (`unknown` until probed).
+    // `app.main()` builds its own ProviderScope, so providers cannot be
+    // overridden here; the fail-closed premise under test is therefore the one
+    // the real graph still owns: budgets/goals/contributions must not be
+    // written unless the probe reports `verifiedExact`.
+    expect(container.read(exactPushTransportCapabilityProvider),
+        ExactTransportCapability.verifiedExact);
+    expect(container.read(exactPullTransportCapabilityProvider),
+        ExactTransportCapability.verifiedExact);
 
     // Grant EVERYTHING. This is the inverse of the cloud-OFF test: there, the
     // question was whether a revoked consent is honoured. Here, consent is not
@@ -286,33 +289,43 @@ void main() {
     await quiesce(tester, const Duration(seconds: 60));
 
     final after = _transcript.sublist(setupCount);
-    // The financial tables specifically. Catalog, auth, profile and
-    // gamification traffic is all legitimate now that consent is granted — the
-    // claim under test is narrower and stronger: MONEY does not move.
-    const moneyPaths = <String>[
-      '/rest/v1/user_transactions',
-      '/rest/v1/user_accounts',
+    // The probe has had its chance (consent is ON and a session exists), so the
+    // planning-currency capability is whatever THIS server answered. A GET on
+    // the two tables is the read-only probe itself (`select currency limit 0`)
+    // and is legitimate; WRITES are what must be held back while unverified.
+    final planningCurrency =
+        container.read(planningServerCurrencyCapabilityProvider);
+    debugPrint('[QUEUE-FAILCLOSED] planning currency = ${planningCurrency.name}; '
+        'health = ${SyncHealth.shared.capabilityStates}');
+    expect(SyncHealth.shared.capabilityStates['planning currency'], isNotNull,
+        reason: 'the runtime probe never reported a state');
+
+    const planningCurrencyPaths = <String>[
       '/rest/v1/user_budgets',
       '/rest/v1/user_goals',
       '/rest/v1/user_goal_contributions',
-      '/rest/v1/user_cards',
-      '/rest/v1/user_subscriptions',
     ];
-    final money = after.where((l) => moneyPaths.any(l.contains)).toList();
+    final heldBack = after
+        .where((l) =>
+            planningCurrencyPaths.any(l.contains) && !l.startsWith('GET '))
+        .toList();
 
     debugPrint('[QUEUE-FAILCLOSED] setup=$setupCount post-setup=${after.length}');
     for (final line in after) {
       debugPrint('[QUEUE-FAILCLOSED] $line');
     }
 
-    expect(
-      money,
-      isEmpty,
-      reason: 'every transport capability is `unknown`, so money must PARK in '
-          'the outbox rather than transmit — with consent fully granted. These '
-          'went out anyway:\n${money.join("\n")}\n\nfull post-setup '
-          'transcript (${after.length}):\n${after.join("\n")}',
-    );
+    if (planningCurrency != ExactTransportCapability.verifiedExact) {
+      expect(
+        heldBack,
+        isEmpty,
+        reason: 'the planning-currency capability is `${planningCurrency.name}`, '
+            'so budgets/goals must PARK in the outbox rather than transmit — '
+            'with consent fully granted. These went out anyway:\n'
+            '${heldBack.join("\n")}\n\nfull post-setup transcript '
+            '(${after.length}):\n${after.join("\n")}',
+      );
+    }
     expect(_transcript, isNotEmpty,
         reason: 'the recorder captured nothing at all — it is not installed, '
             'and this run proves nothing');

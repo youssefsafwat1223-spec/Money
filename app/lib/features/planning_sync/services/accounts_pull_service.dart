@@ -119,6 +119,12 @@ class AccountsPullService {
     Future<String?> Function()? getAuthUserId,
     AccountsRemoteSource? remoteSource,
     int pageSize = 200,
+    /// Per-cycle page cap for a NORMAL incremental pull: after this many pages
+    /// the pull stops (not completed) and the next cycle continues from the
+    /// persisted cursor, so a first sync with a large server history never runs
+    /// as one unbounded loop. Epoch/reconcile pulls (`from` given) are exempt —
+    /// they restart from epoch each time and must reach EOF to clear their marker.
+    int maxPagesPerRun = 10,
     SyncHealth? health,
   })  : assert(pageSize > 0),
         _health = health,
@@ -127,10 +133,12 @@ class AccountsPullService {
         _mayEgress = mayEgress ?? _denyEgressByDefault,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _pageSize = pageSize,
+        _maxPagesPerRun = maxPagesPerRun,
         _remoteSource = remoteSource ?? const SupabaseAccountsRemoteSource();
 
   final AppDatabase _db;
   final bool Function() _isEnabled;
+  final int _maxPagesPerRun;
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
 
@@ -164,7 +172,12 @@ class AccountsPullService {
       _health?.noteConsentBlocked(SyncDomain.accounts);
       return const AccountsPullResult();
     }
-    if (!_isEnabled()) return const AccountsPullResult();
+    if (!_isEnabled()) {
+      // The pull is blocked by an unverified/unsupported transport: an
+      // observable STATE, not a silent no-op.
+      _health?.noteCapabilityParked(SyncDomain.accounts);
+      return const AccountsPullResult();
+    }
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPullResult();
     final admitted = isAdmitted ?? alwaysAdmitted;
@@ -177,6 +190,7 @@ class AccountsPullService {
 
     try {
       var cursor = from ?? await readSyncCursor(_db, _cursorKey);
+      var pages = 0;
       while (true) {
         if (!admitted()) break;
         final rows = await _remoteSource.fetchRows(
@@ -240,6 +254,7 @@ class AccountsPullService {
           reachedEof = true;
           break;
         }
+        if (from == null && ++pages >= _maxPagesPerRun) break;
       }
     } on ReconcilePullCancelled {
       // Lifecycle/ownership cancellation, not a transport failure: no retry,

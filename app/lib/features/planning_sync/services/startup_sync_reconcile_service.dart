@@ -3,7 +3,9 @@ import 'package:flutter/foundation.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
+import '../../../core/sync/sync_health.dart';
 import '../../../data/sync/exact_transport_capability.dart';
+import '../../../data/sync/planning_currency_capability_probe.dart';
 import '../../capture/services/transactions_backfill_service.dart';
 import 'accounts_backfill_service.dart';
 import 'outbox_queue_factory.dart';
@@ -106,7 +108,16 @@ class StartupSyncReconcileService {
     /// C-3 — consulted before any backfill runs. Defaults to DENY so a caller
     /// that forgets it gets no network.
     Future<bool> Function()? mayEgress,
+    /// A-1c: the server planning-currency answer for ONE table (`user_budgets` /
+    /// `user_goals`), resolving the runtime probe first. Defaults to `unknown` —
+    /// a caller that forgets it fails CLOSED: the budgets/goals backfill is
+    /// skipped (capability-parked) rather than sending per-row failing inserts.
+    Future<ExactTransportCapability> Function(String table)?
+        planningCurrencyFor,
+    SyncHealth? health,
   })  : _db = db,
+        _planningCurrencyFor = planningCurrencyFor ?? _unknownPlanningCurrency,
+        _health = health,
         _getAuthUserId = getAuthUserId ?? currentSupabaseUserId,
         _coordinator = coordinator,
         _pushCapability = pushCapability,
@@ -115,6 +126,13 @@ class StartupSyncReconcileService {
   static ExactTransportCapability _unknownPushCapability() =>
       ExactTransportCapability.unknown;
 
+  static Future<ExactTransportCapability> _unknownPlanningCurrency(
+          String _) async =>
+      ExactTransportCapability.unknown;
+
+  final Future<ExactTransportCapability> Function(String table)
+      _planningCurrencyFor;
+  final SyncHealth? _health;
   final AppDatabase _db;
   final Future<String?> Function() _getAuthUserId;
   final PlanningCutoverCoordinator _coordinator;
@@ -123,7 +141,13 @@ class StartupSyncReconcileService {
 
   static Future<bool> _denyEgressByDefault() async => false;
 
-  Future<ReconcileOutcome> run() async {
+  /// [timeBudget] bounds the TOTAL time of the backfills (cooperative — checked
+  /// between rows, so the run stops cleanly before a caller's hard timeout). Work
+  /// left over is reported as [ReconcileOutcome.partial] and stays visible to the
+  /// unsynced inventory; the next cycle continues.
+  Future<ReconcileOutcome> run({Duration? timeBudget}) async {
+    final deadline =
+        timeBudget == null ? null : DateTime.now().add(timeBudget);
     if (!SupabaseConfig.isConfigured) return ReconcileOutcome.skippedGuest;
     final uid = await _getAuthUserId();
     if (uid == null) return ReconcileOutcome.skippedGuest;
@@ -173,16 +197,32 @@ class StartupSyncReconcileService {
               .run();
       final transactions =
           await TransactionsBackfillService(db: _db, coordinator: _coordinator)
-              .run();
+              .run(deadline: deadline);
       // Planning entities too — otherwise budgets/goals/subscriptions/plans
       // created before sync (or with no session) stay local-only and are
       // permanently destroyed by the next sign-out wipe. Rows already queued
       // on the planning outbox may individually no-op/fail against the
       // server's (user_id, local_id) unique constraint — the outbox push owns
       // those; nothing duplicates.
+      //
+      // A-1c: budgets/goals carry a per-row `currency` column that exists on the
+      // server only with migration 0077. Each is backfilled ONLY when the
+      // planning-currency probe verified its table; otherwise it is skipped as
+      // capability-parked (no per-row failing inserts) and the outcome is
+      // partial, retried next cycle. Other planning entities are unaffected.
+      final plan = await planningBackfillPlan();
+      final onlyEntities = plan.entities;
+      final currencyParked = plan.parked;
+      if (currencyParked) {
+        _health?.recordCapabilityParked(SyncDomain.planning);
+        if (kDebugMode) {
+          debugPrint('[Reconcile] budgets/goals parked: planning currency '
+              'capability not verified');
+        }
+      }
       final planning = await PlanningPrimaryBackfillService(
               db: _db, coordinator: _coordinator)
-          .run();
+          .run(onlyEntities: onlyEntities);
 
       // Any unresolved item ⇒ NOT proven. The affected rows keep their
       // local-only / conflict state, so `hasUnsyncedLocalData()` still sees
@@ -195,6 +235,8 @@ class StartupSyncReconcileService {
           transactions.unresolvedAccountLocalIds.length +
           planning.failures.length +
           planning.mismatched.length +
+          (transactions.hasMore ? 1 : 0) +
+          (currencyParked ? 1 : 0) +
           (accounts.defaultResolved ? 0 : 1);
       if (unresolved > 0) {
         if (kDebugMode) {
@@ -211,6 +253,38 @@ class StartupSyncReconcileService {
       if (kDebugMode) debugPrint('[Reconcile] backfill deferred: $error');
       return ReconcileOutcome.failed;
     }
+  }
+
+  /// Which planning entities the backfill may run this cycle. Subscriptions and
+  /// plans always; budgets/goals only when there is nothing to upload for them
+  /// or the planning-currency probe verified their table. `parked` is true when
+  /// budgets and/or goals have unsynced rows but were held back.
+  @visibleForTesting
+  Future<({Set<String> entities, bool parked})> planningBackfillPlan() async {
+    final entities = <String>{'subscriptions', 'plans'};
+    var parked = false;
+    for (final (entity, table) in [
+      ('budgets', PlanningCurrencyCapabilityProbe.budgetsTable),
+      ('goals', PlanningCurrencyCapabilityProbe.goalsTable),
+    ]) {
+      if (!await _hasUnsyncedPlanningCurrencyRows(entity) ||
+          await _planningCurrencyFor(table) ==
+              ExactTransportCapability.verifiedExact) {
+        entities.add(entity);
+      } else {
+        parked = true;
+      }
+    }
+    return (entities: entities, parked: parked);
+  }
+
+  Future<bool> _hasUnsyncedPlanningCurrencyRows(String table) async {
+    final row = await _db.customSelect('''
+      SELECT COUNT(*) AS n FROM $table x
+      WHERE x.deleted_at IS NULL AND x.server_id IS NULL
+        AND x.id NOT IN (SELECT entity_id FROM planning_sync_outbox);
+    ''').getSingle();
+    return row.read<int>('n') > 0;
   }
 
   /// True when any account, transaction, or planning parent (budget/goal/

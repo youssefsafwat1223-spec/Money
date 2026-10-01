@@ -149,16 +149,15 @@ void main() {
     final source =
         File('lib/data/sync/exact_transport_capability.dart').readAsStringSync();
 
-    test('capabilities are synchronous constants — nothing to race with', () {
-      // Requirement 7 lists races: not-yet-initialized, fetch failure, stale
-      // cache, refresh-during-resume, reconcile-before-resolution. NONE can
-      // occur, because there is no discovery mechanism: the providers are
-      // plain synchronous Providers returning a constant. They are resolved
-      // identically on the very first read, before any startup step runs.
+    test('exact push/pull are synchronous build constants — nothing to race with',
+        () {
+      // Exact push/pull are PostgREST/Postgres type semantics, proven against a
+      // real local PostgREST (local-Supabase suite S2/S3/S4) and shipped as plain
+      // synchronous Providers returning a constant — resolved identically on the
+      // very first read, before any startup step runs.
       for (final name in const [
         'exactPushTransportCapabilityProvider',
         'exactPullTransportCapabilityProvider',
-        'planningServerCurrencyCapabilityProvider',
       ]) {
         final start = source.indexOf('final $name');
         final body = source.substring(start, source.indexOf('\n});', start));
@@ -169,6 +168,22 @@ void main() {
               reason: '$name must not gain an async/mutable path without a '
                   'race review: found "$async"');
         }
+      }
+    });
+
+    test('planning currency is the ONLY runtime-discovered capability, and the '
+        'holder itself never probes', () {
+      // 0077 deployment state is unknown at build time, so its capability is a
+      // runtime probe result held in a Notifier that starts `unknown` and is
+      // only moved by PlanningCurrencyCapabilityProbe. The holder has no I/O.
+      final start =
+          source.indexOf('class PlanningServerCurrencyCapabilityNotifier');
+      final end = source.indexOf('final planningServerCurrencyCapabilityProvider');
+      final body = source.substring(start, end);
+      expect(body, contains('ExactTransportCapability.unknown'));
+      for (final io in const ['Future', 'async', 'await', 'supabase']) {
+        expect(body.contains(io), isFalse,
+            reason: 'the capability holder must not do I/O itself: "$io"');
       }
     });
 
@@ -217,26 +232,29 @@ void main() {
       expect(pullProvider.contains('PlanningCutoverState'), isFalse);
     });
 
-    test('all three capabilities ship UNPROVEN (no accidental activation)', () {
+    test('exact push/pull are verifiedExact constants; planning currency '
+        'ships UNPROVEN (runtime probe only)', () {
       final source =
           File('lib/data/sync/exact_transport_capability.dart').readAsStringSync();
-      // Guards requirement 10: this batch is authority semantics only.
       // Scoped to the PROVIDER bodies — `weakerCapability` legitimately returns
       // verifiedExact when combining two already-proven capabilities.
       for (final name in const [
         'exactPushTransportCapabilityProvider',
         'exactPullTransportCapabilityProvider',
-        'planningServerCurrencyCapabilityProvider',
       ]) {
         final start = source.indexOf('final $name');
         expect(start, greaterThan(-1), reason: '$name not found');
         final body = source.substring(start, source.indexOf('\n});', start));
-        expect(body, contains('return ExactTransportCapability.unknown;'),
-            reason: '$name must still be unknown');
-        expect(body.contains('verifiedExact'), isFalse,
-            reason: '$name must not be activated until the transport is '
-                'externally proven');
+        expect(body, contains('return ExactTransportCapability.verifiedExact;'),
+            reason: '$name is a build-constant verified capability');
       }
+      final planning = source.substring(
+        source.indexOf('class PlanningServerCurrencyCapabilityNotifier'),
+        source.indexOf('final planningServerCurrencyCapabilityProvider'),
+      );
+      expect(planning, contains('build() => ExactTransportCapability.unknown'));
+      expect(planning.contains('verifiedExact'), isFalse,
+          reason: 'planning currency must never be verified except by the probe');
     });
   });
   group('H-4 — no bypass remains in the wiring', () {
@@ -275,7 +293,7 @@ void main() {
         reason: 'child pull authority must come from the pull provider, never '
             'from the push predicate',
       );
-      expect(body, contains('entityType, planningCap, pullCap'),
+      expect(body, contains('entityType, planningCap(), pullCap'),
           reason:
               'goal-contribution currency gating must use the pull-direction '
               'transport capability');
@@ -317,7 +335,7 @@ void main() {
       ).readAsStringSync();
       // Position-aware: merely MENTIONING the predicate proves nothing — the
       // park check must actually run BEFORE the first backfill is constructed.
-      final run = service.substring(service.indexOf('Future<ReconcileOutcome> run()'));
+      final run = service.substring(service.indexOf('Future<ReconcileOutcome> run('));
       final parkAt = run.indexOf('shouldParkExactMoneyWrite');
       final firstBackfillAt = run.indexOf('AccountsBackfillService(');
       expect(parkAt, greaterThan(-1),

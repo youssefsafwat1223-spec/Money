@@ -205,6 +205,16 @@ class SyncHealth {
   final Map<SyncDomain, SyncDomainHealth> _state = {};
   final Map<SyncDomain, _PhaseNotes> _notes = {};
 
+  final Map<String, String> _capabilityStates = {};
+
+  /// Latest observed capability states (label -> state name), in memory only.
+  /// Written by capability probes; read by the diagnostics screen.
+  Map<String, String> get capabilityStates =>
+      Map.unmodifiable(_capabilityStates);
+
+  void recordCapability(String label, String state) =>
+      _capabilityStates[label] = state;
+
   SyncDomainHealth of(SyncDomain d) => _state[d] ?? const SyncDomainHealth();
 
   Map<SyncDomain, SyncDomainHealth> get all => {
@@ -243,6 +253,11 @@ class SyncHealth {
   /// that ended consent-blocked: re-entering it does not bump failures.
   void recordConsentBlocked(SyncDomain d) =>
       _recordBlocked(d, SyncErrorClass.consentBlocked);
+
+  /// Records a capability-parked STATE for work held outside any sync phase
+  /// (e.g. a startup backfill skipped until a server capability is verified).
+  void recordCapabilityParked(SyncDomain d) =>
+      _recordBlocked(d, SyncErrorClass.capabilityParked);
 
   void noteCapabilityParked(SyncDomain d) => _note(d).capabilityParked = true;
 

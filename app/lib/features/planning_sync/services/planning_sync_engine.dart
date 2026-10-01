@@ -39,7 +39,9 @@ class PlanningSyncEngine {
     required PlanningStartupRegistrationService startupRegistrationService,
     required UniversalConflictResolver conflictResolver,
     SyncHealth? health,
+    Future<void> Function()? ensureCapabilities,
   })  : _health = health,
+        _ensureCapabilities = ensureCapabilities,
         _accountsPush = accountsPushService,
         _accountsPull = accountsPullService,
         _planningPush = planningPushService,
@@ -56,6 +58,10 @@ class PlanningSyncEngine {
   final PlanningStartupRegistrationService _startupRegistration;
   final UniversalConflictResolver _conflictResolver;
   final SyncHealth? _health;
+
+  /// Resolves runtime capability probes (planning currency) at the start of a
+  /// cycle so the gates below see a fresh answer. Never throws.
+  final Future<void> Function()? _ensureCapabilities;
 
   /// Runs one phase: isolated (never rethrows) and recorded in [SyncHealth].
   Future<void> _phase(
@@ -92,6 +98,11 @@ class PlanningSyncEngine {
   Future<SyncParentsOutcome> syncParents({
     LegacyFinancialCacheReconciler? reconciler,
   }) async {
+    try {
+      await _ensureCapabilities?.call();
+    } catch (e) {
+      if (kDebugMode) debugPrint('[PlanningSync] capability probe error: $e');
+    }
     await _phase(SyncDomain.accounts, SyncDirection.push,
         () => _accountsPush.push(), 'accounts push');
     final accounts = await reconcileOrPull(

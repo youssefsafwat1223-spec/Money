@@ -35,6 +35,7 @@ import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../privacy/consent_authority.dart';
+import '../../data/sync/planning_currency_capability_probe.dart';
 import '../../data/sync/server_capabilities.dart';
 import '../../data/db/ownership_guard.dart';
 import '../../data/db/planning_canonical_invariants.dart';
@@ -630,7 +631,6 @@ bool _planningEntitySyncEnabledWithCurrency(
 }
 
 final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
-  final planningCap = ref.watch(planningServerCurrencyCapabilityProvider);
   final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return PlanningPullService(
     db: ref.watch(appDatabaseProvider),
@@ -639,10 +639,14 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
     // (subscriptions, plans, bill_payments) short-circuited to `true` and so
     // never consulted the pull transport at all. The capability now applies to
     // the whole pull, with the planning gate layered on top of it.
+    //
+    // The planning-currency capability is a RUNTIME probe result, so it is read
+    // at call time (never captured at provider build): every probe update is
+    // seen by the next pull without rebuilding the service mid-sync.
     isEnabled: (entityType) =>
         exactPullAllowed(pullCap) &&
-        _planningEntitySyncEnabledWithCurrency(
-            entityType, planningCap, pullCap),
+        _planningEntitySyncEnabledWithCurrency(entityType,
+            ref.read(planningServerCurrencyCapabilityProvider), pullCap),
     outboxQueue: ref.watch(planningOutboxQueueProvider),
     mayEgress: _consentGate(ref, EgressClass.financialSync),
     mayEgressProfile: _consentGate(ref, EgressClass.profileAndSettings),
@@ -652,9 +656,11 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
 
 final planningChildSyncServiceProvider =
     Provider<PlanningChildSyncService>((ref) {
-  final planningCap = ref.watch(planningServerCurrencyCapabilityProvider);
   final pushCap = ref.watch(exactPushTransportCapabilityProvider);
   final pullCap = ref.watch(exactPullTransportCapabilityProvider);
+  // Planning currency is a runtime probe result: read at call time below.
+  ExactTransportCapability planningCap() =>
+      ref.read(planningServerCurrencyCapabilityProvider);
   return PlanningChildSyncService(
     db: ref.watch(appDatabaseProvider),
     queue: ref.watch(planningOutboxQueueProvider),
@@ -662,14 +668,14 @@ final planningChildSyncServiceProvider =
     // so they are deferred until the planning-currency + exact PUSH transport
     // capabilities are both verified (this is a push-direction service).
     isEnabled: (entityType) => _planningEntitySyncEnabledWithCurrency(
-        entityType, planningCap, pushCap),
+        entityType, planningCap(), pushCap),
     // Pull authority is independent from push authority. The exact pull gate
     // covers every child family; the planning-currency gate is layered on top
     // for goal contributions, using the pull-direction transport capability.
     isPullEnabled: (entityType) =>
         exactPullAllowed(pullCap) &&
         _planningEntitySyncEnabledWithCurrency(
-            entityType, planningCap, pullCap),
+            entityType, planningCap(), pullCap),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
     pullCapability: () => ref.read(exactPullTransportCapabilityProvider),
@@ -687,8 +693,32 @@ final planningStartupRegistrationServiceProvider =
   );
 });
 
+/// Runtime probe for the SERVER planning-currency capability (migration 0077).
+/// Publishes its result to [planningServerCurrencyCapabilityProvider] and to
+/// [SyncHealth]; consent-gated (financialSync, fresh per probe) and signed-in only.
+final planningCurrencyCapabilityProbeProvider =
+    Provider<PlanningCurrencyCapabilityProbe>((ref) {
+  return PlanningCurrencyCapabilityProbe(
+    getAuthUserId: () async {
+      try {
+        return supabase.Supabase.instance.client.auth.currentUser?.id;
+      } catch (_) {
+        return null;
+      }
+    },
+    probeCurrencyColumn: PlanningCurrencyCapabilityProbe.clientProbe(
+        () => supabase.Supabase.instance.client),
+    onChanged: (cap) =>
+        ref.read(planningServerCurrencyCapabilityProvider.notifier).set(cap),
+    mayEgress: _consentGate(ref, EgressClass.financialSync),
+    health: ref.watch(syncHealthProvider),
+  );
+});
+
 final planningSyncEngineProvider = Provider<PlanningSyncEngine>((ref) {
   return PlanningSyncEngine(
+    ensureCapabilities: () =>
+        ref.read(planningCurrencyCapabilityProbeProvider).ensure(),
     accountsPushService: ref.watch(accountsPushServiceProvider),
     accountsPullService: ref.watch(accountsPullServiceProvider),
     planningPushService: ref.watch(planningPushServiceProvider),
@@ -1267,6 +1297,7 @@ final syncRecoveryServiceProvider = Provider<SyncRecoveryService>((ref) {
       await ref
           .read(serverCapabilitiesServiceProvider)
           .awaitingFxTransactions(force: true);
+      await ref.read(planningCurrencyCapabilityProbeProvider).ensure(force: true);
     },
     wakeup: SyncWakeup.notify,
   );
@@ -1319,6 +1350,10 @@ final startupSyncReconcileServiceProvider =
     Provider<StartupSyncReconcileService>((ref) {
   return StartupSyncReconcileService(
     db: ref.watch(appDatabaseProvider),
+    planningCurrencyFor: (table) => ref
+        .read(planningCurrencyCapabilityProbeProvider)
+        .ensureTable(table),
+    health: ref.watch(syncHealthProvider),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     // Audit H-4: the backfills are a push path and obey the same transport
     // authority as the outbox push services.

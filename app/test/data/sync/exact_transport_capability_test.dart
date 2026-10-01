@@ -4,26 +4,29 @@ import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
 
 void main() {
-  test('push and pull capabilities independently default to unknown', () {
+  test('exact push and pull are verifiedExact by default and independently '
+      'overridable; planning currency starts unknown', () {
     final defaults = ProviderContainer();
     addTearDown(defaults.dispose);
     expect(defaults.read(exactPushTransportCapabilityProvider),
-        ExactTransportCapability.unknown);
+        ExactTransportCapability.verifiedExact);
     expect(defaults.read(exactPullTransportCapabilityProvider),
+        ExactTransportCapability.verifiedExact);
+    expect(defaults.read(planningServerCurrencyCapabilityProvider),
         ExactTransportCapability.unknown);
 
-    final pushVerified = ProviderContainer(
+    final pushUnsupported = ProviderContainer(
       overrides: [
         exactPushTransportCapabilityProvider.overrideWithValue(
-          ExactTransportCapability.verifiedExact,
+          ExactTransportCapability.unsupported,
         ),
       ],
     );
-    addTearDown(pushVerified.dispose);
-    expect(pushVerified.read(exactPushTransportCapabilityProvider),
+    addTearDown(pushUnsupported.dispose);
+    expect(pushUnsupported.read(exactPushTransportCapabilityProvider),
+        ExactTransportCapability.unsupported);
+    expect(pushUnsupported.read(exactPullTransportCapabilityProvider),
         ExactTransportCapability.verifiedExact);
-    expect(pushVerified.read(exactPullTransportCapabilityProvider),
-        ExactTransportCapability.unknown);
   });
 
   test('legacy/v29 mode never parks for any push capability', () {

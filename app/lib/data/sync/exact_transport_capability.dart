@@ -13,30 +13,50 @@ enum ExactTransportCapability {
   unsupported,
 }
 
-/// Live PostgREST decimal-string -> NUMERIC push has not been verified.
+/// Exact PUSH transport (decimal string -> `NUMERIC`) is `verifiedExact` as a
+/// BUILD CONSTANT. This is PostgREST/Postgres type semantics, not a deployment
+/// state of this project, so it is not discovered at runtime. Evidence: proven
+/// against a real local PostgREST — a decimal string written to a `NUMERIC`
+/// column is stored exactly — by the local-Supabase suite
+/// `test/integration_local/sync_e2e_local_supabase_test.dart` (S2/S3/S4).
+///
+/// The enum and the `unsupported`/`unknown` handling stay in place for future
+/// use (a build that must disable the transport overrides this provider).
 final exactPushTransportCapabilityProvider =
     Provider<ExactTransportCapability>((ref) {
-  return ExactTransportCapability.unknown;
+  return ExactTransportCapability.verifiedExact;
 });
 
-/// Live PostgREST NUMERIC::text pull has not been verified.
+/// Exact PULL transport (`NUMERIC::text` projection) is `verifiedExact` as a
+/// BUILD CONSTANT, for the same reason and with the same evidence as push:
+/// `NUMERIC::text` returns the exact decimal, proven against a real local
+/// PostgREST (local-Supabase suite S2/S3/S4). Decoder strictness
+/// (`moneyFromPulledValue`) remains a second, independent line of defence.
 final exactPullTransportCapabilityProvider =
     Provider<ExactTransportCapability>((ref) {
-  return ExactTransportCapability.unknown;
+  return ExactTransportCapability.verifiedExact;
 });
 
-/// MALI-026 (B8-3 §30) — whether the SERVER supports per-row PLANNING currency
-/// (`user_budgets.currency` / `user_goals.currency`, migration 0077). This is a
-/// SEPARATE, truthful capability: budgets/goals cannot be pushed or pulled
-/// canonically until the server carries their currency, independent of the exact
-/// decimal-string transport capability. It is UNKNOWN until externally verified —
-/// NEVER inferred from the local schema version or local canonical (P3) state
-/// (0077 is undeployed, so this stays unknown and planning cloud sync stays
-/// parked/deferred).
-final planningServerCurrencyCapabilityProvider =
-    Provider<ExactTransportCapability>((ref) {
-  return ExactTransportCapability.unknown;
-});
+/// Holder for the SERVER planning-currency capability (migration 0077:
+/// `user_budgets.currency` / `user_goals.currency`). Production deployment state
+/// of 0077 is UNKNOWN at build time, so this is a RUNTIME PROBE result
+/// (`PlanningCurrencyCapabilityProbe`), never inferred from the local schema
+/// version or local canonical (P3) state. It starts [ExactTransportCapability.unknown]
+/// and only the probe moves it; the value is the WEAKER of the independently
+/// probed budgets/goals results. Consumers read it at call time (`ref.read`) so
+/// every update is observed by the next sync step without rebuilding services.
+class PlanningServerCurrencyCapabilityNotifier
+    extends Notifier<ExactTransportCapability> {
+  @override
+  ExactTransportCapability build() => ExactTransportCapability.unknown;
+
+  void set(ExactTransportCapability value) => state = value;
+}
+
+final planningServerCurrencyCapabilityProvider = NotifierProvider<
+    PlanningServerCurrencyCapabilityNotifier, ExactTransportCapability>(
+  PlanningServerCurrencyCapabilityNotifier.new,
+);
 
 /// MALI-026 (B8-3 §30) — the weaker of two independent capabilities:
 /// [verifiedExact] ONLY when BOTH are verified; [unsupported] if either is

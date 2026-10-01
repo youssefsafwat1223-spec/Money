@@ -136,6 +136,12 @@ class LedgerSyncService implements LedgerPullAdapter {
     LedgerRemoteSource? remoteSource,
     Future<String?> Function()? getAuthUserId,
     int pageSize = 200,
+    /// Per-cycle page cap for a NORMAL incremental pull: after this many pages
+    /// the pull stops (not completed) and the next cycle continues from the
+    /// persisted cursor, so a first sync with a large server history never runs
+    /// as one unbounded loop. Epoch/reconcile pulls (`from` given) are exempt —
+    /// they restart from epoch each time and must reach EOF to clear their marker.
+    int maxPagesPerRun = 10,
     SyncHealth? health,
   })  : assert(pageSize > 0),
         _health = health,
@@ -146,6 +152,7 @@ class LedgerSyncService implements LedgerPullAdapter {
         _mayEgress = mayEgress ?? _denyEgressByDefault,
         _remoteSource = remoteSource ?? const SupabaseLedgerRemoteSource(),
         _pageSize = pageSize,
+        _maxPagesPerRun = maxPagesPerRun,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId;
 
   static final _payloadMarkerTime =
@@ -173,6 +180,7 @@ class LedgerSyncService implements LedgerPullAdapter {
   final LedgerRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
   final int _pageSize;
+  final int _maxPagesPerRun;
 
   // MALI-029 (pull batching) — resolution snapshots primed ONCE per pull instead
   // of a SELECT per row. A ledger pull only WRITES transactions; it never creates
@@ -225,7 +233,11 @@ class LedgerSyncService implements LedgerPullAdapter {
       _health?.noteConsentBlocked(SyncDomain.ledger);
       return const LedgerSyncResult();
     }
-    if (!_isPullEnabled()) return const LedgerSyncResult();
+    if (!_isPullEnabled()) {
+      // Blocked by an unverified/unsupported transport: an observable STATE.
+      _health?.noteCapabilityParked(SyncDomain.ledger);
+      return const LedgerSyncResult();
+    }
 
     final userId = await _getAuthUserId();
     if (userId == null) return const LedgerSyncResult();
@@ -241,6 +253,7 @@ class LedgerSyncService implements LedgerPullAdapter {
       // Prime the account/category resolution snapshots once for the whole pull.
       await _primeResolutionCaches();
       var cursor = from ?? await readSyncCursor(_db, _cursorKey);
+      var pages = 0;
       while (true) {
         if (!admitted()) break;
         final rows = await _remoteSource.fetchRows(
@@ -294,6 +307,7 @@ class LedgerSyncService implements LedgerPullAdapter {
           reachedEof = true;
           break;
         }
+        if (from == null && ++pages >= _maxPagesPerRun) break;
       }
     } on ReconcilePullCancelled {
       // Lifecycle/ownership cancellation, not a transport failure.

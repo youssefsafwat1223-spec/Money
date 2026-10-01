@@ -4,9 +4,10 @@
 // `Supabase.initialize` pointed at the local stack.
 //
 // Only three things are injected (all through constructor seams production
-// already exposes): the consent callback, the exact-transport capabilities
-// (production providers still say `unknown`; this harness proves what flipping
-// them to `verifiedExact` would do) and the owner accessor.
+// already exposes): the consent callback, the transport capabilities (exact
+// push/pull are `verifiedExact` build constants in production; planning
+// currency is a runtime probe, exercised through the REAL providers in S14)
+// and the owner accessor.
 import 'package:drift/native.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
@@ -67,8 +68,9 @@ class Device {
   /// Consent callback (financial sync). Scenarios flip it true/false.
   bool consent = true;
 
-  /// Exact transport capabilities. Production says `unknown`; the proof runs
-  /// with `verifiedExact` unless a scenario says otherwise.
+  /// Transport capabilities. Production: exact push/pull are `verifiedExact`;
+  /// planning currency starts `unknown` until probed. This harness runs with
+  /// `verifiedExact` unless a scenario says otherwise (S14 uses the real probe).
   ExactTransportCapability pushCap = ExactTransportCapability.verifiedExact;
   ExactTransportCapability pullCap = ExactTransportCapability.verifiedExact;
   ExactTransportCapability planningCurrencyCap =

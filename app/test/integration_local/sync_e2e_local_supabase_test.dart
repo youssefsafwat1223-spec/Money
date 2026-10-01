@@ -11,13 +11,26 @@ import 'dart:io';
 
 import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:money_companion/core/sync/conflict_policy.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/features/capture/services/ledger_outbox_queue.dart';
+import 'package:money_companion/core/di/app_providers.dart'
+    show
+        appDatabaseProvider,
+        planningCurrencyCapabilityProbeProvider,
+        userSettingsRepositoryProvider;
+import 'package:money_companion/core/sync/sync_health.dart';
+import 'package:money_companion/data/db/planning_cutover.dart';
+import 'package:money_companion/data/sync/exact_transport_capability.dart';
+import 'package:money_companion/data/sync/planning_currency_capability_probe.dart';
 import 'package:money_companion/data/sync/server_capabilities.dart';
+import 'package:money_companion/domain/entities/supporting_entities.dart'
+    show ConsentState;
+import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
@@ -979,6 +992,10 @@ void main() {
       };
       final observed = <String, String>{};
       for (final v in variants.entries) {
+        // Each variant starts from a re-armed (pending) queue so every variant
+        // really reaches the server instead of finding parked rows.
+        await d.ledgerQueue.reArmAuthParked();
+        await d.planningQueue.reArmAuthParked();
         probe.bearerOverride = v.value;
         await d.elapseBackoff();
         final a = await d.accountsPush.push();
@@ -992,10 +1009,32 @@ void main() {
         for (final r in rows) {
           expect(r['status'], isNot('dead_letter'),
               reason: '${v.key}: auth failure must never dead-letter');
-          expect(r['status'], 'pending', reason: '${v.key}: stays queued');
         }
-        observed[v.key] =
-            rows.map((r) => r['failure_class']).toSet().join(',');
+        // A-5 (verified here): an auth rejection — INCLUDING an expired or
+        // invalid JWT, which PostgREST reports as PGRST303 / PGRST301 — is
+        // classified `auth`, parked `auth_required`, and consumes NO attempt
+        // (attempt_count stays 0). Before A-5 an expired/invalid JWT was
+        // mis-classed `serverError`. A child that never reached the server
+        // because its parent was not pushed is a missing-dependency wait, not
+        // an auth rejection: it stays pending (never dead-lettered).
+        for (final r in rows) {
+          if (r['status'] == 'parked') {
+            expect(r['failure_class'], kParkAuthRequired, reason: v.key);
+            expect(r['attempt_count'], 0,
+                reason: '${v.key}: an auth rejection must not consume an attempt');
+          } else {
+            expect(r['status'], 'pending', reason: v.key);
+            expect(r['failure_class'],
+                OutboxFailureClass.missingDependency.reason,
+                reason: v.key);
+          }
+        }
+        observed[v.key] = rows
+            .map((r) => '${r['status']}/${r['failure_class']}')
+            .toSet()
+            .join(',');
+        expect(rows.where((r) => r['status'] == 'parked'), isNotEmpty,
+            reason: '${v.key}: the rejected rows are parked');
         // Local data intact.
         expect(
             (await d.sql('SELECT COUNT(*) n FROM transactions')).single['n'], 1);
@@ -1006,23 +1045,12 @@ void main() {
         expect(await remote.count('user_budgets', u.uid), 0);
       }
       // ignore: avoid_print
-      print('S10 observed failure_class per variant: $observed');
-      // The account row (no dependency) carries the real classification.
-      // PRODUCTION BUG (reported, not fixed): classifyOutboxError() looks only
-      // at PostgrestException.code == '401'/'403'; PostgREST reports an expired
-      // or invalid JWT as code PGRST303 / PGRST301 (HTTP 401 lives in
-      // statusCode), so those are mis-classed `serverError`. Behaviour is still
-      // safe (retryable, never dead-lettered until 12 attempts), so this suite
-      // asserts the SAFE properties and pins the mis-classification so a fix is
-      // noticed.
-      expect(observed['anon-role (RLS)'], contains('auth'));
-      expect(observed['expired'], contains(OutboxFailureClass.serverError.reason),
-          reason: 'pins BUG: expired JWT (PGRST303) classed serverError, not auth');
-      expect(observed['invalid'], contains(OutboxFailureClass.serverError.reason),
-          reason: 'pins BUG: invalid JWT (PGRST301) classed serverError, not auth');
+      print('S10 observed status/failure_class per variant: $observed');
 
       // Valid session again -> the very same rows drain, nothing lost.
       probe.bearerOverride = null;
+      await d.ledgerQueue.reArmAuthParked();
+      await d.planningQueue.reArmAuthParked();
       await d.elapseBackoff();
       expect((await d.accountsPush.push()).failed, 0);
       expect((await d.ledgerPush.push()).pushed, 1);
@@ -1235,6 +1263,106 @@ void main() {
                   select: 'a:amount::text'))
               .single['a']),
           '200.25');
+    });
+
+    test('S14 capabilities via the REAL production providers + probe: planning '
+        'currency verified against the local stack, budget push succeeds; a '
+        'missing column/table maps to unsupported', () async {
+      final u = await newUser('s14');
+      await signIn(u);
+      final d = await Device.open();
+      addTearDown(d.close);
+
+      // The real production provider graph (nothing injected but the database
+      // and, via the DB, the consent state the production consent gate reads).
+      final container = ProviderContainer(overrides: [
+        appDatabaseProvider.overrideWithValue(d.db),
+      ]);
+      addTearDown(container.dispose);
+      final settings = container.read(userSettingsRepositoryProvider);
+      await settings.saveSettings((await settings.getSettings())
+          .copyWith(cloudConsentState: ConsentState.accepted));
+
+      // Exact transport is a build constant in production.
+      expect(container.read(exactPushTransportCapabilityProvider),
+          ExactTransportCapability.verifiedExact);
+      expect(container.read(exactPullTransportCapabilityProvider),
+          ExactTransportCapability.verifiedExact);
+      // Planning currency is NOT known until the real probe has run.
+      expect(container.read(planningServerCurrencyCapabilityProvider),
+          ExactTransportCapability.unknown);
+
+      // A push service wired exactly like planningPushServiceProvider, reading
+      // the capabilities through the real providers at call time.
+      Future<bool> consent() async => true;
+      final push = PlanningPushService(
+        db: d.db,
+        queue: d.planningQueue,
+        isEnabled: (_) => true,
+        getAuthUserId: signedInUid,
+        coordinator: const FixedPlanningCutoverCoordinator(
+            PlanningCutoverState.canonical),
+        pushCapability: () =>
+            container.read(exactPushTransportCapabilityProvider),
+        planningCurrencyCapability: () =>
+            container.read(planningServerCurrencyCapabilityProvider),
+        mayEgress: consent,
+        mayEgressProfile: consent,
+      );
+
+      await d.budgets.save(budget('bud-s14', '12.345'));
+      probe.resetCount();
+      final before = await push.push();
+      expect(before.pushed, 0);
+      expect(before.parked, 1,
+          reason: 'planning currency unknown => canonical budget stays parked');
+      expect(probe.countWhere((e) => e.contains('user_budgets')), 0,
+          reason: 'a parked row sends nothing');
+      expect(await remote.count('user_budgets', u.uid), 0);
+
+      // The real probe (production provider) against the local stack, where
+      // 0077 is applied.
+      final capability =
+          await container.read(planningCurrencyCapabilityProbeProvider).ensure();
+      expect(capability, ExactTransportCapability.verifiedExact);
+      expect(container.read(planningServerCurrencyCapabilityProvider),
+          ExactTransportCapability.verifiedExact);
+      expect(probe.countWhere((e) => e.contains('/rest/v1/user_budgets')),
+          greaterThanOrEqualTo(1));
+      expect(probe.countWhere((e) => e.contains('/rest/v1/user_goals')),
+          greaterThanOrEqualTo(1));
+      expect(SyncHealth.shared.capabilityStates['planning currency'],
+          'verifiedExact');
+
+      // Same row, now unparked by the verified capability, pushes exactly.
+      // push() re-arms rows parked on the transport capability before draining.
+      final after = await push.push();
+      expect(after.pushed, 1);
+      expect(await remote.count('user_budgets', u.uid), 1);
+      final row = (await remote.rows('user_budgets', u.uid,
+              select: 'local_id,currency,amount_text:amount::text'))
+          .single;
+      expect(row['local_id'], 'bud-s14');
+      expect(row['currency'], 'KWD');
+      expect(dec(row['amount_text']), '12.345');
+
+      // Missing column / table => unsupported, via the real client and the real
+      // PostgREST error codes.
+      for (final bad in const ['no_such_column', 'currency']) {
+        final p = PlanningCurrencyCapabilityProbe(
+          getAuthUserId: signedInUid,
+          probeCurrencyColumn: (table) async {
+            await Supabase.instance.client
+                .from(bad == 'currency' ? 'user_no_such_table' : table)
+                .select(bad)
+                .limit(0);
+          },
+          onChanged: (_) {},
+          mayEgress: () async => true,
+        );
+        expect(await p.ensure(), ExactTransportCapability.unsupported,
+            reason: bad);
+      }
     });
   });
 }

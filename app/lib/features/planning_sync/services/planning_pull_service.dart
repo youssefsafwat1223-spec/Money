@@ -199,6 +199,12 @@ class PlanningPullService {
     Future<bool> Function()? mayEgressProfile,
     SyncHealth? health,
     int pageSize = 200,
+    /// Per-cycle page cap for a NORMAL incremental pull: after this many pages
+    /// the pull stops (not completed) and the next cycle continues from the
+    /// persisted cursor, so a first sync with a large server history never runs
+    /// as one unbounded loop. Epoch/reconcile pulls (`from` given) are exempt —
+    /// they restart from epoch each time and must reach EOF to clear their marker.
+    int maxPagesPerRun = 10,
   })  : assert(pageSize > 0),
         _mayEgressProfile =
             mayEgressProfile ?? mayEgress ?? _denyEgressByDefault,
@@ -207,12 +213,14 @@ class PlanningPullService {
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _pageSize = pageSize,
+        _maxPagesPerRun = maxPagesPerRun,
         _outboxQueue = outboxQueue,
         _mayEgress = mayEgress ?? _denyEgressByDefault,
         _remoteSource = remoteSource ?? const SupabasePlanningRemoteSource();
 
   final AppDatabase _db;
   final bool Function(String entityType) _isEnabled;
+  final int _maxPagesPerRun;
   final Future<String?> Function() _getAuthUserId;
   final PlanningRemoteSource _remoteSource;
   final PlanningOutboxQueue? _outboxQueue;
@@ -323,7 +331,13 @@ class PlanningPullService {
     for (final entry in _entityTable.entries) {
       final entityType = entry.key;
       final remoteTable = entry.value;
-      if (!_isEnabled(entityType)) continue;
+      if (!_isEnabled(entityType)) {
+        // Every pulled entity is feature-enabled, so a disabled gate here is a
+        // capability block (exact pull transport / planning currency): an
+        // observable STATE, not a silent skip.
+        _health?.noteCapabilityParked(SyncDomain.planning);
+        continue;
+      }
       final isSettings = entityType == PlanningOutboxQueue.settingsEntityType;
       if (!(isSettings ? profileAllowed : financialAllowed)) continue;
 
@@ -333,6 +347,8 @@ class PlanningPullService {
             ? const SyncCursor.epoch()
             : await readSyncCursor(_db, cursorKey);
         var entityReachedEof = false;
+        final capped = !(fromEpochEntities?.contains(entityType) ?? false);
+        var pages = 0;
         while (true) {
           if (!admitted()) break;
           final rows = await _remoteSource.fetchRows(
@@ -423,6 +439,7 @@ class PlanningPullService {
             entityReachedEof = true;
             break;
           }
+          if (capped && ++pages >= _maxPagesPerRun) break;
         }
         if (entityReachedEof) completedEntities.add(entityType);
       } on ReconcilePullCancelled {

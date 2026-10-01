@@ -84,7 +84,11 @@ final syncDiagnosticsProvider =
       'exact push transport': ref.read(exactPushTransportCapabilityProvider).name,
       'exact pull transport': ref.read(exactPullTransportCapabilityProvider).name,
       'planning currency':
-          ref.read(planningServerCurrencyCapabilityProvider).name,
+          ref.watch(planningServerCurrencyCapabilityProvider).name,
+      for (final e in ref.watch(syncHealthProvider).capabilityStates.entries)
+        if (e.key.startsWith('planning currency ('))
+          e.key.replaceFirst('planning currency', 'planning currency probe'):
+              e.value,
       'awaiting FX': fx,
     },
   );

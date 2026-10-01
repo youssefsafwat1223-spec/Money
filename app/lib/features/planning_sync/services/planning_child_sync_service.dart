@@ -455,7 +455,13 @@ class PlanningChildSyncService {
         debugPrint(
             '[PlanningChildSync] pull parked: exact transport unverified');
       }
+      _health?.noteCapabilityParked(SyncDomain.children);
       return;
+    }
+    if (!_isPullEnabled(PlanningOutboxQueue.goalContributionsEntityType)) {
+      // Blocked by the planning-currency capability (exact pull is verified
+      // here): an observable STATE, not a silent skip.
+      _health?.noteCapabilityParked(SyncDomain.children);
     }
     if (_isPullEnabled(PlanningOutboxQueue.goalContributionsEntityType)) {
       // Drain BEFORE the cursor loop so children parked on earlier cycles are
