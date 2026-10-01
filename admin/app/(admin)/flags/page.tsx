@@ -82,7 +82,7 @@ const RISK_LABEL: Record<FlagMeta["risk"], [string, Tone]> = {
   high: ["خطورة عالية", "danger"],
 };
 const ROLLOUT_TEXT: Record<FlagMeta["rolloutSemantics"], string> = {
-  app_percent_country: "إطلاق تدريجي بالنسبة والدول (يحسبه التطبيق لكل جهاز)",
+  app_percent_country: "إطلاق تدريجي بالنسبة (يحسبه التطبيق لكل جهاز)؛ استهداف الدول لا يعمل إلا عندما يرسل التطبيق رمز الدولة إلى catalog-flags",
   server_all_or_nothing: "الخادم: كل شيء أو لا شيء — النسبة الجزئية والدول غير مدعومة (0 أو 100 فقط)",
   none: "لا ينطبق — لا قارئ لهذا المفتاح",
 };

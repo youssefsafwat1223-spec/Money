@@ -9,6 +9,7 @@ import {
   previewPlan,
   validateValue,
 } from "../lib/flag-registry.ts";
+import { isRpcNotDeployed, rpcErrorStatus } from "../lib/feature-flags-server.ts";
 
 const read = (p) => readFileSync(new URL(`../${p}`, import.meta.url), "utf8");
 const T0 = "2026-01-01T00:00:00+00:00";
@@ -210,4 +211,17 @@ test("0102 is deferred, gapless-safe, service-role-only, append-only, idempotent
   assert.match(sql, /RAISE EXCEPTION 'unsafe_to_arm: %'/);
   assert.match(sql, /BETWEEN 4 AND 500/);
   assert.match(read("../supabase/deferred/README.md"), /0102_feature_flag_admin_audit\.sql — DEFERRED/);
+});
+
+test("apply: RPC not deployed (PGRST202 / 42883) -> 503 audit_not_deployed, no console.error", () => {
+  assert.equal(isRpcNotDeployed("PGRST202"), true);
+  assert.equal(isRpcNotDeployed("42883"), true);
+  assert.equal(isRpcNotDeployed("P0409"), false);
+  assert.equal(isRpcNotDeployed(undefined), false);
+  assert.equal(rpcErrorStatus("PGRST202"), 500); // would be noisy 500 without the dedicated branch
+  const src = read("app/api/feature-flags/apply/route.ts");
+  const i = src.indexOf("isRpcNotDeployed(error.code)");
+  assert.ok(i > 0);
+  assert.match(src.slice(i, i + 200), /audit_not_deployed[\s\S]*status: 503/);
+  assert.ok(i < src.indexOf("console.error"), "not-deployed branch must precede console.error");
 });

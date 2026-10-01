@@ -113,6 +113,13 @@ const Map<String, Object> _defaults = {
   // false for unknown keys), so it can no longer switch authority.
 };
 
+/// Keys a per-user override must never force: they are server-controlled
+/// (admin flag control plane); an override row for them is ignored.
+const Set<String> _overrideIgnoredKeys = {
+  'enable_proof_autocommit',
+  'ai_sender_mapping_auto',
+};
+
 class FeatureFlagService {
   FeatureFlagService({
     required RemoteFeatureFlagsDao dao,
@@ -168,7 +175,9 @@ class FeatureFlagService {
       for (final row in rows) {
         final key = row['key'] as String?;
         final enabled = row['enabled'];
-        if (key != null && enabled is bool) {
+        if (key != null &&
+            enabled is bool &&
+            !_overrideIgnoredKeys.contains(key)) {
           _cache[key] = enabled;
         }
       }

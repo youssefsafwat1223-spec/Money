@@ -42,6 +42,9 @@ export type FlagMeta = {
   unsafeToArm?: boolean;
 };
 
+const OVERRIDE_NOTE =
+  " ملاحظة: يمكن لـ feature_flag_overrides (لكل مستخدم) فرض هذا المفتاح تاريخيًا — لا تُنشئ overrides لهذا المفتاح؛ التطبيق يتجاهلها له.";
+
 const NO_EFFECT = "لا يوجد قارئ لهذا المفتاح في التطبيق أو الخادم — تغييره لا يؤثر على أي سلوك.";
 
 const appBool = (
@@ -54,6 +57,8 @@ const appBool = (
   readers: ["app"],
   status: "app_read",
   risk,
+  // NB: "country" only applies when catalog-flags receives a country from the
+  // client (syncFlags countryCode); without one the server does not filter.
   rolloutSemantics: "app_percent_country",
   notes,
   valueType: "boolean",
@@ -108,7 +113,7 @@ export const FLAG_REGISTRY: Record<string, FlagMeta> = {
   enable_proof_autocommit: appBool(
     "experimental_high_risk",
     "high",
-    "خطر مرتفع — غير آمن للتفعيل حاليًا: محرك الإثبات (proof) غير مُغذّى (proofResult يبقى null)، فالتفعيل يمنع التأكيد التلقائي المحلي (المسار القديم) أو يُسقط الالتقاطات إلى صندوق المراجعة الذكي (local_auto_confirm_v2). التفعيل محظور في الواجهة والخادم؛ يُرفع الحظر فقط عند ربط محرك الإثبات.",
+    "خطر مرتفع — غير آمن للتفعيل حاليًا: محرك الإثبات (proof) غير مُغذّى (proofResult يبقى null)، فالتفعيل يمنع التأكيد التلقائي المحلي (المسار القديم) أو يُسقط الالتقاطات إلى صندوق المراجعة الذكي (local_auto_confirm_v2). التفعيل محظور في الواجهة والخادم؛ يُرفع الحظر فقط عند ربط محرك الإثبات." + OVERRIDE_NOTE,
     { unsafeToArm: true },
   ),
   proof_parser_confidence_min: appBool(
@@ -125,7 +130,7 @@ export const FLAG_REGISTRY: Record<string, FlagMeta> = {
   ai_sender_mapping_auto: appBool(
     "smart_capture_ai",
     "medium",
-    "قبول ربط المُرسِل بالبنك تلقائيًا بعد تحقق الذكاء الاصطناعي.",
+    "قبول ربط المُرسِل بالبنك تلقائيًا بعد تحقق الذكاء الاصطناعي." + OVERRIDE_NOTE,
     {
       dependencies: [
         "يتطلب نشر المهاجرة المؤجلة 0101 (sender_bank_mappings.accepted_by) قبل التفعيل — يمنع الخادم التفعيل بدونها.",

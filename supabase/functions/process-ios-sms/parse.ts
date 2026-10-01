@@ -75,12 +75,13 @@ export type ParseOutcome = {
 /**
  * RESOLVED: the deterministic parse alone is a complete capture. Field-based
  * definition (NOT a confidence threshold): amount AND currency AND a known
- * direction (debit/credit) AND a merchant. The on-device parser uses its own
- * (0.92) bar; the two are intentionally not claimed to be equivalent.
+ * direction (debit/credit). Merchant is OPTIONAL (clean card/ATM SMS carry
+ * none), consistent with the app's LocalValidity. The on-device parser uses its
+ * own (0.92) bar; the two are intentionally not claimed to be equivalent.
  */
 export function isResolved(p: ParsedCapture): boolean {
   return !!p.amount && p.amount > 0 && !!p.currency &&
-    (p.direction === 'debit' || p.direction === 'credit') && !!p.merchant;
+    (p.direction === 'debit' || p.direction === 'credit');
 }
 
 function isIgnoredText(lower: string): boolean {

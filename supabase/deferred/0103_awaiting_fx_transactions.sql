@@ -37,7 +37,10 @@ ALTER TABLE public.user_transactions
   ADD CONSTRAINT chk_user_transactions_amount_or_awaiting_fx CHECK (
     amount > 0
     OR (amount = 0 AND foreign_amount > 0 AND foreign_currency IS NOT NULL)
-  );
+  ) NOT VALID;
+-- NOT VALID then VALIDATE: avoids holding ACCESS EXCLUSIVE during a full scan.
+ALTER TABLE public.user_transactions
+  VALIDATE CONSTRAINT chk_user_transactions_amount_or_awaiting_fx;
 
 -- ─── 2. category_spending_summary: exclude awaiting-FX rows ─────
 -- Body identical to 0030 except the added awaiting-FX exclusion.

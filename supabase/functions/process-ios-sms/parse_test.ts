@@ -5,8 +5,14 @@ const RECEIVED = '2026-09-07T19:30:00.000Z';
 
 const RESOLVED_SMS = 'Purchase of EGP 250.00 at CARREFOUR with card ending 1234 on 2026-09-07';
 const IGNORED_SMS = 'Your OTP is 123456 for EGP 10.00 purchase';
-// amount+currency+direction, no merchant -> unresolved, HYBRID
-const HYBRID_SMS = 'EGP 99.50 spent ZARA online';
+// Clean card/ATM SMS: amount+currency+direction, NO merchant -> RESOLVED (merchant optional)
+const CLEAN_SMS = [
+  'Debited SAR 50.00 from card ending 1234',
+  'ATM withdrawal of SAR 500.00 card 1234',
+  'تم خصم 50.00 ر.س من بطاقتك 1234',
+];
+// amount+currency, direction unknown, no merchant -> unresolved, HYBRID
+const HYBRID_SMS = 'EGP 99.50 ZARA online';
 // direction unknown, no merchant -> unresolved, HYBRID
 const HYBRID_NO_DIR_SMS = 'Your card 1234 was used for EGP 99.50';
 // no amount/currency -> unresolved, AI-only ($ is not a deterministic currency)
@@ -28,7 +34,9 @@ function stubGemini(candidate: Record<string, unknown> | null, status = 200): St
   };
   globalThis.fetch = (() => {
     stub.calls++;
-    const body = candidate == null ? {} : { candidates: [{ content: { parts: [{ text: JSON.stringify(candidate) }] } }] };
+    const body = candidate == null
+      ? {}
+      : { candidates: [{ content: { parts: [{ text: JSON.stringify(candidate) }] } }] };
     return Promise.resolve(new Response(JSON.stringify(body), { status }));
   }) as typeof fetch;
   return stub;
@@ -52,7 +60,14 @@ async function run(text: string, allowAi: boolean, candidate: Record<string, unk
   }
 }
 
-const GOOD_AI = { amount: 20, amount_text: '20.00', currency: 'USD', merchant: 'SHOP', type: 'payment', direction: 'debit' };
+const GOOD_AI = {
+  amount: 20,
+  amount_text: '20.00',
+  currency: 'USD',
+  merchant: 'SHOP',
+  type: 'payment',
+  direction: 'debit',
+};
 
 Deno.test('deterministic fixtures have the intended shape', () => {
   assert(isResolved(deterministicParse(RESOLVED_SMS, RECEIVED, 180)));
@@ -68,6 +83,26 @@ Deno.test('RESOLVED => zero AI calls + accepted (even with AI allowed)', async (
   assertEquals(r.accepted, true);
   assertEquals(r.parsed.parserSource, 'deterministic');
   assertEquals(r.parsed.amount, 250);
+});
+
+Deno.test('clean card/ATM SMS (no merchant) => RESOLVED: zero AI calls + accepted, AI allowed or not', async () => {
+  for (const text of CLEAN_SMS) {
+    for (const allowAi of [true, false]) {
+      const r = await run(text, allowAi, GOOD_AI);
+      assertEquals(r.calls, 0, text);
+      assertEquals(r.accepted, true, text);
+      assertEquals(r.parsed.parserSource, 'deterministic');
+      assertEquals(r.parsed.direction, 'debit');
+      assertEquals(r.parsed.merchant, undefined);
+    }
+  }
+});
+
+Deno.test('direction unknown => still UNRESOLVED: goes to AI when allowed, rejected otherwise', async () => {
+  const withAi = await run(HYBRID_NO_DIR_SMS, true, GOOD_AI);
+  assertEquals(withAi.calls, 1);
+  const noAi = await run(HYBRID_NO_DIR_SMS, false, GOOD_AI);
+  assertEquals([noAi.calls, noAi.accepted], [0, false]);
 });
 
 Deno.test('IGNORED => zero AI calls + rejected, even with AI allowed and a transaction-shaped AI answer', async () => {
@@ -133,7 +168,9 @@ Deno.test('AI unavailable / not a transaction / HTTP failure => rejected, still 
 
 Deno.test('AI confidence (0.01 vs 0.99, top-level or absent) never changes the outcome', async () => {
   for (const text of [HYBRID_SMS, AI_ONLY_SMS]) {
-    const cand = text === AI_ONLY_SMS ? GOOD_AI : { amount: 99.5, amount_text: '99.50', currency: 'EGP', merchant: 'ZARA' };
+    const cand = text === AI_ONLY_SMS
+      ? GOOD_AI
+      : { amount: 99.5, amount_text: '99.50', currency: 'EGP', merchant: 'ZARA' };
     const low = await run(text, true, { ...cand, confidence: 0.01 });
     const high = await run(text, true, { ...cand, confidence: 0.99 });
     const none = await run(text, true, cand);
@@ -147,10 +184,12 @@ Deno.test('AI confidence (0.01 vs 0.99, top-level or absent) never changes the o
 });
 
 Deno.test('contradictory AI amount/currency never replace deterministic values', async () => {
-  for (const cand of [
-    { amount: 77, amount_text: '77.00', currency: 'EGP', merchant: 'ZARA' },
-    { amount: 99.5, amount_text: '99.50', currency: 'SAR', merchant: 'ZARA' },
-  ]) {
+  for (
+    const cand of [
+      { amount: 77, amount_text: '77.00', currency: 'EGP', merchant: 'ZARA' },
+      { amount: 99.5, amount_text: '99.50', currency: 'SAR', merchant: 'ZARA' },
+    ]
+  ) {
     const r = await run(HYBRID_SMS, true, cand);
     assertEquals(r.accepted, false);
     assertEquals(r.parsed.amount, 99.5);
@@ -181,12 +220,22 @@ Deno.test('contradictory AI merchant never replaces a deterministic merchant', a
 
 Deno.test('hybrid fills ONLY missing grounded fields', async () => {
   // merchant: grounded fills; ungrounded is dropped (not a rejection).
-  const grounded = await run(HYBRID_SMS, true, { amount: 99.5, amount_text: '99.50', currency: 'EGP', merchant: 'ZARA' });
+  const grounded = await run(HYBRID_SMS, true, {
+    amount: 99.5,
+    amount_text: '99.50',
+    currency: 'EGP',
+    merchant: 'ZARA',
+  });
   assertEquals(grounded.accepted, true);
   assertEquals(grounded.parsed.merchant, 'ZARA');
   assertEquals(grounded.parsed.amount, 99.5);
-  assertEquals(grounded.parsed.direction, 'debit'); // deterministic, untouched
-  const ungrounded = await run(HYBRID_SMS, true, { amount: 99.5, amount_text: '99.50', currency: 'EGP', merchant: 'AMAZON' });
+  assertEquals(grounded.parsed.direction, 'unknown'); // AI gave none
+  const ungrounded = await run(HYBRID_SMS, true, {
+    amount: 99.5,
+    amount_text: '99.50',
+    currency: 'EGP',
+    merchant: 'AMAZON',
+  });
   assertEquals(ungrounded.accepted, true);
   assertEquals(ungrounded.parsed.merchant, undefined);
 
@@ -203,23 +252,23 @@ Deno.test('hybrid fills ONLY missing grounded fields', async () => {
   assertEquals(dirFill.parsed.direction, 'debit');
   assertEquals(dirFill.parsed.merchant, undefined); // ZARA not in this text
   assertEquals(dirFill.parsed.last4, '1234'); // deterministic, untouched
-  const keepDet = await run(HYBRID_SMS, true, {
+  // last4: grounded fills, ungrounded dropped.
+  const last4Text = 'EGP 99.50 ZARA online ref 4321';
+  const l4 = await run(last4Text, true, {
     amount: 99.5,
     amount_text: '99.50',
     currency: 'EGP',
-    direction: 'credit',
-    type: 'income',
+    merchant: 'ZARA',
+    last4: '4321',
   });
-  // AI 'income' contradicts the deterministic 'spent' wording: candidate rejected,
-  // deterministic direction is never overridden.
-  assertEquals(keepDet.accepted, false);
-  assertEquals(keepDet.parsed.direction, 'debit');
-
-  // last4: grounded fills, ungrounded dropped.
-  const last4Text = 'EGP 99.50 spent ZARA online ref 4321';
-  const l4 = await run(last4Text, true, { amount: 99.5, amount_text: '99.50', currency: 'EGP', merchant: 'ZARA', last4: '4321' });
   assertEquals(l4.parsed.last4, '4321');
-  const l4bad = await run(last4Text, true, { amount: 99.5, amount_text: '99.50', currency: 'EGP', merchant: 'ZARA', last4: '9999' });
+  const l4bad = await run(last4Text, true, {
+    amount: 99.5,
+    amount_text: '99.50',
+    currency: 'EGP',
+    merchant: 'ZARA',
+    last4: '9999',
+  });
   assertEquals(l4bad.parsed.last4, undefined);
 });
 
