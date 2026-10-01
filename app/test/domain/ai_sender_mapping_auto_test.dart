@@ -210,13 +210,17 @@ void main() {
       await upgraded.close();
     });
 
-    test('supabase migration 0100 is deferred (not active) and additive', () {
+    test('supabase migration 0100 is active (applied) and additive', () {
       const name = '0100_sender_mapping_accepted_by.sql';
       // Interpolated so head_completeness's tracked-file scan (which only
       // follows literal paths) does not treat this absence check as a read.
-      expect(File('../supabase/migrations/$name').existsSync(), isFalse);
+      expect(File('../supabase/deferred/$name').existsSync(), isFalse);
+      expect(
+          File('../supabase/rollback/0100_sender_mapping_accepted_by_rollback.sql')
+              .existsSync(),
+          isTrue);
       final sql =
-          File('../supabase/deferred/0100_sender_mapping_accepted_by.sql')
+          File('../supabase/migrations/0100_sender_mapping_accepted_by.sql')
               .readAsStringSync();
       expect(
           sql,

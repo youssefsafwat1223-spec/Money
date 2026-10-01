@@ -1,7 +1,7 @@
 -- SQL proof for deferred migration 0101 (feature_flag_admin_audit).
 -- Run against a LOCAL throwaway Postgres ONLY. Everything is rolled back.
 --
---   { echo 'BEGIN;'; sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/deferred/0101_feature_flag_admin_audit.sql;
+--   { echo 'BEGIN;'; sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/migrations/0101_feature_flag_admin_audit.sql;
 --     cat supabase/tests/feature_flag_admin_audit_0101.sql; echo 'ROLLBACK;'; } \
 --   | psql "$LOCAL_URL" -v ON_ERROR_STOP=1
 --

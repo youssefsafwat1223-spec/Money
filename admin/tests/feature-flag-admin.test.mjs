@@ -197,8 +197,9 @@ test("no-op edits are rejected", () => {
 });
 
 // ── migration contract (static) ──────────────────────────────────────────────
-test("0101 is deferred, gapless-safe, service-role-only, append-only, idempotent", () => {
-  const sql = read("../supabase/deferred/0101_feature_flag_admin_audit.sql");
+test("0101 is active (applied), gapless-safe, service-role-only, append-only, idempotent", () => {
+  const sql = read("../supabase/migrations/0101_feature_flag_admin_audit.sql");
+  assert.throws(() => read("../supabase/deferred/0101_feature_flag_admin_audit.sql"), "0101 must no longer be in deferred/");
   assert.match(sql, /REVOKE ALL ON FUNCTION public\.admin_apply_feature_flag_changes\(UUID, TEXT, UUID, JSONB\)\s+FROM PUBLIC, anon, authenticated/);
   assert.match(sql, /GRANT EXECUTE ON FUNCTION public\.admin_apply_feature_flag_changes[\s\S]*TO service_role/);
   assert.match(sql, /REVOKE ALL ON TABLE public\.feature_flag_admin_audit FROM PUBLIC, anon, authenticated/);
@@ -210,7 +211,6 @@ test("0101 is deferred, gapless-safe, service-role-only, append-only, idempotent
   assert.doesNotMatch(sql.replace(/^--.*$/gm, ""), /updated_by/, "no actor column on feature_flags (anon SELECT policy)");
   assert.match(sql, /RAISE EXCEPTION 'unsafe_to_arm: %'/);
   assert.match(sql, /BETWEEN 4 AND 500/);
-  assert.match(read("../supabase/deferred/README.md"), /0101_feature_flag_admin_audit\.sql — DEFERRED/);
 });
 
 test("apply: RPC not deployed (PGRST202 / 42883) -> 503 audit_not_deployed, no console.error", () => {

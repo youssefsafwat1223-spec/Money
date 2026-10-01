@@ -1081,9 +1081,9 @@ void main() {
       final d = await Device.open();
       addTearDown(d.close);
       final repo = Directory.current.parent.path;
-      final f103 = '$repo/supabase/deferred/0102_awaiting_fx_transactions.sql';
+      final f103 = '$repo/supabase/migrations/0102_awaiting_fx_transactions.sql';
       final f103rb =
-          '$repo/supabase/deferred/0102_awaiting_fx_transactions_rollback.sql';
+          '$repo/supabase/rollback/0102_awaiting_fx_transactions_rollback.sql';
 
       Future<String> fingerprint() => remote.psql(
           sql: "select coalesce((select md5(pg_get_functiondef(p.oid)) from pg_proc p "

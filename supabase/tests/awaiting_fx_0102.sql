@@ -2,8 +2,8 @@
 -- Run against a LOCAL throwaway Postgres ONLY (active chain 0001-0099 applied;
 -- 0100-0101 NOT required). Everything is rolled back.
 --
---   sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/deferred/0102_awaiting_fx_transactions_rollback.sql > "$TMPDIR/rb0102.sql"
---   { echo 'BEGIN;'; sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/deferred/0102_awaiting_fx_transactions.sql;
+--   sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/rollback/0102_awaiting_fx_transactions_rollback.sql > "$TMPDIR/rb0102.sql"
+--   { echo 'BEGIN;'; sed '/^BEGIN;$/d;/^COMMIT;$/d' supabase/migrations/0102_awaiting_fx_transactions.sql;
 --     cat supabase/tests/awaiting_fx_0102.sql; echo 'ROLLBACK;'; } \
 --   | psql "$LOCAL_URL" -v ON_ERROR_STOP=1 -v rb="$TMPDIR/rb0102.sql"
 --
