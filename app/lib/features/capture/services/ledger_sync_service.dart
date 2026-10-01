@@ -84,7 +84,14 @@ abstract class LedgerRemoteSource {
   });
 }
 
-class SupabaseLedgerRemoteSource implements LedgerRemoteSource {
+/// Optional capability of a [LedgerRemoteSource]: fetch one row by server id
+/// (conflict keep-remote).
+abstract interface class LedgerRowByIdSource {
+  Future<Map<String, dynamic>?> fetchRowById(String serverId);
+}
+
+class SupabaseLedgerRemoteSource
+    implements LedgerRemoteSource, LedgerRowByIdSource {
   const SupabaseLedgerRemoteSource();
 
   @override
@@ -103,6 +110,16 @@ class SupabaseLedgerRemoteSource implements LedgerRemoteSource {
         .order(ledgerTransactionOrderColumns[1], ascending: true)
         .limit(limit);
     return (response as List).cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowById(String serverId) async {
+    final row = await Supabase.instance.client
+        .from('user_transactions')
+        .select(ledgerTransactionSelect)
+        .eq('id', serverId)
+        .maybeSingle();
+    return row == null ? null : Map<String, dynamic>.from(row);
   }
 }
 
@@ -303,6 +320,42 @@ class LedgerSyncService implements LedgerPullAdapter {
       tombstoned: tombstoned,
       status: status,
     );
+  }
+
+  /// Conflict keep-remote, step 1: fetch the CURRENT server row by id. Gated
+  /// exactly like [pull] (consent, enablement, signed-in owner); any refusal or
+  /// transport error throws so the caller leaves the conflict untouched.
+  Future<Map<String, dynamic>?> fetchServerRow(String serverId) async {
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.ledger);
+      throw StateError('keep-remote refetch blocked: no cloud consent');
+    }
+    if (!_isPullEnabled()) {
+      throw StateError('keep-remote refetch blocked: pull not enabled');
+    }
+    if (await _getAuthUserId() == null) {
+      throw StateError('keep-remote refetch blocked: not signed in');
+    }
+    final source = _remoteSource;
+    if (source is! LedgerRowByIdSource) {
+      throw UnsupportedError('remote source cannot fetch by id');
+    }
+    return (source as LedgerRowByIdSource).fetchRowById(serverId);
+  }
+
+  /// Step 2: apply a fetched row through the SAME path the pull uses (exact
+  /// money decode, tombstones, base token) without touching the cursor.
+  Future<void> applyServerRow(Map<String, dynamic> row) async {
+    await _primeResolutionCaches();
+    try {
+      if (row['deleted_at'] != null) {
+        await _processTombstone(row);
+      } else {
+        await _processRow(row);
+      }
+    } finally {
+      _clearResolutionCaches();
+    }
   }
 
   Future<_RowOutcome> _processRow(Map<String, dynamic> row) async {

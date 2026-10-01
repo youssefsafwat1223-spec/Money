@@ -17,3 +17,8 @@
 # bumping timeouts — serialize the derivation instead.
 tags:
   crypto-prod:
+
+# A-P: end-to-end sync proof against a developer's isolated LOCAL Supabase.
+# Opt-in: the suite is skipped unless LOCAL_SUPABASE_URL is set (see
+# test/integration_local/). Loopback-only; never run against a remote project.
+  local-supabase:

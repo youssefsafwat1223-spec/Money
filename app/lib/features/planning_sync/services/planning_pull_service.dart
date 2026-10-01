@@ -140,7 +140,14 @@ abstract class PlanningRemoteSource {
   });
 }
 
-class SupabasePlanningRemoteSource implements PlanningRemoteSource {
+/// Optional capability of a [PlanningRemoteSource]: fetch one row by server id
+/// (conflict keep-remote).
+abstract interface class PlanningRowByIdSource {
+  Future<Map<String, dynamic>?> fetchRowById(String table, String serverId);
+}
+
+class SupabasePlanningRemoteSource
+    implements PlanningRemoteSource, PlanningRowByIdSource {
   const SupabasePlanningRemoteSource();
 
   SupabaseClient get _client => Supabase.instance.client;
@@ -162,6 +169,17 @@ class SupabasePlanningRemoteSource implements PlanningRemoteSource {
         .order(planningPullOrderColumns[1], ascending: true)
         .limit(limit);
     return (response as List).cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowById(
+      String table, String serverId) async {
+    final select = planningPullSelectForTable(table);
+    final query = select == '*'
+        ? _client.from(table).select()
+        : _client.from(table).select(select);
+    final row = await query.eq('id', serverId).maybeSingle();
+    return row == null ? null : Map<String, dynamic>.from(row);
   }
 }
 
@@ -231,6 +249,44 @@ class PlanningPullService {
       return Supabase.instance.client.auth.currentUser?.id;
     } catch (_) {
       return null;
+    }
+  }
+
+  /// Conflict keep-remote, step 1: fetch the CURRENT server row of
+  /// [entityType] by id, gated like [pull] (financial consent, per-entity
+  /// enablement, signed-in owner). Throws on any refusal or transport error so
+  /// the conflict is left untouched.
+  Future<Map<String, dynamic>?> fetchServerRow(
+      String entityType, String serverId) async {
+    final table = _entityTable[entityType];
+    if (table == null) throw ArgumentError('unsupported entity $entityType');
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.planning);
+      throw StateError('keep-remote refetch blocked: no cloud consent');
+    }
+    if (!_isEnabled(entityType)) {
+      throw StateError('keep-remote refetch blocked: pull not enabled');
+    }
+    if (await _getAuthUserId() == null) {
+      throw StateError('keep-remote refetch blocked: not signed in');
+    }
+    final source = _remoteSource;
+    if (source is! PlanningRowByIdSource) {
+      throw UnsupportedError('remote source cannot fetch by id');
+    }
+    return (source as PlanningRowByIdSource).fetchRowById(table, serverId);
+  }
+
+  /// Step 2: apply a fetched row through the pull's own apply path (exact
+  /// money, row currency, tombstones) without touching the cursor.
+  Future<void> applyServerRow(
+      String entityType, Map<String, dynamic> row) async {
+    final ctx = await _buildPageContext(
+        entityType, _localTable[entityType], [row]);
+    if (row['deleted_at'] != null) {
+      await _processTombstone(entityType, row, ctx);
+    } else {
+      await _processRow(entityType, row, ctx);
     }
   }
 

@@ -54,14 +54,28 @@ typedef ConflictBaseFetcher = Future<ConflictBase?> Function(
 /// The resolution mechanics are generic (they operate on the shared sync columns
 /// and the two outboxes); only the keep-local re-enqueue is entity-specific and
 /// supplied through [reEnqueue].
+/// How keep-remote obtains and applies the CURRENT server row of one entity
+/// type. [fetch] is consent/owner-gated by the pull service behind it and
+/// throws when the server cannot be reached; [apply] is that same service's own
+/// pull apply path (exact money decode, tombstones, base token).
+class ConflictRemoteSync {
+  const ConflictRemoteSync({required this.fetch, required this.apply});
+  final Future<Map<String, dynamic>?> Function(String serverId) fetch;
+  final Future<void> Function(Map<String, dynamic> row) apply;
+}
+
 class UniversalConflictResolver {
   UniversalConflictResolver({
     required AppDatabase db,
     required Map<String, ConflictReEnqueue> reEnqueue,
     ConflictBaseFetcher? baseFetcher,
+    Map<String, ConflictRemoteSync> remoteSync = const {},
   })  : _db = db,
         _reEnqueue = reEnqueue,
-        _baseFetcher = baseFetcher;
+        _baseFetcher = baseFetcher,
+        _remoteSync = remoteSync;
+
+  final Map<String, ConflictRemoteSync> _remoteSync;
 
   final AppDatabase _db;
   final Map<String, ConflictReEnqueue> _reEnqueue;
@@ -197,18 +211,56 @@ class UniversalConflictResolver {
     }
   }
 
-  /// Keep the remote edit: drop any queued local change and mark the row synced
-  /// with its stale base, so the next pull (which sees the server moved past
-  /// that base) overwrites the local row with the server's version. This is also
-  /// the deterministic prefer-remote outcome.
-  Future<void> resolveKeepRemote(String entityType, String localId) async {
+  /// Keep the remote edit. Returns true when the row now equals the server.
+  ///
+  /// The pull that raised the conflict already advanced its keyset cursor past
+  /// the server row, so a later incremental pull would never bring it back and
+  /// the device would silently keep its own value marked synced. Entities with
+  /// a registered [ConflictRemoteSync] therefore FETCH the current server row by
+  /// id and apply it through the pull's own apply path, atomically with dropping
+  /// the queued local change. If the fetch or apply fails (offline, auth,
+  /// consent off, row gone) NOTHING changes: the row stays in conflict so the
+  /// user can retry, and false is returned.
+  ///
+  /// Entities without a registered sync keep the legacy behaviour (drop the
+  /// queue, mark synced with the stale base; deterministic config only).
+  Future<bool> resolveKeepRemote(String entityType, String localId) async {
     final policy = conflictPolicyFor(entityType);
-    if (!policy.canConflict) return;
-    await _removeOutbox(policy, localId);
-    await _db.customStatement(
-      "UPDATE ${policy.localTable} SET sync_status = 'synced' "
-      'WHERE id = ${sqlString(localId)};',
-    );
+    if (!policy.canConflict) return true;
+
+    final sync = _remoteSync[entityType];
+    final serverId = await _serverId(policy.localTable, localId);
+    if (sync == null || serverId == null) {
+      await _removeOutbox(policy, localId);
+      await _db.customStatement(
+        "UPDATE ${policy.localTable} SET sync_status = 'synced' "
+        'WHERE id = ${sqlString(localId)};',
+      );
+      return true;
+    }
+
+    final Map<String, dynamic>? remote;
+    try {
+      remote = await sync.fetch(serverId);
+    } catch (_) {
+      return false;
+    }
+    if (remote == null) return false;
+
+    try {
+      await _db.transaction(() async {
+        await _removeOutbox(policy, localId);
+        // A null base forces the pull's apply path to write the remote fields.
+        await _db.customStatement(
+          "UPDATE ${policy.localTable} SET sync_status = 'synced', "
+          'server_updated_at = NULL WHERE id = ${sqlString(localId)};',
+        );
+        await sync.apply(remote!);
+      });
+      return true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Auto-resolve every conflict on a DETERMINISTIC entity in favour of the
@@ -225,8 +277,9 @@ class UniversalConflictResolver {
           )
           .get();
       for (final row in rows) {
-        await resolveKeepRemote(policy.entityType, row.read<String>('id'));
-        resolved++;
+        if (await resolveKeepRemote(policy.entityType, row.read<String>('id'))) {
+          resolved++;
+        }
       }
     }
     return resolved;

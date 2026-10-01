@@ -70,7 +70,14 @@ abstract class AccountsRemoteSource {
   });
 }
 
-class SupabaseAccountsRemoteSource implements AccountsRemoteSource {
+/// Optional capability of an [AccountsRemoteSource]: fetch one row by server id
+/// (conflict keep-remote).
+abstract interface class AccountsRowByIdSource {
+  Future<Map<String, dynamic>?> fetchRowById(String serverId);
+}
+
+class SupabaseAccountsRemoteSource
+    implements AccountsRemoteSource, AccountsRowByIdSource {
   const SupabaseAccountsRemoteSource();
 
   SupabaseClient get _client => Supabase.instance.client;
@@ -88,6 +95,16 @@ class SupabaseAccountsRemoteSource implements AccountsRemoteSource {
         .order(accountsPullOrderColumns[1], ascending: true)
         .limit(limit);
     return (response as List).cast<Map<String, dynamic>>();
+  }
+
+  @override
+  Future<Map<String, dynamic>?> fetchRowById(String serverId) async {
+    final row = await _client
+        .from('user_accounts')
+        .select(accountsPullSelect)
+        .eq('id', serverId)
+        .maybeSingle();
+    return row == null ? null : Map<String, dynamic>.from(row);
   }
 }
 
@@ -248,6 +265,39 @@ class AccountsPullService {
       tombstoned: tombstoned,
       status: status,
     );
+  }
+
+  /// Conflict keep-remote, step 1: fetch the CURRENT server row by id, gated
+  /// like [pull] (consent, enablement, signed-in owner). Throws on any refusal
+  /// or transport error so the conflict is left untouched.
+  Future<Map<String, dynamic>?> fetchServerRow(String serverId) async {
+    if (!await _mayEgress()) {
+      _health?.noteConsentBlocked(SyncDomain.accounts);
+      throw StateError('keep-remote refetch blocked: no cloud consent');
+    }
+    if (!_isEnabled()) {
+      throw StateError('keep-remote refetch blocked: pull not enabled');
+    }
+    if (await _getAuthUserId() == null) {
+      throw StateError('keep-remote refetch blocked: not signed in');
+    }
+    final source = _remoteSource;
+    if (source is! AccountsRowByIdSource) {
+      throw UnsupportedError('remote source cannot fetch by id');
+    }
+    return (source as AccountsRowByIdSource).fetchRowById(serverId);
+  }
+
+  /// Step 2: apply a fetched row through the pull's own apply path.
+  Future<void> applyServerRow(Map<String, dynamic> row) async {
+    final identity = await _prefetchIdentity([row]);
+    if (row['deleted_at'] != null) {
+      if (await _processTombstone(row, identity)) {
+        await _ensureOneDefaultAccount();
+      }
+    } else {
+      await _processRow(row, identity);
+    }
   }
 
   Future<_AccountPullOutcome> _processRow(

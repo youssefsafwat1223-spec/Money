@@ -17,8 +17,10 @@ class _FakeResolver implements UniversalConflictResolver {
   Future<void> resolveKeepLocal(String entityType, String localId) async =>
       keepLocal.add('$entityType/$localId');
   @override
-  Future<void> resolveKeepRemote(String entityType, String localId) async =>
-      keepRemote.add('$entityType/$localId');
+  Future<bool> resolveKeepRemote(String entityType, String localId) async {
+    keepRemote.add('$entityType/$localId');
+    return true;
+  }
   @override
   dynamic noSuchMethod(Invocation i) => super.noSuchMethod(i);
 }

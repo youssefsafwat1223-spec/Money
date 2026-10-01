@@ -912,9 +912,34 @@ final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
   final goals = ref.watch(goalRepositoryProvider);
   final bills = ref.watch(billRepositoryProvider);
   final plans = ref.watch(planRepositoryProvider);
+  // Keep-remote refetches the current server row and applies it through the
+  // SAME pull services (consent / capability / owner gated like any pull).
+  final ledgerPull = ref.watch(ledgerSyncServiceProvider);
+  final accountsPull = ref.watch(accountsPullServiceProvider);
+  final planningPull = ref.watch(planningPullServiceProvider);
+  ConflictRemoteSync planningSync(String entityType) => ConflictRemoteSync(
+        fetch: (serverId) => planningPull.fetchServerRow(entityType, serverId),
+        apply: (row) => planningPull.applyServerRow(entityType, row),
+      );
 
   return UniversalConflictResolver(
     db: ref.watch(appDatabaseProvider),
+    remoteSync: {
+      ConflictEntities.transaction: ConflictRemoteSync(
+        fetch: ledgerPull.fetchServerRow,
+        apply: ledgerPull.applyServerRow,
+      ),
+      ConflictEntities.account: ConflictRemoteSync(
+        fetch: accountsPull.fetchServerRow,
+        apply: accountsPull.applyServerRow,
+      ),
+      ConflictEntities.budget:
+          planningSync(PlanningOutboxQueue.budgetsEntityType),
+      ConflictEntities.goal: planningSync(PlanningOutboxQueue.goalsEntityType),
+      ConflictEntities.subscription:
+          planningSync(PlanningOutboxQueue.subscriptionsEntityType),
+      ConflictEntities.plan: planningSync(PlanningOutboxQueue.plansEntityType),
+    },
     reEnqueue: {
       ConflictEntities.transaction: (id) async {
         final e = await transactions.getById(id);
