@@ -63,7 +63,7 @@ import 'app_localizations_en.dart';
 /// property.
 abstract class AppL10n {
   AppL10n(String locale)
-      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+    : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
   final String localeName;
 
@@ -85,16 +85,16 @@ abstract class AppL10n {
   /// of delegates is preferred or required.
   static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
       <LocalizationsDelegate<dynamic>>[
-    delegate,
-    GlobalMaterialLocalizations.delegate,
-    GlobalCupertinoLocalizations.delegate,
-    GlobalWidgetsLocalizations.delegate,
-  ];
+        delegate,
+        GlobalMaterialLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+      ];
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('ar'),
-    Locale('en')
+    Locale('en'),
   ];
 
   /// No description provided for @appTitle.
@@ -4810,13 +4810,13 @@ abstract class AppL10n {
   /// No description provided for @privCloudProcessingBody.
   ///
   /// In ar, this message translates to:
-  /// **'رفع رسائل البنك الملتقطة ومزامنة بياناتك مع خوادمنا. إيقافها يعطّل الالتقاط التلقائي والمزامنة، ويُبقي الإدخال اليدوي يعمل على جهازك.'**
+  /// **'تُرفَع رسائل البنك الملتقطة إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز لقراءتها، وتتم مزامنة بياناتك ونسخها احتياطيًا هناك. عند إيقافها يبقى كل شيء على جهازك: تُقرأ الرسائل بقواعد قِرش المحلية فقط ولا تتم أي مزامنة، ويظل الإدخال اليدوي متاحًا.'**
   String get privCloudProcessingBody;
 
   /// No description provided for @privAiAnalysisBody.
   ///
   /// In ar, this message translates to:
-  /// **'عند تشغيله مع المعالجة السحابية، تُرسَل نسخة منقّاة من كل رسالة بنكية إلى نماذج ذكاء اصطناعي سحابية لقراءتها وتصنيفها. إيقافه يقتصر التحليل على القواعد المحلية على جهازك.'**
+  /// **'عند تشغيله مع المزامنة السحابية، قد تُحلَّل رسائل البنك الملتقطة — بعد حذف أرقام البطاقات والحسابات والهواتف والرموز — بواسطة مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك. إيقافه يقصر القراءة على قواعد قِرش الخاصة.'**
   String get privAiAnalysisBody;
 
   /// No description provided for @privDeleteAccountBody.
@@ -9838,7 +9838,7 @@ abstract class AppL10n {
   /// No description provided for @smartConsentBullet1.
   ///
   /// In ar, this message translates to:
-  /// **'تُرسَل رسائل البنك التي تلتقطها إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، ويحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.'**
+  /// **'تُرسَل رسائل البنك التي تلتقطها إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، وقد يحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.'**
   String get smartConsentBullet1;
 
   /// No description provided for @smartConsentBullet2.
@@ -9910,7 +9910,7 @@ abstract class AppL10n {
   /// No description provided for @onbCloudBullet1.
   ///
   /// In ar, this message translates to:
-  /// **'تتم مزامنة معاملاتك وحساباتك وميزانياتك وأهدافك وإعداداتك ونسخها احتياطيًا في حسابك السحابي على قِرش.'**
+  /// **'تُرسَل رسائل البنك الملتقطة إلى خوادم قِرش لقراءتها بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، وتتم مزامنة معاملاتك وحساباتك وميزانياتك وأهدافك وإعداداتك ونسخها احتياطيًا في حسابك السحابي على قِرش.'**
   String get onbCloudBullet1;
 
   /// No description provided for @onbCloudBullet2.
@@ -9940,7 +9940,7 @@ abstract class AppL10n {
   /// No description provided for @onbAiBullet1.
   ///
   /// In ar, this message translates to:
-  /// **'عندما يعجز هاتفك عن قراءة رسالة بنكية، تُرسَل إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، ويحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.'**
+  /// **'عند تشغيل التحليل الذكي، قد تُحلَّل رسائل البنك الملتقطة — بعد حذف أرقام البطاقات والحسابات والهواتف والرموز — بواسطة مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.'**
   String get onbAiBullet1;
 
   /// No description provided for @onbAiBullet2.
@@ -10144,8 +10144,9 @@ AppL10n lookupAppL10n(Locale locale) {
   }
 
   throw FlutterError(
-      'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
-      'an issue with the localizations generation tool. Please file an issue '
-      'on GitHub with a reproducible sample app and the gen-l10n configuration '
-      'that was used.');
+    'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
+    'an issue with the localizations generation tool. Please file an issue '
+    'on GitHub with a reproducible sample app and the gen-l10n configuration '
+    'that was used.',
+  );
 }

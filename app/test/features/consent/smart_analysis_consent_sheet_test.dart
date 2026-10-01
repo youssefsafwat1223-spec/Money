@@ -67,7 +67,7 @@ void main() {
   testWidgets('disclosure covers both (AR)', (tester) async {
     await open(tester, locale: 'ar');
     expect(find.text('التحليل الذكي والمزامنة السحابية'), findsOneWidget);
-    expect(find.textContaining('ويحلّلها مزوّد ذكاء اصطناعي'), findsOneWidget);
+    expect(find.textContaining('وقد يحلّلها مزوّد ذكاء اصطناعي'), findsOneWidget);
     expect(find.textContaining('مزامنة معاملاتك'), findsOneWidget);
     expect(find.text('تفعيل التحليل الذكي والمزامنة السحابية'), findsOneWidget);
     expect(find.text('ليس الآن'), findsOneWidget);

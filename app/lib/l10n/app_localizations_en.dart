@@ -1,5 +1,6 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
+
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -2808,11 +2809,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get privCloudProcessingBody =>
-      'Uploads captured bank messages and syncs your data with our servers. Turning it off disables automatic capture and sync; manual entry keeps working on your device.';
+      'Captured bank messages are uploaded to Qirsh servers, with card, account and phone numbers and codes removed, to be read; your data is synced and backed up there. Turning it off keeps everything on this device: messages are read only by Qirsh\'s on-device rules and nothing is synced. Manual entry keeps working.';
 
   @override
   String get privAiAnalysisBody =>
-      'With cloud processing on, a sanitised copy of EVERY bank message is sent to cloud AI models to be read and categorised. Turning it off limits analysis to the local rules on your device.';
+      'With Cloud Sync on, captured bank messages — with card, account and phone numbers and codes removed — may be analysed by an AI service to read the amount, merchant and bank. Turning it off limits reading to Qirsh\'s own rules.';
 
   @override
   String get privDeleteAccountBody =>
@@ -5813,7 +5814,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smartConsentBullet1 =>
-      'Bank messages you capture are sent to Qirsh servers, with card numbers, account numbers, phone numbers and codes removed, and analysed by an AI service to read the amount, merchant and bank.';
+      'Captured bank messages are sent to Qirsh servers with card, account and phone numbers and codes removed, and may be analysed by an AI service to read the amount, merchant and bank.';
 
   @override
   String get smartConsentBullet2 =>
@@ -5853,7 +5854,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onbCloudBullet1 =>
-      'Your transactions, accounts, budgets, goals and settings are synced and backed up to your Qirsh cloud account.';
+      'Captured bank messages are sent to Qirsh servers to be read, with card, account and phone numbers and codes removed, and your transactions, accounts, budgets, goals and settings are synced and backed up to your Qirsh cloud account.';
 
   @override
   String get onbCloudBullet2 =>
@@ -5871,7 +5872,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onbAiBullet1 =>
-      'When your phone can\'t read a bank message, it is sent to Qirsh servers with card numbers, account numbers, phone numbers and codes removed, and analysed by an AI service to read the amount, merchant and bank.';
+      'With Smart Analysis on, captured bank messages — with card, account and phone numbers and codes removed — may be analysed by an AI service to read the amount, merchant and bank.';
 
   @override
   String get onbAiBullet2 =>
