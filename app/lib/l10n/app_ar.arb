@@ -3170,5 +3170,48 @@
   "onbAccountExistingBody": "لديك هذه الحسابات بالفعل. يمكنك المتابعة أو إضافة حساب آخر.",
   "onbAccountAddAnother": "إضافة حساب آخر",
   "onbAccountContinue": "متابعة",
-  "onbAccountRequired": "أضف حسابًا لإنهاء الإعداد."
+  "onbAccountRequired": "أضف حسابًا لإنهاء الإعداد.",
+  "syncStatusAllSynced": "تمت مزامنة كل البيانات",
+  "syncStatusSyncing": "جارٍ المزامنة…",
+  "syncStatusWaiting": "{count, plural, =1{تغيير واحد بانتظار المزامنة} =2{تغييران بانتظار المزامنة} few{{count} تغييرات بانتظار المزامنة} many{{count} تغييرًا بانتظار المزامنة} other{{count} تغيير بانتظار المزامنة}}",
+  "@syncStatusWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncStatusConsentOff": "المزامنة السحابية متوقفة — بياناتك تبقى على هذا الجهاز",
+  "syncStatusSignedOut": "لم تسجّل الدخول — بياناتك تبقى على هذا الجهاز",
+  "syncStatusFailed": "فشلت المزامنة — إعادة المحاولة",
+  "syncSheetTitle": "حالة المزامنة",
+  "syncSheetKeptOnDevice": "{count, plural, =0{لا توجد تغييرات معلّقة} =1{تغيير واحد محفوظ على هذا الجهاز} =2{تغييران محفوظان على هذا الجهاز} few{{count} تغييرات محفوظة على هذا الجهاز} many{{count} تغييرًا محفوظًا على هذا الجهاز} other{{count} تغيير محفوظ على هذا الجهاز}}",
+  "@syncSheetKeptOnDevice": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetWaitingConnection": "بانتظار الاتصال",
+  "syncSheetWaitingServer": "بانتظار تحديث الخادم",
+  "syncSheetNeedsAttention": "تحتاج إلى انتباه",
+  "syncSheetStayFailed": "{count, plural, =1{عنصر واحد لا يمكن إعادة محاولته ويبقى فاشلًا} =2{عنصران لا يمكن إعادة محاولتهما ويبقيان فاشلين} few{{count} عناصر لا يمكن إعادة محاولتها وتبقى فاشلة} many{{count} عنصرًا لا يمكن إعادة محاولتها وتبقى فاشلة} other{{count} عنصر لا يمكن إعادة محاولتها وتبقى فاشلة}}",
+  "@syncSheetStayFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetLastSync": "آخر مزامنة ناجحة: {time}",
+  "@syncSheetLastSync": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "syncSheetNeverSynced": "لا توجد مزامنة ناجحة بعد",
+  "syncSheetRetry": "إعادة المحاولة"
 }

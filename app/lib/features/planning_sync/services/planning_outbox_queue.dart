@@ -854,6 +854,20 @@ class PlanningOutboxQueue {
       );
     }
 
+    // A-5: an auth rejection is not this row's fault and not a retry — park it
+    // WITHOUT consuming an attempt; re-armed on the next authenticated session /
+    // token refresh or an explicit Retry. The raw error is not retained.
+    if (failureClass == OutboxFailureClass.auth) {
+      await _db.customStatement('''
+        UPDATE planning_sync_outbox
+        SET status = 'parked', failure_class = '$kParkAuthRequired',
+            last_error = NULL, next_retry_at = NULL, in_flight_seq = NULL,
+            updated_at = ${sqlString(now)}
+        WHERE id = ${sqlString(id)} AND status = 'pending';
+      ''');
+      return;
+    }
+
     if (failureClass.isPermanent) {
       await _db.customStatement('''
         UPDATE planning_sync_outbox
@@ -898,6 +912,38 @@ class PlanningOutboxQueue {
       WHERE status = 'dead_letter';
     ''');
   }
+
+  /// A-5: user-triggered Retry — re-arms every dead letter that a retry can
+  /// plausibly fix; business-rule duplicates and unsupported operations stay
+  /// dead-lettered ([kRetryableDeadLetterSql]). Returns the number re-armed.
+  Future<int> reArmRetryableDeadLetters() async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    return _db.customUpdate('''
+      UPDATE planning_sync_outbox
+      SET status = 'pending', attempt_count = 0, next_retry_at = NULL,
+          failure_class = NULL, updated_at = ${sqlString(now)}
+      WHERE $kRetryableDeadLetterSql;
+    ''');
+  }
+
+  /// A-5: re-arm rows parked `auth_required` (authenticated session restored or
+  /// Retry). The SAME durable rows; no attempt was ever consumed. Also clears the
+  /// backoff of pending rows so a user Retry runs them now.
+  Future<int> reArmAuthParked() async {
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    return _db.customUpdate('''
+      UPDATE planning_sync_outbox
+      SET status = 'pending', failure_class = NULL, next_retry_at = NULL,
+          updated_at = ${sqlString(now)}
+      WHERE status = 'parked' AND failure_class = '$kParkAuthRequired';
+    ''');
+  }
+
+  /// A-5: Retry-now — drop the backoff wait of pending rows (no attempt reset).
+  Future<int> clearRetryBackoff() => _db.customUpdate(
+        "UPDATE planning_sync_outbox SET next_retry_at = NULL "
+        "WHERE status = 'pending' AND next_retry_at IS NOT NULL;",
+      );
 
   /// MALI-026 (B8-2.10 §8): park a canonical money row whose exact push
   /// transport is unverified. Parked rows are excluded from [pendingItems],

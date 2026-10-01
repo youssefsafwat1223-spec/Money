@@ -133,6 +133,11 @@ class SyncQueueCounts {
     this.senderMappingsPending = 0,
     this.senderMappingsFailed = 0,
     this.smartInboxPendingSync = 0,
+    this.deadLetterByReason = const {},
+    this.inFlight = 0,
+    this.senderMappingsPermanentFailed = 0,
+    this.lastLocalMutationAt,
+    this.nextRetryAt,
   });
 
   /// Ledger + planning outbox rows awaiting push.
@@ -151,6 +156,26 @@ class SyncQueueCounts {
   final int senderMappingsPending;
   final int senderMappingsFailed;
   final int smartInboxPendingSync;
+
+  /// A-5: [deadLetter] broken down by reason (`failure_class`; an
+  /// `unsupported_operation` row is keyed by that name). Always sums to
+  /// [deadLetter].
+  final Map<String, int> deadLetterByReason;
+
+  /// A-5: outbox rows carrying the durable "possibly sent" marker
+  /// (`in_flight_seq`) — a push of them has started and is not yet ACKed.
+  final int inFlight;
+
+  /// A-5: sender mappings that failed terminally (`sync_permanent = 1`) and need
+  /// attention; a subset of [senderMappingsFailed].
+  final int senderMappingsPermanentFailed;
+
+  /// A-5: the newest `created_at` / `updated_at` across both outboxes — the
+  /// cheap "last local mutation enqueued" signal. Null when no outbox row exists.
+  final DateTime? lastLocalMutationAt;
+
+  /// A-5: the earliest scheduled retry of a pending outbox row, if any.
+  final DateTime? nextRetryAt;
 }
 
 /// Durable, lightweight per-domain sync health.
@@ -352,7 +377,50 @@ class SyncHealth {
         );
       }
     }
+    final deadLetterByReason = <String, int>{};
+    var inFlight = 0;
+    String? lastMutation;
+    String? nextRetry;
+    for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
+      final rows = await db.customSelect(
+        "SELECT CASE WHEN last_error LIKE '$kFailUnsupportedOperation%' "
+        "THEN '$kFailUnsupportedOperation' "
+        "ELSE COALESCE(failure_class, 'unknown') END AS reason, "
+        "COUNT(*) AS n FROM $table WHERE status = 'dead_letter' "
+        'GROUP BY reason',
+      ).get();
+      for (final r in rows) {
+        deadLetterByReason.update(
+          r.read<String>('reason'),
+          (v) => v + r.read<int>('n'),
+          ifAbsent: () => r.read<int>('n'),
+        );
+      }
+      final agg = await db.customSelect(
+        'SELECT MAX(MAX(created_at, updated_at)) AS m, '
+        "MIN(CASE WHEN status = 'pending' THEN next_retry_at END) AS r, "
+        'SUM(CASE WHEN in_flight_seq IS NOT NULL THEN 1 ELSE 0 END) AS f '
+        'FROM $table',
+      ).getSingle();
+      final m = agg.readNullable<String>('m');
+      if (m != null && (lastMutation == null || m.compareTo(lastMutation) > 0)) {
+        lastMutation = m;
+      }
+      final r = agg.readNullable<String>('r');
+      if (r != null && (nextRetry == null || r.compareTo(nextRetry) < 0)) {
+        nextRetry = r;
+      }
+      inFlight += agg.readNullable<int>('f') ?? 0;
+    }
     return SyncQueueCounts(
+      deadLetterByReason: deadLetterByReason,
+      inFlight: inFlight,
+      lastLocalMutationAt:
+          lastMutation == null ? null : DateTime.tryParse(lastMutation),
+      nextRetryAt: nextRetry == null ? null : DateTime.tryParse(nextRetry),
+      senderMappingsPermanentFailed: await n('SELECT COUNT(*) AS n FROM '
+          "sender_bank_mappings WHERE sync_status = 'failed' "
+          'AND sync_permanent = 1'),
       pending: await outbox('pending'),
       parked: parkedByReason.values.fold<int>(0, (a, b) => a + b),
       parkedByReason: parkedByReason,

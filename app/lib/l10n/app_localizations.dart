@@ -63,7 +63,7 @@ import 'app_localizations_en.dart';
 /// property.
 abstract class AppL10n {
   AppL10n(String locale)
-    : localeName = intl.Intl.canonicalizedLocale(locale.toString());
+      : localeName = intl.Intl.canonicalizedLocale(locale.toString());
 
   final String localeName;
 
@@ -85,16 +85,16 @@ abstract class AppL10n {
   /// of delegates is preferred or required.
   static const List<LocalizationsDelegate<dynamic>> localizationsDelegates =
       <LocalizationsDelegate<dynamic>>[
-        delegate,
-        GlobalMaterialLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-      ];
+    delegate,
+    GlobalMaterialLocalizations.delegate,
+    GlobalCupertinoLocalizations.delegate,
+    GlobalWidgetsLocalizations.delegate,
+  ];
 
   /// A list of this localizations delegate's supported locales.
   static const List<Locale> supportedLocales = <Locale>[
     Locale('ar'),
-    Locale('en'),
+    Locale('en')
   ];
 
   /// No description provided for @appTitle.
@@ -10026,6 +10026,96 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'أضف حسابًا لإنهاء الإعداد.'**
   String get onbAccountRequired;
+
+  /// No description provided for @syncStatusAllSynced.
+  ///
+  /// In ar, this message translates to:
+  /// **'تمت مزامنة كل البيانات'**
+  String get syncStatusAllSynced;
+
+  /// No description provided for @syncStatusSyncing.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ المزامنة…'**
+  String get syncStatusSyncing;
+
+  /// No description provided for @syncStatusWaiting.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{تغيير واحد بانتظار المزامنة} =2{تغييران بانتظار المزامنة} few{{count} تغييرات بانتظار المزامنة} many{{count} تغييرًا بانتظار المزامنة} other{{count} تغيير بانتظار المزامنة}}'**
+  String syncStatusWaiting(int count);
+
+  /// No description provided for @syncStatusConsentOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزامنة السحابية متوقفة — بياناتك تبقى على هذا الجهاز'**
+  String get syncStatusConsentOff;
+
+  /// No description provided for @syncStatusSignedOut.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم تسجّل الدخول — بياناتك تبقى على هذا الجهاز'**
+  String get syncStatusSignedOut;
+
+  /// No description provided for @syncStatusFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشلت المزامنة — إعادة المحاولة'**
+  String get syncStatusFailed;
+
+  /// No description provided for @syncSheetTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حالة المزامنة'**
+  String get syncSheetTitle;
+
+  /// No description provided for @syncSheetKeptOnDevice.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =0{لا توجد تغييرات معلّقة} =1{تغيير واحد محفوظ على هذا الجهاز} =2{تغييران محفوظان على هذا الجهاز} few{{count} تغييرات محفوظة على هذا الجهاز} many{{count} تغييرًا محفوظًا على هذا الجهاز} other{{count} تغيير محفوظ على هذا الجهاز}}'**
+  String syncSheetKeptOnDevice(int count);
+
+  /// No description provided for @syncSheetWaitingConnection.
+  ///
+  /// In ar, this message translates to:
+  /// **'بانتظار الاتصال'**
+  String get syncSheetWaitingConnection;
+
+  /// No description provided for @syncSheetWaitingServer.
+  ///
+  /// In ar, this message translates to:
+  /// **'بانتظار تحديث الخادم'**
+  String get syncSheetWaitingServer;
+
+  /// No description provided for @syncSheetNeedsAttention.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحتاج إلى انتباه'**
+  String get syncSheetNeedsAttention;
+
+  /// No description provided for @syncSheetStayFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{عنصر واحد لا يمكن إعادة محاولته ويبقى فاشلًا} =2{عنصران لا يمكن إعادة محاولتهما ويبقيان فاشلين} few{{count} عناصر لا يمكن إعادة محاولتها وتبقى فاشلة} many{{count} عنصرًا لا يمكن إعادة محاولتها وتبقى فاشلة} other{{count} عنصر لا يمكن إعادة محاولتها وتبقى فاشلة}}'**
+  String syncSheetStayFailed(int count);
+
+  /// No description provided for @syncSheetLastSync.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر مزامنة ناجحة: {time}'**
+  String syncSheetLastSync(String time);
+
+  /// No description provided for @syncSheetNeverSynced.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد مزامنة ناجحة بعد'**
+  String get syncSheetNeverSynced;
+
+  /// No description provided for @syncSheetRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة المحاولة'**
+  String get syncSheetRetry;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {
@@ -10054,9 +10144,8 @@ AppL10n lookupAppL10n(Locale locale) {
   }
 
   throw FlutterError(
-    'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
-    'an issue with the localizations generation tool. Please file an issue '
-    'on GitHub with a reproducible sample app and the gen-l10n configuration '
-    'that was used.',
-  );
+      'AppL10n.delegate failed to load unsupported locale "$locale". This is likely '
+      'an issue with the localizations generation tool. Please file an issue '
+      'on GitHub with a reproducible sample app and the gen-l10n configuration '
+      'that was used.');
 }

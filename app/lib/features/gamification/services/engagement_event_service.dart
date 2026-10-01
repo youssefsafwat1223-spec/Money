@@ -295,6 +295,9 @@ class EngagementEventService {
   }
 
   Future<void> _markFailure(String eventId, OutboxFailureClass failure) async {
+    // A-5: an auth rejection never consumes an attempt — the event stays pending
+    // and is retried once the session is valid again.
+    if (failure == OutboxFailureClass.auth) return;
     // Permanent failures dead-letter immediately; transient ones increment the
     // attempt counter and dead-letter once the bound is reached.
     if (failure.isPermanent) {

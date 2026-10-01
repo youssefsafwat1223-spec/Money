@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -5921,4 +5920,77 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get onbAccountRequired => 'Add an account to finish setup.';
+
+  @override
+  String get syncStatusAllSynced => 'All data synced';
+
+  @override
+  String get syncStatusSyncing => 'Syncing…';
+
+  @override
+  String syncStatusWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count changes waiting to sync',
+      one: '1 change waiting to sync',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncStatusConsentOff =>
+      'Cloud Sync is off — data stays on this device';
+
+  @override
+  String get syncStatusSignedOut => 'Signed out — data stays on this device';
+
+  @override
+  String get syncStatusFailed => 'Sync failed — Retry';
+
+  @override
+  String get syncSheetTitle => 'Sync status';
+
+  @override
+  String syncSheetKeptOnDevice(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count changes are kept on this device',
+      one: '1 change is kept on this device',
+      zero: 'No changes are waiting',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncSheetWaitingConnection => 'Waiting for connection';
+
+  @override
+  String get syncSheetWaitingServer => 'Waiting for server update';
+
+  @override
+  String get syncSheetNeedsAttention => 'Needs attention';
+
+  @override
+  String syncSheetStayFailed(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count items can’t be retried and stay failed',
+      one: '1 item can’t be retried and stays failed',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncSheetLastSync(String time) {
+    return 'Last successful sync: $time';
+  }
+
+  @override
+  String get syncSheetNeverSynced => 'No successful sync yet';
+
+  @override
+  String get syncSheetRetry => 'Retry';
 }

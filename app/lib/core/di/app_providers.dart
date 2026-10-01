@@ -13,6 +13,7 @@ import '../sync/conflict_policy.dart';
 import '../sync/conflict_resolver.dart';
 import '../sync/sync_capabilities.dart';
 import '../sync/sync_health.dart';
+import '../sync/sync_recovery.dart';
 import '../sync/sync_wakeup.dart';
 import '../session/app_session.dart';
 import '../../features/planning_sync/services/outbox_queue_factory.dart'
@@ -1229,6 +1230,22 @@ final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
 final syncQueueCountsProvider = FutureProvider.autoDispose<SyncQueueCounts>(
   (ref) => SyncHealth.queueCounts(ref.watch(appDatabaseProvider)),
 );
+
+/// A-5: Retry / auth-recovery for stuck sync work. The capability re-probe is
+/// forced (bypasses the per-session cache); it is consent-gated inside.
+final syncRecoveryServiceProvider = Provider<SyncRecoveryService>((ref) {
+  return SyncRecoveryService(
+    db: ref.watch(appDatabaseProvider),
+    ledgerQueue: ref.watch(ledgerOutboxQueueProvider),
+    planningQueue: ref.watch(planningOutboxQueueProvider),
+    reprobeCapabilities: () async {
+      await ref
+          .read(serverCapabilitiesServiceProvider)
+          .awaitingFxTransactions(force: true);
+    },
+    wakeup: SyncWakeup.notify,
+  );
+});
 
 final ledgerSyncEngineProvider = Provider<LedgerSyncEngine>((ref) {
   return LedgerSyncEngine(

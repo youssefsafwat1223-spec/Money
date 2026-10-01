@@ -245,15 +245,19 @@ void main() {
           kFailServerCheckViolation);
     });
 
-    test('42501 is the auth class: retried, never dead-lettered', () async {
+    test('42501 is the auth class: parked auth_required, never dead-lettered',
+        () async {
       await _goal(db);
       await _goalOutbox(db, 'create');
       final sink = _Sink()
         ..upsertError = const PostgrestException(message: 'rls', code: '42501');
       await _push(db, sink).push();
       final row = (await _outbox(db)).single;
-      expect(row['status'], 'pending');
-      expect(row['failure_class'], 'auth');
+      // A-5: an auth rejection parks the row (no attempt consumed) until the
+      // next authenticated session / Retry — it is neither retried nor lost.
+      expect(row['status'], 'parked');
+      expect(row['failure_class'], 'auth_required');
+      expect(row['attempt_count'], 0);
     });
   });
 

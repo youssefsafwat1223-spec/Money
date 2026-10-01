@@ -18,3 +18,19 @@ class SyncWakeup {
     if (!_controller.isClosed) _controller.add(null);
   }
 }
+
+/// A-5: process-local signal that an AUTHENTICATED session is (again) valid —
+/// emitted by AppSession after a sign-in / initial session / token refresh has
+/// been admitted. Rows parked `auth_required` re-arm on it. Carries no payload.
+class AuthSessionValid {
+  AuthSessionValid._();
+
+  static final StreamController<void> _controller =
+      StreamController<void>.broadcast(sync: true);
+
+  static Stream<void> get events => _controller.stream;
+
+  static void notify() {
+    if (!_controller.isClosed) _controller.add(null);
+  }
+}

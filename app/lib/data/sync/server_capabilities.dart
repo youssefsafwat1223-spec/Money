@@ -58,6 +58,7 @@ class ServerCapabilitiesService {
   // Per-session cache keyed by server URL + uid (never persisted).
   final Map<String, ServerCapabilityState> _awaitingFx = {};
   final Map<String, DateTime> _unknownAt = {};
+  final Map<String, DateTime> _probedAt = {};
 
   final List<void Function(String uid, ServerCapabilityState)> _listeners = [];
 
@@ -96,6 +97,7 @@ class ServerCapabilitiesService {
       return ServerCapabilityState.unknown;
     }
 
+    _probedAt[key] = _clock();
     ServerCapabilityState result;
     try {
       final raw = await _getClient().rpc('qirsh_server_capabilities');
@@ -112,6 +114,23 @@ class ServerCapabilitiesService {
     }
     _set(user, result);
     return result;
+  }
+
+  /// A-5: re-probes a cached `unsupported` / `unknown` answer (the server may
+  /// have deployed the capability since — migration 0103 — while this process
+  /// kept running), at most once per [minInterval]. A `verified` answer is never
+  /// re-probed. Called on app resume; Retry uses `force: true` directly.
+  Future<ServerCapabilityState> reprobeIfStale({
+    Duration minInterval = const Duration(minutes: 15),
+  }) async {
+    final user = await _getAuthUserId();
+    if (user == null) return ServerCapabilityState.unknown;
+    final key = _key(user);
+    final cached = _awaitingFx[key] ?? ServerCapabilityState.unknown;
+    if (cached == ServerCapabilityState.verified) return cached;
+    final last = _probedAt[key];
+    if (last != null && _clock().difference(last) < minInterval) return cached;
+    return awaitingFxTransactions(uid: user, force: true);
   }
 
   /// A send of the awaiting-FX shape was accepted by the server: proof.

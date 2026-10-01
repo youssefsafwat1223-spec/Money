@@ -32,6 +32,7 @@ import '../../features/coupons/merchant_offers_screen.dart';
 import '../../features/coupons/savings_screen.dart';
 import '../../features/referrals/referrals_screen.dart';
 import '../../features/design_gallery/design_gallery_screen.dart';
+import '../../features/settings/sync_diagnostics_screen.dart';
 import '../../features/goals/goal_details_screen.dart';
 import '../../features/goals/goal_form_screen.dart';
 import '../../features/goals/goals_screen.dart';
@@ -308,6 +309,13 @@ final appRouter = GoRouter(
         showBackButton: context.canPop(),
       ),
     ),
+    // A-5: QA sync diagnostics — debug builds only; no route exists in release.
+    if (syncDiagnosticsAvailable())
+      GoRoute(
+        path: '/settings/sync-diagnostics',
+        name: 'sync-diagnostics',
+        builder: (context, state) => const SyncDiagnosticsScreen(),
+      ),
     // Mali flagship design system review surface — debug builds only, never
     // reachable in release. See docs/MALI_DESIGN_SYSTEM.md.
     if (kDebugMode)

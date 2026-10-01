@@ -51,6 +51,7 @@ import '../capture/services/local_notification_service.dart';
 import '../onboarding/ios_shortcut_guide.dart';
 import '../transactions/transactions_providers.dart';
 import 'settings_providers.dart';
+import 'sync_status_ui.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 
 /// maybeWhen that keeps rendering the last loaded value during a reload, so the
@@ -294,6 +295,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                           // data, so it says so.
                           title: context.l10n.setAccountData,
                           children: [
+                            // A-5: the one quiet answer to "did my data reach
+                            // the cloud?".
+                            const SyncStatusTile(),
                             _NavTile(
                               icon: AppLucideIcons.smartphone,
                               title: context.l10n.setMobileNumber,
@@ -867,6 +871,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: 'Design Gallery',
                     subtitle: 'Qirsh flagship design system — debug only',
                     onTap: () => context.push('/design'),
+                  ),
+                  _NavTile(
+                    icon: AppLucideIcons.refreshCw,
+                    title: 'Sync diagnostics',
+                    subtitle: 'Queue, health and capability state — debug only',
+                    onTap: () => context.push('/settings/sync-diagnostics'),
                   ),
                 ],
               )),

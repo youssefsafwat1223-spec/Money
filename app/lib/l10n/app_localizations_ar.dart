@@ -1,6 +1,5 @@
 // ignore: unused_import
 import 'package:intl/intl.dart' as intl;
-
 import 'app_localizations.dart';
 
 // ignore_for_file: type=lint
@@ -5918,4 +5917,87 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get onbAccountRequired => 'أضف حسابًا لإنهاء الإعداد.';
+
+  @override
+  String get syncStatusAllSynced => 'تمت مزامنة كل البيانات';
+
+  @override
+  String get syncStatusSyncing => 'جارٍ المزامنة…';
+
+  @override
+  String syncStatusWaiting(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count تغيير بانتظار المزامنة',
+      many: '$count تغييرًا بانتظار المزامنة',
+      few: '$count تغييرات بانتظار المزامنة',
+      two: 'تغييران بانتظار المزامنة',
+      one: 'تغيير واحد بانتظار المزامنة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncStatusConsentOff =>
+      'المزامنة السحابية متوقفة — بياناتك تبقى على هذا الجهاز';
+
+  @override
+  String get syncStatusSignedOut =>
+      'لم تسجّل الدخول — بياناتك تبقى على هذا الجهاز';
+
+  @override
+  String get syncStatusFailed => 'فشلت المزامنة — إعادة المحاولة';
+
+  @override
+  String get syncSheetTitle => 'حالة المزامنة';
+
+  @override
+  String syncSheetKeptOnDevice(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count تغيير محفوظ على هذا الجهاز',
+      many: '$count تغييرًا محفوظًا على هذا الجهاز',
+      few: '$count تغييرات محفوظة على هذا الجهاز',
+      two: 'تغييران محفوظان على هذا الجهاز',
+      one: 'تغيير واحد محفوظ على هذا الجهاز',
+      zero: 'لا توجد تغييرات معلّقة',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get syncSheetWaitingConnection => 'بانتظار الاتصال';
+
+  @override
+  String get syncSheetWaitingServer => 'بانتظار تحديث الخادم';
+
+  @override
+  String get syncSheetNeedsAttention => 'تحتاج إلى انتباه';
+
+  @override
+  String syncSheetStayFailed(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count عنصر لا يمكن إعادة محاولتها وتبقى فاشلة',
+      many: '$count عنصرًا لا يمكن إعادة محاولتها وتبقى فاشلة',
+      few: '$count عناصر لا يمكن إعادة محاولتها وتبقى فاشلة',
+      two: 'عنصران لا يمكن إعادة محاولتهما ويبقيان فاشلين',
+      one: 'عنصر واحد لا يمكن إعادة محاولته ويبقى فاشلًا',
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String syncSheetLastSync(String time) {
+    return 'آخر مزامنة ناجحة: $time';
+  }
+
+  @override
+  String get syncSheetNeverSynced => 'لا توجد مزامنة ناجحة بعد';
+
+  @override
+  String get syncSheetRetry => 'إعادة المحاولة';
 }

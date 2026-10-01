@@ -11,6 +11,7 @@ import '../../data/db/database_key_store.dart';
 import '../backend/supabase_config.dart';
 import '../tracking/user_activity_service.dart';
 import '../security/secure_storage_options.dart';
+import '../sync/sync_wakeup.dart' show AuthSessionValid;
 
 /// [sessionExpired] is distinct from [needsOnboarding]: onboarding metadata
 /// (auth method, completed-account keys) stays intact — only the *live*
@@ -728,6 +729,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
       case supabase.AuthChangeEvent.tokenRefreshed:
       case supabase.AuthChangeEvent.userUpdated:
         await _reconcileSupabaseSession(state.session);
+        // A-5: an admitted authenticated session re-arms auth-parked sync rows.
+        if (value == SessionStatus.authenticated) AuthSessionValid.notify();
         return;
       case supabase.AuthChangeEvent.passwordRecovery:
       case supabase.AuthChangeEvent.mfaChallengeVerified:

@@ -3053,5 +3053,48 @@
   "onbAccountExistingBody": "You already have these accounts. Continue, or add another.",
   "onbAccountAddAnother": "Add another account",
   "onbAccountContinue": "Continue",
-  "onbAccountRequired": "Add an account to finish setup."
+  "onbAccountRequired": "Add an account to finish setup.",
+  "syncStatusAllSynced": "All data synced",
+  "syncStatusSyncing": "Syncing…",
+  "syncStatusWaiting": "{count, plural, =1{1 change waiting to sync} other{{count} changes waiting to sync}}",
+  "@syncStatusWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncStatusConsentOff": "Cloud Sync is off — data stays on this device",
+  "syncStatusSignedOut": "Signed out — data stays on this device",
+  "syncStatusFailed": "Sync failed — Retry",
+  "syncSheetTitle": "Sync status",
+  "syncSheetKeptOnDevice": "{count, plural, =0{No changes are waiting} =1{1 change is kept on this device} other{{count} changes are kept on this device}}",
+  "@syncSheetKeptOnDevice": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetWaitingConnection": "Waiting for connection",
+  "syncSheetWaitingServer": "Waiting for server update",
+  "syncSheetNeedsAttention": "Needs attention",
+  "syncSheetStayFailed": "{count, plural, =1{1 item can’t be retried and stays failed} other{{count} items can’t be retried and stay failed}}",
+  "@syncSheetStayFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "syncSheetLastSync": "Last successful sync: {time}",
+  "@syncSheetLastSync": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "syncSheetNeverSynced": "No successful sync yet",
+  "syncSheetRetry": "Retry"
 }

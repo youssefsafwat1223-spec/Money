@@ -1,6 +1,7 @@
 import 'dart:io';
 
-import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
+import 'package:supabase_flutter/supabase_flutter.dart'
+    show AuthException, AuthRetryableFetchException, PostgrestException;
 
 /// MALI-023: typed classification of an outbox push failure, so the queue can
 /// apply the right recovery instead of the old "always eligible + reset to 1"
@@ -128,6 +129,13 @@ const String kParkDependencyWait = 'dependency_wait';
 /// (verified), and coalescible so a later priced edit folds into the same row.
 const String kParkAwaitingServerFxSupport = 'awaiting_server_fx_support';
 
+/// A-5: the push was rejected for authentication (401/403/42501/JWT expired).
+/// Not the row's fault and not a retry: the row is parked WITHOUT consuming an
+/// attempt and re-armed on the next authenticated session / token refresh event
+/// or an explicit Retry. The request was definitively rejected, so the row is
+/// never possibly-in-flight and may be coalesced into.
+const String kParkAuthRequired = 'auth_required';
+
 /// Park reasons owned by the outbox-correctness layer (as opposed to the
 /// exact-money-transport reason, which is re-armed by a verified capability).
 /// Excluded from the generic `reArmParked` and coalescible.
@@ -136,12 +144,25 @@ const Set<String> kOutboxSelfHealingParkReasons = {
   kParkOwnerUnverified,
   kParkDependencyWait,
   kParkAwaitingServerFxSupport,
+  kParkAuthRequired,
 };
 
 /// SQL list literal of [kOutboxSelfHealingParkReasons].
 const String kOutboxSelfHealingParkReasonsSql =
     "('$kParkOwnerMismatch','$kParkOwnerUnverified','$kParkDependencyWait',"
-    "'$kParkAwaitingServerFxSupport')";
+    "'$kParkAwaitingServerFxSupport','$kParkAuthRequired')";
+
+/// A-5: `last_error` prefix written for an operation the server has no endpoint
+/// for (see PlanningChildSyncService). Stays failed on Retry.
+const String kFailUnsupportedOperation = 'unsupported_operation';
+
+/// A-5: dead letters a user-triggered Retry re-arms — everything EXCEPT a
+/// business-rule duplicate and an unsupported operation, which cannot succeed on
+/// a plain retry and stay failed (listed in the sync status sheet).
+const String kRetryableDeadLetterSql =
+    "status = 'dead_letter' "
+    "AND COALESCE(failure_class, '') != '$kFailDuplicateBusinessKey' "
+    "AND COALESCE(last_error, '') NOT LIKE '$kFailUnsupportedOperation%'";
 
 /// MALI-023: after this many retryable failures a row is dead-lettered so a
 /// permanently-failing item can never hot-loop. Re-armable on app/schema upgrade.
@@ -154,6 +175,11 @@ OutboxFailureClass classifyOutboxError(Object error) {
   if (error is SocketException || error is HttpException) {
     return OutboxFailureClass.transientNetwork;
   }
+  // A-5: a session/refresh failure is an auth failure, never a retry.
+  if (error is AuthRetryableFetchException) {
+    return OutboxFailureClass.transientNetwork; // refresh hit the network, not a rejection
+  }
+  if (error is AuthException) return OutboxFailureClass.auth;
   if (error is StateError) {
     // Child push guards throw StateError('..._parent_not_synced') when a parent
     // hasn't reached the server yet — a transient missing dependency.
@@ -174,7 +200,13 @@ OutboxFailureClass classifyOutboxError(Object error) {
     if (code == '42P10') return OutboxFailureClass.serverSchemaMismatch;
     if (code == '23514') return OutboxFailureClass.serverCheckViolation;
     if (code == '429') return OutboxFailureClass.rateLimit;
-    if (code == '401' || code == '403' || code == '42501') {
+    // PGRST301/302/303: JWT expired / invalid / claims rejected by PostgREST.
+    if (code == '401' ||
+        code == '403' ||
+        code == '42501' ||
+        code == 'PGRST301' ||
+        code == 'PGRST302' ||
+        code == 'PGRST303') {
       return OutboxFailureClass.auth;
     }
     if (code.startsWith('5')) return OutboxFailureClass.serverError;

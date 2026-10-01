@@ -1,4 +1,6 @@
 import '../../core/sync/sync_health.dart';
+import '../../core/sync/sync_recovery.dart';
+import '../../core/sync/sync_status.dart';
 import 'dart:async';
 import 'dart:ui';
 
@@ -92,6 +94,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   StreamSubscription<CaptureQuickAction>? _quickActionSubscription;
   StreamSubscription<String>? _navigationSubscription;
   StreamSubscription<void>? _syncWakeupSubscription;
+  StreamSubscription<void>? _authRearmSubscription;
   Timer? _syncDebounceTimer;
   Timer? _syncPollTimer;
   CelebrationEvent? _activeCelebration;
@@ -177,6 +180,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     );
     _navigationSubscription = CaptureRuntime.instance.navigationRequests.listen(
       _handleNotificationRoute,
+    );
+    // A-5: an authenticated session / token refresh re-arms auth-parked rows.
+    _authRearmSubscription = bindAuthRearm(
+      AuthSessionValid.events,
+      ref.read(syncRecoveryServiceProvider),
     );
     _syncWakeupSubscription = SyncWakeup.events.listen((_) {
       // Local activity → return the poll cadence to its base interval so the app
@@ -273,6 +281,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     _quickActionSubscription?.cancel();
     _navigationSubscription?.cancel();
     _syncWakeupSubscription?.cancel();
+    _authRearmSubscription?.cancel();
     _syncDebounceTimer?.cancel();
     _syncPollTimer?.cancel();
     NativeCaptureBridge.setPendingMessagesHandler(null);
@@ -342,6 +351,14 @@ class _AppShellState extends ConsumerState<AppShell> {
     unawaited(_syncRemoteOnboardingCompletion());
     // Same disposal race as below: an await preceded this — syncCatalog reads ref immediately.
     if (!mounted) return;
+    // A-5: a cached `unsupported`/`unknown` server capability is re-probed on
+    // resume (throttled to 15 min inside the service) so awaiting-FX rows parked
+    // before the server upgrade drain without an app restart. Consent-gated.
+    unawaited(ref
+        .read(serverCapabilitiesServiceProvider)
+        .reprobeIfStale()
+        .then((_) {})
+        .catchError((_) {}));
     if (runNonCritical) await syncCatalog(ref);
     if (runNonCritical) {
       // R4 §7/§11/§21: warm the report-export entitlement decision on resume,
@@ -691,26 +708,32 @@ class _AppShellState extends ConsumerState<AppShell> {
     // duplicate concurrent syncs, never a dropped request).
     if (!_syncCoalescer.requestRun()) return;
     final gen = _syncGate.generation;
-    do {
-      try {
-        await _runLedgerSyncBody(gen);
-      } on StateError catch (_) {
-        // The body holds ~7 `ref` uses across as many awaits; the shell is a
-        // route and can be disposed under any of them. Guarding each one is
-        // whack-a-mole, and deciding on `mounted` here is exact: disposed means
-        // stop this cycle (the outbox is durable, the next cycle retries),
-        // while a StateError raised while still mounted is a real bug and must
-        // keep propagating.
-        if (mounted) rethrow;
-        if (kDebugMode) {
-          debugPrint('[LedgerSync] stopped: shell disposed mid-cycle');
+    // A-5: the status surface shows "Syncing…" while a run is in progress.
+    SyncRunState.instance.begin();
+    try {
+      do {
+        try {
+          await _runLedgerSyncBody(gen);
+        } on StateError catch (_) {
+          // The body holds ~7 `ref` uses across as many awaits; the shell is a
+          // route and can be disposed under any of them. Guarding each one is
+          // whack-a-mole, and deciding on `mounted` here is exact: disposed means
+          // stop this cycle (the outbox is durable, the next cycle retries),
+          // while a StateError raised while still mounted is a real bug and must
+          // keep propagating.
+          if (mounted) rethrow;
+          if (kDebugMode) {
+            debugPrint('[LedgerSync] stopped: shell disposed mid-cycle');
+          }
+        } finally {
+          // First completed round after sign-in: the pull has landed — reveal the
+          // real data in one shot instead of defaults morphing under the user.
+          _closeRestoreGate();
         }
-      } finally {
-        // First completed round after sign-in: the pull has landed — reveal the
-        // real data in one shot instead of defaults morphing under the user.
-        _closeRestoreGate();
-      }
-    } while (_syncCoalescer.finishRun());
+      } while (_syncCoalescer.finishRun());
+    } finally {
+      SyncRunState.instance.end();
+    }
     // Infer reachability from the outbox's own network-stall signal (there is no
     // platform connectivity source) so the gate can go offline / recover. Skip
     // when the owner changed mid-run — the reading would belong to a new owner.

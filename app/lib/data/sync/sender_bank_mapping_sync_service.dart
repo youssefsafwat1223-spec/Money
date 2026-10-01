@@ -497,6 +497,9 @@ class SenderBankMappingSyncService {
   /// reaching [kOutboxMaxAttempts]) is terminal — `sync_permanent = 1`, never
   /// retried, kept observable; a retryable class backs off exponentially.
   Future<void> _markFailed(String id, OutboxFailureClass failureClass) async {
+    // A-5: an auth rejection never consumes an attempt — the row keeps its
+    // state and is retried once the session is valid again.
+    if (failureClass == OutboxFailureClass.auth) return;
     final row = await _db.customSelect(
       'SELECT sync_attempt_count FROM sender_bank_mappings '
       'WHERE id = ${sqlString(id)} LIMIT 1;',
