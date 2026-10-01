@@ -3383,7 +3383,8 @@ class AppDatabase extends GeneratedDatabase {
       ).get();
       if (defaults.isEmpty) {
         await customStatement(
-          'UPDATE accounts SET is_default = 1 WHERE id = '
+          'UPDATE accounts SET is_default = 1, '
+          '$kMarkPendingIfServerBacked WHERE id = '
           '(SELECT id FROM accounts ORDER BY sort_order ASC LIMIT 1);',
         );
       }
@@ -3447,6 +3448,9 @@ class AppDatabase extends GeneratedDatabase {
   }
 
   Future<void> _backfillSystemTransactionCategories() async {
+    // A-4b: a changed server-backed row is marked pending (+ updated_at) so the
+    // PendingSyncReconciler records sync intent for it.
+    final nowSql = dateTimeToSql(DateTime.now().toUtc());
     for (final entry in const {
       'transfer': 'transfers',
       'withdrawal': 'cash',
@@ -3457,7 +3461,9 @@ class AppDatabase extends GeneratedDatabase {
           UPDATE transactions
           SET category_id = (
             SELECT id FROM categories WHERE key = ? LIMIT 1
-          )
+          ),
+          updated_at = ?,
+          $kMarkPendingIfServerBacked
           WHERE type = ?
             AND (
               category_id IS NULL OR
@@ -3466,6 +3472,7 @@ class AppDatabase extends GeneratedDatabase {
         ''',
         variables: [
           Variable.withString(entry.value),
+          Variable.withString(nowSql),
           Variable.withString(entry.key),
           Variable.withString(entry.value),
         ],
@@ -3474,8 +3481,11 @@ class AppDatabase extends GeneratedDatabase {
     await customUpdate(
       '''
         UPDATE transactions
-        SET merchant_id = NULL, raw_merchant = NULL
-        WHERE type IN ('transfer', 'income');
+        SET merchant_id = NULL, raw_merchant = NULL,
+            updated_at = ${sqlString(nowSql)},
+            $kMarkPendingIfServerBacked
+        WHERE type IN ('transfer', 'income')
+          AND (merchant_id IS NOT NULL OR raw_merchant IS NOT NULL);
       ''',
     );
   }
@@ -3484,7 +3494,9 @@ class AppDatabase extends GeneratedDatabase {
     await customUpdate(
       '''
         UPDATE transactions
-        SET direction = 'credit'
+        SET direction = 'credit',
+            updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
+            $kMarkPendingIfServerBacked
         WHERE direction IS NULL
           AND (
             raw_message LIKE '%credited%' OR
@@ -3504,7 +3516,9 @@ class AppDatabase extends GeneratedDatabase {
     await customUpdate(
       '''
         UPDATE transactions
-        SET direction = 'debit'
+        SET direction = 'debit',
+            updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
+            $kMarkPendingIfServerBacked
         WHERE direction IS NULL
           AND (
             type IN ('payment', 'withdrawal') OR
@@ -3522,7 +3536,9 @@ class AppDatabase extends GeneratedDatabase {
     await customUpdate(
       '''
         UPDATE transactions
-        SET direction = 'unknown'
+        SET direction = 'unknown',
+            updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
+            $kMarkPendingIfServerBacked
         WHERE direction IS NULL;
       ''',
     );
@@ -3542,7 +3558,8 @@ class AppDatabase extends GeneratedDatabase {
             comparison_timestamp_source = 'received_at',
             transaction_time_from_sms = NULL,
             sms_received_at = COALESCE(sms_received_at, created_at),
-            updated_at = ?
+            updated_at = ?,
+            $kMarkPendingIfServerBacked
         WHERE source = 'bank'
           AND status IN ('confirmed', 'pending')
           AND comparison_timestamp_source = 'sms_body'

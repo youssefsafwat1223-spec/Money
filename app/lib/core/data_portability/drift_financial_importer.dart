@@ -136,7 +136,8 @@ class DriftFinancialImporter {
   Future<void> _softHideFinancialData() async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customStatement(
-      "UPDATE transactions SET status = 'ignored', updated_at = ?;",
+      "UPDATE transactions SET status = 'ignored', updated_at = ?, "
+      "$kMarkPendingIfServerBacked;",
       [now],
     );
     for (final table in const [
@@ -149,10 +150,12 @@ class DriftFinancialImporter {
       'plan_transaction_links',
       'accounts',
     ]) {
-      await _db.customStatement('UPDATE $table SET deleted_at = ?;', [now]);
+      await _db.customStatement(
+          'UPDATE $table SET deleted_at = ?, $kMarkPendingIfServerBacked;', [now]);
     }
     await _db.customStatement(
-      "UPDATE categories SET deleted_at = ? WHERE key GLOB 'custom_*';",
+      'UPDATE categories SET deleted_at = ?, $kMarkPendingIfServerBacked '
+      "WHERE key GLOB 'custom_*';",
       [now],
     );
   }
@@ -269,7 +272,8 @@ class DriftFinancialImporter {
             available_credit=excluded.available_credit,
             available_credit_minor=excluded.available_credit_minor,
             is_default=excluded.is_default,
-            sort_order=excluded.sort_order,updated_at=excluded.updated_at,deleted_at=NULL;
+            sort_order=excluded.sort_order,updated_at=excluded.updated_at,deleted_at=NULL,
+            sync_status=CASE WHEN accounts.server_id IS NOT NULL THEN 'pending' ELSE accounts.sync_status END;
         ''', [
           _required(row, 'record_id'),
           _required(row, 'name'),
@@ -328,7 +332,9 @@ class DriftFinancialImporter {
         } else {
           await _db.customStatement('''
             UPDATE categories SET name_ar=?,icon=?,color=?,is_income=?,
-              sort_order=?,deleted_at=NULL WHERE id=?;
+              sort_order=?,deleted_at=NULL,
+              sync_status=CASE WHEN server_id IS NOT NULL THEN 'pending' ELSE sync_status END
+            WHERE id=?;
           ''', [
             _required(row, 'name_ar'),
             _or(row['icon'], 'category'),
@@ -395,7 +401,8 @@ class DriftFinancialImporter {
             comparison_timestamp_source=excluded.comparison_timestamp_source,
             duplicate_status=excluded.duplicate_status,
             possible_duplicate_of_transaction_id=excluded.possible_duplicate_of_transaction_id,
-            duplicate_reason=excluded.duplicate_reason;
+            duplicate_reason=excluded.duplicate_reason,
+            sync_status=CASE WHEN transactions.server_id IS NOT NULL THEN 'pending' ELSE transactions.sync_status END;
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
@@ -464,7 +471,8 @@ class DriftFinancialImporter {
             last_notified_spent_amount_minor=excluded.last_notified_spent_amount_minor,
             last_notified_period_start=excluded.last_notified_period_start,
             show_on_header=excluded.show_on_header,
-            alert_threshold_percent=excluded.alert_threshold_percent,deleted_at=NULL;
+            alert_threshold_percent=excluded.alert_threshold_percent,deleted_at=NULL,
+            sync_status=CASE WHEN budgets.server_id IS NOT NULL THEN 'pending' ELSE budgets.sync_status END;
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
@@ -528,7 +536,8 @@ class DriftFinancialImporter {
             total_purchase_amount=excluded.total_purchase_amount,
             total_purchase_amount_minor=excluded.total_purchase_amount_minor,
             lender_name=excluded.lender_name,interest_rate=excluded.interest_rate,
-            deleted_at=NULL;
+            deleted_at=NULL,
+            sync_status=CASE WHEN subscriptions.server_id IS NOT NULL THEN 'pending' ELSE subscriptions.sync_status END;
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
@@ -637,7 +646,8 @@ class DriftFinancialImporter {
             auto_save_last_run=excluded.auto_save_last_run,
             last_notified_saved_amount=excluded.last_notified_saved_amount,
             last_notified_saved_amount_minor=excluded.last_notified_saved_amount_minor,
-            deleted_at=NULL;
+            deleted_at=NULL,
+            sync_status=CASE WHEN goals.server_id IS NOT NULL THEN 'pending' ELSE goals.sync_status END;
         ''', [
           _required(row, 'record_id'),
           _nullable(row['account_record_id']),
@@ -706,7 +716,8 @@ class DriftFinancialImporter {
             budget_amount_minor=excluded.budget_amount_minor,currency=excluded.currency,
             start_date=excluded.start_date,end_date=excluded.end_date,
             account_ids=excluded.account_ids,card_last4s=excluded.card_last4s,
-            status=excluded.status,icon=excluded.icon,deleted_at=NULL;
+            status=excluded.status,icon=excluded.icon,deleted_at=NULL,
+            sync_status=CASE WHEN plans.server_id IS NOT NULL THEN 'pending' ELSE plans.sync_status END;
         ''', [
           _required(row, 'record_id'),
           _required(row, 'name'),

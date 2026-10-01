@@ -1,3 +1,4 @@
+import '../sync/pending_sync_reconciler.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 
@@ -1236,6 +1237,22 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
 /// Supabase (pre-outbox data, the migration-seeded default account, or a
 /// background capture that had no session at write time). See
 /// [StartupSyncReconcileService].
+/// A-4b: records sync intent for server-backed rows a raw-SQL bypass writer left
+/// `pending` with no outbox row. Run at the start of each sync cycle.
+final pendingSyncReconcilerProvider = Provider<PendingSyncReconciler>((ref) {
+  return PendingSyncReconciler(
+    db: ref.watch(appDatabaseProvider),
+    ledgerQueue: ref.watch(ledgerOutboxQueueProvider),
+    planningQueue: ref.watch(planningOutboxQueueProvider),
+    getOwnerUid: localDataOwnerUid,
+    getAuthUserId: _currentSupabaseUserId,
+    mayEgress: () => ConsentAuthority(
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.financialSync),
+  );
+});
+
 final startupSyncReconcileServiceProvider =
     Provider<StartupSyncReconcileService>((ref) {
   return StartupSyncReconcileService(

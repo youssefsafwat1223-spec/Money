@@ -133,6 +133,31 @@ void main() {
       expect(await minor('goal_contributions', 'amount_minor', 'c1'), 5000);
     });
 
+    test('A-4b: cutover marks server-backed budgets/goals pending (never synced)',
+        () async {
+      await addBudget('b1', 100.0);
+      await addBudget('b2', 50.0);
+      await addGoal('g1');
+      await db.customStatement(
+          "UPDATE budgets SET server_id = 'srv-b1', sync_status = 'synced' "
+          "WHERE id = 'b1';");
+      await db.customStatement(
+          "UPDATE goals SET server_id = 'srv-g1', sync_status = 'synced';");
+      await repair.confirmGlobal('EGP');
+
+      await PlanningCutoverExecutor(db, repair).execute();
+
+      Future<String?> status(String table, String id) async => (await db
+              .customSelect(
+                  "SELECT sync_status AS s FROM $table WHERE id = '$id';")
+              .getSingle())
+          .readNullable<String>('s');
+      expect(await status('budgets', 'b1'), 'pending');
+      expect(await status('goals', 'g1'), 'pending');
+      expect(await status('budgets', 'b2'), isNot('pending'),
+          reason: 'never-synced rows are the backfill services\' job');
+    });
+
     test('§13.2/§4 refuses when repair not satisfied (nothing mutated)',
         () async {
       await addBudget('b1', 100.0); // needsConfirmation (no manifest)

@@ -1,3 +1,4 @@
+import '../sync/pending_sync_reconciler.dart';
 import '../sync/sync_health.dart';
 import 'dart:async';
 
@@ -355,6 +356,28 @@ class BootstrapRunner {
         ).repointOrphanGoalsToDefaultAccount();
       } catch (_) {
         // Best-effort: a refused mutation (unresolved cutover) retries next boot.
+      }
+    });
+
+    await _step('pending_sync_reconcile', () async {
+      try {
+        // A-4b: bypass writers (backfills, cutover, import, restore repair) mark
+        // server-backed rows pending without outbox rows; record their intent
+        // now that admission is complete. Idempotent, consent/owner-gated.
+        final coordinator = FixedPlanningCutoverCoordinator(planningCutoverState);
+        await PendingSyncReconciler(
+          db: database,
+          ledgerQueue: buildLedgerOutboxQueue(database, coordinator: coordinator),
+          planningQueue:
+              buildPlanningOutboxQueue(database, coordinator: coordinator),
+          getOwnerUid: localDataOwnerUid,
+          getAuthUserId: currentSupabaseUserId,
+          mayEgress: () => ConsentAuthority(
+            () => DriftUserSettingsRepository(database).getSettings(),
+          ).allows(EgressClass.financialSync),
+        ).run();
+      } catch (_) {
+        // Best-effort: the pending marker persists for the next sync cycle.
       }
     });
 

@@ -1,3 +1,4 @@
+import 'sql_value_codec.dart';
 import '../../domain/finance/currency_scale.dart';
 import '../../domain/finance/decimal_minor.dart';
 import 'app_database.dart';
@@ -92,7 +93,8 @@ class PlanningCutoverExecutor {
         final scale = currencyScale(currencyFor(id));
         await _db.customStatement(
           'UPDATE budgets SET currency = ?, amount_minor = ?, '
-          'last_notified_spent_amount_minor = ? WHERE id = ?;',
+          'last_notified_spent_amount_minor = ?, $kMarkPendingIfServerBacked '
+          'WHERE id = ?;',
           [
             currencyFor(id),
             legacyRealToMinor(b.read<double>('amount'), scale),
@@ -119,7 +121,8 @@ class PlanningCutoverExecutor {
         await _db.customStatement(
           'UPDATE goals SET currency = ?, target_amount_minor = ?, '
           'saved_amount_minor = ?, last_notified_saved_amount_minor = ?, '
-          'auto_save_amount_minor = ? WHERE id = ?;',
+          'auto_save_amount_minor = ?, $kMarkPendingIfServerBacked '
+          'WHERE id = ?;',
           [
             cur,
             legacyRealToMinor(g.read<double>('target_amount'), scale),
