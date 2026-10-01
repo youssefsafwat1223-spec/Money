@@ -9,7 +9,6 @@ library;
 
 import 'dart:io';
 
-import 'package:drift/drift.dart' show driftRuntimeOptions;
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -247,8 +246,6 @@ void main() {
       // The test binding replaces dart:io HTTP with a stub that answers 400.
       // This suite deliberately talks to the loopback stack, so undo that.
       HttpOverrides.global = null;
-      // Each simulated device owns its own in-memory DB; the warning is noise.
-      driftRuntimeOptions.dontWarnAboutMultipleDatabases = true;
       env = LocalEnv.load();
       remote = RemoteTruth(env);
       probe = ProbeClient(http.Client());
