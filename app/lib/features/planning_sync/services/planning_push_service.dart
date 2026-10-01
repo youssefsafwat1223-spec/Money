@@ -391,6 +391,13 @@ class PlanningPushService {
     final userId = await _getAuthUserId();
     if (userId == null) return const PlanningPushResult();
 
+    // D-7: the AuthSessionValid broadcast has no replay, so a cold start can miss
+    // it. A valid authenticated session at the start of a cycle re-arms rows
+    // parked `auth_required` (cheap UPDATE; no attempt was ever consumed).
+    if (outboxHasValidSession()) {
+      await _queue.reArmAuthParked(entityTypes: _entityTable.keys);
+    }
+
     // MALI-026 (B8-2.10 §9): a verified exact transport re-arms the SAME
     // durable rows before this drain starts.
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
@@ -447,6 +454,9 @@ class PlanningPushService {
               conflicts++;
             case _PlanningPushOutcome.abandoned:
               abandoned++;
+            case _PlanningPushOutcome.deferred:
+              // Edited while being examined: left pending for the next cycle.
+              break;
             case _PlanningPushOutcome.parked:
               // Held durably; not sent, synced, failed, or retried.
               parked++;
@@ -514,8 +524,12 @@ class PlanningPushService {
           cutoverState: _coordinator.state(),
           pushCapability: capability,
         )) {
-      await _queue.park(item.id, exactMoneyTransportUnverifiedReason);
-      return _PlanningPushOutcome.parked;
+      final parkedNow = await _queue.park(
+          item.id, exactMoneyTransportUnverifiedReason,
+          ifOpSeq: item.opSeq);
+      return parkedNow
+          ? _PlanningPushOutcome.parked
+          : _PlanningPushOutcome.deferred;
     }
 
     final remoteTable = _entityTable[item.entityType];
@@ -809,7 +823,9 @@ class PlanningPushService {
             synced_at = ${sqlString(now)},
             server_updated_at = ${sqlNullableString(serverUpdatedAt)},
             ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
-            sync_status = CASE WHEN ${_outboxRowExists(item.entityType, localId)}
+            -- D-1: a 'conflict' entity is never flipped to 'synced' implicitly.
+            sync_status = CASE WHEN sync_status = 'conflict'
+                OR ${_outboxRowExists(item.entityType, localId)}
               THEN sync_status ELSE 'synced' END
         WHERE id = ${sqlString(localId)};
       ''');
@@ -837,7 +853,9 @@ class PlanningPushService {
         UPDATE $table
         SET ${serverId == null ? '' : 'server_id = ${sqlString(serverId)},'}
             synced_at = ${sqlString(now)},
-            sync_status = CASE WHEN ${_outboxRowExists(item.entityType, localId)}
+            -- D-1: a 'conflict' entity is never flipped to 'synced' implicitly.
+            sync_status = CASE WHEN sync_status = 'conflict'
+                OR ${_outboxRowExists(item.entityType, localId)}
               THEN sync_status ELSE 'synced' END
         WHERE id = ${sqlString(localId)};
       ''');
@@ -996,4 +1014,4 @@ class PlanningPushService {
   }
 }
 
-enum _PlanningPushOutcome { pushed, conflict, abandoned, parked }
+enum _PlanningPushOutcome { pushed, conflict, abandoned, parked, deferred }

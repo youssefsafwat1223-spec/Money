@@ -602,11 +602,19 @@ class AccountsPullService {
   }
 
   Future<void> _markConflict(String localId) async {
-    await _db.customStatement('''
-      UPDATE accounts
-      SET sync_status = 'conflict'
-      WHERE id = ${sqlString(localId)};
-    ''');
+    await _db.transaction(() async {
+      await _db.customStatement('''
+        UPDATE accounts
+        SET sync_status = 'conflict'
+        WHERE id = ${sqlString(localId)};
+      ''');
+      // The server row demonstrably exists: clear the ambiguous in-flight marker
+      // so the held conflict can be resolved (keep-remote refuses while set).
+      await _db.customStatement(
+        'UPDATE planning_sync_outbox SET in_flight_seq = NULL '
+        "WHERE entity_type = 'account' AND entity_id = ${sqlString(localId)};",
+      );
+    });
   }
 
   Future<void> _ensureOneDefaultAccount() async {

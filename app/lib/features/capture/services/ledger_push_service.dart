@@ -122,6 +122,11 @@ class LedgerPushService implements LedgerPushAdapter {
     final userId = await _getAuthUserId();
     if (userId == null) return const LedgerPushResult();
 
+    // D-7: the AuthSessionValid broadcast has no replay, so a cold start can miss
+    // it. A valid authenticated session at the start of a cycle re-arms rows
+    // parked `auth_required` (cheap UPDATE; no attempt was ever consumed).
+    if (outboxHasValidSession()) await _queue.reArmAuthParked();
+
     // MALI-026 (B8-2.10 §9): once exact push transport is verified, re-arm any
     // rows parked while it was unverified — the SAME durable rows drain now. A
     // no-op today (nothing is ever parked while the capability is unknown/legacy).
@@ -161,6 +166,9 @@ class LedgerPushService implements LedgerPushAdapter {
             conflicts++;
           case _PushOutcome.abandoned:
             abandoned++;
+          case _PushOutcome.deferred:
+            // Edited while being examined: left pending for the next cycle.
+            break;
           case _PushOutcome.parked:
             // Held durably; not sent, not synced, not a failure/retry.
             parked++;
@@ -213,8 +221,11 @@ class LedgerPushService implements LedgerPushAdapter {
           cutoverState: _coordinator.state(),
           pushCapability: _pushCapability(),
         )) {
-      await _queue.park(item.id, exactMoneyTransportUnverifiedReason);
-      return _PushOutcome.parked;
+      // Only while the row was not edited meanwhile (op_seq unchanged).
+      final parkedNow = await _queue.park(
+          item.id, exactMoneyTransportUnverifiedReason,
+          ifOpSeq: item.opSeq);
+      return parkedNow ? _PushOutcome.parked : _PushOutcome.deferred;
     }
 
     // A-6: an awaiting-FX body (amount 0 + foreign amount/currency) is sent only
@@ -224,8 +235,12 @@ class LedgerPushService implements LedgerPushAdapter {
         LedgerOutboxQueue.isAwaitingFxPayload(payload);
     if (awaitingFx &&
         await _awaitingFxState(userId) != ServerCapabilityState.verified) {
-      await _queue.park(item.id, kParkAwaitingServerFxSupport);
-      return _PushOutcome.parked;
+      // D-3: only while the row was not edited meanwhile — the capability RPC
+      // above can take a while, and a priced edit folded in during it must stay
+      // pending (it is no longer an awaiting-FX body).
+      final parkedNow = await _queue.park(item.id, kParkAwaitingServerFxSupport,
+          ifOpSeq: item.opSeq);
+      return parkedNow ? _PushOutcome.parked : _PushOutcome.deferred;
     }
 
     try {
@@ -246,9 +261,9 @@ class LedgerPushService implements LedgerPushAdapter {
       // not edited in flight (an edit may have priced it).
       if (awaitingFx && e.code == '23514') {
         _capabilities?.noteUnsupported(userId);
-        await _queue.park(item.id, kParkAwaitingServerFxSupport,
+        final parkedNow = await _queue.park(item.id, kParkAwaitingServerFxSupport,
             ifOpSeq: item.opSeq);
-        return _PushOutcome.parked;
+        return parkedNow ? _PushOutcome.parked : _PushOutcome.deferred;
       }
       rethrow;
     }
@@ -585,7 +600,8 @@ class LedgerPushService implements LedgerPushAdapter {
           -- A-2 (G3): 'synced' only when no outbox row remains for this
           -- transaction (an edit folded in while the push was in flight keeps
           -- it pending; its server id/version are persisted regardless).
-          sync_status = CASE WHEN EXISTS (
+          -- D-1: an entity in 'conflict' is never flipped to 'synced' implicitly.
+          sync_status = CASE WHEN sync_status = 'conflict' OR EXISTS (
             SELECT 1 FROM ledger_sync_outbox
             WHERE transaction_id = ${sqlString(transactionId)})
             THEN sync_status ELSE 'synced' END
@@ -716,4 +732,4 @@ class LedgerPushService implements LedgerPushAdapter {
   }
 }
 
-enum _PushOutcome { pushed, conflict, abandoned, parked }
+enum _PushOutcome { pushed, conflict, abandoned, parked, deferred }

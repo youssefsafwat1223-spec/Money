@@ -2,6 +2,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
+import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
@@ -615,6 +616,64 @@ void main() {
       expect(await _accountSyncStatus(db, 'conflict-account'), 'conflict');
       expect((await repo.getById('conflict-account'))?.name,
           'Main conflict-account');
+    });
+
+    test('pull marks local pending edit as conflict — clears the ambiguous in-flight marker so keep-remote can resolve (D)', () async {
+      final remote = _FakeAccountsRemote();
+      final repo = DriftAccountRepository(db);
+      await repo.create(_account('conflict-account'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'conflict-account';",
+      );
+      // A transient failure kept the durable "possibly sent" marker.
+      await db.customStatement(
+        "INSERT INTO planning_sync_outbox(id, entity_type, entity_id, operation, "
+        "payload_json, attempt_count, status, created_at, updated_at, op_seq, "
+        "in_flight_seq) VALUES ('o1', 'account', 'conflict-account', 'update', "
+        "'{}', 0, 'pending', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z', 1, 1);",
+      );
+      remote.rowsByLocalId['conflict-account'] = {
+        'id': 'server-conflict-account',
+        'local_id': 'conflict-account',
+        'name': 'Remote Edit',
+        'currency': 'SAR',
+        'type': 'bank',
+        'is_default': false,
+        'sort_order': 1,
+        'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
+        'updated_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+        'deleted_at': null,
+      };
+
+      final pull = AccountsPullService(
+        db: db,
+        isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+      
+    // C-3: covers pull MECHANICS; consent is asserted in
+    // financial_pull_consent_test.dart.
+    mayEgress: () async => true,
+  );
+
+      final result = await pull.pull();
+
+      expect(result.conflicts, 1);
+      expect(await _accountSyncStatus(db, 'conflict-account'), 'conflict');
+      expect(
+          (await db
+                  .customSelect(
+                      "SELECT in_flight_seq AS m FROM planning_sync_outbox WHERE id = 'o1';")
+                  .getSingle())
+              .readNullable<int>('m'),
+          isNull,
+          reason: 'a pull-raised conflict clears the ambiguous marker');
+      await db.customStatement(
+          "UPDATE accounts SET server_id = 'server-conflict-account' WHERE id = 'conflict-account';");
+      expect(
+          await UniversalConflictResolver(db: db, reEnqueue: const {})
+              .resolveKeepRemote('account', 'conflict-account'),
+          isTrue);
     });
 
     test('fresh pull paginates 201 equal-timestamp rows and persists last key',

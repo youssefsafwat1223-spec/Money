@@ -17,6 +17,15 @@ const String kOutboxCoalescibleSql =
     "(status = 'pending' OR (status = 'parked' AND "
     "COALESCE(failure_class, '') IN $kOutboxSelfHealingParkReasonsSql))";
 
+/// D-9: SQL predicate restricting a coalesce target to rows recorded for the
+/// SAME owner. An edit never folds into a row owned by a different uid (that
+/// would carry this owner's payload under another owner's identity). A legacy
+/// NULL-owner row stays foldable — the reconcile rule stamps it with the
+/// verified current uid.
+String outboxOwnerMatchSql(String? ownerUid) => ownerUid == null
+    ? 'owner_uid IS NULL'
+    : '(owner_uid IS NULL OR owner_uid = ${sqlString(ownerUid)})';
+
 /// The identity a new outbox row is recorded for.
 typedef OutboxIntent = ({String? ownerUid});
 

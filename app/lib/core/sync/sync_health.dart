@@ -9,6 +9,8 @@ import 'package:supabase_flutter/supabase_flutter.dart'
 
 import '../../data/db/app_database.dart';
 import '../../data/db/sql_value_codec.dart';
+import '../session/unsynced_inventory.dart'
+    show countUnprovenFinancialRows, countUnresolvedConflicts;
 import '../di/app_providers.dart' show appDatabaseProvider;
 import 'outbox_failure.dart';
 
@@ -70,6 +72,7 @@ enum SyncErrorClass {
         case OutboxFailureClass.duplicateBusinessKey:
         case OutboxFailureClass.serverSchemaMismatch:
         case OutboxFailureClass.serverCheckViolation:
+        case OutboxFailureClass.permissionDenied:
           return serverRejected;
         case OutboxFailureClass.missingDependency:
           return unknown;
@@ -138,7 +141,17 @@ class SyncQueueCounts {
     this.senderMappingsPermanentFailed = 0,
     this.lastLocalMutationAt,
     this.nextRetryAt,
+    this.conflicts = 0,
+    this.unprovenLocalRows = 0,
   });
+
+  /// D-5: entities in `sync_status = 'conflict'` — a two-device collision the
+  /// user must resolve. Counted as needing attention, never "all synced".
+  final int conflicts;
+
+  /// D-5: server-less local rows (no `server_id`, not on an outbox, not
+  /// deleted/ignored) still awaiting backfill — local-only until uploaded.
+  final int unprovenLocalRows;
 
   /// Ledger + planning outbox rows awaiting push.
   final int pending;
@@ -428,6 +441,9 @@ class SyncHealth {
       inFlight += agg.readNullable<int>('f') ?? 0;
     }
     return SyncQueueCounts(
+      conflicts: await countUnresolvedConflicts(db),
+      unprovenLocalRows:
+          await countUnprovenFinancialRows(db, excludeIgnored: true),
       deadLetterByReason: deadLetterByReason,
       inFlight: inFlight,
       lastLocalMutationAt:

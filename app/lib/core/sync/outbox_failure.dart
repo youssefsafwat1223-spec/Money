@@ -1,7 +1,11 @@
 import 'dart:io';
 
 import 'package:supabase_flutter/supabase_flutter.dart'
-    show AuthException, AuthRetryableFetchException, PostgrestException;
+    show
+        AuthException,
+        AuthRetryableFetchException,
+        PostgrestException,
+        Supabase;
 
 /// MALI-023: typed classification of an outbox push failure, so the queue can
 /// apply the right recovery instead of the old "always eligible + reset to 1"
@@ -36,7 +40,12 @@ enum OutboxFailureClass {
   serverSchemaMismatch,
 
   /// A-3: 23514 — a server CHECK constraint rejected the row.
-  serverCheckViolation;
+  serverCheckViolation,
+
+  /// D-4: 42501 / 403 while a VALID session exists — an RLS / permission denial,
+  /// not an authentication problem. Permanent (dead-letter: observable and
+  /// re-armable by Retry), never hidden forever as `auth_required`.
+  permissionDenied;
 
   /// A permanent failure is dead-lettered immediately (no retry).
   bool get isPermanent =>
@@ -45,7 +54,8 @@ enum OutboxFailureClass {
       this == corruptedPayload ||
       this == duplicateBusinessKey ||
       this == serverSchemaMismatch ||
-      this == serverCheckViolation;
+      this == serverCheckViolation ||
+      this == permissionDenied;
 
   /// The observable reason stored in `failure_class` (SyncHealth breakdown).
   /// The A-3 classes use stable snake_case reasons; older classes keep [name].
@@ -53,6 +63,7 @@ enum OutboxFailureClass {
         duplicateBusinessKey => kFailDuplicateBusinessKey,
         serverSchemaMismatch => kFailServerSchemaMismatch,
         serverCheckViolation => kFailServerCheckViolation,
+        permissionDenied => kFailPermissionDenied,
         _ => name,
       };
 
@@ -79,6 +90,22 @@ String? coalesceOutboxOperation(String existing, String incoming) {
 const String kFailDuplicateBusinessKey = 'duplicate_business_key';
 const String kFailServerSchemaMismatch = 'server_schema_mismatch';
 const String kFailServerCheckViolation = 'server_check_violation';
+const String kFailPermissionDenied = 'permission_denied';
+
+/// D-4: whether a VALID authenticated session exists right now. Consulted when a
+/// write is rejected 42501/403: with a valid session that is an RLS denial
+/// (permanent); with no/expired session it is an auth problem (re-armed on the
+/// next valid session). Injectable for tests; never throws.
+bool Function() outboxHasValidSession = _defaultHasValidSession;
+
+bool _defaultHasValidSession() {
+  try {
+    final session = Supabase.instance.client.auth.currentSession;
+    return session != null && !session.isExpired;
+  } catch (_) {
+    return false;
+  }
+}
 
 /// A-3: true when [e] is a unique-violation (23505) raised by the entity's OWN
 /// idempotency key (for example `(user_id, local_id)`), as opposed to some other
@@ -171,7 +198,16 @@ const int kOutboxMaxAttempts = 12;
 /// Maps a thrown push error onto an [OutboxFailureClass]. Never inspects
 /// financial payload contents — only error type / status code / message shape.
 /// Replaces the old string-match-on-'duplicate'/'409' classification.
-OutboxFailureClass classifyOutboxError(Object error) {
+///
+/// D-4: JWT problems (PGRST301/302/303, 401, [AuthException]) are always
+/// [OutboxFailureClass.auth]. 42501/403 are auth ONLY when there is no valid
+/// current session ([hasValidSession], defaulting to [outboxHasValidSession]);
+/// with a valid session they are a permanent [OutboxFailureClass.permissionDenied].
+OutboxFailureClass classifyOutboxError(Object error, {bool? hasValidSession}) {
+  OutboxFailureClass denied() =>
+      (hasValidSession ?? outboxHasValidSession())
+          ? OutboxFailureClass.permissionDenied
+          : OutboxFailureClass.auth;
   if (error is SocketException || error is HttpException) {
     return OutboxFailureClass.transientNetwork;
   }
@@ -202,13 +238,12 @@ OutboxFailureClass classifyOutboxError(Object error) {
     if (code == '429') return OutboxFailureClass.rateLimit;
     // PGRST301/302/303: JWT expired / invalid / claims rejected by PostgREST.
     if (code == '401' ||
-        code == '403' ||
-        code == '42501' ||
         code == 'PGRST301' ||
         code == 'PGRST302' ||
         code == 'PGRST303') {
       return OutboxFailureClass.auth;
     }
+    if (code == '403' || code == '42501') return denied();
     if (code.startsWith('5')) return OutboxFailureClass.serverError;
     if (code == '23502' ||
         code == '22P02' ||
@@ -238,9 +273,10 @@ OutboxFailureClass classifyOutboxError(Object error) {
   if (msg.contains('429') || msg.contains('rate limit')) {
     return OutboxFailureClass.rateLimit;
   }
-  if (msg.contains('401') || msg.contains('403') || msg.contains('jwt')) {
+  if (msg.contains('401') || msg.contains('jwt')) {
     return OutboxFailureClass.auth;
   }
+  if (msg.contains('403')) return denied();
   // Unknown → treat as transient (retry with backoff) rather than dead-letter,
   // so a novel-but-recoverable error is never silently discarded.
   return OutboxFailureClass.transientNetwork;

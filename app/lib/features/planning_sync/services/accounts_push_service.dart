@@ -315,6 +315,16 @@ class AccountsPushService {
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPushResult();
 
+    // D-7: the AuthSessionValid broadcast has no replay, so a cold start can miss
+    // it. A valid authenticated session at the start of a cycle re-arms rows
+    // parked `auth_required` (cheap UPDATE; no attempt was ever consumed).
+    if (outboxHasValidSession()) {
+      await _queue.reArmAuthParked(entityTypes: const [
+        PlanningOutboxQueue.accountsEntityType,
+        PlanningOutboxQueue.accountDefaultCommandType,
+      ]);
+    }
+
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
       await _queue.reArmParked();
     }
@@ -342,6 +352,8 @@ class AccountsPushService {
             conflicts++;
           case _AccountsPushOutcome.abandoned:
             abandoned++;
+          case _AccountsPushOutcome.deferred:
+            break; // edited while examined: stays pending for the next cycle
           case _AccountsPushOutcome.parked:
             parked++;
             _health?.noteCapabilityParked(SyncDomain.accounts);
@@ -407,8 +419,12 @@ class AccountsPushService {
           cutoverState: _coordinator.state(),
           pushCapability: _pushCapability(),
         )) {
-      await _queue.park(item.id, exactMoneyTransportUnverifiedReason);
-      return _AccountsPushOutcome.parked;
+      final parkedNow = await _queue.park(
+          item.id, exactMoneyTransportUnverifiedReason,
+          ifOpSeq: item.opSeq);
+      return parkedNow
+          ? _AccountsPushOutcome.parked
+          : _AccountsPushOutcome.deferred;
     }
 
     switch (item.operation) {
@@ -663,4 +679,4 @@ class AccountsPushService {
   }
 }
 
-enum _AccountsPushOutcome { pushed, conflict, abandoned, parked }
+enum _AccountsPushOutcome { pushed, conflict, abandoned, parked, deferred }

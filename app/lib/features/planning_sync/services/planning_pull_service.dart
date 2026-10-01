@@ -1179,11 +1179,19 @@ class PlanningPullService {
   }
 
   Future<void> _markConflict(String table, String localId) async {
-    await _db.customStatement('''
-      UPDATE $table
-      SET sync_status = 'conflict'
-      WHERE id = ${sqlString(localId)};
-    ''');
+    await _db.transaction(() async {
+      await _db.customStatement('''
+        UPDATE $table
+        SET sync_status = 'conflict'
+        WHERE id = ${sqlString(localId)};
+      ''');
+      // The server row demonstrably exists: clear the ambiguous in-flight marker
+      // so the held conflict can be resolved (keep-remote refuses while set).
+      await _db.customStatement(
+        'UPDATE planning_sync_outbox SET in_flight_seq = NULL '
+        'WHERE entity_id = ${sqlString(localId)};',
+      );
+    });
   }
 
   /// MALI-029: resolve one pull page's identity + (merchant | category) keys in
