@@ -141,7 +141,21 @@ class SyncStatus {
     }
     if (!cloudConsent) return make(SyncStatusKind.consentOff, kept);
     if (attention > 0) return make(SyncStatusKind.failed, attention);
-    if (syncRunning) return make(SyncStatusKind.syncing, queued);
+    // Offline truth: a run in progress must not mask work that is known to be
+    // blocked on the network (outbox rows stalled on transientNetwork, or the
+    // outbox domains' latest attempt failed offline). Report waiting(n) — runs
+    // can be back-to-back/slow while offline, so `running` is nearly always true.
+    final offlineBlocked = queued > 0 &&
+        (counts.networkStalled > 0 ||
+            _kOutboxDomains.any((d) {
+              final h = health[d];
+              return h != null &&
+                  h.lastErrorClass == SyncErrorClass.offline &&
+                  h.consecutiveFailures > 0;
+            }));
+    if (syncRunning && !offlineBlocked) {
+      return make(SyncStatusKind.syncing, queued);
+    }
     if (queued > 0 || counts.inFlight > 0) {
       return make(SyncStatusKind.waiting, queued > 0 ? queued : counts.inFlight);
     }

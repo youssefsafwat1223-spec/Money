@@ -205,6 +205,68 @@ void main() {
     });
   });
 
+  group('offline truth beats a run in progress', () {
+    Map<SyncDomain, SyncDomainHealth> offlineHealth(int fails) => {
+          for (final d in SyncDomain.values)
+            d: SyncDomainHealth(
+              lastPushSuccessAt: _t0,
+              lastErrorClass: SyncErrorClass.offline,
+              consecutiveFailures: fails,
+            ),
+        };
+
+    test('running + network-stalled pending rows -> waiting(n), not syncing',
+        () {
+      final s = _derive(
+        counts: const SyncQueueCounts(pending: 2, networkStalled: 2),
+        running: true,
+      );
+      expect(s.kind, SyncStatusKind.waiting);
+      expect(s.count, 2);
+      expect(s.waitingForConnection, 2);
+    });
+
+    test('running + latest outbox attempt failed offline -> waiting(n)', () {
+      final s = _derive(
+        counts: const SyncQueueCounts(pending: 1),
+        health: offlineHealth(2),
+        running: true,
+      );
+      expect(s.kind, SyncStatusKind.waiting);
+    });
+
+    test('observed sequence: repeated failing runs never leave it syncing', () {
+      for (var attempt = 1; attempt <= 3; attempt++) {
+        final s = _derive(
+          counts: const SyncQueueCounts(pending: 1, networkStalled: 1),
+          health: offlineHealth(attempt),
+          running: true,
+        );
+        expect(s.kind, SyncStatusKind.waiting, reason: 'attempt $attempt');
+      }
+    });
+
+    test('running with healthy network and queued work stays syncing', () {
+      expect(
+        _derive(counts: const SyncQueueCounts(pending: 1), running: true).kind,
+        SyncStatusKind.syncing,
+      );
+    });
+
+    test('stale offline error with no queued work is never waiting/allSynced '
+        'regressions', () {
+      final s = _derive(health: {
+        for (final d in SyncDomain.values)
+          d: SyncDomainHealth(
+            lastPushSuccessAt: _t1,
+            lastErrorClass: SyncErrorClass.offline,
+            consecutiveFailures: 3,
+          ),
+      });
+      expect(s.kind, SyncStatusKind.allSynced);
+    });
+  });
+
   test('SyncRunState is counted and notifies on the edges only', () {
     final state = SyncRunState.instance;
     var notes = 0;
