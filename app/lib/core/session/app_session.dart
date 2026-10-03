@@ -866,6 +866,28 @@ class AppSession extends ValueNotifier<SessionStatus> {
     );
   }
 
+  /// B15 — the ONE full-reset sequence (Settings "erase all data", Privacy
+  /// account deletion). Same fence as [signOut]: the admission generation is
+  /// invalidated FIRST so an in-flight drain bound to it is rejected and cannot
+  /// write into the DB being wiped; then the DB wipe, then [wipeAndReset]; and
+  /// finally the remote auth sign-out ([signOutRemote], best effort — the local
+  /// wipe already protects the device if the network call fails).
+  Future<void> resetAllLocalData({
+    required Future<void> Function() wipeDatabase,
+    Future<void> Function()? signOutRemote,
+  }) async {
+    await _invalidateOwnerGeneration();
+    await wipeDatabase();
+    await wipeAndReset();
+    if (signOutRemote != null) {
+      try {
+        await signOutRemote();
+      } catch (_) {
+        // Local reset above is authoritative.
+      }
+    }
+  }
+
   /// حذف الحساب وكل البيانات المحلية (Privacy → حذف كل بياناتي).
   Future<void> wipeAndReset() async {
     // MALI-054n/070n: purge native + filesystem capture residue as part of the

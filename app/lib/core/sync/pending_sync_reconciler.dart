@@ -8,7 +8,12 @@ import '../../data/repositories/drift_bill_repository.dart';
 import '../../data/repositories/drift_card_repository.dart' show cardFromRow;
 import '../../data/repositories/drift_plan_repository.dart';
 import '../../data/repositories/drift_repository_support.dart'
-    show budgetFromRow, goalFromRow, transactionFromRow, userSettingsFromRow;
+    show
+        budgetFromRow,
+        goalContributionFromRow,
+        goalFromRow,
+        transactionFromRow,
+        userSettingsFromRow;
 import '../../domain/entities/category_entity.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../../features/planning_sync/services/planning_outbox_queue.dart';
@@ -41,7 +46,11 @@ import 'sync_health.dart';
 ///    `pending`, are reported once per table per run as a coarse SyncHealth
 ///    failure, and remain visible to the unsynced inventory.
 ///  - Child tables (goal_contributions / bill_payments / plan links) are
-///    immutable once written and are not covered.
+///    immutable (create/delete only), so the only valid ops are `create` (an
+///    idempotent re-push by client_request_id) and, for a tombstoned row,
+///    `delete`. A tombstoned goal contribution has NO valid op (the server has
+///    no delete endpoint — the child push dead-letters it), so it is left
+///    `pending` and unqueued rather than inventing one.
 class PendingSyncReconciler {
   PendingSyncReconciler({
     required AppDatabase db,
@@ -99,6 +108,8 @@ class PendingSyncReconciler {
       String? outboxEntityType,
       String extraWhere = '',
       String extraCols = '',
+      // Entity key expression for tables with no `id` column (plan links).
+      String idExpr = 'id',
       bool hasDeletedAt = true,
       SyncDomain domain = SyncDomain.planning,
       required Future<bool> Function(Map<String, Object?> row) enqueue,
@@ -112,11 +123,11 @@ class PendingSyncReconciler {
         // Keyset page: `id > :lastId` so a row that fails is simply stepped
         // over for this run and can never pin the window.
         sql: (lastId, pageSize) => '''
-          SELECT id, ${hasDeletedAt ? 'deleted_at' : 'NULL AS deleted_at'}$extraCols FROM $table
+          SELECT $idExpr AS id, ${hasDeletedAt ? 'deleted_at' : 'NULL AS deleted_at'}$extraCols FROM $table
           WHERE server_id IS NOT NULL AND sync_status = 'pending' $extraWhere
-            AND id NOT IN (SELECT $outboxIdCol FROM $outboxTable $typeFilter)
-            AND id > ${sqlString(lastId)}
-          ORDER BY id LIMIT $pageSize;
+            AND $idExpr NOT IN (SELECT $outboxIdCol FROM $outboxTable $typeFilter)
+            AND $idExpr > ${sqlString(lastId)}
+          ORDER BY $idExpr LIMIT $pageSize;
         ''',
       ));
     }
@@ -254,6 +265,51 @@ class PendingSyncReconciler {
       return row != null &&
           await _planning.enqueueSettings(
               PlanningSyncOperation.update, userSettingsFromRow(row));
+    });
+
+    // Children (immutable). Deleted -> delete; live -> idempotent create.
+    each('bill_payments', pe, 'entity_id',
+        outboxEntityType: PlanningOutboxQueue.billPaymentsEntityType,
+        enqueue: (r) async {
+      final payment = await bills.getPaymentIncludingDeleted(r['id']! as String);
+      return payment != null &&
+          await _planning.enqueueBillPayment(
+              r['deleted_at'] == null
+                  ? PlanningSyncOperation.create
+                  : PlanningSyncOperation.delete,
+              payment);
+    });
+    each('goal_contributions', pe, 'entity_id',
+        outboxEntityType: PlanningOutboxQueue.goalContributionsEntityType,
+        // No delete endpoint exists: a tombstoned contribution has no valid op.
+        extraWhere: 'AND deleted_at IS NULL',
+        enqueue: (r) async {
+      final row = await _db.customSelect(
+        'SELECT c.*, g.currency AS goal_currency FROM goal_contributions c '
+        'JOIN goals g ON g.id = c.goal_id '
+        'WHERE c.id = ${sqlString(r['id']! as String)} LIMIT 1;',
+      ).getSingleOrNull();
+      return row != null &&
+          await _planning.enqueueGoalContribution(
+            PlanningSyncOperation.create,
+            goalContributionFromRow(row, row.read<String>('goal_currency')),
+          );
+    });
+    // Plan links have no `id`: key = '<plan_id>:<transaction_id>' (the outbox
+    // entity id).
+    each('plan_transaction_links', pe, 'entity_id',
+        outboxEntityType: PlanningOutboxQueue.planLinksEntityType,
+        idExpr: "plan_id || ':' || transaction_id",
+        extraCols: ', plan_id, transaction_id, created_at',
+        enqueue: (r) async {
+      return _planning.enqueuePlanLink(
+        r['deleted_at'] == null
+            ? PlanningSyncOperation.create
+            : PlanningSyncOperation.delete,
+        planId: r['plan_id']! as String,
+        transactionId: r['transaction_id']! as String,
+        createdAt: dateTimeFromSql(r['created_at']! as String),
+      );
     });
 
     final quota = (limit / sources.length).ceil().clamp(1, limit);

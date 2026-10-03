@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../../core/sync/sync_health.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -252,6 +254,7 @@ class LedgerSyncService implements LedgerPullAdapter {
     try {
       // Prime the account/category resolution snapshots once for the whole pull.
       await _primeResolutionCaches();
+      await _retryQuarantined(admitted);
       var cursor = from ?? await readSyncCursor(_db, _cursorKey);
       var pages = 0;
       while (true) {
@@ -272,23 +275,31 @@ class LedgerSyncService implements LedgerPullAdapter {
           var pageUpdated = 0;
           var pageConflicts = 0;
           var pageTombstoned = 0;
+          final appliedIds = <String>[];
           for (final row in rows) {
-            if (row['deleted_at'] != null) {
-              if (await _processTombstone(row)) pageTombstoned++;
-              continue;
-            }
-            final outcome = await _processRow(row);
+            // B12: a row that throws is quarantined (raw JSON, durable) and the
+            // page + cursor still advance. Each row runs in its own savepoint so
+            // a poison row's partial writes roll back without the rest of the page.
+            final outcome = await _applyRowOrQuarantine(row);
+            if (outcome == _RowOutcome.quarantined) continue;
             switch (outcome) {
               case _RowOutcome.imported:
                 pageImported++;
               case _RowOutcome.updated:
                 pageUpdated++;
+              case _RowOutcome.tombstoned:
+                pageTombstoned++;
               case _RowOutcome.conflict:
                 pageConflicts++;
               case _RowOutcome.skipped:
+              case _RowOutcome.quarantined:
                 break;
             }
+            final id = row['id'];
+            if (id is String) appliedIds.add(id);
           }
+          // A row that applied cleanly supersedes any earlier quarantined copy.
+          await _clearQuarantined(appliedIds);
           if (!admitted()) throw const ReconcilePullCancelled();
           await writeSyncCursor(_db, _cursorKey, nextCursor);
           return (
@@ -362,11 +373,7 @@ class LedgerSyncService implements LedgerPullAdapter {
   Future<void> applyServerRow(Map<String, dynamic> row) async {
     await _primeResolutionCaches();
     try {
-      if (row['deleted_at'] != null) {
-        await _processTombstone(row);
-      } else {
-        await _processRow(row);
-      }
+      await _applyRow(row);
     } finally {
       _clearResolutionCaches();
     }
@@ -408,7 +415,8 @@ class LedgerSyncService implements LedgerPullAdapter {
       // is still at our base, leave the row alone and let the push proceed.
       if (syncStatus == 'pending') {
         final baseToken = meta.readNullable<String>('server_updated_at');
-        if (serverUpdatedAt != baseToken) {
+        if (canonicalServerTimestamp(serverUpdatedAt) !=
+            canonicalServerTimestamp(baseToken)) {
           await _db.transaction(() async {
             await _db.customStatement('''
               UPDATE transactions
@@ -449,7 +457,9 @@ class LedgerSyncService implements LedgerPullAdapter {
       // when something actually differs.
       final alreadySynced = syncStatus == 'synced' &&
           meta.readNullable<String>('server_id') == serverId &&
-          meta.readNullable<String>('server_updated_at') == serverUpdatedAt;
+          canonicalServerTimestamp(
+                  meta.readNullable<String>('server_updated_at')) ==
+              canonicalServerTimestamp(serverUpdatedAt);
       if (alreadySynced && !accountNeedsRepair) return _RowOutcome.skipped;
 
       // The server row changed since we last saw it and there is no pending
@@ -506,7 +516,7 @@ class LedgerSyncService implements LedgerPullAdapter {
             updated_at = ${sqlString(now)},
             server_id = ${sqlString(serverId)},
             synced_at = ${sqlString(now)},
-            server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+            server_updated_at = ${sqlNullableString(canonicalServerTimestamp(serverUpdatedAt))},
             server_revision = ${sqlNullableNum(serverRevision)},
             sync_status = 'synced'
         WHERE id = ${sqlString(localId)};
@@ -538,7 +548,7 @@ class LedgerSyncService implements LedgerPullAdapter {
       UPDATE transactions
       SET server_id = ${sqlString(serverId)},
           synced_at = ${sqlString(now)},
-          server_updated_at = ${sqlNullableString(serverUpdatedAt)},
+          server_updated_at = ${sqlNullableString(canonicalServerTimestamp(serverUpdatedAt))},
           server_revision = ${sqlNullableNum(serverRevision)},
           sync_status = 'synced'
       WHERE id = ${sqlString(entity.id)};
@@ -555,22 +565,45 @@ class LedgerSyncService implements LedgerPullAdapter {
     return _RowOutcome.imported;
   }
 
-  Future<bool> _processTombstone(Map<String, dynamic> row) async {
+  Future<_RowOutcome> _processTombstone(Map<String, dynamic> row) async {
     final serverId = row['id'] as String?;
-    if (serverId == null) return false;
+    if (serverId == null) return _RowOutcome.skipped;
     final localId = await _findLocalId(serverId, null);
-    if (localId == null) return false;
+    if (localId == null) return _RowOutcome.skipped;
 
     final meta = await _db
         .customSelect(
-          "SELECT status, sync_status FROM transactions WHERE id = ${sqlString(localId)} LIMIT 1;",
+          "SELECT status, sync_status, EXISTS(SELECT 1 FROM ledger_sync_outbox "
+          "WHERE transaction_id = ${sqlString(localId)}) AS has_op "
+          "FROM transactions WHERE id = ${sqlString(localId)} LIMIT 1;",
         )
         .getSingleOrNull();
-    if (meta == null) return false;
+    if (meta == null) return _RowOutcome.skipped;
 
     final syncStatus = meta.readNullable<String>('sync_status');
     final status = meta.read<String>('status');
-    if (syncStatus == 'conflict' || status == 'ignored') return false;
+    if (syncStatus == 'conflict' || status == 'ignored') {
+      return _RowOutcome.skipped;
+    }
+
+    // B7: a remote tombstone vs a pending local edit is a CONFLICT, never a
+    // silent delete — same representation as the live-row conflict in
+    // _processRow (local fields and the outbox op are kept; the ambiguous
+    // in-flight marker is cleared so keep-local / keep-remote can resolve it).
+    if (syncStatus == 'pending' || meta.read<bool>('has_op')) {
+      await _db.transaction(() async {
+        await _db.customStatement('''
+          UPDATE transactions
+          SET sync_status = 'conflict'
+          WHERE id = ${sqlString(localId)};
+        ''');
+        await _db.customStatement(
+          'UPDATE ledger_sync_outbox SET in_flight_seq = NULL '
+          'WHERE transaction_id = ${sqlString(localId)};',
+        );
+      });
+      return _RowOutcome.conflict;
+    }
 
     await _db.customStatement('''
       UPDATE transactions
@@ -578,7 +611,87 @@ class LedgerSyncService implements LedgerPullAdapter {
           updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
       WHERE id = ${sqlString(localId)};
     ''');
-    return true;
+    return _RowOutcome.tombstoned;
+  }
+
+  Future<_RowOutcome> _applyRow(Map<String, dynamic> row) =>
+      row['deleted_at'] != null ? _processTombstone(row) : _processRow(row);
+
+  // ---- B12: per-row quarantine --------------------------------------------
+  // Reuses the existing `parked_child_rows` table (no schema change) with
+  // table_name='transactions' and reason 'quarantine' (bounded retry) or
+  // 'terminal' (given up, still countable). Child sync only reads rows for its
+  // own child table names, so these are never picked up by it.
+  static const _quarantineTable = 'transactions';
+  static const _quarantineMaxAttempts = 5;
+
+  Future<_RowOutcome> _applyRowOrQuarantine(Map<String, dynamic> row) async {
+    try {
+      return await _db.transaction(() => _applyRow(row));
+    } on ReconcilePullCancelled {
+      rethrow;
+    } catch (e) {
+      final id = row['id'];
+      if (id is! String || id.isEmpty) rethrow; // no durable key: cannot park
+      _health?.noteFailure(SyncDomain.ledger, e);
+      final now = sqlString(dateTimeToSql(DateTime.now().toUtc()));
+      await _db.customStatement('''
+        INSERT INTO parked_child_rows(
+          table_name, server_id, row_json, reason, attempt_count,
+          first_seen_at, updated_at
+        ) VALUES (
+          ${sqlString(_quarantineTable)}, ${sqlString(id)},
+          ${sqlString(jsonEncode(row))}, 'quarantine', 0, $now, $now
+        ) ON CONFLICT(table_name, server_id) DO UPDATE SET
+          row_json = excluded.row_json, updated_at = excluded.updated_at;
+      ''');
+      return _RowOutcome.quarantined;
+    }
+  }
+
+  Future<void> _clearQuarantined(List<String> serverIds) async {
+    if (serverIds.isEmpty) return;
+    await _db.customStatement(
+      'DELETE FROM parked_child_rows '
+      'WHERE table_name = ${sqlString(_quarantineTable)} '
+      'AND server_id IN (${serverIds.map(sqlString).join(',')});',
+    );
+  }
+
+  /// Bounded retry of quarantined rows at the start of a pull. Success clears
+  /// the row; a failure bumps the attempt count and becomes 'terminal' (kept,
+  /// countable) at the cap so it stops looping.
+  Future<void> _retryQuarantined(bool Function() admitted) async {
+    final parked = await _db
+        .customSelect(
+          'SELECT server_id, row_json, attempt_count FROM parked_child_rows '
+          'WHERE table_name = ${sqlString(_quarantineTable)} '
+          "AND reason = 'quarantine' ORDER BY first_seen_at LIMIT 50;",
+        )
+        .get();
+    for (final p in parked) {
+      if (!admitted()) return;
+      final serverId = p.read<String>('server_id');
+      final attempts = p.read<int>('attempt_count') + 1;
+      try {
+        final row =
+            jsonDecode(p.read<String>('row_json')) as Map<String, dynamic>;
+        await _db.transaction(() async {
+          await _applyRow(row);
+          await _clearQuarantined([serverId]);
+        });
+      } catch (_) {
+        final reason =
+            attempts >= _quarantineMaxAttempts ? 'terminal' : 'quarantine';
+        await _db.customStatement(
+          'UPDATE parked_child_rows SET attempt_count = $attempts, '
+          'reason = ${sqlString(reason)}, '
+          'updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))} '
+          'WHERE table_name = ${sqlString(_quarantineTable)} '
+          'AND server_id = ${sqlString(serverId)};',
+        );
+      }
+    }
   }
 
   Future<String?> _findLocalId(String serverId, String? payloadId) async {
@@ -730,4 +843,11 @@ class LedgerSyncService implements LedgerPullAdapter {
       metadata is Map ? metadata[key] as String? : null;
 }
 
-enum _RowOutcome { imported, updated, conflict, skipped }
+enum _RowOutcome {
+  imported,
+  updated,
+  tombstoned,
+  conflict,
+  skipped,
+  quarantined,
+}

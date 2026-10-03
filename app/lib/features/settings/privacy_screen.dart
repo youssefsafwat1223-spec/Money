@@ -245,16 +245,12 @@ class PrivacyScreen extends ConsumerWidget {
       return;
     }
 
-    await ref.read(dataWipeServiceProvider).wipeAll();
-    await AppSession.instance.wipeAndReset();
-    if (SupabaseConfig.isConfigured) {
-      try {
-        await supabase.Supabase.instance.client.auth.signOut();
-      } catch (_) {
-        // Local wipe/reset above already protects the device even if the
-        // network sign-out fails.
-      }
-    }
+    await AppSession.instance.resetAllLocalData(
+      wipeDatabase: ref.read(dataWipeServiceProvider).wipeAll,
+      signOutRemote: SupabaseConfig.isConfigured
+          ? supabase.Supabase.instance.client.auth.signOut
+          : null,
+    );
     if (context.mounted) context.go('/welcome');
   }
 

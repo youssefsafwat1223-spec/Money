@@ -6,6 +6,7 @@ import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/sync_cursor.dart';
 import '../../../data/sync/transaction_server_mappers.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/finance/money.dart';
@@ -250,7 +251,7 @@ class LedgerOutboxQueue {
       // base: stripping it made the next push fetch the server's CURRENT token
       // and overwrite the other device's edit.
       if (serverUpdatedAt != null) {
-        payload['server_updated_at'] = serverUpdatedAt;
+        payload['server_updated_at'] = canonicalServerTimestamp(serverUpdatedAt);
       }
       if (serverRevision != null) {
         payload['server_revision'] = serverRevision;

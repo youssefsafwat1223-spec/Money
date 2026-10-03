@@ -1,7 +1,9 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:money_companion/core/auth/account_deletion_service.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/privacy/data_wipe_service.dart';
@@ -59,7 +61,7 @@ Widget _app(_FakeAccountDeletionService service, _NoopDataWipeService wipe) {
     // PrivacyScreen reads `context.l10n` (the merchant-personalization choice
     // added in COUPONS Phase 1), so the harness has to supply delegates. Arabic
     // because that is the app's default locale and the screen is RTL there.
-    child: MaterialApp(
+    child: MaterialApp.router(
       theme: AppTheme.light,
       locale: const Locale('ar'),
       supportedLocales: AppL10n.supportedLocales,
@@ -69,7 +71,10 @@ Widget _app(_FakeAccountDeletionService service, _NoopDataWipeService wipe) {
         GlobalWidgetsLocalizations.delegate,
         GlobalCupertinoLocalizations.delegate,
       ],
-      home: const PrivacyScreen(),
+      routerConfig: GoRouter(routes: [
+        GoRoute(path: '/', builder: (_, __) => const PrivacyScreen()),
+        GoRoute(path: '/welcome', builder: (_, __) => const SizedBox()),
+      ]),
     ),
   );
 }
@@ -81,6 +86,9 @@ Future<void> _tapEnsuringVisible(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  // The reset fence invalidates the admission generation in secure storage first.
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
   testWidgets('pending deletion card shows scheduled date and cancel action',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
@@ -135,6 +143,12 @@ void main() {
     await tester.tap(find.text('حذف الحساب'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
+    // The secure-storage invalidation (platform channel) runs before the wipe.
+    for (var i = 0; i < 5 && wipe.wipeCalls == 0; i++) {
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump();
+    }
 
     expect(service.requestCalls, 1);
     expect(wipe.wipeCalls, 1);

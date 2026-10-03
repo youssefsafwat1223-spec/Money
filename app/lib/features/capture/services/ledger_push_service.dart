@@ -11,6 +11,7 @@ import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/exact_transport_capability.dart';
 import '../../../data/sync/server_capabilities.dart';
+import '../../../data/sync/sync_cursor.dart';
 import 'ledger_outbox_queue.dart';
 import 'ledger_payload.dart';
 import 'ledger_sync_engine.dart';
@@ -595,7 +596,7 @@ class LedgerPushService implements LedgerPushAdapter {
       UPDATE transactions
       SET server_id = ${sqlString(serverId)},
           synced_at = ${sqlString(now)},
-          ${serverUpdatedAt != null ? 'server_updated_at = ${sqlString(serverUpdatedAt)},' : ''}
+          ${serverUpdatedAt != null ? 'server_updated_at = ${sqlString(canonicalServerTimestamp(serverUpdatedAt)!)},' : ''}
           ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
           -- A-2 (G3): 'synced' only when no outbox row remains for this
           -- transaction (an edit folded in while the push was in flight keeps

@@ -442,4 +442,94 @@ void main() {
       expect(tx['operation'], 'delete');
     });
   });
+
+  group('B17: child tables', () {
+    Future<void> seedChildren() async {
+      const now = '2026-07-23T09:00:00.000Z';
+      await db.customStatement('''
+        INSERT INTO merchants(id,raw_name,normalized_name,first_seen_at,last_seen_at)
+        VALUES ('merchant-1','m','m','$now','$now');
+      ''');
+      await db.customStatement('''
+        INSERT INTO goals(id,name,target_amount,saved_amount,currency,
+          target_amount_minor,saved_amount_minor,last_notified_saved_amount_minor,
+          vault_skin,status,created_at,server_id,sync_status)
+        VALUES ('goal-1','g',100,0,'EGP',10000,0,0,'classic','active','$now',
+          'srv-goal','synced');
+      ''');
+      await db.customStatement('''
+        INSERT INTO subscriptions(id,merchant_id,amount,period,next_due_date,
+          is_confirmed,reminder_on,name,type,currency,frequency,created_at,status,
+          server_id,sync_status)
+        VALUES ('bill-1','merchant-1',10,'monthly','$now',1,1,'n','subscription',
+          'EGP','monthly','$now','active','srv-bill','synced');
+      ''');
+      await db.customStatement('''
+        INSERT INTO plans(id,name,budget_amount,currency,start_date,end_date,
+          account_ids,card_last4s,status,created_at,server_id,sync_status)
+        VALUES ('plan-1','p',1000,'EGP','$now','2026-08-01T00:00:00Z','','',
+          'active','$now','srv-plan','synced');
+      ''');
+      await _tx(db, 'tx-1', serverId: 'srv-tx');
+      await db.customStatement('''
+        INSERT INTO goal_contributions(id,goal_id,amount,amount_minor,created_at,
+          server_id,sync_status)
+        VALUES ('gc-live','goal-1',25,2500,'$now','srv-gc1','pending'),
+               ('gc-dead','goal-1',5,500,'$now','srv-gc2','pending');
+      ''');
+      await db.customStatement(
+          "UPDATE goal_contributions SET deleted_at = '$now' WHERE id = 'gc-dead';");
+      await db.customStatement('''
+        INSERT INTO bill_payments(id,bill_id,amount,currency,period_start,
+          period_end,paid_at,transaction_id,server_id,sync_status)
+        VALUES ('bp-live','bill-1',10,'EGP','2026-07-01','2026-07-31','2026-07-23',
+                'tx-1','srv-bp1','pending'),
+               ('bp-dead','bill-1',10,'EGP','2026-06-01','2026-06-30','2026-06-23',
+                NULL,'srv-bp2','pending'),
+               ('bp-clean','bill-1',10,'EGP','2026-05-01','2026-05-31','2026-05-23',
+                NULL,'srv-bp3','synced'),
+               ('bp-local','bill-1',10,'EGP','2026-04-01','2026-04-30','2026-04-23',
+                NULL,NULL,'pending');
+      ''');
+      await backfillNonPlanningMoneyV30(db);
+      await db.customStatement(
+          "UPDATE bill_payments SET deleted_at = '$now' WHERE id = 'bp-dead';");
+      await db.customStatement('''
+        INSERT INTO plan_transaction_links(plan_id,transaction_id,created_at,
+          server_id,sync_status)
+        VALUES ('plan-1','tx-1','$now','srv-link','pending');
+      ''');
+      await db.customStatement('DELETE FROM planning_sync_outbox;');
+    }
+
+    test('pending server-backed children without an outbox row are re-enqueued with the right op',
+        () async {
+      await seedChildren();
+      // goal_contributions(deleted) has no valid op -> 4 recorded, not 5.
+      expect(await reconciler().run(), 4);
+
+      final bp = await planningRows('bill_payment');
+      expect({for (final r in bp) r['entity_id']: r['operation']},
+          {'bp-live': 'create', 'bp-dead': 'delete'});
+      final gc = await planningRows('goal_contribution');
+      expect({for (final r in gc) r['entity_id']: r['operation']},
+          {'gc-live': 'create'},
+          reason: 'tombstoned contribution: no delete endpoint, no invented op');
+      final links = await planningRows('plan_transaction_link');
+      expect({for (final r in links) r['entity_id']: r['operation']},
+          {'plan-1:tx-1': 'create'});
+      expect(bp.first['owner_uid'], 'user-1');
+    });
+
+    test('children: second run is a no-op; rows without server_id or already queued are untouched',
+        () async {
+      await seedChildren();
+      await reconciler().run();
+      final before = await planningRows();
+      expect(await reconciler().run(), 0);
+      expect(await planningRows(), before);
+      expect(await planningRows('bill_payment'), hasLength(2),
+          reason: 'bp-local (no server_id) and bp-clean (synced) never queued');
+    });
+  });
 }

@@ -21,12 +21,16 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 class _FakeChildRemote implements PlanningChildRemote {
   final rows = <String, List<Map<String, dynamic>>>{};
 
+  /// Runs while a push is on the wire (the item is in flight).
+  Future<void> Function()? duringPush;
+
   @override
   Future<Map<String, dynamic>> callRpc(
     String name,
     Map<String, dynamic> params,
   ) async {
     const now = '2026-07-23T10:00:00.000Z';
+    await duringPush?.call();
     if (name == 'add_goal_contribution') {
       final contribution = <String, dynamic>{
         'id': 'server-gc-${params['p_local_id']}',
@@ -134,6 +138,7 @@ class _FakeChildRemote implements PlanningChildRemote {
   Future<Map<String, dynamic>> upsertPlanLink(
     Map<String, dynamic> row,
   ) async {
+    await duringPush?.call();
     final existing = await findPlanLink(
       userId: row['user_id'] as String,
       planId: row['plan_id'] as String,
@@ -151,6 +156,23 @@ class _FakeChildRemote implements PlanningChildRemote {
   }
 }
 
+/// Succeeds on the wire but returns a goal body the apply step cannot decode.
+class _FailingGoalRemote extends _FakeChildRemote {
+  @override
+  Future<Map<String, dynamic>> callRpc(
+    String name,
+    Map<String, dynamic> params,
+  ) async =>
+      {
+        'contribution': {
+          'id': 'server-gc-${params['p_local_id']}',
+          'updated_at': '2026-07-23T10:00:00.000Z',
+          'deleted_at': null,
+        },
+        'goal': {'id': params['p_goal_id']},
+      };
+}
+
 Future<AppDatabase> _openDb() => AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
@@ -164,12 +186,12 @@ PlanningOutboxQueue _queue(AppDatabase db) => PlanningOutboxQueue(
 
 PlanningChildSyncService _service(
         AppDatabase db, PlanningOutboxQueue queue, _FakeChildRemote remote,
-        {int pageSize = 200}) =>
+        {int pageSize = 200, bool pull = true}) =>
     PlanningChildSyncService(
       db: db,
       queue: queue,
       isEnabled: (_) => true,
-      isPullEnabled: (_) => true,
+      isPullEnabled: (_) => pull,
       getAuthUserId: () async => 'user-1',
       remote: remote,
       pageSize: pageSize,
@@ -384,5 +406,137 @@ void main() {
       (await readSyncCursor(db, 'planning_child_goal_contributions')).id,
       'server-gc-2',
     );
+  });
+
+  // ---- B11 (sync-plan T7 for children): ACK is op_seq-guarded -----------------
+  test(
+      'T7 bill payment: a delete made while the create is in flight keeps the row pending (not synced, not resurrected)',
+      () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _seedParents(db);
+    final queue = _queue(db);
+    final remote = _FakeChildRemote();
+    final payment = BillPaymentEntity(
+      id: 'bp-1',
+      billId: 'bill-1',
+      amountMoney: Money.fromLegacyReal(10, 'EGP'),
+      currency: 'EGP',
+      periodStart: DateTime.utc(2026, 7, 1),
+      periodEnd: DateTime.utc(2026, 7, 31),
+      paidAt: DateTime.utc(2026, 7, 23),
+      transactionId: 'tx-1',
+    );
+    await db.customStatement('''
+      INSERT INTO bill_payments(id,bill_id,amount,currency,period_start,
+        period_end,paid_at,transaction_id)
+      VALUES ('bp-1','bill-1',10,'EGP','2026-07-01','2026-07-31',
+        '2026-07-23','tx-1');
+    ''');
+    await backfillNonPlanningMoneyV30(db);
+    await queue.enqueueBillPayment(PlanningSyncOperation.create, payment);
+
+    remote.duringPush = () async {
+      remote.duringPush = null;
+      await db.customStatement(
+          "UPDATE bill_payments SET deleted_at = '2026-07-23T10:00:05Z' WHERE id = 'bp-1';");
+      await queue.enqueueBillPayment(PlanningSyncOperation.delete, payment);
+    };
+    await _service(db, queue, remote, pull: false).sync();
+
+    final row = await db
+        .customSelect(
+            "SELECT sync_status, server_id, deleted_at FROM bill_payments WHERE id = 'bp-1';")
+        .getSingle();
+    expect(row.read<String>('sync_status'), 'pending',
+        reason: 'a newer op exists: never marked synced');
+    expect(row.readNullable<String>('deleted_at'), isNotNull,
+        reason: 'the local delete is not overwritten by the in-flight create ACK');
+    expect(row.read<String>('server_id'), 'server-bp-bp-1',
+        reason: 'the server identity is still attached');
+    final op = await db
+        .customSelect(
+            "SELECT operation, op_seq, in_flight_seq FROM planning_sync_outbox WHERE entity_id = 'bp-1';")
+        .getSingle();
+    expect(op.read<String>('operation'), 'delete');
+    expect(op.read<int>('op_seq'), 2);
+    expect(op.readNullable<int>('in_flight_seq'), isNull);
+  });
+
+  test(
+      'T7 plan link: an unlink made while the link create is in flight keeps the link pending',
+      () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _seedParents(db);
+    final queue = _queue(db);
+    final remote = _FakeChildRemote();
+    await db.customStatement('''
+      INSERT INTO plan_transaction_links(plan_id,transaction_id,created_at)
+      VALUES ('plan-1','tx-1','2026-07-23T09:00:00Z');
+    ''');
+    await queue.enqueuePlanLink(
+      PlanningSyncOperation.create,
+      planId: 'plan-1',
+      transactionId: 'tx-1',
+      createdAt: DateTime.utc(2026, 7, 23, 9),
+    );
+    remote.duringPush = () async {
+      remote.duringPush = null;
+      await db.customStatement(
+          "UPDATE plan_transaction_links SET deleted_at = '2026-07-23T10:00:05Z';");
+      await queue.enqueuePlanLink(
+        PlanningSyncOperation.delete,
+        planId: 'plan-1',
+        transactionId: 'tx-1',
+        createdAt: DateTime.utc(2026, 7, 23, 10),
+      );
+    };
+    await _service(db, queue, remote, pull: false).sync();
+
+    final row = await db
+        .customSelect(
+            'SELECT sync_status, server_id, deleted_at FROM plan_transaction_links;')
+        .getSingle();
+    expect(row.read<String>('sync_status'), 'pending');
+    expect(row.readNullable<String>('deleted_at'), isNotNull);
+    expect(row.read<String>('server_id'), 'server-link-1');
+    final ops = await db
+        .customSelect('SELECT operation FROM planning_sync_outbox;')
+        .get();
+    expect(ops.single.read<String>('operation'), 'delete');
+  });
+
+  test('B11: ACK + synced mark are one transaction (a failing apply rolls the ACK back)',
+      () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _seedParents(db);
+    final queue = _queue(db);
+    await db.customStatement('''
+      INSERT INTO goal_contributions(id,goal_id,amount,amount_minor,created_at)
+      VALUES ('gc-1','goal-1',25,2500,'2026-07-23T09:00:00Z');
+    ''');
+    await queue.enqueueGoalContribution(
+      PlanningSyncOperation.create,
+      GoalContributionEntity(
+        id: 'gc-1',
+        goalId: 'goal-1',
+        amountMoney: Money.parse('25', 'EGP'),
+        createdAt: DateTime.utc(2026, 7, 23, 9),
+      ),
+    );
+    // A goal response the canonical path cannot decode (no currency) throws
+    // after the RPC succeeded.
+    final failing = _FailingGoalRemote();
+    await _service(db, queue, failing).sync();
+
+    expect(
+        (await db.customSelect('SELECT sync_status FROM goal_contributions;').getSingle())
+            .readNullable<String>('sync_status'),
+        isNot('synced'),
+        reason: 'no half-applied ACK');
+    expect(await db.count('planning_sync_outbox'), 1,
+        reason: 'the op survives for an idempotent retry');
   });
 }

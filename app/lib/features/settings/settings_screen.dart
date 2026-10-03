@@ -1664,8 +1664,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     if (confirmed != true) return;
-    await ref.read(dataWipeServiceProvider).wipeAll();
-    await AppSession.instance.wipeAndReset();
+    await AppSession.instance.resetAllLocalData(
+      wipeDatabase: ref.read(dataWipeServiceProvider).wipeAll,
+      signOutRemote: SupabaseConfig.isConfigured
+          ? supabase.Supabase.instance.client.auth.signOut
+          : null,
+    );
     if (context.mounted) context.go('/welcome');
   }
 }

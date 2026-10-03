@@ -675,4 +675,181 @@ void main() {
             .resolveKeepRemote('transaction', txId),
         isTrue);
   });
+
+  // ---- B7 (sync-plan T9): remote tombstone vs pending local edit ------------
+  Map<String, dynamic> tombstoneOf(String id,
+          {String at = '2026-01-05T10:00:00.000Z'}) =>
+      _serverRow(id: id, updatedAt: at)..['deleted_at'] = at;
+
+  test(
+      'T9: tombstone vs pending local edit → conflict, edit + outbox op kept, not ignored',
+      () async {
+    remote.activeRows = [_serverRow(id: 'srv-t9', amount: 100.0)];
+    await _makeSvc(db, remote).pull();
+    await db.customStatement(
+        "UPDATE transactions SET amount = 999.0, sync_status = 'pending' "
+        "WHERE server_id = 'srv-t9';");
+    await db.customStatement('''
+      INSERT INTO ledger_sync_outbox(id, transaction_id, operation, payload_json,
+        attempt_count, status, created_at, updated_at, op_seq, in_flight_seq)
+      SELECT 'o9', id, 'update', '{}', 0, 'pending', '2026-07-01T00:00:00Z',
+        '2026-07-01T00:00:00Z', 1, 1 FROM transactions WHERE server_id = 'srv-t9';
+    ''');
+
+    remote.activeRows = [];
+    remote.tombstones = [tombstoneOf('srv-t9')];
+    final result = await _makeSvc(db, remote).pull();
+
+    expect(result.conflicts, 1);
+    expect(result.tombstoned, 0);
+    final row = await localRow('srv-t9');
+    expect(row['sync_status'], 'conflict');
+    expect(row['status'], isNot('ignored'));
+    expect(row['amount'], 999.0, reason: 'local edit preserved');
+    final op = await db
+        .customSelect(
+            "SELECT in_flight_seq AS m FROM ledger_sync_outbox WHERE id = 'o9';")
+        .getSingle();
+    expect(op.readNullable<int>('m'), isNull,
+        reason:
+            'op kept (not lost) with the ambiguous in-flight marker cleared');
+  });
+
+  test('T9: an open outbox op without sync_status=pending is still a conflict',
+      () async {
+    remote.activeRows = [_serverRow(id: 'srv-t9b')];
+    await _makeSvc(db, remote).pull();
+    await db.customStatement('''
+      INSERT INTO ledger_sync_outbox(id, transaction_id, operation, payload_json,
+        attempt_count, status, created_at, updated_at, op_seq)
+      SELECT 'o9b', id, 'update', '{}', 0, 'pending', '2026-07-01T00:00:00Z',
+        '2026-07-01T00:00:00Z', 1 FROM transactions WHERE server_id = 'srv-t9b';
+    ''');
+    remote.activeRows = [];
+    remote.tombstones = [tombstoneOf('srv-t9b')];
+    final result = await _makeSvc(db, remote).pull();
+    expect(result.conflicts, 1);
+    expect((await localRow('srv-t9b'))['sync_status'], 'conflict');
+    expect(await db.count('ledger_sync_outbox'), 1);
+  });
+
+  // ---- B9 (partial): canonical base-token comparison -------------------------
+  test('equal instants in different formats are not a conflict and not an update',
+      () async {
+    remote.activeRows = [
+      _serverRow(
+          id: 'srv-ts', amount: 100.0, updatedAt: '2026-01-01T10:00:00.123Z'),
+    ];
+    await _makeSvc(db, remote).pull();
+    expect((await localRow('srv-ts'))['server_updated_at'],
+        '2026-01-01T10:00:00.123Z');
+
+    // Same instant spelled +00:00 / microseconds: unchanged server row.
+    remote.activeRows = [
+      _serverRow(
+          id: 'srv-ts',
+          amount: 100.0,
+          updatedAt: '2026-01-01T10:00:00.123000+00:00'),
+    ];
+    final noop =
+        await _makeSvc(db, remote).pull(from: const SyncCursor.epoch());
+    expect(noop.updated, 0);
+
+    // Pending edit + same instant in another spelling: left alone, no conflict.
+    await db.customStatement(
+        "UPDATE transactions SET amount = 999.0, sync_status = 'pending' "
+        "WHERE server_id = 'srv-ts';");
+    final pending =
+        await _makeSvc(db, remote).pull(from: const SyncCursor.epoch());
+    expect(pending.conflicts, 0);
+    expect((await localRow('srv-ts'))['sync_status'], 'pending');
+
+    // A genuinely newer instant still conflicts.
+    remote.activeRows = [
+      _serverRow(
+          id: 'srv-ts',
+          amount: 300.0,
+          updatedAt: '2026-01-01T10:00:00.124+00:00'),
+    ];
+    final conflict =
+        await _makeSvc(db, remote).pull(from: const SyncCursor.epoch());
+    expect(conflict.conflicts, 1);
+  });
+
+  test('stored base token is canonical UTC regardless of server spelling',
+      () async {
+    remote.activeRows = [
+      _serverRow(id: 'srv-fmt', updatedAt: '2026-01-01T12:00:00.654321+02:00'),
+    ];
+    await _makeSvc(db, remote).pull();
+    expect((await localRow('srv-fmt'))['server_updated_at'],
+        '2026-01-01T10:00:00.654321Z');
+    expect(canonicalServerTimestamp('2026-01-01T10:00:00Z'),
+        canonicalServerTimestamp('2026-01-01T10:00:00.000000+00:00'));
+    expect(canonicalServerTimestamp(null), isNull);
+  });
+
+  // ---- B12: per-row quarantine ------------------------------------------------
+  Future<List<QueryRow>> quarantined() => db
+      .customSelect(
+          "SELECT * FROM parked_child_rows WHERE table_name = 'transactions';")
+      .get();
+
+  test(
+      'B12: a poison row is quarantined; other rows import and the cursor advances; retry succeeds once fixed',
+      () async {
+    await db.customStatement('''
+      CREATE TRIGGER poison BEFORE UPDATE OF server_id ON transactions
+      WHEN NEW.server_id = 'srv-poison'
+      BEGIN SELECT RAISE(ABORT, 'poison'); END;
+    ''');
+    remote.activeRows = [
+      _serverRow(id: 'srv-a', updatedAt: '2026-01-01T10:00:00.000Z'),
+      _serverRow(id: 'srv-poison', updatedAt: '2026-01-01T10:01:00.000Z'),
+      _serverRow(id: 'srv-b', updatedAt: '2026-01-01T10:02:00.000Z'),
+    ];
+    final result = await _makeSvc(db, remote).pull();
+
+    expect(result.status, SyncPullStatus.completed);
+    expect(result.imported, 2);
+    expect(await db.count('transactions'), 2,
+        reason: 'the poison row left no partial write behind');
+    final cursor = await readSyncCursor(db, 'ledger_transactions');
+    expect(cursor.id, 'srv-b');
+    final q = await quarantined();
+    expect(q.length, 1);
+    expect(q.single.read<String>('server_id'), 'srv-poison');
+    expect(q.single.read<String>('reason'), 'quarantine');
+    expect(q.single.read<String>('row_json'), contains('srv-poison'));
+
+    // "Fix" the cause, pull again: the quarantined row is retried and imported.
+    await db.customStatement('DROP TRIGGER poison;');
+    remote.activeRows = [];
+    final retry = await _makeSvc(db, remote).pull();
+    expect(retry.status, SyncPullStatus.completed);
+    expect(await db.count('transactions'), 3);
+    expect(await quarantined(), isEmpty);
+  });
+
+  test(
+      'B12: a permanently bad row stays quarantined, retries are bounded, then terminal (still countable)',
+      () async {
+    remote.activeRows = [
+      _serverRow(id: 'srv-ok', updatedAt: '2026-01-01T10:00:00.000Z'),
+      _serverRow(id: 'srv-bad', updatedAt: '2026-01-01T10:01:00.000Z')
+        ..['currency'] = 123,
+    ];
+    final first = await _makeSvc(db, remote).pull();
+    expect(first.imported, 1);
+    expect((await quarantined()).single.read<String>('reason'), 'quarantine');
+
+    remote.activeRows = [];
+    for (var i = 0; i < 6; i++) {
+      await _makeSvc(db, remote).pull();
+    }
+    final q = (await quarantined()).single;
+    expect(q.read<String>('reason'), 'terminal');
+    expect(q.read<int>('attempt_count'), 5);
+    expect(await db.count('transactions'), 1);
+  });
 }

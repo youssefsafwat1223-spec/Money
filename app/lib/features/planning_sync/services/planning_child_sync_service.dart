@@ -271,8 +271,10 @@ class PlanningChildSyncService {
             if (parkedNow) _health?.noteCapabilityParked(SyncDomain.children);
             continue;
           }
+          // B11: each pusher ACKs inside ITS OWN local transaction (op_seq-
+          // guarded) together with the entity's synced mark — never a separate
+          // markSuccess after the push.
           await _pushItem(userId, item);
-          await _queue.markSuccess(item);
         } catch (error) {
           _health?.noteFailure(SyncDomain.children, error);
           // G12: an operation the server has no endpoint for is PERMANENT — it
@@ -325,7 +327,18 @@ class PlanningChildSyncService {
     });
     final row = Map<String, dynamic>.from(result['contribution'] as Map);
     final goal = Map<String, dynamic>.from(result['goal'] as Map);
-    await _markChildSynced('goal_contributions', item.entityId, row);
+    await _db.transaction(() async {
+      final consumed = await _queue.acknowledge(item);
+      await _markChildSynced('goal_contributions', item.entityId, row,
+          consumed: consumed);
+      await _applyContributionGoal(goalId, goal);
+    });
+  }
+
+  Future<void> _applyContributionGoal(
+    String goalId,
+    Map<String, dynamic> goal,
+  ) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     // A-2 (G15): this push settles the CHILD only. The parent goal's own
     // sync_status is deliberately left untouched — marking it `synced` here hid
@@ -371,8 +384,12 @@ class PlanningChildSyncService {
       final payment = Map<String, dynamic>.from(result['payment'] as Map);
       final subscription =
           Map<String, dynamic>.from(result['subscription'] as Map);
-      await _markChildSynced('bill_payments', item.entityId, payment);
-      await _updateSubscriptionCounter(subscription);
+      await _db.transaction(() async {
+        final consumed = await _queue.acknowledge(item);
+        await _markChildSynced('bill_payments', item.entityId, payment,
+            consumed: consumed);
+        await _updateSubscriptionCounter(subscription);
+      });
       return;
     }
     final payload = item.payloadJson;
@@ -404,8 +421,12 @@ class PlanningChildSyncService {
     final payment = Map<String, dynamic>.from(result['payment'] as Map);
     final subscription =
         Map<String, dynamic>.from(result['subscription'] as Map);
-    await _markChildSynced('bill_payments', item.entityId, payment);
-    await _updateSubscriptionCounter(subscription);
+    await _db.transaction(() async {
+      final consumed = await _queue.acknowledge(item);
+      await _markChildSynced('bill_payments', item.entityId, payment,
+          consumed: consumed);
+      await _updateSubscriptionCounter(subscription);
+    });
   }
 
   Future<void> _pushPlanLink(
@@ -429,11 +450,15 @@ class PlanningChildSyncService {
       if (existing != null) {
         await _remote.tombstonePlanLink(existing['id'] as String);
       }
-      await _markPlanLinkSynced(
-        localPlanId,
-        localTransactionId,
-        existing?['id'] as String?,
-      );
+      await _db.transaction(() async {
+        final consumed = await _queue.acknowledge(item);
+        await _markPlanLinkSynced(
+          localPlanId,
+          localTransactionId,
+          existing?['id'] as String?,
+          consumed: consumed,
+        );
+      });
       return;
     }
     final row = await _remote.upsertPlanLink({
@@ -443,12 +468,16 @@ class PlanningChildSyncService {
       'client_request_id': item.entityId,
       'created_at': payload['created_at'],
     });
-    await _markPlanLinkSynced(
-      localPlanId,
-      localTransactionId,
-      row['id'] as String,
-      serverUpdatedAt: row['updated_at'] as String?,
-    );
+    await _db.transaction(() async {
+      final consumed = await _queue.acknowledge(item);
+      await _markPlanLinkSynced(
+        localPlanId,
+        localTransactionId,
+        row['id'] as String,
+        serverUpdatedAt: row['updated_at'] as String?,
+        consumed: consumed,
+      );
+    });
   }
 
   Future<void> _pull() async {
@@ -943,17 +972,21 @@ class PlanningChildSyncService {
     );
   }
 
+  /// B11: [consumed] is the op_seq-guarded ACK result. When false a newer op
+  /// (an edit/delete made while this push was in flight) is still queued: the
+  /// server identity/version is recorded but the row stays `pending` and its
+  /// local `deleted_at` is NOT overwritten by the server's older state.
   Future<void> _markChildSynced(
     String table,
     String localId,
-    Map<String, dynamic> row,
-  ) async {
+    Map<String, dynamic> row, {
+    required bool consumed,
+  }) async {
     await _db.customStatement('''
       UPDATE $table SET server_id = ${sqlString(row['id'] as String)},
         synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
-        server_updated_at = ${sqlNullableString(row['updated_at'] as String?)},
-        sync_status = 'synced',
-        deleted_at = ${sqlNullableString(row['deleted_at'] as String?)}
+        server_updated_at = ${sqlNullableString(row['updated_at'] as String?)}
+        ${consumed ? ", sync_status = 'synced', deleted_at = ${sqlNullableString(row['deleted_at'] as String?)}" : ''}
       WHERE id = ${sqlString(localId)};
     ''');
   }
@@ -990,13 +1023,14 @@ class PlanningChildSyncService {
     String transactionId,
     String? serverId, {
     String? serverUpdatedAt,
+    required bool consumed,
   }) async {
     await _db.customStatement('''
       UPDATE plan_transaction_links SET
         server_id = ${sqlNullableString(serverId)},
         synced_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))},
-        server_updated_at = ${sqlNullableString(serverUpdatedAt)},
-        sync_status = 'synced'
+        server_updated_at = ${sqlNullableString(serverUpdatedAt)}
+        ${consumed ? ", sync_status = 'synced'" : ''}
       WHERE plan_id = ${sqlString(planId)}
         AND transaction_id = ${sqlString(transactionId)};
     ''');

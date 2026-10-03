@@ -62,6 +62,18 @@ class SyncCursor {
   }
 }
 
+/// The ONE canonical form of a server `updated_at` base token: the UTC instant
+/// rendered by Dart's ISO-8601 formatter (deterministic per instant, microseconds
+/// preserved). `Z` vs `+00:00` and `.000` vs `.000000` spellings of one instant
+/// collapse to one string, so token equality is instant equality at every store
+/// and compare site (a lossy ms truncation would break the server-side guard).
+/// null/empty -> null (unknown base); an unparseable value is kept verbatim so it
+/// still compares by equality instead of being silently dropped.
+String? canonicalServerTimestamp(String? value) {
+  if (value == null || value.isEmpty) return null;
+  return DateTime.tryParse(value)?.toUtc().toIso8601String() ?? value;
+}
+
 /// كل أعمدة الترتيب الحالية NOT NULL في Supabase. تبقى قيمة epoch هنا حماية
 /// دفاعية لصف قديم/fixture ناقص، وتمنع تخزين cursor فارغ غير قابل للمقارنة.
 String normalizeCursorTimestamp(Object? value) {

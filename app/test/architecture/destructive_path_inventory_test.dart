@@ -85,6 +85,9 @@ void main() {
   ///                                accountless card that is then deleted
   ///                                (a parked row is never in flight)
   ///   planning_child_sync (1)      parked child rows for one table
+  ///   ledger_sync_service (1)      B12: quarantined pull rows (parked_child_rows,
+  ///                                table_name='transactions') cleared by server id
+  ///                                once the row applies cleanly or is retried OK
   ///   planning_pull_service (1)    parked rows superseded by a fresh pull
   ///   planning_server_currency_repair (1)  parked rows after repair
   ///   restore_journal (1)          journal rows by operation_id
@@ -111,6 +114,7 @@ void main() {
     'lib/features/capture/services/ledger_outbox_queue.dart': 2,
     'lib/features/planning_sync/services/planning_outbox_queue.dart': 3,
     'lib/features/planning_sync/services/planning_child_sync_service.dart': 1,
+    'lib/features/capture/services/ledger_sync_service.dart': 1,
     'lib/features/planning_sync/services/planning_pull_service.dart': 1,
     'lib/features/planning_sync/services/planning_server_currency_repair.dart': 1,
     'lib/core/backup/restore_journal.dart': 1,

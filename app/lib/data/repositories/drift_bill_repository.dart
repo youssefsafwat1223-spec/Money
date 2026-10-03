@@ -497,6 +497,16 @@ class DriftBillRepository implements BillRepository {
     );
   }
 
+  /// A-4b: a payment by id INCLUDING a soft-deleted one (the reconciler records
+  /// a delete intent for it).
+  Future<BillPaymentEntity?> getPaymentIncludingDeleted(String id) async {
+    final row = await _db.customSelect(
+      'SELECT * FROM bill_payments WHERE id = ? LIMIT 1;',
+      variables: [Variable.withString(id)],
+    ).getSingleOrNull();
+    return row == null ? null : _paymentFromRow(row);
+  }
+
   BillPaymentEntity _paymentFromRow(QueryRow row) {
     final currency = row.read<String>('currency');
     return BillPaymentEntity(
