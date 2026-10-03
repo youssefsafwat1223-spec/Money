@@ -1014,13 +1014,19 @@ class _AppShellState extends ConsumerState<AppShell> {
               throw StateError('backend_capture_not_observable');
             }
           }
+          // The payload id is the transaction id and the receipt key (I-5).
+          final payloadId = message.id?.trim();
           if (message.id != null) {
             final alreadySynced =
                 backendSync?.importedPayloadIds.contains(message.id) ?? false;
+            // Receipt OR a transaction already holding this id: never ingest
+            // twice (the relay path or an earlier drain may have won).
             final alreadyImported = alreadySynced ||
-                await ref
-                    .read(captureSyncServiceProvider)
-                    .isPayloadImported(message.id!);
+                (payloadId != null &&
+                    payloadId.isNotEmpty &&
+                    await ref
+                        .read(captureSyncServiceProvider)
+                        .reconcileImportedPayload(payloadId));
             if (alreadyImported) {
               if (kDebugMode) {
                 debugPrint('[Capture] skip already imported backend payload');
@@ -1069,6 +1075,13 @@ class _AppShellState extends ConsumerState<AppShell> {
               flagEnabled: flagEnabled,
               aiAllowed: aiAllowed,
             ),
+            // tx.id = payloadId, receipt in the same transaction. No payload
+            // id (null/blank) keeps random ids and the post-hoc receipt.
+            capture: payloadId == null || payloadId.isEmpty
+                ? null
+                : ref
+                    .read(captureSyncServiceProvider)
+                    .captureCommitFor(payloadId),
           );
           if (kDebugMode) {
             debugPrint(

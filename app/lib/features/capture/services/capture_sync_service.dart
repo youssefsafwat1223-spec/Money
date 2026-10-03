@@ -299,6 +299,29 @@ class CaptureSyncService {
     );
   }
 
+  /// The identity and atomic-commit contract for ingesting [payloadId] on the
+  /// native path: transaction id == payloadId, and the receipt commits in the
+  /// same SQLite transaction as the transaction and its outbox row (I-3/I-5).
+  CaptureCommit captureCommitFor(String payloadId) => CaptureCommit(
+        captureId: payloadId,
+        runAtomically: _dedupStore.runAtomically,
+        writeReceipt: (transactionId) => markPayloadImported(
+          payloadId: payloadId,
+          transactionId: transactionId,
+        ),
+      );
+
+  /// Pre-ingest guard for the native drain. True when [payloadId] already has a
+  /// durable local result — a receipt, or a transaction whose id IS the
+  /// payload id (the relay or an earlier drain created it) — so it must not be
+  /// ingested again. A transaction without its receipt gets the receipt here.
+  Future<bool> reconcileImportedPayload(String payloadId) async {
+    if (await isPayloadImported(payloadId)) return true;
+    if (await _transactionRepository.getById(payloadId) == null) return false;
+    await markPayloadImported(payloadId: payloadId, transactionId: payloadId);
+    return true;
+  }
+
   /// Converts an otherwise lossy native capture into a durable Smart Inbox
   /// review item and records the permanent payload marker in one transaction.
   /// A re-delivery after commit-before-native-ack sees the marker (and the same

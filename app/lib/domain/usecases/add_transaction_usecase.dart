@@ -49,6 +49,30 @@ import '../capture/proof_shadow_record.dart';
 import '../capture/proof_commit_gate.dart';
 import 'capture_commit_decision.dart';
 
+/// Identity and atomic-persistence contract for a capture that carries a stable
+/// payload id (I-3 / I-5).
+///
+/// Every row the ingest persists for the capture gets an id derived from
+/// [captureId]: the primary transaction is exactly [captureId], the fee/tax
+/// line is `<captureId>:fee`. The rows, their ledger outbox rows and the
+/// payload receipt ([writeReceipt]) commit in ONE [runAtomically] transaction
+/// that holds no network call: parsing, AI and enrichment finish before it.
+class CaptureCommit {
+  const CaptureCommit({
+    required this.captureId,
+    required this.runAtomically,
+    required this.writeReceipt,
+  });
+
+  final String captureId;
+  final Future<void> Function(Future<void> Function() action) runAtomically;
+
+  /// Writes `capture_payload:<captureId>` -> [transactionId].
+  final Future<void> Function(String transactionId) writeReceipt;
+
+  String get feeId => '$captureId:fee';
+}
+
 class AddTransactionResult {
   const AddTransactionResult._({
     required this.outcome,
@@ -648,6 +672,7 @@ class AddTransactionUseCase {
     bool skipDedup = false,
     DateTime? smsReceivedAt,
     bool onDeviceOnly = false,
+    CaptureCommit? capture,
   }) async {
     final loadedBankProfiles = await _safeLoadBankProfiles(senderId: senderId);
     final catalogRules = await _safeLoadCatalogRules(senderId);
@@ -817,18 +842,23 @@ class AddTransactionUseCase {
       );
       if (duplicate != null) {
         const reason = 'same amount, currency, merchant and comparison time';
-        final suspectedId = await _saveSuspectedDuplicate(
-          rawMessage: rawMessage,
-          senderId: senderId,
-          existingTransactionId: duplicate.id,
-          parsed: parsed,
-          amountMoney: parsedAmountForDedup.money,
-          occurredAt: occurredAt,
-          cardLast4: parsed.cardLast4,
-          comparisonTimestamp: comparisonTimestamp,
-          comparisonTimestampSource: comparisonTimestampSource,
-          duplicateReason: reason,
-        );
+        String? suspectedId;
+        await _atomically(capture, () async {
+          suspectedId = await _saveSuspectedDuplicate(
+            rawMessage: rawMessage,
+            senderId: senderId,
+            existingTransactionId: duplicate.id,
+            parsed: parsed,
+            amountMoney: parsedAmountForDedup.money,
+            occurredAt: occurredAt,
+            cardLast4: parsed.cardLast4,
+            comparisonTimestamp: comparisonTimestamp,
+            comparisonTimestampSource: comparisonTimestampSource,
+            duplicateReason: reason,
+            id: capture?.captureId,
+          );
+          await capture?.writeReceipt(duplicate.id);
+        });
         return AddTransactionResult.suspiciousDuplicate(
           duplicate,
           suspectedDuplicateId: suspectedId,
@@ -1137,7 +1167,7 @@ class AddTransactionUseCase {
     );
 
     final transaction = TransactionEntity(
-      id: IdGenerator.next(),
+      id: capture?.captureId ?? IdGenerator.next(),
       amountMoney: mainAmount.money,
       currency: transactionCurrency,
       accountId: effectiveAccount?.id,
@@ -1177,60 +1207,69 @@ class AddTransactionUseCase {
       transactionId: transaction.id,
     );
 
-    final saved = await _transactionRepository.saveTransaction(
-      transaction: transaction,
-      categoryKey: effectiveCategory.categoryKey,
-    );
-    if (_recordEngagementUseCase != null) {
-      await _recordEngagementUseCase(
-        action: saved.status == TransactionStatus.confirmed
-            ? EngagementAction.transactionConfirmed
-            : EngagementAction.transactionAdded,
-        occurredAt: saved.occurredAt,
+    // Persistence only: every network step (AI, discovery, enrichment) is done.
+    // With a [capture], the primary row, any fee row, their outbox rows and the
+    // payload receipt commit together or not at all.
+    late final TransactionEntity saved;
+    late final AddTransactionResult? secondary;
+    await _atomically(capture, () async {
+      saved = await _transactionRepository.saveTransaction(
+        transaction: transaction,
+        categoryKey: effectiveCategory.categoryKey,
       );
-    }
+      if (_recordEngagementUseCase != null) {
+        await _recordEngagementUseCase(
+          action: saved.status == TransactionStatus.confirmed
+              ? EngagementAction.transactionConfirmed
+              : EngagementAction.transactionAdded,
+          occurredAt: saved.occurredAt,
+        );
+      }
 
-    if (aiValidated && saved.status == TransactionStatus.confirmed) {
-      await _persistAiSenderMapping(senderId: senderId, discovery: discovery);
-    }
+      if (aiValidated && saved.status == TransactionStatus.confirmed) {
+        await _persistAiSenderMapping(senderId: senderId, discovery: discovery);
+      }
 
-    // Mark dedup hash after successful save. Keyed on the originally parsed
-    // identity (not the reclassified type) so it matches the pre-save lookup
-    // even when an external transfer is re-typed to income/expense.
-    if (_dedupStore != null) {
-      final hash = await TransactionDedup.computeHash(
-        // HEURISTIC-ONLY fingerprint derived deterministically from the token.
-        amount: parsed.amount,
-        currency: parsed.currency,
-        cardLast4: parsed.cardLast4,
-        merchantNormalized: _dedupFingerprint(
-          parsed,
-          rawMessage: rawMessage,
-        ),
-        type: parsed.type.name,
-      );
-      await _dedupStore.mark(
-        hash,
-        transactionId: transaction.id,
+      // Mark dedup hash after successful save. Keyed on the originally parsed
+      // identity (not the reclassified type) so it matches the pre-save lookup
+      // even when an external transfer is re-typed to income/expense.
+      if (_dedupStore != null) {
+        final hash = await TransactionDedup.computeHash(
+          // HEURISTIC-ONLY fingerprint derived deterministically from the token.
+          amount: parsed.amount,
+          currency: parsed.currency,
+          cardLast4: parsed.cardLast4,
+          merchantNormalized: _dedupFingerprint(
+            parsed,
+            rawMessage: rawMessage,
+          ),
+          type: parsed.type.name,
+        );
+        await _dedupStore.mark(
+          hash,
+          transactionId: transaction.id,
+          occurredAt: occurredAt,
+        );
+      }
+
+      // Only now that the primary spend is genuinely new do we add any fee/tax
+      // line from the same SMS. Doing it here (not before the dedup checks) means
+      // re-pasting the same message — primary already a duplicate — can never add
+      // a second fee.
+      secondary = await _maybeSaveFee(
+        primaryWithheldByProof:
+            primaryCommit.reason == CaptureCommitReason.proofNotCorroborated,
+        rawMessage: rawMessage,
+        primary: parsed,
         occurredAt: occurredAt,
+        defaultAccount: defaultAccount,
+        transactionTimeFromSms: transactionTimeFromSms,
+        smsReceivedAt: receivedAt,
+        comparisonTimestampSource: comparisonTimestampSource,
+        feeId: capture?.feeId,
       );
-    }
-
-    // Only now that the primary spend is genuinely new do we add any fee/tax
-    // line from the same SMS. Doing it here (not before the dedup checks) means
-    // re-pasting the same message — primary already a duplicate — can never add
-    // a second fee.
-    final secondary = await _maybeSaveFee(
-      primaryWithheldByProof:
-          primaryCommit.reason == CaptureCommitReason.proofNotCorroborated,
-      rawMessage: rawMessage,
-      primary: parsed,
-      occurredAt: occurredAt,
-      defaultAccount: defaultAccount,
-      transactionTimeFromSms: transactionTimeFromSms,
-      smsReceivedAt: receivedAt,
-      comparisonTimestampSource: comparisonTimestampSource,
-    );
+      await capture?.writeReceipt(saved.id);
+    });
 
     await _logMetric?.call('first_transaction_captured');
     return AddTransactionResult.added(
@@ -1243,6 +1282,10 @@ class AddTransactionUseCase {
     );
   }
 
+  Future<void> _atomically(
+          CaptureCommit? capture, Future<void> Function() action) =>
+      capture == null ? action() : capture.runAtomically(action);
+
   Future<String?> _saveSuspectedDuplicate({
     required String rawMessage,
     required String? senderId,
@@ -1254,10 +1297,11 @@ class AddTransactionUseCase {
     DateTime? comparisonTimestamp,
     ComparisonTimestampSource? comparisonTimestampSource,
     String? duplicateReason,
+    String? id,
   }) async {
     final repo = _suspectedDuplicateRepository;
     if (repo == null) return null;
-    final id = IdGenerator.next();
+    id ??= IdGenerator.next();
     await repo.save(SuspectedDuplicateEntity(
       id: id,
       rawMessage: rawMessage,
@@ -1299,6 +1343,7 @@ class AddTransactionUseCase {
     /// True when Proof withheld the PRIMARY row. The fee is a leg of the same
     /// captured message, so it must not stand alone as a confirmed row.
     bool primaryWithheldByProof = false,
+    String? feeId,
   }) async {
     final fee = _extractFeeAmount(rawMessage);
     if (fee == null) return null;
@@ -1340,7 +1385,7 @@ class AddTransactionUseCase {
       currency: currency,
     );
     final feeTx = TransactionEntity(
-      id: IdGenerator.next(),
+      id: feeId ?? IdGenerator.next(),
       amountMoney: feeAmount.money,
       currency: currency,
       accountId: account?.id,
