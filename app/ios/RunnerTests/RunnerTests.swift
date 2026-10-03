@@ -71,7 +71,7 @@ class RunnerTests: XCTestCase {
     SharedCaptureStore.purgeUserOwnedState()
     let secret = "ACME: purchase 512.34 SAR on card 4417"
     let result = SharedCaptureStore.enqueue(text: secret, sender: "ACME")
-    if case .failed(let reason) = result { XCTFail("enqueue failed: \(reason)") }
+    if case .failed(let reason, _) = result { XCTFail("enqueue failed: \(reason)") }
 
     let json = try XCTUnwrap(SharedCaptureStore.peekPendingPayloadsJSON())
     XCTAssertTrue(json.contains(secret), "the store must decrypt back to plaintext")
@@ -147,15 +147,16 @@ class RunnerTests: XCTestCase {
     SharedCaptureStore.purgeUserOwnedState()
     defer { resetCapSeams() }
     let first = "ACME: purchase 77.10 SAR"
-    if case .failed(let reason) = SharedCaptureStore.enqueue(text: first, sender: "ACME") {
+    if case .failed(let reason, _) = SharedCaptureStore.enqueue(text: first, sender: "ACME") {
       return XCTFail("setup enqueue failed: \(reason)")
     }
     let before = try XCTUnwrap(appGroupDefaults.data(forKey: queueDefaultsKey))
 
     SharedCaptureStore.queueKeyReadOverride = { (status: errSecInteractionNotAllowed, data: nil) }
-    guard case .failed = SharedCaptureStore.enqueue(text: "second 5.00 SAR", sender: "ACME") else {
+    guard case .failed(_, let kind) = SharedCaptureStore.enqueue(text: "second 5.00 SAR", sender: "ACME") else {
       return XCTFail("enqueue must fail while the key is unreadable")
     }
+    XCTAssertEqual(kind, .deviceLocked, "errSecInteractionNotAllowed is the locked-device case")
     XCTAssertThrowsError(try SharedCaptureStore.peekPendingPayloadsJSON())
     XCTAssertFalse(SharedCaptureStore.remove(payloadID: "anything"))
     XCTAssertEqual(appGroupDefaults.data(forKey: queueDefaultsKey), before,
@@ -215,7 +216,12 @@ class RunnerTests: XCTestCase {
       _ = try await intent.perform()
       XCTFail("perform must throw when the capture cannot be persisted")
     } catch let error as ProcessBankSMSError {
-      XCTAssertNotNil(error.errorDescription)
+      // R9 copy rule: the approved locked-device text, never technical detail.
+      let message = try XCTUnwrap(error.errorDescription)
+      XCTAssertEqual(message, SharedCaptureStore.FailureKind.deviceLocked.userMessage)
+      for leak in ["errSec", "-25308", "keyUnavailable", "OSStatus", "process_bank_sms_error", "%@"] {
+        XCTAssertFalse(message.contains(leak), "user-facing error leaked \(leak)")
+      }
     } catch {
       XCTFail("unexpected error \(error)")
     }
@@ -228,6 +234,17 @@ class RunnerTests: XCTestCase {
       XCTAssertTrue(error is ProcessBankSMSError)
     }
   }
+
+  // R9: the inferred-date marker round-trips through the queue.
+  func testReceivedAtInferredRoundTrips() throws {
+    SharedCaptureStore.purgeUserOwnedState()
+    defer { resetCapSeams() }
+    _ = SharedCaptureStore.enqueue(
+      text: "ACME: purchase 4.00 SAR", sender: "ACME", receivedAtInferred: true)
+    let json = try XCTUnwrap(try SharedCaptureStore.peekPendingPayloadsJSON())
+    XCTAssertTrue(json.contains("\"receivedAtInferred\":true"))
+  }
+
 
   // ── APNs environment pairing ───────────────────────────────────────────────
   //

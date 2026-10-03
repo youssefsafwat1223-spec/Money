@@ -10,13 +10,15 @@ final class ShareViewController: SLComposeServiceViewController {
   override func didSelectPost() {
     extractSharedText { text in
       if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-         case let .failed(reason) = SharedCaptureStore.enqueue(text: text, sender: nil, source: "share") {
+         case let .failed(reason, kind) = SharedCaptureStore.enqueue(text: text, sender: nil, source: "share") {
         // CAP-0: the queue refused the write (e.g. before first unlock). Cancel
         // with an error rather than reporting a successful share that was lost.
+        // R9: the user sees only the approved copy; the reason is logged.
+        NSLog("[QirshShare] share not persisted: %@", reason)
         self.extensionContext?.cancelRequest(withError: NSError(
           domain: "ShareBankMessage",
           code: 1,
-          userInfo: [NSLocalizedDescriptionKey: reason]
+          userInfo: [NSLocalizedDescriptionKey: kind.userMessage]
         ))
         return
       }

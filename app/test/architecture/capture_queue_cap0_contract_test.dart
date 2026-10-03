@@ -129,6 +129,53 @@ void main() {
       expect(intent, contains('let outcome = try service.capture('));
     });
 
+    // R9 copy rule: users see only approved copy, chosen by failure kind and
+    // device language. Technical reasons (OSStatus, errSec*, QueueError text,
+    // raw localization keys) are logged internally and never shown.
+    test('the Shortcuts error shows only the approved copy', () {
+      final errors = body(intent, 'var errorDescription: String?');
+      expect(errors, contains('FailureKind.emptyText.userMessage'));
+      expect(errors, contains('kind.userMessage'));
+      for (final leak in const [
+        'String(format',
+        'NSLocalizedString',
+        'reason',
+        '%@',
+      ]) {
+        expect(errors, isNot(contains(leak)), reason: 'leaks $leak');
+      }
+      expect(intent, contains('case captureFailed(SharedCaptureStore.FailureKind)'));
+    });
+
+    test('the copy is exactly the approved text, Arabic or English by device language', () {
+      final copy = body(store, 'var userMessage: String');
+      expect(copy, contains('Locale.preferredLanguages.first'));
+      for (final text in const [
+        'لم يصل نص رسالة البنك إلى قِرش. تأكد أن الاختصار يمرّر نص الرسالة، ثم حاول مرة أخرى.',
+        "Qirsh didn't receive the bank message text. Make sure the Shortcut passes the message text, then try again.",
+        'تعذر الوصول إلى بيانات قِرش الآمنة. افتح قِرش ثم حاول مرة أخرى.',
+        "Qirsh couldn't access its secure storage. Open Qirsh, then try again.",
+        'تعذر حفظ الرسالة بأمان. افتح قفل الآيفون، ثم افتح قِرش وحاول مرة أخرى.',
+        "Couldn't save the message securely. Unlock your iPhone, then open Qirsh and try again.",
+      ]) {
+        expect(copy, contains(text));
+      }
+      expect(copy, isNot(contains('\\(')), reason: 'no interpolation');
+    });
+
+    test('a locked device (errSecInteractionNotAllowed) selects the locked copy', () {
+      final enqueue = body(store, 'static func enqueue(');
+      expect(enqueue,
+          contains('case let QueueError.keyUnavailable(status) = error'));
+      expect(enqueue, contains('status == errSecInteractionNotAllowed'));
+      expect(enqueue, contains('kind = .deviceLocked'));
+    });
+
+    test('the share extension shows the approved copy, never the reason', () {
+      expect(share, contains('NSLocalizedDescriptionKey: kind.userMessage'));
+      expect(share, isNot(contains('NSLocalizedDescriptionKey: reason')));
+    });
+
     test('method-channel queue calls surface a FlutterError', () {
       expect(appDelegate, contains('"queue_unavailable"'));
       for (final call in const [
@@ -142,7 +189,7 @@ void main() {
     });
 
     test('the share extension does not report a lost share as success', () {
-      expect(share, contains('case let .failed(reason) = SharedCaptureStore.enqueue'));
+      expect(share, contains('case let .failed(reason, kind) = SharedCaptureStore.enqueue'));
       expect(share, contains('cancelRequest(withError:'));
     });
 
@@ -156,6 +203,15 @@ void main() {
         expect(xctest, contains('func $name('));
       }
       expect(xctest, contains('errSecInteractionNotAllowed'));
+    });
+  });
+
+  group('R9 marker', () {
+    test('the optional payload field and the intent wiring exist', () {
+      expect(store, contains('let receivedAtInferred: Bool?'),
+          reason: 'optional, so older builds still decode the queue');
+      expect(intent, contains('receivedAtInferred: dateReceived == nil'));
+      expect(intent, contains('receivedAtInferred: request.receivedAtInferred'));
     });
   });
 }

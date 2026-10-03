@@ -375,9 +375,10 @@ enum ApnsEnvironment {
           status: status,
           failureReason: args["failureReason"] as? String,
           payloadID: args["payloadId"] as? String,
+          receivedAtInferred: args["receivedAtInferred"] as? Bool,
           notifyHost: false
         )
-        if case let .failed(reason) = outcome {
+        if case let .failed(reason, _) = outcome {
           result(FlutterError(code: "reenqueue_failed", message: reason, details: nil))
         } else {
           result(nil)

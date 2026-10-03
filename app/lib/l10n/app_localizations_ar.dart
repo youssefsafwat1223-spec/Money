@@ -87,7 +87,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get setupShortcutStep5Body =>
-      'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input».';
+      'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input»، وفي Date Received اختر تاريخ استلام الرسالة. لا تترك Date Received فارغًا.';
 
   @override
   String get setupShortcutStep6Title => 'حفظ';
@@ -4831,7 +4831,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get iosStep6Body =>
-      'يجب أن يظهر حقل SMS Text. اختَر له Shortcut Input. وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام الرسالة — يمنع تكرار العملية إذا شُغّلت الأتمتة مرتين لنفس الرسالة.';
+      'يجب أن يظهر حقل SMS Text. اختَر له Shortcut Input. وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام الرسالة ولا تتركه فارغًا — يمنع تكرار العملية إذا شُغّلت الأتمتة مرتين لنفس الرسالة.';
 
   @override
   String get iosStep7 => 'طابق الشكل النهائي';

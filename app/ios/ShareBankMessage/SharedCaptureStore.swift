@@ -120,7 +120,39 @@ enum SharedCaptureStore {
   enum EnqueueResult {
     case enqueued(Payload)
     case duplicate(Payload)
-    case failed(String)
+    /// The String is an INTERNAL diagnostic (never shown to the user, never
+    /// contains SMS text); the kind selects the user-facing copy.
+    case failed(String, kind: FailureKind)
+  }
+
+  /// Why a capture could not be saved, as far as the user needs to know.
+  /// The technical reason is logged internally only; this picks the copy.
+  enum FailureKind {
+    case emptyText
+    case storageUnavailable
+    /// The Keychain refused access because the iPhone has not been unlocked
+    /// since it restarted (errSecInteractionNotAllowed).
+    case deviceLocked
+
+    /// User-facing copy (approved, R9). Arabic when the device's preferred
+    /// language is Arabic, English otherwise. Never carries technical text.
+    var userMessage: String {
+      let arabic = Locale.preferredLanguages.first?.lowercased().hasPrefix("ar") == true
+      switch self {
+      case .emptyText:
+        return arabic
+          ? "لم يصل نص رسالة البنك إلى قِرش. تأكد أن الاختصار يمرّر نص الرسالة، ثم حاول مرة أخرى."
+          : "Qirsh didn't receive the bank message text. Make sure the Shortcut passes the message text, then try again."
+      case .storageUnavailable:
+        return arabic
+          ? "تعذر الوصول إلى بيانات قِرش الآمنة. افتح قِرش ثم حاول مرة أخرى."
+          : "Qirsh couldn't access its secure storage. Open Qirsh, then try again."
+      case .deviceLocked:
+        return arabic
+          ? "تعذر حفظ الرسالة بأمان. افتح قفل الآيفون، ثم افتح قِرش وحاول مرة أخرى."
+          : "Couldn't save the message securely. Unlock your iPhone, then open Qirsh and try again."
+      }
+    }
   }
 
   /// Codable payload consumed by Flutter through the native capture channel.
@@ -137,6 +169,9 @@ enum SharedCaptureStore {
     let failureReason: String?
     let sentAt: String?
     let createdAt: String?
+    /// True when the App Intent's Date Received parameter was missing and the
+    /// receive time was inferred (R9). Optional so older builds still decode.
+    let receivedAtInferred: Bool?
   }
 
   /// Adds a captured bank message to the shared queue.
@@ -160,15 +195,16 @@ enum SharedCaptureStore {
     sentAt: Date? = nil,
     failureReason: String? = nil,
     payloadID: String? = nil,
+    receivedAtInferred: Bool? = nil,
     notifyHost: Bool = true
   ) -> EnqueueResult {
     guard defaults != nil else {
-      return .failed("App Group storage is unavailable.")
+      return .failed("App Group storage is unavailable.", kind: .storageUnavailable)
     }
 
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
-      return .failed("SMS text is empty.")
+      return .failed("SMS text is empty.", kind: .emptyText)
     }
 
     let cleanSender = clean(sender)
@@ -200,7 +236,8 @@ enum SharedCaptureStore {
       status: status.rawValue,
       failureReason: clean(failureReason),
       sentAt: sentAt.map { isoFormatter.string(from: $0) },
-      createdAt: createdAtString
+      createdAt: createdAtString,
+      receivedAtInferred: receivedAtInferred
     )
 
     do {
@@ -218,7 +255,12 @@ enum SharedCaptureStore {
         return .enqueued(payload)
       }
     } catch {
-      return .failed("Could not save the SMS payload (\(error)).")
+      var kind = FailureKind.storageUnavailable
+      if case let QueueError.keyUnavailable(status) = error,
+         status == errSecInteractionNotAllowed {
+        kind = .deviceLocked
+      }
+      return .failed("Could not save the SMS payload (\(error)).", kind: kind)
     }
   }
 
@@ -253,7 +295,8 @@ enum SharedCaptureStore {
         status: status.rawValue,
         failureReason: clean(failureReason),
         sentAt: status == .sent ? isoFormatter.string(from: Date()) : current.sentAt,
-        createdAt: current.createdAt
+        createdAt: current.createdAt,
+        receivedAtInferred: current.receivedAtInferred
       )
       try saveQueue(queue, notifyHost: false)
       return true
@@ -315,7 +358,8 @@ enum SharedCaptureStore {
           status: CaptureStatus.pending.rawValue,
           failureReason: nil,
           sentAt: nil,
-          createdAt: receivedAt
+          createdAt: receivedAt,
+          receivedAtInferred: nil
         ))
         // Persist the fold first; only then clear the legacy key so the text
         // is never in neither place.
@@ -364,7 +408,8 @@ enum SharedCaptureStore {
           status: CaptureStatus.pending.rawValue,
           failureReason: nil,
           sentAt: nil,
-          createdAt: receivedAt
+          createdAt: receivedAt,
+          receivedAtInferred: nil
         ))
       }
       guard !queue.isEmpty else {

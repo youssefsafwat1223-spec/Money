@@ -20,6 +20,7 @@ class SharedCapturedMessage {
     this.locale,
     this.status,
     this.failureReason,
+    this.receivedAtInferred,
   });
 
   final String? id;
@@ -32,6 +33,11 @@ class SharedCapturedMessage {
   final String? failureReason;
   final CapturedMessageSource source;
   final DateTime? receivedAt;
+
+  /// R9: true when the iOS Shortcut did not pass Date Received and the native
+  /// layer inferred the receive time; null when the native layer did not report
+  /// it (share extension, builds before R9).
+  final bool? receivedAtInferred;
 }
 
 class ApnsTokenInfo {
@@ -526,7 +532,7 @@ class NativeCaptureBridge {
   static Future<List<SharedCapturedMessage>> _fetchSharedMessages(
     String method,
   ) async {
-    if (!Platform.isIOS && !Platform.isAndroid) {
+    if (!debugTreatHostAsNative && !Platform.isIOS && !Platform.isAndroid) {
       return const [];
     }
     final String? json;
@@ -567,6 +573,7 @@ class NativeCaptureBridge {
       final rawLocale = (item['locale'] as String?)?.trim();
       final rawStatus = (item['status'] as String?)?.trim();
       final rawFailureReason = (item['failureReason'] as String?)?.trim();
+      final rawInferred = item['receivedAtInferred'];
       final sender = _firstNonEmpty([rawSenderId, rawSender, rawSenderName]);
       messages.add(
         SharedCapturedMessage(
@@ -581,6 +588,7 @@ class NativeCaptureBridge {
           locale: _emptyToNull(rawLocale),
           status: _emptyToNull(rawStatus),
           failureReason: _emptyToNull(rawFailureReason),
+          receivedAtInferred: rawInferred is bool ? rawInferred : null,
           // MALI-068n §11 — native epoch is authoritative; the ISO string is a
           // legacy fallback; unknown → null (never `now`).
           receivedAt: resolveCapturedReceivedAt(
@@ -619,6 +627,7 @@ class NativeCaptureBridge {
         'status': message.status,
         'failureReason': message.failureReason,
         'payloadId': message.id,
+        'receivedAtInferred': message.receivedAtInferred,
       });
       return true;
     } on PlatformException {

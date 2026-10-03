@@ -90,7 +90,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get setupShortcutStep5Body =>
-      'Choose New Blank Automation, search for \"Process Bank SMS\", and set SMS Text to \"Shortcut Input\".';
+      'Choose New Blank Automation, search for \"Process Bank SMS\", set SMS Text to \"Shortcut Input\", and set Date Received to when the message arrived. Never leave Date Received empty.';
 
   @override
   String get setupShortcutStep6Title => 'Save';
@@ -4816,7 +4816,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get iosStep6Body =>
-      'An SMS Text field must appear — set it to Shortcut Input. Open the action’s details and set Date Received to when the message arrived; that is what stops a transaction being recorded twice if the automation runs twice for the same message.';
+      'An SMS Text field must appear — set it to Shortcut Input. Open the action’s details and set Date Received to when the message arrived and never leave it empty; that is what stops a transaction being recorded twice if the automation runs twice for the same message.';
 
   @override
   String get iosStep7 => 'Match the final shape';

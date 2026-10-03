@@ -238,7 +238,7 @@ abstract class AppL10n {
   /// No description provided for @setupShortcutStep5Body.
   ///
   /// In ar, this message translates to:
-  /// **'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input».'**
+  /// **'اختر New Blank Automation وابحث عن «Process Bank SMS»، وفي SMS Text اختر «Shortcut Input»، وفي Date Received اختر تاريخ استلام الرسالة. لا تترك Date Received فارغًا.'**
   String get setupShortcutStep5Body;
 
   /// No description provided for @setupShortcutStep6Title.
@@ -8152,7 +8152,7 @@ abstract class AppL10n {
   /// No description provided for @iosStep6Body.
   ///
   /// In ar, this message translates to:
-  /// **'يجب أن يظهر حقل SMS Text. اختَر له Shortcut Input. وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام الرسالة — يمنع تكرار العملية إذا شُغّلت الأتمتة مرتين لنفس الرسالة.'**
+  /// **'يجب أن يظهر حقل SMS Text. اختَر له Shortcut Input. وافتح تفاصيل الأكشن واضبط Date Received على تاريخ استلام الرسالة ولا تتركه فارغًا — يمنع تكرار العملية إذا شُغّلت الأتمتة مرتين لنفس الرسالة.'**
   String get iosStep6Body;
 
   /// No description provided for @iosStep7.

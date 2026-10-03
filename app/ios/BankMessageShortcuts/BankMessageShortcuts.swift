@@ -66,6 +66,9 @@ struct PostBankStatusIntent: AppIntent {
       senderName: senderName,
       senderID: senderID,
       receivedAt: receivedAt,
+      // R9: the recipe is meant to always pass Date Received; record when it
+      // did not, since the inferred time makes the payload id unstable.
+      receivedAtInferred: dateReceived == nil,
       localeIdentifier: deviceLocale
     )
     let service = BankSMSCaptureService()
@@ -382,6 +385,7 @@ struct BankSMSCaptureRequest {
   let senderName: String?
   let senderID: String?
   let receivedAt: Date?
+  let receivedAtInferred: Bool?
   let localeIdentifier: String?
 }
 
@@ -422,7 +426,8 @@ struct BankSMSCaptureService {
       status: status,
       sentAt: sentAt,
       failureReason: failureReason,
-      payloadID: payloadID
+      payloadID: payloadID,
+      receivedAtInferred: request.receivedAtInferred
     )
 
     #if DEBUG
@@ -434,8 +439,12 @@ struct BankSMSCaptureService {
       )
     #endif
 
-    if case let .failed(reason) = result {
-      throw ProcessBankSMSError.captureFailed(reason)
+    if case let .failed(reason, kind) = result {
+      // Internal diagnostic only (no SMS text); the user sees the kind's copy.
+      NSLog("[QirshShortcut] capture not persisted: %@", reason)
+      throw kind == .emptyText
+        ? ProcessBankSMSError.emptySMSText
+        : ProcessBankSMSError.captureFailed(kind)
     }
     return result
   }
@@ -454,7 +463,8 @@ protocol CaptureQueueWriting {
     status: SharedCaptureStore.CaptureStatus,
     sentAt: Date?,
     failureReason: String?,
-    payloadID: String?
+    payloadID: String?,
+    receivedAtInferred: Bool?
   ) -> SharedCaptureStore.EnqueueResult
 }
 
@@ -471,7 +481,8 @@ struct SharedCaptureStoreWriter: CaptureQueueWriting {
     status: SharedCaptureStore.CaptureStatus,
     sentAt: Date?,
     failureReason: String?,
-    payloadID: String?
+    payloadID: String?,
+    receivedAtInferred: Bool?
   ) -> SharedCaptureStore.EnqueueResult {
     SharedCaptureStore.enqueue(
       text: text,
@@ -484,7 +495,8 @@ struct SharedCaptureStoreWriter: CaptureQueueWriting {
       status: status,
       sentAt: sentAt,
       failureReason: failureReason,
-      payloadID: payloadID
+      payloadID: payloadID,
+      receivedAtInferred: receivedAtInferred
     )
   }
 }
@@ -708,22 +720,16 @@ struct BackendCaptureClient {
 @available(iOS 16.0, *)
 enum ProcessBankSMSError: Error, LocalizedError {
   case emptySMSText
-  case captureFailed(String)
+  case captureFailed(SharedCaptureStore.FailureKind)
 
+  /// R9 copy rule: fixed, approved text only. Never an OSStatus, errSec*,
+  /// QueueError description or raw localization key.
   var errorDescription: String? {
     switch self {
     case .emptySMSText:
-      return NSLocalizedString(
-        "process_bank_sms_error_empty_sms",
-        comment: "Shown when the App Intent receives empty SMS text."
-      )
-    case let .captureFailed(reason):
-      // CAP-0: also the before-first-unlock / Keychain / lock-failure message.
-      let format = NSLocalizedString(
-        "process_bank_sms_error_failed_format",
-        comment: "Shown when the App Intent cannot save the SMS payload."
-      )
-      return String(format: format, reason)
+      return SharedCaptureStore.FailureKind.emptyText.userMessage
+    case let .captureFailed(kind):
+      return kind.userMessage
     }
   }
 }

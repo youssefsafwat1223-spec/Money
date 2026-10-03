@@ -57,6 +57,7 @@ import '../capture/services/local_notification_service.dart';
 import '../capture/services/notification_log_service.dart';
 import '../capture/services/pending_notification_actions.dart';
 import '../capture/services/native_capture_bridge.dart';
+import '../capture/services/capture_identity_metrics.dart';
 import '../capture/services/shared_capture_handoff_service.dart';
 import '../../core/tracking/user_activity_service.dart';
 import '../cards/cards_providers.dart';
@@ -984,7 +985,15 @@ class _AppShellState extends ConsumerState<AppShell> {
         final id = message.id;
         if (id == null || id.isEmpty) return false;
         if (!await isOwnerCurrent()) throw const StaleOwnershipException();
-        return NativeCaptureBridge.acknowledgeSharedMessage(id);
+        final acked = await NativeCaptureBridge.acknowledgeSharedMessage(id);
+        // R9: one count per acknowledged capture (counts only, no content).
+        if (acked) {
+          await CaptureIdentityMetrics.record(
+            ref.read(appDatabaseProvider),
+            message.receivedAtInferred,
+          );
+        }
+        return acked;
       }
 
       final handoff = SharedCaptureHandoffService(
@@ -1093,11 +1102,17 @@ class _AppShellState extends ConsumerState<AppShell> {
           // permanent payload marker; unprocessable captures first become a
           // deterministic Smart Inbox row containing the raw SMS. Only an
           // intentional ignored message may acknowledge without a durable row.
-          await handoff.complete(
+          final handoffOutcome = await handoff.complete(
             message: message,
             disposition: result.disposition,
             transactionId: result.transactionId,
           );
+          if (handoffOutcome == SharedCaptureHandoffOutcome.acknowledged) {
+            await CaptureIdentityMetrics.record(
+              ref.read(appDatabaseProvider),
+              message.receivedAtInferred,
+            );
+          }
           if (result.disposition == CapturedMessageDisposition.unprocessable) {
             ref.invalidate(smartInboxItemsProvider);
           }
