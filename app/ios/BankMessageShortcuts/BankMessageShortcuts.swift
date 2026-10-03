@@ -55,7 +55,11 @@ struct PostBankStatusIntent: AppIntent {
   )
   var deviceLocale: String?
 
-  func perform() async -> some IntentResult {
+  /// CAP-0: throws (a visible Shortcuts error) whenever the capture could not be
+  /// persisted — empty text, Keychain unavailable before first unlock, lock or
+  /// App Group failure. Returning a quiet result there told the user a capture
+  /// succeeded that was never saved.
+  func perform() async throws -> some IntentResult {
     let receivedAt = dateReceived ?? Date()
     let request = BankSMSCaptureRequest(
       smsText: smsText,
@@ -83,13 +87,12 @@ struct PostBankStatusIntent: AppIntent {
       // Durability boundary: the complete payload exists in the App Group
       // before the first suspension point/network request. A hard extension
       // kill from here onward leaves a retryable entry with the same payloadId.
-      let persisted = try? service.capture(
+      let persisted = try service.capture(
         request,
         status: .pendingSend,
         payloadID: payloadID
       )
-      guard persisted != nil else { return .result() }
-      if case let .some(.duplicate(existing)) = persisted,
+      if case let .duplicate(existing) = persisted,
          existing.status != SharedCaptureStore.CaptureStatus.pendingSend.rawValue {
         return .result()
       }
@@ -134,8 +137,8 @@ struct PostBankStatusIntent: AppIntent {
       return .result()
     }
 
-    let outcome = try? service.capture(request, status: .sent, payloadID: payloadID)
-    if case .some(.enqueued) = outcome {
+    let outcome = try service.capture(request, status: .sent, payloadID: payloadID)
+    if case .enqueued = outcome {
       await scheduleLocalParsedOrGenericNotification(
         payloadID: payloadID,
         offersSmartAnalysis: true
@@ -715,6 +718,7 @@ enum ProcessBankSMSError: Error, LocalizedError {
         comment: "Shown when the App Intent receives empty SMS text."
       )
     case let .captureFailed(reason):
+      // CAP-0: also the before-first-unlock / Keychain / lock-failure message.
       let format = NSLocalizedString(
         "process_bank_sms_error_failed_format",
         comment: "Shown when the App Intent cannot save the SMS payload."

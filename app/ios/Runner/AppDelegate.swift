@@ -264,16 +264,25 @@ enum ApnsEnvironment {
       name: "money_companion/native_capture",
       binaryMessenger: controller.binaryMessenger
     )
+    // CAP-0: a queue failure (key unreadable, lock unavailable, corrupt blob)
+    // reaches Dart as a FlutterError — never a crash, never an "empty queue".
+    func queueResult(_ result: FlutterResult, _ body: () throws -> String?) {
+      do {
+        result(try body())
+      } catch {
+        result(FlutterError(code: "queue_unavailable", message: "\(error)", details: nil))
+      }
+    }
     channel.setMethodCallHandler { call, result in
       switch call.method {
       case "consumePendingSharedInput":
-        result(SharedCaptureStore.consumePendingText())
+        queueResult(result) { try SharedCaptureStore.consumePendingText() }
       case "consumePendingSharedMessages":
-        result(SharedCaptureStore.consumePendingPayloadsJSON())
+        queueResult(result) { try SharedCaptureStore.consumePendingPayloadsJSON() }
       case "peekPendingSharedMessages":
         // Per-item lease (MALI-012): returns the queue without deleting it;
         // Dart acks each payload after its import commits.
-        result(SharedCaptureStore.peekPendingPayloadsJSON())
+        queueResult(result) { try SharedCaptureStore.peekPendingPayloadsJSON() }
       case "acknowledgeSharedMessage":
         let payloadId =
           (call.arguments as? [String: Any])?["payloadId"] as? String

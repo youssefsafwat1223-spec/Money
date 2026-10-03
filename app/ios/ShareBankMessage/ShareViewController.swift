@@ -9,8 +9,16 @@ final class ShareViewController: SLComposeServiceViewController {
 
   override func didSelectPost() {
     extractSharedText { text in
-      if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        SharedCaptureStore.enqueue(text: text, sender: nil, source: "share")
+      if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+         case let .failed(reason) = SharedCaptureStore.enqueue(text: text, sender: nil, source: "share") {
+        // CAP-0: the queue refused the write (e.g. before first unlock). Cancel
+        // with an error rather than reporting a successful share that was lost.
+        self.extensionContext?.cancelRequest(withError: NSError(
+          domain: "ShareBankMessage",
+          code: 1,
+          userInfo: [NSLocalizedDescriptionKey: reason]
+        ))
+        return
       }
       self.extensionContext?.completeRequest(returningItems: [], completionHandler: nil)
     }

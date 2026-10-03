@@ -76,7 +76,7 @@ void main() {
     // answer self-corrects on the next drain. `hasPendingMessages()` reads that
     // way deliberately. What must be serialised is the read-MODIFY-write, which
     // is exactly the `var queue = loadQueue()` ... `saveQueue(queue)` shape.
-    for (final call in RegExp(r'var queue = loadQueue\(').allMatches(source)) {
+    for (final call in RegExp(r'var queue = try loadQueue\(').allMatches(source)) {
       expect(insideALock(call.start, blocks), isTrue,
           reason: 'a read-modify-write of the queue at offset ${call.start} is '
               'OUTSIDE withQueueLock — two processes can then interleave and '

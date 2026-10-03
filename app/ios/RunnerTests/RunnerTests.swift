@@ -125,6 +125,109 @@ class RunnerTests: XCTestCase {
                  "purge/wipe invalidates the device secret")
   }
 
+  // ── CAP-0: queue key / lock failures never destroy the queue ───────────────
+  //
+  // These drive the two internal seams on SharedCaptureStore
+  // (queueKeyReadOverride, lockUnavailableOverride). They need a device or
+  // simulator with the App Group + Keychain entitlements; they cannot run in
+  // the Linux/Dart CI (the Dart source-contract tests pin the same properties).
+
+  private let queueDefaultsKey = "pending_bank_messages_v2"
+
+  private func resetCapSeams() {
+    SharedCaptureStore.queueKeyReadOverride = nil
+    SharedCaptureStore.lockUnavailableOverride = false
+    SharedCaptureStore.purgeUserOwnedState()
+  }
+
+  // T-Q1: a Keychain read error (errSecInteractionNotAllowed = before first
+  // unlock) must not generate a new key or touch the blob. If it had replaced
+  // the key, the original blob could no longer be decrypted afterwards.
+  func testKeyReadErrorFailsWithoutNewKeyAndKeepsBlob() throws {
+    SharedCaptureStore.purgeUserOwnedState()
+    defer { resetCapSeams() }
+    let first = "ACME: purchase 77.10 SAR"
+    if case .failed(let reason) = SharedCaptureStore.enqueue(text: first, sender: "ACME") {
+      return XCTFail("setup enqueue failed: \(reason)")
+    }
+    let before = try XCTUnwrap(appGroupDefaults.data(forKey: queueDefaultsKey))
+
+    SharedCaptureStore.queueKeyReadOverride = { (status: errSecInteractionNotAllowed, data: nil) }
+    guard case .failed = SharedCaptureStore.enqueue(text: "second 5.00 SAR", sender: "ACME") else {
+      return XCTFail("enqueue must fail while the key is unreadable")
+    }
+    XCTAssertThrowsError(try SharedCaptureStore.peekPendingPayloadsJSON())
+    XCTAssertFalse(SharedCaptureStore.remove(payloadID: "anything"))
+    XCTAssertEqual(appGroupDefaults.data(forKey: queueDefaultsKey), before,
+                   "the encrypted blob must be untouched")
+
+    SharedCaptureStore.queueKeyReadOverride = nil
+    let json = try XCTUnwrap(try SharedCaptureStore.peekPendingPayloadsJSON())
+    XCTAssertTrue(json.contains(first), "the original key must still decrypt the blob")
+    XCTAssertFalse(json.contains("second 5.00"))
+  }
+
+  // T-Q2: no lock, no write. The body never runs unlocked.
+  func testLockUnavailableThrowsAndWritesNothing() throws {
+    SharedCaptureStore.purgeUserOwnedState()
+    defer { resetCapSeams() }
+    _ = SharedCaptureStore.enqueue(text: "ACME: purchase 9.00 SAR", sender: "ACME")
+    let before = try XCTUnwrap(appGroupDefaults.data(forKey: queueDefaultsKey))
+
+    SharedCaptureStore.lockUnavailableOverride = true
+    guard case .failed = SharedCaptureStore.enqueue(text: "other 1.00 SAR", sender: "ACME") else {
+      return XCTFail("enqueue must fail without the lock")
+    }
+    XCTAssertThrowsError(try SharedCaptureStore.peekPendingPayloadsJSON()) { error in
+      guard case SharedCaptureStore.QueueError.lockUnavailable = error else {
+        return XCTFail("unexpected error \(error)")
+      }
+    }
+    XCTAssertFalse(SharedCaptureStore.purgeUserOwnedState(), "an unlocked purge must not run")
+    XCTAssertEqual(appGroupDefaults.data(forKey: queueDefaultsKey), before)
+  }
+
+  // T-Q3: a blob that cannot be decrypted is not an empty queue; the next
+  // enqueue must not overwrite it.
+  func testUnreadableBlobIsNeverOverwritten() throws {
+    SharedCaptureStore.purgeUserOwnedState()
+    defer { resetCapSeams() }
+    let corrupt = Data([0x01, 0x02, 0x03, 0xFF, 0x00, 0x99])
+    appGroupDefaults.set(corrupt, forKey: queueDefaultsKey)
+    guard case .failed = SharedCaptureStore.enqueue(text: "new 3.00 SAR", sender: "ACME") else {
+      return XCTFail("enqueue must fail on an unreadable blob")
+    }
+    XCTAssertThrowsError(try SharedCaptureStore.peekPendingPayloadsJSON())
+    XCTAssertEqual(appGroupDefaults.data(forKey: queueDefaultsKey), corrupt)
+  }
+
+  // T-Q4: the App Intent surfaces a persistence failure as a thrown, localized
+  // error instead of silently returning a result.
+  @available(iOS 16.0, *)
+  func testIntentThrowsVisibleErrorWhenQueueUnavailable() async throws {
+    SharedCaptureStore.purgeUserOwnedState()
+    defer { resetCapSeams() }
+    SharedCaptureStore.queueKeyReadOverride = { (status: errSecInteractionNotAllowed, data: nil) }
+    let intent = PostBankStatusIntent()
+    intent.smsText = "ACME: purchase 12.00 SAR"
+    intent.dateReceived = Date()
+    do {
+      _ = try await intent.perform()
+      XCTFail("perform must throw when the capture cannot be persisted")
+    } catch let error as ProcessBankSMSError {
+      XCTAssertNotNil(error.errorDescription)
+    } catch {
+      XCTFail("unexpected error \(error)")
+    }
+
+    intent.smsText = "   "
+    do {
+      _ = try await intent.perform()
+      XCTFail("perform must throw on empty text")
+    } catch {
+      XCTAssertTrue(error is ProcessBankSMSError)
+    }
+  }
 
   // ── APNs environment pairing ───────────────────────────────────────────────
   //

@@ -51,6 +51,27 @@ enum SharedCaptureStore {
     case failed
   }
 
+  /// Why a queue operation was refused. Every case means NOTHING was written:
+  /// a failed operation never touches the stored queue blob (CAP-0).
+  enum QueueError: Error {
+    /// The App Group container or the cross-process lock inside it is unusable.
+    case lockUnavailable
+    /// The queue key could not be read or written (e.g.
+    /// `errSecInteractionNotAllowed` before the first unlock).
+    case keyUnavailable(OSStatus)
+    /// A queue blob exists but cannot be decrypted/decoded (corrupt, or its key
+    /// is gone). It is left in place and every write is refused until it is
+    /// purged (sign-out); overwriting it would silently destroy recoverable
+    /// captures.
+    case unreadable
+    case encodingFailed
+  }
+
+  /// Test seams (CAP-0), never set in production: the Keychain read of the
+  /// queue key, and a forced lock failure.
+  static var queueKeyReadOverride: (() -> (status: OSStatus, data: Data?))?
+  static var lockUnavailableOverride = false
+
   struct BackendConfig {
     let cloudProcessingEnabled: Bool
     let installID: String?
@@ -182,20 +203,22 @@ enum SharedCaptureStore {
       createdAt: createdAtString
     )
 
-    return withQueueLock {
-      var queue = loadQueue()
-      if let existing = queue.first(where: { $0.id == payloadID }) {
-        if notifyHost {
-          notifyPendingMessagesAvailable()
+    do {
+      return try withQueueLock {
+        var queue = try loadQueue()
+        if let existing = queue.first(where: { $0.id == payloadID }) {
+          if notifyHost {
+            notifyPendingMessagesAvailable()
+          }
+          return .duplicate(existing)
         }
-        return .duplicate(existing)
-      }
 
-      queue.append(payload)
-      guard saveQueue(queue, notifyHost: notifyHost) else {
-        return .failed("Could not save the SMS payload.")
+        queue.append(payload)
+        try saveQueue(queue, notifyHost: notifyHost)
+        return .enqueued(payload)
       }
-      return .enqueued(payload)
+    } catch {
+      return .failed("Could not save the SMS payload (\(error)).")
     }
   }
 
@@ -212,8 +235,8 @@ enum SharedCaptureStore {
     status: CaptureStatus,
     failureReason: String? = nil
   ) -> Bool {
-    withQueueLock {
-      var queue = loadQueue()
+    (try? withQueueLock { () throws -> Bool in
+      var queue = try loadQueue()
       guard let index = queue.firstIndex(where: { $0.id == payloadID }) else {
         return false
       }
@@ -232,25 +255,27 @@ enum SharedCaptureStore {
         sentAt: status == .sent ? isoFormatter.string(from: Date()) : current.sentAt,
         createdAt: current.createdAt
       )
-      return saveQueue(queue, notifyHost: false)
-    }
+      try saveQueue(queue, notifyHost: false)
+      return true
+    }) ?? false
   }
 
   /// Removes only a positively acknowledged payload; other queue entries stay.
   @discardableResult
   static func remove(payloadID: String) -> Bool {
-    withQueueLock {
-      var queue = loadQueue()
+    (try? withQueueLock { () throws -> Bool in
+      var queue = try loadQueue()
       let before = queue.count
       queue.removeAll(where: { $0.id == payloadID })
       guard queue.count != before else { return false }
-      return saveQueue(queue, notifyHost: false)
-    }
+      try saveQueue(queue, notifyHost: false)
+      return true
+    }) ?? false
   }
 
   /// Returns true when the App Group queue currently has pending messages.
   static func hasPendingMessages() -> Bool {
-    !loadQueue().isEmpty ||
+    (try? loadQueue())?.isEmpty == false ||
       ((defaults?.string(forKey: legacyKey)?
         .trimmingCharacters(in: .whitespacesAndNewlines)
         .isEmpty) == false)
@@ -265,9 +290,9 @@ enum SharedCaptureStore {
   /// Any legacy single-text value is first folded into the durable queue (so
   /// it gains a stable payload id and the same per-item lifecycle) before the
   /// legacy key is cleared.
-  static func peekPendingPayloadsJSON() -> String? {
-    withQueueLock {
-      var queue = loadQueue()
+  static func peekPendingPayloadsJSON() throws -> String? {
+    try withQueueLock {
+      var queue = try loadQueue()
       if let legacy = defaults?.string(forKey: legacyKey),
          !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         let receivedAt = isoFormatter.string(from: Date())
@@ -294,7 +319,7 @@ enum SharedCaptureStore {
         ))
         // Persist the fold first; only then clear the legacy key so the text
         // is never in neither place.
-        guard saveQueue(queue, notifyHost: false) else { return nil }
+        try saveQueue(queue, notifyHost: false)
         defaults?.removeObject(forKey: legacyKey)
         defaults?.synchronize()
       }
@@ -314,9 +339,9 @@ enum SharedCaptureStore {
   ///
   /// The queue is removed only after JSON encoding succeeds so messages are not
   /// lost if encoding fails.
-  static func consumePendingPayloadsJSON() -> String? {
-    withQueueLock {
-      var queue = loadQueue()
+  static func consumePendingPayloadsJSON() throws -> String? {
+    try withQueueLock {
+      var queue = try loadQueue()
       if let legacy = defaults?.string(forKey: legacyKey),
          !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
         let receivedAt = isoFormatter.string(from: Date())
@@ -359,9 +384,9 @@ enum SharedCaptureStore {
   }
 
   /// Backward-compatible single consume that returns the oldest text only.
-  static func consumePendingText() -> String? {
-    withQueueLock {
-      var queue = loadQueue()
+  static func consumePendingText() throws -> String? {
+    try withQueueLock {
+      var queue = try loadQueue()
       if queue.isEmpty {
         if let legacy = defaults?.string(forKey: legacyKey),
            !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -374,7 +399,7 @@ enum SharedCaptureStore {
         return nil
       }
       let first = queue.removeFirst()
-      _ = saveQueue(queue)
+      try saveQueue(queue)
       return first.text
     }
   }
@@ -464,7 +489,7 @@ enum SharedCaptureStore {
     }
     // MALI-068n: read-modify-write under the shared cross-process lock so a
     // concurrent host/extension write cannot lose a route.
-    withQueueLock {
+    _ = try? withQueueLock {
       var queue = loadNotificationRoutes()
       queue.append(payload)
       if queue.count > 10 {
@@ -478,7 +503,7 @@ enum SharedCaptureStore {
   }
 
   static func consumePendingNotificationRoutesJSON() -> String? {
-    withQueueLock {
+    try? withQueueLock { () throws -> String? in
       let queue = loadNotificationRoutes()
       guard !queue.isEmpty,
             let data = try? JSONEncoder().encode(queue),
@@ -521,7 +546,7 @@ enum SharedCaptureStore {
       occurredAt: isoFormatter.string(from: Date())
     )
     // MALI-068n: RMW under the shared cross-process lock.
-    withQueueLock {
+    _ = try? withQueueLock {
       var queue = loadNotificationLogEvents()
       queue.append(payload)
       if queue.count > 200 {
@@ -534,7 +559,7 @@ enum SharedCaptureStore {
   }
 
   static func consumePendingNotificationLogEventsJSON() -> String? {
-    withQueueLock {
+    try? withQueueLock { () throws -> String? in
       let queue = loadNotificationLogEvents()
       guard !queue.isEmpty,
             let data = try? JSONEncoder().encode(queue),
@@ -565,13 +590,13 @@ enum SharedCaptureStore {
     notifyPendingMessagesAvailable()
   }
 
-  private static func loadQueue() -> [Payload] {
+  private static func loadQueue() throws -> [Payload] {
     guard let data = defaults?.data(forKey: queueKey) else { return [] }
     // MALI-031: the blob is AES-GCM encrypted. A legacy plaintext-JSON blob is
-    // migrated transparently; a corrupt/undecryptable blob fails CLOSED (empty)
-    // and is deliberately NOT deleted here, so a transient key issue never
-    // discards recoverable records.
-    return decodeQueueBlob(data) ?? []
+    // migrated transparently. CAP-0: a blob that cannot be read THROWS — it is
+    // never reported as an empty queue, because the next enqueue would then
+    // overwrite recoverable records. It is deliberately NOT deleted here.
+    return try decodeQueueBlob(data)
   }
 
   private static func loadNotificationRoutes() -> [NotificationRoutePayload] {
@@ -589,49 +614,56 @@ enum SharedCaptureStore {
   /// residual data. Runs under the queue lock (same discipline as the queue
   /// writers). Install-level NON-secret config (backend URL/keys, install id,
   /// APNs token) is preserved and re-managed by setBackendConfig; the device
-  /// secret is re-provisioned on the next login. Returns true on completion.
+  /// secret is re-provisioned on the next login. Returns true on completion,
+  /// false (nothing purged) when the queue lock could not be taken.
   @discardableResult
   static func purgeUserOwnedState() -> Bool {
-    withQueueLock {
-      defaults?.removeObject(forKey: queueKey)
-      defaults?.removeObject(forKey: legacyKey)
-      defaults?.removeObject(forKey: pendingCountKey)
-      defaults?.removeObject(forKey: latestPayloadIDKey)
-      defaults?.removeObject(forKey: pendingNotificationRoutesKey)
-      defaults?.removeObject(forKey: notificationLogEventsKey)
-      defaults?.removeObject(forKey: deviceSecretKey) // legacy plaintext, if any
-      SharedKeychain.remove(forKey: deviceSecretKC)
-      SharedKeychain.remove(forKey: queueEncryptionKeyKC)
-      defaults?.synchronize()
+    do {
+      try withQueueLock {
+        defaults?.removeObject(forKey: queueKey)
+        defaults?.removeObject(forKey: legacyKey)
+        defaults?.removeObject(forKey: pendingCountKey)
+        defaults?.removeObject(forKey: latestPayloadIDKey)
+        defaults?.removeObject(forKey: pendingNotificationRoutesKey)
+        defaults?.removeObject(forKey: notificationLogEventsKey)
+        defaults?.removeObject(forKey: deviceSecretKey) // legacy plaintext, if any
+        SharedKeychain.remove(forKey: deviceSecretKC)
+        SharedKeychain.remove(forKey: queueEncryptionKeyKC)
+        defaults?.synchronize()
+      }
+    } catch {
+      return false
     }
     return true
   }
 
-  private static func withQueueLock<T>(_ body: () -> T) -> T {
-    guard let containerURL = FileManager.default.containerURL(
-      forSecurityApplicationGroupIdentifier: appGroupIdentifier
-    ) else {
-      return body()
+  /// CAP-0: the body NEVER runs without the exclusive lock. If the container,
+  /// the lock file or the flock itself is unavailable this throws instead.
+  private static func withQueueLock<T>(_ body: () throws -> T) throws -> T {
+    guard !lockUnavailableOverride,
+          let containerURL = FileManager.default.containerURL(
+            forSecurityApplicationGroupIdentifier: appGroupIdentifier
+          ) else {
+      throw QueueError.lockUnavailable
     }
     let lockURL = containerURL.appendingPathComponent(queueLockFileName)
     let fd = open(lockURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
     guard fd >= 0 else {
-      return body()
+      throw QueueError.lockUnavailable
     }
     defer { close(fd) }
-    flock(fd, LOCK_EX)
+    while flock(fd, LOCK_EX) != 0 {
+      guard errno == EINTR else { throw QueueError.lockUnavailable }
+    }
     defer { flock(fd, LOCK_UN) }
-    return body()
+    return try body()
   }
 
-  @discardableResult
-  private static func saveQueue(_ queue: [Payload], notifyHost: Bool = true) -> Bool {
+  private static func saveQueue(_ queue: [Payload], notifyHost: Bool = true) throws {
     if queue.isEmpty {
       defaults?.removeObject(forKey: queueKey)
     } else {
-      guard let data = encodeQueueBlob(queue) else {
-        return false
-      }
+      let data = try encodeQueueBlob(queue)
       defaults?.set(data, forKey: queueKey)
     }
     updatePendingMetadata(queue)
@@ -639,7 +671,6 @@ enum SharedCaptureStore {
     if notifyHost && !queue.isEmpty {
       notifyPendingMessagesAvailable()
     }
-    return true
   }
 
   private static func updatePendingMetadata(_ queue: [Payload]) {
@@ -697,37 +728,60 @@ enum SharedCaptureStore {
 
   // MARK: - Capture-queue encryption (MALI-031)
 
-  /// The AES-256 key that encrypts the capture queue at rest, held in the shared
-  /// Keychain (accessible to the host app and the extension). Generated once.
-  private static func encryptionKey() -> SymmetricKey? {
-    if let data = SharedKeychain.data(forKey: queueEncryptionKeyKC), data.count == 32 {
-      return SymmetricKey(data: data)
-    }
-    let key = SymmetricKey(size: .bits256)
-    let raw = key.withUnsafeBytes { Data(Array($0)) }
-    guard SharedKeychain.setData(raw, forKey: queueEncryptionKeyKC) else { return nil }
-    return key
+  private static func readQueueKey() -> (status: OSStatus, data: Data?) {
+    queueKeyReadOverride?() ?? SharedKeychain.read(forKey: queueEncryptionKeyKC)
   }
 
-  /// Encrypts the queue as an AES-GCM combined blob. Returns nil if the shared
+  /// The AES-256 key that encrypts the capture queue at rest, held in the shared
+  /// Keychain (accessible to the host app and the extension). Generated once,
+  /// and ONLY when the Keychain positively reports `errSecItemNotFound`: any
+  /// other status (e.g. `errSecInteractionNotAllowed` before first unlock) throws,
+  /// because replacing a key that merely could not be read would make the
+  /// existing encrypted queue permanently undecryptable (CAP-0).
+  private static func encryptionKey() throws -> SymmetricKey {
+    let read = readQueueKey()
+    switch read.status {
+    case errSecSuccess:
+      guard let data = read.data, data.count == 32 else {
+        throw QueueError.keyUnavailable(errSecDecode)
+      }
+      return SymmetricKey(data: data)
+    case errSecItemNotFound:
+      let key = SymmetricKey(size: .bits256)
+      let raw = key.withUnsafeBytes { Data(Array($0)) }
+      let status = SharedKeychain.writeData(raw, forKey: queueEncryptionKeyKC)
+      guard status == errSecSuccess else { throw QueueError.keyUnavailable(status) }
+      return key
+    default:
+      throw QueueError.keyUnavailable(read.status)
+    }
+  }
+
+  /// Encrypts the queue as an AES-GCM combined blob. Throws if the shared
   /// Keychain (hence the key) is unavailable, so the caller does NOT overwrite a
   /// good blob with an unencrypted one.
-  private static func encodeQueueBlob(_ queue: [Payload]) -> Data? {
-    guard let key = encryptionKey(),
-          let json = try? JSONEncoder().encode(queue),
+  private static func encodeQueueBlob(_ queue: [Payload]) throws -> Data {
+    let key = try encryptionKey()
+    guard let json = try? JSONEncoder().encode(queue),
           let sealed = try? AES.GCM.seal(json, using: key).combined else {
-      return nil
+      throw QueueError.encodingFailed
     }
     return sealed
   }
 
   /// Decrypts a stored blob. New blobs are AES-GCM sealed; a legacy plaintext
-  /// JSON blob is decoded transparently (one-time migration on next save). A
-  /// corrupt / undecryptable blob returns nil (fail closed).
-  private static func decodeQueueBlob(_ data: Data) -> [Payload]? {
-    if let key = encryptionKey(),
+  /// JSON blob is decoded transparently (one-time migration on next save). This
+  /// path only READS the key and never creates one: an unreadable key throws
+  /// `keyUnavailable`, and a blob that decrypts under no key (corrupt, or the
+  /// key is gone) throws `unreadable` — callers must not treat either as empty.
+  private static func decodeQueueBlob(_ data: Data) throws -> [Payload] {
+    let read = readQueueKey()
+    guard read.status == errSecSuccess || read.status == errSecItemNotFound else {
+      throw QueueError.keyUnavailable(read.status)
+    }
+    if let keyData = read.data, keyData.count == 32,
        let box = try? AES.GCM.SealedBox(combined: data),
-       let plain = try? AES.GCM.open(box, using: key),
+       let plain = try? AES.GCM.open(box, using: SymmetricKey(data: keyData)),
        let queue = try? JSONDecoder().decode([Payload].self, from: plain) {
       return queue
     }
@@ -735,7 +789,7 @@ enum SharedCaptureStore {
     if let queue = try? JSONDecoder().decode([Payload].self, from: data) {
       return queue
     }
-    return nil
+    throw QueueError.unreadable
   }
 }
 
@@ -773,25 +827,41 @@ private enum SharedKeychain {
     return q
   }
 
+  /// Updates the item in place and adds it only when it does not exist yet.
+  /// Never delete-then-add: a failure between the two calls would destroy the
+  /// only copy of the key (CAP-0).
   @discardableResult
-  static func setData(_ data: Data, forKey key: String) -> Bool {
+  static func writeData(_ data: Data, forKey key: String) -> OSStatus {
     let base = baseQuery(key)
-    SecItemDelete(base as CFDictionary)
+    let status = SecItemUpdate(
+      base as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary
+    )
+    guard status == errSecItemNotFound else { return status }
     var add = base
     add[kSecValueData as String] = data
     add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    return SecItemAdd(add as CFDictionary, nil) == errSecSuccess
+    return SecItemAdd(add as CFDictionary, nil)
   }
 
-  static func data(forKey key: String) -> Data? {
+  @discardableResult
+  static func setData(_ data: Data, forKey key: String) -> Bool {
+    writeData(data, forKey: key) == errSecSuccess
+  }
+
+  /// The raw Keychain status is kept so callers can tell "not there"
+  /// (`errSecItemNotFound`) from "could not be read right now".
+  static func read(forKey key: String) -> (status: OSStatus, data: Data?) {
     var query = baseQuery(key)
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var result: CFTypeRef?
-    guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess else {
-      return nil
-    }
-    return result as? Data
+    let status = SecItemCopyMatching(query as CFDictionary, &result)
+    return (status, status == errSecSuccess ? result as? Data : nil)
+  }
+
+  static func data(forKey key: String) -> Data? {
+    read(forKey: key).data
   }
 
   @discardableResult

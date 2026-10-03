@@ -66,11 +66,11 @@ void main() {
     // still stored as `.sent` + failureReason; the cloud-off site opts into the
     // Smart Analysis invite and is stored as `.sent`.
     final perform = shortcut.substring(shortcut.indexOf('if config.canUseBackend {'));
-    final backendPart = perform.substring(0, perform.indexOf('let outcome = try?'));
+    final backendPart = perform.substring(0, perform.indexOf('let outcome = try service.capture('));
     expect(backendPart,
         contains('await scheduleLocalParsedOrGenericNotification(payloadID: payloadID)'));
     expect(backendPart, contains('failureReason: attempt.failureReason'));
-    final offPart = perform.substring(perform.indexOf('let outcome = try?'));
+    final offPart = perform.substring(perform.indexOf('let outcome = try service.capture('));
     expect(offPart, contains('status: .sent'));
     expect(offPart, contains('offersSmartAnalysis: true'));
     expect(shortcut.contains('unparseableFallbackBody'), isFalse);
