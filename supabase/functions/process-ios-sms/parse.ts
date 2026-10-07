@@ -70,6 +70,12 @@ export type ParseOutcome = {
   parsed: ParsedCapture;
   /** Binary product outcome: true => processed-eligible, false => rejected. */
   accepted: boolean;
+  /** An AI request was actually dispatched (after the beforeAi gate allowed it). */
+  aiInvoked?: boolean;
+  /** AI timed out / errored at the transport level: retryable, not a final rejection. */
+  aiTransientFailure?: boolean;
+  /** beforeAi refused (consent revoked / lease lost): AI never started. */
+  aiDenied?: boolean;
 };
 
 /**
@@ -104,6 +110,8 @@ export async function parseSms(input: {
   tzOffsetMinutes: number | null;
   locale: string;
   allowAi: boolean;
+  /** AI linearization point: must commit before any AI request; false => AI never starts. */
+  beforeAi?: () => Promise<boolean>;
 }): Promise<ParseOutcome> {
   const deterministic = deterministicParse(input.text, input.receivedAt, input.tzOffsetMinutes);
   const fallback: ParsedCapture = {
@@ -116,8 +124,14 @@ export async function parseSms(input: {
   if (isResolved(deterministic)) return { parsed: fallback, accepted: true };
   if (!input.allowAi) return { parsed: fallback, accepted: false };
 
+  if (input.beforeAi && !(await input.beforeAi())) {
+    return { parsed: fallback, accepted: false, aiDenied: true };
+  }
   const ai = await aiParse(input.text);
-  if (!ai) return { parsed: fallback, accepted: false };
+  if (ai === 'transient') {
+    return { parsed: fallback, accepted: false, aiInvoked: true, aiTransientFailure: true };
+  }
+  if (!ai) return { parsed: fallback, accepted: false, aiInvoked: true };
 
   // HYBRID when the deterministic parse already had amount+currency, else AI-only.
   const hasLocalMoney = !!deterministic.amount && deterministic.amount > 0 && !!deterministic.currency;
@@ -136,7 +150,7 @@ export async function parseSms(input: {
     receivedAt: input.receivedAt,
     local,
   });
-  if (!validation.accepted) return { parsed: fallback, accepted: false };
+  if (!validation.accepted) return { parsed: fallback, accepted: false, aiInvoked: true };
 
   // Fill-only merge: a deterministic value is never overridden.
   const amount = hasLocalMoney ? deterministic.amount! : Number(validation.amountText);
@@ -188,6 +202,7 @@ export async function parseSms(input: {
 
   return {
     accepted: true,
+    aiInvoked: true,
     parsed: {
       amount,
       ...(amount_text == null ? {} : { amount_text }),
@@ -251,7 +266,8 @@ export function deterministicParse(
   };
 }
 
-async function aiParse(text: string): Promise<AiCandidate | null> {
+// null = no usable candidate (final); 'transient' = transport timeout / HTTP error (retryable).
+async function aiParse(text: string): Promise<AiCandidate | null | 'transient'> {
   const apiKey = GEMINI_API_KEY();
   if (!apiKey) return null;
   const prompt = `Extract one bank transaction from this sanitized SMS.
@@ -261,11 +277,12 @@ from the SMS, no exponent or rounding), currency ISO, merchant string, type paym
 Example money shape: {"amount":19.99,"amount_text":"19.99","currency":"EGP"}.
 IPN/InstaPay/person-to-person transfers (SMS contains "IPN REF", "IPN transfer", "Instapay", "credited by ... from <person>", "received from <person>", or "sent to <person>") are type=transfer, category=transfers, and merchant must be omitted even if a person's name appears — never type=income, never a merchant name. direction=credit for incoming/received, debit for sent/outgoing.
 SMS: ${text}`;
+  let response: Response;
   try {
     // Bounded: an unbounded Gemini call pushes the whole request past the App
     // Intent's 8s timeout, and the intent then posts a local fallback banner
     // while this function still commits + sends APNs (duplicate notification).
-    const response = await fetch(geminiUrl(), {
+    response = await fetch(geminiUrl(), {
       signal: AbortSignal.timeout(3500),
       method: 'POST',
       headers: {
@@ -281,7 +298,11 @@ SMS: ${text}`;
         },
       }),
     });
-    if (!response.ok) return null;
+  } catch (_) {
+    return 'transient';
+  }
+  if (!response.ok) return 'transient';
+  try {
     const data = await response.json();
     const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (typeof raw !== 'string') return null;

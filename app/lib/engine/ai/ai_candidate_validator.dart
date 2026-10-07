@@ -101,6 +101,19 @@ class AiCandidateValidator {
       return const AiCandidateValidation.rejected('direction_contradiction');
     }
 
+    // Direction is required (ValidatedCapture v1): an explicit AI direction or a
+    // type that maps to one. Transfer/unknown alone is unresolved.
+    final aiDirection = response.direction;
+    final hasDirection = aiDirection == 'debit' ||
+        aiDirection == 'credit' ||
+        (normalizedType != null &&
+            (normalizedType.isExpense ||
+                normalizedType == TransactionType.income ||
+                normalizedType == TransactionType.refund));
+    if (!hasDirection) {
+      return const AiCandidateValidation.rejected('direction_unresolved');
+    }
+
     final merchant = _merchantGrounded(response.merchantName, sanitizedText)
         ? response.merchantName
         : localParsed?.rawMerchant;

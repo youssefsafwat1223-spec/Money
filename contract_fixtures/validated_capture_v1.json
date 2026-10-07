@@ -1,0 +1,381 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "en_debit_valid",
+      "text": "Purchase of 75.00 SAR at SHOP ONE with card ending 4321 on 2026-06-16",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75.00",
+        "currency": "SAR",
+        "direction": "debit",
+        "merchant": "SHOP ONE",
+        "last4": "4321",
+        "occurred_at": "2026-06-16T10:00:00Z"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": [
+          "merchant",
+          "last4",
+          "occurred_at"
+        ]
+      }
+    },
+    {
+      "id": "en_credit_valid",
+      "text": "Deposit of 1200.00 EGP received in your account",
+      "candidate": {
+        "amount": 1200,
+        "amount_text": "1200.00",
+        "currency": "EGP",
+        "direction": "credit"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "ar_debit_valid",
+      "text": "تم خصم 250.50 SAR من بطاقتك لدى متجر الاختبار",
+      "candidate": {
+        "amount": 250.5,
+        "amount_text": "250.50",
+        "currency": "SAR",
+        "direction": "debit",
+        "merchant": "متجر الاختبار"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": [
+          "merchant"
+        ]
+      }
+    },
+    {
+      "id": "ar_credit_valid",
+      "text": "تم إيداع 3000.00 جنيه في حسابك",
+      "candidate": {
+        "amount": 3000,
+        "amount_text": "3000.00",
+        "currency": "EGP",
+        "direction": "credit"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "arabic_indic_digits_valid",
+      "text": "تم خصم ١٢٥٫٥٠ SAR من بطاقتك",
+      "candidate": {
+        "amount": 125.5,
+        "amount_text": "125.50",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "arabic_indic_thousands_valid",
+      "text": "تم خصم ١٬٢٥٠٫٥٠ SAR من بطاقتك",
+      "candidate": {
+        "amount": 1250.5,
+        "amount_text": "1250.50",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "thousands_separator_valid",
+      "text": "Purchase 1,250.50 EGP at SHOP ONE",
+      "candidate": {
+        "amount": 1250.5,
+        "amount_text": "1250.50",
+        "currency": "EGP",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "amount_only_in_date",
+      "text": "Purchase 250.00 SAR at SHOP ONE on 2026-06-16",
+      "candidate": {
+        "amount": 16,
+        "amount_text": "16",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_not_grounded"
+      }
+    },
+    {
+      "id": "amount_only_in_dotted_date",
+      "text": "Purchase 250.00 SAR at SHOP ONE on 16.06.2026",
+      "candidate": {
+        "amount": 16.06,
+        "amount_text": "16.06",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_not_grounded"
+      }
+    },
+    {
+      "id": "amount_only_in_time",
+      "text": "Purchase 250.00 SAR at SHOP ONE at 14:30",
+      "candidate": {
+        "amount": 30,
+        "amount_text": "30",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_not_grounded"
+      }
+    },
+    {
+      "id": "amount_only_in_last4",
+      "text": "Purchase 99.00 SAR at SHOP ONE card *1234",
+      "candidate": {
+        "amount": 1234,
+        "amount_text": "1234",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_not_grounded"
+      }
+    },
+    {
+      "id": "amount_only_in_last4_words",
+      "text": "Purchase 99.00 SAR at SHOP ONE card ending 1234",
+      "candidate": {
+        "amount": 1234,
+        "amount_text": "1234",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_not_grounded"
+      }
+    },
+    {
+      "id": "amount_only_in_account_number",
+      "text": "Purchase 99.00 SAR from account 9876543210 at SHOP ONE",
+      "candidate": {
+        "amount": 98765,
+        "amount_text": "98765",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_not_grounded"
+      }
+    },
+    {
+      "id": "amount_fragment_of_larger_number",
+      "text": "Purchase 1250.50 SAR at SHOP ONE",
+      "candidate": {
+        "amount": 250.5,
+        "amount_text": "250.50",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_not_grounded"
+      }
+    },
+    {
+      "id": "amount_text_not_a_token",
+      "text": "Purchase 75.00 SAR at SHOP ONE",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_text_not_grounded"
+      }
+    },
+    {
+      "id": "amount_text_not_canonical_to_amount",
+      "text": "Paid 75.00 SAR / 750.00 SAR",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "750.00",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_text_mismatch"
+      }
+    },
+    {
+      "id": "amount_text_malformed",
+      "text": "Purchase 75.00 SAR at SHOP ONE",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75,0",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "amount_text_not_canonical"
+      }
+    },
+    {
+      "id": "currency_contradiction",
+      "text": "Purchase 50.00 USD at SHOP ONE",
+      "candidate": {
+        "amount": 50,
+        "amount_text": "50.00",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "currency_not_grounded"
+      }
+    },
+    {
+      "id": "direction_contradiction",
+      "text": "Deposit of 50.00 SAR received in your account",
+      "candidate": {
+        "amount": 50,
+        "amount_text": "50.00",
+        "currency": "SAR",
+        "direction": "debit"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "direction_contradiction"
+      }
+    },
+    {
+      "id": "ungrounded_merchant_dropped",
+      "text": "Purchase 75.00 SAR at SHOP ONE",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75.00",
+        "currency": "SAR",
+        "direction": "debit",
+        "merchant": "OTHER STORE"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "ungrounded_last4_dropped",
+      "text": "Purchase 75.00 SAR at SHOP ONE card ending 4321",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75.00",
+        "currency": "SAR",
+        "direction": "debit",
+        "last4": "9999"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "date_out_of_window_dropped",
+      "text": "Purchase 75.00 SAR at SHOP ONE on 2025-01-01",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75.00",
+        "currency": "SAR",
+        "direction": "debit",
+        "occurred_at": "2025-01-01T10:00:00Z"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "direction_missing_invalid",
+      "text": "Transaction of 75.00 SAR at SHOP ONE",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75.00",
+        "currency": "SAR"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "direction_unresolved"
+      }
+    },
+    {
+      "id": "direction_type_only_debit_valid",
+      "text": "Transaction of 75.00 SAR at SHOP ONE",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75.00",
+        "currency": "SAR",
+        "type": "payment"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "direction_type_only_credit_valid",
+      "text": "Transaction of 75.00 SAR at SHOP ONE",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75.00",
+        "currency": "SAR",
+        "type": "refund"
+      },
+      "expected": {
+        "valid": true,
+        "kept_fields": []
+      }
+    },
+    {
+      "id": "direction_transfer_type_without_direction_invalid",
+      "text": "Transfer of 75.00 SAR to SHOP ONE",
+      "candidate": {
+        "amount": 75,
+        "amount_text": "75.00",
+        "currency": "SAR",
+        "type": "transfer"
+      },
+      "expected": {
+        "valid": false,
+        "reason": "direction_unresolved"
+      }
+    }
+  ]
+}

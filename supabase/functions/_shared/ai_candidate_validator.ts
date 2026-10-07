@@ -10,7 +10,9 @@
 //    message wording (the app only checks the normalized type);
 //  - server additionally requires amount and amount_text to agree;
 //  - amount_text must be ASCII-canonical (the app's parser also accepts
-//    Arabic-Indic digits).
+//    Arabic-Indic digits);
+//  - the amount and amount_text must each be a whole numeric token of the
+//    text (not part of a date, time, card/account number or larger number).
 import { canonicalMoneyText } from './money_text.ts';
 
 export const CURRENCY_CODES = ['SAR', 'AED', 'EGP', 'QAR', 'OMR', 'KWD', 'BHD', 'JOD', 'USD', 'EUR', 'GBP', 'JPY'];
@@ -148,41 +150,48 @@ export function directionContradictsWording(text: string, type?: string, directi
 }
 
 // ── Amount grounding (port of app GroundingCheck) ────────────────────────────
-const ARABIC_DIGITS = ['٠', '١', '٢', '٣', '٤', '٥', '٦', '٧', '٨', '٩'];
+const ARABIC_INDIC_DIGIT = /[٠-٩]/g;
 
-function toArabicIndic(s: string): string {
-  return s.replace(/[0-9]/g, (d) => ARABIC_DIGITS[Number(d)]);
+// A numeric token is a maximal digit run with digit-flanked group/decimal
+// separators (ASCII or Arabic), so a longer number never yields a sub-token.
+const NUMERIC_TOKEN = /[0-9٠-٩]+(?:[,٬.٫][0-9٠-٩]+)*/g;
+
+// Digits that belong to a date/time/identifier rather than an amount.
+const DATE_TIME_SEP_BEFORE = /[0-9٠-٩][-/:]$/;
+const DATE_TIME_SEP_AFTER = /^[-/:][0-9٠-٩]/;
+const LAST4_PREFIX =
+  /(?:[*•xX]|(?:ending|ends|acct|account|a\/c|card|بطاقة|حساب|رقم|تنتهي|منتهية)(?:\s+(?:in|with|no\.?|number|#|بـ|ب))?[\s:#.-]*)$/i;
+
+function canonicalTokenText(token: string): string | null {
+  const ascii = token
+    .replace(ARABIC_INDIC_DIGIT, (d) => String(d.charCodeAt(0) - 0x0660))
+    .replaceAll('٬', ',')
+    .replaceAll('٫', '.');
+  return canonicalMoneyText(ascii);
 }
 
-function group(plain: string): string {
-  const dot = plain.indexOf('.');
-  const integer = dot < 0 ? plain : plain.slice(0, dot);
-  const fraction = dot < 0 ? '' : plain.slice(dot);
-  if (integer.length <= 3) return plain;
-  let out = '';
-  for (let i = 0; i < integer.length; i++) {
-    if (i > 0 && (integer.length - i) % 3 === 0) out += ',';
-    out += integer[i];
+/** Canonical text of every standalone numeric token that may be an amount. */
+export function amountTokens(text: string): string[] {
+  const out: string[] = [];
+  for (const m of text.matchAll(NUMERIC_TOKEN)) {
+    const before = text.slice(0, m.index);
+    const after = text.slice(m.index + m[0].length);
+    if (DATE_TIME_SEP_BEFORE.test(before) || DATE_TIME_SEP_AFTER.test(after)) continue;
+    if (LAST4_PREFIX.test(before)) continue;
+    const canonical = canonicalTokenText(m[0]);
+    if (canonical != null) out.push(canonical);
   }
-  return out + fraction;
+  return out;
 }
 
 export function amountGrounded(amount: unknown, text: string): boolean {
   if (typeof amount !== 'number' || !Number.isFinite(amount) || amount <= 0) return false;
-  const western = [amount.toFixed(2), amount.toFixed(3), amount.toFixed(1), amount.toFixed(0)];
-  const all = new Set<string>(western);
-  for (const w of western) all.add(toArabicIndic(w));
-  for (const plain of western) {
-    const grouped = group(plain);
-    if (grouped === plain) continue;
-    all.add(grouped);
-    const arabic = toArabicIndic(grouped);
-    all.add(arabic);
-    all.add(arabic.replaceAll(',', '٬'));
-    all.add(arabic.replaceAll(',', '٬').replaceAll('.', '٫'));
-  }
-  for (const c of all) if (text.includes(c)) return true;
-  return false;
+  return amountTokens(text).some((t) => Math.abs(Number(t) - amount) < 0.005);
+}
+
+/** True when the (canonical) amount_text is a whole numeric token of the text. */
+export function amountTextGrounded(amountText: string, text: string): boolean {
+  return amountTokens(text).includes(amountText);
 }
 
 // ── Currency grounding (port of app Normalizer.normalizeCurrencyTokens) ──────
@@ -276,8 +285,15 @@ export function validateAiCandidate(input: {
   const amountText = canonicalMoneyText(c.amount_text, currency);
   if (amountText == null) return reject('amount_text_not_canonical');
   if (!(Math.abs(Number(amountText) - amount) < 0.01)) return reject('amount_text_mismatch');
+  if (!amountTextGrounded(amountText, text)) return reject('amount_text_not_grounded');
 
   if (directionContradictsWording(text, c.type, c.direction)) return reject('direction_contradiction');
+  // Direction is required (ValidatedCapture v1): resolved as process-ios-sms does,
+  // from the deterministic direction, else the AI direction, else the AI type.
+  if (
+    asDirection(local?.direction) === 'unknown' && asDirection(c.direction) === 'unknown' &&
+    directionOfType(c.type) === 'unknown'
+  ) return reject('direction_unresolved');
 
   const merchant = merchantGrounded(c.merchant, text) ? (c.merchant as string) : (local?.merchant ?? null);
   return {

@@ -33,7 +33,7 @@ If a later migration has since taken the number, renumber the deferred one to th
 new tail before moving it back.
 
 ## Activation set and ordering (renumbered 2026-10-01)
-> **Production status (2026-10-02):** 0100, 0101 and 0102 were applied to production project Qairsh and moved to `supabase/migrations/` (rollbacks in `supabase/rollback/`). Only 0103 (telemetry) remains deferred.
+> **Production status (2026-10-02):** 0100, 0101 and 0102 were applied to production project Qairsh and moved to `supabase/migrations/` (rollbacks in `supabase/rollback/`). Only the telemetry migration remains deferred; it is now numbered **0115** (renumbered from 0103 on 2026-10-04 so the P1 sync/capture migrations 0103-0114 form the gapless active tail).
 
 
 The active chain ends at **0099**. The deferred files are numbered so the
@@ -44,24 +44,24 @@ activation set is unambiguous and gapless:
 | 0100 | `sender_mapping_accepted_by` | activation set, 1st |
 | 0101 | `feature_flag_admin_audit` | activation set, 2nd (needs 0100's column for its `ai_sender_mapping_auto` guard) |
 | 0102 | `awaiting_fx_transactions` | activation set, 3rd (independent of 0100/0101) |
-| 0103 | `record_metric_ad_keys` | **stays deferred** (owner decision + `p_dimension` guard, below) |
+| 0115 | `record_metric_ad_keys` | **stays deferred** (owner decision + `p_dimension` guard, below); was 0103 until 2026-10-04 |
 
 Activate **0100, 0101, 0102 in that order** (the chain must stay gapless: 0099 ->
-0100 -> 0101 -> 0102). 0103 must NOT be moved while it is blocked, and must never
-be activated ahead of 0100-0102. Only the filenames and self-naming header
+0100 -> 0101 -> 0102). 0115 (formerly 0103) must NOT be moved while it is blocked, and must
+never be activated ahead of 0100-0102 or the P1 migrations 0103-0114. Only the filenames and self-naming header
 comments of the files changed in the renumbering; executable SQL is unchanged
 except the human-readable text of two RAISE messages that name a migration number.
 
 ### PRE-ACTIVATION CHECK (mandatory, before any `db push`)
 
 Production `supabase_migrations.schema_migrations` must contain **none** of
-versions `0100`, `0101`, `0102`, `0103` (these numbers previously meant different
+versions `0100`, `0101`, `0102` (and, for the telemetry file, `0115`) (these numbers previously meant different
 files; a recorded version under the old meaning would make the CLI skip or
 mis-order the new file). Verify read-only against the linked project:
 
 ```sql
 select version, name from supabase_migrations.schema_migrations
-where version in ('0100','0101','0102','0103');   -- must return 0 rows
+where version in ('0100','0101','0102','0115');   -- must return 0 rows
 ```
 
 If any row exists, STOP and reconcile before activating.
@@ -135,11 +135,13 @@ LOCAL Postgres; the header has the command).
 
 ---
 
-## 0103_record_metric_ad_keys.sql — DEFERRED 2026-09-04 (stays deferred)
+## 0115_record_metric_ad_keys.sql — DEFERRED 2026-09-04 (stays deferred)
 
-> **RENUMBERED 0098 → 0099 → 0100 → 0103** (2026-10-01: the sender-mapping, flag-audit and awaiting-FX migrations take 0100-0102 as the activation set; this one stays deferred behind them).
+> **RENUMBERED 0098 → 0099 → 0100 → 0103 → 0115** (2026-10-04: the P1 sync/capture work (WP-2, CAP-1..3) takes 0103-0114 in the active chain, per the deployment manifest, so this file moves to the next free tail number; only filenames and self-naming header comments changed).
 >
-> Earlier: 0098 → 0099 → 0100. Twice now, exactly as the policy above
+> Earlier: 0098 → 0099 → 0100 → 0103 (2026-10-01: the sender-mapping, flag-audit and awaiting-FX migrations take 0100-0102 as the activation set; this one stays deferred behind them).
+>
+> Earlier still: 0098 → 0099 → 0100. Twice now, exactly as the policy above
 > anticipates: `migrations/0098_engagement_worker_secret_auth.sql` claimed 0098,
 > then `migrations/0099_parser_safety_rule_scoped_evidence.sql` claimed 0099. As
 > the policy above anticipates. This file and its rollback were renamed so that
@@ -149,7 +151,7 @@ LOCAL Postgres; the header has the command).
 > changed; the executable SQL is byte-identical (verified by hashing the
 > non-comment body before and after).
 >
-> If a future migration takes 0103 too, renumber this file again to the new
+> If a future migration takes 0115 too, renumber this file again to the new
 > tail before moving it back. Reactivating it below the last applied remote
 > version would additionally require `--include-all`, which the Supabase CLI
 > otherwise refuses.
@@ -157,7 +159,7 @@ LOCAL Postgres; the header has the command).
 **Conditions for activation (BOTH required): (1) an explicit owner decision to
 switch report-export and banner telemetry ON; (2) the `p_dimension` guard below.**
 
-`0103` adds eleven event keys to `record_metric`'s server-side allowlist, which
+`0115` adds eleven event keys to `record_metric`'s server-side allowlist, which
 0072 ships as `ARRAY['app_open']`.
 
 **There is no telemetry feature flag. That allowlist IS the switch.** Two of the
@@ -167,7 +169,7 @@ eleven keys are already emitted by shipped clients:
 every successful export. Their only gate is cloud-processing consent
 (`report_ads_analytics.dart:39`) — **not** `enable_report_ads`.
 
-So applying 0103 would immediately begin persisting report-export telemetry for
+So applying 0115 would immediately begin persisting report-export telemetry for
 every cloud-consenting user, and no feature flag could prevent it. That is
 incompatible with the standing requirement that telemetry stay off, so it is
 deferred rather than deployed. Deferring is safe: nothing depends on it, and
@@ -176,6 +178,6 @@ until it is applied the client's ad-key events are silently dropped by
 
 **Before activating, fix the finding recorded in
 `docs/project/MIGRATION_LEDGER.md`:** `p_dimension` is server-side free text —
-the function enforces only `length <= 128` (`0103:72`) while a comment claims the
+the function enforces only `length <= 128` (`0115:72`) while a comment claims the
 client can only pass a placement key. A `p_dimension ~ '^[a-z0-9_]{1,32}$'` guard
 closes it.

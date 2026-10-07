@@ -170,7 +170,7 @@ Deno.test('AI confidence (0.01 vs 0.99, top-level or absent) never changes the o
   for (const text of [HYBRID_SMS, AI_ONLY_SMS]) {
     const cand = text === AI_ONLY_SMS
       ? GOOD_AI
-      : { amount: 99.5, amount_text: '99.50', currency: 'EGP', merchant: 'ZARA' };
+      : { amount: 99.5, amount_text: '99.50', currency: 'EGP', merchant: 'ZARA', direction: 'debit' };
     const low = await run(text, true, { ...cand, confidence: 0.01 });
     const high = await run(text, true, { ...cand, confidence: 0.99 });
     const none = await run(text, true, cand);
@@ -225,16 +225,18 @@ Deno.test('hybrid fills ONLY missing grounded fields', async () => {
     amount_text: '99.50',
     currency: 'EGP',
     merchant: 'ZARA',
+    direction: 'debit',
   });
   assertEquals(grounded.accepted, true);
   assertEquals(grounded.parsed.merchant, 'ZARA');
   assertEquals(grounded.parsed.amount, 99.5);
-  assertEquals(grounded.parsed.direction, 'unknown'); // AI gave none
+  assertEquals(grounded.parsed.direction, 'debit'); // filled: deterministic had none
   const ungrounded = await run(HYBRID_SMS, true, {
     amount: 99.5,
     amount_text: '99.50',
     currency: 'EGP',
     merchant: 'AMAZON',
+    direction: 'debit',
   });
   assertEquals(ungrounded.accepted, true);
   assertEquals(ungrounded.parsed.merchant, undefined);
@@ -260,6 +262,7 @@ Deno.test('hybrid fills ONLY missing grounded fields', async () => {
     currency: 'EGP',
     merchant: 'ZARA',
     last4: '4321',
+    direction: 'debit',
   });
   assertEquals(l4.parsed.last4, '4321');
   const l4bad = await run(last4Text, true, {
@@ -268,8 +271,25 @@ Deno.test('hybrid fills ONLY missing grounded fields', async () => {
     currency: 'EGP',
     merchant: 'ZARA',
     last4: '9999',
+    direction: 'debit',
   });
   assertEquals(l4bad.parsed.last4, undefined);
+
+  // A hybrid candidate with no resolvable direction is NOT accepted.
+  const noDir = await run(HYBRID_SMS, true, {
+    amount: 99.5,
+    amount_text: '99.50',
+    currency: 'EGP',
+    merchant: 'ZARA',
+  });
+  assertEquals(noDir.accepted, false);
+  const transferOnly = await run(HYBRID_SMS, true, {
+    amount: 99.5,
+    amount_text: '99.50',
+    currency: 'EGP',
+    type: 'transfer',
+  });
+  assertEquals(transferOnly.accepted, false);
 });
 
 Deno.test('informational confidence: formula over final fields, AI-filled direction not counted', async () => {

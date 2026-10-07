@@ -26,20 +26,22 @@ ParsedTransaction _local({
       parseConfidence: 0.6,
     );
 
-// Fills the exact `amountText` the validator now requires, so each case below
-// keeps testing the one rule it names.
-AiParseResponse _withText(AiParseResponse r) => r.amountText != null
+// Fills the exact `amountText` and a `direction` the validator now requires, so
+// each case below keeps testing the one rule it names.
+AiParseResponse _withText(AiParseResponse r) => r.amountText != null &&
+        r.direction != null
     ? r
     : AiParseResponse(
         amount: r.amount,
-        amountText: r.amount == r.amount.roundToDouble()
-            ? r.amount.toInt().toString()
-            : r.amount.toString(),
+        amountText: r.amountText ??
+            (r.amount == r.amount.roundToDouble()
+                ? r.amount.toInt().toString()
+                : r.amount.toString()),
         currency: r.currency,
         merchantName: r.merchantName,
         type: r.type,
         categoryKey: r.categoryKey,
-        direction: r.direction,
+        direction: r.direction ?? 'debit',
         occurredAt: r.occurredAt,
         modelUsed: r.modelUsed,
       );
@@ -61,6 +63,32 @@ AiCandidateValidation _run(
     );
 
 void main() {
+  test('direction is required: missing, transfer-only or unknown is unresolved',
+      () {
+    AiCandidateValidation run(String? direction, TransactionType type) =>
+        _validator.validate(
+          response: AiParseResponse(
+            amount: 75,
+            amountText: '75.00',
+            currency: 'SAR',
+            direction: direction,
+          ),
+          sanitizedText: 'Transaction of 75.00 SAR at SHOP ONE',
+          localParsed: null,
+          referenceTime: _ref,
+          messageText: 'Transaction of 75.00 SAR at SHOP ONE',
+          normalizedType: type,
+        );
+    for (final t in [TransactionType.unknown, TransactionType.transfer]) {
+      final r = run(null, t);
+      expect(r.accepted, isFalse);
+      expect(r.rejectionReason, 'direction_unresolved');
+    }
+    expect(run(null, TransactionType.payment).accepted, isTrue);
+    expect(run(null, TransactionType.refund).accepted, isTrue);
+    expect(run('credit', TransactionType.unknown).accepted, isTrue);
+  });
+
   group('GroundingCheck thousands separators', () {
     test('accepts grouped western and Arabic-Indic forms', () {
       for (final text in [

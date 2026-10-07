@@ -635,6 +635,7 @@ void main() {
       type: 'transfer',
       merchantName: 'Ahmed Hassan',
       categoryKey: 'other',
+      direction: 'debit',
     ));
     TransactionEntity? saved;
     String? savedCategory;
@@ -897,6 +898,7 @@ void main() {
       currency: 'EGP',
       type: 'transfer',
       categoryKey: 'transfers',
+      direction: 'debit',
     ));
     TransactionEntity? saved;
     final useCase = AddTransactionUseCase(
@@ -1290,6 +1292,7 @@ void main() {
         currency: 'EGP',
         type: 'income',
         categoryKey: 'transfers',
+        direction: 'credit',
       ),
     );
     TransactionEntity? saved;
@@ -1769,6 +1772,7 @@ void main() {
           amountText: '75',
           currency: 'SAR',
           merchantName: 'نون',
+          direction: 'debit',
         ),
         onSave: (t) => saved = t,
       );
@@ -1865,6 +1869,7 @@ void main() {
             amountText: '75',
             currency: 'SAR',
             merchantName: 'نون',
+            direction: 'debit',
             categoryKey: category,
             modelUsed: model,
           ),
@@ -1926,6 +1931,7 @@ void main() {
           amountText: '75',
           currency: 'SAR',
           merchantName: 'نون',
+          direction: 'debit',
         )),
         (t) => saved = t,
       )(rawMessage: smsText, senderId: 'SABB');

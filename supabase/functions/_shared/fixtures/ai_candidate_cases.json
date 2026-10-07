@@ -177,7 +177,8 @@
       "amount": 100,
       "amount_text": "100.00",
       "currency": "EGP",
-      "merchant": "LOCAL SHOP"
+      "merchant": "LOCAL SHOP",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -251,7 +252,8 @@
     "ai": {
       "amount": 75,
       "amount_text": "75.00",
-      "currency": "SAR"
+      "currency": "SAR",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -355,7 +357,8 @@
     "ai": {
       "amount": 20,
       "amount_text": "20.00",
-      "currency": "USD"
+      "currency": "USD",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -373,7 +376,8 @@
       "amount": 75,
       "amount_text": "75.00",
       "currency": "SAR",
-      "merchant": "AMAZON"
+      "merchant": "AMAZON",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -391,7 +395,8 @@
       "amount": 75,
       "amount_text": "75.00",
       "currency": "SAR",
-      "merchant": "NOON SHOP"
+      "merchant": "NOON SHOP",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -415,7 +420,8 @@
       "amount": 100,
       "amount_text": "100.00",
       "currency": "EGP",
-      "merchant": "AMAZON"
+      "merchant": "AMAZON",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -433,7 +439,8 @@
       "amount": 75,
       "amount_text": "75.00",
       "currency": "SAR",
-      "occurred_at": "2026-06-15T10:00:00Z"
+      "occurred_at": "2026-06-15T10:00:00Z",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -451,7 +458,8 @@
       "amount": 75,
       "amount_text": "75.00",
       "currency": "SAR",
-      "occurred_at": "2026-01-01T00:00:00Z"
+      "occurred_at": "2026-01-01T00:00:00Z",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -469,7 +477,8 @@
       "amount": 75,
       "amount_text": "75.00",
       "currency": "SAR",
-      "occurred_at": "2026-06-20T00:00:00Z"
+      "occurred_at": "2026-06-20T00:00:00Z",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -486,7 +495,8 @@
     "ai": {
       "amount": 75,
       "amount_text": "75.00",
-      "currency": "SAR"
+      "currency": "SAR",
+      "direction": "debit"
     },
     "expected": {
       "accepted": true,
@@ -536,7 +546,8 @@
       "amount": 500,
       "amount_text": "500.00",
       "currency": "EGP",
-      "type": "transfer"
+      "type": "transfer",
+      "direction": "credit"
     },
     "expected": {
       "accepted": true,
