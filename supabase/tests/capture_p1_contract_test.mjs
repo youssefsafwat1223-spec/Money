@@ -96,16 +96,23 @@ test('rollback files exist for 0110, 0111, 0113', () => {
 
 test('G1 (Astra required changes) static pins: C.1 owner binding, C.2 ordering, C.3 revoke route, C.6 clock_timestamp fence', () => {
   const idx = fn('process-ios-sms/index.ts');
-  // C.1: owner_uid is passed on ANY schema version (not only v2); the ownerless rule gets the RAW received_at
+  // C.1: owner_uid is passed on ANY schema version (not only v2); H1: nothing client-supplied
+  // (received_at) reaches the ownerless rule, which is judged by the server's install owner history
   assert.match(idx, /p_owner_uid: ownerUid \|\| null/);
   assert.doesNotMatch(idx, /p_owner_uid: v2 && ownerUid/);
-  assert.match(idx, /p_received_at: rawReceivedAt \|\| null/);
+  assert.doesNotMatch(idx, /p_received_at/);
   const s0111 = mig('0111_capture_state_machine.sql');
-  assert.match(s0111, /v_recv > clock_timestamp\(\) \+ interval '5 minutes'/);
-  assert.match(s0111, /v_recv <= d\.owner_changed_at/);
+  const s0112c = mig('0112_capture_notifications_retention.sql');
+  for (const src of [s0111, s0112c]) {
+    assert.doesNotMatch(src, /capture_parse_received_at|p_received_at|v_recv|owner_changed_at/);
+    assert.match(src, /from public\.capture_install_owner_history h/);
+    assert.match(src, /h\.trusted and not h\.transitioned/);
+    assert.match(src, /h\.first_owner_uid = d\.user_id/);
+  }
+  assert.doesNotMatch(mig('0110_capture_consent_projection.sql'), /owner_changed_at/);
   // C.2 / C.3: the RPCs, the columns, the edge routes
   const s0110 = mig('0110_capture_consent_projection.sql');
-  for (const col of ['owner_changed_at', 'owner_generation', 'consent_client_generation', 'last_revoke_generation']) {
+  for (const col of ['owner_generation', 'consent_client_generation', 'last_revoke_generation']) {
     assert.match(s0110, new RegExp(`add column if not exists ${col}\\b`));
   }
   assert.match(s0110, /p_client_generation bigint default 0/);

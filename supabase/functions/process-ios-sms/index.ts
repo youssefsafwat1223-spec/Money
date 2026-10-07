@@ -177,11 +177,11 @@ export async function handleProcessIosSms(
     p_payload_id: payloadId,
     p_raw_fingerprint: rawFingerprint,
     // Owner-bound on ANY schema version when owner_uid is present; ownerless (build 50) is
-    // judged by capture_claim from the RAW received_at (never the defaulted one).
+    // judged by capture_claim from the server's own install owner history (H1), never from
+    // anything the client sends (no received_at).
     p_owner_uid: ownerUid || null,
     p_contract: v2 ? 2 : 1,
     p_lease_seconds: LEASE_SECONDS,
-    p_received_at: rawReceivedAt || null,
     p_owner_generation: ownerGeneration,
   });
   const claim = claimRes.data as Json | null;

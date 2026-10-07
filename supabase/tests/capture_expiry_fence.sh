@@ -18,7 +18,7 @@ apply() { for f in "$ROOT"/supabase/migrations/*.sql; do
     | "${P[@]}" -d "$DB" >/dev/null || { echo "FAILED: $(basename "$f")"; exit 1; }
 done; }
 snap() { "${P[@]}" -d "$DB" -Atc "select p.oid::regprocedure::text, md5(pg_get_functiondef(p.oid)), p.provolatile, p.proacl::text from pg_proc p where p.oid in (
-  'public.capture_claim(text,text,text,text,uuid,integer,integer,text,bigint)'::regprocedure, 'public.capture_ai_dispatch(text,text,integer)'::regprocedure,
+  'public.capture_claim(text,text,text,text,uuid,integer,integer,bigint)'::regprocedure, 'public.capture_ai_dispatch(text,text,integer)'::regprocedure,
   'public.capture_finalize(text,text,text,integer,text,text,jsonb,jsonb,text,text,boolean,jsonb)'::regprocedure,
   'public.capture_ack(text,uuid,text[])'::regprocedure) order by 1;"; }
 run_proof() { "${P[@]}" -d "$DB" -f "$ROOT/supabase/tests/capture_expiry_fence.sql" | grep -E "^ \[|FAIL|passed|ERROR|^ +[0-9]+ +\|"; [ "${PIPESTATUS[0]}" -eq 0 ]; }

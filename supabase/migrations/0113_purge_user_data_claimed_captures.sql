@@ -4,6 +4,8 @@
 --   * deletes processed_captures by claimed_user_id, and
 --   * bumps the user's sync epoch with epoch_reason = 'purge'
 --     (upsert into public.user_sync_state, created by 0103).
+--   * forgets the user's uid in capture_install_owner_history (0110, H1) while keeping those
+--     installs ineligible for ownerless uploads (fail closed).
 -- Everything else is the CURRENT body (0084), restated in full. Do not forward-copy
 -- this body: edit the current definition.
 -- Depends on public.user_sync_state existing at CALL time (plpgsql late binding).
@@ -56,6 +58,13 @@ begin
   -- owned by someone else now, may still hold this user's captures and their
   -- notification log link). Content is gone with the rows.
   delete from public.processed_captures where claimed_user_id = p_user_id;
+
+  -- H1 (0110): the install owner history forgets this uid but keeps every install it names
+  -- INELIGIBLE for ownerless (build-50) uploads (transitioned = true, first_owner_uid = NULL).
+  -- Deleting the device rows below also marks them (trigger), but a history row whose device is
+  -- held by someone else, or already gone, is reachable only by uid. Not an FK: the history must
+  -- outlive both the device row and the auth user.
+  perform public.capture_history_forget_owner(p_user_id);
 
   delete from public.capture_rate_limits
   where install_id_hash in (

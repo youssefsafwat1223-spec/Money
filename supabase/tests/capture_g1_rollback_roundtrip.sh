@@ -29,22 +29,30 @@ proof() { # prints the pass/fail summary line of each proof
 objs="select (select count(*) from pg_proc where pronamespace='public'::regnamespace and proname in
    ('revoke_capture_consent','link_capture_device','set_capture_consent','legacy_link_capture_device','legacy_set_device_consent',
     'unlink_capture_device','capture_revoke_fanout','capture_claim','capture_ai_dispatch','capture_finalize','capture_ack','capture_row_json',
-    'capture_queue_push','capture_parse_received_at','capture_retry_fence','capture_sync_list','capture_content_live','capture_content_live_at','capture_expire_row','processed_captures_created_at_guard'))
+    'capture_queue_push','capture_install_owner_history_guard','capture_device_history_track','capture_history_forget_owner','capture_retry_fence','capture_sync_list','capture_content_live','capture_content_live_at','capture_expire_row','processed_captures_created_at_guard'))
   || '|' || (select count(*) from information_schema.columns where table_name='capture_devices' and column_name in
-   ('consent_owner_uid','consent_version','owner_generation','consent_client_generation','last_revoke_generation','owner_changed_at'))
+   ('consent_owner_uid','consent_version','owner_generation','consent_client_generation','last_revoke_generation'))
   || '|' || (select count(*) from information_schema.columns where table_name='processed_captures' and column_name in ('state','client_owner_generation','push_attempted_at'))
-  || '|' || (select count(*) from pg_trigger where tgname='trg_processed_captures_created_at_immutable')"
+  || '|' || (select count(*) from pg_trigger where tgname in ('trg_processed_captures_created_at_immutable','trg_capture_devices_owner_history','trg_capture_install_owner_history_guard'))
+  || '|' || (select count(*) from information_schema.tables where table_schema='public' and table_name='capture_install_owner_history')"
 
 apply 1 116 || exit 1
 echo "-- chain 0001..0116 applied; proofs:"; proof
-check "G1 objects present after apply (20 functions | 6 device columns | 3 capture columns | 1 trigger)" "$(q "$objs")" "20|6|3|1"
+check "G1 objects present after apply (22 functions | 5 device columns | 3 capture columns | 3 triggers | 1 history table)" "$(q "$objs")" "22|5|3|3|1"
 ( cd "$ROOT" && for n in 0112_capture_notifications_retention 0111_capture_state_machine 0110_capture_consent_projection; do
     "${P[@]}" -d "$DB" -f "supabase/rollback/${n}_rollback.sql" >/dev/null 2>"$DB.err" || { echo "FAIL rollback $n"; cat "$DB.err"; exit 1; }
   done ) || fail=1
-check "after rollback 0112,0111,0110: every G1 object is gone" "$(q "$objs")" "0|0|0|0"
+check "after rollback 0112,0111,0110: every G1 object is gone" "$(q "$objs")" "0|0|0|0|0"
 check "capture_devices rows survived the rollback" "$(q "select count(*) >= 0 from capture_devices")" t
+# H1: an install that exists when 0110 is (re-)applied has no trustworthy history: it must come back
+# UNTRUSTED and transitioned (never eligible), and the dropped history must not be resurrected.
+q "insert into auth.users(id) values ('00000000-0000-0000-0000-00000000a001') on conflict do nothing;
+   insert into capture_devices(install_id_hash, device_secret_hash, user_id) values ('rt-pre','srt','00000000-0000-0000-0000-00000000a001');" >/dev/null
 apply 110 112 || { echo "FAIL re-apply"; exit 1; }
-check "re-apply 0110..0112 restores every G1 object" "$(q "$objs")" "20|6|3|1"
+check "H1 re-apply: a pre-existing install is recorded untrusted + transitioned" "$(q "select trusted::text||'|'||transitioned::text||'|'||coalesce(first_owner_uid::text,'-') from capture_install_owner_history where install_id_hash='rt-pre'")" "false|true|-"
+check "H1 re-apply: a NEW install after the migration is trusted" "$(q "insert into capture_devices(install_id_hash, device_secret_hash) values ('rt-new','srt2'); select trusted::text||'|'||transitioned::text from capture_install_owner_history where install_id_hash='rt-new'" | tail -1)" "true|false"
+q "delete from capture_devices where install_id_hash in ('rt-pre','rt-new'); delete from auth.users where id='00000000-0000-0000-0000-00000000a001'" >/dev/null
+check "re-apply 0110..0112 restores every G1 object" "$(q "$objs")" "22|5|3|3|1"
 echo "-- re-applied; proofs:"; proof
 rm -f "$DB.err"
 exit $fail

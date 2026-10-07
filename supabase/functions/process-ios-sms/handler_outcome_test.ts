@@ -11,7 +11,12 @@ import { fakeCapture } from './capture_rpc_fake.ts';
 // capture_state_machine_p1.sql). `captures` = stored processed_captures rows,
 // `state.inserts` = claims that created/re-claimed a lease.
 function fakeSupabase(opts: { aiConsent?: boolean; duplicateOf?: string } = {}) {
-  const fake = fakeCapture({ device: { ai: opts.aiConsent ?? true }, duplicateOf: opts.duplicateOf });
+  // H1: an ownerless (build-50) upload is only eligible for an install with proven single-owner history.
+  const OWNER = '00000000-0000-0000-0000-00000000a001';
+  const fake = fakeCapture({
+    device: { user_id: OWNER, consent_owner_uid: OWNER, ai: opts.aiConsent ?? true },
+    duplicateOf: opts.duplicateOf,
+  });
   return {
     state: {
       get inserts() {
@@ -49,7 +54,7 @@ function request(body: Record<string, unknown>): Request {
   return new Request('https://example.test/process-ios-sms', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    // build 50 always sends receivedAt (the ownerless rule in capture_claim requires it)
+    // build 50 always sends receivedAt; the server ignores it for ownership (H1)
     body: JSON.stringify({
       schema_version: 1,
       installId: 'i',

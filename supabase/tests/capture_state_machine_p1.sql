@@ -53,16 +53,12 @@ VALUES ('00000000-0000-0000-0000-00000000a001', 'user_settings', true, true);
 \set A '''00000000-0000-0000-0000-00000000a001'''
 \set B '''00000000-0000-0000-0000-00000000b002'''
 
--- claim helper: (install, payload, fp, owner, contract)
--- ISO-8601 UTC text, as a build-50 / new client sends received_at.
-CREATE FUNCTION pg_temp.ts(t timestamptz) RETURNS text LANGUAGE sql AS
-$$ SELECT to_char(t AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') $$;
--- claim helper: a build-50 request always carries received_at (the ownerless rule in 0111 refuses
--- one without it), so the default helper sends "now"; pg_temp.claim_r sends an explicit value.
+-- claim helper: (install, payload, fp, owner, contract). An ownerless (build-50) claim is judged by
+-- the server's install owner history (H1); the client's received_at plays no part and is not a parameter.
 CREATE FUNCTION pg_temp.claim(i text, p text, fp text, o uuid, c int) RETURNS jsonb LANGUAGE sql AS
-$$ SELECT public.capture_claim(i, 'raw-' || i, p, fp, o, c, 60, pg_temp.ts(clock_timestamp())) $$;
-CREATE FUNCTION pg_temp.claim_r(i text, p text, fp text, o uuid, c int, rcv text, gen bigint DEFAULT NULL) RETURNS jsonb LANGUAGE sql AS
-$$ SELECT public.capture_claim(i, 'raw-' || i, p, fp, o, c, 60, rcv, gen) $$;
+$$ SELECT public.capture_claim(i, 'raw-' || i, p, fp, o, c, 60) $$;
+CREATE FUNCTION pg_temp.claim_r(i text, p text, fp text, o uuid, c int, gen bigint DEFAULT NULL) RETURNS jsonb LANGUAGE sql AS
+$$ SELECT public.capture_claim(i, 'raw-' || i, p, fp, o, c, 60, gen) $$;
 CREATE FUNCTION pg_temp.fin(i text, p text, tok int, st text, content boolean DEFAULT true) RETURNS jsonb LANGUAGE sql AS
 $$ SELECT public.capture_finalize(i, 'raw-' || i, p, tok, st, CASE WHEN st = 'rejected' THEN 'rejected' ELSE 'processed' END,
      CASE WHEN content THEN '{"amount":10}'::jsonb ELSE '{}'::jsonb END,
@@ -118,16 +114,19 @@ BEGIN
   PERFORM pg_temp.ok('revoked -> denied credential_revoked', c3->>'code' = 'credential_revoked');
   UPDATE public.capture_devices SET revoked_at = NULL WHERE install_id_hash = 'd1';
 
-  -- Legacy gate: consent_owner_uid != user_id -> consent_required; guest (null/null) allowed
-  UPDATE public.capture_devices SET consent_owner_uid = NULL WHERE install_id_hash = 'd2';
-  c3 := pg_temp.claim('d2', 'lp0', 'f', null, 1);
+  -- Legacy gate: consent_owner_uid != user_id -> consent_required
+  INSERT INTO public.capture_devices
+    (install_id_hash, device_secret_hash, user_id, consent_owner_uid, cloud_processing_enabled, ai_consent_granted, consent_version)
+  VALUES ('d2x', 'sec2x', a, NULL, true, true, 1);
+  c3 := pg_temp.claim('d2x', 'lp0', 'f', null, 1);
   PERFORM pg_temp.ok('legacy: consent not owned by linked user -> consent_required', c3->>'code' = 'consent_required');
-  UPDATE public.capture_devices SET consent_owner_uid = a WHERE install_id_hash = 'd2';
+  -- H1: a guest install (user_id NULL) has no proven owner: an ownerless upload is refused, nothing stored
   c3 := pg_temp.claim('d3', 'g1', 'fg', null, 1);
-  PERFORM pg_temp.ok('legacy guest (user_id NULL) keeps today behaviour: claimed with NULL claimed_user_id',
-    c3->>'outcome' = 'claimed' AND c3->>'claimed_user_id' IS NULL, c3::text);
+  PERFORM pg_temp.ok('H1 legacy guest (user_id NULL): ownerless -> owner_conflict (ownerless_not_eligible), no row',
+    c3->>'outcome' = 'owner_conflict' AND c3->>'reason' = 'ownerless_not_eligible'
+    AND NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'd3'), c3::text);
   c3 := pg_temp.claim('d2', 'lp1', 'f1', null, 1);
-  PERFORM pg_temp.ok('legacy linked: claimed_user_id stamped from snapshot',
+  PERFORM pg_temp.ok('legacy linked, proven single owner: claimed_user_id stamped from snapshot',
     c3->>'outcome' = 'claimed' AND (c3->>'claimed_user_id')::uuid = a, c3::text);
 
   -- finalize processed, then replay (stored), notification row same tx
@@ -509,15 +508,19 @@ BEGIN
 END $$;
 
 -- ══ Astra required changes, unit G1 (contract G: C.1 / C.2 / C.3) ═══════════════════════════════
--- ── C.1 / D.1: owner binding on ANY schema version, owner_changed_at, the ownerless rule ─────────
+-- ── C.1 / D.1: owner binding on ANY schema version (the ownerless rule is the H1 section at the end) ──
 DO $$
 DECLARE a uuid := '00000000-0000-0000-0000-00000000a001'; b uuid := '00000000-0000-0000-0000-00000000b002';
-        c jsonb; j jsonb; d public.capture_devices; t_before timestamptz; t_link timestamptz; r public.processed_captures;
+        c jsonb; j jsonb; d public.capture_devices; r public.processed_captures;
 BEGIN
   PERFORM pg_temp.mkdev('g1a', a, 1);
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1a';
-  PERFORM pg_temp.ok('G1 new columns default: owner_generation 0, consent_client_generation 0, no revoke, no owner_changed_at',
-    d.owner_generation = 0 AND d.consent_client_generation = 0 AND d.last_revoke_generation IS NULL AND d.owner_changed_at IS NULL, d::text);
+  PERFORM pg_temp.ok('G1 new columns default: owner_generation 0, consent_client_generation 0, no revoke',
+    d.owner_generation = 0 AND d.consent_client_generation = 0 AND d.last_revoke_generation IS NULL, d::text);
+  PERFORM pg_temp.ok('H1 the G1 received_at / owner_changed_at machinery is gone',
+    NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'capture_devices' AND column_name = 'owner_changed_at')
+    AND NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'capture_parse_received_at')
+    AND NOT EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'capture_claim' AND pronargs = 9));
 
   -- the same owner's JWT link is not an owner change
   PERFORM pg_temp.as_user(a);
@@ -525,119 +528,72 @@ BEGIN
   j := public.link_capture_device('g1a', 'sg1a', true, true, 2, 3);
   RESET ROLE;
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1a';
-  PERFORM pg_temp.ok('same-owner link: owner_changed=false, owner_changed_at and owner_generation untouched, client generation stored',
-    (j->>'owner_changed')::boolean IS FALSE AND d.owner_changed_at IS NULL AND d.owner_generation = 0
-    AND d.consent_client_generation = 3, j::text);
+  PERFORM pg_temp.ok('same-owner link: owner_changed=false, owner_generation untouched, client generation stored',
+    (j->>'owner_changed')::boolean IS FALSE AND d.owner_generation = 0 AND d.consent_client_generation = 3, j::text);
 
-  -- A -> B relink through the JWT link: server counter + owner_changed_at (clock_timestamp) + fresh ordering
-  t_before := clock_timestamp();
-  PERFORM pg_sleep(0.02);
+  -- A -> B relink through the JWT link: server counter + fresh ordering
   PERFORM pg_temp.as_user(b);
   SET LOCAL ROLE authenticated;
   j := public.link_capture_device('g1a', 'sg1a', true, true, 1, 1);
   RESET ROLE;
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1a';
-  t_link := d.owner_changed_at;
-  PERFORM pg_temp.ok('A->B link: owner_changed, owner_generation 1, owner_changed_at is a fresh clock_timestamp()',
+  PERFORM pg_temp.ok('A->B link: owner_changed, owner_generation 1, fresh ordering',
     (j->>'owner_changed')::boolean AND d.owner_generation = 1 AND (j->>'owner_generation')::bigint = 1
-    AND t_link > t_before AND t_link <= clock_timestamp()
     AND d.consent_client_generation = 1 AND d.last_revoke_generation IS NULL, d::text);
 
   -- D.1: the delayed A capture arrives after the relink. Never processed under B.
-  c := pg_temp.claim_r('g1a', 'race', 'fp', a, 2, pg_temp.ts(t_before));
+  c := pg_temp.claim_r('g1a', 'race', 'fp', a, 2);
   PERFORM pg_temp.ok('D.1 owner-bound (v2) delayed A request -> denied capture_owner_mismatch',
     c->>'outcome' = 'denied' AND c->>'code' = 'capture_owner_mismatch', c::text);
-  c := pg_temp.claim_r('g1a', 'race', 'fp', a, 1, pg_temp.ts(t_before));
+  c := pg_temp.claim_r('g1a', 'race', 'fp', a, 1);
   PERFORM pg_temp.ok('D.1 owner-bound on schema_version 1 (owner_uid present, contract 1) delayed A request -> denied capture_owner_mismatch',
     c->>'outcome' = 'denied' AND c->>'code' = 'capture_owner_mismatch', c::text);
-  c := pg_temp.claim_r('g1a', 'race', 'fp', null, 1, pg_temp.ts(t_before));
-  PERFORM pg_temp.ok('D.1 ownerless (build 50) with received_at < owner_changed_at -> owner_conflict, nothing stored',
-    c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'received_before_owner_change', c::text);
-  c := pg_temp.claim_r('g1a', 'race', 'fp', null, 1, pg_temp.ts(t_link));
-  PERFORM pg_temp.ok('D.1 ownerless with received_at EXACTLY owner_changed_at (<=) -> owner_conflict',
-    c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'received_before_owner_change', c::text);
   PERFORM pg_temp.ok('D.1 none of the refused requests created a row or content',
     NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'g1a' AND payload_id = 'race'));
-  c := pg_temp.claim_r('g1a', 'race', 'fp', null, 1, pg_temp.ts(t_link + interval '1 microsecond'));
-  PERFORM pg_temp.ok('ownerless with received_at 1 microsecond AFTER the link is B''s and is claimed under B',
-    c->>'outcome' = 'claimed' AND (c->>'claimed_user_id')::uuid = b, c::text);
-
-  -- ownerless rule: missing / unparseable / ambiguous / future
-  PERFORM pg_temp.mkdev('g1b', a, 1);
-  c := pg_temp.claim_r('g1b', 'o1', 'fp', null, 1, null);
-  PERFORM pg_temp.ok('ownerless: received_at missing -> owner_conflict (received_at_invalid)',
-    c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'received_at_invalid', c::text);
-  PERFORM pg_temp.ok('ownerless: every unparseable / ambiguous / special value is refused',
-    NOT EXISTS (
-      SELECT 1 FROM unnest(ARRAY['', 'garbage', 'yesterday', 'now', 'infinity', '-infinity', 'epoch',
-          '2026-10-07T12:00:00', '2026-10-07 12:00:00', '2026-13-45T12:00:00Z', '12:00:00Z', '2026-10-07']) v
-       WHERE (pg_temp.claim_r('g1b', 'o1', 'fp', null, 1, v))->>'outcome' IS DISTINCT FROM 'owner_conflict'));
-  c := pg_temp.claim_r('g1b', 'o1', 'fp', null, 1, pg_temp.ts(clock_timestamp() + interval '5 minutes 5 seconds'));
-  PERFORM pg_temp.ok('ownerless: received_at more than 5 minutes in the future -> owner_conflict (received_at_future)',
-    c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'received_at_future', c::text);
-  c := pg_temp.claim_r('g1b', 'o1', 'fp', null, 1, '2099-01-01T00:00:00Z');
-  PERFORM pg_temp.ok('ownerless: far-future received_at refused', c->>'reason' = 'received_at_future', c::text);
-  PERFORM pg_temp.ok('ownerless refusals stored nothing', NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'g1b'));
-  c := pg_temp.claim_r('g1b', 'o2', 'fp', null, 1, pg_temp.ts(clock_timestamp() + interval '4 minutes'));
-  PERFORM pg_temp.ok('ownerless: received_at within the 5-minute skew bound is accepted', c->>'outcome' = 'claimed', c::text);
-  c := pg_temp.claim_r('g1b', 'o3', 'fp', null, 1, '2020-01-01T00:00:00+02:00');
-  PERFORM pg_temp.ok('ownerless on a device never relinked since 0110 (owner_changed_at NULL): a well-formed old received_at (offset form) is accepted',
-    c->>'outcome' = 'claimed', c::text);
-  PERFORM pg_temp.ok('capture_parse_received_at accepts ISO forms with Z / offset / fraction and refuses the rest',
-    public.capture_parse_received_at('2026-10-07T12:00:00Z') = '2026-10-07 12:00:00+00'
-    AND public.capture_parse_received_at('2026-10-07T12:00:00.123+03:00') = '2026-10-07 09:00:00.123+00'
-    AND public.capture_parse_received_at('2026-10-07T12:00Z') IS NOT NULL
-    AND public.capture_parse_received_at('2026-10-07T12:00:00') IS NULL AND public.capture_parse_received_at(NULL) IS NULL
-    AND public.capture_parse_received_at('infinity') IS NULL);
 
   -- owner-bound on schema_version 1: records owner_uid and the client generation (diagnostics)
-  c := pg_temp.claim_r('g1b', 'ob1', 'fp', a, 1, null, 9);
+  PERFORM pg_temp.mkdev('g1b', a, 1);
+  c := pg_temp.claim_r('g1b', 'ob1', 'fp', a, 1, 9);
   SELECT * INTO r FROM public.processed_captures WHERE install_id_hash = 'g1b' AND payload_id = 'ob1';
-  PERFORM pg_temp.ok('owner_uid on contract 1 is owner-bound: claimed, row records owner_uid and client_owner_generation (no received_at needed)',
+  PERFORM pg_temp.ok('owner_uid on contract 1 is owner-bound: claimed, row records owner_uid and client_owner_generation',
     c->>'outcome' = 'claimed' AND r.owner_uid = a AND r.client_owner_generation = 9 AND r.claimed_user_id = a, c::text);
-  c := pg_temp.claim_r('g1b', 'ob2', 'fp', b, 1, null);
+  c := pg_temp.claim_r('g1b', 'ob2', 'fp', b, 1);
   PERFORM pg_temp.ok('owner_uid of another user on contract 1 -> denied capture_owner_mismatch',
     c->>'outcome' = 'denied' AND c->>'code' = 'capture_owner_mismatch', c::text);
   PERFORM pg_temp.ok('the generation never decides anything: a wildly different client generation is still claimed',
-    (pg_temp.claim_r('g1b', 'ob3', 'fp', a, 2, null, 123456789))->>'outcome' = 'claimed');
+    (pg_temp.claim_r('g1b', 'ob3', 'fp', a, 2, 123456789))->>'outcome' = 'claimed');
   -- delayed owner-bound A request fenced at finalize after a relink (any contract)
-  c := pg_temp.claim_r('g1b', 'ob4', 'fp', a, 1, null);
+  c := pg_temp.claim_r('g1b', 'ob4', 'fp', a, 1);
   PERFORM public.legacy_link_capture_device('g1b', b);
   PERFORM pg_temp.ok('owner-bound row claimed under A (contract 1) is fenced after an A->B relink: no content written',
     NOT (pg_temp.fin('g1b', 'ob4', 1, 'processed')->>'written')::boolean
     AND (pg_temp.row_of('g1b', 'ob4')).parsed = '{}'::jsonb);
 
-  -- legacy link / unlink maintain owner_changed_at and owner_generation
+  -- legacy link / unlink maintain owner_generation
   PERFORM pg_temp.mkdev('g1c', a, 1);
   PERFORM public.legacy_link_capture_device('g1c', a);
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
-  PERFORM pg_temp.ok('legacy link, same owner: owner_changed_at / owner_generation untouched',
-    d.owner_changed_at IS NULL AND d.owner_generation = 0, d::text);
-  t_before := clock_timestamp();
+  PERFORM pg_temp.ok('legacy link, same owner: owner_generation untouched', d.owner_generation = 0, d::text);
   PERFORM public.legacy_link_capture_device('g1c', b);
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
-  PERFORM pg_temp.ok('legacy link A->B: owner_changed_at = clock_timestamp(), owner_generation 1, ordering reset',
-    d.owner_changed_at >= t_before AND d.owner_changed_at <= clock_timestamp() AND d.owner_generation = 1
-    AND d.consent_client_generation = 0 AND d.last_revoke_generation IS NULL, d::text);
-  t_link := d.owner_changed_at;
-  c := pg_temp.claim_r('g1c', 'lg', 'fp', null, 1, pg_temp.ts(t_link - interval '1 second'));
-  PERFORM pg_temp.ok('legacy A->B then delayed ownerless A capture -> owner_conflict (before consent is even re-granted)',
-    c->>'outcome' = 'owner_conflict', c::text);
+  PERFORM pg_temp.ok('legacy link A->B: owner_generation 1, ordering reset',
+    d.owner_generation = 1 AND d.consent_client_generation = 0 AND d.last_revoke_generation IS NULL, d::text);
+  c := pg_temp.claim_r('g1c', 'lg', 'fp', null, 1);
+  PERFORM pg_temp.ok('legacy A->B then delayed ownerless A capture -> refused before consent is even re-granted',
+    c->>'outcome' = 'denied' AND c->>'code' = 'consent_required', c::text);
   PERFORM public.unlink_capture_device('g1c');
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
-  PERFORM pg_temp.ok('unlink of a linked device is an owner change: owner_changed_at moves, owner_generation 2',
-    d.owner_changed_at > t_link AND d.owner_generation = 2 AND d.user_id IS NULL, d::text);
-  t_link := d.owner_changed_at;
+  PERFORM pg_temp.ok('unlink of a linked device is an owner change: owner_generation 2', d.owner_generation = 2 AND d.user_id IS NULL, d::text);
   PERFORM public.unlink_capture_device('g1c');
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
-  PERFORM pg_temp.ok('a second unlink of an already unlinked device changes nothing', d.owner_changed_at = t_link AND d.owner_generation = 2);
+  PERFORM pg_temp.ok('a second unlink of an already unlinked device changes nothing', d.owner_generation = 2);
   PERFORM pg_temp.as_user(a);
   SET LOCAL ROLE authenticated;
   j := public.link_capture_device('g1c', 'sg1c', true, false, 1, 4);
   RESET ROLE;
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
-  PERFORM pg_temp.ok('first JWT link after an unlink is an owner change too (owner_generation 3, owner_changed_at moves)',
-    (j->>'owner_changed')::boolean AND d.owner_generation = 3 AND d.owner_changed_at > t_link, j::text);
+  PERFORM pg_temp.ok('first JWT link after an unlink is an owner change too (owner_generation 3)',
+    (j->>'owner_changed')::boolean AND d.owner_generation = 3, j::text);
 END $$;
 
 -- ── C.2 / D.9: a late projection writer can never widen consent; C.3 revoke ──────────────────────
@@ -740,7 +696,7 @@ BEGIN
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
   PERFORM pg_temp.ok('D.9 the legacy device-credential writer (no generation) cannot widen past a recorded revoke either',
     NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted AND d.consent_version = 5, legacy::text);
-  c := pg_temp.claim_r('g9', 'g9new', 'fp', a, 2, null);
+  c := pg_temp.claim_r('g9', 'g9new', 'fp', a, 2);
   PERFORM pg_temp.ok('D.9 after the late writers the capture gate is still closed (consent_required)',
     c->>'outcome' = 'denied' AND c->>'code' = 'consent_required', c::text);
   -- a STRICTLY NEWER generation is a deliberate re-enable and widens
@@ -837,13 +793,288 @@ BEGIN
     RESET ROLE;
     PERFORM pg_temp.ok('anon cannot execute revoke_capture_consent', true);
   END;
-  PERFORM pg_temp.ok('privileges: revoke_capture_consent is authenticated-only; capture_parse_received_at is internal',
+  PERFORM pg_temp.ok('privileges: revoke_capture_consent is authenticated-only; capture_install_owner_history is closed to client roles',
     has_function_privilege('authenticated', 'public.revoke_capture_consent(text,text,uuid,bigint,integer)', 'execute')
     AND NOT has_function_privilege('anon', 'public.revoke_capture_consent(text,text,uuid,bigint,integer)', 'execute')
     AND NOT has_function_privilege('public', 'public.revoke_capture_consent(text,text,uuid,bigint,integer)', 'execute')
-    AND NOT has_function_privilege('authenticated', 'public.capture_parse_received_at(text)', 'execute')
-    AND has_function_privilege('service_role', 'public.capture_claim(text,text,text,text,uuid,integer,integer,text,bigint)', 'execute')
-    AND NOT has_function_privilege('authenticated', 'public.capture_claim(text,text,text,text,uuid,integer,integer,text,bigint)', 'execute'));
+    AND NOT has_table_privilege('authenticated', 'public.capture_install_owner_history', 'select')
+    AND NOT has_table_privilege('anon', 'public.capture_install_owner_history', 'select')
+    AND NOT has_function_privilege('authenticated', 'public.capture_history_forget_owner(uuid)', 'execute')
+    AND NOT has_function_privilege('authenticated', 'public.capture_device_history_track()', 'execute')
+    AND has_function_privilege('service_role', 'public.capture_claim(text,text,text,text,uuid,integer,integer,bigint)', 'execute')
+    AND NOT has_function_privilege('authenticated', 'public.capture_claim(text,text,text,text,uuid,integer,integer,bigint)', 'execute'));
+END $$;
+
+-- ══ Astra required changes, unit H1 (contract H): build-50 ownerless uploads, option B ══════════
+-- Eligible <=> history.trusted AND NOT history.transitioned AND history.first_owner_uid = user_id =
+-- consent_owner_uid. History is kept by a trigger on capture_devices and survives row deletion.
+CREATE FUNCTION pg_temp.hist(i text) RETURNS public.capture_install_owner_history LANGUAGE sql AS
+$$ SELECT h FROM public.capture_install_owner_history h WHERE install_id_hash = i $$;
+-- register-device: the anon endpoint upserts the row with user_id NULL and a fresh secret.
+CREATE FUNCTION pg_temp.register(i text) RETURNS void LANGUAGE sql AS $$
+  INSERT INTO public.capture_devices (install_id_hash, device_secret_hash, platform, user_id, created_at, last_seen_at)
+  VALUES (i, 'sec-' || i || '-' || clock_timestamp()::text, 'ios', NULL, now(), now())
+  ON CONFLICT (install_id_hash) DO UPDATE
+    SET device_secret_hash = excluded.device_secret_hash, platform = excluded.platform,
+        user_id = excluded.user_id, last_seen_at = excluded.last_seen_at $$;
+-- a build-50 link + consent write, then one ownerless claim
+CREATE FUNCTION pg_temp.link50(i text, u uuid) RETURNS void LANGUAGE plpgsql AS $$
+BEGIN
+  PERFORM public.legacy_link_capture_device(i, u);
+  PERFORM public.legacy_set_device_consent(i, true, true);
+END $$;
+CREATE FUNCTION pg_temp.own(i text, p text) RETURNS jsonb LANGUAGE sql AS $$ SELECT pg_temp.claim(i, p, 'fp-' || p, null, 1) $$;
+CREATE FUNCTION pg_temp.refused(c jsonb) RETURNS boolean LANGUAGE sql AS
+$$ SELECT c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'ownerless_not_eligible' AND NOT (c ? 'row') AND NOT (c ? 'lease_token') $$;
+CREATE FUNCTION pg_temp.nothing_stored(i text) RETURNS boolean LANGUAGE sql AS
+$$ SELECT NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = i)
+      AND NOT EXISTS (SELECT 1 FROM public.notification_logs WHERE install_id = 'raw-' || i) $$;
+
+DO $$
+DECLARE a uuid := '00000000-0000-0000-0000-00000000a001'; b uuid := '00000000-0000-0000-0000-00000000b002';
+        h public.capture_install_owner_history; c jsonb; j jsonb; d public.capture_devices; sec text;
+BEGIN
+  -- ── first owner under proven history: accepted ──
+  PERFORM pg_temp.register('h1a');
+  h := pg_temp.hist('h1a');
+  PERFORM pg_temp.ok('H1 a new install row is TRUSTED, no owner yet, not transitioned',
+    h.trusted AND h.first_owner_uid IS NULL AND NOT h.transitioned, h::text);
+  PERFORM pg_temp.register('h1a');  -- re-register of a never-owned install changes nothing
+  PERFORM pg_temp.ok('H1 re-registering a never-owned install keeps it trusted and untransitioned',
+    (pg_temp.hist('h1a')).trusted AND NOT (pg_temp.hist('h1a')).transitioned);
+  PERFORM pg_temp.link50('h1a', a);
+  h := pg_temp.hist('h1a');
+  PERFORM pg_temp.ok('H1 the first non-null owner becomes first_owner_uid', h.first_owner_uid = a AND h.trusted AND NOT h.transitioned, h::text);
+  c := pg_temp.own('h1a', 'o1');
+  PERFORM pg_temp.ok('H1 first-owner ownerless upload under proven history -> claimed under A',
+    c->>'outcome' = 'claimed' AND (c->>'claimed_user_id')::uuid = a, c::text);
+  PERFORM public.legacy_link_capture_device('h1a', a);  -- same owner re-link / re-affirmed
+  c := pg_temp.own('h1a', 'o2');
+  PERFORM pg_temp.ok('H1 same-owner re-link does not transition: still eligible', c->>'outcome' = 'claimed', c::text);
+
+  -- a JWT-linked install (new protocol link) is tracked identically
+  PERFORM pg_temp.register('h1j');
+  SELECT device_secret_hash INTO sec FROM public.capture_devices WHERE install_id_hash = 'h1j';
+  PERFORM pg_temp.as_user(a);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('h1j', sec, true, true, 1, 1);
+  RESET ROLE;
+  PERFORM pg_temp.ok('H1 JWT link as first owner: first_owner_uid = A, eligible',
+    (pg_temp.hist('h1j')).first_owner_uid = a AND (pg_temp.own('h1j', 'o1'))->>'outcome' = 'claimed', j::text);
+
+  -- ── A -> B rejected (legacy link) ──
+  PERFORM pg_temp.register('h1b');
+  PERFORM pg_temp.link50('h1b', a);
+  PERFORM pg_temp.link50('h1b', b);
+  h := pg_temp.hist('h1b');
+  c := pg_temp.own('h1b', 'o1');
+  PERFORM pg_temp.ok('H1 A->B: transitioned forever; B''s own ownerless upload is rejected (B is not the first owner)',
+    h.transitioned AND h.first_owner_uid = a AND pg_temp.refused(c), c::text || h::text);
+  PERFORM pg_temp.ok('H1 A->B rejected: no row, no content, no notification', pg_temp.nothing_stored('h1b'));
+
+  -- the delayed A request after the B transition: rejected, no row
+  PERFORM pg_temp.mkdev('h1d', a, 1);
+  c := pg_temp.own('h1d', 'early');
+  PERFORM pg_temp.ok('H1 delayed-A setup: A''s upload before the transition is accepted', c->>'outcome' = 'claimed', c::text);
+  PERFORM pg_temp.link50('h1d', b);
+  c := pg_temp.own('h1d', 'delayed-a');
+  PERFORM pg_temp.ok('H1 delayed A request after the A->B transition: rejected, never attributed to B',
+    pg_temp.refused(c) AND NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'h1d' AND payload_id = 'delayed-a'), c::text);
+  PERFORM pg_temp.ok('H1 delayed A request: no notification log', NOT EXISTS (SELECT 1 FROM public.notification_logs WHERE install_id = 'raw-h1d' AND related_entity_id = 'delayed-a'));
+
+  -- ── A -> B (JWT link) ──
+  PERFORM pg_temp.register('h1c');
+  PERFORM pg_temp.link50('h1c', a);
+  SELECT device_secret_hash INTO sec FROM public.capture_devices WHERE install_id_hash = 'h1c';
+  PERFORM pg_temp.as_user(b);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('h1c', sec, true, true, 1, 1);
+  RESET ROLE;
+  PERFORM pg_temp.ok('H1 A->B through the JWT link: transitioned, ownerless rejected',
+    (pg_temp.hist('h1c')).transitioned AND pg_temp.refused(pg_temp.own('h1c', 'o1')));
+
+  -- ── A -> B -> A: still rejected ──
+  PERFORM pg_temp.register('h1e');
+  PERFORM pg_temp.link50('h1e', a);
+  PERFORM pg_temp.link50('h1e', b);
+  PERFORM pg_temp.link50('h1e', a);
+  h := pg_temp.hist('h1e');
+  PERFORM pg_temp.ok('H1 A->B->A: owner is A again but the install stays ineligible (monotonic)',
+    h.transitioned AND h.first_owner_uid = a AND pg_temp.refused(pg_temp.own('h1e', 'o1'))
+    AND (SELECT user_id = a AND consent_owner_uid = a FROM public.capture_devices WHERE install_id_hash = 'h1e'), h::text);
+
+  -- ── A -> unlink -> A: rejected ──
+  PERFORM pg_temp.register('h1f');
+  PERFORM pg_temp.link50('h1f', a);
+  PERFORM public.unlink_capture_device('h1f');
+  PERFORM pg_temp.ok('H1 unlink marks the install transitioned', (pg_temp.hist('h1f')).transitioned);
+  PERFORM pg_temp.link50('h1f', a);
+  PERFORM pg_temp.ok('H1 A->unlink->A: rejected', pg_temp.refused(pg_temp.own('h1f', 'o1')));
+  PERFORM pg_temp.ok('H1 A->unlink->A rejected: nothing stored', pg_temp.nothing_stored('h1f'));
+
+  -- ── register / re-register of an OWNED install (the anon endpoint nulls user_id) ──
+  PERFORM pg_temp.register('h1r');
+  PERFORM pg_temp.link50('h1r', a);
+  PERFORM pg_temp.register('h1r');   -- secret rotation: user_id -> NULL (consent_owner_uid keeps A)
+  PERFORM pg_temp.ok('H1 re-register of an owned install (user_id -> NULL) transitions it',
+    (pg_temp.hist('h1r')).transitioned);
+  PERFORM pg_temp.link50('h1r', a);
+  PERFORM pg_temp.ok('H1 re-register then re-link as A: rejected', pg_temp.refused(pg_temp.own('h1r', 'o1')));
+
+  -- ── device row deleted and re-registered: rejected, history survives the delete ──
+  PERFORM pg_temp.register('h1x');
+  PERFORM pg_temp.link50('h1x', a);
+  PERFORM pg_temp.ok('H1 delete-and-recreate setup: eligible before the delete', (pg_temp.own('h1x', 'before'))->>'outcome' = 'claimed');
+  DELETE FROM public.capture_devices WHERE install_id_hash = 'h1x';
+  h := pg_temp.hist('h1x');
+  PERFORM pg_temp.ok('H1 the history row SURVIVES deletion of the device row and is transitioned',
+    h.install_id_hash IS NOT NULL AND h.transitioned, h::text);
+  PERFORM pg_temp.register('h1x');
+  PERFORM pg_temp.ok('H1 re-created row: history untouched except staying transitioned (trusted flag is never regained)',
+    (pg_temp.hist('h1x')).transitioned);
+  PERFORM pg_temp.link50('h1x', a);
+  PERFORM pg_temp.ok('H1 device row deleted and re-registered, same owner re-linked: rejected',
+    pg_temp.refused(pg_temp.own('h1x', 'after')));
+  -- the same, but the deleted row was never owned: a re-created row still is not a "first" install
+  PERFORM pg_temp.register('h1y');
+  DELETE FROM public.capture_devices WHERE install_id_hash = 'h1y';
+  PERFORM pg_temp.register('h1y');
+  PERFORM pg_temp.link50('h1y', a);
+  PERFORM pg_temp.ok('H1 deleted-then-recreated unowned install: rejected as well (a delete is a transition)',
+    pg_temp.refused(pg_temp.own('h1y', 'o1')) AND (pg_temp.hist('h1y')).transitioned);
+
+  -- ── pre-migration (untrusted) row and a missing history row: rejected ──
+  SET LOCAL session_replication_role = replica;   -- the trigger does not exist yet for pre-0110 rows
+  INSERT INTO public.capture_devices (install_id_hash, device_secret_hash, user_id, consent_owner_uid,
+     cloud_processing_enabled, ai_consent_granted, consent_version)
+  VALUES ('h1pre', 'shpre', a, a, true, true, 1), ('h1miss', 'shmiss', a, a, true, true, 1);
+  SET LOCAL session_replication_role = origin;
+  PERFORM pg_temp.ok('H1 a row with no history row is rejected (missing history = ineligible)',
+    (pg_temp.hist('h1miss')) IS NULL AND pg_temp.refused(pg_temp.own('h1miss', 'o1')));
+  -- the migration backfill, verbatim: every pre-existing install is recorded untrusted + transitioned
+  INSERT INTO public.capture_install_owner_history (install_id_hash, trusted, first_owner_uid, transitioned, transitioned_at)
+  SELECT install_id_hash, false, null, true, clock_timestamp() FROM public.capture_devices WHERE install_id_hash = 'h1pre'
+  ON CONFLICT (install_id_hash) DO NOTHING;
+  h := pg_temp.hist('h1pre');
+  PERFORM pg_temp.ok('H1 pre-migration install is untrusted and transitioned',
+    NOT h.trusted AND h.transitioned AND h.first_owner_uid IS NULL, h::text);
+  PERFORM pg_temp.ok('H1 pre-migration (untrusted) row, owned by one user, consent on: rejected, nothing stored',
+    pg_temp.refused(pg_temp.own('h1pre', 'o1')) AND pg_temp.nothing_stored('h1pre'));
+  PERFORM public.unlink_capture_device('h1pre');
+  PERFORM pg_temp.link50('h1pre', a);
+  PERFORM pg_temp.ok('H1 pre-migration install stays untrusted through unlink/relink', NOT (pg_temp.hist('h1pre')).trusted AND pg_temp.refused(pg_temp.own('h1pre', 'o2')));
+  -- an UPDATE of a row with no history writes an UNTRUSTED, transitioned record (never a trusted one)
+  PERFORM pg_temp.link50('h1miss', b);
+  h := pg_temp.hist('h1miss');
+  PERFORM pg_temp.ok('H1 a change on a row with no history creates an untrusted transitioned record',
+    h.install_id_hash IS NOT NULL AND NOT h.trusted AND h.transitioned AND h.first_owner_uid IS NULL, h::text);
+
+  -- ── every writer is covered: direct UPDATEs by a future writer ──
+  PERFORM pg_temp.mkdev('h1w1', a, 1);
+  UPDATE public.capture_devices SET user_id = NULL WHERE install_id_hash = 'h1w1';
+  PERFORM pg_temp.ok('H1 direct UPDATE user_id -> NULL transitions', (pg_temp.hist('h1w1')).transitioned);
+  PERFORM pg_temp.mkdev('h1w2', a, 1);
+  UPDATE public.capture_devices SET consent_owner_uid = NULL WHERE install_id_hash = 'h1w2';
+  PERFORM pg_temp.ok('H1 direct UPDATE consent_owner_uid -> NULL transitions', (pg_temp.hist('h1w2')).transitioned);
+  PERFORM pg_temp.mkdev('h1w3', a, 1);
+  UPDATE public.capture_devices SET consent_owner_uid = b WHERE install_id_hash = 'h1w3';
+  UPDATE public.capture_devices SET consent_owner_uid = a WHERE install_id_hash = 'h1w3';
+  PERFORM pg_temp.ok('H1 direct UPDATE consent_owner_uid A->B->A transitions and stays ineligible',
+    (pg_temp.hist('h1w3')).transitioned AND pg_temp.refused(pg_temp.own('h1w3', 'o1')));
+  PERFORM pg_temp.mkdev('h1w4', a, 1);
+  UPDATE public.capture_devices SET user_id = b, consent_owner_uid = b WHERE install_id_hash = 'h1w4';
+  PERFORM pg_temp.ok('H1 direct UPDATE of both owner columns to another uid transitions', (pg_temp.hist('h1w4')).transitioned);
+  PERFORM pg_temp.register('h1w5');
+  UPDATE public.capture_devices SET user_id = a WHERE install_id_hash = 'h1w5';
+  PERFORM pg_temp.ok('H1 an inconsistent owned state (user_id without consent_owner_uid) is treated as a transition, never a first owner',
+    (pg_temp.hist('h1w5')).transitioned AND (pg_temp.hist('h1w5')).first_owner_uid IS NULL);
+  h := pg_temp.hist('h1a');
+  UPDATE public.capture_devices SET last_seen_at = now(), apns_token = 'tok-h1a' WHERE install_id_hash = 'h1a';
+  PERFORM pg_temp.ok('H1 UPDATEs of other columns do not touch the history', pg_temp.hist('h1a') IS NOT DISTINCT FROM h);
+  BEGIN
+    UPDATE public.capture_devices SET install_id_hash = 'h1w5-renamed' WHERE install_id_hash = 'h1w5';
+    PERFORM pg_temp.ok('H1 install_id_hash is immutable on capture_devices', false);
+  EXCEPTION WHEN insufficient_privilege THEN
+    PERFORM pg_temp.ok('H1 install_id_hash is immutable on capture_devices', true);
+  END;
+
+  -- ── the monotonic guard refuses widening UPDATEs (even for the table owner) ──
+  PERFORM pg_temp.register('h1g');
+  PERFORM pg_temp.link50('h1g', a);
+  PERFORM pg_temp.link50('h1g', b);   -- transitioned
+  BEGIN UPDATE public.capture_install_owner_history SET transitioned = false WHERE install_id_hash = 'h1g';
+    PERFORM pg_temp.ok('H1 guard: transitioned true -> false refused', false);
+  EXCEPTION WHEN insufficient_privilege THEN PERFORM pg_temp.ok('H1 guard: transitioned true -> false refused', true); END;
+  BEGIN UPDATE public.capture_install_owner_history SET trusted = true WHERE install_id_hash = 'h1pre';
+    PERFORM pg_temp.ok('H1 guard: trusted false -> true refused', false);
+  EXCEPTION WHEN insufficient_privilege THEN PERFORM pg_temp.ok('H1 guard: trusted false -> true refused', true); END;
+  BEGIN UPDATE public.capture_install_owner_history SET first_owner_uid = b WHERE install_id_hash = 'h1g';
+    PERFORM pg_temp.ok('H1 guard: first_owner_uid rewrite refused', false);
+  EXCEPTION WHEN insufficient_privilege THEN PERFORM pg_temp.ok('H1 guard: first_owner_uid rewrite refused', true); END;
+  BEGIN UPDATE public.capture_install_owner_history SET first_owner_uid = NULL, transitioned = false WHERE install_id_hash = 'h1g';
+    PERFORM pg_temp.ok('H1 guard: clearing first_owner_uid without transitioned refused', false);
+  EXCEPTION WHEN insufficient_privilege THEN PERFORM pg_temp.ok('H1 guard: clearing first_owner_uid without transitioned refused', true); END;
+  BEGIN UPDATE public.capture_install_owner_history SET first_owner_uid = a, trusted = true, transitioned = false WHERE install_id_hash = 'h1pre';
+    PERFORM pg_temp.ok('H1 guard: assigning an owner to an untrusted install refused', false);
+  EXCEPTION WHEN insufficient_privilege THEN PERFORM pg_temp.ok('H1 guard: assigning an owner to an untrusted install refused', true); END;
+  BEGIN UPDATE public.capture_install_owner_history SET install_id_hash = 'other' WHERE install_id_hash = 'h1g';
+    PERFORM pg_temp.ok('H1 guard: install_id_hash rewrite refused', false);
+  EXCEPTION WHEN insufficient_privilege THEN PERFORM pg_temp.ok('H1 guard: install_id_hash rewrite refused', true); END;
+  BEGIN DELETE FROM public.capture_install_owner_history WHERE install_id_hash = 'h1g';
+    PERFORM pg_temp.ok('H1 guard: deleting a history row refused', false);
+  EXCEPTION WHEN insufficient_privilege THEN PERFORM pg_temp.ok('H1 guard: deleting a history row refused', true); END;
+  PERFORM pg_temp.ok('H1 guard: the refused UPDATEs changed nothing', (pg_temp.hist('h1g')).transitioned AND (pg_temp.hist('h1g')).first_owner_uid = a);
+
+  -- ── RLS / privileges: closed to every client role ──
+  PERFORM pg_temp.ok('H1 history table: RLS on, no client privileges',
+    (SELECT relrowsecurity FROM pg_class WHERE oid = 'public.capture_install_owner_history'::regclass)
+    AND NOT has_table_privilege('anon', 'public.capture_install_owner_history', 'select,insert,update,delete')
+    AND NOT has_table_privilege('authenticated', 'public.capture_install_owner_history', 'select,insert,update,delete'));
+  BEGIN
+    SET LOCAL ROLE authenticated;
+    PERFORM count(*) FROM public.capture_install_owner_history;
+    RESET ROLE;
+    PERFORM pg_temp.ok('H1 an authenticated client cannot read the history', false);
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+    PERFORM pg_temp.ok('H1 an authenticated client cannot read the history', true);
+  END;
+END $$;
+
+-- ── account deletion keeps the install ineligible (fail closed) ──
+DO $$
+DECLARE a uuid := '00000000-0000-0000-0000-00000000a001'; b uuid := '00000000-0000-0000-0000-00000000b002';
+        h public.capture_install_owner_history; c jsonb; n integer;
+BEGIN
+  -- del1: held by A (A is first owner); del2: A -> B (first owner A, held by B); ctl: B alone
+  PERFORM pg_temp.register('del1');  PERFORM pg_temp.link50('del1', a);
+  PERFORM pg_temp.register('del2');  PERFORM pg_temp.link50('del2', a);  PERFORM pg_temp.link50('del2', b);
+  PERFORM pg_temp.register('ctl');   PERFORM pg_temp.link50('ctl', b);
+  PERFORM pg_temp.ok('H1 account deletion setup: del1 eligible, ctl eligible',
+    (pg_temp.own('del1', 'o'))->>'outcome' = 'claimed' AND (pg_temp.own('ctl', 'o'))->>'outcome' = 'claimed');
+  PERFORM public.purge_user_data(a);
+  h := pg_temp.hist('del1');
+  PERFORM pg_temp.ok('H1 purge: A''s device row is deleted, the history row remains, uid forgotten, transitioned',
+    NOT EXISTS (SELECT 1 FROM public.capture_devices WHERE install_id_hash = 'del1')
+    AND h.install_id_hash IS NOT NULL AND h.first_owner_uid IS NULL AND h.transitioned, h::text);
+  h := pg_temp.hist('del2');
+  PERFORM pg_temp.ok('H1 purge: a history row naming A on a device now held by B is also scrubbed (uid gone, still transitioned)',
+    h.first_owner_uid IS NULL AND h.transitioned
+    AND EXISTS (SELECT 1 FROM public.capture_devices WHERE install_id_hash = 'del2' AND user_id = b), h::text);
+  PERFORM pg_temp.ok('H1 purge: no history row of the deleted user still carries the uid',
+    NOT EXISTS (SELECT 1 FROM public.capture_install_owner_history WHERE first_owner_uid = a));
+  PERFORM pg_temp.ok('H1 purge: B''s ownerless upload on the scrubbed install stays rejected',
+    pg_temp.refused(pg_temp.own('del2', 'o')));
+  PERFORM pg_temp.register('del1');  PERFORM pg_temp.link50('del1', b);
+  PERFORM pg_temp.ok('H1 purge: the install re-registered and linked by someone else stays ineligible',
+    pg_temp.refused(pg_temp.own('del1', 'o2')) AND (pg_temp.hist('del1')).transitioned);
+  PERFORM pg_temp.ok('H1 purge: an unrelated install of another user keeps its eligibility',
+    (pg_temp.own('ctl', 'o3'))->>'outcome' = 'claimed' AND (pg_temp.hist('ctl')).first_owner_uid = b AND NOT (pg_temp.hist('ctl')).transitioned);
+  n := public.capture_history_forget_owner(b);
+  PERFORM pg_temp.ok('H1 capture_history_forget_owner: scrubs by uid, idempotent, ineligible afterwards',
+    n >= 1 AND public.capture_history_forget_owner(b) = 0 AND pg_temp.refused(pg_temp.own('ctl', 'o4')));
+  PERFORM pg_temp.ok('H1 account deletion: nothing stored for any rejected ownerless upload',
+    pg_temp.nothing_stored('del2') AND NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'del1' AND payload_id = 'o2'));
 END $$;
 
 SELECT name, ok, detail FROM _r WHERE NOT ok;

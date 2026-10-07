@@ -16,9 +16,6 @@
 --   capture_revoke_fanout(...)          internal one tx: row lock + user_settings + content nulling
 --
 -- Astra required changes (contract G, C.1/C.2/C.3):
---   owner_changed_at         clock_timestamp() of the last owner change (link / legacy link / unlink);
---                            capture_claim (0111) uses it to refuse OWNERLESS (build-50) uploads that
---                            predate the current owner's link.
 --   owner_generation         the SERVER's own counter, +1 on every owner change (diagnostics + atomic reset).
 --   consent_client_generation / last_revoke_generation
 --                            the client's transition generation per owner. A link/set whose generation is
@@ -26,6 +23,13 @@
 --                            requested) or is a no-op; it can never widen. An owner change resets both
 --                            atomically (the new owner starts fresh). p_client_generation defaults to 0 (old
 --                            clients), and a generation-0 write can never widen past a recorded revoke.
+--
+-- Astra required changes (contract H, H1):
+--   capture_install_owner_history  trusted per-install owner history that survives deletion of the
+--                            capture_devices row, maintained by a trigger so every writer is covered;
+--                            capture_claim (0111) admits an OWNERLESS (build-50) upload only for an
+--                            install proven to have had exactly one owner who never changed. The G1 client-timestamp
+--                            ownerless rule is gone (never deployed).
 --
 -- Depends (by name only, resolved at call time) on 0109 user_settings
 -- (consent_version, consent_granted_at). Additive; rollback drops it all.
@@ -35,13 +39,200 @@ alter table public.capture_devices
   add column if not exists consent_version integer not null default 0,
   add column if not exists owner_generation bigint not null default 0,
   add column if not exists consent_client_generation bigint not null default 0,
-  add column if not exists last_revoke_generation bigint null,
-  add column if not exists owner_changed_at timestamptz null;
+  add column if not exists last_revoke_generation bigint null;
 
 -- Linked rows: their flags were set by (and for) the linked user.
 update public.capture_devices
    set consent_owner_uid = user_id
  where user_id is not null and consent_owner_uid is null;
+
+-- ── H1: trusted install owner history (build-50 ownerless uploads, option B) ──
+-- A build-50 upload carries no owner_uid, so the server may attribute it to the current owner
+-- ONLY if it can prove, from history the client cannot influence, that this install has had
+-- exactly one owner and that the owner never changed (not A->B, not A->unlink->A, not A->B->A).
+-- The history is keyed by install_id_hash and SURVIVES deletion of the capture_devices row, so a
+-- delete + re-register can never restore eligibility.
+--   trusted          true only for an install whose row was created AFTER this migration. Every
+--                    install that already existed here is recorded untrusted (never eligible).
+--   first_owner_uid  the first non-null owner, set once. Nulled (never reassigned) by account deletion.
+--   transitioned     true forever once the owner changed away from a non-null value, a different
+--                    owner appeared, the row was deleted, or the row was re-created over existing
+--                    history. Monotonic: guarded by trg_capture_install_owner_history_guard.
+-- Maintained by a trigger on capture_devices (INSERT / UPDATE OF install_id_hash, user_id,
+-- consent_owner_uid / DELETE), so EVERY writer is covered: link, legacy link, unlink, register /
+-- re-register (upsert), purge, and any future direct UPDATE. A missing history row is never eligible.
+-- Eligible (checked in capture_claim, 0111) <=> trusted AND NOT transitioned AND
+-- first_owner_uid = user_id = consent_owner_uid. RLS denies every client role.
+create table if not exists public.capture_install_owner_history (
+  install_id_hash text primary key,
+  trusted boolean not null,
+  first_owner_uid uuid null,
+  transitioned boolean not null default false,
+  transitioned_at timestamptz null,
+  created_at timestamptz not null default clock_timestamp(),
+  updated_at timestamptz not null default clock_timestamp()
+);
+
+alter table public.capture_install_owner_history enable row level security;
+drop policy if exists capture_install_owner_history_no_direct_access on public.capture_install_owner_history;
+create policy capture_install_owner_history_no_direct_access
+  on public.capture_install_owner_history
+  using (false)
+  with check (false);
+revoke all on table public.capture_install_owner_history from public, anon, authenticated;
+
+-- Installs that exist at migration time have no trustworthy history: untrusted, never eligible.
+insert into public.capture_install_owner_history
+  (install_id_hash, trusted, first_owner_uid, transitioned, transitioned_at)
+select install_id_hash, false, null, true, clock_timestamp()
+  from public.capture_devices
+on conflict (install_id_hash) do nothing;
+
+-- Monotonic guard: no widening, ever, whoever writes.
+create or replace function public.capture_install_owner_history_guard()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'capture_install_owner_history rows are never deleted' using errcode = '42501';
+  end if;
+  if new.install_id_hash is distinct from old.install_id_hash then
+    raise exception 'capture_install_owner_history.install_id_hash is immutable' using errcode = '42501';
+  end if;
+  if old.transitioned and not new.transitioned then
+    raise exception 'capture_install_owner_history: transitioned never returns to false' using errcode = '42501';
+  end if;
+  if not old.trusted and new.trusted then
+    raise exception 'capture_install_owner_history: an untrusted install never becomes trusted' using errcode = '42501';
+  end if;
+  if old.first_owner_uid is not null and new.first_owner_uid is distinct from old.first_owner_uid
+     and not (new.first_owner_uid is null and new.transitioned) then
+    raise exception 'capture_install_owner_history: first_owner_uid is never rewritten' using errcode = '42501';
+  end if;
+  if old.first_owner_uid is null and new.first_owner_uid is not null
+     and (new.transitioned or not new.trusted) then
+    raise exception 'capture_install_owner_history: no owner is assigned to a transitioned or untrusted install' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists trg_capture_install_owner_history_guard on public.capture_install_owner_history;
+create trigger trg_capture_install_owner_history_guard
+  before update or delete on public.capture_install_owner_history
+  for each row execute function public.capture_install_owner_history_guard();
+
+-- Tracker on capture_devices. SECURITY DEFINER so the writer's role needs no access to the table.
+create or replace function public.capture_device_history_track()
+returns trigger
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  h public.capture_install_owner_history%rowtype;
+  v_new_clean boolean;
+begin
+  if tg_op = 'DELETE' then
+    -- The row is gone; the install can never be proven single-owner again.
+    insert into public.capture_install_owner_history
+      (install_id_hash, trusted, first_owner_uid, transitioned, transitioned_at)
+    values (old.install_id_hash, false, null, true, clock_timestamp())
+    on conflict (install_id_hash) do update
+      set transitioned = true,
+          transitioned_at = coalesce(capture_install_owner_history.transitioned_at, clock_timestamp()),
+          updated_at = clock_timestamp();
+    return old;
+  end if;
+
+  if tg_op = 'INSERT' then
+    -- A clean row is unowned (user_id and consent_owner_uid NULL) or owned (both the same uid).
+    v_new_clean := (new.user_id is null and new.consent_owner_uid is null)
+                or coalesce(new.user_id = new.consent_owner_uid, false);
+    insert into public.capture_install_owner_history
+      (install_id_hash, trusted, first_owner_uid, transitioned, transitioned_at)
+    values (new.install_id_hash, true, case when v_new_clean then new.user_id end,
+            not v_new_clean, case when not v_new_clean then clock_timestamp() end)
+    on conflict (install_id_hash) do update
+      -- history already existed: this row is a re-creation (or a pre-tracking install), never a first.
+      set transitioned = true,
+          transitioned_at = coalesce(capture_install_owner_history.transitioned_at, clock_timestamp()),
+          updated_at = clock_timestamp();
+    return new;
+  end if;
+
+  -- UPDATE OF install_id_hash, user_id, consent_owner_uid
+  if new.install_id_hash is distinct from old.install_id_hash then
+    raise exception 'capture_devices.install_id_hash is immutable' using errcode = '42501';
+  end if;
+  if new.user_id is not distinct from old.user_id
+     and new.consent_owner_uid is not distinct from old.consent_owner_uid then
+    return new;
+  end if;
+  select * into h from public.capture_install_owner_history
+   where install_id_hash = new.install_id_hash for update;
+  if not found then
+    -- No history for an existing row: untrusted, and the change is recorded as a transition.
+    insert into public.capture_install_owner_history
+      (install_id_hash, trusted, first_owner_uid, transitioned, transitioned_at)
+    values (new.install_id_hash, false, null, true, clock_timestamp());
+    return new;
+  end if;
+  if h.transitioned then
+    return new;
+  end if;
+  v_new_clean := coalesce(new.user_id = new.consent_owner_uid, false);
+  if h.trusted and v_new_clean and h.first_owner_uid is null
+     and old.user_id is null and old.consent_owner_uid is null then
+    -- The first (and so far only) owner appears on a never-owned install.
+    update public.capture_install_owner_history
+       set first_owner_uid = new.user_id, updated_at = clock_timestamp()
+     where install_id_hash = new.install_id_hash;
+  else
+    -- Owner left (to NULL), another owner appeared, or the row became inconsistent: forever.
+    update public.capture_install_owner_history
+       set transitioned = true, transitioned_at = clock_timestamp(), updated_at = clock_timestamp()
+     where install_id_hash = new.install_id_hash;
+  end if;
+  return new;
+end;
+$$;
+
+revoke all on function public.capture_device_history_track() from public, anon, authenticated;
+
+drop trigger if exists trg_capture_devices_owner_history on public.capture_devices;
+create trigger trg_capture_devices_owner_history
+  after insert or delete or update of install_id_hash, user_id, consent_owner_uid
+  on public.capture_devices
+  for each row execute function public.capture_device_history_track();
+
+-- Account deletion (GDPR): forget the uid but keep the install ineligible (fail closed).
+-- Called by purge_user_data (0113). Also covers a history row whose device row is held by someone
+-- else (or already gone), which deleting the user's own device rows cannot reach.
+create or replace function public.capture_history_forget_owner(p_user_id uuid)
+returns integer
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_n integer;
+begin
+  update public.capture_install_owner_history
+     set first_owner_uid = null,
+         transitioned = true,
+         transitioned_at = coalesce(transitioned_at, clock_timestamp()),
+         updated_at = clock_timestamp()
+   where first_owner_uid = p_user_id;
+  get diagnostics v_n = row_count;
+  return v_n;
+end;
+$$;
+
+revoke all on function public.capture_history_forget_owner(uuid) from public, anon, authenticated;
+grant execute on function public.capture_history_forget_owner(uuid) to service_role;
 
 -- ── Revoke fan-out (internal) ────────────────────────────────────────────────
 -- Caller MUST already hold the capture_devices row lock for p_install_id_hash,
@@ -94,8 +285,7 @@ revoke all on function public.capture_revoke_fanout(text, uuid, boolean, boolean
 -- (hash computed by the edge function) proves the caller holds the install.
 -- One UPDATE sets user_id, consent_owner_uid, both flags and consent_version.
 -- Owner change replaces the whole projection AND resets the per-owner ordering
--- (owner_generation + 1, owner_changed_at = clock_timestamp(), client generation = the
--- sent one, no recorded revoke). For the same owner a link whose client generation is
+-- (owner_generation + 1, client generation = the sent one, no recorded revoke). For the same owner a link whose client generation is
 -- older than the stored one, or <= a recorded revoke, can only narrow (stored AND
 -- requested); otherwise the link is authoritative (flags and version as sent).
 -- Works for iOS and Android rows alike: the row only needs a registered install and
@@ -148,7 +338,6 @@ begin
            ai_consent_granted = v_ai,
            consent_version = v_version,
            owner_generation = v_row.owner_generation + 1,
-           owner_changed_at = clock_timestamp(),
            consent_client_generation = v_gen,
            last_revoke_generation = null,
            last_seen_at = now()
@@ -368,7 +557,7 @@ grant execute on function public.revoke_capture_consent(text, text, uuid, bigint
 -- The edge function has verified the device secret and the user JWT. When the
 -- owner changes, the consent projection is REPLACED atomically: consent_owner_uid
 -- = new user, both flags false, version reset, and the ordering restarts (owner_generation
--- + 1, owner_changed_at = clock_timestamp(), client generation 0, no recorded revoke).
+-- + 1, client generation 0, no recorded revoke).
 -- Same owner: only last_seen_at.
 create or replace function public.legacy_link_capture_device(
   p_install_id_hash text,
@@ -394,7 +583,6 @@ begin
          ai_consent_granted = case when v_changed then false else v_row.ai_consent_granted end,
          consent_version = case when v_changed then 0 else v_row.consent_version end,
          owner_generation = case when v_changed then v_row.owner_generation + 1 else v_row.owner_generation end,
-         owner_changed_at = case when v_changed then clock_timestamp() else v_row.owner_changed_at end,
          consent_client_generation = case when v_changed then 0 else v_row.consent_client_generation end,
          last_revoke_generation = case when v_changed then null else v_row.last_revoke_generation end,
          last_seen_at = now()
@@ -462,7 +650,8 @@ grant execute on function public.legacy_set_device_consent(text, boolean, boolea
 -- ── service: unlink (device-credential) ──────────────────────────────────────
 -- Unlink nulls user_id, consent_owner_uid and both flags (manifest §4.6), in one
 -- statement, so a later link can never inherit the previous owner's consent. Dropping an
--- owner is an owner change: owner_changed_at / owner_generation move and the ordering resets.
+-- owner is an owner change: owner_generation moves and the ordering resets (and the install's
+-- ownerless-eligibility history records the transition, see capture_install_owner_history).
 create or replace function public.unlink_capture_device(p_install_id_hash text)
 returns boolean
 language plpgsql
@@ -473,8 +662,6 @@ begin
   update public.capture_devices
      set owner_generation = owner_generation
            + case when user_id is not null or consent_owner_uid is not null then 1 else 0 end,
-         owner_changed_at = case when user_id is not null or consent_owner_uid is not null
-                                 then clock_timestamp() else owner_changed_at end,
          consent_client_generation = 0,
          last_revoke_generation = null,
          user_id = null,

@@ -20,7 +20,10 @@ const GOOD_AI = {
 type Device = NonNullable<Parameters<typeof fakeCapture>[0]>['device'];
 
 async function run(device: Device, body: Record<string, unknown> = {}) {
-  const fake = fakeCapture({ device });
+  // H1: an ownerless (build-50) upload is only eligible for an install with proven single-owner history.
+  const fake = fakeCapture({
+    device: { user_id: '00000000-0000-0000-0000-00000000a001', consent_owner_uid: '00000000-0000-0000-0000-00000000a001', ...device },
+  });
   let fetchCalls = 0;
   const originalFetch = globalThis.fetch;
   const previousKey = Deno.env.get('GEMINI_API_KEY');
@@ -42,7 +45,7 @@ async function run(device: Device, body: Record<string, unknown> = {}) {
           deviceSecret: 'secret-1',
           payloadId: 'payload-1',
           sanitizedText: UNRESOLVED,
-          receivedAt: new Date().toISOString(), // build 50 always sends it (ownerless rule)
+          receivedAt: new Date().toISOString(), // build 50 sends it; ownership never depends on it (H1)
           allowAi: true,
           ...body,
         }),
@@ -118,7 +121,7 @@ Deno.test('stale replay after revocation stops before parse, storage and APNs', 
           deviceSecret: 'secret-1',
           payloadId: 'payload-1',
           sanitizedText: UNRESOLVED,
-          receivedAt: new Date().toISOString(), // build 50 always sends it (ownerless rule)
+          receivedAt: new Date().toISOString(), // build 50 sends it; ownership never depends on it (H1)
         }),
       }),
       {

@@ -10,8 +10,7 @@ BEGIN;
 DROP FUNCTION IF EXISTS public.capture_ack(text, uuid, text[]);
 DROP FUNCTION IF EXISTS public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb);
 DROP FUNCTION IF EXISTS public.capture_ai_dispatch(text, text, integer);
-DROP FUNCTION IF EXISTS public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint);
-DROP FUNCTION IF EXISTS public.capture_parse_received_at(text);
+DROP FUNCTION IF EXISTS public.capture_claim(text, text, text, text, uuid, integer, integer, bigint);
 DROP FUNCTION IF EXISTS public.capture_row_json(public.processed_captures);
 DROP FUNCTION IF EXISTS public.capture_queue_push(text, text, text, uuid, text);
 

@@ -301,7 +301,6 @@ create or replace function public.capture_claim(
   p_owner_uid uuid,
   p_contract integer,
   p_lease_seconds integer default 60,
-  p_received_at text default null,
   p_owner_generation bigint default null
 ) returns jsonb
 language plpgsql
@@ -312,8 +311,7 @@ declare
   d public.capture_devices%rowtype;
   r public.processed_captures%rowtype;
   v_push jsonb;
-  v_recv timestamptz;
-  v_reject text;
+  v_ownerless boolean := false;
 begin
   -- One snapshot: the device row is share-locked for the rest of this tx, so a
   -- concurrent link / consent change / revoke serializes strictly before or after.
@@ -334,23 +332,21 @@ begin
   elsif d.consent_owner_uid is distinct from d.user_id then
     return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
   else
-    -- OWNERLESS (true build 50): the only evidence is the client's received_at. It must
-    -- parse, not lie in the future (5 min clock-skew bound) and be AFTER the current
-    -- owner's link; otherwise the capture predates this owner and is never attributed to it.
-    v_recv := public.capture_parse_received_at(p_received_at);
-    if v_recv is null then
-      v_reject := 'received_at_invalid';
-    elsif v_recv > clock_timestamp() + interval '5 minutes' then
-      v_reject := 'received_at_future';
-    elsif d.owner_changed_at is not null and v_recv <= d.owner_changed_at then
-      v_reject := 'received_before_owner_change';
-    end if;
-    if v_reject is not null then
-      return jsonb_build_object('outcome', 'owner_conflict', 'reason', v_reject);
-    end if;
+    v_ownerless := true;
   end if;
   if d.cloud_processing_enabled is not true then
     return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
+  end if;
+  if v_ownerless and not exists (
+       select 1 from public.capture_install_owner_history h
+        where h.install_id_hash = p_install_id_hash
+          and h.trusted and not h.transitioned
+          and h.first_owner_uid is not null
+          and h.first_owner_uid = d.user_id
+          and d.user_id = d.consent_owner_uid) then
+    -- H1 option B: an OWNERLESS (build-50) upload is attributable only when the trusted
+    -- install history proves one owner who never changed (see 0110). No row, no content, no AI.
+    return jsonb_build_object('outcome', 'owner_conflict', 'reason', 'ownerless_not_eligible');
   end if;
 
   insert into public.processed_captures
@@ -694,12 +690,12 @@ grant execute on function public.capture_retry_fence(text, text) to service_role
 revoke all on function public.capture_content_live(timestamptz) from public, anon, authenticated;
 revoke all on function public.capture_content_live_at(timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.capture_expire_row(text, text) from public, anon, authenticated;
-revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint) from public, anon, authenticated;
+revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer, bigint) from public, anon, authenticated;
 revoke all on function public.capture_ai_dispatch(text, text, integer) from public, anon, authenticated;
 revoke all on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
   from public, anon, authenticated;
 revoke all on function public.capture_sync_list(text, uuid, boolean) from public, anon, authenticated;
-grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint) to service_role;
+grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer, bigint) to service_role;
 grant execute on function public.capture_ai_dispatch(text, text, integer) to service_role;
 grant execute on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
   to service_role;

@@ -13,15 +13,16 @@
 -- (service_role only), called by the process-ios-sms / sync-captures edge
 -- functions:
 --   capture_claim        §4.1 gate + §4.8 claim table, one snapshot; owner binding on ANY schema
---                        version when owner_uid is present, and the OWNERLESS (build-50) rule: an
---                        ownerless upload is refused (owner_conflict, no content, no AI) when its
---                        received_at is missing / unparseable, later than clock_timestamp() + 5
---                        minutes, or <= capture_devices.owner_changed_at (0110): it predates the
---                        current owner's link and cannot be attributed to that owner.
---                        RESIDUAL (build 50): received_at is client-supplied, so a build-50 client
---                        whose clock runs ahead (bounded by 5 min) or that forges it can still land
---                        a pre-relink capture under the new owner. Full closure needs
---                        min_client_build at P6 (NOT done now).
+--                        version when owner_uid is present, and the OWNERLESS (build-50) rule (H1,
+--                        option B): an ownerless upload is refused (owner_conflict, no row, no
+--                        content, no AI) unless the trusted install history (0110,
+--                        capture_install_owner_history, which survives deletion of the device row)
+--                        proves the install has had exactly ONE owner, never changed, and that owner
+--                        is both user_id and consent_owner_uid. Missing / untrusted / pre-tracking
+--                        history is refused. Nothing client-supplied (received_at) is trusted.
+--                        RESIDUAL (build 50): history starts at 0110, so every install that existed
+--                        then is never eligible (fail closed); an eligible install cannot regain
+--                        eligibility once lost (monotonic). Full closure = min_client_build at P6.
 --   capture_ai_dispatch  §4.6 AI linearization point
 --   capture_finalize     terminal fence + result + notification_logs row, one tx
 --   capture_ack          tombstone, never from 'processing'
@@ -156,32 +157,10 @@ $$;
 revoke all on function public.capture_row_json(public.processed_captures)
   from public, anon, authenticated;
 
--- ── internal: strict ISO-8601 parse of a client-supplied received_at ──────────
--- NULL for missing, malformed, or timezone-less text (a local time is ambiguous), so the
--- ownerless rule in capture_claim treats all of those as "cannot be attributed".
-create or replace function public.capture_parse_received_at(p_text text)
-returns timestamptz
-language plpgsql
-stable
-set search_path = public, pg_temp
-as $$
-begin
-  if p_text is null
-     or p_text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]{1,9})?)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)$' then
-    return null;
-  end if;
-  return p_text::timestamptz;
-exception when others then
-  return null;
-end;
-$$;
-
-revoke all on function public.capture_parse_received_at(text) from public, anon, authenticated;
-
 -- ── capture_claim ────────────────────────────────────────────────────────────
 -- p_contract: 2 = v2, 1 = legacy. p_owner_uid is the stamped owner on ANY contract when
--- present (owner-bound); NULL = ownerless (build 50). p_received_at is the client's raw
--- received_at text (ownerless rule); p_owner_generation is stored for diagnostics only.
+-- present (owner-bound); NULL = ownerless (build 50, judged by the install history, see above).
+-- p_owner_generation is stored for diagnostics only.
 -- Returns {outcome: ...}:
 --   denied{code}                    gate refused (credential_revoked | capture_owner_mismatch | consent_required)
 --   claimed{lease_token,attempts,claimed_user_id,consent_owner_uid,consent_version,ai_allowed}
@@ -195,7 +174,6 @@ create or replace function public.capture_claim(
   p_owner_uid uuid,
   p_contract integer,
   p_lease_seconds integer default 60,
-  p_received_at text default null,
   p_owner_generation bigint default null
 ) returns jsonb
 language plpgsql
@@ -206,8 +184,7 @@ declare
   d public.capture_devices%rowtype;
   r public.processed_captures%rowtype;
   v_push jsonb;
-  v_recv timestamptz;
-  v_reject text;
+  v_ownerless boolean := false;
 begin
   -- One snapshot: the device row is share-locked for the rest of this tx, so a
   -- concurrent link / consent change / revoke serializes strictly before or after.
@@ -228,23 +205,21 @@ begin
   elsif d.consent_owner_uid is distinct from d.user_id then
     return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
   else
-    -- OWNERLESS (true build 50): the only evidence is the client's received_at. It must
-    -- parse, not lie in the future (5 min clock-skew bound) and be AFTER the current
-    -- owner's link; otherwise the capture predates this owner and is never attributed to it.
-    v_recv := public.capture_parse_received_at(p_received_at);
-    if v_recv is null then
-      v_reject := 'received_at_invalid';
-    elsif v_recv > clock_timestamp() + interval '5 minutes' then
-      v_reject := 'received_at_future';
-    elsif d.owner_changed_at is not null and v_recv <= d.owner_changed_at then
-      v_reject := 'received_before_owner_change';
-    end if;
-    if v_reject is not null then
-      return jsonb_build_object('outcome', 'owner_conflict', 'reason', v_reject);
-    end if;
+    v_ownerless := true;
   end if;
   if d.cloud_processing_enabled is not true then
     return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
+  end if;
+  if v_ownerless and not exists (
+       select 1 from public.capture_install_owner_history h
+        where h.install_id_hash = p_install_id_hash
+          and h.trusted and not h.transitioned
+          and h.first_owner_uid is not null
+          and h.first_owner_uid = d.user_id
+          and d.user_id = d.consent_owner_uid) then
+    -- H1 option B: an OWNERLESS (build-50) upload is attributable only when the trusted
+    -- install history proves one owner who never changed (see 0110). No row, no content, no AI.
+    return jsonb_build_object('outcome', 'owner_conflict', 'reason', 'ownerless_not_eligible');
   end if;
 
   insert into public.processed_captures
@@ -488,13 +463,13 @@ begin
 end;
 $$;
 
-revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint)
+revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer, bigint)
   from public, anon, authenticated;
 revoke all on function public.capture_ai_dispatch(text, text, integer) from public, anon, authenticated;
 revoke all on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
   from public, anon, authenticated;
 revoke all on function public.capture_ack(text, uuid, text[]) from public, anon, authenticated;
-grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint) to service_role;
+grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer, bigint) to service_role;
 grant execute on function public.capture_ai_dispatch(text, text, integer) to service_role;
 grant execute on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
   to service_role;

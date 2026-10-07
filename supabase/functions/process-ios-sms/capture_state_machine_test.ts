@@ -60,8 +60,8 @@ async function post(
       new Request('https://example.test/process-ios-sms', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        // build 50 always sends receivedAt; the ownerless rule (0111) refuses a request without it, so the
-        // default mirrors a real build-50 body (a test omits it with `receivedAt: undefined`).
+        // build 50 always sends receivedAt; the server never trusts it for ownership (H1), so a test
+        // can still override or drop it.
         body: JSON.stringify({ installId: 'i', deviceSecret: 's', receivedAt: new Date().toISOString(), ...body }),
       }),
       {
@@ -151,13 +151,20 @@ Deno.test('legacy contract: linked device whose consent belongs to someone else 
   assertEquals([r.status, r.json.error], [403, 'consent_required']);
 });
 
-Deno.test('legacy guest (no user) keeps working and stamps no owner', async () => {
-  const fake = fakeCapture();
+Deno.test('legacy linked install keeps the legacy shape (no state key)', async () => {
+  const fake = fakeCapture({ device: linkedA });
   const r = await post(fake, { payloadId: 'p', sanitizedText: RESOLVED });
   assertEquals(r.status, 200);
-  assertEquals(fake.state.rows.get('p')!.claimed_user_id, null);
+  assertEquals(fake.state.rows.get('p')!.claimed_user_id, A);
   assertEquals('state' in r.json, false);
   assertEquals('state' in r.json.capture, false);
+});
+
+Deno.test('H1: an ownerless upload from a never-owned (guest) install has no proven owner -> 409 capture_owner_conflict', async () => {
+  const fake = fakeCapture(); // user_id NULL: nobody to attribute the capture to
+  const r = await post(fake, { payloadId: 'p', sanitizedText: RESOLVED });
+  assertEquals([r.status, r.json.error], [409, 'capture_owner_conflict']);
+  assertEquals(fake.state.rows.size, 0);
 });
 
 Deno.test('T-S3: same payload id with different text -> 409 capture_id_conflict', async () => {
@@ -201,7 +208,7 @@ Deno.test('T-S1: duplicate while the lease is live -> v2 202, legacy 503 (never 
 });
 
 Deno.test('T-S1 legacy in_progress is 503 + Retry-After semantics (legacy client treats 2xx as terminal ack)', async () => {
-  const fake = fakeCapture();
+  const fake = fakeCapture({ device: linkedA });
   let release!: () => void;
   const gate = new Promise<void>((resolve) => (release = resolve));
   const first = post(fake, { payloadId: 'p', sanitizedText: UNRESOLVED, allowAi: true }, async () => {
@@ -612,9 +619,7 @@ Deno.test('F1: expired lease at the final write -> no result stored, no notifica
   }
 });
 
-// ── Astra required changes (contract G, C.1): owner binding on ANY schema version, ownerless rule ──
-const RELINK_MS = Date.now();
-const iso = (ms: number) => new Date(ms).toISOString();
+// ── Astra required changes (contract G, C.1): owner binding on ANY schema version ──
 
 Deno.test('G1 C.1: owner_uid on schema_version 1 is owner-bound: match -> 200 with the LEGACY shape, row records owner + generation', async () => {
   const fake = fakeCapture({ device: linkedA });
@@ -654,12 +659,12 @@ Deno.test('G1 C.1: owner_generation is diagnostics only: junk values are dropped
 });
 
 Deno.test('G1 D.1: delayed A capture arrives after an A->B relink: owner-bound -> 409 capture_owner_mismatch, never processed under B', async () => {
-  // device is B now (relinked at RELINK_MS); the request was stamped A and delayed past the relink
+  // device is B now (relinked); the request was stamped A and delayed past the relink
   for (const schema of [1, 2]) {
-    const fake = fakeCapture({ device: { user_id: B, consent_owner_uid: B, version: 1, owner_changed_ms: RELINK_MS } });
+    const fake = fakeCapture({ device: { user_id: B, consent_owner_uid: B, version: 1 } });
     const r = await post(
       fake,
-      { schema_version: schema, owner_uid: A, payloadId: 'p', sanitizedText: UNRESOLVED, allowAi: true, receivedAt: iso(RELINK_MS - 5000) },
+      { schema_version: schema, owner_uid: A, payloadId: 'p', sanitizedText: UNRESOLVED, allowAi: true },
       () => aiResponse(GOOD_AI),
     );
     assertEquals([r.status, r.json.error], [409, 'capture_owner_mismatch'], `schema ${schema}`);
@@ -667,48 +672,57 @@ Deno.test('G1 D.1: delayed A capture arrives after an A->B relink: owner-bound -
   }
 });
 
-Deno.test('G1 D.1: delayed OWNERLESS (build 50) capture with received_at <= owner_changed_at -> 409 capture_owner_conflict, never processed under B', async () => {
-  const device = { user_id: B, consent_owner_uid: B, version: 1, owner_changed_ms: RELINK_MS };
-  for (const receivedAt of [iso(RELINK_MS - 60_000), iso(RELINK_MS)]) { // before, and exactly at, the relink
-    const fake = fakeCapture({ device });
-    const r = await post(fake, { schema_version: 1, payloadId: 'p', sanitizedText: UNRESOLVED, allowAi: true, receivedAt }, () =>
-      aiResponse(GOOD_AI));
-    assertEquals([r.status, r.json.error], [409, 'capture_owner_conflict'], receivedAt);
-    assertEquals([fake.state.rows.size, r.calls, fake.state.logs.length], [0, 0, 0]);
-  }
-  // a capture received AFTER the relink belongs to B and is processed
-  const fake = fakeCapture({ device });
-  const ok = await post(fake, { schema_version: 1, payloadId: 'p', sanitizedText: RESOLVED, receivedAt: iso(RELINK_MS + 1000) });
-  assertEquals([ok.status, fake.state.rows.get('p')!.claimed_user_id], [200, B]);
+// ── H1 (option B): ownerless (build-50) uploads are judged by the server's trusted install history ──
+const OWNERLESS = { schema_version: 1, payloadId: 'p', sanitizedText: UNRESOLVED, allowAi: true };
+
+Deno.test('H1: ownerless upload from an install with proven single-owner history -> 200 under that owner', async () => {
+  const fake = fakeCapture({ device: linkedA });
+  const r = await post(fake, { ...OWNERLESS, sanitizedText: RESOLVED });
+  assertEquals([r.status, fake.state.rows.get('p')!.claimed_user_id], [200, A]);
 });
 
-Deno.test('G1 C.1: ownerless request with received_at missing / unparseable / timezone-less / more than 5 min in the future -> 409 capture_owner_conflict', async () => {
-  const cases: Array<[string, unknown]> = [
-    ['missing', undefined],
-    ['empty', ''],
-    ['garbage', 'yesterday'],
-    ['postgres special', 'infinity'],
-    ['no timezone (ambiguous)', '2026-10-07T12:00:00'],
-    ['future +6min', iso(Date.now() + 6 * 60_000)],
-    ['future +1y', iso(Date.now() + 365 * 86_400_000)],
+Deno.test('H1: ownerless after a transition (A->B, A->unlink->A, A->B->A), pre-migration or missing history -> 409 capture_owner_conflict, no AI, no row, no log', async () => {
+  const cases: Array<[string, Record<string, unknown>]> = [
+    ['A->B (current owner B, history transitioned)', {
+      user_id: B, consent_owner_uid: B, version: 1,
+      history: { trusted: true, transitioned: true, first_owner_uid: A },
+    }],
+    ['A->unlink->A', { ...linkedA, history: { trusted: true, transitioned: true, first_owner_uid: A } }],
+    ['A->B->A', { ...linkedA, history: { trusted: true, transitioned: true, first_owner_uid: A } }],
+    ['pre-migration (untrusted) install', { ...linkedA, history: { trusted: false, transitioned: true, first_owner_uid: null } }],
+    ['untrusted but not flagged transitioned', { ...linkedA, history: { trusted: false, transitioned: false, first_owner_uid: A } }],
+    ['missing history row', { ...linkedA, history: null }],
+    ['first owner differs from current owner', { ...linkedA, history: { trusted: true, transitioned: false, first_owner_uid: B } }],
+    ['account deletion kept the install ineligible (first_owner NULL)', {
+      ...linkedA, history: { trusted: true, transitioned: true, first_owner_uid: null },
+    }],
   ];
-  for (const [name, receivedAt] of cases) {
-    const fake = fakeCapture({ device: linkedA });
-    const r = await post(fake, { schema_version: 1, payloadId: 'p', sanitizedText: RESOLVED, receivedAt });
+  for (const [name, device] of cases) {
+    const fake = fakeCapture({ device });
+    const r = await post(fake, OWNERLESS, () => aiResponse(GOOD_AI));
     assertEquals([r.status, r.json.error], [409, 'capture_owner_conflict'], name);
-    assertEquals([fake.state.rows.size, fake.state.claims], [0, 0], name);
+    // generic body: no owner information, no reason
+    assertEquals(Object.keys(r.json).sort(), ['correlation_id', 'error'], name);
+    assertEquals([fake.state.rows.size, fake.state.dispatches, fake.state.finalizes, fake.state.logs.length, r.calls], [0, 0, 0, 0, 0], name);
   }
-  // within the 5 min skew bound it is accepted
-  const fake = fakeCapture({ device: linkedA });
-  const ok = await post(fake, { schema_version: 1, payloadId: 'p', sanitizedText: RESOLVED, receivedAt: iso(Date.now() + 4 * 60_000) });
-  assertEquals(ok.status, 200);
 });
 
-Deno.test('G1 C.1: a device never relinked since 0110 (owner_changed_at NULL) still accepts a well-formed ownerless request; owner-bound ignores received_at', async () => {
-  const fake = fakeCapture({ device: linkedA });
-  const r = await post(fake, { schema_version: 1, payloadId: 'p', sanitizedText: RESOLVED, receivedAt: '2020-01-01T00:00:00Z' });
-  assertEquals(r.status, 200);
-  const bound = fakeCapture({ device: { ...linkedA, owner_changed_ms: RELINK_MS } });
-  const b = await post(bound, v2({ payloadId: 'p', sanitizedText: RESOLVED, receivedAt: iso(RELINK_MS - 1_000_000) }));
-  assertEquals(b.status, 200); // owner binding, not received_at, is the proof for new clients
+Deno.test('H1: received_at is ignored for ownership: any value (missing, ancient, future) behaves identically', async () => {
+  for (const receivedAt of [undefined, '', 'yesterday', '2020-01-01T00:00:00Z', new Date(Date.now() + 365 * 86_400_000).toISOString()]) {
+    const ok = fakeCapture({ device: linkedA });
+    const a = await post(ok, { ...OWNERLESS, sanitizedText: RESOLVED, receivedAt });
+    assertEquals(a.status, 200, String(receivedAt));
+    const bad = fakeCapture({ device: { ...linkedA, history: { trusted: true, transitioned: true, first_owner_uid: A } } });
+    const b = await post(bad, { ...OWNERLESS, receivedAt });
+    assertEquals([b.status, b.json.error], [409, 'capture_owner_conflict'], String(receivedAt));
+  }
+});
+
+Deno.test('H1: owner-bound requests (new protocol) do not depend on the ownerless history', async () => {
+  const fake = fakeCapture({ device: { ...linkedA, history: null } });
+  const ok = await post(fake, v2({ payloadId: 'p', sanitizedText: RESOLVED }));
+  assertEquals(ok.status, 200);
+  const moved = fakeCapture({ device: { user_id: B, consent_owner_uid: B, version: 1 } });
+  const mismatch = await post(moved, v2({ payloadId: 'p', sanitizedText: RESOLVED }));
+  assertEquals([mismatch.status, mismatch.json.error], [409, 'capture_owner_mismatch']); // unchanged
 });
