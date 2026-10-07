@@ -16,6 +16,7 @@ import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../planning_sync/services/outbox_queue_factory.dart';
 import 'ledger_outbox_queue.dart';
+import 'capture_notification_content.dart';
 import '../../../domain/entities/engagement_entities.dart';
 import '../../../domain/services/notification_capacity_planner.dart';
 import '../../../domain/services/notification_planner.dart';
@@ -89,6 +90,8 @@ class CaptureNotificationPayload {
 const String _actionConfirm = 'confirm_tx';
 const String _actionDismiss = 'dismiss_tx';
 const String _reviewCategoryId = 'review_transaction';
+
+bool _captureNotifyV2Off() => false;
 
 class LocalNotificationService {
   LocalNotificationService._();
@@ -244,6 +247,12 @@ class LocalNotificationService {
   /// in a test that never wires it) or a logging failure must never prevent
   /// or delay the actual notification.
   NotificationLogService? logService;
+
+  /// CAP-7 (`capture_notify_v2`): when true, every capture alert on the lock
+  /// screen is generic (manifest Q3 / X9) whatever its caller passed; the real
+  /// content is kept for the in-app inbox only. Wired by the shell and by the
+  /// background capture processor; default off = shipped behaviour.
+  bool Function() captureNotifyV2 = _captureNotifyV2Off;
 
   String get _localChannel => Platform.isIOS
       ? NotificationLogChannel.localIos
@@ -431,6 +440,14 @@ class LocalNotificationService {
     required String body,
     required NotificationPreferences preferences,
     required String stableId,
+
+    /// CAP-7: [title]/[body] are already generic (summary, correction); they
+    /// are shown as given.
+    bool genericContent = false,
+
+    /// CAP-7: a tap opens this transaction's confirm sheet (the review / edit
+    /// entry point).
+    String? transactionId,
   }) async {
     debugPrint(
         '[Notif] showLightCapture captureLight=${preferences.captureLight}');
@@ -446,6 +463,13 @@ class LocalNotificationService {
       body: body,
       notificationType: NotificationType.captureLight,
       preferences: preferences,
+      genericContent: genericContent,
+      payload: transactionId == null
+          ? null
+          : CaptureNotificationPayload(
+              kind: 'confirm',
+              transactionId: transactionId,
+            ).encode(),
       details: NotificationDetails(
         android: AndroidNotificationDetails(
           _channel(_lightChannelId),
@@ -826,6 +850,32 @@ class LocalNotificationService {
     );
   }
 
+  /// What the OS shows (title, body). With `capture_notify_v2` on (CAP-7, X9) a
+  /// capture alert is generic whatever its caller passed; [genericContent] marks
+  /// text that is already generic (summary, correction) and is shown as given.
+  /// Otherwise the shipped MALI-019 redaction preference applies. Public so the
+  /// privacy guarantee is directly testable.
+  static (String, String) lockScreenContentFor({
+    required NotificationType type,
+    required String title,
+    required String body,
+    required bool hideLockScreenContent,
+    required bool genericContent,
+    required bool captureNotifyV2,
+    required String languageCode,
+  }) {
+    final isCaptureType = type == NotificationType.captureReview ||
+        type == NotificationType.captureLight;
+    if (isCaptureType && !genericContent && captureNotifyV2) {
+      final generic = buildGenericCaptureContent(lang: languageCode);
+      return (generic.title, generic.body);
+    }
+    if (hideLockScreenContent && !genericContent) {
+      return redactedContentFor(type, languageCode: languageCode);
+    }
+    return (title, body);
+  }
+
   Future<void> _show({
     required int id,
     required String title,
@@ -834,6 +884,7 @@ class LocalNotificationService {
     required NotificationPreferences preferences,
     required NotificationDetails details,
     String? payload,
+    bool genericContent = false,
   }) async {
     debugPrint(
         '[Notif] _show type=$notificationType enabled=${preferences.isEnabled(notificationType)}');
@@ -845,12 +896,15 @@ class LocalNotificationService {
     // when redaction is on (no amount/merchant/account/sender/balance/name/raw
     // SMS); the in-app inbox history below keeps the real content, shown only
     // inside the app behind its lock. The tap payload is unchanged (opaque id).
-    final bool redact = preferences.hideLockScreenContent;
-    final (String shownTitle, String shownBody) =
-        redact
-            ? redactedContentFor(notificationType,
-                languageCode: notificationLanguage)
-            : (title, body);
+    final (String shownTitle, String shownBody) = lockScreenContentFor(
+      type: notificationType,
+      title: title,
+      body: body,
+      hideLockScreenContent: preferences.hideLockScreenContent,
+      genericContent: genericContent,
+      captureNotifyV2: captureNotifyV2(),
+      languageCode: notificationLanguage,
+    );
 
     final decodedPayload = CaptureNotificationPayload.tryDecode(payload);
     final logId = await _createLog(

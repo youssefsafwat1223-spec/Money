@@ -26,10 +26,12 @@ void main() {
         ConflictEntities.subscription,
         ConflictEntities.goal,
         ConflictEntities.plan,
-      });
-      expect(deterministicConflictPolicies.map((p) => p.entityType).toSet(), {
+        // WP-5: cards and categories are preserve-and-resolve too.
         ConflictEntities.card,
         ConflictEntities.category,
+      });
+      // Settings are field last-writer-wins (consent excluded), never prompted.
+      expect(deterministicConflictPolicies.map((p) => p.entityType).toSet(), {
         ConflictEntities.settings,
       });
       final appendOnly = kConflictPolicies.values
@@ -132,6 +134,23 @@ void main() {
       );
     }
 
+    /// The one deterministic entity left: the settings singleton.
+    Future<String> seedSettingsConflict() async {
+      final id = (await db
+              .customSelect('SELECT id FROM user_settings LIMIT 1;')
+              .getSingle())
+          .read<String>('id');
+      await db.customStatement(
+          "UPDATE user_settings SET sync_status = 'conflict';");
+      await db.customStatement(
+        "INSERT INTO planning_sync_outbox(id, entity_type, entity_id, operation, "
+        "payload_json, created_at, updated_at) VALUES "
+        "('ob-s', 'settings', '$id', 'update', '{}', '2026-07-01', "
+        "'2026-07-01');",
+      );
+      return id;
+    }
+
     Future<String?> statusOf(String table, String id) async => (await db
             .customSelect("SELECT sync_status FROM $table WHERE id='$id';")
             .getSingle())
@@ -146,12 +165,16 @@ void main() {
         'excluding deterministic ones', () async {
       await seedGoal('g1');
       await seedTransaction('tx1');
-      await seedCategory('c1'); // deterministic → must NOT be listed
+      await seedCategory('c1'); // interactive since WP-5 → listed
+      await seedSettingsConflict(); // deterministic → must NOT be listed
 
       final conflicts = await resolver.listConflicts();
       final byType = {for (final c in conflicts) c.entityType: c};
-      expect(byType.keys.toSet(),
-          {ConflictEntities.goal, ConflictEntities.transaction});
+      expect(byType.keys.toSet(), {
+        ConflictEntities.goal,
+        ConflictEntities.transaction,
+        ConflictEntities.category,
+      });
       expect(byType[ConflictEntities.goal]!.label, 'Travel');
       expect(byType[ConflictEntities.transaction]!.label, '42.0');
     });
@@ -283,12 +306,12 @@ void main() {
     test('autoResolveDeterministic resolves config conflicts but leaves '
         'financial ones for the user', () async {
       await seedGoal('g1'); // interactive — must survive
-      await seedCategory('c1'); // deterministic — must be auto-resolved
+      final sid = await seedSettingsConflict(); // deterministic — auto-resolved
 
       final n = await resolver.autoResolveDeterministic();
       expect(n, 1);
-      expect(await statusOf('categories', 'c1'), 'synced');
-      expect(await outbox('planning_sync_outbox', "entity_id='c1'"), 0);
+      expect(await statusOf('user_settings', sid), 'synced');
+      expect(await outbox('planning_sync_outbox', "entity_id='$sid'"), 0);
       // The interactive goal is untouched — still awaiting the user's decision.
       expect(await statusOf('goals', 'g1'), 'conflict');
       expect(await resolver.listConflicts(), hasLength(1));

@@ -5,21 +5,17 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/guarded_mutation.dart';
 import '../../../core/sync/outbox_failure.dart';
-import '../../../core/sync/sync_capabilities.dart';
+import '../../../core/sync/conflict_policy.dart';
+import '../../../core/sync/sync_conflict_store.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/exact_transport_capability.dart';
+import '../../../data/sync/revision_cas.dart';
 import 'planning_outbox_queue.dart';
 
-/// Acknowledgement columns a non-CAS account write reads back — includes the
-/// server `revision` only when the CAS capability const (and thus 0068) is on.
-const String _ackCols =
-    kServerRevisionCas ? 'id, updated_at, revision' : 'id, updated_at';
-
-/// CAS-branch acknowledgement columns — that branch runs only when the
-/// capability is enabled (⇒ 0068 deployed ⇒ `revision` exists).
-const String _casAckCols = 'id, updated_at, revision';
+/// Acknowledgement columns a legacy (non-CAS) account write reads back.
+const String _ackCols = 'id, updated_at';
 
 class AccountsPushResult {
   const AccountsPushResult({
@@ -41,15 +37,6 @@ abstract class AccountsRemoteSink {
   Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row);
   Future<Map<String, dynamic>?> findAccountByLocalId(String userId, String id);
 
-  /// MALI-022 / 0068 (Phase-9K) — atomic compare-and-set tombstone. Sets
-  /// `deleted_at` only if the account's server `revision` still equals
-  /// [expectedRevision]; returns the ack, or null when no row matched (a stale
-  /// delete that must not overwrite a newer accepted update).
-  Future<Map<String, dynamic>?> casTombstoneAccount(
-    String serverId,
-    int expectedRevision,
-  );
-
   /// MALI-022 (Phase-9K) — guarded tombstone without a revision base: sets
   /// `deleted_at` only if the account still matches [expectedUpdatedAt] (or, when
   /// null, only if not already tombstoned). Null when no row matched. Never blind.
@@ -66,14 +53,6 @@ abstract class AccountsRemoteSink {
   /// optimistic-concurrency compare on a guarded update. Null if the row is gone.
   Future<String?> fetchAccountUpdatedAt(String serverId);
 
-  /// MALI-022 — targeted update of a known account (used only after the base
-  /// guard passes), returning the new id/updated_at(/revision), or null when
-  /// 0 rows matched (the account vanished in the race window → a conflict).
-  Future<Map<String, dynamic>?> updateAccountByServerId(
-    String serverId,
-    Map<String, dynamic> row,
-  );
-
   /// C-6 — ATOMIC guarded update: writes only if the server row still matches
   /// [expectedUpdatedAt], by binding that predicate into the statement itself.
   ///
@@ -87,15 +66,6 @@ abstract class AccountsRemoteSink {
   Future<Map<String, dynamic>?> guardedUpdateAccount(
     String serverId,
     String expectedUpdatedAt,
-    Map<String, dynamic> row,
-  );
-
-  /// MALI-022 / 0068 — atomic compare-and-set update. Updates only if the
-  /// account's server `revision` still equals [expectedRevision]; returns the
-  /// new id/updated_at/revision, or null when no row matched (a conflict).
-  Future<Map<String, dynamic>?> casUpdateAccount(
-    String serverId,
-    int expectedRevision,
     Map<String, dynamic> row,
   );
 
@@ -122,22 +92,6 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
         .eq('user_id', userId)
         .eq('local_id', id)
         .maybeSingle();
-  }
-
-  @override
-  Future<Map<String, dynamic>?> casTombstoneAccount(
-    String serverId,
-    int expectedRevision,
-  ) async {
-    // MALI-026 (Phase-9M): decode the LIST (0/1/>1); a 0-row CAS is the conflict
-    // branch, not a PGRST116 throw.
-    final rows = await _client
-        .from('user_accounts')
-        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
-        .eq('id', serverId)
-        .eq('revision', expectedRevision)
-        .select(_casAckCols);
-    return guardedAck(rows, 'accounts.casTombstone');
   }
 
   @override
@@ -194,21 +148,6 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
   }
 
   @override
-  Future<Map<String, dynamic>?> updateAccountByServerId(
-    String serverId,
-    Map<String, dynamic> row,
-  ) async {
-    // MALI-026 (Phase-9M): 0 rows (row vanished after the base-token guard) is a
-    // conflict, decoded from the LIST — never a single-cardinality throw.
-    final rows = await _client
-        .from('user_accounts')
-        .update(row)
-        .eq('id', serverId)
-        .select(_ackCols);
-    return guardedAck(rows, 'accounts.guardedUpdate');
-  }
-
-  @override
   Future<Map<String, dynamic>?> guardedUpdateAccount(
     String serverId,
     String expectedUpdatedAt,
@@ -222,21 +161,6 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
         .eq('updated_at', expectedUpdatedAt)
         .select(_ackCols);
     return guardedAck(rows, 'accounts.atomicGuardedUpdate');
-  }
-
-  @override
-  Future<Map<String, dynamic>?> casUpdateAccount(
-    String serverId,
-    int expectedRevision,
-    Map<String, dynamic> row,
-  ) async {
-    final rows = await _client
-        .from('user_accounts')
-        .update(row)
-        .eq('id', serverId)
-        .eq('revision', expectedRevision)
-        .select(_casAckCols);
-    return guardedAck(rows, 'accounts.casUpdate');
   }
 
   @override
@@ -255,7 +179,9 @@ class AccountsPushService {
     required bool Function() isEnabled,
     Future<String?> Function()? getAuthUserId,
     AccountsRemoteSink? remoteSink,
-    bool revisionCasEnabled = kServerRevisionCas,
+    // WP-5: null (or a legacy plan) keeps the legacy guarded push unchanged.
+    RevisionCasGate? casGate,
+    CasRemote? casRemote,
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
@@ -270,7 +196,9 @@ class AccountsPushService {
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _remoteSink = remoteSink ?? const SupabaseAccountsRemoteSink(),
-        _revisionCasEnabled = revisionCasEnabled,
+        _casGate = casGate,
+        _cas = RevisionCasEngine(casRemote ?? const SupabaseCasRemote()),
+        _conflicts = SyncConflictStore(db),
         _coordinator = coordinator,
         _pushCapability = pushCapability;
 
@@ -285,10 +213,11 @@ class AccountsPushService {
   final Future<String?> Function() _getAuthUserId;
   final AccountsRemoteSink _remoteSink;
 
-  /// MALI-022 / 0068 — whether to use the atomic revision CAS. Defaults to the
-  /// [kServerRevisionCas] capability const (OFF until 0068 verified on staging);
-  /// injectable so the ON path is testable.
-  final bool _revisionCasEnabled;
+  final RevisionCasGate? _casGate;
+  final RevisionCasEngine _cas;
+  final SyncConflictStore _conflicts;
+  CasPlan _plan = const CasPlan(CasMode.legacy);
+
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
 
@@ -314,6 +243,10 @@ class AccountsPushService {
     if (!_isEnabled()) return const AccountsPushResult();
     final userId = await _getAuthUserId();
     if (userId == null) return const AccountsPushResult();
+
+    // WP-5: legacy push or revision CAS; unprovable capability = nothing sent.
+    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.plan(userId);
+    if (_plan.mode == CasMode.stopped) return const AccountsPushResult();
 
     // D-7: the AuthSessionValid broadcast has no replay, so a cold start can miss
     // it. A valid authenticated session at the start of a cycle re-arms rows
@@ -358,6 +291,10 @@ class AccountsPushService {
             parked++;
             _health?.noteCapabilityParked(SyncDomain.accounts);
         }
+      } on CasEpochMismatch {
+        // Stale epoch: nothing was written; stop the cycle (WP-7 rebootstraps).
+        await _queue.releaseInFlight(item.id);
+        break;
       } catch (e) {
         failed++;
         _health?.noteFailure(SyncDomain.accounts, e);
@@ -430,9 +367,9 @@ class AccountsPushService {
     switch (item.operation) {
       case PlanningSyncOperation.create:
       case PlanningSyncOperation.update:
-        return _pushUpsert(item, userId);
+        return _plan.isCas ? _casUpsert(item, userId) : _pushUpsert(item, userId);
       case PlanningSyncOperation.delete:
-        return _pushDelete(item, userId);
+        return _plan.isCas ? _casDelete(item, userId) : _pushDelete(item, userId);
     }
   }
 
@@ -460,17 +397,7 @@ class AccountsPushService {
       // unconditionally, silently clobbering a concurrent remote edit).
       final serverId = existingServerId;
       Map<String, dynamic>? response;
-      final expectedRevision = item.payloadJson['server_revision'] as int?;
-      if (_revisionCasEnabled && expectedRevision != null) {
-        // MALI-022 / 0068 — atomic compare-and-set; 0 rows → genuine conflict.
-        response =
-            await _remoteSink.casUpdateAccount(serverId, expectedRevision, row);
-        if (response == null) {
-          await _markConflict(item.entityId);
-          await _queue.markSuccess(item);
-          return _AccountsPushOutcome.conflict;
-        }
-      } else {
+      {
         // C-6 — fail-safe guarded path (capability OFF, or revision unknown).
         //
         // This used to READ the server's updated_at, compare it, and then issue
@@ -533,17 +460,6 @@ class AccountsPushService {
       // id-only overwrite. CAS on revision when known; else optimistic
       // updated_at. A zero-row result is classified, so a stale delete can never
       // clobber a newer accepted update.
-      final expectedRevision = item.payloadJson['server_revision'] as int?;
-      if (_revisionCasEnabled && expectedRevision != null) {
-        final ack =
-            await _remoteSink.casTombstoneAccount(serverId, expectedRevision);
-        if (ack != null) {
-          await _markSynced(item.entityId, serverId, item: item);
-          return _AccountsPushOutcome.pushed;
-        }
-        return await _resolveDeleteConflict(serverId, item);
-      }
-
       final base = item.payloadJson['server_updated_at'] as String?;
       final ack = await _remoteSink.guardedTombstoneAccount(serverId, base);
       if (ack != null) {
@@ -559,6 +475,109 @@ class AccountsPushService {
       }
       rethrow;
     }
+  }
+
+  // ── WP-5: revision CAS (capability `revision_cas`) ───────────────────────
+
+  Future<_AccountsPushOutcome> _casUpsert(
+    PlanningOutboxItem item,
+    String userId,
+  ) async {
+    final row = _toServerRow(item.payloadJson, userId);
+    final serverId = await _serverIdForLocalAccount(item.entityId);
+    final CasDecision d;
+    if (serverId == null) {
+      d = await _cas.create(
+          table: 'user_accounts',
+          epoch: _plan.epoch!,
+          opId: item.operationId!,
+          row: row);
+    } else {
+      d = await _cas.update(
+        table: 'user_accounts',
+        epoch: _plan.epoch!,
+        opId: item.operationId!,
+        priorOpIds: item.priorOpIds,
+        serverId: serverId,
+        baseRevision:
+            item.baseRevision ?? (item.payloadJson['server_revision'] as int?),
+        baseUpdatedAt: item.payloadJson['server_updated_at'] as String?,
+        patch: row,
+      );
+      if (d.kind == CasDecisionKind.missing) {
+        // No such cloud row: create it again by identity (never un-deletes).
+        final again = await _cas.create(
+            table: 'user_accounts',
+            epoch: _plan.epoch!,
+            opId: item.operationId!,
+            row: row);
+        return _casFinish(item, again,
+            again.cloudTombstoned ? SyncConflictKind.tombstone : SyncConflictKind.create);
+      }
+    }
+    return _casFinish(
+        item,
+        d,
+        d.cloudTombstoned
+            ? SyncConflictKind.tombstone
+            : serverId == null
+                ? SyncConflictKind.create
+                : SyncConflictKind.update);
+  }
+
+  Future<_AccountsPushOutcome> _casDelete(
+    PlanningOutboxItem item,
+    String userId,
+  ) async {
+    var serverId = await _serverIdForLocalAccount(item.entityId);
+    serverId ??= (await _remoteSink.findAccountByLocalId(
+        userId, item.entityId))?['id'] as String?;
+    if (serverId == null) {
+      await _markSynced(item.entityId, null, item: item);
+      return _AccountsPushOutcome.pushed;
+    }
+    final d = await _cas.tombstone(
+      table: 'user_accounts',
+      epoch: _plan.epoch!,
+      opId: item.operationId!,
+      priorOpIds: item.priorOpIds,
+      serverId: serverId,
+      baseRevision:
+          item.baseRevision ?? (item.payloadJson['server_revision'] as int?),
+      baseUpdatedAt: item.payloadJson['server_updated_at'] as String?,
+    );
+    if (d.kind == CasDecisionKind.acked || d.kind == CasDecisionKind.gone) {
+      await _markSynced(item.entityId, serverId, item: item);
+      return _AccountsPushOutcome.pushed;
+    }
+    return _casFinish(item, d, SyncConflictKind.delete);
+  }
+
+  Future<_AccountsPushOutcome> _casFinish(
+    PlanningOutboxItem item,
+    CasDecision d,
+    SyncConflictKind conflictKind,
+  ) async {
+    if (d.kind == CasDecisionKind.acked) {
+      await _attachServerId(item.entityId, d.row!['id'] as String,
+          d.row!['updated_at'] as String?,
+          serverRevision: (d.row!['revision'] as num?)?.toInt(), item: item);
+      return _AccountsPushOutcome.pushed;
+    }
+    // Stored durably BEFORE the outbox op is consumed, in one local transaction.
+    await _db.transaction(() async {
+      await _conflicts.flag(
+        entityType: ConflictEntities.account,
+        localId: item.entityId,
+        kind: conflictKind,
+        serverId: d.row?['id'] as String?,
+        theirs: d.row,
+        theirsRevision: (d.row?['revision'] as num?)?.toInt(),
+        operationId: item.operationId,
+      );
+      await _queue.markSuccess(item);
+    });
+    return _AccountsPushOutcome.conflict;
   }
 
   /// A guarded account tombstone matched zero rows — classify (Phase-9K §5):

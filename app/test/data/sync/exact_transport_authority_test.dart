@@ -195,11 +195,187 @@ void main() {
       expect(source.contains('remoteConfig'), isFalse);
     });
 
-    test('server-revision CAS stays off until positively activated', () {
-      final caps =
-          File('lib/core/sync/sync_capabilities.dart').readAsStringSync();
-      expect(caps, contains('const bool kServerRevisionCas = false'),
-          reason: 'CAS must remain false unless positively activated');
+    test('revision CAS is a server capability, never a client constant', () {
+      // WP-5: kServerRevisionCas is gone. The client uses revision CAS only
+      // when the server advertises `revision_cas` (false until G4).
+      expect(File('lib/core/sync/sync_capabilities.dart').existsSync(), isFalse);
+      final gate = File('lib/data/sync/revision_cas.dart').readAsStringSync();
+      expect(gate, isNot(contains('const bool')));
+      expect(gate, contains('ServerCapabilityState.unsupported'));
+    });
+  });
+
+  group('H-4 — PUSH: unverified transport is parked', () {
+    test('canonical + unknown ⇒ parked', () {
+      expect(
+        shouldParkExactMoneyWrite(
+          cutoverState: _canonical,
+          pushCapability: ExactTransportCapability.unknown,
+        ),
+        isTrue,
+      );
+    });
+
+    test('canonical + unsupported ⇒ parked', () {
+      expect(
+        shouldParkExactMoneyWrite(
+          cutoverState: _canonical,
+          pushCapability: ExactTransportCapability.unsupported,
+        ),
+        isTrue,
+      );
+    });
+
+    test('canonical + verifiedExact ⇒ allowed (positive proof enables)', () {
+      expect(
+        shouldParkExactMoneyWrite(
+          cutoverState: _canonical,
+          pushCapability: ExactTransportCapability.verifiedExact,
+        ),
+        isFalse,
+      );
+    });
+  });
+
+  group('H-4 — PULL authority is positive-proof only', () {
+    test('UNKNOWN blocks pull', () {
+      // The decisive rule: an unverified transport is not an authorised one.
+      // Decoder strictness proves PAYLOAD safety, never TRANSPORT authority.
+      expect(exactPullAllowed(ExactTransportCapability.unknown), isFalse,
+          reason: 'unknown must fail closed — only positive proof may enable a '
+              'financial transport');
+    });
+
+    test('UNSUPPORTED blocks pull', () {
+      expect(exactPullAllowed(ExactTransportCapability.unsupported), isFalse);
+    });
+
+    test('verifiedExact allows pull', () {
+      expect(exactPullAllowed(ExactTransportCapability.verifiedExact), isTrue);
+    });
+
+    test('push and pull are SYMMETRIC in authority', () {
+      // Same capability value ⇒ same verdict in both directions.
+      for (final cap in const [
+        ExactTransportCapability.unknown,
+        ExactTransportCapability.unsupported,
+      ]) {
+        expect(exactPullAllowed(cap), isFalse, reason: '$cap pull');
+        expect(
+          shouldParkExactMoneyWrite(
+              cutoverState: _canonical, pushCapability: cap),
+          isTrue,
+          reason: '$cap push',
+        );
+      }
+      expect(exactPullAllowed(ExactTransportCapability.verifiedExact), isTrue);
+      expect(
+        shouldParkExactMoneyWrite(
+          cutoverState: _canonical,
+          pushCapability: ExactTransportCapability.verifiedExact,
+        ),
+        isFalse,
+      );
+    });
+
+    test('decoder strictness remains, as DEFENCE — not as authority', () {
+      // Still valuable, still asserted: a non-`::text` payload is refused
+      // rather than degraded to a double. But it may never substitute for
+      // positive capability authority (requirement 9).
+      expect(
+        () => moneyFromPulledValue(12.34, 'SAR'),
+        throwsA(isA<MoneyTransportException>()),
+      );
+      expect(
+        () => moneyFromPulledValue(1234, 'SAR'),
+        throwsA(isA<MoneyTransportException>()),
+      );
+      expect(moneyFromPulledValue('12.345', 'KWD')!.minorUnits, 12345);
+      expect(moneyFromPulledValue(null, 'SAR'), isNull);
+
+      // …and it does NOT unlock the gate.
+      expect(exactPullAllowed(ExactTransportCapability.unknown), isFalse,
+          reason: 'a strict decoder must never be treated as proof of '
+              'transport authority');
+    });
+  });
+
+  group('H-4 — the Smart Inbox exemption stays justified', () {
+    test('smart inbox sync carries no exact-money transport', () {
+      // It is the ONE pull deliberately left outside the money gate. That is
+      // only correct while it moves no money — if it ever gains a money column
+      // this fails, and the exemption must be revisited rather than inherited.
+      final source = File(
+        'lib/features/capture/services/smart_inbox_sync_service.dart',
+      ).readAsStringSync();
+      for (final marker in const [
+        'moneyFromPulledValue',
+        '::text',
+        'kMoneyCodec',
+        '_minor',
+        'Money',
+      ]) {
+        expect(source.contains(marker), isFalse,
+            reason: 'smart inbox now touches money ("$marker") — it can no '
+                'longer be exempt from the exact-transport capability gate');
+      }
+    });
+  });
+
+  group('H-4 — startup races are structurally absent, not merely unobserved',
+      () {
+    final source =
+        File('lib/data/sync/exact_transport_capability.dart').readAsStringSync();
+
+    test('exact push/pull are synchronous build constants — nothing to race with',
+        () {
+      // Exact push/pull are PostgREST/Postgres type semantics, proven against a
+      // real local PostgREST (local-Supabase suite S2/S3/S4) and shipped as plain
+      // synchronous Providers returning a constant — resolved identically on the
+      // very first read, before any startup step runs.
+      for (final name in const [
+        'exactPushTransportCapabilityProvider',
+        'exactPullTransportCapabilityProvider',
+      ]) {
+        final start = source.indexOf('final $name');
+        final body = source.substring(start, source.indexOf('\n});', start));
+        expect(body, contains('Provider<ExactTransportCapability>'),
+            reason: '$name must stay synchronous');
+        for (final async in const ['Future', 'async', 'await', 'StateNotifier']) {
+          expect(body.contains(async), isFalse,
+              reason: '$name must not gain an async/mutable path without a '
+                  'race review: found "$async"');
+        }
+      }
+    });
+
+    test('planning currency is the ONLY runtime-discovered capability, and the '
+        'holder itself never probes', () {
+      // 0077 deployment state is unknown at build time, so its capability is a
+      // runtime probe result held in a Notifier that starts `unknown` and is
+      // only moved by PlanningCurrencyCapabilityProbe. The holder has no I/O.
+      final start =
+          source.indexOf('class PlanningServerCurrencyCapabilityNotifier');
+      final end = source.indexOf('final planningServerCurrencyCapabilityProvider');
+      final body = source.substring(start, end);
+      expect(body, contains('ExactTransportCapability.unknown'));
+      for (final io in const ['Future', 'async', 'await', 'supabase']) {
+        expect(body.contains(io), isFalse,
+            reason: 'the capability holder must not do I/O itself: "$io"');
+      }
+    });
+
+    test('activation requires a reviewed code change, not a runtime toggle', () {
+      // This is the SAFE property, not a gap to be closed with a flag: a
+      // financial transport can only be declared proven by shipping code.
+      expect(source.contains('FeatureFlagService'), isFalse);
+      expect(source.contains('SharedPreferences'), isFalse);
+      expect(source.contains('remoteConfig'), isFalse);
+    });
+
+    test('revision CAS is a server capability, never a client constant', () {
+      // WP-5: kServerRevisionCas is gone (see the group above).
+      expect(File('lib/core/sync/sync_capabilities.dart').existsSync(), isFalse);
     });
   });
 

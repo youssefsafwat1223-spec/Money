@@ -149,9 +149,10 @@ class SupabasePlanningChildRemote implements PlanningChildRemote {
 
   @override
   Future<void> tombstonePlanLink(String serverId) async {
+    // Idempotent: an already tombstoned link is left exactly as it is.
     await _client.from('user_plan_transaction_links').update({
       'deleted_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', serverId);
+    }).eq('id', serverId).isFilter('deleted_at', null);
   }
 }
 
@@ -318,6 +319,9 @@ class PlanningChildSyncService {
     if (item.operation == PlanningSyncOperation.delete) {
       throw UnsupportedError('Goal contribution deletion is not supported');
     }
+    // WP-5: contributions are IMMUTABLE. An `update` can only be a replay of
+    // the same create (the RPC is idempotent on client_request_id); it never
+    // carries edited values (the producers enqueue create/delete only).
     final payload = item.payloadJson;
     final goalId =
         await _serverId('goals', payload['local_goal_id'] as String?);
@@ -386,14 +390,22 @@ class PlanningChildSyncService {
         'delete_bill_payment',
         {'p_payment_id': serverId},
       );
-      final payment = Map<String, dynamic>.from(result['payment'] as Map);
-      final subscription =
-          Map<String, dynamic>.from(result['subscription'] as Map);
+      // B10: delete_bill_payment is idempotent on the server — a payment that
+      // is already deleted or absent comes back with null payment/subscription.
+      // That is a converged delete: ACK, nothing to apply.
+      final payment = result['payment'];
+      final subscription = result['subscription'];
       await _db.transaction(() async {
         final consumed = await _queue.acknowledge(item);
-        await _markChildSynced('bill_payments', item.entityId, payment,
-            consumed: consumed);
-        await _updateSubscriptionCounter(subscription);
+        if (payment is Map) {
+          await _markChildSynced('bill_payments', item.entityId,
+              Map<String, dynamic>.from(payment),
+              consumed: consumed);
+        }
+        if (subscription is Map) {
+          await _updateSubscriptionCounter(
+              Map<String, dynamic>.from(subscription));
+        }
       });
       return;
     }
@@ -830,12 +842,8 @@ class PlanningChildSyncService {
     if (planLocal == null || transactionLocal == null) {
       return _ChildApplyOutcome.missingParent;
     }
+    // Set semantics, last op wins: a pending local link op is kept as is.
     if (scope.planLinkStatus(planLocal, transactionLocal) == 'pending') {
-      await _db.customStatement('''
-        UPDATE plan_transaction_links SET sync_status = 'conflict'
-        WHERE plan_id = ${sqlString(planLocal)}
-          AND transaction_id = ${sqlString(transactionLocal)};
-      ''');
       return _ChildApplyOutcome.preservedPending;
     }
     final now = dateTimeToSql(DateTime.now().toUtc());
@@ -867,11 +875,10 @@ class PlanningChildSyncService {
     String? status,
   ) async {
     if (status == 'conflict') return true;
-    if (status != 'pending') return false;
-    await _db.customStatement(
-      "UPDATE $table SET sync_status = 'conflict' WHERE id = ${sqlString(localId)};",
-    );
-    return true;
+    // WP-5: children are immutable, so there is no child conflict: a pending
+    // child is kept pending (its own create/delete still pushes, idempotently)
+    // and is never forced synced or flagged.
+    return status == 'pending';
   }
 
   Future<String?> _serverId(String table, String? localId) async {

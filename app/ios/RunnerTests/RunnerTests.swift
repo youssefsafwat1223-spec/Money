@@ -537,6 +537,46 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse(try items().contains { $0.id == "l0" })
   }
 
+  // A6 (CAP-7): the read-only listing returns only unbound legacy_v2 items, with
+  // id, raw text and the receive time, and changes nothing.
+  func testPeekLegacyCaptureItemsListsOnlyUnboundLegacyAndChangesNothing() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let legacy = "[{\"id\":\"l0\",\"text\":\"legacy 9.00\",\"status\":\"pendingSend\",\"receivedAt\":\"2026-01-02T03:04:05.000Z\"},"
+      + "{\"id\":\"l1\",\"text\":\"legacy 8.00\",\"status\":\"pendingSend\"}]"
+    appGroupDefaults.set(Data(legacy.utf8), forKey: queueDefaultsKey)
+    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    // A stamped, non-legacy item is never listed.
+    _ = SharedCaptureStore.enqueue(text: "stamped 7.00", sender: "ACME")
+
+    let before = try items()
+    let peeked = try SharedCaptureStore.peekLegacyCaptureItems()
+    XCTAssertEqual(Set(peeked.map { $0.id }), ["l0", "l1"])
+    XCTAssertEqual(peeked.first { $0.id == "l0" }?.text, "legacy 9.00")
+    XCTAssertEqual(peeked.first { $0.id == "l0" }?.receivedAt, "2026-01-02T03:04:05.000Z")
+    XCTAssertEqual(try items().count, before.count, "listing mutates nothing")
+    XCTAssertEqual(try items().map { $0.reviewState }, before.map { $0.reviewState })
+  }
+
+  // CAP-7: the App Intent banner owner rule and the generic text, pinned in the
+  // source (the intent target is not importable from RunnerTests).
+  func testNotifyV2OwnerRuleAndGenericTextAreWiredInTheIntent() throws {
+    let root = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let source = try String(
+      contentsOf: root.appendingPathComponent("BankMessageShortcuts/BankMessageShortcuts.swift")
+    )
+    XCTAssertTrue(source.contains("response.pushAttempted ?? response.pushSent"))
+    XCTAssertTrue(source.contains("json[\"push_attempted\"] as? Bool"))
+    XCTAssertTrue(source.contains("\"New transaction captured\""))
+    let generic = try XCTUnwrap(source.range(of: "private func scheduleGenericCaptureNotification"))
+    let body = String(source[generic.lowerBound...].prefix(600))
+    for forbidden in ["amount", "merchant", "last4", "sender", "smsText", "PreviewParser"] {
+      XCTAssertFalse(body.contains(forbidden), "generic banner must not touch \(forbidden)")
+    }
+  }
+
   // A1/A2 unbound recovery: hint, claim CAS preconditions, no mutation on failure.
   func testUnboundHintAndClaimCAS() throws {
     resetCapSeams()

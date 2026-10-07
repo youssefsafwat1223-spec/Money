@@ -2,6 +2,7 @@ import '../../core/sync/sync_health.dart';
 import '../../core/sync/sync_recovery.dart';
 import '../../core/sync/sync_status.dart';
 import 'dart:async';
+import 'dart:io' show Platform;
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
@@ -47,7 +48,10 @@ import '../capture/capture_runtime.dart';
 import '../consent/smart_analysis_consent_sheet.dart';
 import '../transactions/manual_transaction_sheet.dart';
 import '../../core/privacy/consent_authority.dart';
+import '../capture/services/capture_import_service.dart';
+import '../capture/services/capture_notify_v2.dart';
 import '../capture/services/native_capture_ai_fallback.dart';
+import '../capture/services/unbound_capture_prompt_service.dart';
 import 'capture_notification_actions.dart';
 import '../capture/services/capture_notification_content.dart';
 import '../capture/services/capture_sync_service.dart';
@@ -153,6 +157,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       ));
     });
     AppSession.instance.addListener(_handleSessionStatusChange);
+    // CAP-7: generic lock-screen text for every capture alert behind the flag.
+    LocalNotificationService.instance.captureNotifyV2 =
+        _captureNotifyV2Enabled;
     // Final push before the sign-out wipe destroys the outboxes — otherwise a
     // change made seconds before signing out is deleted un-uploaded and lost.
     AppSession.instance.configureSignOutFlush(_flushPendingForSignOut);
@@ -933,6 +940,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (_isConsumingSharedInput) return;
     _isConsumingSharedInput = true;
     try {
+      // §4.7: queue hygiene after adoption; independent of the import flag.
+      try {
+        await ref.read(legacyCaptureResolverProvider).resolve();
+      } catch (_) {}
+      // CAP-7: keep the App Intent's flag mirror current (iOS; best-effort).
+      unawaited(NativeCaptureBridge.setCaptureNotifyV2(_captureNotifyV2Enabled()));
+      if (_captureImportV3Enabled()) {
+        await _runCaptureImportV3();
+        return;
+      }
       // Bind the whole drain to the current account admission. Sign-out rotates
       // this generation before wiping local/native state, so stale work cannot
       // persist or acknowledge a capture under the next account.
@@ -1082,7 +1099,8 @@ class _AppShellState extends ConsumerState<AppShell> {
               status: message.status,
               failureReason: message.failureReason,
               flagEnabled: flagEnabled,
-              aiAllowed: aiAllowed,
+              // A locally bound (BL-2 claimed) item is never sent to AI.
+              aiAllowed: aiAllowed && message.localOnly != true,
             ),
             // tx.id = payloadId, receipt in the same transaction. No payload
             // id (null/blank) keeps random ids and the post-hoc receipt.
@@ -1215,6 +1233,185 @@ class _AppShellState extends ConsumerState<AppShell> {
       }
     } finally {
       _isConsumingSharedInput = false;
+    }
+  }
+
+  bool _captureImportV3Enabled() {
+    if (!Platform.isIOS) return false;
+    try {
+      return featureFlags.getBool('capture_import_v3');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// CAP-7 (`capture_notify_v2`): the notification journey. OFF = shipped.
+  bool _captureNotifyV2Enabled() {
+    try {
+      return featureFlags.getBool('capture_notify_v2');
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void>? _importV3InFlight;
+
+  /// CAP-5 (`capture_import_v3`): the single iOS import. Android and manual
+  /// paste keep the path below.
+  Future<void> _runCaptureImportV3() async {
+    final run = _importAndNotifyV3();
+    _importV3InFlight = run;
+    try {
+      await run;
+    } finally {
+      _importV3InFlight = null;
+    }
+    unawaited(_maybePromptUnboundCaptures());
+  }
+
+  Future<void> _importAndNotifyV3() async {
+    final CaptureImportReport report;
+    try {
+      report = await ref.read(captureImportServiceProvider).run();
+    } on AuthRepoException {
+      await _handleAuthRequiredFailure();
+      return;
+    }
+    if (!mounted || report.imported.isEmpty) return;
+    unawaited(ref.read(appDatabaseProvider).pruneOldDedupHashes());
+    final preferences =
+        await ref.read(loadNotificationPreferencesUseCaseProvider).call();
+    final notifyV2 = _captureNotifyV2Enabled();
+    String? pendingConfirmationId;
+    for (final item in report.imported) {
+      if (item.path == CaptureImportPath.alreadyImported) continue;
+      await CaptureIdentityMetrics.record(
+        ref.read(appDatabaseProvider),
+        item.message?.receivedAtInferred,
+      );
+      final local = item.local;
+      if (local != null) {
+        if (local.disposition == CapturedMessageDisposition.unprocessable) {
+          ref.invalidate(smartInboxItemsProvider);
+        }
+        if (!notifyV2 &&
+            CaptureNotificationAuthority.shouldShowLocalReview(
+              status: item.message?.status,
+              alreadyImported: false,
+              ownerValid: true,
+            )) {
+          await _showCapturedMessageNotification(local, preferences);
+        }
+        if (local.transactionId != null &&
+            local.addTransactionResult.requiresConfirmation) {
+          pendingConfirmationId = local.transactionId;
+        }
+      } else if (item.reviewTransactionId != null) {
+        pendingConfirmationId = item.reviewTransactionId;
+      }
+    }
+    if (notifyV2) await _alertImportedV2(report.imported, preferences);
+    unawaited(
+      ref.read(notificationJourneyServiceProvider).evaluateAfterCapture(),
+    );
+    try {
+      await CapturedMessageProcessor.checkBudgetAlert(
+        ref.read(appDatabaseProvider),
+        preferences,
+        lang: LocalNotificationService.instance.notificationLanguage,
+      );
+    } catch (_) {}
+    if (!mounted) return;
+    _refreshAll();
+    if (pendingConfirmationId != null) {
+      await _openConfirmSheet(pendingConfirmationId);
+    }
+  }
+
+  /// CAP-7: the owner rule, backlog summary and corrections. Every alert text
+  /// is generic ([LocalNotificationService] enforces it again at the OS edge).
+  Future<void> _alertImportedV2(
+    List<CaptureImportItem> imported,
+    NotificationPreferences preferences,
+  ) async {
+    final lang = LocalNotificationService.instance.notificationLanguage;
+    final notifications = LocalNotificationService.instance;
+    String two(int n) => n.toString().padLeft(2, '0');
+    final now = DateTime.now();
+    await CaptureNotifyV2(
+      state: CaptureNotificationState(ref.read(appDatabaseProvider)),
+      showIndividual: (local) =>
+          _showCapturedMessageNotification(local, preferences),
+      showSummary: (count) {
+        final content = buildCaptureSummaryContent(count, lang: lang);
+        return notifications.showLightCaptureNotification(
+          title: content.title,
+          body: content.body,
+          preferences: preferences,
+          stableId: 'summary-${now.year}-${two(now.month)}-${two(now.day)}',
+          genericContent: true,
+        );
+      },
+      withdrawNativeAlert: NativeCaptureBridge.withdrawDeliveredCaptureAlert,
+      showCorrection: (transactionId) {
+        final content = buildCaptureCorrectionContent(lang: lang);
+        return notifications.showLightCaptureNotification(
+          title: content.title,
+          body: content.body,
+          preferences: preferences,
+          stableId: 'corrected-$transactionId',
+          genericContent: true,
+          transactionId: transactionId,
+        );
+      },
+    ).alertForImport(imported);
+  }
+
+  bool _isPromptingUnbound = false;
+  bool _unboundPromptDismissed = false;
+
+  /// BL-2: offered only to the hinted uid, and only a count and the senders.
+  Future<void> _maybePromptUnboundCaptures() async {
+    if (_isPromptingUnbound || _unboundPromptDismissed || !mounted) return;
+    _isPromptingUnbound = true;
+    try {
+      final service = ref.read(unboundCapturePromptServiceProvider);
+      final offer = await service.check();
+      if (offer == null || !mounted) return;
+      final l = context.l10n;
+      final add = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(l.captureUnboundTitle),
+          content: Text([
+            l.captureUnboundBody(offer.count),
+            if (offer.senders.isNotEmpty)
+              l.captureUnboundSenders(offer.senders.join(', ')),
+          ].join('\n')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(l.captureUnboundDiscard),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(l.captureUnboundAdd),
+            ),
+          ],
+        ),
+      );
+      if (add == null) {
+        _unboundPromptDismissed = true; // asked again on the next launch
+        return;
+      }
+      final choice =
+          add ? await service.add(offer) : await service.discard(offer);
+      if (add && choice == UnboundCaptureChoice.applied) {
+        await _consumeSharedInput();
+      }
+    } catch (_) {
+    } finally {
+      _isPromptingUnbound = false;
     }
   }
 
@@ -1482,7 +1679,11 @@ class _AppShellState extends ConsumerState<AppShell> {
       _recordOpenedForRoutes(routes);
       CaptureSyncResult? syncResult;
       try {
-        syncResult = await ref.read(captureSyncServiceProvider).sync();
+        if (_captureImportV3Enabled()) {
+          await (_importV3InFlight ?? _consumeSharedInput());
+        } else {
+          syncResult = await ref.read(captureSyncServiceProvider).sync();
+        }
       } catch (error) {
         if (kDebugMode) {
           debugPrint('[Capture] notification route sync skipped: $error');

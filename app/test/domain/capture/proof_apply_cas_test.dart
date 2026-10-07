@@ -170,7 +170,8 @@ void main() {
     test('a tap that lands after the AI result sees a moved revision', () {
       // Both want to change the same row. Whichever runs second is refused by
       // CAS rather than silently overwriting.
-      final first = _authority.decide(_plan(expectedRevision: 5), _state(revision: 5));
+      final first =
+          _authority.decide(_plan(expectedRevision: 5), _state(revision: 5));
       expect(first.isApplied, isTrue);
       final second = _authority.decide(
         _plan(expectedRevision: 5, proofRevision: 101),

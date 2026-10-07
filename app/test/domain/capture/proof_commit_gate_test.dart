@@ -20,10 +20,7 @@ void main() {
     final ev = extractEvidence(sms);
     final p = builder
         .build(
-            evidence: ev,
-            type: type,
-            amountMinorUnits: minor,
-            currencyIso: iso)
+            evidence: ev, type: type, amountMinorUnits: minor, currencyIso: iso)
         .proposal!;
     return const ProofChecker().check(ev, p);
   }
@@ -92,7 +89,8 @@ void main() {
       }
     });
 
-    test('armed disagreement downgrades confirmed to pending, with its reason', () {
+    test('armed disagreement downgrades confirmed to pending, with its reason',
+        () {
       for (final bad in [
         ProofGateOutcome.disagreeVerdict,
         ProofGateOutcome.disagreeFields,
@@ -112,7 +110,8 @@ void main() {
             confidenceMinPermille: 990,
           ),
         );
-        expect(d.status, TransactionStatus.pending, reason: '$bad must not commit');
+        expect(d.status, TransactionStatus.pending,
+            reason: '$bad must not commit');
         expect(d.reason, CaptureCommitReason.proofNotCorroborated);
       }
     });
@@ -207,8 +206,8 @@ void main() {
     });
 
     test('a null field on EITHER side is disagreement', () {
-      final proven = proofOf(
-          'تم خصم 125.75 ر.س لدى ستاربكس', TransactionType.payment, 12575, 'SAR');
+      final proven = proofOf('تم خصم 125.75 ر.س لدى ستاربكس',
+          TransactionType.payment, 12575, 'SAR');
       expect(proven.verdict, ProofVerdict.proven);
       final d = gate.evaluate(
         mode: ProofGateMode.armed,
@@ -241,8 +240,8 @@ void main() {
     test('blank strings on both sides are disagreement', () {
       // same('', '') previously returned true, so two ABSENT values agreed —
       // the opposite of the rule this gate exists to enforce.
-      final proven = proofOf(
-          'تم خصم 125.75 ر.س لدى ستاربكس', TransactionType.payment, 12575, 'SAR');
+      final proven = proofOf('تم خصم 125.75 ر.س لدى ستاربكس',
+          TransactionType.payment, 12575, 'SAR');
       final d = gate.evaluate(
         mode: ProofGateMode.armed,
         proof: proven,
@@ -276,8 +275,8 @@ void main() {
 
     test('permille exactly AT the floor agrees', () {
       // Pins the boundary of the `<` comparison.
-      final proven = proofOf(
-          'تم خصم 125.75 ر.س لدى ستاربكس', TransactionType.payment, 12575, 'SAR');
+      final proven = proofOf('تم خصم 125.75 ر.س لدى ستاربكس',
+          TransactionType.payment, 12575, 'SAR');
       final d = gate.evaluate(
         mode: ProofGateMode.armed,
         proof: proven,
@@ -293,8 +292,8 @@ void main() {
 
   group('confidence floor', () {
     test('below the floor does not agree even when every field matches', () {
-      final proven = proofOf(
-          'تم خصم 125.75 ر.س لدى ستاربكس', TransactionType.payment, 12575, 'SAR');
+      final proven = proofOf('تم خصم 125.75 ر.س لدى ستاربكس',
+          TransactionType.payment, 12575, 'SAR');
       final d = gate.evaluate(
         mode: ProofGateMode.armed,
         proof: proven,
@@ -316,7 +315,8 @@ void main() {
     // as a RANGE check it accepted 1..989 — so a remote `99` (percent written
     // where permille was meant) would have dropped the floor from 990 to ~10%.
     int clamp(int remote) =>
-        (remote > ProofCommitGate.defaultParserConfidenceMinPermille && remote <= 1000)
+        (remote > ProofCommitGate.defaultParserConfidenceMinPermille &&
+                remote <= 1000)
             ? remote
             : ProofCommitGate.defaultParserConfidenceMinPermille;
 
@@ -351,7 +351,8 @@ void main() {
           confidenceMinPermille: 990,
         );
         expect(d.withholdsConfirmation, o != ProofGateOutcome.agree,
-            reason: '$o must ${o == ProofGateOutcome.agree ? "pass" : "withhold"}');
+            reason:
+                '$o must ${o == ProofGateOutcome.agree ? "pass" : "withhold"}');
       }
     });
   });
@@ -369,7 +370,10 @@ void main() {
           )
           .toRecord();
       expect(r.keys.toSet(), {
-        'mode', 'outcome', 'parse_confidence_permille', 'confidence_min_permille'
+        'mode',
+        'outcome',
+        'parse_confidence_permille',
+        'confidence_min_permille'
       });
       // No amount, currency, merchant or message text may appear.
       final serialised = r.toString();

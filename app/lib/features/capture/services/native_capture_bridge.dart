@@ -72,6 +72,20 @@ class CaptureOwnerRecord {
   }
 }
 
+/// An unbound `legacy_v2` queue item as the native layer lists it (A6). The
+/// text is the raw SMS: never log it.
+class LegacyQueueItem {
+  const LegacyQueueItem({
+    required this.id,
+    required this.text,
+    required this.receivedAt,
+  });
+
+  final String id;
+  final String text;
+  final DateTime? receivedAt;
+}
+
 /// What the "N bank messages were received while you were signed out" prompt
 /// may show: a count and the senders (§4.3). [ids] is the snapshot the claim /
 /// discard CAS is checked against; it is never displayed.
@@ -690,6 +704,60 @@ class NativeCaptureBridge {
       'suspectedIds': suspectedIds,
     });
     return removed ?? 0;
+  }
+
+  /// A6 (CAP-7): the unbound `legacy_v2` items, read-only, for the resolver's
+  /// fingerprint check. Content-bearing: never log it. Empty off iOS, and on any
+  /// native failure (the check then simply does not run).
+  static Future<List<LegacyQueueItem>> peekLegacyCaptureItems() async {
+    if (!_hasNativeQueue) return const [];
+    try {
+      final raw = await _queueCall<Object?>('peekLegacyCaptureItems');
+      if (raw is! List) return const [];
+      final items = <LegacyQueueItem>[];
+      for (final entry in raw) {
+        if (entry is! Map) continue;
+        final id = entry['id'];
+        final text = entry['text'];
+        if (id is! String || text is! String) continue;
+        DateTime? at(Object? v) => v is String ? DateTime.tryParse(v) : null;
+        items.add(LegacyQueueItem(
+          id: id,
+          text: text,
+          receivedAt: at(entry['receivedAt']) ?? at(entry['createdAt']),
+        ));
+      }
+      return items;
+    } on CaptureQueueException {
+      return const [];
+    }
+  }
+
+  /// CAP-7: mirrors the `capture_notify_v2` flag for the App Intent. Best-effort.
+  static Future<void> setCaptureNotifyV2(bool enabled) async {
+    if (!_hasNativeQueue) return;
+    try {
+      await _channel.invokeMethod<void>('setCaptureNotifyV2', {'enabled': enabled});
+    } on PlatformException {
+      return;
+    } on MissingPluginException {
+      return;
+    }
+  }
+
+  /// CAP-7 correction: removes this capture's still-delivered App Intent banner.
+  /// True only when one was delivered (so a correction replaces it).
+  static Future<bool> withdrawDeliveredCaptureAlert(String payloadId) async {
+    if (!_hasNativeQueue) return false;
+    try {
+      return await _channel.invokeMethod<bool>(
+              'withdrawDeliveredCaptureAlert', {'payloadId': payloadId}) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
   }
 
   /// Remove-data step 1 (§4.4): persists the barrier and clears the owner record

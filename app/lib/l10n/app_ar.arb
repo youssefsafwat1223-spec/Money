@@ -519,7 +519,13 @@
   "bfBudgetAlert": "تنبيه الميزانية",
   "bfBudgetAlertHint": "ننبّهك عند بلوغ إنفاقك هذه النسبة من الميزانية.",
   "bfBudgetAlertValue": "{percent}٪ من الميزانية",
-  "@bfBudgetAlertValue": { "placeholders": { "percent": { "type": "String" } } },
+  "@bfBudgetAlertValue": {
+    "placeholders": {
+      "percent": {
+        "type": "String"
+      }
+    }
+  },
   "setLanguage": "اللغة",
   "setName": "الاسم",
   "setNameInApp": "اسمك في التطبيق",
@@ -3238,5 +3244,148 @@
       }
     }
   },
-  "removeDataAction": "حذف البيانات"
+  "removeDataAction": "حذف البيانات",
+  "captureUnboundTitle": "رسائل وصلت أثناء تسجيل الخروج",
+  "captureUnboundBody": "{count, plural, =1{وصلت رسالة بنكية واحدة} =2{وصلت رسالتان بنكيتان} few{وصلت {count} رسائل بنكية} other{وصلت {count} رسالة بنكية}} أثناء تسجيل خروجك.",
+  "@captureUnboundBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "captureUnboundSenders": "من: {senders}",
+  "@captureUnboundSenders": {
+    "placeholders": {
+      "senders": {
+        "type": "String"
+      }
+    }
+  },
+  "captureUnboundAdd": "أضفها إلى حسابي",
+  "captureUnboundDiscard": "تجاهلها",
+  "conflictKeepMine": "الإبقاء على نسختي",
+  "@conflictKeepMine": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictKeepMineAsNew": "الإبقاء على نسختي كنسخة جديدة",
+  "@conflictKeepMineAsNew": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictKeepCloud": "الإبقاء على نسخة السحابة",
+  "@conflictKeepCloud": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictKeptCloud": "تم الإبقاء على نسخة السحابة.",
+  "@conflictKeptCloud": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictThisDevice": "هذا الجهاز",
+  "@conflictThisDevice": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictCloud": "السحابة",
+  "@conflictCloud": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictDeletedInCloud": "محذوف في السحابة",
+  "@conflictDeletedInCloud": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictDeletedHere": "محذوف على هذا الجهاز",
+  "@conflictDeletedHere": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictNotSet": "غير محدد",
+  "@conflictNotSet": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldAmount": "المبلغ",
+  "@conflictFieldAmount": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldCurrency": "العملة",
+  "@conflictFieldCurrency": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldMerchant": "التاجر",
+  "@conflictFieldMerchant": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldNote": "ملاحظة",
+  "@conflictFieldNote": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldDate": "التاريخ",
+  "@conflictFieldDate": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldStatus": "الحالة",
+  "@conflictFieldStatus": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldCategory": "الفئة",
+  "@conflictFieldCategory": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldName": "الاسم",
+  "@conflictFieldName": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldType": "النوع",
+  "@conflictFieldType": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldBalance": "الرصيد",
+  "@conflictFieldBalance": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldInitialBalance": "الرصيد الابتدائي",
+  "@conflictFieldInitialBalance": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldCreditLimit": "الحد الائتماني",
+  "@conflictFieldCreditLimit": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldPeriod": "الفترة",
+  "@conflictFieldPeriod": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldStartDate": "تاريخ البداية",
+  "@conflictFieldStartDate": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldEndDate": "تاريخ النهاية",
+  "@conflictFieldEndDate": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldFrequency": "التكرار",
+  "@conflictFieldFrequency": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldNextDue": "تاريخ الاستحقاق القادم",
+  "@conflictFieldNextDue": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldTargetAmount": "المبلغ المستهدف",
+  "@conflictFieldTargetAmount": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldDeadline": "الموعد النهائي",
+  "@conflictFieldDeadline": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldNickname": "اسم البطاقة",
+  "@conflictFieldNickname": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldLast4": "آخر 4 أرقام",
+  "@conflictFieldLast4": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  },
+  "conflictFieldActive": "نشط",
+  "@conflictFieldActive": {
+    "description": "PROPOSED (WP-5, SYNC-Q5): awaiting user approval"
+  }
 }

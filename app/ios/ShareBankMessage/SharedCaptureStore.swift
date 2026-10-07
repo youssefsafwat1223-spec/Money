@@ -26,6 +26,7 @@ enum SharedCaptureStore {
   private static let ownerGenerationKey = "capture_owner_generation_v1"
   private static let consentMirrorKey = "capture_consent_mirror_v1"
   private static let contractV2Key = "capture_contract_v2"
+  private static let notifyV2Key = "capture_notify_v2"
   private static let expiredUnboundCountKey = "capture_unbound_expired_count_v1"
   private static let expiredUnboundLastKey = "capture_unbound_expired_last_v1"
   private static let legacyKey = "pending_bank_message_text"
@@ -127,6 +128,9 @@ enum SharedCaptureStore {
     /// Mirror of the server capability `capture_contract_v2`, set by Dart.
     /// Default false: uploads stay on the legacy contract.
     var captureContractV2: Bool = false
+    /// Mirror of the client flag `capture_notify_v2` (CAP-7), set by Dart.
+    /// Default false: the App Intent banners behave exactly as before.
+    var captureNotifyV2: Bool = false
 
     var canUseBackend: Bool {
       cloudProcessingEnabled &&
@@ -567,8 +571,15 @@ enum SharedCaptureStore {
       deviceSecret: migratedDeviceSecret(),
       backendURL: clean(defaults?.string(forKey: backendURLKey)),
       anonKey: clean(defaults?.string(forKey: anonKeyKey)),
-      captureContractV2: defaults?.bool(forKey: contractV2Key) ?? false
+      captureContractV2: defaults?.bool(forKey: contractV2Key) ?? false,
+      captureNotifyV2: defaults?.bool(forKey: notifyV2Key) ?? false
     )
+  }
+
+  /// CAP-7: mirrors the `capture_notify_v2` flag for the App Intent.
+  static func setCaptureNotifyV2(_ enabled: Bool) {
+    defaults?.set(enabled, forKey: notifyV2Key)
+    defaults?.synchronize()
   }
 
   /// The device secret from the shared Keychain. A legacy UserDefaults value is
@@ -1281,6 +1292,30 @@ enum SharedCaptureStore {
       }
       try saveQueue(queue, notifyHost: false)
       return before - queue.count
+    }
+  }
+
+  /// One migrated v2 item as the legacy resolver needs it for the A6
+  /// fingerprint check. Content-bearing: never log it.
+  struct LegacyPeekItem {
+    let id: String
+    let text: String
+    let receivedAt: String?
+    let createdAt: String?
+  }
+
+  /// A6 (CAP-7): read-only listing of the `legacy_v2` items that are still
+  /// unbound. Under the flock; changes nothing and notifies nobody.
+  static func peekLegacyCaptureItems() throws -> [LegacyPeekItem] {
+    try withQueueLock {
+      try loadQueue().compactMap { item in
+        guard item.origin == originLegacyV2,
+              item.ownerState == ownerStateUnbound,
+              let id = item.id else { return nil }
+        return LegacyPeekItem(
+          id: id, text: item.text, receivedAt: item.receivedAt, createdAt: item.createdAt
+        )
+      }
     }
   }
 

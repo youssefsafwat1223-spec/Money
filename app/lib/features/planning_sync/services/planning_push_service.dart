@@ -4,18 +4,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/guarded_mutation.dart';
 import '../../../core/sync/outbox_failure.dart';
-import '../../../core/sync/sync_capabilities.dart';
+import '../../../core/sync/sync_conflict_store.dart';
 import '../../../core/sync/sync_health.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/exact_transport_capability.dart';
+import '../../../data/sync/revision_cas.dart';
 import 'planning_outbox_queue.dart';
 
-/// Acknowledgement columns a guarded write reads back — includes the server
-/// `revision` only when the CAS capability (and thus 0068) is present.
-const String _ackCols =
-    kServerRevisionCas ? 'id, updated_at, revision' : 'id, updated_at';
+/// Acknowledgement columns a legacy guarded write reads back (the CAS path
+/// gets the whole row from the RPC).
+const String _ackCols = 'id, updated_at';
 
 /// A-3 (G7): remote tables whose `(user_id, local_id)` uniqueness is only a
 /// PARTIAL index (migrations 0021/0055) — `ON CONFLICT (user_id, local_id)`
@@ -55,16 +55,6 @@ abstract class PlanningRemoteSink {
     String table,
     String userId,
     String localId,
-  );
-
-  /// MALI-022 / 0068 (Phase-9K) — atomic compare-and-set tombstone. Sets
-  /// `deleted_at` only if the row's server `revision` still equals
-  /// [expectedRevision]; returns the ack (id/updated_at/revision), or null when
-  /// no row matched — a stale delete that must NOT overwrite a newer update.
-  Future<Map<String, dynamic>?> casTombstone(
-    String table,
-    String serverId,
-    int expectedRevision,
   );
 
   /// MALI-022 (Phase-9K) — guarded tombstone without a revision base. Sets
@@ -107,15 +97,6 @@ abstract class PlanningRemoteSink {
     Map<String, dynamic> row,
   );
 
-  /// MALI-022 / 0068 — atomic compare-and-set update. Updates the row only if
-  /// its server `revision` still equals [expectedRevision]; returns the new
-  /// id/updated_at/revision, or null when no row matched (a genuine conflict).
-  Future<Map<String, dynamic>?> casUpdateByServerId(
-    String table,
-    String serverId,
-    int expectedRevision,
-    Map<String, dynamic> row,
-  );
 }
 
 class SupabasePlanningRemoteSink implements PlanningRemoteSink {
@@ -135,23 +116,6 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
         .eq('user_id', userId)
         .eq('local_id', localId)
         .maybeSingle();
-  }
-
-  @override
-  Future<Map<String, dynamic>?> casTombstone(
-    String table,
-    String serverId,
-    int expectedRevision,
-  ) async {
-    // MALI-026 (Phase-9M): decode the LIST (0/1/>1), never maybeSingle — a 0-row
-    // CAS is the conflict branch, not a PGRST116 throw.
-    final rows = await _client
-        .from(table)
-        .update({'deleted_at': DateTime.now().toUtc().toIso8601String()})
-        .eq('id', serverId)
-        .eq('revision', expectedRevision)
-        .select(_ackCols);
-    return guardedAck(rows, 'planning.casTombstone[$table]');
   }
 
   @override
@@ -213,22 +177,6 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
   }
 
   @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(
-    String table,
-    String serverId,
-    int expectedRevision,
-    Map<String, dynamic> row,
-  ) async {
-    final rows = await _client
-        .from(table)
-        .update(row)
-        .eq('id', serverId)
-        .eq('revision', expectedRevision)
-        .select(_ackCols);
-    return guardedAck(rows, 'planning.casUpdate[$table]');
-  }
-
-  @override
   Future<String?> fetchServerUpdatedAt(String table, String serverId) async {
     final row = await _client
         .from(table)
@@ -280,7 +228,9 @@ class PlanningPushService {
     required bool Function(String entityType) isEnabled,
     Future<String?> Function()? getAuthUserId,
     PlanningRemoteSink? remoteSink,
-    bool revisionCasEnabled = kServerRevisionCas,
+    // WP-5: null (or a legacy plan) keeps the legacy guarded push unchanged.
+    RevisionCasGate? casGate,
+    CasRemote? casRemote,
     // MALI-026 (B8-2.10 §8/§9): both defaults preserve schema-v29 behavior:
     // legacy authority never parks, regardless of the unknown capability.
     PlanningCutoverCoordinator coordinator =
@@ -308,7 +258,9 @@ class PlanningPushService {
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _remoteSink = remoteSink ?? const SupabasePlanningRemoteSink(),
-        _revisionCasEnabled = revisionCasEnabled,
+        _casGate = casGate,
+        _cas = RevisionCasEngine(casRemote ?? const SupabaseCasRemote()),
+        _conflicts = SyncConflictStore(db),
         _coordinator = coordinator,
         _pushCapability = pushCapability,
         _planningCurrencyCapability = planningCurrencyCapability;
@@ -338,10 +290,11 @@ class PlanningPushService {
   final Future<String?> Function() _getAuthUserId;
   final PlanningRemoteSink _remoteSink;
 
-  /// MALI-022 / 0068 — whether to use the atomic revision CAS. Defaults to the
-  /// [kServerRevisionCas] capability const (OFF until 0068 verified on staging);
-  /// injectable so the ON path is testable.
-  final bool _revisionCasEnabled;
+  final RevisionCasGate? _casGate;
+  final RevisionCasEngine _cas;
+  final SyncConflictStore _conflicts;
+  CasPlan _plan = const CasPlan(CasMode.legacy);
+
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
   final ExactTransportCapability Function() _planningCurrencyCapability;
@@ -391,6 +344,11 @@ class PlanningPushService {
     final userId = await _getAuthUserId();
     if (userId == null) return const PlanningPushResult();
 
+    // WP-5: legacy push or revision CAS; unprovable capability = nothing sent.
+    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.plan(userId);
+    if (_plan.mode == CasMode.stopped) return const PlanningPushResult();
+    var epochStale = false;
+
     // D-7: the AuthSessionValid broadcast has no replay, so a cold start can miss
     // it. A valid authenticated session at the start of a cycle re-arms rows
     // parked `auth_required` (cheap UPDATE; no attempt was ever consumed).
@@ -428,6 +386,7 @@ class PlanningPushService {
     }
 
     for (final entityType in _entityTable.keys) {
+      if (epochStale) break;
       if (!_isEnabled(entityType)) continue;
       final isSettings = entityType == PlanningOutboxQueue.settingsEntityType;
       final allowed = isSettings ? profileAllowed : financialAllowed;
@@ -462,6 +421,11 @@ class PlanningPushService {
               parked++;
               _health?.noteCapabilityParked(SyncDomain.planning);
           }
+        } on CasEpochMismatch {
+          // Stale epoch: nothing was written; stop the cycle (WP-7 rebootstraps).
+          await _queue.releaseInFlight(item.id);
+          epochStale = true;
+          break;
         } catch (e) {
           failed++;
           _health?.noteFailure(SyncDomain.planning, e);
@@ -539,12 +503,23 @@ class PlanningPushService {
       return _PlanningPushOutcome.abandoned;
     }
 
+    final cas = _plan.isCas;
+    final isSettings = item.entityType == PlanningOutboxQueue.settingsEntityType;
     switch (item.operation) {
       case PlanningSyncOperation.create:
       case PlanningSyncOperation.update:
-        return _pushUpsert(item, userId, remoteTable, localTable);
+        if (cas && isSettings) {
+          return _pushSettingsLww(item, userId, remoteTable, localTable);
+        }
+        return cas
+            ? _casUpsert(item, userId, remoteTable, localTable)
+            : _pushUpsert(item, userId, remoteTable, localTable);
       case PlanningSyncOperation.delete:
-        return _pushDelete(item, userId, remoteTable, localTable);
+        // user_categories has no tombstone RPC (deletes re-parent dependants):
+        // its delete keeps the guarded legacy tombstone.
+        return cas && item.entityType != PlanningOutboxQueue.categoriesEntityType
+            ? _casDelete(item, userId, remoteTable, localTable)
+            : _pushDelete(item, userId, remoteTable, localTable);
     }
   }
 
@@ -635,19 +610,6 @@ class PlanningPushService {
     int? expectedRevision,
     String? base,
   ) async {
-    if (_revisionCasEnabled && expectedRevision != null) {
-      final response = await _remoteSink.casUpdateByServerId(
-          remoteTable, serverId, expectedRevision, row);
-      if (response == null) {
-        return await _resolveUpsertConflict(
-            item, serverId, remoteTable, localTable);
-      }
-      await _attachServerId(localTable, item.entityId,
-          response['id'] as String, response['updated_at'] as String?,
-          serverRevision: response['revision'] as int?, item: item);
-      return _PlanningPushOutcome.pushed;
-    }
-
     base ??= await _remoteSink.fetchServerUpdatedAt(remoteTable, serverId);
     if (base == null) {
       // The server row is gone: nothing to guard against → conflict.
@@ -737,17 +699,6 @@ class PlanningPushService {
       // one; otherwise an optimistic updated_at compare. A zero-row result is
       // classified (already-deleted / advanced / absent) — a stale delete can
       // never clobber a newer accepted update.
-      final expectedRevision = item.payloadJson['server_revision'] as int?;
-      if (_revisionCasEnabled && expectedRevision != null) {
-        final ack = await _remoteSink.casTombstone(
-            remoteTable, serverId, expectedRevision);
-        if (ack != null) {
-          await _markSynced(localTable, item.entityId, serverId, item: item);
-          return _PlanningPushOutcome.pushed;
-        }
-        return await _resolveDeleteConflict(remoteTable, serverId, localTable, item);
-      }
-
       final base = item.payloadJson['server_updated_at'] as String?;
       final ack =
           await _remoteSink.guardedTombstone(remoteTable, serverId, base);
@@ -764,6 +715,158 @@ class PlanningPushService {
       }
       rethrow;
     }
+  }
+
+  // ── WP-5: revision CAS (capability `revision_cas`) ───────────────────────
+
+  Future<_PlanningPushOutcome> _casUpsert(
+    PlanningOutboxItem item,
+    String userId,
+    String remoteTable,
+    String localTable,
+  ) async {
+    final row = _toServerRow(item.entityType, item.payloadJson, userId);
+    final serverId = await _serverIdForLocal(localTable, item.entityId);
+    var d = serverId == null
+        ? await _cas.create(
+            table: remoteTable,
+            epoch: _plan.epoch!,
+            opId: item.operationId!,
+            row: row)
+        : await _cas.update(
+            table: remoteTable,
+            epoch: _plan.epoch!,
+            opId: item.operationId!,
+            priorOpIds: item.priorOpIds,
+            serverId: serverId,
+            baseRevision: item.baseRevision ??
+                (item.payloadJson['server_revision'] as int?),
+            baseUpdatedAt: item.payloadJson['server_updated_at'] as String?,
+            patch: row,
+          );
+    var created = serverId == null;
+    if (d.kind == CasDecisionKind.missing) {
+      // No such cloud row: create it again by identity (never un-deletes).
+      d = await _cas.create(
+          table: remoteTable,
+          epoch: _plan.epoch!,
+          opId: item.operationId!,
+          row: row);
+      created = true;
+    }
+    if (d.kind == CasDecisionKind.acked) {
+      await _attachServerId(
+          localTable, item.entityId, d.row!['id'] as String,
+          d.row!['updated_at'] as String?,
+          serverRevision: (d.row!['revision'] as num?)?.toInt(), item: item);
+      return _PlanningPushOutcome.pushed;
+    }
+    return _casConflict(
+        item,
+        d,
+        d.cloudTombstoned
+            ? SyncConflictKind.tombstone
+            : created
+                ? SyncConflictKind.create
+                : SyncConflictKind.update);
+  }
+
+  Future<_PlanningPushOutcome> _casDelete(
+    PlanningOutboxItem item,
+    String userId,
+    String remoteTable,
+    String localTable,
+  ) async {
+    var serverId = await _serverIdForLocal(localTable, item.entityId);
+    serverId ??= (await _remoteSink.findByLocalId(
+      remoteTable,
+      userId,
+      item.entityId,
+    ))?['id'] as String?;
+    if (serverId == null) {
+      await _markSynced(localTable, item.entityId, null, item: item);
+      return _PlanningPushOutcome.pushed;
+    }
+    final d = await _cas.tombstone(
+      table: remoteTable,
+      epoch: _plan.epoch!,
+      opId: item.operationId!,
+      priorOpIds: item.priorOpIds,
+      serverId: serverId,
+      baseRevision:
+          item.baseRevision ?? (item.payloadJson['server_revision'] as int?),
+      baseUpdatedAt: item.payloadJson['server_updated_at'] as String?,
+    );
+    if (d.kind == CasDecisionKind.acked || d.kind == CasDecisionKind.gone) {
+      await _markSynced(localTable, item.entityId, serverId, item: item);
+      return _PlanningPushOutcome.pushed;
+    }
+    return _casConflict(item, d, SyncConflictKind.delete);
+  }
+
+  /// Stored durably BEFORE the outbox op is consumed, in one local transaction.
+  Future<_PlanningPushOutcome> _casConflict(
+    PlanningOutboxItem item,
+    CasDecision d,
+    SyncConflictKind kind,
+  ) async {
+    await _db.transaction(() async {
+      await _conflicts.flag(
+        entityType: item.entityType,
+        localId: item.entityId,
+        kind: kind,
+        serverId: d.row?['id'] as String?,
+        theirs: d.row,
+        theirsRevision: (d.row?['revision'] as num?)?.toInt(),
+        operationId: item.operationId,
+      );
+      await _queue.markSuccess(item);
+    });
+    return _PlanningPushOutcome.conflict;
+  }
+
+  /// Settings are last-writer-wins PER FIELD in server order, never a conflict:
+  /// only the fields this device changed are sent, and the consent columns only
+  /// when the user explicitly changed consent on this device (`consent` in
+  /// `changed_fields`). A row not yet bound to the cloud keeps the legacy
+  /// create (merge-upsert) path.
+  Future<_PlanningPushOutcome> _pushSettingsLww(
+    PlanningOutboxItem item,
+    String userId,
+    String remoteTable,
+    String localTable,
+  ) async {
+    final serverId = await _serverIdForLocal(localTable, item.entityId);
+    if (serverId == null || item.payloadJson['consent_only'] == true) {
+      return _pushUpsert(item, userId, remoteTable, localTable);
+    }
+    final changed =
+        ((item.payloadJson['changed_fields'] as List?) ?? const []).cast<String>();
+    final row = _toServerRow(item.entityType, item.payloadJson, userId)
+      ..remove('user_id')
+      ..remove('local_id');
+    const consentKeys = {
+      'ai_consent_granted',
+      'cloud_processing_enabled',
+      'consent_version',
+    };
+    final patch = <String, dynamic>{
+      for (final e in row.entries)
+        if (consentKeys.contains(e.key)
+            ? changed.contains('consent')
+            : (changed.isEmpty || changed.contains(e.key)))
+          e.key: e.value,
+    };
+    if (patch.isEmpty) {
+      await _markSynced(localTable, item.entityId, serverId, item: item);
+      return _PlanningPushOutcome.pushed;
+    }
+    final response = await _remoteSink.updateByServerId(remoteTable, serverId, patch);
+    if (response == null) throw StateError('settings_row_missing');
+    await _attachServerId(localTable, item.entityId, serverId,
+        response['updated_at'] as String?,
+        serverRevision: response['revision'] as int?, item: item);
+    return _PlanningPushOutcome.pushed;
   }
 
   /// A guarded tombstone matched zero rows. Classify it (Phase-9K §5):

@@ -164,6 +164,14 @@ class CapturedMessageProcessor {
           ),
         );
       };
+      // CAP-7: the background isolate has no shell to wire the generic-text flag.
+      LocalNotificationService.instance.captureNotifyV2 = () {
+        try {
+          return featureFlags.getBool('capture_notify_v2');
+        } catch (_) {
+          return false;
+        }
+      };
       final senderBankMappingRepository = DriftSenderBankMappingRepository(db);
       final aiParserClient = SupabaseConfig.isConfigured
           ? SupabaseAiParserClient(

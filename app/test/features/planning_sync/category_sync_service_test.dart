@@ -47,8 +47,7 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
     tombstones.putIfAbsent(table, () => []).add(Map.of(match));
   }
 
-  @override
-  Future<Map<String, dynamic>?> casTombstone(
+    Future<Map<String, dynamic>?> casTombstone(
       String table, String serverId, int expectedRevision) async {
     await _tombstone(table, serverId);
     return {'id': serverId, 'revision': expectedRevision + 1};
@@ -109,8 +108,7 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
   }
 
 
-  @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(String table,
+    Future<Map<String, dynamic>?> casUpdateByServerId(String table,
           String serverId, int expectedRevision, Map<String, dynamic> row) =>
       throw UnimplementedError('CAS is exercised by the dedicated CAS test');
 }

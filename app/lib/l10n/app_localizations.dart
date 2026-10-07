@@ -10182,6 +10182,222 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'حذف البيانات'**
   String get removeDataAction;
+
+  /// No description provided for @captureUnboundTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'رسائل وصلت أثناء تسجيل الخروج'**
+  String get captureUnboundTitle;
+
+  /// No description provided for @captureUnboundBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =1{وصلت رسالة بنكية واحدة} =2{وصلت رسالتان بنكيتان} few{وصلت {count} رسائل بنكية} other{وصلت {count} رسالة بنكية}} أثناء تسجيل خروجك.'**
+  String captureUnboundBody(int count);
+
+  /// No description provided for @captureUnboundSenders.
+  ///
+  /// In ar, this message translates to:
+  /// **'من: {senders}'**
+  String captureUnboundSenders(String senders);
+
+  /// No description provided for @captureUnboundAdd.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضفها إلى حسابي'**
+  String get captureUnboundAdd;
+
+  /// No description provided for @captureUnboundDiscard.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاهلها'**
+  String get captureUnboundDiscard;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الإبقاء على نسختي'**
+  String get conflictKeepMine;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الإبقاء على نسختي كنسخة جديدة'**
+  String get conflictKeepMineAsNew;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الإبقاء على نسخة السحابة'**
+  String get conflictKeepCloud;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'تم الإبقاء على نسخة السحابة.'**
+  String get conflictKeptCloud;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'هذا الجهاز'**
+  String get conflictThisDevice;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'السحابة'**
+  String get conflictCloud;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'محذوف في السحابة'**
+  String get conflictDeletedInCloud;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'محذوف على هذا الجهاز'**
+  String get conflictDeletedHere;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'غير محدد'**
+  String get conflictNotSet;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ'**
+  String get conflictFieldAmount;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'العملة'**
+  String get conflictFieldCurrency;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'التاجر'**
+  String get conflictFieldMerchant;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'ملاحظة'**
+  String get conflictFieldNote;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'التاريخ'**
+  String get conflictFieldDate;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الحالة'**
+  String get conflictFieldStatus;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الفئة'**
+  String get conflictFieldCategory;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الاسم'**
+  String get conflictFieldName;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'النوع'**
+  String get conflictFieldType;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الرصيد'**
+  String get conflictFieldBalance;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الرصيد الابتدائي'**
+  String get conflictFieldInitialBalance;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الحد الائتماني'**
+  String get conflictFieldCreditLimit;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الفترة'**
+  String get conflictFieldPeriod;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'تاريخ البداية'**
+  String get conflictFieldStartDate;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'تاريخ النهاية'**
+  String get conflictFieldEndDate;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'التكرار'**
+  String get conflictFieldFrequency;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'تاريخ الاستحقاق القادم'**
+  String get conflictFieldNextDue;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'المبلغ المستهدف'**
+  String get conflictFieldTargetAmount;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'الموعد النهائي'**
+  String get conflictFieldDeadline;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'اسم البطاقة'**
+  String get conflictFieldNickname;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر 4 أرقام'**
+  String get conflictFieldLast4;
+
+  /// PROPOSED (WP-5, SYNC-Q5): awaiting user approval
+  ///
+  /// In ar, this message translates to:
+  /// **'نشط'**
+  String get conflictFieldActive;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import '../../../core/sync/conflict_policy.dart';
+import '../../../core/sync/outbox_receipt.dart';
+import '../../../core/sync/sync_conflict_store.dart';
 import '../../../core/sync/sync_health.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -172,6 +175,7 @@ class LedgerSyncService implements LedgerPullAdapter {
         _seqGate = seqGate,
         _health = health,
         _db = db,
+        _conflicts = SyncConflictStore(db),
         _transactionRepository = transactionRepository,
         _dedupStore = dedupStore,
         _isPullEnabled = isPullEnabled,
@@ -196,6 +200,7 @@ class LedgerSyncService implements LedgerPullAdapter {
   }
 
   final AppDatabase _db;
+  final SyncConflictStore _conflicts;
   final DriftTransactionRepository _transactionRepository;
   final DriftDedupStore _dedupStore;
   final bool Function() _isPullEnabled;
@@ -463,8 +468,8 @@ class LedgerSyncService implements LedgerPullAdapter {
     if (localId != null) {
       final meta = await _db
           .customSelect(
-            'SELECT sync_status, server_id, server_updated_at, account_id '
-            'FROM transactions WHERE id = ${sqlString(localId)} LIMIT 1;',
+            'SELECT sync_status, server_id, server_updated_at, server_revision, '
+            'account_id FROM transactions WHERE id = ${sqlString(localId)} LIMIT 1;',
           )
           .getSingleOrNull();
       if (meta == null) return _RowOutcome.skipped;
@@ -482,14 +487,35 @@ class LedgerSyncService implements LedgerPullAdapter {
       // is still at our base, leave the row alone and let the push proceed.
       if (syncStatus == 'pending') {
         final baseToken = meta.readNullable<String>('server_updated_at');
-        if (canonicalServerTimestamp(serverUpdatedAt) !=
-            canonicalServerTimestamp(baseToken)) {
+        final baseRevision = meta.readNullable<int>('server_revision');
+        // WP-5: with a known revision on both sides the revision decides; the
+        // legacy timestamp compare is the fallback.
+        final moved = (serverRevision != null && baseRevision != null)
+            ? serverRevision != baseRevision
+            : canonicalServerTimestamp(serverUpdatedAt) !=
+                canonicalServerTimestamp(baseToken);
+        if (moved) {
+          // WP-5 lost-ACK receipt: the cloud's last write is OUR queued op.
+          final own = await settleOwnOperation(
+            db: _db,
+            outboxTable: 'ledger_sync_outbox',
+            outboxWhere: 'transaction_id = ${sqlString(localId)}',
+            localTable: 'transactions',
+            localId: localId,
+            serverRow: row,
+          );
+          if (own != OwnOpResult.none) return _RowOutcome.updated;
           await _db.transaction(() async {
-            await _db.customStatement('''
-              UPDATE transactions
-              SET sync_status = 'conflict'
-              WHERE id = ${sqlString(localId)};
-            ''');
+            await _conflicts.flag(
+              entityType: ConflictEntities.transaction,
+              localId: localId,
+              kind: await _pendingIsDelete(localId)
+                  ? SyncConflictKind.delete
+                  : SyncConflictKind.update,
+              serverId: serverId,
+              theirs: row,
+              theirsRevision: serverRevision,
+            );
             // The server row demonstrably exists: a kept (ambiguous) in-flight
             // marker would hold the conflict unresolvable forever (the hold stops
             // the row being pushed, and keep-remote refuses while it is set).
@@ -658,12 +684,25 @@ class LedgerSyncService implements LedgerPullAdapter {
     // _processRow (local fields and the outbox op are kept; the ambiguous
     // in-flight marker is cleared so keep-local / keep-remote can resolve it).
     if (syncStatus == 'pending' || meta.read<bool>('has_op')) {
+      // WP-5 lost-ACK receipt: the tombstone is our own queued delete.
+      final own = await settleOwnOperation(
+        db: _db,
+        outboxTable: 'ledger_sync_outbox',
+        outboxWhere: 'transaction_id = ${sqlString(localId)}',
+        localTable: 'transactions',
+        localId: localId,
+        serverRow: row,
+      );
+      if (own != OwnOpResult.none) return _RowOutcome.tombstoned;
       await _db.transaction(() async {
-        await _db.customStatement('''
-          UPDATE transactions
-          SET sync_status = 'conflict'
-          WHERE id = ${sqlString(localId)};
-        ''');
+        await _conflicts.flag(
+          entityType: ConflictEntities.transaction,
+          localId: localId,
+          kind: SyncConflictKind.tombstone,
+          serverId: serverId,
+          theirs: row,
+          theirsRevision: (row['revision'] as num?)?.toInt(),
+        );
         await _db.customStatement(
           'UPDATE ledger_sync_outbox SET in_flight_seq = NULL '
           'WHERE transaction_id = ${sqlString(localId)};',
@@ -680,6 +719,14 @@ class LedgerSyncService implements LedgerPullAdapter {
     ''');
     return _RowOutcome.tombstoned;
   }
+
+  Future<bool> _pendingIsDelete(String localId) async =>
+      (await _db
+              .customSelect(
+                  "SELECT 1 AS x FROM ledger_sync_outbox WHERE transaction_id = "
+                  "${sqlString(localId)} AND operation = 'delete' LIMIT 1;")
+              .getSingleOrNull()) !=
+      null;
 
   Future<_RowOutcome> _applyRow(Map<String, dynamic> row) =>
       row['deleted_at'] != null ? _processTombstone(row) : _processRow(row);

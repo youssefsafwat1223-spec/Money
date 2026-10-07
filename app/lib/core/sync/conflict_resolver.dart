@@ -3,7 +3,9 @@ import 'dart:convert';
 import '../../data/db/app_database.dart';
 import '../../data/db/sql_value_codec.dart';
 import '../utils/id_generator.dart';
+import 'conflict_fields.dart';
 import 'conflict_policy.dart';
+import 'sync_conflict_store.dart';
 
 /// A row stuck in `sync_status='conflict'` — a genuine two-device edit collision
 /// — surfaced for the user to resolve.
@@ -12,17 +14,36 @@ class SyncConflict {
     required this.entityType,
     required this.localId,
     required this.label,
+    this.kind,
+    this.fields = const [],
+    this.canKeepMine = true,
   });
 
   final String entityType;
   final String localId;
   final String label;
+
+  /// WP-5: what collided (null for a legacy flagged conflict with no durable
+  /// record — it shows no differences).
+  final SyncConflictKind? kind;
+
+  /// WP-5 / SYNC-Q5: the meaningful field differences (empty for deletes).
+  final List<ConflictFieldDiff> fields;
+
+  /// False where "keep mine" has no safe server operation (a cloud tombstone is
+  /// never un-deleted, so only a transaction can be kept, as a new record).
+  final bool canKeepMine;
 }
 
 /// Re-enqueues the CURRENT local state of one row as an update, so the next push
 /// carries the user's edit. Entity-specific (it rebuilds the outbox payload via
 /// the typed repository + queue), so it is injected per entity by DI.
 typedef ConflictReEnqueue = Future<void> Function(String localId);
+
+/// Keep-mine against a cloud TOMBSTONE: the deleted cloud row is never
+/// un-deleted, so the local record is re-created as a NEW record (new identity,
+/// queued as a create). Injected per entity (transactions only).
+typedef ConflictRestoreAsNew = Future<void> Function(String localId);
 
 /// The current server base for a row: the `updated_at` token and, when the CAS
 /// capability is active (0068 present), the server `revision`. Used to rebase a
@@ -70,12 +91,17 @@ class UniversalConflictResolver {
     required Map<String, ConflictReEnqueue> reEnqueue,
     ConflictBaseFetcher? baseFetcher,
     Map<String, ConflictRemoteSync> remoteSync = const {},
+    Map<String, ConflictRestoreAsNew> restoreAsNew = const {},
   })  : _db = db,
+        _store = SyncConflictStore(db),
+        _restoreAsNew = restoreAsNew,
         _reEnqueue = reEnqueue,
         _baseFetcher = baseFetcher,
         _remoteSync = remoteSync;
 
   final Map<String, ConflictRemoteSync> _remoteSync;
+  final Map<String, ConflictRestoreAsNew> _restoreAsNew;
+  final SyncConflictStore _store;
 
   final AppDatabase _db;
   final Map<String, ConflictReEnqueue> _reEnqueue;
@@ -97,10 +123,19 @@ class UniversalConflictResolver {
           )
           .get();
       for (final row in rows) {
+        final localId = row.read<String>('id');
+        final record = await _store.openFor(policy.entityType, localId);
         out.add(SyncConflict(
           entityType: policy.entityType,
-          localId: row.read<String>('id'),
-          label: row.readNullable<String>('label') ?? row.read<String>('id'),
+          localId: localId,
+          label: row.readNullable<String>('label') ?? localId,
+          kind: record?.kind,
+          fields: record == null || record.kind == SyncConflictKind.tombstone
+              ? const []
+              : diffConflictFields(
+                  policy.entityType, record.mine, record.theirs),
+          canKeepMine: record?.kind != SyncConflictKind.tombstone ||
+              _restoreAsNew.containsKey(policy.entityType),
         ));
       }
     }
@@ -114,12 +149,43 @@ class UniversalConflictResolver {
   Future<void> resolveKeepLocal(String entityType, String localId) async {
     final policy = conflictPolicyFor(entityType);
     if (!policy.canConflict) return;
+    final record = await _store.openFor(entityType, localId);
+
+    // A cloud tombstone is never un-deleted: keep-mine re-creates the record as
+    // a NEW one (transactions); other entities have no safe keep-mine.
+    if (record?.kind == SyncConflictKind.tombstone) {
+      final restore = _restoreAsNew[entityType];
+      if (restore == null) return;
+      await _db.transaction(() async {
+        await restore(localId);
+        await _removeOutbox(policy, localId);
+        await _db.customStatement(
+          "UPDATE ${policy.localTable} SET sync_status = 'synced', "
+          "status = 'ignored' WHERE id = ${sqlString(localId)};",
+        );
+        await _store.resolve(entityType, localId, 'mine_as_new');
+      });
+      return;
+    }
 
     // Rebase BEFORE re-enqueue: the payload captures the refreshed base token
     // (planning reads server_updated_at from the row; the ledger reads it from
-    // the entity — both see the value written here).
+    // the entity — both see the value written here). The durable record already
+    // holds the cloud version, so no network is needed; a legacy flagged
+    // conflict without a record falls back to the injected fetcher.
     final serverId = await _serverId(policy.localTable, localId);
-    if (serverId != null && _baseFetcher != null) {
+    final stored = record?.theirs;
+    if (stored != null && record!.theirsRevision != null) {
+      final sets = <String>[
+        'server_revision = ${record.theirsRevision}',
+        if (stored['updated_at'] is String)
+          'server_updated_at = ${sqlString(stored['updated_at'] as String)}',
+      ];
+      await _db.customStatement(
+        'UPDATE ${policy.localTable} SET ${sets.join(', ')} '
+        'WHERE id = ${sqlString(localId)};',
+      );
+    } else if (serverId != null && _baseFetcher != null) {
       final current = await _baseFetcher(policy.remoteTable, serverId);
       if (current != null) {
         final sets = <String>[];
@@ -161,6 +227,7 @@ class UniversalConflictResolver {
       "UPDATE ${policy.localTable} SET sync_status = 'pending' "
       'WHERE id = ${sqlString(localId)};',
     );
+    await _store.resolve(entityType, localId, 'mine');
   }
 
   /// Phase-9K — re-enqueue a DELETE for a kept-local delete conflict, carrying
@@ -241,6 +308,7 @@ class UniversalConflictResolver {
         "UPDATE ${policy.localTable} SET sync_status = 'synced' "
         'WHERE id = ${sqlString(localId)};',
       );
+      await _store.resolve(entityType, localId, 'cloud');
       return true;
     }
 
@@ -261,6 +329,7 @@ class UniversalConflictResolver {
           'server_updated_at = NULL WHERE id = ${sqlString(localId)};',
         );
         await sync.apply(remote!);
+        await _store.resolve(entityType, localId, 'cloud');
       });
       return true;
     } catch (_) {

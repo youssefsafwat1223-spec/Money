@@ -6035,4 +6035,122 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get removeDataAction => 'Remove data';
+
+  @override
+  String get captureUnboundTitle => 'Messages received while signed out';
+
+  @override
+  String captureUnboundBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count bank messages were',
+      one: '1 bank message was',
+    );
+    return '$_temp0 received while you were signed out.';
+  }
+
+  @override
+  String captureUnboundSenders(String senders) {
+    return 'From: $senders';
+  }
+
+  @override
+  String get captureUnboundAdd => 'Add them to my account';
+
+  @override
+  String get captureUnboundDiscard => 'Discard them';
+
+  @override
+  String get conflictKeepMine => 'Keep mine';
+
+  @override
+  String get conflictKeepMineAsNew => 'Keep mine as a new copy';
+
+  @override
+  String get conflictKeepCloud => 'Keep cloud version';
+
+  @override
+  String get conflictKeptCloud => 'The cloud version was kept.';
+
+  @override
+  String get conflictThisDevice => 'This device';
+
+  @override
+  String get conflictCloud => 'Cloud';
+
+  @override
+  String get conflictDeletedInCloud => 'Deleted in the cloud';
+
+  @override
+  String get conflictDeletedHere => 'Deleted on this device';
+
+  @override
+  String get conflictNotSet => 'Not set';
+
+  @override
+  String get conflictFieldAmount => 'Amount';
+
+  @override
+  String get conflictFieldCurrency => 'Currency';
+
+  @override
+  String get conflictFieldMerchant => 'Merchant';
+
+  @override
+  String get conflictFieldNote => 'Note';
+
+  @override
+  String get conflictFieldDate => 'Date';
+
+  @override
+  String get conflictFieldStatus => 'Status';
+
+  @override
+  String get conflictFieldCategory => 'Category';
+
+  @override
+  String get conflictFieldName => 'Name';
+
+  @override
+  String get conflictFieldType => 'Type';
+
+  @override
+  String get conflictFieldBalance => 'Balance';
+
+  @override
+  String get conflictFieldInitialBalance => 'Initial balance';
+
+  @override
+  String get conflictFieldCreditLimit => 'Credit limit';
+
+  @override
+  String get conflictFieldPeriod => 'Period';
+
+  @override
+  String get conflictFieldStartDate => 'Start date';
+
+  @override
+  String get conflictFieldEndDate => 'End date';
+
+  @override
+  String get conflictFieldFrequency => 'Frequency';
+
+  @override
+  String get conflictFieldNextDue => 'Next due date';
+
+  @override
+  String get conflictFieldTargetAmount => 'Target amount';
+
+  @override
+  String get conflictFieldDeadline => 'Deadline';
+
+  @override
+  String get conflictFieldNickname => 'Card name';
+
+  @override
+  String get conflictFieldLast4 => 'Last 4 digits';
+
+  @override
+  String get conflictFieldActive => 'Active';
 }

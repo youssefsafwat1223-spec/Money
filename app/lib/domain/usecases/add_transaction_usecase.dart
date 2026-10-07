@@ -673,6 +673,11 @@ class AddTransactionUseCase {
     DateTime? smsReceivedAt,
     bool onDeviceOnly = false,
     CaptureCommit? capture,
+    // CAP-5 (Q5): the iOS local-after-reject path always applies binary local
+    // acceptance (valid => confirmed, invalid => Smart Inbox), whatever the
+    // `local_auto_confirm_v2` rollout flag says. Default keeps every other
+    // caller on the flag.
+    bool forceLocalAutoConfirm = false,
   }) async {
     final loadedBankProfiles = await _safeLoadBankProfiles(senderId: senderId);
     final catalogRules = await _safeLoadCatalogRules(senderId);
@@ -704,7 +709,7 @@ class AddTransactionUseCase {
 
     // `local_auto_confirm_v2`: a local parse is either VALID (confirmed) or
     // INVALID, and invalid means "local produced no transaction".
-    final localV2 = _localAutoConfirmV2Enabled();
+    final localV2 = forceLocalAutoConfirm || _localAutoConfirmV2Enabled();
     final localAccepted = localV2
         ? _checkLocalValidity(parseResult, rawMessage).isValid
         : parseResult.isTransaction;

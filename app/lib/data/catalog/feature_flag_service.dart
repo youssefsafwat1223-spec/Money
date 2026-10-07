@@ -95,6 +95,17 @@ const Map<String, Object> _defaults = {
   // Kill switch: lets a durable native capture the backend failed to analyse
   // use the in-app AI fallback (still consent-gated). Seeded OFF.
   'capture_ai_fallback_enabled': false,
+  // CAP-5: the single iOS capture import (CaptureImportService, bound to the
+  // account scope) with local-after-reject (Q5) and no app-side AI. Seeded OFF;
+  // OFF is the shipped relay + native-drain import, byte for byte.
+  'capture_import_v3': false,
+  // CAP-7: the notification journey (push_attempted owner rule, generic text on
+  // every channel, backlog summary, corrections). Seeded OFF; OFF is the shipped
+  // notification behaviour, byte for byte.
+  'capture_notify_v2': false,
+  // CAP-7: shared notification identifiers (remote collapse-id == local request
+  // id). Only after the T-N4 device proof; seeded OFF and nothing reads it yet.
+  'capture_notify_shared_ids': false,
   // Binary local acceptance: a capture the local parser reads as VALID is
   // confirmed (no pending stage); an INVALID one is treated as "local produced
   // no transaction" (AI + validator when allowed, else Smart Inbox). Seeded OFF;

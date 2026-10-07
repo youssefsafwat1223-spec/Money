@@ -5,28 +5,22 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/sync/guarded_mutation.dart';
 import '../../../core/sync/outbox_failure.dart';
-import '../../../core/sync/sync_capabilities.dart';
+import '../../../core/sync/sync_conflict_store.dart';
+import '../../../core/sync/conflict_policy.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/sync/exact_transport_capability.dart';
+import '../../../data/sync/revision_cas.dart';
 import '../../../data/sync/server_capabilities.dart';
 import '../../../data/sync/sync_cursor.dart';
 import 'ledger_outbox_queue.dart';
 import 'ledger_payload.dart';
 import 'ledger_sync_engine.dart';
 
-/// The acknowledgement columns a NON-CAS write (create/guarded update) reads
-/// back. Includes the server `revision` only when the capability const is on —
-/// the column exists on the server exactly when 0068 is deployed (same gate) —
-/// so an OFF build never selects a column that isn't there.
-const String _ackCols =
-    kServerRevisionCas ? 'id, updated_at, revision' : 'id, updated_at';
-
-/// The acknowledgement columns for the CAS branch. That branch runs only when
-/// the capability is enabled (⇒ 0068 is deployed ⇒ `revision` exists), so it
-/// always reads the revision back.
-const String _casAckCols = 'id, updated_at, revision';
+/// The acknowledgement columns a legacy (non-CAS) write reads back. The CAS
+/// path gets the whole row from the RPC.
+const String _ackCols = 'id, updated_at';
 
 class LedgerPushResult {
   const LedgerPushResult({
@@ -53,7 +47,9 @@ class LedgerPushService implements LedgerPushAdapter {
     required bool Function() isPushEnabled,
     Future<String?> Function()? getAuthUserId,
     SupabaseClient Function()? getClient,
-    bool revisionCasEnabled = kServerRevisionCas,
+    // WP-5: null (or a legacy plan) keeps the legacy guarded push unchanged.
+    RevisionCasGate? casGate,
+    CasRemote? casRemote,
     // MALI-026 (B8-2.10 §8/§9): the money-authority mode and exact PUSH capability.
     // Both default so v29 (legacy + unknown) never parks — current behavior is
     // unchanged. Only canonical mode with an unverified push capability parks.
@@ -73,7 +69,9 @@ class LedgerPushService implements LedgerPushAdapter {
         _isPushEnabled = isPushEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _getClient = getClient ?? _defaultGetClient,
-        _revisionCasEnabled = revisionCasEnabled,
+        _casGate = casGate,
+        _cas = RevisionCasEngine(casRemote ?? const SupabaseCasRemote()),
+        _conflicts = SyncConflictStore(db),
         _coordinator = coordinator,
         _pushCapability = pushCapability,
         _mayEgress = mayEgress ?? _denyEgressByDefault;
@@ -101,10 +99,10 @@ class LedgerPushService implements LedgerPushAdapter {
   final Future<String?> Function() _getAuthUserId;
   final SupabaseClient Function() _getClient;
 
-  /// MALI-022 / 0068 — whether to use the atomic revision CAS. Defaults to the
-  /// [kServerRevisionCas] capability const (OFF in production until 0068 is
-  /// verified on staging); injectable so the ON path is testable.
-  final bool _revisionCasEnabled;
+  final RevisionCasGate? _casGate;
+  final RevisionCasEngine _cas;
+  final SyncConflictStore _conflicts;
+  CasPlan _plan = const CasPlan(CasMode.legacy);
 
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
@@ -122,6 +120,11 @@ class LedgerPushService implements LedgerPushAdapter {
 
     final userId = await _getAuthUserId();
     if (userId == null) return const LedgerPushResult();
+
+    // WP-5: legacy push, or revision CAS with the replica's epoch. When the
+    // capability cannot be proven this cycle nothing is sent or consumed.
+    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.plan(userId);
+    if (_plan.mode == CasMode.stopped) return const LedgerPushResult();
 
     // D-7: the AuthSessionValid broadcast has no replay, so a cold start can miss
     // it. A valid authenticated session at the start of a cycle re-arms rows
@@ -175,6 +178,11 @@ class LedgerPushService implements LedgerPushAdapter {
             parked++;
             _health?.noteCapabilityParked(SyncDomain.ledger);
         }
+      } on CasEpochMismatch {
+        // The replica's epoch is stale: nothing was written. Leave the op
+        // queued (WP-7 owns the rebootstrap) and stop this cycle.
+        await _queue.releaseInFlight(item.id);
+        break;
       } catch (e) {
         failed++;
         _health?.noteFailure(SyncDomain.ledger, e);
@@ -245,10 +253,17 @@ class LedgerPushService implements LedgerPushAdapter {
     }
 
     try {
+      final cas = _plan.isCas;
       final outcome = switch (item.operation) {
-        OutboxOperation.create => await _pushCreate(item, payload, userId),
-        OutboxOperation.update => await _pushUpdate(item, payload, userId),
-        OutboxOperation.delete => await _pushDelete(item, payload, userId),
+        OutboxOperation.create => cas
+            ? await _casCreate(item, payload, userId)
+            : await _pushCreate(item, payload, userId),
+        OutboxOperation.update => cas
+            ? await _casUpdate(item, payload, userId)
+            : await _pushUpdate(item, payload, userId),
+        OutboxOperation.delete => cas
+            ? await _casDelete(item, payload, userId)
+            : await _pushDelete(item, payload, userId),
       };
       // An accepted awaiting-FX write is positive proof of server support.
       if (awaitingFx && outcome == _PushOutcome.pushed) {
@@ -334,36 +349,7 @@ class LedgerPushService implements LedgerPushAdapter {
     // never as creates, so their server source must be preserved.
     serverRow.remove('source');
 
-    final expectedRevision = payload['server_revision'] as int?;
     try {
-      // MALI-022 / 0068 — atomic compare-and-set when the capability is on AND
-      // we have a base revision. The server updates only if `revision` still
-      // matches; a zero-row result is a genuine conflict, not a lost update.
-      if (_revisionCasEnabled && expectedRevision != null) {
-        // MALI-026 (Phase-9M): decode the LIST (0/1/>1); a 0-row CAS is the
-        // conflict branch, not a PGRST116 throw.
-        final rows = await _getClient()
-            .from('user_transactions')
-            .update(serverRow)
-            .eq('id', serverId)
-            .eq('revision', expectedRevision)
-            .select(_casAckCols);
-        final updated = guardedAck(rows, 'ledger.casUpdate');
-        if (updated == null) {
-          // 0 rows matched → the server moved past our base revision.
-          await _markConflict(item.transactionId);
-          await _queue.markSuccess(item);
-          return _PushOutcome.conflict;
-        }
-        await _ackAndAttach(
-          item,
-          serverId,
-          serverUpdatedAt: updated['updated_at'] as String?,
-          serverRevision: updated['revision'] as int?,
-        );
-        return _PushOutcome.pushed;
-      }
-
       // C-6 — fail-safe guarded path (capability OFF, or revision unknown).
       //
       // This used to SELECT the server's updated_at, compare it, then issue a
@@ -434,29 +420,7 @@ class LedgerPushService implements LedgerPushAdapter {
     }
 
     final deletedAt = DateTime.now().toUtc().toIso8601String();
-    final expectedRevision = payload['server_revision'] as int?;
     try {
-      // MALI-022 / 0068 (Phase-9K): the tombstone is GUARDED, never the old
-      // unconditional id-only overwrite. CAS on the base revision when known;
-      // otherwise an optimistic updated_at compare. A zero-row result is
-      // classified below — a stale delete can never clobber a newer update.
-      if (_revisionCasEnabled && expectedRevision != null) {
-        // MALI-026 (Phase-9M): decode the LIST (0/1/>1); a 0-row tombstone flows
-        // to the classifier, not a PGRST116 throw.
-        final rows = await _getClient()
-            .from('user_transactions')
-            .update({'deleted_at': deletedAt})
-            .eq('id', serverId)
-            .eq('revision', expectedRevision)
-            .select(_casAckCols);
-        final ack = guardedAck(rows, 'ledger.casTombstone');
-        if (ack != null) {
-          await _ackTombstone(item);
-          return _PushOutcome.pushed;
-        }
-        return await _resolveDeleteConflict(item, serverId);
-      }
-
       // Never id-only: guard on the last-known updated_at, or (when unknown) on
       // the row not already being tombstoned. Each branch is a single chained
       // statement so the guard predicate always travels with the deleted_at write.
@@ -488,6 +452,125 @@ class LedgerPushService implements LedgerPushAdapter {
       }
       rethrow;
     }
+  }
+
+  // ── WP-5: revision CAS (capability `revision_cas`) ───────────────────────
+
+  Future<_PushOutcome> _casCreate(
+    OutboxItem item,
+    Map<String, dynamic> payload,
+    String userId,
+  ) async {
+    final localId = payload['local_id'] as String? ?? item.transactionId;
+    final row = {
+      ...await _toServerRow(payload, userId),
+      'client_request_id': localId,
+    };
+    final d = await _cas.create(
+        table: 'user_transactions',
+        epoch: _plan.epoch!,
+        opId: item.operationId!,
+        row: row);
+    if (d.kind == CasDecisionKind.acked) {
+      await _casAck(item, d.row!);
+      return _PushOutcome.pushed;
+    }
+    return _casConflict(item, d,
+        d.cloudTombstoned ? SyncConflictKind.tombstone : SyncConflictKind.create);
+  }
+
+  Future<_PushOutcome> _casUpdate(
+    OutboxItem item,
+    Map<String, dynamic> payload,
+    String userId,
+  ) async {
+    final localId = payload['local_id'] as String? ?? item.transactionId;
+    final serverId = (payload['server_id'] as String?) ??
+        await _findServerId(localId, userId);
+    if (serverId == null) return _casCreate(item, payload, userId);
+    final patch = await _toServerRow(payload, userId)
+      ..remove('source')
+      ..remove('user_id');
+    final d = await _cas.update(
+      table: 'user_transactions',
+      epoch: _plan.epoch!,
+      opId: item.operationId!,
+      priorOpIds: item.priorOpIds,
+      serverId: serverId,
+      baseRevision: item.baseRevision ?? (payload['server_revision'] as int?),
+      baseUpdatedAt: payload['server_updated_at'] as String?,
+      patch: patch,
+    );
+    switch (d.kind) {
+      case CasDecisionKind.acked:
+        await _casAck(item, d.row!);
+        return _PushOutcome.pushed;
+      case CasDecisionKind.missing:
+        // The cloud has no such row (never landed / purged): create it again
+        // by identity. Insert-if-absent still refuses to un-delete a tombstone.
+        return _casCreate(item, payload, userId);
+      default:
+        return _casConflict(item, d,
+            d.cloudTombstoned ? SyncConflictKind.tombstone : SyncConflictKind.update);
+    }
+  }
+
+  Future<_PushOutcome> _casDelete(
+    OutboxItem item,
+    Map<String, dynamic> payload,
+    String userId,
+  ) async {
+    final localId = payload['local_id'] as String? ?? item.transactionId;
+    final serverId = (payload['server_id'] as String?) ??
+        await _findServerId(localId, userId);
+    if (serverId == null) {
+      await _ackTombstone(item);
+      return _PushOutcome.pushed;
+    }
+    final d = await _cas.tombstone(
+      table: 'user_transactions',
+      epoch: _plan.epoch!,
+      opId: item.operationId!,
+      priorOpIds: item.priorOpIds,
+      serverId: serverId,
+      baseRevision: item.baseRevision ?? (payload['server_revision'] as int?),
+      baseUpdatedAt: payload['server_updated_at'] as String?,
+    );
+    if (d.kind == CasDecisionKind.acked || d.kind == CasDecisionKind.gone) {
+      await _ackTombstone(item);
+      return _PushOutcome.pushed;
+    }
+    return _casConflict(item, d, SyncConflictKind.delete);
+  }
+
+  Future<void> _casAck(OutboxItem item, Map<String, dynamic> row) =>
+      _ackAndAttach(
+        item,
+        row['id'] as String,
+        serverUpdatedAt: row['updated_at'] as String?,
+        serverRevision: (row['revision'] as num?)?.toInt(),
+      );
+
+  /// The conflict is stored durably BEFORE the outbox op is consumed, in one
+  /// local transaction.
+  Future<_PushOutcome> _casConflict(
+    OutboxItem item,
+    CasDecision d,
+    SyncConflictKind kind,
+  ) async {
+    await _db.transaction(() async {
+      await _conflicts.flag(
+        entityType: ConflictEntities.transaction,
+        localId: item.transactionId,
+        kind: kind,
+        serverId: d.row?['id'] as String?,
+        theirs: d.row,
+        theirsRevision: (d.row?['revision'] as num?)?.toInt(),
+        operationId: item.operationId,
+      );
+      await _queue.markSuccess(item);
+    });
+    return _PushOutcome.conflict;
   }
 
   /// A guarded tombstone matched zero rows. Classify (Phase-9K §5):

@@ -118,8 +118,10 @@ class ConflictEntities {
 ///
 ///   ── revision CAS + interactive (user-authored financial data) ──
 ///   transaction, account, budget, subscription, goal, plan
-///   ── revision CAS + deterministic prefer-remote (low-stakes config) ──
-///   card, category, settings
+///   ── revision CAS + interactive (WP-5: cards and categories too) ──
+///   card, category
+///   ── field last-writer-wins, deterministic (consent excluded) ──
+///   settings
 ///   ── append-only idempotent, no conflict possible ──
 ///   bill_payment, goal_contribution, plan_transaction_link
 const Map<String, EntityConflictPolicy> kConflictPolicies = {
@@ -191,7 +193,8 @@ const Map<String, EntityConflictPolicy> kConflictPolicies = {
     remoteTable: 'user_cards',
     outbox: OutboxKind.planning,
     mechanism: ConflictMechanism.revisionCas,
-    resolution: ConflictResolution.deterministicPreferRemote,
+    resolution: ConflictResolution.interactive,
+    labelSql: 'COALESCE(nickname, last4)',
   ),
   ConflictEntities.category: EntityConflictPolicy(
     entityType: ConflictEntities.category,
@@ -199,7 +202,8 @@ const Map<String, EntityConflictPolicy> kConflictPolicies = {
     remoteTable: 'user_categories',
     outbox: OutboxKind.planning,
     mechanism: ConflictMechanism.revisionCas,
-    resolution: ConflictResolution.deterministicPreferRemote,
+    resolution: ConflictResolution.interactive,
+    labelSql: 'name_ar',
   ),
   ConflictEntities.settings: EntityConflictPolicy(
     entityType: ConflictEntities.settings,

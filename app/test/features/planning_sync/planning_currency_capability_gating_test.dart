@@ -63,8 +63,7 @@ class _RecordingSink implements PlanningRemoteSink {
           String table, String userId, String localId) async =>
       null;
 
-  @override
-  Future<Map<String, dynamic>?> casTombstone(
+    Future<Map<String, dynamic>?> casTombstone(
       String table, String serverId, int expectedRevision) async {
     _guard();
     return {'id': serverId, 'revision': expectedRevision + 1};
@@ -113,8 +112,7 @@ class _RecordingSink implements PlanningRemoteSink {
   }
 
 
-  @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(
+    Future<Map<String, dynamic>?> casUpdateByServerId(
           String table,
           String serverId,
           int expectedRevision,

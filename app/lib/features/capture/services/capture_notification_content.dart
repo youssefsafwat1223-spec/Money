@@ -282,3 +282,50 @@ CaptureNotificationContent buildUnsupportedCaptureContent({String lang = 'ar'}) 
         : 'افتح قِرش والصق الرسالة يدويًا للإضافة.',
   );
 }
+
+// ── CAP-7 (`capture_notify_v2`, manifest Q3 / X9) ───────────────────────────
+//
+// Generic capture alerts on every channel: nothing in them names an amount, a
+// merchant, a card or a sender. The detail is shown only inside the app, after
+// unlock. PROPOSED COPY, pending user approval: the English generic body mirrors
+// the server push (GENERIC_CAPTURE_PUSH); every Arabic string and the summary /
+// correction wording are proposals.
+
+/// The brand name is the same in both languages, as in
+/// `LocalNotificationService.redactedContentFor`.
+String _captureBrand(bool en) => en ? 'Qirsh' : 'قرش';
+
+/// One captured transaction, whatever the disposition.
+CaptureNotificationContent buildGenericCaptureContent({String lang = 'ar'}) {
+  final en = lang == 'en';
+  return CaptureNotificationContent(
+    title: _captureBrand(en),
+    body: en ? 'New transaction captured' : 'تم رصد عملية جديدة',
+  );
+}
+
+/// An offline backlog of [count] imported captures: one alert, not [count].
+CaptureNotificationContent buildCaptureSummaryContent(
+  int count, {
+  String lang = 'ar',
+}) {
+  final en = lang == 'en';
+  return CaptureNotificationContent(
+    title: _captureBrand(en),
+    body: en
+        ? '$count new transactions captured'
+        : (count <= 10
+            ? 'تم رصد $count عمليات جديدة'
+            : 'تم رصد $count عملية جديدة'),
+  );
+}
+
+/// Replaces an earlier "received a bank message" alert once the local parser
+/// has added the transaction. Tapping it opens the transaction to review or edit.
+CaptureNotificationContent buildCaptureCorrectionContent({String lang = 'ar'}) {
+  final en = lang == 'en';
+  return CaptureNotificationContent(
+    title: _captureBrand(en),
+    body: en ? 'Transaction added' : 'تمت إضافة العملية',
+  );
+}

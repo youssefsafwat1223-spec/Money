@@ -1,3 +1,6 @@
+import '../../../core/sync/conflict_policy.dart';
+import '../../../core/sync/outbox_receipt.dart';
+import '../../../core/sync/sync_conflict_store.dart';
 import '../../../core/sync/sync_health.dart';
 import 'dart:convert';
 
@@ -133,6 +136,7 @@ class AccountsPullService {
         _seqGate = seqGate,
         _health = health,
         _db = db,
+        _conflicts = SyncConflictStore(db),
         _isEnabled = isEnabled,
         _mayEgress = mayEgress ?? _denyEgressByDefault,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
@@ -141,6 +145,7 @@ class AccountsPullService {
         _remoteSource = remoteSource ?? const SupabaseAccountsRemoteSource();
 
   final AppDatabase _db;
+  final SyncConflictStore _conflicts;
   final bool Function() _isEnabled;
   final int _maxPagesPerRun;
   final SeqPullGate? _seqGate;
@@ -373,7 +378,14 @@ class AccountsPullService {
       if (syncStatus == 'pending' || syncStatus == 'conflict') {
         final diverged = await _serverDivergedFromLocal(localId, row);
         if (diverged) {
-          if (syncStatus != 'conflict') await _markConflict(localId);
+          if (syncStatus == 'pending') {
+            // WP-5 lost-ACK receipt: the cloud's last write is OUR queued op.
+            final own = await _settleOwn(localId, row);
+            if (own != OwnOpResult.none) return _AccountPullOutcome.updated;
+          }
+          if (syncStatus != 'conflict') {
+            await _flagConflict(localId, row, SyncConflictKind.update);
+          }
           return _AccountPullOutcome.conflict;
         }
         await _refreshServerProofKeepingPending(
@@ -496,7 +508,9 @@ class AccountsPullService {
     final status = existing.syncStatus;
     if (status == 'conflict') return false;
     if (status == 'pending') {
-      await _markConflict(existing.id);
+      // WP-5 lost-ACK receipt: the tombstone is our own queued delete.
+      if (await _settleOwn(existing.id, row) != OwnOpResult.none) return true;
+      await _flagConflict(existing.id, row, SyncConflictKind.tombstone);
       return false;
     }
 
@@ -632,6 +646,32 @@ class AccountsPullService {
           sync_status = 'pending'
       WHERE id = ${sqlString(localId)};
     ''');
+  }
+
+  Future<OwnOpResult> _settleOwn(String localId, Map<String, dynamic> row) =>
+      settleOwnOperation(
+        db: _db,
+        outboxTable: 'planning_sync_outbox',
+        outboxWhere: "entity_type = 'account' AND entity_id = ${sqlString(localId)}",
+        localTable: 'accounts',
+        localId: localId,
+        serverRow: row,
+      );
+
+  /// WP-5: durable conflict record (snapshots) + the flag.
+  Future<void> _flagConflict(
+      String localId, Map<String, dynamic> row, SyncConflictKind kind) async {
+    await _db.transaction(() async {
+      await _conflicts.flag(
+        entityType: ConflictEntities.account,
+        localId: localId,
+        kind: kind,
+        serverId: row['id'] as String?,
+        theirs: row,
+        theirsRevision: (row['revision'] as num?)?.toInt(),
+      );
+      await _markConflict(localId);
+    });
   }
 
   Future<void> _markConflict(String localId) async {

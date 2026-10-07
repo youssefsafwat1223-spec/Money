@@ -59,8 +59,7 @@ class _FakeAccountsSink implements AccountsRemoteSink {
     return null;
   }
 
-  @override
-  Future<Map<String, dynamic>?> casTombstoneAccount(
+    Future<Map<String, dynamic>?> casTombstoneAccount(
       String serverId, int expectedRevision) async {
     _recordCall();
     return {'id': serverId, 'revision': expectedRevision + 1};
@@ -96,8 +95,7 @@ class _FakeAccountsSink implements AccountsRemoteSink {
       // asserted structurally in guarded_update_atomicity_test.dart.
       updateAccountByServerId(serverId, row);
 
-  @override
-  Future<Map<String, dynamic>> updateAccountByServerId(
+    Future<Map<String, dynamic>> updateAccountByServerId(
     String serverId,
     Map<String, dynamic> row,
   ) async {
@@ -109,8 +107,7 @@ class _FakeAccountsSink implements AccountsRemoteSink {
     };
   }
 
-  @override
-  Future<Map<String, dynamic>?> casUpdateAccount(
+    Future<Map<String, dynamic>?> casUpdateAccount(
     String serverId,
     int expectedRevision,
     Map<String, dynamic> row,

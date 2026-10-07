@@ -60,12 +60,6 @@ void main() {
 
   group('planning sink', () {
     test(
-        'casUpdateByServerId 0/1/>1',
-        () => triple(
-            () => planning.casUpdateByServerId('user_goals', 'sid', 5, {})));
-    test('casTombstone 0/1/>1',
-        () => triple(() => planning.casTombstone('user_goals', 'sid', 5)));
-    test(
         'guardedTombstone (updated_at) 0/1/>1',
         () => triple(
             () => planning.guardedTombstone('user_goals', 'sid', 'base')));
@@ -78,13 +72,7 @@ void main() {
   });
 
   group('accounts sink', () {
-    test('casUpdateAccount 0/1/>1',
-        () => triple(() => accounts.casUpdateAccount('sid', 5, {})));
-    test('casTombstoneAccount 0/1/>1',
-        () => triple(() => accounts.casTombstoneAccount('sid', 5)));
     test('guardedTombstoneAccount 0/1/>1',
         () => triple(() => accounts.guardedTombstoneAccount('sid', 'base')));
-    test('updateAccountByServerId (OFF guarded) 0/1/>1',
-        () => triple(() => accounts.updateAccountByServerId('sid', {})));
   });
 }

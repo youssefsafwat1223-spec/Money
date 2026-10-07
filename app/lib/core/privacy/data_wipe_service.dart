@@ -42,6 +42,9 @@ class DataWipeService {
     'planning_sync_outbox',
     'sync_cursors',
     'parked_child_rows',
+    // WP-5 — durable conflict snapshots hold the user's own edit and the cloud
+    // version of a record: financial data, so a wipe removes them too.
+    'sync_conflicts',
     'engagement_events',
     'pending_merchant_feedback',
     'financial_cache_health',

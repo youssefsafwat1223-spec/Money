@@ -852,4 +852,165 @@ void main() {
     expect(q.read<int>('attempt_count'), 5);
     expect(await db.count('transactions'), 1);
   });
+
+  // ---- WP-5: lost-ACK receipt on the pull side (the WP-4 note) --------------
+  Future<String> pendingWithOp(String serverId,
+      {required String opId,
+      String operation = 'update',
+      List<String> prior = const []}) async {
+    await db.customStatement(
+        "UPDATE transactions SET amount = 999.0, sync_status = 'pending' "
+        "WHERE server_id = '$serverId';");
+    final payload = prior.isEmpty
+        ? '{}'
+        : '{"prior_op_ids":[${prior.map((e) => '"$e"').join(',')}]}';
+    await db.customStatement('''
+      INSERT INTO ledger_sync_outbox(id, transaction_id, operation, payload_json,
+        attempt_count, status, created_at, updated_at, op_seq, in_flight_seq,
+        operation_id)
+      SELECT 'o-$opId', id, '$operation', '$payload', 0, 'pending',
+        '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z', 1, 1, '$opId'
+      FROM transactions WHERE server_id = '$serverId';
+    ''');
+    return (await db
+            .customSelect(
+                "SELECT id FROM transactions WHERE server_id = '$serverId';")
+            .getSingle())
+        .read<String>('id');
+  }
+
+  Future<Map<String, Object?>> rowOf(String serverId) async => (await db
+          .customSelect('SELECT id, amount, sync_status, server_revision '
+              "FROM transactions WHERE server_id = '$serverId';")
+          .getSingle())
+      .data;
+
+  Future<int> openConflicts() async => (await db
+          .customSelect(
+              'SELECT COUNT(*) AS n FROM sync_conflicts WHERE resolved_at IS NULL;')
+          .getSingle())
+      .read<int>('n');
+
+  test('WP-5 lost ACK (update): the cloud row moved but its last_op_id is our '
+      'queued op → settled, never a conflict', () async {
+    remote.activeRows = [_serverRow(id: 'srv-la', updatedAt: '2026-01-01T10:00:00.000Z')];
+    await _makeSvc(db, remote).pull();
+    await pendingWithOp('srv-la', opId: 'op-mine');
+    remote.activeRows = [
+      _serverRow(id: 'srv-la', amount: 999.0, updatedAt: '2026-01-03T10:00:00.000Z')
+        ..['revision'] = 2
+        ..['last_op_id'] = 'op-mine',
+    ];
+    final r = await _makeSvc(db, remote).pull();
+    expect(r.conflicts, 0);
+    final row = await rowOf('srv-la');
+    expect(row['sync_status'], 'synced');
+    expect(row['amount'], 999.0, reason: 'our own edit stays');
+    expect(row['server_revision'], 2);
+    expect(await db.count('ledger_sync_outbox'), 0, reason: 'op consumed');
+    expect(await openConflicts(), 0);
+  });
+
+  test('WP-5 lost ACK (create found by client_request_id): the server row is '
+      "the client's own op → not a conflict, identity attached", () async {
+    await db.customStatement('''
+      INSERT INTO transactions(id, amount, currency, type, source, occurred_at,
+        raw_message, parse_confidence, status, created_at, updated_at, sync_status)
+      VALUES ('tx-new', 100.0, 'SAR', 'payment', 'bank', '2026-01-01T10:00:00.000Z',
+        '', 0.9, 'confirmed', '2026-01-01', '2026-01-01', 'pending');
+    ''');
+    await db.customStatement('''
+      INSERT INTO ledger_sync_outbox(id, transaction_id, operation, payload_json,
+        attempt_count, status, created_at, updated_at, op_seq, in_flight_seq,
+        operation_id)
+      VALUES ('o-new', 'tx-new', 'create', '{}', 0, 'pending', '2026-07-01',
+        '2026-07-01', 1, 1, 'op-create');
+    ''');
+    remote.activeRows = [
+      _serverRow(id: 'srv-new', updatedAt: '2026-01-03T10:00:00.000Z')
+        ..['client_request_id'] = 'tx-new'
+        ..['revision'] = 1
+        ..['last_op_id'] = 'op-create',
+    ];
+    final r = await _makeSvc(db, remote).pull();
+    expect(r.conflicts, 0);
+    final row = await rowOf('srv-new');
+    expect(row['id'], 'tx-new');
+    expect(row['sync_status'], 'synced');
+    expect(await db.count('ledger_sync_outbox'), 0);
+  });
+
+  test('WP-5 a foreign op id is a real conflict and is stored durably '
+      '(snapshots) before anything is resolved', () async {
+    remote.activeRows = [_serverRow(id: 'srv-fo', updatedAt: '2026-01-01T10:00:00.000Z')];
+    await _makeSvc(db, remote).pull();
+    await pendingWithOp('srv-fo', opId: 'op-mine');
+    remote.activeRows = [
+      _serverRow(id: 'srv-fo', amount: 300.0, updatedAt: '2026-01-03T10:00:00.000Z')
+        ..['revision'] = 2
+        ..['last_op_id'] = 'someone-else',
+    ];
+    final r = await _makeSvc(db, remote).pull();
+    expect(r.conflicts, 1);
+    final rec = await db.customSelect('SELECT * FROM sync_conflicts').getSingle();
+    expect(rec.read<String>('kind'), 'update');
+    expect(rec.read<int>('theirs_revision'), 2);
+    expect(rec.read<String>('mine_json'), contains('999'));
+    expect(rec.read<String>('theirs_json'), contains('300'));
+    expect(await db.count('ledger_sync_outbox'), 1,
+        reason: 'the local op is kept until the user decides');
+  });
+
+  test('WP-5 earlier op of a since-edited row: re-based, edit stays pending, '
+      'no conflict', () async {
+    remote.activeRows = [_serverRow(id: 'srv-pr', updatedAt: '2026-01-01T10:00:00.000Z')];
+    await _makeSvc(db, remote).pull();
+    await pendingWithOp('srv-pr', opId: 'op-second', prior: ['op-first']);
+    remote.activeRows = [
+      _serverRow(id: 'srv-pr', amount: 500.0, updatedAt: '2026-01-03T10:00:00.000Z')
+        ..['revision'] = 2
+        ..['last_op_id'] = 'op-first',
+    ];
+    final r = await _makeSvc(db, remote).pull();
+    expect(r.conflicts, 0);
+    final row = await rowOf('srv-pr');
+    expect(row['sync_status'], 'pending');
+    expect(row['server_revision'], 2);
+    expect(await db.count('ledger_sync_outbox'), 1);
+    expect(
+        (await db.customSelect('SELECT base_revision AS b FROM ledger_sync_outbox').getSingle())
+            .read<int>('b'),
+        2);
+  });
+
+  test('WP-5 tombstone of our own queued delete: settled, no conflict',
+      () async {
+    remote.activeRows = [_serverRow(id: 'srv-td', updatedAt: '2026-01-01T10:00:00.000Z')];
+    await _makeSvc(db, remote).pull();
+    await pendingWithOp('srv-td', opId: 'op-del', operation: 'delete');
+    remote.activeRows = [];
+    remote.tombstones = [
+      tombstoneOf('srv-td')
+        ..['revision'] = 2
+        ..['last_op_id'] = 'op-del',
+    ];
+    final r = await _makeSvc(db, remote).pull();
+    expect(r.conflicts, 0);
+    expect(await db.count('ledger_sync_outbox'), 0);
+    expect(await openConflicts(), 0);
+  });
+
+  test('WP-5 foreign tombstone vs pending edit: durable conflict kind '
+      'tombstone, edit and op kept', () async {
+    remote.activeRows = [_serverRow(id: 'srv-tf', updatedAt: '2026-01-01T10:00:00.000Z')];
+    await _makeSvc(db, remote).pull();
+    await pendingWithOp('srv-tf', opId: 'op-mine');
+    remote.activeRows = [];
+    remote.tombstones = [tombstoneOf('srv-tf')..['last_op_id'] = 'someone-else'];
+    final r = await _makeSvc(db, remote).pull();
+    expect(r.conflicts, 1);
+    expect((await db.customSelect('SELECT kind FROM sync_conflicts').getSingle())
+        .read<String>('kind'), 'tombstone');
+    expect(await db.count('ledger_sync_outbox'), 1);
+  });
 }

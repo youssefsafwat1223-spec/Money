@@ -3121,5 +3121,55 @@
       }
     }
   },
-  "removeDataAction": "Remove data"
+  "removeDataAction": "Remove data",
+  "captureUnboundTitle": "Messages received while signed out",
+  "captureUnboundBody": "{count, plural, =1{1 bank message was} other{{count} bank messages were}} received while you were signed out.",
+  "@captureUnboundBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "captureUnboundSenders": "From: {senders}",
+  "@captureUnboundSenders": {
+    "placeholders": {
+      "senders": {
+        "type": "String"
+      }
+    }
+  },
+  "captureUnboundAdd": "Add them to my account",
+  "captureUnboundDiscard": "Discard them",
+  "conflictKeepMine": "Keep mine",
+  "conflictKeepMineAsNew": "Keep mine as a new copy",
+  "conflictKeepCloud": "Keep cloud version",
+  "conflictKeptCloud": "The cloud version was kept.",
+  "conflictThisDevice": "This device",
+  "conflictCloud": "Cloud",
+  "conflictDeletedInCloud": "Deleted in the cloud",
+  "conflictDeletedHere": "Deleted on this device",
+  "conflictNotSet": "Not set",
+  "conflictFieldAmount": "Amount",
+  "conflictFieldCurrency": "Currency",
+  "conflictFieldMerchant": "Merchant",
+  "conflictFieldNote": "Note",
+  "conflictFieldDate": "Date",
+  "conflictFieldStatus": "Status",
+  "conflictFieldCategory": "Category",
+  "conflictFieldName": "Name",
+  "conflictFieldType": "Type",
+  "conflictFieldBalance": "Balance",
+  "conflictFieldInitialBalance": "Initial balance",
+  "conflictFieldCreditLimit": "Credit limit",
+  "conflictFieldPeriod": "Period",
+  "conflictFieldStartDate": "Start date",
+  "conflictFieldEndDate": "End date",
+  "conflictFieldFrequency": "Frequency",
+  "conflictFieldNextDue": "Next due date",
+  "conflictFieldTargetAmount": "Target amount",
+  "conflictFieldDeadline": "Deadline",
+  "conflictFieldNickname": "Card name",
+  "conflictFieldLast4": "Last 4 digits",
+  "conflictFieldActive": "Active"
 }

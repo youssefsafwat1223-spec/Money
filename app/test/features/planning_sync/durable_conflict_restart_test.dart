@@ -1,5 +1,5 @@
 // MALI-026 (Phase-9M §12/§13/§14/§16) — restore the premise that failed LIVE in
-// 9L: a real zero-row guarded CAS must become a DURABLE sync_status='conflict'
+// 9L (WP-5: now through the sync_* RPCs): a real CAS conflict must become a DURABLE sync_status='conflict'
 // (outbox CONSUMED, NOT dead-lettered), survive a file-backed restart, and be
 // resolvable by keep-mine (rebase → success) / keep-theirs. The conflict
 // ORIGINATES from the actual zero-row result (a shared-server fake returns null
@@ -18,6 +18,8 @@ import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
 
+import '../../harness/fake_cas_server.dart';
+
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
   Future<String> readOrCreateKey() async => 'test-key';
@@ -25,90 +27,22 @@ class _MemoryKeyStore implements DatabaseKeyStore {
   Future<String?> readStoredKey() async => 'test-key';
 }
 
-/// The single shared server row A and B race on.
-class _Server {
-  int revision = 5;
-  String updatedAt = 'base-ts';
-  String? deletedAt;
-  bool exists = true;
+/// The single shared cloud row A and B race on: goal g1 at revision 5.
+class _Server extends FakeCasServer {
+  _Server() {
+    seed('user_goals', {'local_id': 'g1'}, id: 'srv-g1', revision: 5);
+  }
+  Map<String, dynamic> get row => tables['user_goals']!['srv-g1']!;
+  int get revision => row['revision'] as int;
+  String? get deletedAt => row['deleted_at'] as String?;
+  // Device A advanced the cloud row to revision 6.
+  void deviceAEdits() => foreignEdit('user_goals', 'srv-g1', {'name': 'A edit'});
 }
 
-/// A sink over the shared [_Server] with real revision-CAS cardinality: a
-/// mismatch returns null (the 0-row branch), exactly as `guardedAck([])` does.
+/// Legacy sink: nothing in this file runs the legacy path.
 class _SharedSink implements PlanningRemoteSink {
-  _SharedSink(this.s);
-  final _Server s;
-
   @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(
-      String t, String sid, int expected, Map<String, dynamic> row) async {
-    if (!s.exists || expected != s.revision) return null;
-    s.revision += 1;
-    s.updatedAt = 'u-${s.revision}';
-    return {'id': sid, 'updated_at': s.updatedAt, 'revision': s.revision};
-  }
-
-  @override
-  Future<Map<String, dynamic>?> casTombstone(
-      String t, String sid, int expected) async {
-    if (!s.exists || expected != s.revision) return null;
-    s.revision += 1;
-    s.deletedAt = 'del-${s.revision}';
-    s.updatedAt = 'u-${s.revision}';
-    return {'id': sid, 'updated_at': s.updatedAt, 'revision': s.revision};
-  }
-
-  @override
-  Future<Map<String, dynamic>?> guardedTombstone(
-      String t, String sid, String? expectedUpdatedAt) async {
-    if (!s.exists) return null;
-    if (expectedUpdatedAt != null && expectedUpdatedAt != s.updatedAt) {
-      return null;
-    }
-    if (expectedUpdatedAt == null && s.deletedAt != null) return null;
-    s.revision += 1;
-    s.deletedAt = 'del-${s.revision}';
-    return {'id': sid, 'updated_at': s.updatedAt};
-  }
-
-  @override
-  Future<Map<String, dynamic>?> fetchRowState(String t, String sid) async =>
-      s.exists ? {'deleted_at': s.deletedAt} : null;
-  @override
-  Future<Map<String, dynamic>?> findByLocalId(
-          String t, String u, String l) async =>
-      null;
-  @override
-  Future<String?> fetchServerUpdatedAt(String t, String sid) async =>
-      s.updatedAt;
-  @override
-  Future<Map<String, dynamic>?> guardedUpdateByServerId(
-    String table,
-    String serverId,
-    String expectedUpdatedAt,
-    Map<String, dynamic> row,
-  ) async {
-    // C-6: no concurrent writer modelled; rejection is covered in
-    // planning_guarded_update_atomicity_test.dart.
-    return updateByServerId(table, serverId, row);
-  }
-
-  @override
-  Future<Map<String, dynamic>?> updateByServerId(
-          String t, String sid, Map<String, dynamic> row) async =>
-      s.exists
-          ? {'id': sid, 'updated_at': s.updatedAt, 'revision': s.revision}
-
-
-          : null;
-  @override
-  Future<Map<String, dynamic>> upsert(
-          String t, Map<String, dynamic> row) async =>
-      {
-        'id': 'srv-${row['local_id']}',
-        'updated_at': s.updatedAt,
-        'revision': s.revision
-      };
+  dynamic noSuchMethod(Invocation i) => throw UnsupportedError('legacy path');
 }
 
 GoalEntity _goal(int savedMinor) => GoalEntity(
@@ -135,8 +69,9 @@ void main() {
         queue: q,
         isEnabled: (_) => true,
         getAuthUserId: () async => 'user-1',
-        remoteSink: _SharedSink(s),
-        revisionCasEnabled: true,
+        remoteSink: _SharedSink(),
+        casGate: casGate(db),
+        casRemote: s,
       );
   UniversalConflictResolver resolverOf(
           AppDatabase db, PlanningOutboxQueue q, _Server s) =>
@@ -148,8 +83,9 @@ void main() {
             if (g != null) await q.enqueueGoal(PlanningSyncOperation.update, g);
           },
         },
-        baseFetcher: (table, sid) async =>
-            ConflictBase(updatedAt: s.updatedAt, revision: s.revision),
+        // The durable record carries the cloud version, so keep-mine needs no
+        // network to rebase; this fetcher must never be consulted.
+        baseFetcher: (table, sid) async => throw StateError('no network'),
       );
 
   // Seed a goal synced at revision 5, then enqueue [op] carrying that base.
@@ -198,9 +134,7 @@ void main() {
     final dir = Directory.systemTemp.createTempSync('9m_dur');
     final path = '${dir.path}/b.db';
     try {
-      // Device A advanced the server to revision 6 (modelled directly).
-      server.revision = 6;
-      server.updatedAt = 'u-6';
+      server.deviceAEdits(); // revision 6
 
       var db = await AppDatabase.open(
           executor: NativeDatabase(File(path)), keyStore: _MemoryKeyStore());
@@ -209,7 +143,9 @@ void main() {
           saved: 40000); // B's local edit
       final r = await push(db, q, server).push();
 
-      expect(r.conflicts, 1, reason: 'a real 0-row CAS is a conflict');
+      expect(r.conflicts, 1, reason: 'a real CAS conflict');
+      expect(await _openRecords(db), 1,
+          reason: 'the conflict is stored durably before the op is consumed');
       expect(await statusOf(db), 'conflict');
       expect(await deadN(db), 0, reason: 'NEVER dead-lettered');
       expect(await outboxN(db), 0,
@@ -222,6 +158,7 @@ void main() {
           executor: NativeDatabase(File(path)), keyStore: _MemoryKeyStore());
       q = queueOf(db);
       expect(await statusOf(db), 'conflict', reason: 'durable across restart');
+      expect(await _openRecords(db), 1, reason: 'the record survives too');
       final savedMinor = (await db
               .customSelect(
                   "SELECT saved_amount_minor m FROM goals WHERE id='g1';")
@@ -237,6 +174,7 @@ void main() {
       expect(r2.pushed, 1, reason: 'rebased CAS matches → success');
       expect(server.revision, 7);
       expect(await statusOf(db), 'synced');
+      expect(await _openRecords(db), 0, reason: 'resolved');
       await db.close();
     } finally {
       dir.deleteSync(recursive: true);
@@ -245,9 +183,7 @@ void main() {
 
   test('zero-row CAS update conflict → keep-theirs adopts remote, no push',
       () async {
-    final server = _Server()
-      ..revision = 6
-      ..updatedAt = 'u-6';
+    final server = _Server()..deviceAEdits();
     final db = await AppDatabase.open(
         executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
     addTearDown(db.close);
@@ -265,9 +201,7 @@ void main() {
   test(
       'DELETE conflict from a real zero-row tombstone → durable conflict; '
       'keep-mine re-enqueues a rebased delete that succeeds', () async {
-    final server = _Server()
-      ..revision = 6
-      ..updatedAt = 'u-6'; // device A already updated
+    final server = _Server()..deviceAEdits(); // device A already updated
     final db = await AppDatabase.open(
         executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
     addTearDown(db.close);
@@ -289,3 +223,9 @@ void main() {
     expect(server.revision, 7);
   });
 }
+
+Future<int> _openRecords(AppDatabase db) async => (await db
+        .customSelect(
+            'SELECT COUNT(*) n FROM sync_conflicts WHERE resolved_at IS NULL;')
+        .getSingle())
+    .read<int>('n');

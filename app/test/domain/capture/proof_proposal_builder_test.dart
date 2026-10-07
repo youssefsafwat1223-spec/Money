@@ -57,10 +57,14 @@ void main() {
   });
 
   group('canonicalAmount is for REPORTING only', () {
-    test('scale 2', () => expect(ProofProposalBuilder.canonicalAmount(12575, 2), '125.75'));
-    test('scale 3', () => expect(ProofProposalBuilder.canonicalAmount(45750, 3), '45.750'));
-    test('scale 0', () => expect(ProofProposalBuilder.canonicalAmount(500, 0), '500'));
-    test('sub-unit pads', () => expect(ProofProposalBuilder.canonicalAmount(5, 2), '0.05'));
+    test('scale 2',
+        () => expect(ProofProposalBuilder.canonicalAmount(12575, 2), '125.75'));
+    test('scale 3',
+        () => expect(ProofProposalBuilder.canonicalAmount(45750, 3), '45.750'));
+    test('scale 0',
+        () => expect(ProofProposalBuilder.canonicalAmount(500, 0), '500'));
+    test('sub-unit pads',
+        () => expect(ProofProposalBuilder.canonicalAmount(5, 2), '0.05'));
   });
 
   group('direction vocabulary is the CHECKER\'s, not the enum\'s', () {
@@ -75,13 +79,17 @@ void main() {
       }
     });
     test('income and refund are incoming', () {
-      expect(ProofProposalBuilder.directionFor(TransactionType.income), 'incoming');
-      expect(ProofProposalBuilder.directionFor(TransactionType.refund), 'incoming');
+      expect(ProofProposalBuilder.directionFor(TransactionType.income),
+          'incoming');
+      expect(ProofProposalBuilder.directionFor(TransactionType.refund),
+          'incoming');
     });
     test('transfer and unknown REFUSE rather than guess', () {
       // A transfer's direction depends on which side the message describes.
-      expect(ProofProposalBuilder.directionFor(TransactionType.transfer), isNull);
-      expect(ProofProposalBuilder.directionFor(TransactionType.unknown), isNull);
+      expect(
+          ProofProposalBuilder.directionFor(TransactionType.transfer), isNull);
+      expect(
+          ProofProposalBuilder.directionFor(TransactionType.unknown), isNull);
     });
   });
 
@@ -108,15 +116,18 @@ void main() {
     test('REFUSES when the parsed amount is absent from the message', () {
       final ev = extractEvidence('تم خصم 125.75 ر.س لدى ستاربكس');
       expect(
-          b.build(
-              evidence: ev,
-              type: TransactionType.payment,
-              amountMinorUnits: 999, // 9.99 — no such token
-              currencyIso: 'SAR').proposal,
+          b
+              .build(
+                  evidence: ev,
+                  type: TransactionType.payment,
+                  amountMinorUnits: 999, // 9.99 — no such token
+                  currencyIso: 'SAR')
+              .proposal,
           isNull);
     });
 
-    test('REFUSES when two nodes carry the same VALUE (one currency token)', () {
+    test('REFUSES when two nodes carry the same VALUE (one currency token)',
+        () {
       // The first version of this test used a message with TWO currency tokens,
       // so the builder refused at the currency check and never reached the
       // amount-ambiguity branch — it passed for the wrong reason. This message
@@ -128,11 +139,13 @@ void main() {
           .length;
       expect(cur, 1, reason: 'fixture must isolate AMOUNT ambiguity');
       expect(
-          b.build(
-              evidence: ev,
-              type: TransactionType.payment,
-              amountMinorUnits: 5000,
-              currencyIso: 'SAR').proposal,
+          b
+              .build(
+                  evidence: ev,
+                  type: TransactionType.payment,
+                  amountMinorUnits: 5000,
+                  currencyIso: 'SAR')
+              .proposal,
           isNull);
     });
 
@@ -141,44 +154,52 @@ void main() {
       // confident mispairing is what would corrupt the shadow measurement.
       final ev = extractEvidence('خصم 50.00 ر.س ورصيد 20.00 د.ك');
       expect(
-          b.build(
-              evidence: ev,
-              type: TransactionType.payment,
-              amountMinorUnits: 5000,
-              currencyIso: 'SAR').proposal,
+          b
+              .build(
+                  evidence: ev,
+                  type: TransactionType.payment,
+                  amountMinorUnits: 5000,
+                  currencyIso: 'SAR')
+              .proposal,
           isNull);
     });
 
     test('REFUSES a negative amount — evidence carries no signs', () {
       final ev = extractEvidence('تم خصم 125.75 ر.س لدى ستاربكس');
       expect(
-          b.build(
-              evidence: ev,
-              type: TransactionType.payment,
-              amountMinorUnits: -12575,
-              currencyIso: 'SAR').proposal,
+          b
+              .build(
+                  evidence: ev,
+                  type: TransactionType.payment,
+                  amountMinorUnits: -12575,
+                  currencyIso: 'SAR')
+              .proposal,
           isNull);
     });
 
     test('REFUSES when the currency is absent', () {
       final ev = extractEvidence('تم خصم 125.75 لدى ستاربكس');
       expect(
-          b.build(
-              evidence: ev,
-              type: TransactionType.payment,
-              amountMinorUnits: 12575,
-              currencyIso: 'SAR').proposal,
+          b
+              .build(
+                  evidence: ev,
+                  type: TransactionType.payment,
+                  amountMinorUnits: 12575,
+                  currencyIso: 'SAR')
+              .proposal,
           isNull);
     });
 
     test('REFUSES a transfer outright', () {
       final ev = extractEvidence('تم خصم 125.75 ر.س لدى ستاربكس');
       expect(
-          b.build(
-              evidence: ev,
-              type: TransactionType.transfer,
-              amountMinorUnits: 12575,
-              currencyIso: 'SAR').proposal,
+          b
+              .build(
+                  evidence: ev,
+                  type: TransactionType.transfer,
+                  amountMinorUnits: 12575,
+                  currencyIso: 'SAR')
+              .proposal,
           isNull);
     });
   });
@@ -186,7 +207,8 @@ void main() {
   group('every refusal names its reason — the Tier 2 diagnostic contract', () {
     // Without a reason per refusal, the ~53% refusal rate is an opaque
     // denominator loss during Tier 2, indistinguishable from "Proof is broken".
-    ProofProposalRefusal? why(String sms, TransactionType t, int minor, String iso) =>
+    ProofProposalRefusal? why(
+            String sms, TransactionType t, int minor, String iso) =>
         b
             .build(
                 evidence: extractEvidence(sms),
@@ -204,11 +226,15 @@ void main() {
           ProofProposalRefusal.negativeAmount);
     });
     test('noCurrencyToken', () {
-      expect(why('تم خصم 125.75 لدى ستاربكس', TransactionType.payment, 12575, 'SAR'),
+      expect(
+          why('تم خصم 125.75 لدى ستاربكس', TransactionType.payment, 12575,
+              'SAR'),
           ProofProposalRefusal.noCurrencyToken);
     });
     test('multipleCurrencyTokens', () {
-      expect(why('خصم 50.00 ر.س ورصيد 20.00 د.ك', TransactionType.payment, 5000, 'SAR'),
+      expect(
+          why('خصم 50.00 ر.س ورصيد 20.00 د.ك', TransactionType.payment, 5000,
+              'SAR'),
           ProofProposalRefusal.multipleCurrencyTokens);
     });
     test('amountNotFound', () {
@@ -216,7 +242,9 @@ void main() {
           ProofProposalRefusal.amountNotFound);
     });
     test('amountAmbiguous', () {
-      expect(why('خصم 50.00 والرصيد 50.00 ر.س', TransactionType.payment, 5000, 'SAR'),
+      expect(
+          why('خصم 50.00 والرصيد 50.00 ر.س', TransactionType.payment, 5000,
+              'SAR'),
           ProofProposalRefusal.amountAmbiguous);
     });
     test('currencyMismatch', () {
@@ -243,7 +271,9 @@ void main() {
     });
 
     test('a successful proposal carries NO refusal', () {
-      expect(why('تم خصم 125.75 ر.س لدى ستاربكس', TransactionType.payment, 12575, 'SAR'),
+      expect(
+          why('تم خصم 125.75 ر.س لدى ستاربكس', TransactionType.payment, 12575,
+              'SAR'),
           isNull);
     });
   });

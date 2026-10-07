@@ -246,8 +246,9 @@ test('the catalog migration exists and the client schema is untouched by it', ()
   // the client reached 38 on 2026-09-06 (cd7174a0, correctness provenance) and
   // 39 with WP-3a (replica_meta, per-UID replicas) and
   // 40 with WP-6 (versioned per-replica consent columns on user_settings),
+  // 41 with WP-5 (outbox operation_id/base_revision columns + sync_conflicts),
   // weeks after these tests were last touched, and none of those bumps came
   // from the server migration under test. Assertion unchanged, value current.
-  assert.match(db, /const int _targetSchemaVersion = 40;/);
+  assert.match(db, /const int _targetSchemaVersion = 41;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });

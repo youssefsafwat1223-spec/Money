@@ -112,10 +112,14 @@ struct PostBankStatusIntent: AppIntent {
         mirrorAllowsAi = allowAi
       case .localOnly:
         _ = SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)
-        await scheduleLocalParsedOrGenericNotification(
-          payloadID: payloadID,
-          offersSmartAnalysis: true
-        )
+        if config.captureNotifyV2 {
+          await scheduleGenericCaptureNotification(payloadID: payloadID)
+        } else {
+          await scheduleLocalParsedOrGenericNotification(
+            payloadID: payloadID,
+            offersSmartAnalysis: true
+          )
+        }
         return .result()
       case .waiting:
         // Not this owner's to process now (the owner changed, or a removal is in
@@ -145,7 +149,14 @@ struct PostBankStatusIntent: AppIntent {
         // notification, so no duplicate banner is shown.
         _ = SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)
         SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
-        if !response.pushSent {
+        if config.captureNotifyV2 {
+          // CAP-7 owner rule: the v2 response's push_attempted (legacy: pushSent)
+          // true means APNs owns this capture's alert and the intent shows
+          // nothing; otherwise the capturing phone shows the generic banner.
+          if !(response.pushAttempted ?? response.pushSent) {
+            await scheduleGenericCaptureNotification(payloadID: payloadID)
+          }
+        } else if !response.pushSent {
           await scheduleNotification(
             response.notification,
             payloadID: payloadID,
@@ -165,17 +176,25 @@ struct PostBankStatusIntent: AppIntent {
         failureReason: attempt.failureReason
       )
       if durableFallback {
-        await scheduleLocalParsedOrGenericNotification(payloadID: payloadID)
+        if config.captureNotifyV2 {
+          await scheduleGenericCaptureNotification(payloadID: payloadID)
+        } else {
+          await scheduleLocalParsedOrGenericNotification(payloadID: payloadID)
+        }
       }
       return .result()
     }
 
     let outcome = try service.capture(request, status: .sent, payloadID: payloadID)
     if case .enqueued = outcome {
-      await scheduleLocalParsedOrGenericNotification(
-        payloadID: payloadID,
-        offersSmartAnalysis: true
-      )
+      if config.captureNotifyV2 {
+        await scheduleGenericCaptureNotification(payloadID: payloadID)
+      } else {
+        await scheduleLocalParsedOrGenericNotification(
+          payloadID: payloadID,
+          offersSmartAnalysis: true
+        )
+      }
     }
     return .result()
   }
@@ -284,6 +303,28 @@ struct PostBankStatusIntent: AppIntent {
         errorReason: "\(error)"
       )
     }
+  }
+
+  /// CAP-7 (`capture_notify_v2`, X9): the one local banner of the notification
+  /// journey. Generic on every channel: no amount, merchant, card or sender ever
+  /// reaches the lock screen (Q3); the detail is shown only inside the app. The
+  /// identifier is deterministic per payloadId, so a replay replaces it.
+  private func scheduleGenericCaptureNotification(payloadID: String) async {
+    await scheduleNotification(
+      BackendNotification(
+        title: "",
+        body: Self.genericCaptureBody(),
+        type: "new_transaction"
+      ),
+      payloadID: payloadID,
+      identifierPrefix: "capture_generic"
+    )
+  }
+
+  /// PROPOSED COPY, pending user approval. English mirrors the server push
+  /// (GENERIC_CAPTURE_PUSH); the Arabic is a proposal.
+  static func genericCaptureBody(preferredLanguage: String? = Locale.preferredLanguages.first) -> String {
+    (preferredLanguage ?? "").hasPrefix("ar") ? "تم رصد عملية جديدة" : "New transaction captured"
   }
 
   /// [offersSmartAnalysis] is true only when the backend is not usable
@@ -550,6 +591,8 @@ struct BackendNotification {
 struct BackendCaptureResponse {
   let notification: BackendNotification
   let pushSent: Bool
+  /// The v2 response's `push_attempted` (CAP-3); nil on the legacy response.
+  let pushAttempted: Bool?
 }
 
 @available(iOS 16.0, *)
@@ -637,7 +680,8 @@ struct BackendCaptureClient {
       title: title,
       body: body,
       type: notification["type"] as? String ?? "received"
-    ), pushSent: json["pushSent"] as? Bool ?? false)
+    ), pushSent: json["pushSent"] as? Bool ?? false,
+       pushAttempted: json["push_attempted"] as? Bool)
   }
 
   private static func sanitize(_ text: String) throws -> String {

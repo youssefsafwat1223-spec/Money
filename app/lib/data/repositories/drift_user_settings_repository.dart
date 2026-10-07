@@ -136,6 +136,7 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
         PlanningSyncOperation.update,
         saved,
         consentChanged: consentChanged,
+        previous: previousSettings,
       );
       return saved;
     });

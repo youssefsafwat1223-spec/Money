@@ -499,6 +499,17 @@ class CaptureSyncService {
     }
   }
 
+  /// CAP-5: imports one server-processed capture in ONE local transaction
+  /// (transaction id = payload id, ledger outbox row and receipt included).
+  /// The caller has already decided the result is importable: `rejected` and
+  /// `needs_review` results never reach here (they take the local parser).
+  /// Returns the transaction id when the user should review it.
+  Future<String?> importServerCapture(
+    ProcessedCaptureDto capture,
+    Future<void> Function() requireCurrentAdmission,
+  ) =>
+      _importCapture(capture, requireCurrentAdmission);
+
   Future<String?> _importCapture(
     ProcessedCaptureDto capture,
     Future<void> Function() requireCurrentAdmission,

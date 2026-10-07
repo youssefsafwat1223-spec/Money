@@ -80,6 +80,12 @@ void main() {
   /// to a resolved or superseded item, never the financial row itself.
   ///   conflict_resolver (2)        outbox rows for a resolved conflict
   ///   ledger_outbox_queue (2)      coalesced + acknowledged rows
+  ///   outbox_receipt (1)           WP-5 lost-ACK receipt: deletes the ONE outbox
+  ///                                row whose operation_id the cloud row carries
+  ///                                as `last_op_id` (our own write landed), in one
+  ///                                local transaction with the entity settle; a
+  ///                                crash halfway rolls both back and the same
+  ///                                receipt is recognised on the next pull
   ///   planning_outbox_queue (3)    same, planning side, plus (A-2) the parked
   ///                                dependency_wait row of a never-synced,
   ///                                accountless card that is then deleted
@@ -128,6 +134,7 @@ void main() {
     // E
     'lib/core/sync/conflict_resolver.dart': 2,
     'lib/features/capture/services/ledger_outbox_queue.dart': 2,
+    'lib/core/sync/outbox_receipt.dart': 1,
     'lib/features/planning_sync/services/planning_outbox_queue.dart': 3,
     'lib/features/planning_sync/services/planning_child_sync_service.dart': 1,
     'lib/features/capture/services/ledger_sync_service.dart': 1,

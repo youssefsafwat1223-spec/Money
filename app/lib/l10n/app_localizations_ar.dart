@@ -6042,4 +6042,124 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get removeDataAction => 'حذف البيانات';
+
+  @override
+  String get captureUnboundTitle => 'رسائل وصلت أثناء تسجيل الخروج';
+
+  @override
+  String captureUnboundBody(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: 'وصلت $count رسالة بنكية',
+      few: 'وصلت $count رسائل بنكية',
+      two: 'وصلت رسالتان بنكيتان',
+      one: 'وصلت رسالة بنكية واحدة',
+    );
+    return '$_temp0 أثناء تسجيل خروجك.';
+  }
+
+  @override
+  String captureUnboundSenders(String senders) {
+    return 'من: $senders';
+  }
+
+  @override
+  String get captureUnboundAdd => 'أضفها إلى حسابي';
+
+  @override
+  String get captureUnboundDiscard => 'تجاهلها';
+
+  @override
+  String get conflictKeepMine => 'الإبقاء على نسختي';
+
+  @override
+  String get conflictKeepMineAsNew => 'الإبقاء على نسختي كنسخة جديدة';
+
+  @override
+  String get conflictKeepCloud => 'الإبقاء على نسخة السحابة';
+
+  @override
+  String get conflictKeptCloud => 'تم الإبقاء على نسخة السحابة.';
+
+  @override
+  String get conflictThisDevice => 'هذا الجهاز';
+
+  @override
+  String get conflictCloud => 'السحابة';
+
+  @override
+  String get conflictDeletedInCloud => 'محذوف في السحابة';
+
+  @override
+  String get conflictDeletedHere => 'محذوف على هذا الجهاز';
+
+  @override
+  String get conflictNotSet => 'غير محدد';
+
+  @override
+  String get conflictFieldAmount => 'المبلغ';
+
+  @override
+  String get conflictFieldCurrency => 'العملة';
+
+  @override
+  String get conflictFieldMerchant => 'التاجر';
+
+  @override
+  String get conflictFieldNote => 'ملاحظة';
+
+  @override
+  String get conflictFieldDate => 'التاريخ';
+
+  @override
+  String get conflictFieldStatus => 'الحالة';
+
+  @override
+  String get conflictFieldCategory => 'الفئة';
+
+  @override
+  String get conflictFieldName => 'الاسم';
+
+  @override
+  String get conflictFieldType => 'النوع';
+
+  @override
+  String get conflictFieldBalance => 'الرصيد';
+
+  @override
+  String get conflictFieldInitialBalance => 'الرصيد الابتدائي';
+
+  @override
+  String get conflictFieldCreditLimit => 'الحد الائتماني';
+
+  @override
+  String get conflictFieldPeriod => 'الفترة';
+
+  @override
+  String get conflictFieldStartDate => 'تاريخ البداية';
+
+  @override
+  String get conflictFieldEndDate => 'تاريخ النهاية';
+
+  @override
+  String get conflictFieldFrequency => 'التكرار';
+
+  @override
+  String get conflictFieldNextDue => 'تاريخ الاستحقاق القادم';
+
+  @override
+  String get conflictFieldTargetAmount => 'المبلغ المستهدف';
+
+  @override
+  String get conflictFieldDeadline => 'الموعد النهائي';
+
+  @override
+  String get conflictFieldNickname => 'اسم البطاقة';
+
+  @override
+  String get conflictFieldLast4 => 'آخر 4 أرقام';
+
+  @override
+  String get conflictFieldActive => 'نشط';
 }

@@ -539,4 +539,112 @@ void main() {
     expect(await db.count('planning_sync_outbox'), 1,
         reason: 'the op survives for an idempotent retry');
   });
+
+  // ---- WP-5 / B10: immutable children, idempotent delete -------------------
+  test('B10: delete_bill_payment on an already-deleted/absent payment returns '
+      'null payment/subscription — the op is ACKed, never dead-lettered',
+      () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _seedParents(db);
+    final queue = _queue(db);
+    await db.customStatement('''
+      INSERT INTO bill_payments(id,bill_id,amount,currency,period_start,
+        period_end,paid_at,transaction_id,server_id,deleted_at,sync_status)
+      VALUES ('bp-1','bill-1',10,'EGP','2026-07-01','2026-07-31','2026-07-23',
+        'tx-1','server-bp-1','2026-07-24T00:00:00Z','pending');
+    ''');
+    await backfillNonPlanningMoneyV30(db);
+    await queue.enqueueBillPayment(
+      PlanningSyncOperation.delete,
+      BillPaymentEntity(
+        id: 'bp-1',
+        billId: 'bill-1',
+        amountMoney: Money.fromLegacyReal(10, 'EGP'),
+        currency: 'EGP',
+        periodStart: DateTime.utc(2026, 7, 1),
+        periodEnd: DateTime.utc(2026, 7, 31),
+        paidAt: DateTime.utc(2026, 7, 23),
+        transactionId: 'tx-1',
+      ),
+    );
+    final remote = _DeleteNullRemote();
+    await _service(db, queue, remote, pull: false).sync();
+    expect(remote.calls, ['delete_bill_payment']);
+    expect(await db.count('planning_sync_outbox'), 0,
+        reason: 'ACKed: converged delete, not a dead letter');
+  });
+
+  test('B10: a child "update" is never an edit — it is queued as an idempotent '
+      'create (immutable children), so nothing is silently dropped', () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _seedParents(db);
+    final queue = _queue(db);
+    await queue.enqueueGoalContribution(
+      PlanningSyncOperation.update,
+      GoalContributionEntity(
+        id: 'gc-1',
+        goalId: 'goal-1',
+        amountMoney: Money.parse('25', 'EGP'),
+        createdAt: DateTime.utc(2026, 7, 23, 9),
+      ),
+    );
+    await queue.enqueueBillPayment(
+      PlanningSyncOperation.update,
+      BillPaymentEntity(
+        id: 'bp-1',
+        billId: 'bill-1',
+        amountMoney: Money.fromLegacyReal(10, 'EGP'),
+        currency: 'EGP',
+        periodStart: DateTime.utc(2026, 7, 1),
+        periodEnd: DateTime.utc(2026, 7, 31),
+        paidAt: DateTime.utc(2026, 7, 23),
+      ),
+    );
+    final ops = await db
+        .customSelect('SELECT operation FROM planning_sync_outbox;')
+        .get();
+    expect(ops.map((r) => r.read<String>('operation')), ['create', 'create']);
+  });
+
+  test('WP-5: a pulled child row never flags a pending local child as a '
+      'conflict (children are immutable); it stays pending', () async {
+    final db = await _openDb();
+    addTearDown(db.close);
+    await _seedParents(db);
+    final queue = _queue(db);
+    await db.customStatement('''
+      INSERT INTO goal_contributions(id,goal_id,amount,amount_minor,created_at,
+        sync_status) VALUES ('gc-1','goal-1',25,2500,'2026-07-23T09:00:00Z','pending');
+    ''');
+    final remote = _FakeChildRemote()
+      ..rows['user_goal_contributions'] = [
+        {
+          'id': 'server-gc-gc-1',
+          'local_id': 'gc-1',
+          'goal_id': 'server-goal-1',
+          'amount': 30,
+          'amount_text': '30',
+          'created_at': '2026-07-23T09:00:00Z',
+          'updated_at': '2026-07-23T10:00:00.000Z',
+          'deleted_at': null,
+        }
+      ];
+    await _service(db, queue, remote).sync();
+    expect(
+        (await db.customSelect("SELECT sync_status FROM goal_contributions WHERE id='gc-1';").getSingle())
+            .readNullable<String>('sync_status'),
+        'pending');
+  });
+}
+
+class _DeleteNullRemote extends _FakeChildRemote {
+  final calls = <String>[];
+  @override
+  Future<Map<String, dynamic>> callRpc(
+      String name, Map<String, dynamic> params) async {
+    calls.add(name);
+    return {'payment': null, 'subscription': null};
+  }
 }

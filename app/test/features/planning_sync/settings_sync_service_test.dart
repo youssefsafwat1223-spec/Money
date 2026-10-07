@@ -3,7 +3,6 @@ import 'dart:convert';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
@@ -12,6 +11,8 @@ import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
+
+import '../../harness/fake_cas_server.dart';
 import 'package:money_companion/features/planning_sync/services/planning_startup_registration_service.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
@@ -31,6 +32,9 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
   /// NEW-H-4: when set, fetching this table throws — a transport failure for
   /// exactly one entity, which the pull swallows into an incomplete result.
   String? failFetchTable;
+
+  /// WP-5: the last field patch an update sent (to assert what left the device).
+  Map<String, dynamic>? lastPatch;
 
   @override
   Future<List<Map<String, dynamic>>> fetchRows(
@@ -52,10 +56,6 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
           String table, String userId, String localId) async =>
       rows[table]?[localId];
 
-  @override
-  Future<Map<String, dynamic>?> casTombstone(
-          String table, String serverId, int expectedRevision) async =>
-      {'id': serverId, 'revision': expectedRevision + 1};
 
   @override
   Future<Map<String, dynamic>?> guardedTombstone(
@@ -101,12 +101,9 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
   Future<Map<String, dynamic>?> updateByServerId(
       String table, String serverId, Map<String, dynamic> row) async {
     guardedUpdateCalls++;
-    final isConsentOnly = row.isNotEmpty &&
-        row.keys.every(const {
-          'ai_consent_granted',
-          'cloud_processing_enabled',
-        }.contains);
-    if (isConsentOnly && consentUpdateFailuresRemaining > 0) {
+    lastPatch = Map<String, dynamic>.from(row);
+    final carriesConsent = row.containsKey('cloud_processing_enabled');
+    if (carriesConsent && consentUpdateFailuresRemaining > 0) {
       consentUpdateFailuresRemaining--;
       return null;
     }
@@ -148,24 +145,6 @@ class _FakeRemote implements PlanningRemoteSink, PlanningRemoteSource {
   }
 
 
-  @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(String table,
-      String serverId, int expectedRevision, Map<String, dynamic> row) async {
-    casCalls++;
-    Map<String, dynamic>? existing;
-    for (final candidate
-        in rows[table]?.values ?? const <Map<String, dynamic>>[]) {
-      if (candidate['id'] == serverId) {
-        existing = candidate;
-        break;
-      }
-    }
-    if (forceCasConflict ||
-        (existing?['revision'] as num?)?.toInt() != expectedRevision) {
-      return null;
-    }
-    return updateByServerId(table, serverId, row);
-  }
 }
 
 Future<AppDatabase> _openDb() => AppDatabase.open(
@@ -186,7 +165,8 @@ PlanningPushService _push(AppDatabase db, PlanningOutboxQueue q, _FakeRemote r,
         isEnabled: (_) => true,
         getAuthUserId: () async => 'user-1',
         remoteSink: r,
-        revisionCasEnabled: revisionCasEnabled);
+        casGate: revisionCasEnabled ? casGate(db) : null,
+        casRemote: revisionCasEnabled ? FakeCasServer() : null);
 
 PlanningPullService _pull(
         AppDatabase db, PlanningOutboxQueue q, _FakeRemote r) =>
@@ -403,8 +383,8 @@ void main() {
             'rebasing the revocation must not restore stale local settings');
   });
 
-  test('CAS conflict applies only the consent-OFF intent and server ends OFF',
-      () async {
+  test('capability on: settings are field last-writer-wins (never CAS); a '
+      'failed consent acknowledgement keeps the durable intent', () async {
     await db.customStatement('''
       UPDATE user_settings
       SET server_id = 'server-user_settings',
@@ -416,12 +396,11 @@ void main() {
     remote.rows['user_settings'] = {
       'user_settings': _remoteSettingsRow(theme: 'remote-dark', revision: 2),
     };
-    remote.forceCasConflict = true;
     remote.consentUpdateFailuresRemaining = 1;
 
     final current = await settings.getSettings();
     await settings.saveSettings(current.copyWith(
-      theme: 'stale-local-theme',
+      theme: 'newer-local-theme',
       cloudConsentState: ConsentState.declined,
     ));
 
@@ -447,16 +426,17 @@ void main() {
     final result =
         await _push(db, queue, remote, revisionCasEnabled: true).push();
 
-    expect(remote.casCalls, 2);
     expect(result.pushed, 1);
+    expect(result.conflicts, 0, reason: 'settings never raise a conflict');
     final serverRow = remote.rows['user_settings']!['user_settings']!;
     expect(serverRow['ai_consent_granted'], isFalse);
     expect(serverRow['cloud_processing_enabled'], isFalse);
-    expect(serverRow['theme'], 'remote-dark',
-        reason: 'the conflict override must contain consent fields only');
+    expect(serverRow['theme'], 'newer-local-theme',
+        reason: 'the field this device changed is last-writer-wins');
   });
 
-  test('non-consent settings conflict still resolves prefer-remote', () async {
+  test('field LWW sends ONLY the changed fields and never consent unless the '
+      'user changed it', () async {
     await db.customStatement('''
       UPDATE user_settings
       SET server_id = 'server-user_settings',
@@ -465,24 +445,29 @@ void main() {
           ai_consent_granted = 1, cloud_processing_enabled = 1,
           ai_consent_state = 'accepted', cloud_consent_state = 'accepted';
     ''');
+    // Another device changed language and (separately) switched consent OFF.
     remote.rows['user_settings'] = {
-      'user_settings': _remoteSettingsRow(theme: 'remote-dark', revision: 2),
+      'user_settings': {
+        ..._remoteSettingsRow(theme: 'remote-dark', revision: 2),
+        'language': 'xx',
+        'cloud_processing_enabled': false,
+        'ai_consent_granted': false,
+      },
     };
-    remote.forceCasConflict = true;
 
     final current = await settings.getSettings();
-    await settings.saveSettings(current.copyWith(theme: 'stale-local-theme'));
-    final pushResult =
-        await _push(db, queue, remote, revisionCasEnabled: true).push();
-    expect(pushResult.conflicts, 1);
+    await settings.saveSettings(current.copyWith(theme: 'local-dark'));
+    final r = await _push(db, queue, remote, revisionCasEnabled: true).push();
 
-    final resolver = UniversalConflictResolver(db: db, reEnqueue: const {});
-    expect(await resolver.autoResolveDeterministic(), 1);
-    await _pull(db, queue, remote).pull();
-
-    expect(await _col(db, 'theme'), 'remote-dark');
-    expect(remote.rows['user_settings']!['user_settings']!['theme'],
-        'remote-dark');
+    expect(r.pushed, 1);
+    expect(r.conflicts, 0);
+    expect(remote.lastPatch!.keys.toSet(), {'theme'},
+        reason: 'only the field this device changed leaves the device');
+    final serverRow = remote.rows['user_settings']!['user_settings']!;
+    expect(serverRow['theme'], 'local-dark');
+    expect(serverRow['language'], 'xx', reason: 'the other device kept its field');
+    expect(serverRow['cloud_processing_enabled'], isFalse,
+        reason: 'consent is never overwritten by an ordinary settings write');
   });
 
   test('pull updates cloud columns but preserves device-local columns',

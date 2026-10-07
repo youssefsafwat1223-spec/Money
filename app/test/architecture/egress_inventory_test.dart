@@ -55,6 +55,9 @@ void main() {
             '`mayEgress` covers every push it drives',
     'features/planning_sync/services/planning_server_currency_repair.dart':
         'EgressClass.financialSync — same engine, same gate as the push above',
+    'data/sync/revision_cas.dart':
+        'EgressClass.financialSync — the WP-5 CAS RPC transport shared by the '
+            'push services; each asks its own `mayEgress` before plan()/any RPC',
     'data/sync/seq_pull.dart':
         'EgressClass.financialSync — the WP-4 sequence-pull transport shared by '
             'the pull services; every caller asks its own consent gate before '
@@ -103,6 +106,10 @@ void main() {
     // service asks its own gate first (accounts is the representative caller).
     'data/sync/seq_pull.dart':
         'features/planning_sync/services/accounts_pull_service.dart',
+    // WP-5: the CAS transport holds no consent itself; every push service asks
+    // its own gate first (accounts is the representative caller).
+    'data/sync/revision_cas.dart':
+        'features/planning_sync/services/accounts_push_service.dart',
     // CLOSED 2026-09-02 (was an OPEN finding). The backfills reached from
     // StartupSyncReconcileService gated on TRANSPORT capability and never on
     // consent, while every sibling push/pull service in the same pipeline

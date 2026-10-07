@@ -56,6 +56,7 @@ class IngestCapturedMessageUseCase {
     CapturedMessage message, {
     bool onDeviceOnly = false,
     CaptureCommit? capture,
+    bool forceLocalAutoConfirm = false,
   }) async {
     final result = await _addTransactionUseCase(
       rawMessage: message.text,
@@ -63,6 +64,7 @@ class IngestCapturedMessageUseCase {
       smsReceivedAt: message.receivedAt,
       onDeviceOnly: onDeviceOnly,
       capture: capture,
+      forceLocalAutoConfirm: forceLocalAutoConfirm,
     );
 
     // Prefer the transaction business key; otherwise a stable fingerprint of the

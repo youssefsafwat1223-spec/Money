@@ -3,6 +3,7 @@ import 'dart:convert';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/outbox_owner.dart';
 import '../../../core/utils/id_generator.dart';
+import '../../../core/sync/outbox_operation_id.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
@@ -23,6 +24,8 @@ class OutboxItem {
     required this.payloadJson,
     required this.attemptCount,
     this.opSeq = 0,
+    this.operationId,
+    this.baseRevision,
     this.ownerUid,
     this.lastError,
     this.nextRetryAt,
@@ -38,6 +41,17 @@ class OutboxItem {
   /// only while this still matches, so an edit folded in while the push was in
   /// flight is never lost.
   final int opSeq;
+
+  /// WP-5: the operation receipt id (the server's `last_op_id`). Regenerated
+  /// whenever the row is edited; a retry of the same op_seq reuses it, so a lost
+  /// ACK is recognised instead of reported as a conflict.
+  final String? operationId;
+
+  /// WP-5: the server revision the edit was made against (CAS base).
+  final int? baseRevision;
+
+  /// Operation ids this row carried earlier while possibly on the wire.
+  List<String> get priorOpIds => priorOpIdsOf(payloadJson);
 
   /// A-2 (G18): the local-data owner the row was recorded for (null = legacy).
   final String? ownerUid;
@@ -111,7 +125,7 @@ class LedgerOutboxQueue {
       // flight). Every coalesce bumps op_seq (A-2 G3).
       final existing = await _db
           .customSelect(
-            "SELECT id, operation, status, in_flight_seq FROM ledger_sync_outbox "
+            "SELECT id, operation, status, in_flight_seq, operation_id, payload_json FROM ledger_sync_outbox "
             "WHERE transaction_id = ${sqlString(tx.id)} AND $kOutboxCoalescibleSql "
             "AND ${outboxOwnerMatchSql(ownerUid)} "
             "ORDER BY created_at ASC LIMIT 1;",
@@ -121,6 +135,14 @@ class LedgerOutboxQueue {
         final existingId = existing.read<String>('id');
         final coalesced = coalesceOutboxOperation(
             existing.read<String>('operation'), op.name);
+        // WP-5: the edited row gets a NEW operation id; the previous one is
+        // remembered only if it may already have reached the server.
+        withPriorOpIds(
+          payload,
+          existingPayloadJson: existing.read<String>('payload_json'),
+          previousOpId: existing.readNullable<String>('operation_id'),
+          possiblySent: existing.readNullable<int>('in_flight_seq') != null,
+        );
         if (coalesced == null &&
             existing.readNullable<int>('in_flight_seq') == null) {
           // Never on the wire (never handed to a push — the durable
@@ -141,6 +163,8 @@ class LedgerOutboxQueue {
                 attempt_count = 0, status = 'pending', failure_class = NULL,
                 last_error = NULL, next_retry_at = NULL,
                 op_seq = op_seq + 1,
+                operation_id = ${sqlString(IdGenerator.uuidV4())},
+                base_revision = ${baseRevision ?? 'NULL'},
                 owner_uid = COALESCE(owner_uid, ${sqlNullableString(ownerUid)}),
                 updated_at = ${sqlString(now)}
             WHERE id = ${sqlString(existingId)};
@@ -150,12 +174,14 @@ class LedgerOutboxQueue {
         await _db.customStatement('''
           INSERT INTO ledger_sync_outbox(
             id, transaction_id, operation, payload_json,
-            attempt_count, status, created_at, updated_at, op_seq, owner_uid
+            attempt_count, status, created_at, updated_at, op_seq, owner_uid,
+            operation_id, base_revision
           ) VALUES (
             ${sqlString(IdGenerator.next())}, ${sqlString(tx.id)},
             ${sqlString(op.name)}, ${sqlString(jsonEncode(payload))},
             0, 'pending', ${sqlString(now)}, ${sqlString(now)},
-            1, ${sqlNullableString(ownerUid)}
+            1, ${sqlNullableString(ownerUid)},
+            ${sqlString(IdGenerator.uuidV4())}, ${baseRevision ?? 'NULL'}
           );
         ''');
       }
@@ -174,7 +200,8 @@ class LedgerOutboxQueue {
     final rows = await _db.transaction(() async {
       final picked = await _db.customSelect('''
         SELECT id, transaction_id, operation, payload_json,
-               attempt_count, last_error, next_retry_at, op_seq, owner_uid
+               attempt_count, last_error, next_retry_at, op_seq, owner_uid,
+               operation_id, base_revision
         FROM ledger_sync_outbox
         WHERE status = 'pending'
           AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
@@ -188,13 +215,25 @@ class LedgerOutboxQueue {
       ''').get();
       for (final row in picked) {
         await _db.customStatement(
-          'UPDATE ledger_sync_outbox SET in_flight_seq = op_seq '
+          'UPDATE ledger_sync_outbox SET in_flight_seq = op_seq, '
+          // WP-5: rows queued before v41 get their operation id here, before
+          // anything is sent.
+          'operation_id = COALESCE(operation_id, ${sqlString(IdGenerator.uuidV4())}) '
           'WHERE id = ${sqlString(row.read<String>('id'))};',
         );
       }
-      return picked;
+      return [
+        for (final row in picked)
+          (await _db
+              .customSelect(
+                  'SELECT operation_id FROM ledger_sync_outbox WHERE id = '
+                  '${sqlString(row.read<String>('id'))};')
+              .getSingle()
+              .then((r) => (row, r.read<String>('operation_id')))),
+      ];
     });
-    return rows.map((row) {
+    return rows.map((pair) {
+      final row = pair.$1;
       final opStr = row.read<String>('operation');
       final op = OutboxOperation.values.firstWhere(
         (e) => e.name == opStr,
@@ -209,6 +248,8 @@ class LedgerOutboxQueue {
             (jsonDecode(row.read<String>('payload_json')) as Map).cast(),
         attemptCount: row.read<int>('attempt_count'),
         opSeq: row.read<int>('op_seq'),
+        operationId: pair.$2,
+        baseRevision: row.readNullable<int>('base_revision'),
         ownerUid: row.readNullable<String>('owner_uid'),
         lastError: row.readNullable<String>('last_error'),
         nextRetryAt:
@@ -262,6 +303,7 @@ class LedgerOutboxQueue {
         UPDATE ledger_sync_outbox
         SET payload_json = ${sqlString(jsonEncode(payload))},
             operation = ${sqlString(op == 'create' && serverId != null ? 'update' : op)},
+            ${serverRevision != null ? 'base_revision = $serverRevision,' : ''}
             attempt_count = 0, next_retry_at = NULL, in_flight_seq = NULL,
             updated_at = ${sqlString(now)}
         WHERE id = ${sqlString(item.id)};
@@ -269,6 +311,11 @@ class LedgerOutboxQueue {
       return false;
     });
   }
+
+  /// WP-5: nothing was written (stale epoch) — the row is simply not in flight.
+  Future<void> releaseInFlight(String id) => _db.customStatement(
+      'UPDATE ledger_sync_outbox SET in_flight_seq = NULL '
+      'WHERE id = ${sqlString(id)};');
 
   /// ACK without a server row to persist (conflict/abandon/idempotent delete).
   Future<bool> markSuccess(OutboxItem item) => acknowledge(item);

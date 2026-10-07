@@ -66,9 +66,11 @@ void main() {
     expect(planning.contains('Future<void> tombstone('), isFalse);
     expect(accounts.contains('Future<void> tombstoneAccount('), isFalse);
     // And the guarded surface must be present (the replacement).
-    expect(planning.contains('casTombstone('), isTrue);
+    // WP-5: the CAS tombstone is the sync_cas_tombstone RPC (revision_cas),
+    // reached through the shared engine; the legacy guarded tombstone remains.
+    expect(planning.contains('_cas.tombstone('), isTrue);
     expect(planning.contains('guardedTombstone('), isTrue);
-    expect(accounts.contains('casTombstoneAccount('), isTrue);
+    expect(accounts.contains('_cas.tombstone('), isTrue);
     expect(accounts.contains('guardedTombstoneAccount('), isTrue);
   });
 

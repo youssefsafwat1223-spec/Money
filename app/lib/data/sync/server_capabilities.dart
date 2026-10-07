@@ -26,9 +26,16 @@ enum ServerCapabilityState {
 /// RPC key for awaiting-FX (amount 0 + foreign amount/currency) transactions.
 const String kCapAwaitingFxTransactions = 'awaiting_fx_transactions';
 
+/// RPC key for the v2 capture contract (CAP-5): JWT `sync-captures`, leased
+/// states. False in production until its gate passes.
+const String kCapCaptureContractV2 = 'capture_contract_v2';
+
 /// RPC key for the WP-4 sequence pull (manifest §8). It is the kill switch:
 /// withdrawing it sends clients back to the legacy timestamp pull.
 const String kCapSyncSeq = 'sync_seq';
+
+/// RPC key for WP-5 revision CAS / insert-if-absent. Kill switch like [kCapSyncSeq].
+const String kCapRevisionCas = 'revision_cas';
 
 class ServerCapabilitiesService {
   ServerCapabilitiesService({
@@ -71,6 +78,8 @@ class ServerCapabilitiesService {
   final Map<String, ServerCapabilityState> _syncSeq = {};
   final Map<String, DateTime> _syncSeqAt = {};
   static const Duration syncSeqTtl = Duration(minutes: 15);
+  final Map<String, ServerCapabilityState> _revisionCas = {};
+  final Map<String, DateTime> _revisionCasAt = {};
 
   String _key(String uid) => '${_getServerUrl()}|$uid';
 
@@ -131,12 +140,25 @@ class ServerCapabilitiesService {
   /// key is absent/false (-> legacy timestamp pull); auth/network/server errors
   /// are [ServerCapabilityState.unknown] (never treated as "absent"). Consent
   /// gated by the caller (the ledger pull checks egress first).
-  Future<ServerCapabilityState> syncSeq({String? uid}) async {
+  Future<ServerCapabilityState> syncSeq({String? uid}) =>
+      _killSwitch(kCapSyncSeq, _syncSeq, _syncSeqAt, uid);
+
+  /// WP-5: whether the server advertises `revision_cas` (same rules as
+  /// [syncSeq]; withdrawing it returns the client to the legacy guarded push).
+  Future<ServerCapabilityState> revisionCas({String? uid}) =>
+      _killSwitch(kCapRevisionCas, _revisionCas, _revisionCasAt, uid);
+
+  Future<ServerCapabilityState> _killSwitch(
+    String capKey,
+    Map<String, ServerCapabilityState> cache,
+    Map<String, DateTime> stamps,
+    String? uid,
+  ) async {
     final user = uid ?? await _getAuthUserId();
     if (user == null) return ServerCapabilityState.unknown;
     final key = _key(user);
-    final at = _syncSeqAt[key];
-    final cached = _syncSeq[key];
+    final at = stamps[key];
+    final cached = cache[key];
     if (cached != null &&
         cached != ServerCapabilityState.unknown &&
         at != null &&
@@ -147,7 +169,7 @@ class ServerCapabilitiesService {
     ServerCapabilityState result;
     try {
       final raw = await _getClient().rpc('qirsh_server_capabilities');
-      result = raw is Map && raw[kCapSyncSeq] == true
+      result = raw is Map && raw[capKey] == true
           ? ServerCapabilityState.verified
           : ServerCapabilityState.unsupported;
     } catch (e) {
@@ -158,8 +180,43 @@ class ServerCapabilitiesService {
         _health?.noteFailure(SyncDomain.ledger, e);
       }
     }
-    _syncSeq[key] = result;
-    _syncSeqAt[key] = _clock();
+    cache[key] = result;
+    stamps[key] = _clock();
+    return result;
+  }
+
+  final Map<String, ServerCapabilityState> _captureV2 = {};
+  final Map<String, DateTime> _captureV2At = {};
+
+  /// CAP-5: whether the server advertises `capture_contract_v2` for [uid]. Same
+  /// rules as [syncSeq]: positive proof only, a short TTL because it is a kill
+  /// switch, and never an answer without cloud consent.
+  Future<ServerCapabilityState> captureContractV2({String? uid}) async {
+    final user = uid ?? await _getAuthUserId();
+    if (user == null) return ServerCapabilityState.unknown;
+    final key = _key(user);
+    final at = _captureV2At[key];
+    final cached = _captureV2[key];
+    if (cached != null &&
+        cached != ServerCapabilityState.unknown &&
+        at != null &&
+        _clock().difference(at) < syncSeqTtl) {
+      return cached;
+    }
+    if (!await _mayEgress()) return ServerCapabilityState.unknown;
+    ServerCapabilityState result;
+    try {
+      final raw = await _getClient().rpc('qirsh_server_capabilities');
+      result = raw is Map && raw[kCapCaptureContractV2] == true
+          ? ServerCapabilityState.verified
+          : ServerCapabilityState.unsupported;
+    } catch (e) {
+      result = _isRpcMissing(e)
+          ? ServerCapabilityState.unsupported
+          : ServerCapabilityState.unknown;
+    }
+    _captureV2[key] = result;
+    _captureV2At[key] = _clock();
     return result;
   }
 

@@ -1,22 +1,30 @@
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
+import 'package:money_companion/data/repositories/drift_budget_repository.dart';
+import 'package:money_companion/data/repositories/drift_bill_repository.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
+import 'package:money_companion/data/repositories/drift_plan_repository.dart';
+import 'package:money_companion/domain/entities/budget_entity.dart';
+import 'package:money_companion/domain/entities/bill_entity.dart';
+import 'package:money_companion/domain/entities/plan_entity.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
+import 'package:money_companion/data/sync/server_capabilities.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
+import '../../harness/fake_cas_server.dart';
 
-// MALI-022 / 0068 — client revision compare-and-set contract tests. The
-// capability ships OFF (kServerRevisionCas=false); here it is injected ON to
-// exercise the dormant CAS path. Covers OFF, ON-supported, ON-unsupported, old
-// payloads (null revision), conflicts, and the accounts blind-overwrite fix.
+// MALI-022 / WP-5 — revision compare-and-set contract tests. The CAS path runs
+// through the sync_* RPCs when the server advertises `revision_cas` (false in
+// production until G4); the legacy guarded path is unchanged otherwise.
+// Covers legacy (capability false), CAS per family (applied / conflict / ack /
+// not_found / epoch_mismatch / tombstone), durable conflicts and the accounts
+// blind-overwrite fix.
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -27,14 +35,12 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 
 /// A planning sink with real revision semantics + call counters.
 class _CasSink implements PlanningRemoteSink {
-  _CasSink({this.serverRevision = 1, this.unsupported = false});
+  _CasSink({this.serverRevision = 1});
 
   int serverRevision;
-  bool unsupported; // simulate a server without 0068 (revision column absent)
   // Matches the seeded base by default, so the guarded (OFF) path sees the
   // server as unchanged and proceeds to a normal update rather than a conflict.
   String serverUpdatedAt = 'base-ts';
-  int casCalls = 0;
   int guardedUpdateCalls = 0;
 
   @override
@@ -53,10 +59,6 @@ class _CasSink implements PlanningRemoteSink {
   Future<Map<String, dynamic>?> findByLocalId(
           String t, String u, String l) async =>
       null;
-
-  @override
-  Future<Map<String, dynamic>?> casTombstone(String t, String s, int r) async =>
-      {'id': s, 'updated_at': serverUpdatedAt, 'revision': r + 1};
 
   @override
   Future<Map<String, dynamic>?> guardedTombstone(
@@ -89,19 +91,6 @@ class _CasSink implements PlanningRemoteSink {
   }
 
 
-  @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(
-      String t, String s, int expectedRevision, Map<String, dynamic> r) async {
-    casCalls++;
-    if (unsupported) {
-      throw const PostgrestException(
-          message: 'column "revision" does not exist', code: '42703');
-    }
-    if (expectedRevision != serverRevision) return null; // stale → conflict
-    serverRevision += 1;
-    serverUpdatedAt = 'cas-ts-$serverRevision';
-    return {'id': s, 'updated_at': serverUpdatedAt, 'revision': serverRevision};
-  }
 }
 
 GoalEntity _goal() => GoalEntity(
@@ -159,91 +148,220 @@ void main() {
           .getSingle())
       .readNullable<int>('server_revision');
 
-  PlanningPushService push(_CasSink sink, {required bool casEnabled}) =>
-      PlanningPushService(
+  PlanningPushService push(_CasSink sink) => PlanningPushService(
         mayEgress: () async => true,
         db: db,
         queue: queue,
         isEnabled: (_) => true,
         getAuthUserId: () async => 'user-1',
         remoteSink: sink,
-        revisionCasEnabled: casEnabled,
       );
 
-  group('planning revision CAS', () {
-    test(
-        'OFF: uses the guarded timestamp path, never the CAS (even with a '
-        'base revision present)', () async {
+  PlanningPushService casPush(FakeCasServer srv,
+          {String epoch = 'e1',
+          ServerCapabilityState cap = ServerCapabilityState.verified}) =>
+      PlanningPushService(
+        mayEgress: () async => true,
+        db: db,
+        queue: queue,
+        isEnabled: (_) => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: _CasSink(),
+        casGate: casGate(db, epoch: epoch, capability: cap),
+        casRemote: srv,
+      );
+
+  Future<int> openConflictCount() async => (await db
+          .customSelect(
+              'SELECT COUNT(*) AS n FROM sync_conflicts WHERE resolved_at IS NULL;')
+          .getSingle())
+      .read<int>('n');
+
+  group('legacy (capability false) is unchanged', () {
+    test('uses the guarded timestamp path, never the RPCs', () async {
       await seedAndEnqueue(revision: 5);
       final sink = _CasSink(serverRevision: 5);
-      final r = await push(sink, casEnabled: false).push();
+      final r = await push(sink).push();
       expect(r.pushed, 1);
-      expect(sink.casCalls, 0,
-          reason: 'CAS must not run when the capability is off');
       expect(sink.guardedUpdateCalls, 1);
       expect(await goalStatus(), 'synced');
     });
 
-    test(
-        'ON + matching revision: atomic CAS applies and the ack stores the new '
-        'revision', () async {
+    test('capability unsupported with a gate present: still legacy, RPCs '
+        'untouched', () async {
       await seedAndEnqueue(revision: 5);
-      final sink = _CasSink(serverRevision: 5);
-      final r = await push(sink, casEnabled: true).push();
-      expect(r.pushed, 1);
-      expect(sink.casCalls, 1);
-      expect(sink.guardedUpdateCalls, 0);
+      final srv = FakeCasServer();
+      final r = await casPush(srv, cap: ServerCapabilityState.unsupported).push();
+      expect(r.failed + r.conflicts, 0);
+      expect(srv.calls, isEmpty);
       expect(await goalStatus(), 'synced');
-      expect(await goalRevision(), 6,
-          reason: 'acknowledged new revision stored');
+    });
+  });
+
+  group('planning CAS through the RPCs', () {
+    test('goal update: applied, ack stores the new revision', () async {
+      await seedAndEnqueue(revision: 5);
+      final srv = FakeCasServer()
+        ..seed('user_goals', {'local_id': 'g1'}, id: 'srv-g1', revision: 5);
+      final r = await casPush(srv).push();
+      expect(r.pushed, 1);
+      expect(srv.calls, ['update:user_goals']);
+      expect(await goalStatus(), 'synced');
+      expect(await goalRevision(), 6);
     });
 
-    test(
-        'ON + stale revision: zero-row CAS becomes a typed conflict, no '
-        'overwrite (also the crash-after-acceptance case)', () async {
+    test('goal update on a moved revision: durable conflict, no overwrite',
+        () async {
       await seedAndEnqueue(revision: 5);
-      // Server has already moved to revision 9 (another device, or our own
-      // write that we crashed before acknowledging).
-      final sink = _CasSink(serverRevision: 9);
-      final r = await push(sink, casEnabled: true).push();
+      final srv = FakeCasServer()
+        ..seed('user_goals', {'local_id': 'g1', 'name': 'Other'},
+            id: 'srv-g1', revision: 5)
+        ..foreignEdit('user_goals', 'srv-g1', {'name': 'Theirs'});
+      final r = await casPush(srv).push();
       expect(r.conflicts, 1);
-      expect(r.pushed, 0);
-      expect(sink.casCalls, 1);
-      expect(sink.guardedUpdateCalls, 0,
-          reason: 'never a blind fallback write');
+      expect(srv.tables['user_goals']!['srv-g1']!['name'], 'Theirs');
       expect(await goalStatus(), 'conflict');
+      expect(await openConflictCount(), 1);
+      expect(await goalRevision(), 5);
     });
 
-    test(
-        'ON + null base revision (old payload): falls back to the guarded '
-        'path, never a blind overwrite', () async {
-      await seedAndEnqueue(revision: null); // pre-0068 row, revision unknown
-      final sink = _CasSink(serverRevision: 5);
-      final r = await push(sink, casEnabled: true).push();
+    test('lost ACK (crash after acceptance): the retry is an ACK', () async {
+      await seedAndEnqueue(revision: 5);
+      final srv = FakeCasServer()
+        ..seed('user_goals', {'local_id': 'g1'}, id: 'srv-g1', revision: 5)
+        ..loseNextAck = true;
+      expect((await casPush(srv).push()).failed, 1);
+      await db.customStatement('UPDATE planning_sync_outbox SET next_retry_at = NULL;');
+      final r = await casPush(srv).push();
       expect(r.pushed, 1);
-      expect(sink.casCalls, 0, reason: 'no base revision → cannot CAS');
-      expect(sink.guardedUpdateCalls, 1, reason: 'guarded compare, not blind');
+      expect(r.conflicts, 0);
+      expect(srv.tables['user_goals']!['srv-g1']!['revision'], 6);
       expect(await goalStatus(), 'synced');
     });
 
-    test(
-        'ON-unsupported (server lacks the revision column): fails safe — the '
-        'row is not marked synced and is not overwritten', () async {
+    test('row gone in the cloud (not_found): re-created by identity', () async {
       await seedAndEnqueue(revision: 5);
-      final sink = _CasSink(serverRevision: 5, unsupported: true);
-      final r = await push(sink, casEnabled: true).push();
-      expect(r.failed, 1);
-      expect(r.pushed, 0);
-      expect(sink.guardedUpdateCalls, 0,
-          reason: 'error must not fall through to a write');
-      // The outbox item was dead-lettered as an unsupported-schema failure.
-      final dead = (await db
-              .customSelect(
-                  "SELECT failure_class FROM planning_sync_outbox WHERE entity_id='g1';")
+      final srv = FakeCasServer();
+      final r = await casPush(srv).push();
+      expect(r.pushed, 1);
+      expect(srv.calls, ['update:user_goals', 'insert:user_goals']);
+    });
+
+    test('stale epoch: the op stays queued, no attempt consumed', () async {
+      await seedAndEnqueue(revision: 5);
+      final srv = FakeCasServer(epoch: 'e2');
+      final r = await casPush(srv).push();
+      expect(r.pushed + r.failed + r.conflicts, 0);
+      final row = await db
+          .customSelect('SELECT status, attempt_count, in_flight_seq FROM planning_sync_outbox')
+          .getSingle();
+      expect(row.read<String>('status'), 'pending');
+      expect(row.read<int>('attempt_count'), 0);
+      expect(row.readNullable<int>('in_flight_seq'), isNull);
+    });
+
+    test('delete: CAS tombstone; a cloud row edited meanwhile is a conflict',
+        () async {
+      await seedAndEnqueue(revision: 5);
+      await db.customStatement('DELETE FROM planning_sync_outbox;');
+      final g = await DriftGoalRepository(db, outboxQueue: queue).getById('g1');
+      await queue.enqueueGoal(PlanningSyncOperation.delete, g!);
+      final srv = FakeCasServer()
+        ..seed('user_goals', {'local_id': 'g1'}, id: 'srv-g1', revision: 5);
+      expect((await casPush(srv).push()).pushed, 1);
+      expect(srv.tables['user_goals']!['srv-g1']!['deleted_at'], isNotNull);
+
+      await seedAndEnqueue(revision: 5);
+      await db.customStatement('DELETE FROM planning_sync_outbox;');
+      await queue.enqueueGoal(PlanningSyncOperation.delete, g);
+      final srv2 = FakeCasServer()
+        ..seed('user_goals', {'local_id': 'g1'}, id: 'srv-g1', revision: 5)
+        ..foreignEdit('user_goals', 'srv-g1', {'name': 'Theirs'});
+      final r = await casPush(srv2).push();
+      expect(r.conflicts, 1);
+      expect(srv2.tables['user_goals']!['srv-g1']!['deleted_at'], isNull);
+    });
+
+    test('remote tombstone vs local edit: conflict kind tombstone, never '
+        'undeleted', () async {
+      await seedAndEnqueue(revision: 5);
+      final srv = FakeCasServer()
+        ..seed('user_goals', {'local_id': 'g1'},
+            id: 'srv-g1', revision: 5, deletedAt: '2026-08-01T00:00:00.000Z');
+      final r = await casPush(srv).push();
+      expect(r.conflicts, 1);
+      expect(srv.tables['user_goals']!['srv-g1']!['deleted_at'], isNotNull);
+      final kind = (await db
+              .customSelect('SELECT kind FROM sync_conflicts')
               .getSingle())
-          .readNullable<String>('failure_class');
-      expect(dead, OutboxFailureClass.unsupportedSchema.name);
-      expect(await goalStatus(), isNot('synced'));
+          .read<String>('kind');
+      expect(kind, 'tombstone');
+    });
+
+    test('creates for every family are insert-if-absent; an update on a moved '
+        'revision conflicts per family', () async {
+      final budgets = DriftBudgetRepository(db, outboxQueue: queue);
+      final bills = DriftBillRepository(db, outboxQueue: queue);
+      final plans = DriftPlanRepository(db, outboxQueue: queue);
+      final goals = DriftGoalRepository(db, outboxQueue: queue);
+      await budgets.save(BudgetEntity(
+        id: 'b1',
+        categoryId: BudgetEntity.allExpensesCategoryId,
+        currency: 'SAR',
+        amountMoney: Money.parse('500', 'SAR'),
+        period: BudgetPeriod.monthly,
+        startDate: DateTime.utc(2026, 7, 1),
+        isActive: true,
+        lastNotifiedSpentMoney: Money(0, 'SAR'),
+        lastNotifiedPeriodStart: DateTime.utc(2000, 1, 1),
+        showOnHeader: true,
+      ));
+      await bills.save(BillEntity(
+        id: 's1',
+        name: 'Netflix',
+        amountMoney: Money.fromLegacyReal(39, 'SAR'),
+        currency: 'SAR',
+        type: BillType.subscription,
+        frequency: BillFrequency.monthly,
+        nextDueDate: DateTime.utc(2026, 7, 10),
+        reminderOn: true,
+        isConfirmed: true,
+        createdAt: DateTime.utc(2026, 7, 1),
+      ));
+      await plans.save(PlanEntity(
+        id: 'p1',
+        name: 'Summer',
+        budgetAmountMoney: Money.fromLegacyReal(2000, 'SAR'),
+        currency: 'SAR',
+        startDate: DateTime.utc(2026, 7, 1),
+        endDate: DateTime.utc(2026, 7, 31),
+        accountIds: const [],
+        cardLast4s: const ['1234'],
+        status: PlanStatus.active,
+        createdAt: DateTime.utc(2026, 7, 1),
+      ));
+      await goals.save(_goal());
+      final srv = FakeCasServer();
+      final r = await casPush(srv).push();
+      expect(r.pushed, 4);
+      expect(srv.calls.every((c) => c.startsWith('insert:')), isTrue);
+      for (final t in ['user_budgets', 'user_subscriptions', 'user_plans', 'user_goals']) {
+        expect(srv.tables[t]!.length, 1, reason: t);
+      }
+
+      // Another device edits all four; this device edited the same ones.
+      for (final t in ['user_budgets', 'user_subscriptions', 'user_plans', 'user_goals']) {
+        final id = srv.tables[t]!.keys.single;
+        srv.foreignEdit(t, id, {'x': 1});
+      }
+      await budgets.save((await budgets.getById('b1'))!
+          .copyWith(amountMoney: Money.parse('900', 'SAR')));
+      await bills.save((await bills.getById('s1'))!.copyWith(name: 'Netflix 2'));
+      await plans.save((await plans.getById('p1'))!.copyWith(name: 'Summer 2'));
+      await goals.save((await goals.getById('g1'))!.copyWith(name: 'Travel 2'));
+      final r2 = await casPush(srv).push();
+      expect(r2.conflicts, 4);
+      expect(await openConflictCount(), 4);
     });
   });
 
@@ -284,8 +402,6 @@ void main() {
         isEnabled: () => true,
         getAuthUserId: () async => 'user-1',
         remoteSink: sink,
-        revisionCasEnabled: false,
-      
       // C-3: these cover push MECHANICS; consent enforcement is asserted
       // separately in financial_push_consent_test.dart.
       mayEgress: () async => true,
@@ -320,9 +436,6 @@ class _CasAccountsSink implements AccountsRemoteSink {
           String u, String id) async =>
       null;
 
-  @override
-  Future<Map<String, dynamic>?> casTombstoneAccount(String s, int r) async =>
-      {'id': s, 'updated_at': currentUpdatedAt, 'revision': r + 1};
 
   @override
   Future<Map<String, dynamic>?> guardedTombstoneAccount(
@@ -348,19 +461,10 @@ class _CasAccountsSink implements AccountsRemoteSink {
     return updateAccountByServerId(serverId, row);
   }
 
-  @override
-  Future<Map<String, dynamic>> updateAccountByServerId(
+    Future<Map<String, dynamic>> updateAccountByServerId(
           String s, Map<String, dynamic> r) async =>
       {'id': s, 'updated_at': currentUpdatedAt};
 
-  @override
-  Future<Map<String, dynamic>?> casUpdateAccount(
-          String s, int expectedRevision, Map<String, dynamic> r) async =>
-      {
-        'id': s,
-        'updated_at': currentUpdatedAt,
-        'revision': expectedRevision + 1
-      };
 
   @override
   Future<void> setDefaultAccount(String s) async {}

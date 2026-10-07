@@ -64,8 +64,7 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
     }
   }
 
-  @override
-  Future<Map<String, dynamic>?> casTombstoneAccount(
+    Future<Map<String, dynamic>?> casTombstoneAccount(
       String serverId, int expectedRevision) async {
     await _tombstone(serverId);
     return {'id': serverId, 'revision': expectedRevision + 1};
@@ -121,8 +120,7 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
       // guarded_update_atomicity_test.dart.
       updateAccountByServerId(serverId, row);
 
-  @override
-  Future<Map<String, dynamic>> updateAccountByServerId(
+    Future<Map<String, dynamic>> updateAccountByServerId(
     String serverId,
     Map<String, dynamic> row,
   ) async {
@@ -140,8 +138,7 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
     return {'id': serverId, 'updated_at': now};
   }
 
-  @override
-  Future<Map<String, dynamic>?> casUpdateAccount(
+    Future<Map<String, dynamic>?> casUpdateAccount(
     String serverId,
     int expectedRevision,
     Map<String, dynamic> row,
@@ -674,6 +671,76 @@ void main() {
           await UniversalConflictResolver(db: db, reEnqueue: const {})
               .resolveKeepRemote('account', 'conflict-account'),
           isTrue);
+    });
+
+    Future<void> pendingAccountWithOp(String op) async {
+      await DriftAccountRepository(db).create(_account('conflict-account'));
+      await db.customStatement(
+        "UPDATE accounts SET sync_status = 'pending' WHERE id = 'conflict-account';",
+      );
+      await db.customStatement(
+        "INSERT INTO planning_sync_outbox(id, entity_type, entity_id, operation, "
+        "payload_json, attempt_count, status, created_at, updated_at, op_seq, "
+        "in_flight_seq, operation_id) VALUES ('o-$op', 'account', "
+        "'conflict-account', 'update', '{}', 0, 'pending', '2026-07-01', "
+        "'2026-07-01', 1, 1, '$op');",
+      );
+    }
+
+    AccountsPullService pullOf(_FakeAccountsRemote remote) => AccountsPullService(
+          db: db,
+          isEnabled: () => true,
+          getAuthUserId: () async => 'user-1',
+          remoteSource: remote,
+          mayEgress: () async => true,
+        );
+
+    Map<String, dynamic> remoteAccount(String? lastOp) => {
+          'id': 'server-conflict-account',
+          'local_id': 'conflict-account',
+          'name': 'Remote Edit',
+          'currency': 'SAR',
+          'type': 'bank',
+          'is_default': false,
+          'sort_order': 1,
+          'created_at': DateTime.utc(2026, 7, 4).toIso8601String(),
+          'updated_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+          'deleted_at': null,
+          'revision': 3,
+          'last_op_id': lastOp,
+        };
+
+    test('WP-5 lost ACK: the cloud row carries our queued operation id → '
+        'settled, never a conflict', () async {
+      final remote = _FakeAccountsRemote();
+      await pendingAccountWithOp('op-acc');
+      remote.rowsByLocalId['conflict-account'] = remoteAccount('op-acc');
+      final result = await pullOf(remote).pull();
+      expect(result.conflicts, 0);
+      expect(await _accountSyncStatus(db, 'conflict-account'), 'synced');
+      expect(
+          (await db.customSelect('SELECT COUNT(*) n FROM planning_sync_outbox').getSingle())
+              .read<int>('n'),
+          0);
+      expect(
+          (await db.customSelect('SELECT COUNT(*) n FROM sync_conflicts').getSingle())
+              .read<int>('n'),
+          0);
+    });
+
+    test('WP-5 a foreign operation is a conflict stored durably with both '
+        'versions', () async {
+      final remote = _FakeAccountsRemote();
+      await pendingAccountWithOp('op-acc');
+      remote.rowsByLocalId['conflict-account'] = remoteAccount('other-device');
+      final result = await pullOf(remote).pull();
+      expect(result.conflicts, 1);
+      final rec = await db.customSelect('SELECT * FROM sync_conflicts').getSingle();
+      expect(rec.read<String>('entity_type'), 'account');
+      expect(rec.read<String>('kind'), 'update');
+      expect(rec.read<String>('theirs_json'), contains('Remote Edit'));
+      expect(rec.read<String>('mine_json'), contains('Main conflict-account'));
+      expect(rec.read<int>('theirs_revision'), 3);
     });
 
     test('fresh pull paginates 201 equal-timestamp rows and persists last key',

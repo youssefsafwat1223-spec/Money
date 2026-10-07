@@ -379,6 +379,9 @@ class BackupSnapshotBuilder {
     'planning_sync_outbox',
     'sync_cursors',
     'parked_child_rows',
+    // WP-5 — device-local sync state (open conflicts are re-derived or
+    // re-detected from the outbox and the pull; never exported).
+    'sync_conflicts',
     // MALI-014 Batch-5 closure — the durable restore-operation journal is local
     // recovery state; it must never be backed up, restored, synced, or exported.
     'restore_operations',

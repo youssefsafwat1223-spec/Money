@@ -11,10 +11,12 @@ import 'package:money_companion/features/planning_sync/services/accounts_push_se
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
 
+import '../../harness/fake_cas_server.dart';
+
 // MALI-026 (Phase-9K) — planning + accounts parent tombstones must be GUARDED,
 // never an unconditional id-only overwrite. A stale delete replayed against a
 // row a newer update advanced past our base must NOT tombstone it. The
-// capability ships OFF (kServerRevisionCas=false); injected ON where noted.
+// CAS path runs through the sync_* RPCs (capability `revision_cas`, WP-5).
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -27,32 +29,14 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 /// for a single row, with call counters. bump_revision fires once per applied
 /// tombstone; a mismatched CAS / moved updated_at matches zero rows.
 class _DeleteSink implements PlanningRemoteSink {
-  _DeleteSink({
-    this.exists = true,
-    this.revision = 5,
-    this.updatedAt = 'base-ts',
-    this.deletedAt,
-  });
+  _DeleteSink({this.updatedAt = 'base-ts'});
 
-  bool exists;
-  int revision;
+  bool exists = true;
+  int revision = 5;
   String updatedAt;
   String? deletedAt;
-  int casTombstones = 0;
   int guardedTombstones = 0;
   int stateFetches = 0;
-
-  @override
-  Future<Map<String, dynamic>?> casTombstone(
-      String t, String s, int expected) async {
-    casTombstones++;
-    // WHERE revision=eq → 0 rows when the base moved.
-    if (!exists || expected != revision) return null;
-    revision += 1; // bump_revision trigger, exactly once
-    deletedAt = 'del-ts';
-    updatedAt = 'del-ts';
-    return {'id': s, 'updated_at': updatedAt, 'revision': revision};
-  }
 
   @override
   Future<Map<String, dynamic>?> guardedTombstone(
@@ -103,10 +87,6 @@ class _DeleteSink implements PlanningRemoteSink {
 
 ;
   @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(
-          String t, String s, int e, Map<String, dynamic> r) async =>
-      null;
-  @override
   Future<Map<String, dynamic>> upsert(String t, Map<String, dynamic> r) async =>
       {
         'id': 'srv-${r['local_id']}',
@@ -116,15 +96,12 @@ class _DeleteSink implements PlanningRemoteSink {
 }
 
 class _DeleteAccountSink implements AccountsRemoteSink {
-  _DeleteAccountSink({this.revision = 5});
-
   bool exists = true;
-  int revision;
+  int revision = 5;
   String updatedAt = 'base-ts';
   String? deletedAt;
 
-  @override
-  Future<Map<String, dynamic>?> casTombstoneAccount(
+    Future<Map<String, dynamic>?> casTombstoneAccount(
       String s, int expected) async {
     if (!exists || expected != revision) return null;
     revision += 1;
@@ -170,14 +147,9 @@ class _DeleteAccountSink implements AccountsRemoteSink {
       // asserted structurally in guarded_update_atomicity_test.dart.
       updateAccountByServerId(serverId, row);
 
-  @override
-  Future<Map<String, dynamic>> updateAccountByServerId(
+    Future<Map<String, dynamic>> updateAccountByServerId(
           String s, Map<String, dynamic> r) async =>
       {'id': s, 'updated_at': updatedAt, 'revision': revision};
-  @override
-  Future<Map<String, dynamic>?> casUpdateAccount(
-          String s, int e, Map<String, dynamic> r) async =>
-      null;
   @override
   Future<Map<String, dynamic>> upsertAccount(Map<String, dynamic> row) async =>
       {'id': 'srv-${row['local_id']}', 'updated_at': updatedAt};
@@ -234,7 +206,7 @@ void main() {
           .getSingle())
       .readNullable<String>('sync_status');
 
-  PlanningPushService push(_DeleteSink sink, {required bool casEnabled}) =>
+  PlanningPushService push(_DeleteSink sink, {FakeCasServer? cas}) =>
       PlanningPushService(
         mayEgress: () async => true,
         db: db,
@@ -242,65 +214,72 @@ void main() {
         isEnabled: (_) => true,
         getAuthUserId: () async => 'user-1',
         remoteSink: sink,
-        revisionCasEnabled: casEnabled,
+        casGate: cas == null ? null : casGate(db),
+        casRemote: cas,
       );
+
+  FakeCasServer goalAt(int revision, {String? deletedAt}) => FakeCasServer()
+    ..seed('user_goals', {'local_id': 'g1'},
+        id: 'srv-g1', revision: revision, deletedAt: deletedAt);
 
   group('planning (goal) guarded tombstone', () {
     test('A CAS-on + matching revision: tombstones and bumps revision once',
         () async {
       await seedDelete(revision: 5);
-      final sink = _DeleteSink(revision: 5);
-      final r = await push(sink, casEnabled: true).push();
+      final srv = goalAt(5);
+      final r = await push(_DeleteSink(), cas: srv).push();
       expect(r.pushed, 1);
-      expect(sink.casTombstones, 1);
-      expect(sink.revision, 6, reason: 'bump_revision fires exactly once');
-      expect(sink.deletedAt, isNotNull);
+      final row = srv.tables['user_goals']!['srv-g1']!;
+      expect(row['revision'], 6, reason: 'bump_revision fires exactly once');
+      expect(row['deleted_at'], isNotNull);
       expect(await goalStatus(), 'synced');
     });
 
     test(
-        'B UPDATE→stale-delete (CAS-on, revision advanced): CONFLICT, server '
-        'row is NOT tombstoned', () async {
+        'B UPDATE→stale-delete (CAS-on, revision advanced): durable CONFLICT, '
+        'server row is NOT tombstoned', () async {
       await seedDelete(revision: 5);
-      final sink = _DeleteSink(revision: 9); // a newer accepted update
-      final r = await push(sink, casEnabled: true).push();
+      final srv = goalAt(9);
+      final r = await push(_DeleteSink(), cas: srv).push();
       expect(r.conflicts, 1);
       expect(r.pushed, 0);
-      expect(sink.deletedAt, isNull, reason: 'the newer update must survive');
-      expect(sink.revision, 9, reason: 'no bump — nothing was written');
-      expect(sink.stateFetches, 1, reason: 'classified, never blindly deleted');
+      final row = srv.tables['user_goals']!['srv-g1']!;
+      expect(row['deleted_at'], isNull, reason: 'the newer update must survive');
+      expect(row['revision'], 9, reason: 'no bump — nothing was written');
       expect(await goalStatus(), 'conflict');
+      final kind = (await db.customSelect('SELECT kind FROM sync_conflicts').getSingle())
+          .read<String>('kind');
+      expect(kind, 'delete');
     });
 
     test(
         'C two-delete idempotency (CAS-on, already tombstoned): benign success',
         () async {
       await seedDelete(revision: 5);
-      final sink = _DeleteSink(revision: 9, deletedAt: 'earlier-ts');
-      final r = await push(sink, casEnabled: true).push();
+      final srv = goalAt(9, deletedAt: 'earlier-ts');
+      final r = await push(_DeleteSink(), cas: srv).push();
       expect(r.pushed, 1, reason: 'already gone → converged');
       expect(r.conflicts, 0);
-      expect(sink.revision, 9, reason: 'no second bump');
+      expect(srv.tables['user_goals']!['srv-g1']!['revision'], 9,
+          reason: 'no second bump');
       expect(await goalStatus(), 'synced');
     });
 
-    test('D absent (CAS-on): fail-closed conflict, never a silent success',
-        () async {
+    test('D absent (CAS-on): not_found on a delete is an ACK (nothing to '
+        'tombstone), not a conflict', () async {
       await seedDelete(revision: 5);
-      final sink = _DeleteSink(exists: false);
-      final r = await push(sink, casEnabled: true).push();
-      expect(r.conflicts, 1);
-      expect(r.pushed, 0);
-      expect(await goalStatus(), 'conflict');
+      final r = await push(_DeleteSink(), cas: FakeCasServer()).push();
+      expect(r.pushed, 1);
+      expect(r.conflicts, 0);
+      expect(await goalStatus(), 'synced');
     });
 
     test('E CAS-off + matching base: guards on updated_at (never id-only)',
         () async {
       await seedDelete(revision: 5);
       final sink = _DeleteSink(updatedAt: 'base-ts');
-      final r = await push(sink, casEnabled: false).push();
+      final r = await push(sink).push();
       expect(r.pushed, 1);
-      expect(sink.casTombstones, 0, reason: 'CAS off');
       expect(sink.guardedTombstones, 1);
       expect(sink.deletedAt, isNotNull);
       expect(await goalStatus(), 'synced');
@@ -310,7 +289,7 @@ void main() {
         () async {
       await seedDelete(revision: 5);
       final sink = _DeleteSink(updatedAt: 'moved-ts'); // server advanced
-      final r = await push(sink, casEnabled: false).push();
+      final r = await push(sink).push();
       expect(r.conflicts, 1);
       expect(r.pushed, 0);
       expect(sink.deletedAt, isNull);
@@ -329,11 +308,11 @@ void main() {
       final g = await DriftGoalRepository(db, outboxQueue: queue).getById('g1');
       await queue.enqueueGoal(PlanningSyncOperation.update, g!);
       // The server row was tombstoned + advanced by another device.
-      final sink = _DeleteSink(revision: 9, deletedAt: 'del-ts');
-      final r = await push(sink, casEnabled: true).push();
+      final srv = goalAt(9, deletedAt: 'del-ts');
+      final r = await push(_DeleteSink(), cas: srv).push();
       expect(r.conflicts, 1);
       expect(r.pushed, 0);
-      expect(sink.deletedAt, 'del-ts',
+      expect(srv.tables['user_goals']!['srv-g1']!['deleted_at'], 'del-ts',
           reason: 'the server tombstone is never cleared by a stale update');
       expect(await goalStatus(), 'conflict');
     });
@@ -342,15 +321,16 @@ void main() {
         'G two deletes total bump the revision exactly once (restart-safe '
         'idempotency)', () async {
       await seedDelete(revision: 5);
-      final sink = _DeleteSink(revision: 5);
-      await push(sink, casEnabled: true).push(); // first: 5 → 6, tombstoned
-      expect(sink.revision, 6);
+      final srv = goalAt(5);
+      await push(_DeleteSink(), cas: srv).push(); // first: 5 → 6, tombstoned
+      expect(srv.tables['user_goals']!['srv-g1']!['revision'], 6);
       // A durable replay at the same stale base (outbox survived a restart).
       final g = await DriftGoalRepository(db, outboxQueue: queue).getById('g1');
       await queue.enqueueGoal(PlanningSyncOperation.delete, g!);
-      final r2 = await push(sink, casEnabled: true).push();
+      final r2 = await push(_DeleteSink(), cas: srv).push();
       expect(r2.pushed, 1, reason: 'idempotent — already tombstoned');
-      expect(sink.revision, 6, reason: 'never a second bump');
+      expect(srv.tables['user_goals']!['srv-g1']!['revision'], 6,
+          reason: 'never a second bump');
     });
   });
 
@@ -384,39 +364,41 @@ void main() {
             .getSingle())
         .readNullable<String>('sync_status');
 
-    AccountsPushService accountsPush(_DeleteAccountSink sink,
-            {required bool casEnabled}) =>
-        AccountsPushService(
+    AccountsPushService accountsPush(FakeCasServer srv) => AccountsPushService(
           db: db,
           queue: queue,
           isEnabled: () => true,
           getAuthUserId: () async => 'user-1',
-          remoteSink: sink,
-          revisionCasEnabled: casEnabled,
-        
-      // C-3: these cover push MECHANICS; consent enforcement is asserted
-      // separately in financial_push_consent_test.dart.
-      mayEgress: () async => true,
-    );
+          remoteSink: _DeleteAccountSink(),
+          casGate: casGate(db),
+          casRemote: srv,
+          // C-3: these cover push MECHANICS; consent enforcement is asserted
+          // separately in financial_push_consent_test.dart.
+          mayEgress: () async => true,
+        );
+
+    FakeCasServer accountAt(int revision) => FakeCasServer()
+      ..seed('user_accounts', {'local_id': 'a1'}, id: 'srv-a1', revision: revision);
 
     test('A CAS-on + matching revision: tombstones, bumps once', () async {
       await seedAccountDelete(revision: 5);
-      final sink = _DeleteAccountSink(revision: 5);
-      final r = await accountsPush(sink, casEnabled: true).push();
+      final srv = accountAt(5);
+      final r = await accountsPush(srv).push();
       expect(r.pushed, 1);
-      expect(sink.revision, 6);
-      expect(sink.deletedAt, isNotNull);
+      final row = srv.tables['user_accounts']!['srv-a1']!;
+      expect(row['revision'], 6);
+      expect(row['deleted_at'], isNotNull);
       expect(await accountStatus(), 'synced');
     });
 
     test('B UPDATE→stale-delete (CAS-on): CONFLICT, account NOT tombstoned',
         () async {
       await seedAccountDelete(revision: 5);
-      final sink = _DeleteAccountSink(revision: 9);
-      final r = await accountsPush(sink, casEnabled: true).push();
+      final srv = accountAt(9);
+      final r = await accountsPush(srv).push();
       expect(r.conflicts, 1);
       expect(r.pushed, 0);
-      expect(sink.deletedAt, isNull);
+      expect(srv.tables['user_accounts']!['srv-a1']!['deleted_at'], isNull);
       expect(await accountStatus(), 'conflict');
     });
   });

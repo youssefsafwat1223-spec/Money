@@ -11,12 +11,15 @@ import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/features/capture/services/ledger_outbox_queue.dart';
 import 'package:money_companion/features/capture/services/ledger_push_service.dart';
+
+import '../../harness/fake_cas_server.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // MALI-026 (Phase-9K) — the ledger parent tombstone must be GUARDED, never an
 // unconditional id-only overwrite. A stale delete replayed against a row that a
 // newer update advanced past our base must NOT tombstone it. Capability injected
-// ON where noted; production ships OFF (kServerRevisionCas=false).
+// ON where noted (WP-5: revision CAS runs through the sync_* RPCs, capability
+// `revision_cas`, false in production until G4).
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -106,7 +109,7 @@ void main() {
         }),
       );
 
-  Future<LedgerPushResult> push(SupabaseClient c, {required bool casEnabled}) =>
+  Future<LedgerPushResult> push(SupabaseClient c, {FakeCasServer? cas}) =>
       LedgerPushService(
         db: db,
         queue: (LedgerOutboxQueue(
@@ -117,76 +120,78 @@ void main() {
         isPushEnabled: () => true,
         getAuthUserId: () async => 'user-1',
         getClient: () => c,
-        revisionCasEnabled: casEnabled,
-      
+        casGate: cas == null ? null : casGate(db),
+        casRemote: cas,
       // C-3: these cover push MECHANICS; consent enforcement is asserted
       // separately in financial_push_consent_test.dart.
       mayEgress: () async => true,
     ).push();
 
+  FakeCasServer serverAt5() {
+    final srv = FakeCasServer();
+    srv.seed('user_transactions', {'client_request_id': 'tx1'},
+        id: 'srv-tx1', revision: 5);
+    return srv;
+  }
+
   test(
-      'A/§8 CAS-on + matching revision: tombstone sends the revision predicate '
-      '+ deleted_at, and succeeds', () async {
+      'A/§8 CAS-on + matching revision: the tombstone is sent with the base '
+      'revision and the operation id, and succeeds', () async {
     await seedSyncedDelete(revision: 5);
-    final seen = <String>[];
-    final c = client(seen,
-        onPatch: (req) => _arr([
-              {'id': 'srv-tx1', 'updated_at': 't2', 'revision': 6}
-            ], req));
-    final r = await push(c, casEnabled: true);
+    final srv = serverAt5();
+    final r = await push(client([], onPatch: _zeroRow), cas: srv);
     expect(r.pushed, 1);
     expect(r.conflicts, 0);
-    final patch = seen.firstWhere((s) => s.startsWith('PATCH'));
-    expect(patch, contains('revision=eq.5'),
-        reason: 'the guarded tombstone must carry the base-revision CAS');
-    expect(patch, contains('deleted_at'));
+    expect(srv.calls, ['tombstone:user_transactions']);
+    final row = srv.tables['user_transactions']!['srv-tx1']!;
+    expect(row['deleted_at'], isNotNull);
+    expect(row['revision'], 6);
+    expect(row['last_op_id'], isNotNull,
+        reason: 'the receipt id must be stamped');
     expect(await outboxCount(), 0);
   });
 
   test(
-      'B/§9 UPDATE→stale-delete (CAS-on, revision advanced): a zero-row '
-      'tombstone becomes a CONFLICT, the server row is NOT tombstoned',
+      'B/§9 UPDATE→stale-delete (CAS-on, revision advanced): the tombstone '
+      'becomes a durable CONFLICT and the cloud row is NOT tombstoned',
       () async {
     await seedSyncedDelete(revision: 5);
-    final seen = <String>[];
-    // The server moved to revision 9 (a newer accepted update), so the
-    // revision=eq.5 tombstone matches 0 rows; the row is still live.
-    final c = client(seen,
-        onPatch: _zeroRow, onGet: (req) => _object({'deleted_at': null}, req));
-    final r = await push(c, casEnabled: true);
+    final srv = serverAt5()..foreignEdit('user_transactions', 'srv-tx1', {'merchant': 'X'});
+    final r = await push(client([], onPatch: _zeroRow), cas: srv);
     expect(r.conflicts, 1);
     expect(r.pushed, 0);
+    expect(srv.tables['user_transactions']!['srv-tx1']!['deleted_at'], isNull);
     expect(await txStatus(), 'conflict',
         reason: 'the delete intent is preserved, recoverable');
-    // We fetched the row state to classify (never a blind delete).
-    expect(seen.any((s) => s.startsWith('GET')), isTrue);
+    final rec = await db
+        .customSelect("SELECT kind, theirs_revision FROM sync_conflicts "
+            "WHERE entity_type='transaction' AND resolved_at IS NULL;")
+        .getSingle();
+    expect(rec.read<String>('kind'), 'delete');
+    expect(rec.read<int>('theirs_revision'), 6);
   });
 
   test(
-      'C/§6 two-delete idempotency (CAS-on, already tombstoned): a zero-row '
-      'tombstone on an already-deleted row is a benign success', () async {
+      'C/§6 two-delete idempotency (CAS-on, already tombstoned): benign '
+      'success, no conflict', () async {
     await seedSyncedDelete(revision: 5);
-    final seen = <String>[];
-    final c = client(seen,
-        onPatch: _zeroRow,
-        onGet: (req) =>
-            _object({'deleted_at': '2026-08-02T00:00:00.000Z'}, req));
-    final r = await push(c, casEnabled: true);
+    final srv = FakeCasServer()
+      ..seed('user_transactions', {'client_request_id': 'tx1'},
+          id: 'srv-tx1', revision: 5, deletedAt: '2026-08-02T00:00:00.000Z');
+    final r = await push(client([], onPatch: _zeroRow), cas: srv);
     expect(r.pushed, 1, reason: 'converged — the row is already gone');
     expect(r.conflicts, 0);
     expect(await outboxCount(), 0);
   });
 
   test(
-      'D/§6.C absent (CAS-on): a zero-row tombstone whose row is gone is '
-      'fail-closed (conflict), never a silent success', () async {
+      'D/§6.C absent (CAS-on): not_found on a delete means the goal is met '
+      '(nothing to tombstone) — an ACK, not a conflict', () async {
     await seedSyncedDelete(revision: 5);
-    final seen = <String>[];
-    final c = client(seen, onPatch: _zeroRow, onGet: _zeroRow); // GET → null
-    final r = await push(c, casEnabled: true);
-    expect(r.conflicts, 1);
-    expect(r.pushed, 0);
-    expect(await txStatus(), 'conflict');
+    final r = await push(client([], onPatch: _zeroRow), cas: FakeCasServer());
+    expect(r.pushed, 1);
+    expect(r.conflicts, 0);
+    expect(await outboxCount(), 0);
   });
 
   test(
@@ -198,7 +203,7 @@ void main() {
         onPatch: (req) => _arr([
               {'id': 'srv-tx1', 'updated_at': 't2'}
             ], req));
-    final r = await push(c, casEnabled: false);
+    final r = await push(c);
     expect(r.pushed, 1);
     final patch = seen.firstWhere((s) => s.startsWith('PATCH'));
     expect(patch, contains('updated_at=eq.'),
@@ -213,7 +218,7 @@ void main() {
     final seen = <String>[];
     final c = client(seen,
         onPatch: _zeroRow, onGet: (req) => _object({'deleted_at': null}, req));
-    final r = await push(c, casEnabled: false);
+    final r = await push(c);
     expect(r.conflicts, 1);
     expect(r.pushed, 0);
     expect(await txStatus(), 'conflict');

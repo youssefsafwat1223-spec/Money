@@ -236,6 +236,7 @@ class ProcessedCaptureDto {
     this.sanitizedText,
     this.failureReason,
     this.createdAt,
+    this.state,
   });
 
   final String payloadId;
@@ -245,6 +246,10 @@ class ProcessedCaptureDto {
   final String? sanitizedText;
   final String? failureReason;
   final DateTime? createdAt;
+
+  /// v2 contract only: `processed` | `rejected` | `retryable`. Null on the
+  /// legacy contract, which carries `status` alone.
+  final String? state;
 
   factory ProcessedCaptureDto.fromJson(Map<String, dynamic> json) {
     return ProcessedCaptureDto(
@@ -261,6 +266,7 @@ class ProcessedCaptureDto {
       createdAt: json['created_at'] is String
           ? DateTime.tryParse(json['created_at'] as String)?.toUtc()
           : null,
+      state: json['state'] as String?,
     );
   }
 }

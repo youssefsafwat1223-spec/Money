@@ -6,6 +6,8 @@ import 'package:money_companion/data/repositories/drift_account_repository.dart'
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/accounts_push_service.dart';
+
+import '../../harness/fake_cas_server.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 
 // MALI-055n — the default-account command contract. Changing the default must be
@@ -55,13 +57,6 @@ class _ServerSink implements AccountsRemoteSink {
   }
 
   @override
-  Future<Map<String, dynamic>?> casTombstoneAccount(
-      String serverId, int expectedRevision) async {
-    await _tombstone(serverId);
-    return {'id': serverId, 'revision': expectedRevision + 1};
-  }
-
-  @override
   Future<Map<String, dynamic>?> guardedTombstoneAccount(
       String serverId, String? expectedUpdatedAt) async {
     await _tombstone(serverId);
@@ -81,15 +76,10 @@ class _ServerSink implements AccountsRemoteSink {
     String serverId,
     String expectedUpdatedAt,
     Map<String, dynamic> row,
-  ) =>
-      // C-6: the fake has no concurrent writer, so the atomic guarded update
-      // and the targeted update are equivalent here. The ATOMICITY itself is
-      // asserted structurally in guarded_update_atomicity_test.dart.
-      updateAccountByServerId(serverId, row);
-
-  @override
-  Future<Map<String, dynamic>> updateAccountByServerId(
-      String serverId, Map<String, dynamic> row) async {
+  ) async {
+    // C-6: the fake has no concurrent writer, so the atomic guarded update
+    // equals a targeted update here. The ATOMICITY itself is asserted
+    // structurally in guarded_update_atomicity_test.dart.
     fieldUpdates++;
     rows[serverId] = {
       ...?rows[serverId],
@@ -99,11 +89,6 @@ class _ServerSink implements AccountsRemoteSink {
     };
     return {'id': serverId, 'updated_at': rows[serverId]!['updated_at']};
   }
-
-  @override
-  Future<Map<String, dynamic>?> casUpdateAccount(String serverId,
-          int expectedRevision, Map<String, dynamic> row) async =>
-      updateAccountByServerId(serverId, row);
 
   @override
   Future<void> setDefaultAccount(String serverAccountId) async {
@@ -137,8 +122,10 @@ void main() {
   late AppDatabase db;
   late PlanningOutboxQueue queue;
   late DriftAccountRepository repo;
+  FakeCasServer? cas;
 
   setUp(() async {
+    cas = null;
     db = await AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
@@ -159,8 +146,8 @@ void main() {
         isEnabled: () => true,
         getAuthUserId: () async => 'user-1',
         remoteSink: sink,
-        revisionCasEnabled: casEnabled,
-      
+        casGate: casEnabled ? casGate(db) : null,
+        casRemote: casEnabled ? (cas ??= FakeCasServer()) : null,
       // C-3: these cover push MECHANICS; consent enforcement is asserted
       // separately in financial_push_consent_test.dart.
       mayEgress: () async => true,
@@ -324,7 +311,54 @@ void main() {
     await repo.setDefault('b');
     final r = await pushSvc(sink, casEnabled: true).push();
     expect(r.failed, 0);
-    expect(sink.rows['srv-b']?['is_default'], isTrue);
-    expect(sink.activeDefaults(), 1);
+    // Fields went through insert-if-absent; the default flag still travels via
+    // the dedicated set_default_account command (never in the CAS row).
+    expect(cas!.tables['user_accounts']!.length, 2);
+    expect(sink.upserts, 0);
+    expect(sink.setDefaultCalls, greaterThan(0));
+    expect(cas!.tables['user_accounts']!.values.any((r) => r.containsKey('is_default')),
+        isFalse);
+  });
+
+  test('CAS: update applied, then a moved revision is a durable conflict; '
+      'a delete tombstones with CAS', () async {
+    final sink = _ServerSink();
+    await repo.create(_account('a'));
+    await pushSvc(sink, casEnabled: true).push();
+    final sid = cas!.tables['user_accounts']!.values.firstWhere((r) => r['local_id'] == 'a')['id'] as String;
+    expect(await _localRev(db, 'a'), 1);
+
+    await repo.update((await repo.getById('a'))!.copyWith(name: 'Renamed'));
+    expect((await pushSvc(sink, casEnabled: true).push()).pushed, 1);
+    expect(cas!.tables['user_accounts']![sid]!['name'], 'Renamed');
+    expect(await _localRev(db, 'a'), 2);
+
+    cas!.foreignEdit('user_accounts', sid, {'name': 'Theirs'});
+    await repo.update((await repo.getById('a'))!.copyWith(name: 'Mine'));
+    final r = await pushSvc(sink, casEnabled: true).push();
+    expect(r.conflicts, 1);
+    expect(cas!.tables['user_accounts']![sid]!['name'], 'Theirs');
+    final c = await db.customSelect('SELECT kind, theirs_json FROM sync_conflicts').getSingle();
+    expect(c.read<String>('kind'), 'update');
+    expect(c.read<String>('theirs_json'), contains('Theirs'));
+  });
+
+  test('CAS: lost ACK on an account update is recognised by its operation id',
+      () async {
+    final sink = _ServerSink();
+    await repo.create(_account('a'));
+    await pushSvc(sink, casEnabled: true).push();
+    await repo.update((await repo.getById('a'))!.copyWith(name: 'Renamed'));
+    cas!.loseNextAck = true;
+    expect((await pushSvc(sink, casEnabled: true).push()).failed, 1);
+    await db.customStatement('UPDATE planning_sync_outbox SET next_retry_at = NULL;');
+    final r = await pushSvc(sink, casEnabled: true).push();
+    expect(r.pushed, 1);
+    expect(r.conflicts, 0);
   });
 }
+
+Future<int?> _localRev(AppDatabase db, String id) async => (await db
+        .customSelect("SELECT server_revision FROM accounts WHERE id='$id';")
+        .getSingle())
+    .readNullable<int>('server_revision');

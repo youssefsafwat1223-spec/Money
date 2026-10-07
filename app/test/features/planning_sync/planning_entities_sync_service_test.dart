@@ -112,8 +112,7 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
     tombstones.putIfAbsent(table, () => []).add(Map.of(match));
   }
 
-  @override
-  Future<Map<String, dynamic>?> casTombstone(
+    Future<Map<String, dynamic>?> casTombstone(
       String table, String serverId, int expectedRevision) async {
     await _tombstone(table, serverId);
     return {'id': serverId, 'revision': expectedRevision + 1};
@@ -186,8 +185,7 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
 
 
 
-  @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(
+    Future<Map<String, dynamic>?> casUpdateByServerId(
     String table,
     String serverId,
     int expectedRevision,
@@ -712,4 +710,116 @@ void main() {
       expect(row.read<double>('saved_amount'), 777); // local edit not clobbered
     });
   });
+
+  // ---- WP-5: lost-ACK receipt + durable conflict on the planning pull ------
+  group('WP-5 planning pull: receipts and durable conflicts', () {
+    late AppDatabase db;
+    setUp(() async => db = await _openDb());
+    tearDown(() => db.close());
+
+    Map<String, dynamic> remoteGoal({String? lastOp, String? deletedAt, int revision = 2}) => {
+          'id': 'server-g1',
+          'local_id': 'g1',
+          'name': 'Remote',
+          'currency': 'SAR',
+          'target_amount': 9000,
+          'saved_amount': 100,
+          'last_notified_saved_amount': 0,
+          'vault_skin': 'classic',
+          'status': 'active',
+          'created_at': DateTime.utc(2026, 7, 1).toIso8601String(),
+          'updated_at': DateTime.utc(2026, 7, 2).toIso8601String(),
+          'deleted_at': deletedAt,
+          'revision': revision,
+          'last_op_id': lastOp,
+        };
+
+    Future<void> pendingGoal({String op = 'op-1', String operation = 'update'}) async {
+      await DriftGoalRepository(db).save(_goal('g1'));
+      await db.customStatement(
+          "UPDATE goals SET sync_status = 'pending', server_id = 'server-g1', "
+          "server_revision = 1 WHERE id = 'g1';");
+      await db.customStatement('''
+        INSERT INTO planning_sync_outbox(id, entity_type, entity_id, operation,
+          payload_json, attempt_count, status, created_at, updated_at, op_seq,
+          in_flight_seq, operation_id)
+        VALUES ('o-$op', 'goal', 'g1', '$operation', '{}', 0, 'pending',
+          '2026-07-01', '2026-07-01', 1, 1, '$op');
+      ''');
+    }
+
+    Future<LedgerLikeResult> pullWith(Map<String, dynamic> row) async {
+      final remote = _FakePlanningRemote();
+      if (row['deleted_at'] != null) {
+        remote.tombstones['user_goals'] = [row];
+      } else {
+        remote.rows['user_goals'] = {'g1': row};
+      }
+      final pull = PlanningPullService(
+        db: db,
+        isEnabled: (_) => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote,
+        mayEgress: () async => true,
+      );
+      final r = await pull.pull();
+      return LedgerLikeResult(r.conflicts);
+    }
+
+    Future<int> openConflicts() async => (await db
+            .customSelect('SELECT COUNT(*) n FROM sync_conflicts WHERE resolved_at IS NULL;')
+            .getSingle())
+        .read<int>('n');
+
+    test('own queued op is the cloud last write: settled, no conflict', () async {
+      await pendingGoal();
+      final r = await pullWith(remoteGoal(lastOp: 'op-1'));
+      expect(r.conflicts, 0);
+      final row = await db
+          .customSelect("SELECT sync_status, server_revision, name FROM goals WHERE id='g1';")
+          .getSingle();
+      expect(row.read<String>('sync_status'), 'synced');
+      expect(row.read<int>('server_revision'), 2);
+      expect(row.read<String>('name'), 'Travel', reason: 'our edit stays');
+      expect(await _outboxCount(db), 0);
+      expect(await openConflicts(), 0);
+    });
+
+    test('foreign op: conflict stored durably with both versions', () async {
+      await pendingGoal();
+      final r = await pullWith(remoteGoal(lastOp: 'someone-else'));
+      expect(r.conflicts, 1);
+      final rec = await db.customSelect('SELECT * FROM sync_conflicts').getSingle();
+      expect(rec.read<String>('entity_type'), 'goal');
+      expect(rec.read<String>('kind'), 'update');
+      expect(rec.read<String>('mine_json'), contains('Travel'));
+      expect(rec.read<String>('theirs_json'), contains('Remote'));
+      expect(await _outboxCount(db), 1);
+    });
+
+    test('own tombstone (our delete landed): settled, no conflict', () async {
+      await pendingGoal(op: 'op-del', operation: 'delete');
+      final r = await pullWith(
+          remoteGoal(lastOp: 'op-del', deletedAt: '2026-07-03T00:00:00Z'));
+      expect(r.conflicts, 0);
+      expect(await _outboxCount(db), 0);
+      expect(await openConflicts(), 0);
+    });
+
+    test('foreign tombstone vs pending edit: durable conflict kind tombstone',
+        () async {
+      await pendingGoal(op: 'op-edit');
+      await pullWith(
+          remoteGoal(lastOp: 'foreign', deletedAt: '2026-07-03T00:00:00Z'));
+      expect(await openConflicts(), 1);
+      expect((await db.customSelect('SELECT kind FROM sync_conflicts').getSingle())
+          .read<String>('kind'), 'tombstone');
+      expect(await _outboxCount(db), 1);
+    });
+  });
+}
+
+class LedgerLikeResult {
+  const LedgerLikeResult(this.conflicts);
+  final int conflicts;
 }

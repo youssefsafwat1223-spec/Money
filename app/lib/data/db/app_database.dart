@@ -17,7 +17,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 40;
+const int _targetSchemaVersion = 41;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -667,7 +667,89 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV40ConsentVersions,
       postcondition: _verifyV40ConsentVersions,
     ),
+    // WP-5 — revision CAS and durable conflicts. ADDITIVE: two nullable columns
+    // on each outbox (the operation receipt id and the explicit CAS base
+    // revision) and one new table, `sync_conflicts`. No existing row is changed:
+    // a queued mutation without an operation id is assigned one at push time.
+    // Forward-only like v32..v40.
+    _SchemaMigration(
+      from: 40,
+      to: 41,
+      apply: _applyV41SyncConflicts,
+      postcondition: _verifyV41SyncConflicts,
+    ),
   ];
+
+  static Future<void> _applyV41SyncConflicts(AppDatabase db) async {
+    await db._ensureOutboxCasColumns();
+    await db._createSyncConflictsTable();
+  }
+
+  static Future<bool> _verifyV41SyncConflicts(AppDatabase db) async {
+    for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
+      final names = (await db
+              .customSelect("SELECT name FROM pragma_table_info('$table');")
+              .get())
+          .map((r) => r.read<String>('name'))
+          .toSet();
+      if (names.isEmpty) continue; // table not created yet (older database)
+      if (!names.containsAll(const {'operation_id', 'base_revision'})) {
+        return false;
+      }
+    }
+    final rows = await db
+        .customSelect("SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='sync_conflicts';")
+        .get();
+    return rows.isNotEmpty;
+  }
+
+  /// v41 — the operation receipt id (`last_op_id` on the server) and the
+  /// explicit CAS base revision of a queued mutation. Both NULL for rows queued
+  /// before v41; the push assigns the operation id lazily.
+  Future<void> _ensureOutboxCasColumns() async {
+    for (final table in const ['ledger_sync_outbox', 'planning_sync_outbox']) {
+      // A database older than the outbox has no such table yet at this point
+      // (the compatibility pass creates it later, WITH these columns).
+      final exists = (await customSelect(
+                  "SELECT name FROM sqlite_master WHERE type='table' "
+                  "AND name='$table';")
+              .get())
+          .isNotEmpty;
+      if (!exists) continue;
+      await _ensureColumn(table, 'operation_id', 'TEXT NULL');
+      await _ensureColumn(table, 'base_revision', 'INTEGER NULL');
+    }
+  }
+
+  /// v41 — the durable record of a sync conflict: the base (when known), the
+  /// local proposal and the cloud version, stored BEFORE the outbox op is
+  /// consumed so a conflict survives a restart. At most one OPEN record per
+  /// entity (partial unique index); a resolved record is kept as history.
+  Future<void> _createSyncConflictsTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS sync_conflicts (
+        id TEXT PRIMARY KEY,
+        entity_type TEXT NOT NULL,
+        local_id TEXT NOT NULL,
+        server_id TEXT NULL,
+        kind TEXT NOT NULL CHECK(kind IN ('update','delete','tombstone','create')),
+        base_json TEXT NULL,
+        mine_json TEXT NULL,
+        theirs_json TEXT NULL,
+        theirs_revision INTEGER NULL,
+        operation_id TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        resolved_at TEXT NULL,
+        resolution TEXT NULL
+      );
+    ''');
+    await customStatement(
+      'CREATE UNIQUE INDEX IF NOT EXISTS idx_sync_conflicts_open '
+      'ON sync_conflicts(entity_type, local_id) WHERE resolved_at IS NULL;',
+    );
+  }
 
   static Future<void> _applyV40ConsentVersions(AppDatabase db) async {
     // A database older than MALI-059n has no *_state columns yet (the
@@ -2064,6 +2146,7 @@ class AppDatabase extends GeneratedDatabase {
     await _addProofShadowAttribution();
     await _createProofCorrectionEventsTable();
     await _createReplicaMetaTable();
+    await _createSyncConflictsTable();
 
     // v34 (COUPONS PHASE 1): the merchant catalog cache. Unconditional for the
     // same reason as the two above — a version gate would skip these on a
@@ -2187,7 +2270,7 @@ class AppDatabase extends GeneratedDatabase {
     // (never synced, or synced before the server had 0068), which the push
     // treats as fail-safe — it uses the guarded server_updated_at compare rather
     // than a blind overwrite. Populated by pull + push acknowledgements once the
-    // server reports a revision. Dormant until kServerRevisionCas is enabled.
+    // server reports a revision. Used only when the server advertises `revision_cas` (WP-5).
     for (final table in const [
       'transactions',
       'accounts',
@@ -2237,7 +2320,9 @@ class AppDatabase extends GeneratedDatabase {
         failure_class TEXT NULL,
         op_seq INTEGER NOT NULL DEFAULT 0,
         owner_uid TEXT NULL,
-        in_flight_seq INTEGER NULL
+        in_flight_seq INTEGER NULL,
+        operation_id TEXT NULL,
+        base_revision INTEGER NULL
       );
     ''');
     await customStatement(
@@ -2305,6 +2390,9 @@ class AppDatabase extends GeneratedDatabase {
       // handed to a push. Survives process death, so a create+delete coalesce can
       // never drop a create that may already have reached the server.
       await _ensureColumn(table, 'in_flight_seq', 'INTEGER NULL');
+      // v41 (WP-5): operation receipt id + explicit CAS base revision.
+      await _ensureColumn(table, 'operation_id', 'TEXT NULL');
+      await _ensureColumn(table, 'base_revision', 'INTEGER NULL');
     }
     // MALI-024 / 0070 — durable local engagement-event outbox. The client
     // records typed events; the server (record_engagement_event RPC) decides the
@@ -2446,7 +2534,9 @@ class AppDatabase extends GeneratedDatabase {
         failure_class TEXT NULL,
         op_seq INTEGER NOT NULL DEFAULT 0,
         owner_uid TEXT NULL,
-        in_flight_seq INTEGER NULL
+        in_flight_seq INTEGER NULL,
+        operation_id TEXT NULL,
+        base_revision INTEGER NULL
       );
     ''');
     await customStatement(

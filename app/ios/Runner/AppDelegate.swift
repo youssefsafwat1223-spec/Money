@@ -476,6 +476,38 @@ enum ApnsEnvironment {
           case .ownerMismatch: return ["status": "owner_mismatch", "count": 0]
           }
         }
+      case "peekLegacyCaptureItems":
+        // A6 (CAP-7): read-only listing of the unbound legacy_v2 items for the
+        // fingerprint check. Content-bearing: never logged.
+        queueResult(result) {
+          try SharedCaptureStore.peekLegacyCaptureItems().map { item -> [String: Any] in
+            var map: [String: Any] = ["id": item.id, "text": item.text]
+            if let receivedAt = item.receivedAt { map["receivedAt"] = receivedAt }
+            if let createdAt = item.createdAt { map["createdAt"] = createdAt }
+            return map
+          }
+        }
+      case "setCaptureNotifyV2":
+        // CAP-7: mirrors the `capture_notify_v2` flag for the App Intent.
+        SharedCaptureStore.setCaptureNotifyV2(
+          (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
+        )
+        result(nil)
+      case "withdrawDeliveredCaptureAlert":
+        // CAP-7 correction: removes this capture's still-delivered App Intent
+        // banner so a correction replaces it instead of stacking. True when one
+        // was delivered. Identifiers are the App Intent's own.
+        guard let payloadId = (call.arguments as? [String: Any])?["payloadId"] as? String else {
+          result(FlutterError(code: "bad_args", message: "Expected payloadId.", details: nil))
+          return
+        }
+        let center = UNUserNotificationCenter.current()
+        let wanted = Set(["capture_generic_", "capture_fallback_", "capture_backend_"].map { $0 + payloadId })
+        center.getDeliveredNotifications { delivered in
+          let hits = delivered.map { $0.request.identifier }.filter { wanted.contains($0) }
+          if !hits.isEmpty { center.removeDeliveredNotifications(withIdentifiers: hits) }
+          DispatchQueue.main.async { result(!hits.isEmpty) }
+        }
       case "resolveLegacyCaptureItems":
         let args = call.arguments as? [String: Any]
         queueResult(result) {

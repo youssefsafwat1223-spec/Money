@@ -46,8 +46,7 @@ class _CapturingSink implements PlanningRemoteSink {
   Future<Map<String, dynamic>?> findByLocalId(
           String t, String u, String l) async =>
       null;
-  @override
-  Future<Map<String, dynamic>?> casTombstone(String t, String s, int r) async =>
+    Future<Map<String, dynamic>?> casTombstone(String t, String s, int r) async =>
       {'id': s, 'revision': r + 1};
 
   @override
@@ -75,8 +74,7 @@ class _CapturingSink implements PlanningRemoteSink {
   Future<Map<String, dynamic>> updateByServerId(
           String t, String s, Map<String, dynamic> r) async =>
       {'id': s, 'updated_at': null};
-  @override
-  Future<Map<String, dynamic>?> casUpdateByServerId(
+    Future<Map<String, dynamic>?> casUpdateByServerId(
           String t, String s, int e, Map<String, dynamic> r) async =>
       null;
 }

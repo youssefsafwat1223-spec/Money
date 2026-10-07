@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/utils/l10n_ext.dart';
+import '../../l10n/app_localizations.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/sync/conflict_resolver.dart';
+import '../../core/sync/conflict_fields.dart';
 import '../../core/sync/conflict_policy.dart';
+import '../../core/sync/sync_conflict_store.dart';
 
 /// MALI-022 part 2 — the visible conflict-resolution surface. Lists planning
 /// rows stuck in `sync_status='conflict'` (a real two-device edit collision)
@@ -114,7 +117,7 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
           SnackBar(
             content: Text(keepLocal
                 ? context.l10n.pcsKeptMine
-                : context.l10n.pcsKeptTheirs),
+                : context.l10n.conflictKeptCloud),
           ),
         );
       }
@@ -125,25 +128,52 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
 
   @override
   Widget build(BuildContext context) {
+    final conflict = widget.conflict;
+    final l10n = context.l10n;
+    final theme = Theme.of(context);
+    final tombstone = conflict.kind == SyncConflictKind.tombstone;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(_conflictLabel(context, widget.conflict),
-            style: Theme.of(context).textTheme.bodyLarge),
+        Text(_conflictLabel(context, conflict), style: theme.textTheme.bodyLarge),
+        if (tombstone)
+          Text(l10n.conflictDeletedInCloud, style: theme.textTheme.bodySmall)
+        else if (conflict.kind == SyncConflictKind.delete)
+          Text(l10n.conflictDeletedHere, style: theme.textTheme.bodySmall),
+        // SYNC-Q5: the meaningful field differences, mine vs cloud.
+        for (final d in conflict.fields)
+          Padding(
+            key: ValueKey('conflict-field-${d.key.name}'),
+            padding: const EdgeInsets.only(top: 6),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(_fieldLabel(l10n, d.key), style: theme.textTheme.labelMedium),
+                Text('${l10n.conflictThisDevice}: ${_shown(l10n, d, d.mine)}',
+                    style: theme.textTheme.bodySmall),
+                Text('${l10n.conflictCloud}: ${_shown(l10n, d, d.cloud)}',
+                    style: theme.textTheme.bodySmall),
+              ],
+            ),
+          ),
         const SizedBox(height: 8),
         Row(
           children: [
-            Expanded(
-              child: OutlinedButton(
-                onPressed: _busy ? null : () => _resolve(true),
-                child: Text(context.l10n.pcsKeepMine),
+            if (conflict.canKeepMine) ...[
+              Expanded(
+                child: OutlinedButton(
+                  onPressed: _busy ? null : () => _resolve(true),
+                  child: Text(tombstone
+                      ? l10n.conflictKeepMineAsNew
+                      : l10n.conflictKeepMine),
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
+              const SizedBox(width: 12),
+            ],
             Expanded(
               child: OutlinedButton(
                 onPressed: _busy ? null : () => _resolve(false),
-                child: Text(context.l10n.pcsKeepTheirs),
+                child: Text(l10n.conflictKeepCloud),
               ),
             ),
           ],
@@ -165,3 +195,35 @@ String _conflictLabel(BuildContext context, SyncConflict conflict) {
   }
   return conflict.label;
 }
+
+String _shown(AppL10n l10n, ConflictFieldDiff d, String? value) {
+  if (value == null) return l10n.conflictNotSet;
+  // A yes/no field shows a tick or a dash, not a word that needs copy.
+  if (d.key == ConflictFieldKey.active) return value == '1' ? '\u2713' : '\u2014';
+  return value;
+}
+
+String _fieldLabel(AppL10n l10n, ConflictFieldKey key) => switch (key) {
+      ConflictFieldKey.amount => l10n.conflictFieldAmount,
+      ConflictFieldKey.currency => l10n.conflictFieldCurrency,
+      ConflictFieldKey.merchant => l10n.conflictFieldMerchant,
+      ConflictFieldKey.note => l10n.conflictFieldNote,
+      ConflictFieldKey.date => l10n.conflictFieldDate,
+      ConflictFieldKey.status => l10n.conflictFieldStatus,
+      ConflictFieldKey.category => l10n.conflictFieldCategory,
+      ConflictFieldKey.name => l10n.conflictFieldName,
+      ConflictFieldKey.type => l10n.conflictFieldType,
+      ConflictFieldKey.balance => l10n.conflictFieldBalance,
+      ConflictFieldKey.initialBalance => l10n.conflictFieldInitialBalance,
+      ConflictFieldKey.creditLimit => l10n.conflictFieldCreditLimit,
+      ConflictFieldKey.period => l10n.conflictFieldPeriod,
+      ConflictFieldKey.startDate => l10n.conflictFieldStartDate,
+      ConflictFieldKey.endDate => l10n.conflictFieldEndDate,
+      ConflictFieldKey.frequency => l10n.conflictFieldFrequency,
+      ConflictFieldKey.nextDue => l10n.conflictFieldNextDue,
+      ConflictFieldKey.targetAmount => l10n.conflictFieldTargetAmount,
+      ConflictFieldKey.deadline => l10n.conflictFieldDeadline,
+      ConflictFieldKey.nickname => l10n.conflictFieldNickname,
+      ConflictFieldKey.last4 => l10n.conflictFieldLast4,
+      ConflictFieldKey.active => l10n.conflictFieldActive,
+    };

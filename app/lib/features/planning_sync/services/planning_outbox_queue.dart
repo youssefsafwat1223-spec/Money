@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../../../core/sync/outbox_operation_id.dart';
+
 import '../../../core/sync/conflict_policy.dart';
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/outbox_owner.dart';
@@ -41,6 +43,8 @@ class PlanningOutboxItem {
     required this.payloadJson,
     required this.attemptCount,
     this.opSeq = 0,
+    this.operationId,
+    this.baseRevision,
     this.ownerUid,
     this.lastError,
     this.nextRetryAt,
@@ -56,6 +60,16 @@ class PlanningOutboxItem {
   /// A-2 (G3): the row's edit counter when it was read; an ACK only consumes the
   /// row while it still matches (an edit folded in flight keeps it pending).
   final int opSeq;
+
+  /// WP-5: the operation receipt id (server `last_op_id`); regenerated on every
+  /// edit of the row, reused by retries of the same op_seq.
+  final String? operationId;
+
+  /// WP-5: the server revision the edit was made against (CAS base).
+  final int? baseRevision;
+
+  /// Operation ids this row carried earlier while possibly on the wire.
+  List<String> get priorOpIds => priorOpIdsOf(payloadJson);
 
   /// A-2 (G18): the local-data owner the row was recorded for (null = legacy).
   final String? ownerUid;
@@ -258,7 +272,8 @@ class PlanningOutboxQueue {
     return _enqueue(
       entityType: billPaymentsEntityType,
       entityId: payment.id,
-      op: op,
+      // WP-5: immutable child — an edit is never an `update` (replay = create).
+      op: op == PlanningSyncOperation.update ? PlanningSyncOperation.create : op,
       table: 'bill_payments',
       payload: _withDelete(op, {
         'local_id': payment.id,
@@ -288,7 +303,8 @@ class PlanningOutboxQueue {
     return _enqueue(
       entityType: goalContributionsEntityType,
       entityId: contribution.id,
-      op: op,
+      // WP-5: immutable child — an edit is never an `update` (replay = create).
+      op: op == PlanningSyncOperation.update ? PlanningSyncOperation.create : op,
       table: 'goal_contributions',
       payload: _withDelete(op, {
         'local_id': contribution.id,
@@ -397,6 +413,10 @@ class PlanningOutboxQueue {
     PlanningSyncOperation op,
     UserSettingsEntity settings, {
     bool consentChanged = false,
+    // WP-5: the settings before this write, so the push can send only the
+    // fields this device changed (per-field last-writer-wins). Null = unknown:
+    // every non-consent field is treated as changed.
+    UserSettingsEntity? previous,
   }) async {
     // Updates are only valid once the local singleton is bound to the server
     // row (server_id attached by the first pull / registration push). Before
@@ -442,14 +462,19 @@ class PlanningOutboxQueue {
         consentOnly = true;
       }
     }
+    final payload = consentOnly
+        ? _buildConsentOnlyPayload(settings)
+        : _buildSettingsPayload(settings);
+    if (!consentOnly) {
+      payload['changed_fields'] =
+          _changedSettingsFields(payload, previous, consentChanged);
+    }
     return _enqueue(
       entityType: settingsEntityType,
       entityId: settings.id,
       op: effectiveOp,
       table: 'user_settings',
-      payload: consentOnly
-          ? _buildConsentOnlyPayload(settings)
-          : _buildSettingsPayload(settings),
+      payload: payload,
     );
   }
 
@@ -469,6 +494,31 @@ class PlanningOutboxQueue {
       'consent_version': s.consentVersion,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
+  }
+
+  /// WP-5: keys of [payload] that differ from [previous], plus `consent` when
+  /// the user explicitly changed consent. Consent keys never count as ordinary
+  /// field changes (consent is excluded from last-writer-wins).
+  List<String> _changedSettingsFields(
+    Map<String, dynamic> payload,
+    UserSettingsEntity? previous,
+    bool consentChanged,
+  ) {
+    const meta = {'local_id', 'updated_at', 'changed_fields'};
+    const consent = {
+      'ai_consent_granted',
+      'cloud_processing_enabled',
+      'consent_version',
+    };
+    final before = previous == null ? null : _buildSettingsPayload(previous);
+    return [
+      for (final e in payload.entries)
+        if (!meta.contains(e.key) &&
+            !consent.contains(e.key) &&
+            (before == null || before[e.key] != e.value))
+          e.key,
+      if (consentChanged) 'consent',
+    ];
   }
 
   Map<String, dynamic> _buildSettingsPayload(UserSettingsEntity s) {
@@ -551,6 +601,7 @@ class PlanningOutboxQueue {
       entityId: entityId,
       opName: op.name,
       payload: enriched,
+      baseRevision: baseRevision,
       // A settings row parked for its bind must NOT flip to 'pending': the pull
       // treats a pending settings row as a conflict and would refuse to merge
       // the remote state that binds it.
@@ -575,6 +626,7 @@ class PlanningOutboxQueue {
     required Map<String, dynamic> payload,
     required String localUpdateSql,
     String? parkReason,
+    int? baseRevision,
   }) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.transaction(() async {
@@ -597,7 +649,7 @@ class PlanningOutboxQueue {
               ? "AND payload_json NOT LIKE '%\"consent_only\":true%'"
               : '';
       final existing = await _db.customSelect(
-        'SELECT id, operation, status, in_flight_seq FROM planning_sync_outbox '
+        'SELECT id, operation, status, in_flight_seq, operation_id, payload_json FROM planning_sync_outbox '
         'WHERE entity_type = ${sqlString(entityType)} '
         'AND entity_id = ${sqlString(entityId)} '
         'AND $kOutboxCoalescibleSql AND ${outboxOwnerMatchSql(ownerUid)} '
@@ -608,6 +660,28 @@ class PlanningOutboxQueue {
         rowId = existing.read<String>('id');
         final coalesced =
             coalesceOutboxOperation(existing.read<String>('operation'), opName);
+        // WP-5: a NEW operation id for the edited row; the previous one is
+        // remembered only if it may already have reached the server.
+        if (entityType == settingsEntityType) {
+          // Per-field LWW: the folded row must still send every field ANY of
+          // its edits changed.
+          final old = (jsonDecode(existing.read<String>('payload_json')) as Map)
+              .cast<String, dynamic>();
+          final merged = {
+            ...((old['changed_fields'] as List?) ?? const []).cast<String>(),
+            ...((payload['changed_fields'] as List?) ?? const []).cast<String>(),
+          };
+          if (payload.containsKey('changed_fields') ||
+              old.containsKey('changed_fields')) {
+            payload['changed_fields'] = merged.toList();
+          }
+        }
+        withPriorOpIds(
+          payload,
+          existingPayloadJson: existing.read<String>('payload_json'),
+          previousOpId: existing.readNullable<String>('operation_id'),
+          possiblySent: existing.readNullable<int>('in_flight_seq') != null,
+        );
         if (coalesced == null &&
             existing.readNullable<int>('in_flight_seq') == null) {
           // Never on the wire (never handed to a push — the durable
@@ -629,6 +703,8 @@ class PlanningOutboxQueue {
               attempt_count = 0, status = 'pending', failure_class = NULL,
               last_error = NULL, next_retry_at = NULL,
               op_seq = op_seq + 1,
+              operation_id = ${sqlString(IdGenerator.uuidV4())},
+              base_revision = ${baseRevision ?? 'NULL'},
               owner_uid = COALESCE(owner_uid, ${sqlNullableString(ownerUid)}),
               updated_at = ${sqlString(now)}
           WHERE id = ${sqlString(rowId)};
@@ -638,13 +714,15 @@ class PlanningOutboxQueue {
         await _db.customStatement('''
           INSERT INTO planning_sync_outbox(
             id, entity_type, entity_id, operation, payload_json,
-            attempt_count, status, created_at, updated_at, op_seq, owner_uid
+            attempt_count, status, created_at, updated_at, op_seq, owner_uid,
+            operation_id, base_revision
           ) VALUES (
             ${sqlString(rowId)}, ${sqlString(entityType)},
             ${sqlString(entityId)}, ${sqlString(opName)},
             ${sqlString(jsonEncode(payload))}, 0, 'pending',
             ${sqlString(now)}, ${sqlString(now)},
-            1, ${sqlNullableString(ownerUid)}
+            1, ${sqlNullableString(ownerUid)},
+            ${sqlString(IdGenerator.uuidV4())}, ${baseRevision ?? 'NULL'}
           );
         ''');
       }
@@ -684,7 +762,8 @@ class PlanningOutboxQueue {
     final rows = await _db.transaction(() async {
       final picked = await _db.customSelect('''
         SELECT id, entity_type, entity_id, operation, payload_json,
-               attempt_count, last_error, next_retry_at, op_seq, owner_uid
+               attempt_count, last_error, next_retry_at, op_seq, owner_uid,
+               operation_id, base_revision
         FROM planning_sync_outbox
         WHERE status = 'pending'
           AND (next_retry_at IS NULL OR next_retry_at <= ${sqlString(now)})
@@ -696,13 +775,27 @@ class PlanningOutboxQueue {
       ''').get();
       for (final row in picked) {
         await _db.customStatement(
-          'UPDATE planning_sync_outbox SET in_flight_seq = op_seq '
+          'UPDATE planning_sync_outbox SET in_flight_seq = op_seq, '
+          // WP-5: rows queued before v41 get their operation id before send.
+          'operation_id = COALESCE(operation_id, ${sqlString(IdGenerator.uuidV4())}) '
           'WHERE id = ${sqlString(row.read<String>('id'))};',
         );
       }
-      return picked;
+      return [
+        for (final row in picked)
+          (
+            row,
+            await _db
+                .customSelect(
+                    'SELECT operation_id FROM planning_sync_outbox WHERE id = '
+                    '${sqlString(row.read<String>('id'))};')
+                .getSingle()
+                .then((r) => r.read<String>('operation_id'))
+          ),
+      ];
     });
-    return rows.map((row) {
+    return rows.map((pair) {
+      final row = pair.$1;
       final opStr = row.read<String>('operation');
       final op = PlanningSyncOperation.values.firstWhere(
         (e) => e.name == opStr,
@@ -718,6 +811,8 @@ class PlanningOutboxQueue {
             (jsonDecode(row.read<String>('payload_json')) as Map).cast(),
         attemptCount: row.read<int>('attempt_count'),
         opSeq: row.read<int>('op_seq'),
+        operationId: pair.$2,
+        baseRevision: row.readNullable<int>('base_revision'),
         ownerUid: row.readNullable<String>('owner_uid'),
         lastError: row.readNullable<String>('last_error'),
         nextRetryAt:
@@ -765,6 +860,7 @@ class PlanningOutboxQueue {
       await _db.customStatement('''
         UPDATE planning_sync_outbox
         SET payload_json = ${sqlString(jsonEncode(payload))},
+            ${serverRevision != null ? 'base_revision = $serverRevision,' : ''}
             attempt_count = 0, next_retry_at = NULL, in_flight_seq = NULL,
             updated_at = ${sqlString(now)}
         WHERE id = ${sqlString(item.id)};
@@ -772,6 +868,11 @@ class PlanningOutboxQueue {
       return false;
     });
   }
+
+  /// WP-5: nothing was written (stale epoch) — the row is simply not in flight.
+  Future<void> releaseInFlight(String id) => _db.customStatement(
+      'UPDATE planning_sync_outbox SET in_flight_seq = NULL '
+      'WHERE id = ${sqlString(id)};');
 
   /// ACK without a server version to carry (conflict/abandon/idempotent delete).
   Future<bool> markSuccess(PlanningOutboxItem item) => acknowledge(item);

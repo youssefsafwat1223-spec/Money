@@ -70,7 +70,7 @@ void main() {
       for (final forbidden in [
         'Money(',
         'moneyToNumericText',
-        'kServerRevisionCas',
+        'RevisionCasGate',
         'BackupSnapshotBuilder',
         'apns',
         'flutter_local_notifications',

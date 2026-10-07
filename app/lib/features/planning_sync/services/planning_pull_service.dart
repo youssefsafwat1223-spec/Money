@@ -1,3 +1,5 @@
+import '../../../core/sync/outbox_receipt.dart';
+import '../../../core/sync/sync_conflict_store.dart';
 import '../../../core/sync/sync_health.dart';
 import 'dart:convert';
 
@@ -214,6 +216,7 @@ class PlanningPullService {
             mayEgressProfile ?? mayEgress ?? _denyEgressByDefault,
         _health = health,
         _db = db,
+        _conflicts = SyncConflictStore(db),
         _isEnabled = isEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _pageSize = pageSize,
@@ -223,6 +226,7 @@ class PlanningPullService {
         _remoteSource = remoteSource ?? const SupabasePlanningRemoteSource();
 
   final AppDatabase _db;
+  final SyncConflictStore _conflicts;
   final bool Function(String entityType) _isEnabled;
   final int _maxPagesPerRun;
   final SeqPullGate? _seqGate;
@@ -603,7 +607,13 @@ class PlanningPullService {
         final base = existing.serverUpdatedAt;
         final serverMoved = base != _dateString(row['updated_at']);
         if (serverMoved) {
-          await _markConflict(localTable, localId);
+          // WP-5 lost-ACK receipt: the cloud's last write is OUR queued op.
+          final own = await _settleOwn(entityType, localTable, localId, row);
+          if (own != OwnOpResult.none) return _PlanningPullOutcome.updated;
+          await _flagConflict(entityType, localTable, localId, row,
+              await _pendingIsDelete(entityType, localId)
+                  ? SyncConflictKind.delete
+                  : SyncConflictKind.update);
           return _PlanningPullOutcome.conflict;
         }
         return _PlanningPullOutcome.skipped;
@@ -670,7 +680,13 @@ class PlanningPullService {
     final status = existing.syncStatus;
     if (status == 'conflict') return false;
     if (status == 'pending') {
-      await _markConflict(localTable, localId);
+      // WP-5 lost-ACK receipt: the tombstone is our own queued delete.
+      if (await _settleOwn(entityType, localTable, localId, row) !=
+          OwnOpResult.none) {
+        return true;
+      }
+      await _flagConflict(
+          entityType, localTable, localId, row, SyncConflictKind.tombstone);
       return false;
     }
 
@@ -1209,6 +1225,44 @@ class PlanningPullService {
           deleted_at = NULL
       WHERE id = ${sqlString(id)};
     ''');
+  }
+
+  Future<OwnOpResult> _settleOwn(String entityType, String localTable,
+          String localId, Map<String, dynamic> row) =>
+      settleOwnOperation(
+        db: _db,
+        outboxTable: 'planning_sync_outbox',
+        outboxWhere: 'entity_type = ${sqlString(entityType)} '
+            'AND entity_id = ${sqlString(localId)}',
+        localTable: localTable,
+        localId: localId,
+        serverRow: row,
+      );
+
+  Future<bool> _pendingIsDelete(String entityType, String localId) async =>
+      (await _db
+              .customSelect(
+                  'SELECT 1 AS x FROM planning_sync_outbox WHERE entity_type = '
+                  "${sqlString(entityType)} AND entity_id = ${sqlString(localId)} "
+                  "AND operation = 'delete' LIMIT 1;")
+              .getSingleOrNull()) !=
+      null;
+
+  /// WP-5: the durable conflict record (snapshots) + the flag, then the same
+  /// in-flight clearing as before.
+  Future<void> _flagConflict(String entityType, String table, String localId,
+      Map<String, dynamic> row, SyncConflictKind kind) async {
+    await _db.transaction(() async {
+      await _conflicts.flag(
+        entityType: entityType,
+        localId: localId,
+        kind: kind,
+        serverId: row['id'] as String?,
+        theirs: row,
+        theirsRevision: (row['revision'] as num?)?.toInt(),
+      );
+      await _markConflict(table, localId);
+    });
   }
 
   Future<void> _markConflict(String table, String localId) async {

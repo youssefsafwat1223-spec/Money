@@ -11,7 +11,6 @@ import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
 import '../sync/conflict_policy.dart';
 import '../sync/conflict_resolver.dart';
-import '../sync/sync_capabilities.dart';
 import '../sync/sync_health.dart';
 import '../sync/sync_recovery.dart';
 import '../sync/sync_wakeup.dart';
@@ -37,6 +36,7 @@ import '../../data/db/app_database.dart';
 import '../privacy/consent_authority.dart';
 import '../../data/sync/planning_currency_capability_probe.dart';
 import '../../data/sync/seq_pull.dart';
+import '../../data/sync/revision_cas.dart';
 import '../../data/sync/server_capabilities.dart';
 import '../../data/db/ownership_guard.dart';
 import '../../data/db/planning_canonical_invariants.dart';
@@ -99,6 +99,12 @@ import '../../features/capture/services/notification_journey_service.dart';
 import '../../features/capture/services/capture_backend_client.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
 import '../../features/capture/services/capture_sync_service.dart';
+import '../../features/capture/services/capture_import_ports.dart';
+import '../../features/capture/services/capture_import_service.dart';
+import '../../features/capture/services/capture_receipts.dart';
+import '../../features/capture/services/capture_server_port.dart';
+import '../../features/capture/services/legacy_capture_resolver.dart';
+import '../../features/capture/services/unbound_capture_prompt_service.dart';
 import '../../features/capture/services/native_capture_bridge.dart';
 import '../../features/capture/services/notification_log_service.dart';
 import '../../features/capture/services/notification_log_sync_service.dart';
@@ -263,6 +269,7 @@ const kOperationalOnlyTables = <String>{
   'ledger_sync_outbox',
   'planning_sync_outbox',
   'parked_child_rows',
+  'sync_conflicts',
   'sync_cursors',
   'engagement_events',
   'dedup_hashes',
@@ -558,6 +565,7 @@ final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
     isEnabled: _planningAccountsSyncEnabled,
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
+    casGate: ref.watch(revisionCasGateProvider),
     // C-3 — money must not leave the device without cloud consent. Read fresh
     // per push so a revocation is observed by the next drain, not the next boot.
     mayEgress: () => ConsentAuthority(
@@ -596,6 +604,7 @@ final planningPushServiceProvider = Provider<PlanningPushService>((ref) {
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
     planningCurrencyCapability: () =>
         ref.read(planningServerCurrencyCapabilityProvider),
+    casGate: ref.watch(revisionCasGateProvider),
     mayEgress: _consentGate(ref, EgressClass.financialSync),
     mayEgressProfile: _consentGate(ref, EgressClass.profileAndSettings),
     health: ref.watch(syncHealthProvider),
@@ -763,6 +772,16 @@ final seqPullGateProvider = Provider<SeqPullGate>((ref) {
   );
 });
 
+/// WP-5: one decision per push cycle for every push service. While
+/// `revision_cas` is false (production until G4) the plan is `legacy` and every
+/// push service runs its legacy guarded path unchanged.
+final revisionCasGateProvider = Provider<RevisionCasGate>((ref) {
+  return RevisionCasGate(
+    db: ref.watch(appDatabaseProvider),
+    capability: () => ref.read(serverCapabilitiesServiceProvider).revisionCas(),
+  );
+});
+
 final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return LedgerPushService(
@@ -772,6 +791,7 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     pushCapability: () => ref.read(exactPushTransportCapabilityProvider),
     capabilities: ref.watch(serverCapabilitiesServiceProvider),
+    casGate: ref.watch(revisionCasGateProvider),
     // C-3 — money must not leave the device without cloud consent. Read fresh
     // per push so a revocation is observed by the next drain, not the next boot.
     mayEgress: () => ConsentAuthority(
@@ -983,6 +1003,22 @@ final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
       ConflictEntities.subscription:
           planningSync(PlanningOutboxQueue.subscriptionsEntityType),
       ConflictEntities.plan: planningSync(PlanningOutboxQueue.plansEntityType),
+      ConflictEntities.card: planningSync(PlanningOutboxQueue.cardsEntityType),
+      ConflictEntities.category:
+          planningSync(PlanningOutboxQueue.categoriesEntityType),
+    },
+    // WP-5: keep-mine against a cloud tombstone re-creates the transaction as
+    // a NEW one (a tombstone is never un-deleted).
+    restoreAsNew: {
+      ConflictEntities.transaction: (id) async {
+        final e = await transactions.getById(id);
+        if (e == null) return;
+        await transactions.saveTransaction(
+          transaction: e.copyWith(id: IdGenerator.next()),
+          categoryKey: null,
+          resolvedCategoryId: e.categoryId,
+        );
+      },
     },
     reEnqueue: {
       ConflictEntities.transaction: (id) async {
@@ -1020,17 +1056,27 @@ final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
           await planningQueue.enqueuePlan(PlanningSyncOperation.update, e);
         }
       },
+      ConflictEntities.card: (id) async {
+        final e = await ref.read(cardRepositoryProvider).getById(id);
+        if (e != null) {
+          await planningQueue.enqueueCard(PlanningSyncOperation.update, e);
+        }
+      },
+      ConflictEntities.category: (id) async {
+        final all = await ref.read(categoryRepositoryProvider).getAll();
+        for (final e in all) {
+          if (e.id == id) {
+            await planningQueue.enqueueCategory(PlanningSyncOperation.update, e);
+          }
+        }
+      },
     },
     baseFetcher: SupabaseConfig.isConfigured
         ? (remoteTable, serverId) async {
             try {
-              // Read `revision` only when the CAS capability is on — the column
-              // exists on the server exactly when 0068 is deployed (same gate).
-              const cols =
-                  kServerRevisionCas ? 'updated_at, revision' : 'updated_at';
               final row = await supabase.Supabase.instance.client
                   .from(remoteTable)
-                  .select(cols)
+                  .select('updated_at, revision')
                   .eq('id', serverId)
                   .maybeSingle();
               if (row == null) return null;
@@ -1280,6 +1326,73 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
       }
       return null;
     },
+  );
+});
+
+/// CAP-5: the iOS capture import, bound to the account scope. Built per scope
+/// (the root `ProviderScope` is keyed by the scope generation), so it can only
+/// ever touch the active replica. Used only behind `capture_import_v3`.
+final captureImportServiceProvider = Provider<CaptureImportService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  final sync = ref.watch(captureSyncServiceProvider);
+  return CaptureImportService(
+    queue: const NativeCaptureImportQueue(),
+    server: ref.watch(captureServerPortProvider),
+    captureSyncService: sync,
+    receipts: CaptureReceipts(db),
+    // On device only, by construction: the import path makes no AI call.
+    ingestLocal: CaptureImportService.localIngest(
+        ref.watch(ingestCapturedMessageUseCaseProvider)),
+    sessionUid: () => supabase.Supabase.instance.client.auth.currentUser?.id,
+    replicaOwnerUid: () => replicaOwnerUid(db),
+    ownershipGuard: OwnershipGuard(),
+  );
+});
+
+final captureServerPortProvider = Provider<CaptureServerPort>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return BackendCaptureServerPort(
+    settingsRepository: DriftUserSettingsRepository(db),
+    registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
+    captureSyncService: ref.watch(captureSyncServiceProvider),
+    client: ref.watch(captureBackendClientProvider),
+    useContractV2: () async =>
+        await ref.read(serverCapabilitiesServiceProvider).captureContractV2() ==
+        ServerCapabilityState.verified,
+    accessToken: () async =>
+        supabase.Supabase.instance.client.auth.currentSession?.accessToken,
+  );
+});
+
+/// BL-2: the "bank messages received while you were signed out" prompt logic.
+final unboundCapturePromptServiceProvider =
+    Provider<UnboundCapturePromptService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return UnboundCapturePromptService(
+    queue: const NativeCaptureImportQueue(),
+    sessionUid: () => supabase.Supabase.instance.client.auth.currentUser?.id,
+    replicaOwnerUid: () => replicaOwnerUid(db),
+    isEnabled: () => featureFlags.getBool('capture_import_v3'),
+  );
+});
+
+/// §4.7: removes legacy v2 queue items the adopted replica proves consumed.
+final legacyCaptureResolverProvider = Provider<LegacyCaptureResolver>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  return LegacyCaptureResolver(
+    queue: const NativeCaptureImportQueue(),
+    db: db,
+    sessionUid: () => supabase.Supabase.instance.client.auth.currentUser?.id,
+    replicaOwnerUid: () => replicaOwnerUid(db),
+    // A6: the native read-only listing feeds the fingerprint review annotation.
+    legacyItems: () async => [
+      for (final item in await NativeCaptureBridge.peekLegacyCaptureItems())
+        LegacyCaptureItem(
+          id: item.id,
+          text: item.text,
+          receivedAt: item.receivedAt,
+        ),
+    ],
   );
 });
 
