@@ -31,6 +31,15 @@ void main() {
     expect(run(status: 'received'), isFalse);
   });
 
+  test(
+      'Astra H1 build-50 fallback: a 409 refusal (owner conflict / mismatch) '
+      'never reaches AI, even with the flag ON and consent granted', () {
+    expect(run(failure: 'http(409)'), isFalse);
+    expect(run(failure: ' http(409) '), isFalse);
+    // Control: any other backend failure keeps the existing rule.
+    expect(run(failure: 'http(500)'), isTrue);
+  });
+
   test('a `sent` capture never gets a second local banner', () {
     expect(
       CaptureNotificationAuthority.shouldShowLocalReview(

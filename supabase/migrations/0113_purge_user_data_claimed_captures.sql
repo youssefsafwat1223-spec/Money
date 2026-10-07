@@ -6,6 +6,8 @@
 --     (upsert into public.user_sync_state, created by 0103).
 --   * forgets the user's uid in capture_install_owner_history (0110, H1) while keeping those
 --     installs ineligible for ownerless uploads (fail closed).
+--   * clears consent_owner_uid (and its flags) on any install that still names the user
+--     although user_id no longer does (a re-registered row), so no identifier survives.
 -- Everything else is the CURRENT body (0084), restated in full. Do not forward-copy
 -- this body: edit the current definition.
 -- Depends on public.user_sync_state existing at CALL time (plpgsql late binding).
@@ -65,6 +67,21 @@ begin
   -- held by someone else, or already gone, is reachable only by uid. Not an FK: the history must
   -- outlive both the device row and the auth user.
   perform public.capture_history_forget_owner(p_user_id);
+
+  -- register-device nulls user_id only, so a re-registered install can still name this uid as
+  -- its consent owner (with its old flags) after the device row stopped matching user_id. Every
+  -- capture gate already refuses such a row (consent_owner_uid <> user_id); erase the uid and the
+  -- flags anyway so deletion leaves no identifier behind. Rows still linked to the user are
+  -- deleted below.
+  update public.capture_devices
+     set consent_owner_uid = null,
+         cloud_processing_enabled = false,
+         ai_consent_granted = false,
+         consent_version = 0,
+         consent_client_generation = 0,
+         last_revoke_generation = null
+   where consent_owner_uid = p_user_id
+     and user_id is distinct from p_user_id;
 
   delete from public.capture_rate_limits
   where install_id_hash in (

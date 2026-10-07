@@ -10,14 +10,21 @@
 ///
 /// Both [flagEnabled] (kill switch) and [aiAllowed] (consent, read fresh for
 /// this message) must hold, so a revoked consent never re-sends.
+///
+/// A 409 (`http(409)`: `capture_owner_conflict` / `capture_owner_mismatch`) is
+/// the server REFUSING to attribute this capture to the current owner (Astra H1:
+/// an ownerless upload after an owner transition). That refusal is final: the
+/// item never reaches AI, only the local deterministic parser.
 bool nativeCaptureMayUseAiFallback({
   required String? status,
   required String? failureReason,
   required bool flagEnabled,
   required bool aiAllowed,
 }) {
+  final reason = failureReason?.trim() ?? '';
   return status == 'sent' &&
-      (failureReason?.trim().isNotEmpty ?? false) &&
+      reason.isNotEmpty &&
+      reason != 'http(409)' &&
       flagEnabled &&
       aiAllowed;
 }

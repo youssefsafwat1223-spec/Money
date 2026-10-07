@@ -1077,6 +1077,62 @@ BEGIN
     pg_temp.nothing_stored('del2') AND NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'del1' AND payload_id = 'o2'));
 END $$;
 
+-- ── consent_owner_uid residue: re-register then account deletion (Astra follow-up) ──
+-- register-device nulls user_id only, so a re-registered row can keep
+-- consent_owner_uid = A with A's flags. Every gate must refuse it, a new link must
+-- replace it wholesale, and account deletion must erase A's uid from it.
+DO $$
+DECLARE a uuid := '00000000-0000-0000-0000-00000000a0c1'; b uuid := '00000000-0000-0000-0000-00000000b0c2';
+        d public.capture_devices; c jsonb;
+BEGIN
+  INSERT INTO auth.users (id) VALUES (a), (b) ON CONFLICT DO NOTHING;
+  PERFORM pg_temp.register('res1');  PERFORM pg_temp.link50('res1', a);
+  PERFORM public.legacy_set_device_consent('res1', true, true);
+  PERFORM pg_temp.register('res1');               -- re-register: user_id NULL, consent_owner_uid still A
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'res1';
+  PERFORM pg_temp.ok('residue setup: user_id NULL, consent_owner_uid = A, flags still TRUE',
+    d.user_id IS NULL AND d.consent_owner_uid = a AND d.cloud_processing_enabled AND d.ai_consent_granted, d::text);
+  -- upload authorization / AI: an owner-bound A upload and an ownerless upload are both refused
+  c := pg_temp.claim('res1', 'rc1', 'fp-rc1', a, 2);
+  PERFORM pg_temp.ok('residue: owner-bound upload naming A is refused (owner mismatch)',
+    c->>'outcome' = 'denied' AND c->>'code' = 'capture_owner_mismatch', c::text);
+  c := pg_temp.own('res1', 'rc2');
+  PERFORM pg_temp.ok('residue: ownerless upload is refused (consent_required)',
+    c->>'outcome' = 'denied' AND c->>'code' = 'consent_required' AND NOT (c ? 'lease_token'), c::text);
+  PERFORM pg_temp.ok('residue: nothing stored, no AI lease',
+    NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'res1'));
+  -- consent widening: the legacy writer refuses a row whose consent is not its linked user's
+  PERFORM pg_temp.ok('residue: legacy consent write refused (capture_owner_mismatch)',
+    (public.legacy_set_device_consent('res1', true, true))->>'error' = 'capture_owner_mismatch');
+  -- account transition: B's link replaces the whole projection; A's flags do not survive
+  PERFORM public.legacy_link_capture_device('res1', b);
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'res1';
+  PERFORM pg_temp.ok('residue: B link replaces the projection (owner B, A''s flags reset, version 0)',
+    d.user_id = b AND d.consent_owner_uid = b AND NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted
+    AND d.consent_version = 0 AND d.last_revoke_generation IS NULL, d::text);
+  c := pg_temp.claim('res1', 'rc4', 'fp-rc4', b, 2);
+  PERFORM pg_temp.ok('residue: B gets nothing from A''s old consent (owner-bound B upload: consent_required)',
+    c->>'outcome' = 'denied' AND c->>'code' = 'consent_required', c::text);
+
+  -- account deletion erases the uid from a residue row
+  PERFORM pg_temp.register('res2');  PERFORM pg_temp.link50('res2', a);
+  PERFORM public.legacy_set_device_consent('res2', true, true);
+  PERFORM pg_temp.register('res2');
+  PERFORM public.purge_user_data(a);
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'res2';
+  PERFORM pg_temp.ok('purge: no capture_devices row still names the deleted user as consent owner',
+    NOT EXISTS (SELECT 1 FROM public.capture_devices WHERE consent_owner_uid = a OR user_id = a));
+  PERFORM pg_temp.ok('purge: the residue row is left unowned with consent cleared',
+    d.user_id IS NULL AND d.consent_owner_uid IS NULL AND NOT d.cloud_processing_enabled
+    AND NOT d.ai_consent_granted AND d.consent_version = 0, d::text);
+  c := pg_temp.own('res2', 'rc3');
+  PERFORM pg_temp.ok('purge: the scrubbed install stays transitioned and refuses uploads',
+    (pg_temp.hist('res2')).transitioned AND c->>'outcome' = 'denied'
+    AND NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'res2'), c::text);
+  PERFORM pg_temp.ok('purge: B''s install is untouched', EXISTS (
+    SELECT 1 FROM public.capture_devices WHERE install_id_hash = 'res1' AND user_id = b AND consent_owner_uid = b));
+END $$;
+
 SELECT name, ok, detail FROM _r WHERE NOT ok;
 SELECT count(*) FILTER (WHERE ok) AS passed, count(*) FILTER (WHERE NOT ok) AS failed FROM _r;
 DO $$ BEGIN

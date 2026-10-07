@@ -601,6 +601,43 @@ void main() {
       expect(ai.calls, 0);
     });
 
+    // Astra H1 build-50 regression: the App Intent got 409
+    // capture_owner_conflict (no server row was created), stored the item `.sent`
+    // with failureReason `http(409)` and showed its local banner. The app import
+    // must take the local deterministic parser, with no second AI call.
+    group('build-50 ownerless 409 fallback (sent + http(409), no server row)',
+        () {
+      test('valid local parse: normal local transaction + outbox, no AI',
+          () async {
+        queue.items.add(item(_id(1), failureReason: 'http(409)'));
+        server.fetch = const CaptureServerFetch(CaptureFetchStatus.ok);
+
+        final report = await buildService().run();
+
+        expect(report.imported.single.path, CaptureImportPath.local);
+        expect(await txIds(), [_id(1)]);
+        expect(
+            (await txRepo.getById(_id(1)))!.status, TransactionStatus.confirmed);
+        expect(await count('ledger_sync_outbox'), 1);
+        expect(server.acks, isEmpty, reason: 'no server row exists to ACK');
+        expect(server.uploads, 0, reason: 'a `.sent` item is never re-uploaded');
+        expect(ai.calls, 0, reason: 'never a second AI call');
+      });
+
+      test('invalid local parse: Smart Inbox, no AI', () async {
+        queue.items
+            .add(item(_id(1), text: _unparseable, failureReason: 'http(409)'));
+        server.fetch = const CaptureServerFetch(CaptureFetchStatus.ok);
+
+        await buildService().run();
+
+        expect(await txIds(), isEmpty);
+        expect(await count('smart_inbox_items', "payload_id = '${_id(1)}'"), 1);
+        expect(server.uploads, 0);
+        expect(ai.calls, 0);
+      });
+    });
+
     test('cloud off / unconfigured: local parser', () async {
       queue.items.add(item(_id(1)));
       server.fetch = const CaptureServerFetch(CaptureFetchStatus.notConfigured);
