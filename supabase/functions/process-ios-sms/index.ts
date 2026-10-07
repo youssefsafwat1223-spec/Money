@@ -8,16 +8,16 @@ import {
   verifyDevice,
 } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
+import { clearDeadApnsToken, enqueueNotificationRetry, GENERIC_CAPTURE_PUSH, isDeadApnsToken } from '../_shared/capture_push.ts';
 import { fingerprintTimeKeys } from '../_shared/capture_fingerprint.ts';
 import { redactPii, redactThirdPartyNames } from '../_shared/sms_redaction.ts';
-import { markApnsLogFailed, markApnsLogSent, upsertQueuedApnsLog } from '../_shared/notification_logs.ts';
+import { markApnsLogFailed, markApnsLogSent } from '../_shared/notification_logs.ts';
 import {
   isTransientApnsFailure,
   MAX_NOTIFICATION_RETRY_ATTEMPTS,
   nextRetryDelayMs,
 } from '../_shared/notification_retry_policy.ts';
 import { type FingerprintReservationStore, reserveCaptureFingerprint } from '../_shared/fingerprint_reservation.ts';
-import { isDirectCaptureWriteEnabled, isLedgerDualWriteEnabled, upsertLedgerTransaction } from '../_shared/ledger.ts';
 import { apiError, correlationId } from '../_shared/ai_endpoint.ts';
 import { type ParsedCapture, parseSms } from './parse.ts';
 
@@ -31,6 +31,8 @@ type NotificationPayload = {
 };
 
 const CAPTURE_RATE_LIMIT_PER_DAY = 300;
+const LEASE_SECONDS = 60; // must stay well above the 3.5 s AI timeout (parse.ts)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type ProcessIosSmsDependencies = {
   createServiceClient: typeof serviceClient;
@@ -42,35 +44,45 @@ const defaultDependencies: ProcessIosSmsDependencies = {
   verifyDevice,
 };
 
-export type CaptureProcessingConsent =
-  | { ok: true; aiAllowed: boolean }
-  | { ok: false; response: Response };
+type Rpc = (fn: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }>;
+type Json = Record<string, unknown>;
+type PushInfo = { notification_log_id: string; apns_token: string; apns_environment: 'sandbox' | 'production' };
 
-/// Applies the device-scoped consent contract to a fresh capture_devices read.
-/// Cloud processing is the master gate for ALL parsing/storage/delivery work in
-/// this endpoint. AI is a narrower, additional grant and never bypasses cloud.
-export function captureProcessingConsent(
-  consent: {
-    data: {
-      ai_consent_granted?: unknown;
-      cloud_processing_enabled?: unknown;
-      revoked_at?: unknown;
-    } | null;
-    error: unknown;
-  },
-  allowAi: boolean,
-  cid: string,
-): CaptureProcessingConsent {
-  if (consent.data?.revoked_at != null) {
-    return { ok: false, response: apiError('credential_revoked', { correlationId: cid }) };
+// Legacy (build-50) response keys; v2 adds `state`.
+const LEGACY_CAPTURE_KEYS = [
+  'payload_id',
+  'status',
+  'parsed',
+  'notification',
+  'created_at',
+  'apns_push_sent_at',
+  'notification_log_id',
+] as const;
+
+function captureForResponse(row: Json, v2: boolean): Json {
+  const out: Json = {};
+  for (const key of LEGACY_CAPTURE_KEYS) out[key] = row[key] ?? null;
+  if (v2) out.state = row.state ?? null;
+  return out;
+}
+
+// In-flight / not-yet-due: v2 gets 202; the legacy client treats any 2xx as a
+// terminal acknowledgement (it would drop its queued item), so it gets 503.
+function pending(v2: boolean, state: 'in_progress' | 'retryable', cid: string): Response {
+  const body = { error: state === 'retryable' ? 'retry_later' : 'in_progress', state, correlation_id: cid };
+  if (v2) return json(body, 202);
+  return new Response(JSON.stringify(body), {
+    status: 503,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json', 'Retry-After': '5' },
+  });
+}
+
+function refusal(reason: string, cid: string): Response {
+  if (reason === 'credential_revoked') return apiError('credential_revoked', { correlationId: cid });
+  if (reason === 'consent_required' || reason === 'consent_revoked') {
+    return apiError('consent_required', { correlationId: cid });
   }
-  if (consent.error || !consent.data || consent.data.cloud_processing_enabled !== true) {
-    return { ok: false, response: apiError('consent_required', { correlationId: cid }) };
-  }
-  return {
-    ok: true,
-    aiAllowed: allowAi && consent.data.ai_consent_granted === true,
-  };
+  return json({ error: 'capture_owner_mismatch', correlation_id: cid }, 409);
 }
 
 export async function handleProcessIosSms(
@@ -84,16 +96,17 @@ export async function handleProcessIosSms(
   // MALI-060n — gate ordering. Every gate below completes BEFORE any Gemini
   // (paid upstream) call, which lives in parseSms():
   //   1. body-size   → readBoundedJsonBody (does not trust Content-Length)
-  //   2. schema      → schema_version === 1
+  //   2. schema      → schema_version 1 (legacy) or 2 (owner_uid stamped)
   //   2b. length     → bounded SMS / sender / field lengths
-  //   3. device auth → verifyDevice (device secret)
-  //   4. ownership   → auth.userId / auth.installIdHash (server-derived)
-  //   5. consent     → server cloud master gate, then optional AI grant
-  //   (idempotency replay is checked before the quota bump ON PURPOSE, so a
-  //    legitimate lost-response retry does not consume quota; both still precede
-  //    parseSms.)
-  //   6. quota       → bumpRateLimit
-  //   7. idempotency → processed_captures existence
+  //   3. device auth → verifyDevice (device secret; revoked refused)
+  //   4. claim       → capture_claim RPC: ownership + consent gate, replay,
+  //                    owner/fingerprint conflicts and the lease, in ONE
+  //                    FOR SHARE snapshot of the capture_devices row
+  //   5. quota       → bumpRateLimit (replays above do not consume quota)
+  //   6. AI dispatch → capture_ai_dispatch RPC (the AI linearization point),
+  //                    only when the deterministic parse is unresolved
+  //   7. finalize    → capture_finalize RPC: terminal fence + result + queued
+  //                    notification row in one transaction; APNs only after it
   const MAX_BODY_BYTES = 16 * 1024; // one SMS + metadata; generous, bounded.
   const bodyResult = await readBoundedJsonBody(req, MAX_BODY_BYTES);
   if (!bodyResult.ok) {
@@ -108,11 +121,13 @@ export async function handleProcessIosSms(
     : typeof body.schemaVersion === 'number'
     ? body.schemaVersion
     : 1;
-  if (schemaVersion !== 1) return json({ error: 'unsupported_schema_version' }, 400);
+  if (schemaVersion !== 1 && schemaVersion !== 2) return json({ error: 'unsupported_schema_version' }, 400);
+  const v2 = schemaVersion === 2;
 
   const installId = readString(body, 'installId', 'install_id');
   const deviceSecret = readString(body, 'deviceSecret', 'device_secret');
   const payloadId = readString(body, 'payloadId', 'payload_id');
+  const ownerUid = readString(body, 'ownerUid', 'owner_uid');
   const sanitizedText = reSanitize(readString(body, 'sanitizedText', 'sanitized_text', 'smsText', 'sms_text'));
   // Sanitized too. This was taken VERBATIM from the body and copied into
   // `parsed.rawMessage`, which is persisted for every capture — not only the
@@ -141,46 +156,84 @@ export async function handleProcessIosSms(
   if (sender.length > MAX_SENDER_CHARS || payloadId.length > MAX_PAYLOAD_ID_CHARS) {
     return json({ error: 'invalid_fields' }, 400);
   }
+  if (ownerUid && !UUID_RE.test(ownerUid)) return json({ error: 'invalid_fields' }, 400);
 
   const supabase = dependencies.createServiceClient();
   const auth = await dependencies.verifyDevice(supabase, installId, deviceSecret);
   if (!auth.ok) return json({ error: auth.error }, auth.status);
+  const rpc: Rpc = (fn, args) => supabase.rpc(fn, args) as unknown as ReturnType<Rpc>;
 
-  // Fresh server authority on every request, before idempotency lookup, parse,
-  // storage, ledger writes, or APNs. Missing/error/OFF fails closed. This local
-  // processing gate deliberately does not change verifyDevice: sync-captures is
-  // delivery-only and may still return captures processed before revocation.
-  const consent = await supabase
-    .from('capture_devices')
-    .select('ai_consent_granted, cloud_processing_enabled, revoked_at')
-    .eq('install_id_hash', auth.installIdHash)
-    .maybeSingle();
-  const consentGate = captureProcessingConsent(consent, allowAi, cid);
-  if (!consentGate.ok) return consentGate.response;
-  const aiAllowed = consentGate.aiAllowed;
+  const rawFingerprint = await sha256Hex(`${auth.installIdHash}|${payloadId}|${sanitizedText}`);
+  const claimRes = await rpc('capture_claim', {
+    p_install_id_hash: auth.installIdHash,
+    p_install_id: installId,
+    p_payload_id: payloadId,
+    p_raw_fingerprint: rawFingerprint,
+    p_owner_uid: v2 && ownerUid ? ownerUid : null,
+    p_contract: v2 ? 2 : 1,
+    p_lease_seconds: LEASE_SECONDS,
+  });
+  const claim = claimRes.data as Json | null;
+  if (claimRes.error || !claim) return json({ error: 'store_failed' }, 500);
 
-  const existing = await supabase
-    .from('processed_captures')
-    .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at,notification_log_id')
-    .eq('payload_id', payloadId)
-    .eq('install_id_hash', auth.installIdHash)
-    .maybeSingle();
-  if (existing.data) {
-    return json(
-      await idempotentReplayResponse(
-        supabase,
-        auth.installIdHash,
-        installId,
-        auth.userId,
-        payloadId,
-        existing.data,
-      ),
-    );
+  switch (claim.outcome) {
+    case 'denied':
+      return refusal(String(claim.code), cid);
+    case 'owner_conflict':
+      return json({ error: 'capture_owner_conflict', correlation_id: cid }, 409);
+    case 'id_conflict':
+      return json({ error: 'capture_id_conflict', correlation_id: cid }, 409);
+    case 'in_progress':
+      return pending(v2, 'in_progress', cid);
+    case 'replay':
+      return await replayResponse(supabase, auth.installIdHash, payloadId, claim, v2, cid);
+    case 'claimed':
+      break;
+    default:
+      return json({ error: 'store_failed' }, 500);
   }
+  const leaseToken = claim.lease_token as number;
+  const aiAllowed = allowAi && claim.ai_allowed === true;
+
+  const finalize = (args: {
+    state: 'processed' | 'rejected' | 'retryable';
+    status: string;
+    parsed: ParsedCapture | null;
+    notification: NotificationPayload | null;
+    sanitized: string | null;
+    failureReason: string | null;
+    possibleDuplicate: boolean;
+  }) =>
+    rpc('capture_finalize', {
+      p_install_id_hash: auth.installIdHash,
+      p_install_id: installId,
+      p_payload_id: payloadId,
+      p_lease_token: leaseToken,
+      p_state: args.state,
+      p_status: args.status,
+      p_parsed: args.parsed,
+      p_notification: args.notification,
+      p_sanitized_text: args.sanitized,
+      p_failure_reason: args.failureReason,
+      p_possible_duplicate: args.possibleDuplicate,
+      p_validator_result: null,
+    });
 
   const limited = await bumpRateLimit(supabase, auth.installIdHash);
-  if (limited) return json({ error: 'rate_limit_exceeded' }, 429);
+  if (limited) {
+    await finalize({
+      state: 'retryable',
+      status: 'rejected',
+      parsed: null,
+      notification: null,
+      sanitized: null,
+      failureReason: 'rate_limited',
+      possibleDuplicate: false,
+    });
+    return json({ error: 'rate_limit_exceeded' }, 429);
+  }
 
+  let dispatchDenied: string | null = null;
   const outcome = await parseSms({
     text: sanitizedText,
     rawText,
@@ -190,7 +243,23 @@ export async function handleProcessIosSms(
     locale,
     // Server-authoritative: never the raw caller flag.
     allowAi: aiAllowed,
+    beforeAi: async () => {
+      const dispatch = await rpc('capture_ai_dispatch', {
+        p_install_id_hash: auth.installIdHash,
+        p_payload_id: payloadId,
+        p_lease_token: leaseToken,
+      });
+      const data = dispatch.data as Json | null;
+      if (!dispatch.error && data?.allowed === true) return true;
+      dispatchDenied = String(data?.reason ?? 'dispatch_failed');
+      return false;
+    },
   });
+  if (dispatchDenied) {
+    console.log(JSON.stringify({ event: 'capture_ai_not_dispatched', reason: dispatchDenied }));
+    if (dispatchDenied === 'lease_lost') return pending(v2, 'in_progress', cid);
+    return refusal(dispatchDenied === 'owner_changed' ? 'capture_owner_mismatch' : 'consent_required', cid);
+  }
   const parsed = outcome.parsed;
 
   // Metadata only — never the raw SMS, sender, amount, merchant, secret, or body.
@@ -204,9 +273,9 @@ export async function handleProcessIosSms(
     parserSource: parsed.parserSource ?? null,
     aiRequested: allowAi,
     aiApplied: aiAllowed,
+    aiInvoked: outcome.aiInvoked ?? false,
   }));
 
-  const rawFingerprint = await sha256Hex(`${auth.installIdHash}|${payloadId}|${sanitizedText}`);
   // Binary outcome: parseSms decides accepted/rejected deterministically (AI
   // confidence never matters). New captures are never 'needs_review'; that
   // value stays in CaptureStatus only because legacy rows/clients still carry it.
@@ -224,167 +293,89 @@ export async function handleProcessIosSms(
   }
 
   const notification = buildNotification(status, parsed, sender, receivedAt, tzOffsetMinutes);
-  const { data, error } = await supabase
-    .from('processed_captures')
-    .insert({
-      payload_id: payloadId,
-      install_id_hash: auth.installIdHash,
-      claimed_user_id: auth.userId,
-      status,
-      parsed,
-      notification,
-      sanitized_text: status === 'needs_review' || status === 'rejected' ? sanitizedText : null,
-      raw_fingerprint: rawFingerprint,
-      failure_reason: status === 'rejected' ? 'not_parseable' : null,
-    })
-    .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at,notification_log_id')
-    .single();
-
-  if (error) {
-    // Concurrent duplicate call (same payload raced past the existence check):
-    // converge on the winner's row instead of failing — a 500 here makes the
-    // App Intent post a local fallback banner on top of the winner's APNs push.
-    if (error.code === '23505') {
-      const winner = await supabase
-        .from('processed_captures')
-        .select('payload_id,status,parsed,notification,created_at,apns_push_sent_at,notification_log_id')
-        .eq('payload_id', payloadId)
-        .eq('install_id_hash', auth.installIdHash)
-        .maybeSingle();
-      if (winner.data) {
-        return json(
-          await idempotentReplayResponse(
-            supabase,
-            auth.installIdHash,
-            installId,
-            auth.userId,
-            payloadId,
-            winner.data,
-          ),
-        );
-      }
-    }
-    return json({ error: 'store_failed' }, 500);
-  }
-
-  console.log(JSON.stringify({
-    event: 'capture_stored',
+  const transient = outcome.aiTransientFailure === true;
+  const fin = await finalize({
+    state: transient ? 'retryable' : status === 'rejected' ? 'rejected' : 'processed',
     status,
-  }));
-
-  // Safety rollout: relay storage above is always preserved. Direct capture is
-  // allowed only when both the dedicated capture flag and transaction-primary
-  // routing are enabled for this signed-in user. The legacy dual-write flag
-  // remains supported independently during rollback validation.
-  let serverTransactionId: string | undefined;
-  if (auth.userId && (status === 'processed' || status === 'needs_review')) {
-    try {
-      const directWriteEnabled = await isDirectCaptureWriteEnabled(supabase, auth.userId);
-      const dualWriteEnabled = directWriteEnabled ? false : await isLedgerDualWriteEnabled(supabase, auth.userId);
-      if (directWriteEnabled || dualWriteEnabled) {
-        const ledger = await upsertLedgerTransaction(supabase, auth.userId, {
-          payloadId,
-          amount: parsed.amount!,
-          amountText: parsed.amount_text,
-          currency: parsed.currency!,
-          direction: parsed.direction,
-          type: parsed.type,
-          merchant: parsed.merchant,
-          categoryId: parsed.category,
-          occurredAt: parsed.occurredAt ?? receivedAt,
-          confidence: parsed.confidence,
-          last4: parsed.last4,
-          status: status === 'needs_review' ? 'pending' : 'confirmed',
-          comparisonTimestamp: parsed.comparisonTimestamp,
-          comparisonTimestampSource: parsed.comparisonTimestampSource,
-          transactionTimeFromSms: parsed.comparisonTimestampSource === 'sms_body'
-            ? parsed.comparisonTimestamp
-            : undefined,
-          smsReceivedAt: receivedAt,
-          parserSource: parsed.parserSource,
-        });
-        if (directWriteEnabled) {
-          serverTransactionId = ledger.id;
-          parsed.serverTransactionId = ledger.id;
-          await supabase
-            .from('processed_captures')
-            .update({ parsed })
-            .eq('install_id_hash', auth.installIdHash)
-            .eq('payload_id', payloadId);
-        }
-      }
-    } catch (err) {
-      // Non-fatal: the relay row remains available to Flutter for Phase 1
-      // import. Do not expose payload identifiers or SMS contents in logs.
-      console.warn(JSON.stringify({ event: 'capture_ledger_write_failed', errorType: String(err).split(':')[0] }));
-    }
-  }
-
-  const pushSent = await sendApnsIfPossible(
-    supabase,
-    auth.installIdHash,
-    installId,
-    auth.userId,
-    payloadId,
-    notification,
     parsed,
-    serverTransactionId,
-  );
-  console.log(JSON.stringify({
-    event: 'process_ios_sms_complete',
-    status,
-    pushSent,
-  }));
+    notification,
+    sanitized: status === 'rejected' ? sanitizedText : null,
+    failureReason: transient ? 'ai_unavailable' : status === 'rejected' ? 'not_parseable' : null,
+    possibleDuplicate: status === 'duplicate',
+  });
+  const done = fin.data as Json | null;
+  if (fin.error || !done) return json({ error: 'store_failed' }, 500);
+  if (done.written !== true) {
+    // Fenced out: nothing was stored and nothing may be sent.
+    console.log(JSON.stringify({ event: 'capture_fenced', reason: done.reason ?? null }));
+    if (done.reason === 'lease_lost') return pending(v2, 'in_progress', cid);
+    return refusal(done.reason === 'owner_changed' ? 'capture_owner_mismatch' : 'consent_required', cid);
+  }
+
+  console.log(JSON.stringify({ event: 'capture_stored', status, retryable: transient }));
+  // I-1: the durable result is committed; only now may APNs be attempted.
+  const push = done.push_allowed === true ? (done.push as PushInfo | null) : null;
+  const pushSent = push
+    ? await sendFinalizedPush(supabase, auth.installIdHash, payloadId, push, notification, parsed)
+    : false;
+  console.log(JSON.stringify({ event: 'process_ios_sms_complete', status, pushSent }));
+  const row = done.row as Json;
   return json({
     capture: {
-      ...data,
+      ...captureForResponse(row, v2),
+      // Content is returned to the requester; a retryable result stores none.
       parsed,
-      apns_push_sent_at: pushSent ? new Date().toISOString() : data.apns_push_sent_at,
+      notification: transient ? notification : row.notification,
+      apns_push_sent_at: pushSent ? new Date().toISOString() : row.apns_push_sent_at ?? null,
     },
     pushSent,
+    // v2 only (legacy shape unchanged): an APNs request was handed off for this capture
+    // (now or earlier), so the App Intent must not also show a local banner.
+    ...(v2 ? { state: done.state, push_attempted: push != null || Boolean(row.push_attempted_at) } : {}),
   });
 }
 
 if (import.meta.main) Deno.serve((req) => handleProcessIosSms(req));
 
 // Replay of an already-stored payload (the App Intent retries after a client
-// timeout). If APNs was never confirmed sent, try again now: the stable
-// apns-collapse-id per payloadId means a re-send replaces the earlier banner
-// instead of duplicating it, and this closes the race where a replay read
-// `apns_push_sent_at` between the original send and its DB write — returning
-// pushSent=false would make the intent post a duplicate local banner.
-async function idempotentReplayResponse(
+// timeout). The claim RPC already decided, under the same FOR SHARE snapshot,
+// whether a push may be offered (`claim.push`): only one never handed off, because
+// capture_queue_push hands a capture's push off at most once (no re-push, CAP-3).
+async function replayResponse(
   supabase: ReturnType<typeof serviceClient>,
   installIdHash: string,
-  installId: string,
-  userId: string | null,
   payloadId: string,
-  row: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
+  claim: Json,
+  v2: boolean,
+  cid: string,
+): Promise<Response> {
+  const row = (claim.row ?? {}) as Json;
+  switch (row.state) {
+    case 'consumed':
+      return json({ error: 'already_consumed', state: 'consumed', correlation_id: cid }, 409);
+    case 'expired':
+      return json({ error: 'capture_expired', state: 'expired', correlation_id: cid }, 409);
+    case 'retryable':
+    case 'processing':
+      return pending(v2, row.state === 'processing' ? 'in_progress' : 'retryable', cid);
+  }
   let pushSent = Boolean(row.apns_push_sent_at);
   const notification = row.notification as NotificationPayload | null;
   const parsed = (row.parsed ?? {}) as ParsedCapture;
-  if (!pushSent && notification?.title && notification?.body) {
-    pushSent = await sendApnsIfPossible(
-      supabase,
-      installIdHash,
-      installId,
-      userId,
-      payloadId,
-      notification,
-      parsed,
-      typeof parsed.serverTransactionId === 'string' ? parsed.serverTransactionId : undefined,
-    );
+  const push = claim.push as PushInfo | null | undefined;
+  if (!pushSent && push && notification?.title && notification?.body) {
+    pushSent = await sendFinalizedPush(supabase, installIdHash, payloadId, push, notification, parsed);
   }
   console.log(JSON.stringify({ event: 'capture_idempotent_replay', pushSent }));
-  return {
+  return json({
     capture: {
-      ...row,
-      apns_push_sent_at: pushSent ? (row.apns_push_sent_at ?? new Date().toISOString()) : row.apns_push_sent_at,
+      ...captureForResponse(row, v2),
+      apns_push_sent_at: pushSent ? (row.apns_push_sent_at ?? new Date().toISOString()) : row.apns_push_sent_at ?? null,
     },
     idempotent: true,
     pushSent,
-  };
+    ...(v2 ? { state: row.state, push_attempted: push != null || Boolean(row.push_attempted_at) } : {}),
+  });
 }
 
 async function bumpRateLimit(
@@ -670,69 +661,19 @@ function categoryLabelAr(key: string | undefined): string | null {
   }
 }
 
-// Reuses the same notification_log_id across a replay/retry of the same
-// payload (stored on processed_captures) rather than minting a new one per
-// attempt — see docs/NOTIFICATION_PIPELINE_AUDIT.md Phase 1, item 2.
-async function ensureNotificationLogId(
+// Sends the push for a result that finalize / claim already committed and fenced
+// (the notification_logs row is queued in that same transaction). The alert text is
+// generic (Q3), a dead token is cleared by CAS, and a retry is enqueued at most once.
+async function sendFinalizedPush(
   supabase: ReturnType<typeof serviceClient>,
   installIdHash: string,
   payloadId: string,
-): Promise<string> {
-  const { data } = await supabase
-    .from('processed_captures')
-    .select('notification_log_id')
-    .eq('install_id_hash', installIdHash)
-    .eq('payload_id', payloadId)
-    .maybeSingle();
-  const existing = data?.notification_log_id;
-  if (typeof existing === 'string' && existing) return existing;
-  const id = crypto.randomUUID();
-  await supabase
-    .from('processed_captures')
-    .update({ notification_log_id: id })
-    .eq('install_id_hash', installIdHash)
-    .eq('payload_id', payloadId);
-  return id;
-}
-
-async function sendApnsIfPossible(
-  supabase: ReturnType<typeof serviceClient>,
-  installIdHash: string,
-  installId: string,
-  userId: string | null,
-  payloadId: string,
+  push: PushInfo,
   notification: NotificationPayload,
   parsed: ParsedCapture,
-  serverTransactionId?: string,
 ): Promise<boolean> {
-  const { data: device } = await supabase
-    .from('capture_devices')
-    .select('apns_token,apns_environment')
-    .eq('install_id_hash', installIdHash)
-    .maybeSingle();
-  const token = typeof device?.apns_token === 'string' ? device.apns_token : '';
-  const environment = device?.apns_environment === 'sandbox' ||
-      device?.apns_environment === 'production'
-    ? device.apns_environment
-    : null;
-  if (!token || !environment) {
-    console.log(JSON.stringify({
-      event: 'apns_skipped',
-      reason: !token ? 'no_token' : 'no_environment',
-    }));
-    return false;
-  }
-
-  const notificationLogId = await ensureNotificationLogId(supabase, installIdHash, payloadId);
-  await upsertQueuedApnsLog(supabase, {
-    id: notificationLogId,
-    userId,
-    installId,
-    notificationType: notification.type,
-    relatedEntityType: 'payload',
-    relatedEntityId: payloadId,
-    apnsEnvironment: environment,
-  });
+  const notificationLogId = push.notification_log_id;
+  const environment = push.apns_environment;
   console.log(JSON.stringify({
     event: 'notification_created',
     notificationLogId,
@@ -742,21 +683,21 @@ async function sendApnsIfPossible(
   }));
 
   const result = await sendCapturePush({
-    token,
+    token: push.apns_token,
     environment,
     payloadId,
     notificationLogId,
-    title: notification.title,
-    body: notification.body,
+    // Q3: generic alert only; the result itself is pulled by the app.
+    title: GENERIC_CAPTURE_PUSH.title,
+    body: GENERIC_CAPTURE_PUSH.body,
     notificationType: notification.type,
     smartInboxItemId: notification.type === 'needs_review' ||
         notification.type === 'suspicious_duplicate'
       ? payloadId
       : undefined,
-    transactionId: serverTransactionId ??
-      (typeof parsed.possibleDuplicateOfTransactionId === 'string'
-        ? parsed.possibleDuplicateOfTransactionId
-        : undefined),
+    transactionId: typeof parsed.possibleDuplicateOfTransactionId === 'string'
+      ? parsed.possibleDuplicateOfTransactionId
+      : undefined,
   });
   if (result.ok) {
     console.log(JSON.stringify({
@@ -800,15 +741,16 @@ async function sendApnsIfPossible(
     errorCode: result.errorCode,
   }));
 
+  if (isDeadApnsToken(result)) await clearDeadApnsToken(supabase, installIdHash, push.apns_token);
+
   if (isTransientApnsFailure(result.httpStatus, result.errorCode)) {
-    await supabase.from('notification_retry_queue').insert({
-      notification_log_id: notificationLogId,
-      install_id_hash: installIdHash,
-      payload_id: payloadId,
-      attempt_number: 1,
-      max_attempts: MAX_NOTIFICATION_RETRY_ATTEMPTS,
-      next_attempt_at: new Date(Date.now() + nextRetryDelayMs(1)).toISOString(),
-      last_error_code: result.errorCode,
+    await enqueueNotificationRetry(supabase, {
+      notificationLogId,
+      installIdHash,
+      payloadId,
+      maxAttempts: MAX_NOTIFICATION_RETRY_ATTEMPTS,
+      nextAttemptAt: new Date(Date.now() + nextRetryDelayMs(1)).toISOString(),
+      lastErrorCode: result.errorCode,
     });
     console.log(JSON.stringify({
       event: 'notification_retry_scheduled',

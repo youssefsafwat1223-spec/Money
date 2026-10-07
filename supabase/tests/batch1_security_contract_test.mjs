@@ -26,12 +26,19 @@ test('capture ownership is stamped, filtered, and revoked without sharing A rows
   const unlink = read('supabase/functions/unlink-capture-device/index.ts');
 
   assert.match(migration, /claimed_user_id uuid/i);
-  assert.match(processCapture, /claimed_user_id:\s*auth\.userId/);
+  // P1: ownership is stamped inside the capture_claim RPC from the device-row snapshot
+  // (0111), and unlink is the unlink_capture_device RPC (0110).
+  const claim = read('supabase/migrations/0111_capture_state_machine.sql');
+  const unlinkSql = read('supabase/migrations/0110_capture_consent_projection.sql');
+  assert.match(processCapture, /rpc\('capture_claim'/);
+  assert.match(claim, /\(p_payload_id, p_install_id_hash, d\.user_id,/);
   assert.match(sync, /\.eq\(['"]claimed_user_id['"], auth\.userId\)/);
   assert.match(sync, /\.is\(['"]claimed_user_id['"], null\)/);
-  assert.match(unlink, /user_id:\s*null/);
-  assert.match(unlink, /apns_token:\s*null/);
-  assert.doesNotMatch(unlink, /device_secret_hash:\s*null/);
+  assert.match(unlink, /unlink_capture_device/);
+  const unlinkFn = unlinkSql.slice(unlinkSql.indexOf('function public.unlink_capture_device'));
+  assert.match(unlinkFn, /user_id = null/);
+  assert.match(unlinkFn, /apns_token = null/);
+  assert.doesNotMatch(unlinkFn, /device_secret_hash = null/);
 });
 
 test('last account deletion is owner-scoped, locked, and atomic', () => {

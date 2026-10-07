@@ -6,6 +6,7 @@ type ApnsMessage = {
   token: string;
   environment: ApnsEnvironment;
   payloadId: string;
+  /// Empty omits the alert title (generic capture pushes carry a body only).
   title: string;
   body: string;
   notificationType: string;
@@ -64,10 +65,9 @@ export async function sendCapturePush(message: ApnsMessage): Promise<ApnsResult>
       },
       body: JSON.stringify({
         aps: {
-          alert: {
-            title: message.title,
-            body: message.body,
-          },
+          alert: message.title
+            ? { title: message.title, body: message.body }
+            : { body: message.body },
           sound: 'default',
         },
         payloadId: message.payloadId,
@@ -92,7 +92,8 @@ export async function sendCapturePush(message: ApnsMessage): Promise<ApnsResult>
     const isTimeout = error instanceof DOMException && error.name === 'TimeoutError';
     return {
       ok: false,
-      reason: `apns_exception_${String(error).slice(0, 80)}`,
+      // The error text can embed the request URL, which contains the device token.
+      reason: `apns_exception_${error instanceof Error ? error.name : 'unknown'}`,
       httpStatus: null,
       errorCode: isTimeout ? 'timeout' : 'network_exception',
     };

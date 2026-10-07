@@ -1,0 +1,260 @@
+// Test helper (not a test): an in-memory model of the capture_* RPCs from
+// migration 0111 (the SQL proofs in supabase/tests/capture_state_machine_p1.sql are
+// the authority; this mirrors their semantics so handler logic can be pinned in
+// Deno). Also records every table touched, so tests can assert that the capture
+// path never reads or writes user_transactions (I-2 runtime guard).
+
+type Row = Record<string, unknown>;
+
+export type FakeDevice = {
+  user_id: string | null;
+  consent_owner_uid: string | null;
+  cloud: boolean;
+  ai: boolean;
+  version: number;
+  revoked: boolean;
+  apns_token: string | null;
+};
+
+export function fakeCapture(opts: {
+  device?: Partial<FakeDevice>;
+  duplicateOf?: string;
+  onBeforeDispatch?: (state: ReturnType<typeof fakeCapture>['state']) => void;
+  onDispatch?: (state: ReturnType<typeof fakeCapture>['state']) => void;
+  onFinalize?: (state: ReturnType<typeof fakeCapture>['state']) => void;
+} = {}) {
+  const device: FakeDevice = {
+    user_id: null,
+    consent_owner_uid: null,
+    cloud: true,
+    ai: true,
+    version: 0,
+    revoked: false,
+    apns_token: null,
+    ...opts.device,
+  };
+  const rows = new Map<string, Row>();
+  const state = {
+    device,
+    rows,
+    claims: 0,
+    dispatches: 0,
+    finalizes: 0,
+    logs: [] as Row[],
+    writes: [] as Array<{ table: string; op: string; row?: Row; opts?: Row; filters: Array<[string, unknown]> }>,
+    tablesTouched: new Set<string>(),
+    rateLimited: false,
+  };
+  let seq = 0;
+
+  const rowJson = (r: Row): Row => ({
+    payload_id: r.payload_id,
+    status: r.status,
+    parsed: r.parsed,
+    notification: r.notification,
+    created_at: '2026-09-07T19:30:00Z',
+    apns_push_sent_at: r.apns_push_sent_at ?? null,
+    push_attempted_at: r.push_attempted_at ?? null,
+    notification_log_id: r.notification_log_id ?? null,
+    state: r.state,
+    attempts: r.attempts,
+    next_attempt_at: r.next_attempt_at ?? null,
+    failure_reason: r.failure_reason ?? null,
+  });
+  const queuePush = (r: Row, installId: string, type: unknown) => {
+    // 0112: a capture's push is handed off at most once (push_attempted_at).
+    if (!device.apns_token || r.push_attempted_at) return null;
+    r.push_attempted_at = new Date().toISOString();
+    const id = (r.notification_log_id as string) ?? `log-${++seq}`;
+    r.notification_log_id = id;
+    state.logs.push({ id, install_id: installId, type });
+    return { notification_log_id: id, apns_token: device.apns_token, apns_environment: 'sandbox' };
+  };
+
+  const rpcImpl = (fn: string, a: Row): unknown => {
+    if (fn === 'bump_capture_rate_limit') return state.rateLimited;
+    if (fn === 'capture_claim') {
+      const contract = a.p_contract as number;
+      if (device.revoked) return { outcome: 'denied', code: 'credential_revoked' };
+      if (contract === 2) {
+        if (
+          !a.p_owner_uid || !device.user_id || !device.consent_owner_uid || a.p_owner_uid !== device.user_id ||
+          device.user_id !== device.consent_owner_uid
+        ) return { outcome: 'denied', code: 'capture_owner_mismatch' };
+      } else if (device.consent_owner_uid !== device.user_id) {
+        return { outcome: 'denied', code: 'consent_required' };
+      }
+      if (!device.cloud) return { outcome: 'denied', code: 'consent_required' };
+      const key = a.p_payload_id as string;
+      const ex = rows.get(key);
+      const take = (r: Row) => ({
+        outcome: 'claimed',
+        lease_token: r.lease_token,
+        attempts: r.attempts,
+        claimed_user_id: device.user_id,
+        consent_owner_uid: device.consent_owner_uid,
+        consent_version: device.version,
+        ai_allowed: device.ai,
+      });
+      if (!ex) {
+        const r: Row = {
+          payload_id: key,
+          status: 'rejected',
+          state: 'processing',
+          parsed: {},
+          notification: {},
+          raw_fingerprint: a.p_raw_fingerprint,
+          claimed_user_id: device.user_id,
+          owner_uid: contract === 2 ? a.p_owner_uid : null,
+          consent_owner_uid: device.consent_owner_uid,
+          consent_version: device.version,
+          lease_token: 1,
+          attempts: 1,
+          lease_until: Date.now() + 60_000,
+        };
+        rows.set(key, r);
+        state.claims++;
+        return take(r);
+      }
+      if (ex.claimed_user_id !== device.user_id) return { outcome: 'owner_conflict' };
+      if (ex.raw_fingerprint && ex.raw_fingerprint !== a.p_raw_fingerprint) return { outcome: 'id_conflict' };
+      if (ex.state === 'processing' && (ex.lease_until as number) > Date.now()) return { outcome: 'in_progress' };
+      if (ex.state === 'processing' || ex.state === 'retryable') {
+        if (ex.state === 'retryable' && (ex.next_attempt_at as number) > Date.now()) {
+          return { outcome: 'replay', row: rowJson(ex) };
+        }
+        if ((ex.attempts as number) >= 5) {
+          Object.assign(ex, { state: 'rejected', status: 'rejected', failure_reason: 'attempts_exhausted' });
+          return { outcome: 'replay', row: rowJson(ex) };
+        }
+        Object.assign(ex, {
+          state: 'processing',
+          lease_until: Date.now() + 60_000,
+          lease_token: (ex.lease_token as number) + 1,
+          attempts: (ex.attempts as number) + 1,
+          consent_owner_uid: device.consent_owner_uid,
+          consent_version: device.version,
+        });
+        state.claims++;
+        return take(ex);
+      }
+      const push = (ex.state === 'processed' || ex.state === 'rejected') && !ex.apns_push_sent_at &&
+          (ex.notification as Row)?.title && ex.consent_version === device.version
+        ? queuePush(ex, `raw`, (ex.notification as Row).type)
+        : null;
+      return { outcome: 'replay', row: rowJson(ex), push };
+    }
+    const r = rows.get(a.p_payload_id as string);
+    if (fn === 'capture_ai_dispatch') {
+      state.dispatches++;
+      opts.onBeforeDispatch?.(state);
+      if (!r || r.lease_token !== a.p_lease_token || r.state !== 'processing') {
+        return { allowed: false, reason: 'lease_lost' };
+      }
+      const revoked = device.revoked || !device.cloud || !device.ai || device.version !== r.consent_version;
+      const moved = device.user_id !== r.claimed_user_id || device.consent_owner_uid !== r.consent_owner_uid ||
+        device.consent_owner_uid !== device.user_id;
+      const reason = moved ? 'owner_changed' : revoked ? 'consent_revoked' : null;
+      if (reason) {
+        Object.assign(r, { state: 'retryable', failure_reason: reason, next_attempt_at: Date.now() + 30_000 });
+        return { allowed: false, reason };
+      }
+      Object.assign(r, { ai_started_at: Date.now(), ai_invoked: true, ai_consent_version: device.version });
+      opts.onDispatch?.(state);
+      return { allowed: true };
+    }
+    if (fn === 'capture_finalize') {
+      state.finalizes++;
+      opts.onFinalize?.(state);
+      if (!r || r.lease_token !== a.p_lease_token || r.state !== 'processing') {
+        return { written: false, push_allowed: false, reason: 'lease_lost' };
+      }
+      const revoked = device.revoked || !device.cloud || device.version !== r.consent_version;
+      const moved = device.user_id !== r.claimed_user_id || device.consent_owner_uid !== r.consent_owner_uid ||
+        device.consent_owner_uid !== device.user_id;
+      const reason = moved ? 'owner_changed' : revoked ? 'consent_revoked' : null;
+      if (reason) {
+        Object.assign(r, { state: 'retryable', failure_reason: reason, next_attempt_at: Date.now() + 30_000 });
+        return { written: false, push_allowed: false, reason };
+      }
+      if (a.p_state === 'retryable') {
+        Object.assign(r, {
+          state: 'retryable',
+          failure_reason: a.p_failure_reason,
+          next_attempt_at: Date.now() + 30_000,
+        });
+        return { written: true, push_allowed: false, state: 'retryable', row: rowJson(r) };
+      }
+      Object.assign(r, {
+        state: a.p_state,
+        status: a.p_status,
+        parsed: a.p_parsed ?? {},
+        notification: a.p_notification ?? {},
+        sanitized_text: a.p_sanitized_text,
+        failure_reason: a.p_failure_reason,
+        possible_duplicate: a.p_possible_duplicate,
+      });
+      const push = (a.p_notification as Row | null)?.title
+        ? queuePush(r, a.p_install_id as string, (a.p_notification as Row).type)
+        : null;
+      return { written: true, push_allowed: true, state: a.p_state, row: rowJson(r), push };
+    }
+    throw new Error(`unexpected rpc ${fn}`);
+  };
+
+  const from = (table: string) => {
+    state.tablesTouched.add(table);
+    const f: { op: string; row?: Row; opts?: Row } = { op: 'select' };
+    const filters: Array<[string, unknown]> = [];
+    const record = () => state.writes.push({ table, op: f.op, row: f.row, opts: f.opts, filters });
+    const result = (): { data: unknown; error: unknown } => {
+      if (table === 'capture_fingerprints') {
+        if (f.op === 'insert') {
+          return opts.duplicateOf
+            ? { data: null, error: { code: '23505', message: 'dup' } }
+            : { data: null, error: null };
+        }
+        return { data: opts.duplicateOf ? [{ payload_id: opts.duplicateOf, fingerprint: 'x' }] : [], error: null };
+      }
+      return { data: null, error: null };
+    };
+    const b: Record<string, unknown> = {
+      select: () => b,
+      insert: (row: Row) => {
+        f.op = 'insert';
+        f.row = row;
+        return b;
+      },
+      update: (row: Row) => {
+        f.op = 'update';
+        f.row = row;
+        record();
+        return b;
+      },
+      upsert: (row: Row, opts: Row) => {
+        f.op = 'upsert';
+        f.row = row;
+        f.opts = opts;
+        record();
+        return b;
+      },
+      eq: (c: string, v: unknown) => (filters.push([c, v]), b),
+      in: () => b,
+      maybeSingle: () => Promise.resolve(result()),
+      single: () => Promise.resolve(result()),
+      then: (resolve: (v: unknown) => unknown) => Promise.resolve(result()).then(resolve),
+    };
+    return b;
+  };
+
+  return {
+    state,
+    client: {
+      from,
+      rpc: (fn: string, args: Row) => {
+        state.tablesTouched.add(`rpc:${fn}`);
+        return Promise.resolve({ data: rpcImpl(fn, args), error: null });
+      },
+    },
+  };
+}

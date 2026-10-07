@@ -1,183 +1,134 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { captureProcessingConsent, handleProcessIosSms } from './index.ts';
+import { handleProcessIosSms } from './index.ts';
+import { fakeCapture } from './capture_rpc_fake.ts';
 
-const CID = 'consent-test-cid';
+// Device-scoped consent contract of process-ios-sms. The gate itself now runs
+// inside the capture_claim RPC (one FOR SHARE snapshot, migration 0111; proofs in
+// supabase/tests/capture_state_machine_p1.sql); these tests pin how the handler
+// maps its decisions and that a refusal stops everything downstream.
 
-function decision(
-  data: {
-    ai_consent_granted?: unknown;
-    cloud_processing_enabled?: unknown;
-    revoked_at?: unknown;
-  } | null,
-  error: unknown = null,
-  allowAi = true,
-) {
-  return captureProcessingConsent({ data, error }, allowAi, CID);
-}
+const UNRESOLVED = 'Purchase $20.00 at SHOP';
+const GOOD_AI = {
+  amount: 20,
+  amount_text: '20.00',
+  currency: 'USD',
+  merchant: 'SHOP',
+  type: 'payment',
+  direction: 'debit',
+};
 
-async function errorCode(response: Response): Promise<string> {
-  return (await response.json()).error as string;
-}
+type Device = NonNullable<Parameters<typeof fakeCapture>[0]>['device'];
 
-Deno.test('cloud OFF is a typed process-ios-sms refusal', async () => {
-  const out = decision({
-    cloud_processing_enabled: false,
-    ai_consent_granted: true,
-    revoked_at: null,
-  });
-  assertEquals(out.ok, false);
-  if (!out.ok) {
-    assertEquals(out.response.status, 403);
-    assertEquals(await errorCode(out.response), 'consent_required');
+async function run(device: Device, body: Record<string, unknown> = {}) {
+  const fake = fakeCapture({ device });
+  let fetchCalls = 0;
+  const originalFetch = globalThis.fetch;
+  const previousKey = Deno.env.get('GEMINI_API_KEY');
+  Deno.env.set('GEMINI_API_KEY', 'test-key');
+  globalThis.fetch = (() => {
+    fetchCalls++;
+    return Promise.resolve(
+      new Response(JSON.stringify({ candidates: [{ content: { parts: [{ text: JSON.stringify(GOOD_AI) }] } }] })),
+    );
+  }) as typeof fetch;
+  try {
+    const response = await handleProcessIosSms(
+      new Request('https://example.test/process-ios-sms', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          schema_version: 1,
+          installId: 'install-1',
+          deviceSecret: 'secret-1',
+          payloadId: 'payload-1',
+          sanitizedText: UNRESOLVED,
+          allowAi: true,
+          ...body,
+        }),
+      }),
+      {
+        createServiceClient: (() => fake.client) as never,
+        verifyDevice: (() =>
+          Promise.resolve({
+            ok: true,
+            installIdHash: 'verified-install-hash',
+            userId: fake.state.device.user_id,
+          })) as never,
+      },
+    );
+    return { response, body: await response.json(), fake, fetchCalls };
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (previousKey == null) Deno.env.delete('GEMINI_API_KEY');
+    else Deno.env.set('GEMINI_API_KEY', previousKey);
   }
+}
+
+Deno.test('cloud OFF is a typed process-ios-sms refusal and stops before parse, storage and AI', async () => {
+  const r = await run({ cloud: false, ai: true });
+  assertEquals([r.response.status, r.body.error], [403, 'consent_required']);
+  assertEquals(r.fake.state.rows.size, 0);
+  assertEquals(r.fetchCalls, 0);
 });
 
 Deno.test('revoked device is refused even when both consent flags remain true', async () => {
-  const out = decision({
-    cloud_processing_enabled: true,
-    ai_consent_granted: true,
-    revoked_at: '2026-08-25T00:00:00Z',
-  });
-  assertEquals(out.ok, false);
-  if (!out.ok) {
-    assertEquals(out.response.status, 401);
-    assertEquals(await errorCode(out.response), 'credential_revoked');
-  }
+  const r = await run({ cloud: true, ai: true, revoked: true });
+  assertEquals([r.response.status, r.body.error], [401, 'credential_revoked']);
+  assertEquals(r.fake.state.rows.size, 0);
+  assertEquals(r.fetchCalls, 0);
 });
 
-Deno.test('missing or errored consent row fails closed', async () => {
-  for (const out of [decision(null), decision(null, { message: 'lookup failed' })]) {
-    assertEquals(out.ok, false);
-    if (!out.ok) {
-      assertEquals(out.response.status, 403);
-      assertEquals(await errorCode(out.response), 'consent_required');
-    }
-  }
+Deno.test('legacy: consent that does not belong to the linked user fails closed', async () => {
+  const r = await run({ user_id: 'u-a', consent_owner_uid: 'u-b', cloud: true, ai: true });
+  assertEquals([r.response.status, r.body.error], [403, 'consent_required']);
+  assertEquals(r.fake.state.rows.size, 0);
 });
 
-Deno.test('AI requires cloud enabled, AI consent, and caller request', () => {
-  const aiOff = decision({
-    cloud_processing_enabled: true,
-    ai_consent_granted: false,
-    revoked_at: null,
-  });
-  assertEquals(aiOff, { ok: true, aiAllowed: false });
-
-  const notRequested = decision(
-    {
-      cloud_processing_enabled: true,
-      ai_consent_granted: true,
-      revoked_at: null,
-    },
-    null,
-    false,
-  );
-  assertEquals(notRequested, { ok: true, aiAllowed: false });
-
-  const allowed = decision({
-    cloud_processing_enabled: true,
-    ai_consent_granted: true,
-    revoked_at: null,
-  });
-  assertEquals(allowed, { ok: true, aiAllowed: true });
+Deno.test('AI requires cloud enabled, AI consent, and the caller request', async () => {
+  const aiOff = await run({ cloud: true, ai: false });
+  assertEquals([aiOff.fetchCalls, aiOff.body.capture.status], [0, 'rejected']);
+  const notRequested = await run({ cloud: true, ai: true }, { allowAi: false });
+  assertEquals([notRequested.fetchCalls, notRequested.body.capture.status], [0, 'rejected']);
+  const allowed = await run({ cloud: true, ai: true });
+  assertEquals([allowed.fetchCalls, allowed.body.capture.status], [1, 'processed']);
+  assertEquals(allowed.fake.state.dispatches, 1);
 });
 
-function validRequest(): Request {
-  return new Request('https://example.test/process-ios-sms', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      schema_version: 1,
-      installId: 'install-1',
-      deviceSecret: 'secret-1',
-      payloadId: 'already-seen-payload',
-      sanitizedText: 'Paid EGP 19.99',
-      allowAi: true,
-    }),
-  });
-}
-
-function refusalClient(consentResult: {
-  data: Record<string, unknown> | null;
-  error: unknown;
-}) {
-  const tables: string[] = [];
-  const selections: string[] = [];
-  const builder: Record<string, unknown> = {};
-  builder.select = (columns: string) => {
-    selections.push(columns);
-    return builder;
-  };
-  builder.eq = () => builder;
-  builder.maybeSingle = () => Promise.resolve(consentResult);
-  return {
-    tables,
-    selections,
-    client: {
-      from(table: string) {
-        tables.push(table);
-        return builder;
-      },
-    },
-  };
-}
-
-Deno.test('stale replay after revocation stops before parse, storage, ledger, or APNs', async () => {
-  const fake = refusalClient({
-    data: {
-      cloud_processing_enabled: true,
-      ai_consent_granted: true,
-      revoked_at: '2026-08-25T00:00:00Z',
-    },
-    error: null,
-  });
-  let fetchCalls = 0;
-  const originalFetch = globalThis.fetch;
+Deno.test('stale replay after revocation stops before parse, storage and APNs', async () => {
+  const first = await run({ cloud: true, ai: true, apns_token: 'tok' });
+  assertEquals(first.response.status, 200);
+  const fake = first.fake;
+  fake.state.device.revoked = true;
+  const calls = fake.state.claims;
+  const original = globalThis.fetch;
+  let fetches = 0;
   globalThis.fetch = (() => {
-    fetchCalls++;
+    fetches++;
     throw new Error('network/APNs/AI must not run');
   }) as typeof fetch;
   try {
-    const response = await handleProcessIosSms(validRequest(), {
-      createServiceClient: (() => fake.client) as never,
-      verifyDevice: (() =>
-        Promise.resolve({
-          ok: true,
-          installIdHash: 'verified-install-hash',
-          userId: 'user-1',
-        })) as never,
-    });
+    const response = await handleProcessIosSms(
+      new Request('https://example.test/process-ios-sms', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          schema_version: 1,
+          installId: 'install-1',
+          deviceSecret: 'secret-1',
+          payloadId: 'payload-1',
+          sanitizedText: UNRESOLVED,
+        }),
+      }),
+      {
+        createServiceClient: (() => fake.client) as never,
+        verifyDevice: (() => Promise.resolve({ ok: true, installIdHash: 'h', userId: null })) as never,
+      },
+    );
     assertEquals(response.status, 401);
-    assertEquals(await errorCode(response), 'credential_revoked');
+    assertEquals((await response.json()).error, 'credential_revoked');
   } finally {
-    globalThis.fetch = originalFetch;
+    globalThis.fetch = original;
   }
-  assertEquals(fake.tables, ['capture_devices']);
-  assertEquals(fake.selections, [
-    'ai_consent_granted, cloud_processing_enabled, revoked_at',
-  ]);
-  assertEquals(fetchCalls, 0);
-});
-
-Deno.test('cloud OFF stops before processed_captures and APNs', async () => {
-  const fake = refusalClient({
-    data: {
-      cloud_processing_enabled: false,
-      ai_consent_granted: true,
-      revoked_at: null,
-    },
-    error: null,
-  });
-  const response = await handleProcessIosSms(validRequest(), {
-    createServiceClient: (() => fake.client) as never,
-    verifyDevice: (() =>
-      Promise.resolve({
-        ok: true,
-        installIdHash: 'verified-install-hash',
-        userId: null,
-      })) as never,
-  });
-  assertEquals(response.status, 403);
-  assertEquals(await errorCode(response), 'consent_required');
-  assertEquals(fake.tables, ['capture_devices']);
+  assertEquals(fetches, 0);
+  assertEquals(fake.state.claims, calls);
 });

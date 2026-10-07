@@ -250,3 +250,52 @@ Deno.test('missing APNs configuration fails closed with a non-transient error co
   assertEquals(result.errorCode, 'not_configured');
   assertEquals(result.httpStatus, null);
 });
+
+Deno.test('an empty title omits the alert title (generic capture push carries a body only)', async () => {
+  await withApnsEnv(async () => {
+    const originalFetch = globalThis.fetch;
+    let sentBody: Record<string, unknown> = {};
+    globalThis.fetch = ((_url: string | URL, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body));
+      return Promise.resolve(new Response(null, { status: 200 }));
+    }) as typeof fetch;
+    try {
+      await sendCapturePush({
+        token: 'device-token',
+        environment: 'sandbox',
+        payloadId: 'qa_generic',
+        title: '',
+        body: 'New transaction captured',
+        notificationType: 'new_transaction',
+      });
+      assertEquals((sentBody.aps as { alert: unknown }).alert, { body: 'New transaction captured' });
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
+Deno.test('a network exception reason never carries the request URL (it contains the device token)', async () => {
+  await withApnsEnv(async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = ((url: string | URL) =>
+      Promise.reject(new TypeError(`error sending request for url (${String(url)})`))) as typeof fetch;
+    try {
+      const result = await sendCapturePush({
+        token: 'SECRET-DEVICE-TOKEN',
+        environment: 'sandbox',
+        payloadId: 'qa_exception',
+        title: 't',
+        body: 'b',
+        notificationType: 'new_transaction',
+      });
+      assert(!result.ok);
+      if (result.ok) throw new Error('unreachable');
+      assertEquals(result.errorCode, 'network_exception');
+      assert(!result.reason.includes('SECRET-DEVICE-TOKEN'), result.reason);
+      assertEquals(result.reason, 'apns_exception_TypeError');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});

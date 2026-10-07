@@ -196,16 +196,22 @@ test('process-ios-sms: bounded body, schema, server consent before any Gemini', 
   assert.match(fn, /payload_too_large/); // bounded field lengths
   // Consent is server-owned; cloud processing is the master gate, and AI
   // requires the narrower server grant in addition to the caller flag.
-  assert.match(fn, /\.from\('capture_devices'\)\s*\.select\('ai_consent_granted, cloud_processing_enabled, revoked_at'\)/);
-  assert.match(fn, /consent\.data\?\.revoked_at != null[\s\S]*?apiError\('credential_revoked'/);
-  assert.match(fn, /consent\.data\.cloud_processing_enabled !== true[\s\S]*?apiError\('consent_required'/);
-  assert.match(fn, /aiAllowed: allowAi && consent\.data\.ai_consent_granted === true/);
-  assert.match(fn, /const aiAllowed = consentGate\.aiAllowed/);
+  // P1 (CAP-1): the consent gate runs inside the capture_claim RPC (one FOR SHARE
+  // snapshot of capture_devices, migration 0111) and its typed refusals are mapped here.
+  const claim = read('supabase/migrations/0111_capture_state_machine.sql');
+  assert.match(fn, /rpc\('capture_claim'/);
+  assert.match(claim, /d\.revoked_at is not null[\s\S]*?'credential_revoked'/);
+  assert.match(claim, /d\.cloud_processing_enabled is not true[\s\S]*?'consent_required'/);
+  assert.match(fn, /apiError\('credential_revoked'/);
+  assert.match(fn, /apiError\('consent_required'/);
+  // AI requires the narrower server grant in addition to the caller flag.
+  assert.match(fn, /const aiAllowed = allowAi && claim\.ai_allowed === true/);
   assert.match(fn, /allowAi: aiAllowed/); // parseSms gets the server-gated flag
-  // No Gemini before consent: the consent read precedes parseSms().
-  const consentIdx = fn.indexOf(".select('ai_consent_granted, cloud_processing_enabled, revoked_at')");
+  // No Gemini before consent: the claim precedes parseSms(), and AI itself needs the dispatch RPC.
+  const consentIdx = fn.indexOf("rpc('capture_claim'");
   const parseIdx = fn.indexOf('await parseSms(');
   assert.ok(consentIdx > 0 && parseIdx > consentIdx, 'consent resolved before parseSms');
+  assert.match(fn, /rpc\('capture_ai_dispatch'/);
   // Privacy: the metadata log object carries only booleans/metadata — never the
   // raw SMS text vars (sanitizedText/rawText). (parsed.merchant != null is a
   // boolean flag, not the merchant string.)

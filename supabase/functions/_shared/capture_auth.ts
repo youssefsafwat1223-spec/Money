@@ -142,18 +142,42 @@ export async function verifyDevice(
   const deviceSecretHash = await sha256Hex(deviceSecret);
   const { data, error } = await supabase
     .from('capture_devices')
-    .select('device_secret_hash, user_id')
+    .select('device_secret_hash, user_id, revoked_at')
     .eq('install_id_hash', installIdHash)
     .maybeSingle();
   if (error) return { ok: false, status: 500, error: 'device_lookup_failed' };
   if (!data || !timingSafeEqual(data.device_secret_hash, deviceSecretHash)) {
     return { ok: false, status: 401, error: 'invalid_device_secret' };
   }
+  // A revoked credential is refused on EVERY device-authenticated endpoint
+  // (checked after the secret so an unauthenticated caller learns nothing).
+  if (data.revoked_at != null) {
+    return { ok: false, status: 401, error: 'credential_revoked' };
+  }
   await supabase
     .from('capture_devices')
     .update({ last_seen_at: new Date().toISOString() })
     .eq('install_id_hash', installIdHash);
   return { ok: true, installIdHash, userId: (data.user_id as string | null) ?? null };
+}
+
+export type UserJwt =
+  | { ok: true; userId: string; client: ReturnType<typeof serviceClient> }
+  | { ok: false; status: number; error: string };
+
+/// Verifies the caller's Supabase user JWT (Authorization: Bearer). `client` is
+/// an anon-key client that carries that JWT, so RPCs run as the user (auth.uid()).
+export async function verifyUserJwt(req: Request): Promise<UserJwt> {
+  const authHeader = req.headers.get('Authorization') ?? '';
+  if (!authHeader.startsWith('Bearer ')) return { ok: false, status: 401, error: 'missing_jwt' };
+  const client = createClient(
+    Deno.env.get('SUPABASE_URL') ?? '',
+    Deno.env.get('SUPABASE_ANON_KEY') ?? '',
+    { global: { headers: { Authorization: authHeader } } },
+  );
+  const { data: { user }, error } = await client.auth.getUser();
+  if (error || !user) return { ok: false, status: 401, error: 'invalid_jwt' };
+  return { ok: true, userId: user.id, client };
 }
 
 export async function bumpCaptureEndpointRateLimit(

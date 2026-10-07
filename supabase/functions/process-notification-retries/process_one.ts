@@ -1,12 +1,16 @@
 import { serviceClient } from '../_shared/capture_auth.ts';
 import { sendCapturePush } from '../_shared/apns.ts';
+import { clearDeadApnsToken, GENERIC_CAPTURE_PUSH, isDeadApnsToken } from '../_shared/capture_push.ts';
 import { markApnsLogFailed, markApnsLogSent } from '../_shared/notification_logs.ts';
 import { isTransientApnsFailure, nextRetryDelayMs } from '../_shared/notification_retry_policy.ts';
 
-type NotificationPayload = {
-  title: string;
-  body: string;
-  type: 'new_transaction' | 'needs_review' | 'suspicious_duplicate' | 'received';
+type NotificationType = 'new_transaction' | 'needs_review' | 'suspicious_duplicate' | 'received';
+
+const DROP_ERROR_CODES: Record<string, string> = {
+  credential_revoked: 'credential_revoked',
+  consent_revoked: 'consent_revoked',
+  owner_changed: 'owner_changed',
+  not_pending: 'capture_not_pending',
 };
 
 export async function processOne(
@@ -21,76 +25,55 @@ export async function processOne(
   },
   sendPush: typeof sendCapturePush = sendCapturePush,
 ): Promise<'sent' | 'retrying' | 'exhausted' | 'skipped'> {
-  const [{ data: capture }, { data: device }] = await Promise.all([
-    supabase
-      .from('processed_captures')
-      .select('notification,apns_push_sent_at')
-      .eq('install_id_hash', row.install_id_hash)
-      .eq('payload_id', row.payload_id)
-      .maybeSingle(),
-    supabase
-      .from('capture_devices')
-      .select('apns_token,apns_environment,revoked_at')
-      .eq('install_id_hash', row.install_id_hash)
-      .maybeSingle(),
-  ]);
+  // The retry re-runs the terminal fence (§4.1) under FOR SHARE on the device row: the
+  // capture must still be pending (not consumed / expired / already sent), the device not
+  // revoked, cloud consent on, and the device's CURRENT owner and consent snapshot the ones
+  // the result was produced for. A queued notification is never authority to deliver.
+  const fence = await supabase.rpc('capture_retry_fence', {
+    p_install_id_hash: row.install_id_hash,
+    p_payload_id: row.payload_id,
+  });
+  // Infrastructure failure: leave the claimed row; it becomes reclaimable when stale.
+  if (fence.error || !fence.data) return 'retrying';
+  const gate = fence.data as {
+    allowed: boolean;
+    reason?: string;
+    apns_token?: string;
+    apns_environment?: string;
+    notification_type?: NotificationType;
+  };
 
-  // Already sent by a different path (e.g. a live replay) — resolve quietly.
-  if (capture?.apns_push_sent_at) {
-    await supabase
+  if (!gate.allowed) {
+    const resolveRow = supabase
       .from('notification_retry_queue')
       .update({ resolved_at: new Date().toISOString() })
       .eq('id', row.id);
-    return 'skipped';
-  }
-
-  // A retry must re-check the mutable credential state. A queued notification
-  // is never authority to deliver after device revocation, so drop it without
-  // calling APNs even when the stored token remains present.
-  if (device?.revoked_at != null) {
+    // Already sent by a different path: resolve quietly.
+    if (gate.reason === 'already_sent') {
+      await resolveRow;
+      return 'skipped';
+    }
     await Promise.all([
-      supabase
-        .from('notification_retry_queue')
-        .update({ resolved_at: new Date().toISOString() })
-        .eq('id', row.id),
+      resolveRow,
       markApnsLogFailed(supabase, row.notification_log_id, {
-        errorCode: 'credential_revoked',
-        errorReason: 'Device credential was revoked before notification retry',
+        errorCode: DROP_ERROR_CODES[gate.reason ?? ''] ?? 'retry_unsendable',
+        errorReason: 'Retry dropped by the delivery fence',
         retryCount: row.attempt_number,
       }),
     ]);
     return 'exhausted';
   }
 
-  const notification = capture?.notification as NotificationPayload | undefined;
-  const token = typeof device?.apns_token === 'string' ? device.apns_token : '';
-  const environment = device?.apns_environment === 'sandbox' || device?.apns_environment === 'production'
-    ? device.apns_environment
-    : null;
-  if (!notification?.title || !notification?.body || !token || !environment) {
-    // Nothing sendable anymore (token revoked, row pruned) — give up cleanly.
-    await Promise.all([
-      supabase
-        .from('notification_retry_queue')
-        .update({ resolved_at: new Date().toISOString() })
-        .eq('id', row.id),
-      markApnsLogFailed(supabase, row.notification_log_id, {
-        errorCode: 'retry_unsendable',
-        errorReason: 'Missing notification content or device token on retry',
-        retryCount: row.attempt_number,
-      }),
-    ]);
-    return 'exhausted';
-  }
-
+  const token = gate.apns_token as string;
   const result = await sendPush({
     token,
-    environment,
+    environment: gate.apns_environment as 'sandbox' | 'production',
     payloadId: row.payload_id,
     notificationLogId: row.notification_log_id,
-    title: notification.title,
-    body: notification.body,
-    notificationType: notification.type,
+    // Q3: generic alert only.
+    title: GENERIC_CAPTURE_PUSH.title,
+    body: GENERIC_CAPTURE_PUSH.body,
+    notificationType: gate.notification_type ?? 'new_transaction',
   });
 
   if (result.ok) {
@@ -114,6 +97,8 @@ export async function processOne(
     }));
     return 'sent';
   }
+
+  if (isDeadApnsToken(result)) await clearDeadApnsToken(supabase, row.install_id_hash, token);
 
   const nextAttemptNumber = row.attempt_number + 1;
   const stillTransient = isTransientApnsFailure(result.httpStatus, result.errorCode);

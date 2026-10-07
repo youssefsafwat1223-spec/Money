@@ -5,75 +5,21 @@ import { handleProcessIosSms } from './index.ts';
 // ever processed | rejected | duplicate for NEW captures, AI calls are counted
 // through a stubbed fetch, and replay / response shape are unchanged.
 
-type Row = Record<string, unknown>;
+import { fakeCapture } from './capture_rpc_fake.ts';
 
+// The capture_* RPCs are modelled by capture_rpc_fake.ts (SQL proofs: supabase/tests/
+// capture_state_machine_p1.sql). `captures` = stored processed_captures rows,
+// `state.inserts` = claims that created/re-claimed a lease.
 function fakeSupabase(opts: { aiConsent?: boolean; duplicateOf?: string } = {}) {
-  const captures = new Map<string, Row>();
-  const state = { inserts: 0 };
-  const from = (table: string) => {
-    const f: { op: string; row?: Row; eq: Record<string, unknown> } = { op: 'select', eq: {} };
-    const result = (): { data: unknown; error: unknown } => {
-      if (table === 'capture_devices') {
-        return {
-          data: {
-            ai_consent_granted: opts.aiConsent ?? true,
-            cloud_processing_enabled: true,
-            revoked_at: null,
-            apns_token: null,
-          },
-          error: null,
-        };
-      }
-      if (table === 'processed_captures') {
-        if (f.op === 'insert') {
-          const row = {
-            ...f.row!,
-            created_at: '2026-09-07T19:30:00Z',
-            apns_push_sent_at: null,
-            notification_log_id: null,
-          };
-          captures.set(f.row!.payload_id as string, row);
-          state.inserts++;
-          return { data: row, error: null };
-        }
-        return { data: captures.get(f.eq.payload_id as string) ?? null, error: null };
-      }
-      if (table === 'capture_fingerprints') {
-        if (f.op === 'insert') {
-          return opts.duplicateOf
-            ? { data: null, error: { code: '23505', message: 'dup' } }
-            : { data: null, error: null };
-        }
-        return { data: opts.duplicateOf ? [{ payload_id: opts.duplicateOf, fingerprint: 'x' }] : [], error: null };
-      }
-      return { data: null, error: null };
-    };
-    const b: Record<string, unknown> = {
-      select: () => b,
-      insert: (row: Row) => {
-        f.op = 'insert';
-        f.row = row;
-        return b;
-      },
-      update: () => {
-        f.op = 'update';
-        return b;
-      },
-      eq: (k: string, v: unknown) => {
-        f.eq[k] = v;
-        return b;
-      },
-      in: () => b,
-      maybeSingle: () => Promise.resolve(result()),
-      single: () => Promise.resolve(result()),
-      then: (resolve: (v: unknown) => unknown) => Promise.resolve(result()).then(resolve),
-    };
-    return b;
-  };
+  const fake = fakeCapture({ device: { ai: opts.aiConsent ?? true }, duplicateOf: opts.duplicateOf });
   return {
-    state,
-    captures,
-    client: { from, rpc: () => Promise.resolve({ data: false, error: null }) },
+    state: {
+      get inserts() {
+        return fake.state.claims;
+      },
+    },
+    captures: fake.state.rows,
+    client: fake.client,
   };
 }
 
@@ -187,7 +133,9 @@ Deno.test('unresolved + AI candidate fails validation: rejected', async () => {
   });
   assertEquals(r.calls, 1);
   assertEquals(r.json.capture.status, 'rejected');
-  assertEquals(r.json.capture.sanitized_text, UNRESOLVED);
+  // The legacy response never carried sanitized_text (its select list omitted
+  // it); the sanitized text is stored for delivery via sync-captures only.
+  assertEquals(fake.captures.get('p3')!.sanitized_text, UNRESOLVED);
   assertEquals(r.json.capture.notification.type, 'received');
 });
 
