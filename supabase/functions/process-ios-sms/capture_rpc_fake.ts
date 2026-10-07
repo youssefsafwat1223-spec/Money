@@ -6,8 +6,8 @@
 
 type Row = Record<string, unknown>;
 
-// F1 (migration 0112): content is live iff the DATABASE now() < created_at + 7 days. The fake's
-// database clock is Date.now() + state.dbSkewMs, so a test moves it (or a row's created_ms)
+// F1 (migration 0112): content is live iff the DATABASE clock_timestamp() < created_at + 168 h. The
+// fake's database clock is Date.now() + state.dbSkewMs, so a test moves it (or a row's created_ms)
 // to put a row at an exact boundary; the handler's own clock is never consulted.
 export const CAPTURE_RETENTION_MS = 7 * 24 * 3600 * 1000;
 export const captureContentLive = (createdMs: number, nowMs: number): boolean => nowMs < createdMs + CAPTURE_RETENTION_MS;
@@ -20,6 +20,8 @@ export type FakeDevice = {
   version: number;
   revoked: boolean;
   apns_token: string | null;
+  // 0110: clock_timestamp() of the last owner change (ms); null = never changed since 0110.
+  owner_changed_ms: number | null;
 };
 
 export function fakeCapture(opts: {
@@ -37,6 +39,7 @@ export function fakeCapture(opts: {
     version: 0,
     revoked: false,
     apns_token: null,
+    owner_changed_ms: null,
     ...opts.device,
   };
   const rows = new Map<string, Row>();
@@ -100,13 +103,29 @@ export function fakeCapture(opts: {
     if (fn === 'capture_claim') {
       const contract = a.p_contract as number;
       if (device.revoked) return { outcome: 'denied', code: 'credential_revoked' };
-      if (contract === 2) {
+      if (contract === 2 || a.p_owner_uid) {
+        // owner-bound on ANY schema version
         if (
           !a.p_owner_uid || !device.user_id || !device.consent_owner_uid || a.p_owner_uid !== device.user_id ||
           device.user_id !== device.consent_owner_uid
         ) return { outcome: 'denied', code: 'capture_owner_mismatch' };
       } else if (device.consent_owner_uid !== device.user_id) {
         return { outcome: 'denied', code: 'consent_required' };
+      } else {
+        // OWNERLESS (build 50): mirrors capture_claim's rule (0111); received_at is the only evidence.
+        const recv = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}(:?\d{2})?)$/.test(
+            String(a.p_received_at ?? ''),
+          )
+          ? Date.parse(String(a.p_received_at))
+          : NaN;
+        const reason = Number.isNaN(recv)
+          ? 'received_at_invalid'
+          : recv > dbNow() + 5 * 60_000
+          ? 'received_at_future'
+          : device.owner_changed_ms !== null && recv <= device.owner_changed_ms
+          ? 'received_before_owner_change'
+          : null;
+        if (reason) return { outcome: 'owner_conflict', reason };
       }
       if (!device.cloud) return { outcome: 'denied', code: 'consent_required' };
       const key = a.p_payload_id as string;
@@ -130,7 +149,8 @@ export function fakeCapture(opts: {
           raw_fingerprint: a.p_raw_fingerprint,
           created_ms: dbNow(),
           claimed_user_id: device.user_id,
-          owner_uid: contract === 2 ? a.p_owner_uid : null,
+          owner_uid: a.p_owner_uid ?? null,
+          client_owner_generation: a.p_owner_generation ?? null,
           consent_owner_uid: device.consent_owner_uid,
           consent_version: device.version,
           lease_token: 1,

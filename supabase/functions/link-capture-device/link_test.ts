@@ -71,7 +71,7 @@ Deno.test('v2 link: link_capture_device RPC runs as the USER with consent, never
   assertEquals(link.via, 'user');
   assertEquals(
     { ...link.args, p_device_secret_hash: typeof link.args.p_device_secret_hash },
-    { p_install_id_hash: 'h', p_device_secret_hash: 'string', p_cloud: true, p_ai: false, p_version: 4 },
+    { p_install_id_hash: 'h', p_device_secret_hash: 'string', p_cloud: true, p_ai: false, p_version: 4, p_client_generation: 0 },
   );
   assertEquals(calls.some((c) => c.fn === 'legacy_link_capture_device'), false);
 });
@@ -81,4 +81,62 @@ Deno.test('v2 link: missing or invalid consent version -> 400', async () => {
     const r = await run({ schema_version: 2, consent }).res;
     assertEquals(r.status, 400);
   }
+});
+
+Deno.test('G1 C.2: v2 link passes the client generation through (consent.client_generation or top level); absent = 0', async () => {
+  const inConsent = run({
+    schema_version: 2,
+    consent: { cloud_processing_enabled: true, ai_consent_granted: true, version: 4, client_generation: 7 },
+  });
+  await inConsent.res;
+  assertEquals(inConsent.calls.find((c) => c.fn === 'link_capture_device')!.args.p_client_generation, 7);
+  const top = run({
+    schema_version: 2,
+    client_generation: 9,
+    consent: { cloud_processing_enabled: true, ai_consent_granted: true, version: 4 },
+  });
+  await top.res;
+  assertEquals(top.calls.find((c) => c.fn === 'link_capture_device')!.args.p_client_generation, 9);
+  for (const bad of [-1, 1.5, 'x', null]) {
+    const r = run({ schema_version: 2, client_generation: bad, consent: { version: 1 } });
+    await r.res;
+    assertEquals(r.calls.find((c) => c.fn === 'link_capture_device')!.args.p_client_generation, 0);
+  }
+});
+
+Deno.test('G1 C.2: link response is additive (applied/reason/generations pass through), legacy keys unchanged', async () => {
+  const service = { rpc: () => Promise.resolve({ data: false, error: null }) };
+  const userClient = {
+    rpc: () =>
+      Promise.resolve({
+        data: {
+          ok: true,
+          owner_changed: false,
+          applied: false,
+          reason: 'stale_generation',
+          owner_generation: 2,
+          consent_client_generation: 5,
+        },
+        error: null,
+      }),
+  };
+  const r = await handleLinkCaptureDevice(
+    new Request('https://x/link', {
+      method: 'POST',
+      body: JSON.stringify({ installId: 'i', deviceSecret: 's', schema_version: 2, consent: { version: 1 } }),
+    }),
+    {
+      createServiceClient: (() => service) as never,
+      verifyDevice: (() => Promise.resolve({ ok: true, installIdHash: 'h', userId: null })) as never,
+      verifyUserJwt: (() => Promise.resolve({ ok: true, userId: A, client: userClient })) as never,
+    },
+  );
+  assertEquals(await r.json(), {
+    ok: true,
+    owner_changed: false,
+    applied: false,
+    reason: 'stale_generation',
+    owner_generation: 2,
+    consent_client_generation: 5,
+  });
 });

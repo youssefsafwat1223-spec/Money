@@ -54,8 +54,15 @@ VALUES ('00000000-0000-0000-0000-00000000a001', 'user_settings', true, true);
 \set B '''00000000-0000-0000-0000-00000000b002'''
 
 -- claim helper: (install, payload, fp, owner, contract)
+-- ISO-8601 UTC text, as a build-50 / new client sends received_at.
+CREATE FUNCTION pg_temp.ts(t timestamptz) RETURNS text LANGUAGE sql AS
+$$ SELECT to_char(t AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') $$;
+-- claim helper: a build-50 request always carries received_at (the ownerless rule in 0111 refuses
+-- one without it), so the default helper sends "now"; pg_temp.claim_r sends an explicit value.
 CREATE FUNCTION pg_temp.claim(i text, p text, fp text, o uuid, c int) RETURNS jsonb LANGUAGE sql AS
-$$ SELECT public.capture_claim(i, 'raw-' || i, p, fp, o, c, 60) $$;
+$$ SELECT public.capture_claim(i, 'raw-' || i, p, fp, o, c, 60, pg_temp.ts(clock_timestamp())) $$;
+CREATE FUNCTION pg_temp.claim_r(i text, p text, fp text, o uuid, c int, rcv text, gen bigint DEFAULT NULL) RETURNS jsonb LANGUAGE sql AS
+$$ SELECT public.capture_claim(i, 'raw-' || i, p, fp, o, c, 60, rcv, gen) $$;
 CREATE FUNCTION pg_temp.fin(i text, p text, tok int, st text, content boolean DEFAULT true) RETURNS jsonb LANGUAGE sql AS
 $$ SELECT public.capture_finalize(i, 'raw-' || i, p, tok, st, CASE WHEN st = 'rejected' THEN 'rejected' ELSE 'processed' END,
      CASE WHEN content THEN '{"amount":10}'::jsonb ELSE '{}'::jsonb END,
@@ -499,6 +506,344 @@ BEGIN
   PERFORM public.purge_user_data(b);
   PERFORM pg_temp.ok('T-S12 purge upserts user_sync_state for a user without a row',
     (SELECT epoch_reason FROM public.user_sync_state WHERE user_id = b) = 'purge');
+END $$;
+
+-- ══ Astra required changes, unit G1 (contract G: C.1 / C.2 / C.3) ═══════════════════════════════
+-- ── C.1 / D.1: owner binding on ANY schema version, owner_changed_at, the ownerless rule ─────────
+DO $$
+DECLARE a uuid := '00000000-0000-0000-0000-00000000a001'; b uuid := '00000000-0000-0000-0000-00000000b002';
+        c jsonb; j jsonb; d public.capture_devices; t_before timestamptz; t_link timestamptz; r public.processed_captures;
+BEGIN
+  PERFORM pg_temp.mkdev('g1a', a, 1);
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1a';
+  PERFORM pg_temp.ok('G1 new columns default: owner_generation 0, consent_client_generation 0, no revoke, no owner_changed_at',
+    d.owner_generation = 0 AND d.consent_client_generation = 0 AND d.last_revoke_generation IS NULL AND d.owner_changed_at IS NULL, d::text);
+
+  -- the same owner's JWT link is not an owner change
+  PERFORM pg_temp.as_user(a);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g1a', 'sg1a', true, true, 2, 3);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1a';
+  PERFORM pg_temp.ok('same-owner link: owner_changed=false, owner_changed_at and owner_generation untouched, client generation stored',
+    (j->>'owner_changed')::boolean IS FALSE AND d.owner_changed_at IS NULL AND d.owner_generation = 0
+    AND d.consent_client_generation = 3, j::text);
+
+  -- A -> B relink through the JWT link: server counter + owner_changed_at (clock_timestamp) + fresh ordering
+  t_before := clock_timestamp();
+  PERFORM pg_sleep(0.02);
+  PERFORM pg_temp.as_user(b);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g1a', 'sg1a', true, true, 1, 1);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1a';
+  t_link := d.owner_changed_at;
+  PERFORM pg_temp.ok('A->B link: owner_changed, owner_generation 1, owner_changed_at is a fresh clock_timestamp()',
+    (j->>'owner_changed')::boolean AND d.owner_generation = 1 AND (j->>'owner_generation')::bigint = 1
+    AND t_link > t_before AND t_link <= clock_timestamp()
+    AND d.consent_client_generation = 1 AND d.last_revoke_generation IS NULL, d::text);
+
+  -- D.1: the delayed A capture arrives after the relink. Never processed under B.
+  c := pg_temp.claim_r('g1a', 'race', 'fp', a, 2, pg_temp.ts(t_before));
+  PERFORM pg_temp.ok('D.1 owner-bound (v2) delayed A request -> denied capture_owner_mismatch',
+    c->>'outcome' = 'denied' AND c->>'code' = 'capture_owner_mismatch', c::text);
+  c := pg_temp.claim_r('g1a', 'race', 'fp', a, 1, pg_temp.ts(t_before));
+  PERFORM pg_temp.ok('D.1 owner-bound on schema_version 1 (owner_uid present, contract 1) delayed A request -> denied capture_owner_mismatch',
+    c->>'outcome' = 'denied' AND c->>'code' = 'capture_owner_mismatch', c::text);
+  c := pg_temp.claim_r('g1a', 'race', 'fp', null, 1, pg_temp.ts(t_before));
+  PERFORM pg_temp.ok('D.1 ownerless (build 50) with received_at < owner_changed_at -> owner_conflict, nothing stored',
+    c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'received_before_owner_change', c::text);
+  c := pg_temp.claim_r('g1a', 'race', 'fp', null, 1, pg_temp.ts(t_link));
+  PERFORM pg_temp.ok('D.1 ownerless with received_at EXACTLY owner_changed_at (<=) -> owner_conflict',
+    c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'received_before_owner_change', c::text);
+  PERFORM pg_temp.ok('D.1 none of the refused requests created a row or content',
+    NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'g1a' AND payload_id = 'race'));
+  c := pg_temp.claim_r('g1a', 'race', 'fp', null, 1, pg_temp.ts(t_link + interval '1 microsecond'));
+  PERFORM pg_temp.ok('ownerless with received_at 1 microsecond AFTER the link is B''s and is claimed under B',
+    c->>'outcome' = 'claimed' AND (c->>'claimed_user_id')::uuid = b, c::text);
+
+  -- ownerless rule: missing / unparseable / ambiguous / future
+  PERFORM pg_temp.mkdev('g1b', a, 1);
+  c := pg_temp.claim_r('g1b', 'o1', 'fp', null, 1, null);
+  PERFORM pg_temp.ok('ownerless: received_at missing -> owner_conflict (received_at_invalid)',
+    c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'received_at_invalid', c::text);
+  PERFORM pg_temp.ok('ownerless: every unparseable / ambiguous / special value is refused',
+    NOT EXISTS (
+      SELECT 1 FROM unnest(ARRAY['', 'garbage', 'yesterday', 'now', 'infinity', '-infinity', 'epoch',
+          '2026-10-07T12:00:00', '2026-10-07 12:00:00', '2026-13-45T12:00:00Z', '12:00:00Z', '2026-10-07']) v
+       WHERE (pg_temp.claim_r('g1b', 'o1', 'fp', null, 1, v))->>'outcome' IS DISTINCT FROM 'owner_conflict'));
+  c := pg_temp.claim_r('g1b', 'o1', 'fp', null, 1, pg_temp.ts(clock_timestamp() + interval '5 minutes 5 seconds'));
+  PERFORM pg_temp.ok('ownerless: received_at more than 5 minutes in the future -> owner_conflict (received_at_future)',
+    c->>'outcome' = 'owner_conflict' AND c->>'reason' = 'received_at_future', c::text);
+  c := pg_temp.claim_r('g1b', 'o1', 'fp', null, 1, '2099-01-01T00:00:00Z');
+  PERFORM pg_temp.ok('ownerless: far-future received_at refused', c->>'reason' = 'received_at_future', c::text);
+  PERFORM pg_temp.ok('ownerless refusals stored nothing', NOT EXISTS (SELECT 1 FROM public.processed_captures WHERE install_id_hash = 'g1b'));
+  c := pg_temp.claim_r('g1b', 'o2', 'fp', null, 1, pg_temp.ts(clock_timestamp() + interval '4 minutes'));
+  PERFORM pg_temp.ok('ownerless: received_at within the 5-minute skew bound is accepted', c->>'outcome' = 'claimed', c::text);
+  c := pg_temp.claim_r('g1b', 'o3', 'fp', null, 1, '2020-01-01T00:00:00+02:00');
+  PERFORM pg_temp.ok('ownerless on a device never relinked since 0110 (owner_changed_at NULL): a well-formed old received_at (offset form) is accepted',
+    c->>'outcome' = 'claimed', c::text);
+  PERFORM pg_temp.ok('capture_parse_received_at accepts ISO forms with Z / offset / fraction and refuses the rest',
+    public.capture_parse_received_at('2026-10-07T12:00:00Z') = '2026-10-07 12:00:00+00'
+    AND public.capture_parse_received_at('2026-10-07T12:00:00.123+03:00') = '2026-10-07 09:00:00.123+00'
+    AND public.capture_parse_received_at('2026-10-07T12:00Z') IS NOT NULL
+    AND public.capture_parse_received_at('2026-10-07T12:00:00') IS NULL AND public.capture_parse_received_at(NULL) IS NULL
+    AND public.capture_parse_received_at('infinity') IS NULL);
+
+  -- owner-bound on schema_version 1: records owner_uid and the client generation (diagnostics)
+  c := pg_temp.claim_r('g1b', 'ob1', 'fp', a, 1, null, 9);
+  SELECT * INTO r FROM public.processed_captures WHERE install_id_hash = 'g1b' AND payload_id = 'ob1';
+  PERFORM pg_temp.ok('owner_uid on contract 1 is owner-bound: claimed, row records owner_uid and client_owner_generation (no received_at needed)',
+    c->>'outcome' = 'claimed' AND r.owner_uid = a AND r.client_owner_generation = 9 AND r.claimed_user_id = a, c::text);
+  c := pg_temp.claim_r('g1b', 'ob2', 'fp', b, 1, null);
+  PERFORM pg_temp.ok('owner_uid of another user on contract 1 -> denied capture_owner_mismatch',
+    c->>'outcome' = 'denied' AND c->>'code' = 'capture_owner_mismatch', c::text);
+  PERFORM pg_temp.ok('the generation never decides anything: a wildly different client generation is still claimed',
+    (pg_temp.claim_r('g1b', 'ob3', 'fp', a, 2, null, 123456789))->>'outcome' = 'claimed');
+  -- delayed owner-bound A request fenced at finalize after a relink (any contract)
+  c := pg_temp.claim_r('g1b', 'ob4', 'fp', a, 1, null);
+  PERFORM public.legacy_link_capture_device('g1b', b);
+  PERFORM pg_temp.ok('owner-bound row claimed under A (contract 1) is fenced after an A->B relink: no content written',
+    NOT (pg_temp.fin('g1b', 'ob4', 1, 'processed')->>'written')::boolean
+    AND (pg_temp.row_of('g1b', 'ob4')).parsed = '{}'::jsonb);
+
+  -- legacy link / unlink maintain owner_changed_at and owner_generation
+  PERFORM pg_temp.mkdev('g1c', a, 1);
+  PERFORM public.legacy_link_capture_device('g1c', a);
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
+  PERFORM pg_temp.ok('legacy link, same owner: owner_changed_at / owner_generation untouched',
+    d.owner_changed_at IS NULL AND d.owner_generation = 0, d::text);
+  t_before := clock_timestamp();
+  PERFORM public.legacy_link_capture_device('g1c', b);
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
+  PERFORM pg_temp.ok('legacy link A->B: owner_changed_at = clock_timestamp(), owner_generation 1, ordering reset',
+    d.owner_changed_at >= t_before AND d.owner_changed_at <= clock_timestamp() AND d.owner_generation = 1
+    AND d.consent_client_generation = 0 AND d.last_revoke_generation IS NULL, d::text);
+  t_link := d.owner_changed_at;
+  c := pg_temp.claim_r('g1c', 'lg', 'fp', null, 1, pg_temp.ts(t_link - interval '1 second'));
+  PERFORM pg_temp.ok('legacy A->B then delayed ownerless A capture -> owner_conflict (before consent is even re-granted)',
+    c->>'outcome' = 'owner_conflict', c::text);
+  PERFORM public.unlink_capture_device('g1c');
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
+  PERFORM pg_temp.ok('unlink of a linked device is an owner change: owner_changed_at moves, owner_generation 2',
+    d.owner_changed_at > t_link AND d.owner_generation = 2 AND d.user_id IS NULL, d::text);
+  t_link := d.owner_changed_at;
+  PERFORM public.unlink_capture_device('g1c');
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
+  PERFORM pg_temp.ok('a second unlink of an already unlinked device changes nothing', d.owner_changed_at = t_link AND d.owner_generation = 2);
+  PERFORM pg_temp.as_user(a);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g1c', 'sg1c', true, false, 1, 4);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g1c';
+  PERFORM pg_temp.ok('first JWT link after an unlink is an owner change too (owner_generation 3, owner_changed_at moves)',
+    (j->>'owner_changed')::boolean AND d.owner_generation = 3 AND d.owner_changed_at > t_link, j::text);
+END $$;
+
+-- ── C.2 / D.9: a late projection writer can never widen consent; C.3 revoke ──────────────────────
+DO $$
+DECLARE a uuid := '00000000-0000-0000-0000-00000000a001'; b uuid := '00000000-0000-0000-0000-00000000b002';
+        j jsonb; d public.capture_devices; c jsonb; r public.processed_captures; legacy jsonb;
+BEGIN
+  -- An Android row: registered install, NO apns token/environment, never linked. The JWT link must work.
+  INSERT INTO public.capture_devices (install_id_hash, device_secret_hash, platform) VALUES ('g9', 'sg9', 'android');
+  PERFORM pg_temp.as_user(a);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g9', 'sg9', true, false, 3, 5);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('C.3 an Android-style row (no APNs token) is JWT-linkable: user, owner, flags, version, generation set',
+    (j->>'ok')::boolean AND d.user_id = a AND d.consent_owner_uid = a AND d.cloud_processing_enabled AND NOT d.ai_consent_granted
+    AND d.consent_version = 3 AND d.consent_client_generation = 5 AND d.owner_generation = 1, j::text);
+  PERFORM pg_temp.ok('link response is additive: legacy keys kept, applied / owner_generation / consent_client_generation added',
+    j ? 'ok' AND j ? 'owner_changed' AND (j->>'applied')::boolean AND (j->>'owner_generation')::bigint = 1
+    AND (j->>'consent_client_generation')::bigint = 5, j::text);
+
+  -- ── older generation: may only narrow, never widen ──
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g9', 'sg9', true, true, 9, 4);          -- stale link tries to widen AI and bump the version
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('C.2 stale-generation link cannot widen (AI stays false), version and generation unchanged, reports stale_generation',
+    NOT (j->>'applied')::boolean AND j->>'reason' = 'stale_generation' AND d.cloud_processing_enabled AND NOT d.ai_consent_granted
+    AND d.consent_version = 3 AND d.consent_client_generation = 5, j::text);
+  SET LOCAL ROLE authenticated;
+  j := public.set_capture_consent('g9', 'sg9', true, true, 50, 4);          -- stale set with a HIGHER version
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('C.2 stale-generation set cannot widen even with a higher version',
+    NOT (j->>'applied')::boolean AND j->>'reason' = 'stale_generation' AND NOT d.ai_consent_granted AND d.consent_version = 3, j::text);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g9', 'sg9', false, false, 1, 4);         -- stale link may narrow
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('C.2 stale-generation link may still narrow (stored AND requested)',
+    NOT (j->>'applied')::boolean AND NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted AND d.consent_version = 3, j::text);
+  -- the current generation widens normally
+  SET LOCAL ROLE authenticated;
+  j := public.set_capture_consent('g9', 'sg9', true, true, 4, 6);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('C.2 a newer generation widens normally',
+    (j->>'applied')::boolean AND d.cloud_processing_enabled AND d.ai_consent_granted AND d.consent_version = 4
+    AND d.consent_client_generation = 6 AND (j->>'consent_client_generation')::bigint = 6, j::text);
+
+  -- ── C.3 revoke at generation 7, with unconsumed content to null ──
+  INSERT INTO public.processed_captures (payload_id, install_id_hash, claimed_user_id, status, state, parsed, notification, sanitized_text, raw_fingerprint)
+  VALUES ('g9p', 'g9', a, 'processed', 'processed', '{"amount":5}', '{"title":"t"}', 'sms', 'f1'),
+         ('g9c', 'g9', a, 'processed', 'consumed', '{}', '{}', NULL, 'f2');
+  PERFORM pg_temp.as_user(a);
+  SET LOCAL ROLE authenticated;
+  j := public.revoke_capture_consent('g9', 'sg9', a, 7, 5);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  SELECT * INTO r FROM public.processed_captures WHERE install_id_hash = 'g9' AND payload_id = 'g9p';
+  PERFORM pg_temp.ok('C.3 revoke: {ok, applied, reason}, both flags false, version raised, last_revoke_generation recorded',
+    (j->>'ok')::boolean AND (j->>'applied')::boolean AND j->>'reason' = 'revoked' AND NOT d.cloud_processing_enabled
+    AND NOT d.ai_consent_granted AND d.consent_version = 5 AND d.last_revoke_generation = 7 AND d.consent_client_generation = 7, j::text);
+  PERFORM pg_temp.ok('C.3 revoke fan-out nulled the unconsumed content for (install, owner); a tombstone is untouched',
+    r.parsed = '{}'::jsonb AND r.notification = '{}'::jsonb AND r.sanitized_text IS NULL AND r.state = 'rejected'
+    AND (SELECT state FROM public.processed_captures WHERE install_id_hash = 'g9' AND payload_id = 'g9c') = 'consumed');
+  SET LOCAL ROLE authenticated;
+  j := public.revoke_capture_consent('g9', 'sg9', a, 7, 5);
+  RESET ROLE;
+  PERFORM pg_temp.ok('C.3 revoke is idempotent per (install, owner, generation): the repeat is a no-op already_revoked',
+    (j->>'ok')::boolean AND NOT (j->>'applied')::boolean AND j->>'reason' = 'already_revoked', j::text);
+
+  -- ── D.9: LATE writers (arrive after the revoke) cannot widen ──
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g9', 'sg9', true, true, 99, 7);          -- generation == revoke generation
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('D.9 late link at generation = revoke generation cannot widen (revoked_generation)',
+    NOT (j->>'applied')::boolean AND j->>'reason' = 'revoked_generation' AND NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted
+    AND d.consent_version = 5, j::text);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g9', 'sg9', true, true, 99);             -- an OLD client: no generation (= 0)
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('D.9 a generation-0 link (old client / absent) can never widen past a recorded revoke',
+    j->>'reason' = 'revoked_generation' AND NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted, j::text);
+  SET LOCAL ROLE authenticated;
+  j := public.set_capture_consent('g9', 'sg9', true, true, 99, 3);          -- older generation, huge version
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('D.9 late set with generation < revoke generation cannot widen',
+    NOT (j->>'applied')::boolean AND j->>'reason' = 'revoked_generation' AND NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted, j::text);
+  SET LOCAL ROLE authenticated;
+  j := public.set_capture_consent('g9', 'sg9', true, true, 99);             -- generation absent
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('D.9 late set with no generation (0) cannot widen',
+    j->>'reason' = 'revoked_generation' AND NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted AND d.consent_version = 5, j::text);
+  legacy := public.legacy_set_device_consent('g9', true, true);
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('D.9 the legacy device-credential writer (no generation) cannot widen past a recorded revoke either',
+    NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted AND d.consent_version = 5, legacy::text);
+  c := pg_temp.claim_r('g9', 'g9new', 'fp', a, 2, null);
+  PERFORM pg_temp.ok('D.9 after the late writers the capture gate is still closed (consent_required)',
+    c->>'outcome' = 'denied' AND c->>'code' = 'consent_required', c::text);
+  -- a STRICTLY NEWER generation is a deliberate re-enable and widens
+  SET LOCAL ROLE authenticated;
+  j := public.set_capture_consent('g9', 'sg9', true, true, 6, 8);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('a generation above the recorded revoke (explicit re-enable) widens',
+    (j->>'applied')::boolean AND d.cloud_processing_enabled AND d.ai_consent_granted AND d.consent_version = 6
+    AND d.consent_client_generation = 8 AND d.last_revoke_generation = 7, j::text);
+  -- ...and a DUPLICATE / older revoke arriving later must not kill the newer enable
+  SET LOCAL ROLE authenticated;
+  j := public.revoke_capture_consent('g9', 'sg9', a, 7, 5);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('a replayed revoke (generation 7) after the generation-8 re-enable is a no-op: consent stays on',
+    NOT (j->>'applied')::boolean AND j->>'reason' = 'already_revoked' AND d.cloud_processing_enabled AND d.ai_consent_granted, j::text);
+  -- legacy writer stays narrow-only after a recorded revoke, but can still narrow
+  legacy := public.legacy_set_device_consent('g9', false, false);
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('legacy writer can narrow after a revoke', NOT d.cloud_processing_enabled AND NOT d.ai_consent_granted, legacy::text);
+
+  -- a revoke older than the generation the owner has since enabled under (no revoke recorded) is a stale no-op
+  INSERT INTO public.capture_devices (install_id_hash, device_secret_hash, platform) VALUES ('g9s', 'sg9s', 'android');
+  PERFORM pg_temp.as_user(a);
+  SET LOCAL ROLE authenticated;
+  PERFORM public.link_capture_device('g9s', 'sg9s', true, true, 2, 8);
+  j := public.revoke_capture_consent('g9s', 'sg9s', a, 3, 3);
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9s';
+  PERFORM pg_temp.ok('revoke older than the stored consent generation -> stale_generation no-op, consent untouched',
+    (j->>'ok')::boolean AND NOT (j->>'applied')::boolean AND j->>'reason' = 'stale_generation'
+    AND d.cloud_processing_enabled AND d.ai_consent_granted AND d.last_revoke_generation IS NULL, j::text);
+
+  -- ── owner change resets the ordering atomically ──
+  PERFORM pg_temp.as_user(b);
+  SET LOCAL ROLE authenticated;
+  j := public.link_capture_device('g9', 'sg9', true, false, 1, 1);          -- B links: fresh ordering, low generation
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('owner change resets per-owner ordering: owner_generation + 1, generation = B''s, recorded revoke cleared',
+    (j->>'owner_changed')::boolean AND d.user_id = b AND d.owner_generation = 2 AND d.consent_client_generation = 1
+    AND d.last_revoke_generation IS NULL AND d.cloud_processing_enabled AND NOT d.ai_consent_granted, d::text);
+  PERFORM pg_temp.as_user(a);
+  SET LOCAL ROLE authenticated;
+  j := public.set_capture_consent('g9', 'sg9', true, true, 500, 500);       -- A's late write: not the owner
+  RESET ROLE;
+  PERFORM pg_temp.ok('a late A writer after the owner change is refused (capture_owner_mismatch), B''s projection untouched',
+    j->>'error' = 'capture_owner_mismatch' AND (SELECT user_id = b AND NOT ai_consent_granted FROM public.capture_devices WHERE install_id_hash = 'g9'), j::text);
+
+  -- ── revoke guards ──
+  PERFORM pg_temp.as_user(a);
+  SET LOCAL ROLE authenticated;
+  j := public.revoke_capture_consent('g9', 'sg9', a, 9, 9);                 -- row is B's now: server no-op for A
+  RESET ROLE;
+  SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('C.3 revoke by a JWT whose uid is not the projection owner is a server no-op (owner_mismatch); B is untouched',
+    (j->>'ok')::boolean AND NOT (j->>'applied')::boolean AND j->>'reason' = 'owner_mismatch'
+    AND d.cloud_processing_enabled AND d.last_revoke_generation IS NULL AND d.consent_version = 1, j::text);
+  SET LOCAL ROLE authenticated;
+  j := public.revoke_capture_consent('g9', 'sg9', b, 9, 9);                 -- jwt A, p_owner B
+  RESET ROLE;
+  PERFORM pg_temp.ok('C.3 revoke with p_owner_uid != jwt.uid is refused', NOT (j->>'ok')::boolean AND j->>'reason' = 'owner_mismatch', j::text);
+  PERFORM pg_temp.as_user(b);
+  SET LOCAL ROLE authenticated;
+  j := public.revoke_capture_consent('g9', 'WRONG', b, 9, 9);
+  RESET ROLE;
+  PERFORM pg_temp.ok('C.3 revoke with a wrong device secret -> invalid_device_secret, nothing changed',
+    NOT (j->>'ok')::boolean AND j->>'reason' = 'invalid_device_secret'
+    AND (SELECT cloud_processing_enabled FROM public.capture_devices WHERE install_id_hash = 'g9'), j::text);
+  UPDATE public.capture_devices SET revoked_at = now() WHERE install_id_hash = 'g9';
+  SET LOCAL ROLE authenticated;
+  j := public.revoke_capture_consent('g9', 'sg9', b, 9, 9);
+  RESET ROLE;
+  UPDATE public.capture_devices SET revoked_at = NULL WHERE install_id_hash = 'g9';
+  PERFORM pg_temp.ok('C.3 revoke on a revoked credential -> credential_revoked', NOT (j->>'ok')::boolean AND j->>'reason' = 'credential_revoked', j::text);
+  BEGIN
+    PERFORM set_config('request.jwt.claim.sub', '', true);
+    PERFORM set_config('request.jwt.claims', '{}', true);
+    SET LOCAL ROLE authenticated;
+    PERFORM public.revoke_capture_consent('g9', 'sg9', b, 9, 9);
+    RESET ROLE;
+    PERFORM pg_temp.ok('C.3 revoke without a JWT is refused', false);
+  EXCEPTION WHEN OTHERS THEN
+    RESET ROLE;
+    PERFORM pg_temp.ok('C.3 revoke without a JWT is refused (not_authenticated)', SQLERRM = 'not_authenticated', SQLERRM);
+  END;
+  BEGIN
+    SET LOCAL ROLE anon;
+    PERFORM public.revoke_capture_consent('g9', 'sg9', b, 9, 9);
+    RESET ROLE;
+    PERFORM pg_temp.ok('anon cannot execute revoke_capture_consent', false);
+  EXCEPTION WHEN insufficient_privilege THEN
+    RESET ROLE;
+    PERFORM pg_temp.ok('anon cannot execute revoke_capture_consent', true);
+  END;
+  PERFORM pg_temp.ok('privileges: revoke_capture_consent is authenticated-only; capture_parse_received_at is internal',
+    has_function_privilege('authenticated', 'public.revoke_capture_consent(text,text,uuid,bigint,integer)', 'execute')
+    AND NOT has_function_privilege('anon', 'public.revoke_capture_consent(text,text,uuid,bigint,integer)', 'execute')
+    AND NOT has_function_privilege('public', 'public.revoke_capture_consent(text,text,uuid,bigint,integer)', 'execute')
+    AND NOT has_function_privilege('authenticated', 'public.capture_parse_received_at(text)', 'execute')
+    AND has_function_privilege('service_role', 'public.capture_claim(text,text,text,text,uuid,integer,integer,text,bigint)', 'execute')
+    AND NOT has_function_privilege('authenticated', 'public.capture_claim(text,text,text,text,uuid,integer,integer,text,bigint)', 'execute'));
 END $$;
 
 SELECT name, ok, detail FROM _r WHERE NOT ok;

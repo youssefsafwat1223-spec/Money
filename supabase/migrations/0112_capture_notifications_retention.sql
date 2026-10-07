@@ -2,7 +2,8 @@
 -- notifications" = actual 0112 per ledger D-1; R7 notifications).
 --
 --  1. Retention (Q8): unconsumed processed/retryable/rejected rows are content-nulled
---     and become `expired` after 7 days; `consumed` tombstones are deleted 30 days
+--     and become `expired` after 7 days (physical GC, hourly, best effort; the exact 168 h guarantee
+--     is the logical fence in item 6); `consumed` tombstones are deleted 30 days
 --     after consume; `expired` / abandoned rows are deleted 30 days after creation.
 --     notification_logs are pruned after 30 days (retry rows cascade).
 --     the existing prune_ai_request_idempotency() (0071, never scheduled) is scheduled.
@@ -17,15 +18,34 @@
 --     on the device row, returning the CURRENT owner's token.
 --  5. notification_logs.install_id_hash (the raw install_id column stays: the client's
 --     opened-sync still writes it).
---  6. Logical expiry fence (user decision 2026-10-07, F1): sanitized server content is LIVE
---     iff now() < created_at + interval '7 days' (database clock only). At exactly the
+--  6. Logical expiry fence (user decision 2026-10-07, F1; Astra required changes, contract C.6):
+--     "Unconsumed sanitized capture content expires 168 hours after its immutable server
+--     creation time." Content is LIVE iff clock_timestamp() < created_at + interval '168 hours'
+--     (database clock only; NEVER now(), which is the transaction START and would let a lock
+--     wait or a long transaction cross the boundary unnoticed). capture_content_live() is the
+--     single predicate, VOLATILE, and every RPC evaluates it AT its authorisation
+--     linearisation point, i.e. AFTER the device / row locks it needs are held. At exactly the
 --     boundary and after it the content (parsed, notification, sanitized_text,
---     validator_result) is unavailable to every server path: capture_content_live() is the
---     single predicate; every RPC that touches content applies it and, when it meets an
---     expired row, nulls the content and moves the row to `expired` (a consumed tombstone
---     is never touched; nothing revives an expired row). The hourly prune below stays the
---     physical garbage collection, unchanged. Edge functions never read the table
---     directly: sync-captures reads through capture_sync_list().
+--     validator_result) is unavailable to every server path: no NEW content read, AI dispatch,
+--     finalize, notification enqueue or sync-captures return. Every RPC that meets an expired
+--     row nulls the content and moves it to `expired` (a consumed tombstone is never touched;
+--     nothing revives an expired row). created_at is immutable (trigger below). Edge functions
+--     never read the table directly: sync-captures reads through capture_sync_list().
+--     IN-FLIGHT work authorised before expiry: the AI request may finish, but capture_finalize
+--     and capture_queue_push re-check the fence with clock_timestamp() AFTER acquiring their
+--     locks and refuse when expired: no result is stored and no push is handed off.
+--
+--     APPLICATION-ACCESS EXPIRY  = exactly 168 hours after created_at, enforced by the
+--       predicate above on every server path, to the database clock. This is the guarantee.
+--     PHYSICAL CLEANUP          = best effort: the hourly job (run_prune_processed_captures,
+--       15 * * * *) nulls expired content and deletes old rows. It can be delayed by outages,
+--       lock contention or a paused cron worker, and NO hard bound on the delay is claimed.
+--       Unreachable-but-unerased bytes are possible between the boundary and the next run.
+--     BACKUP / PITR RETENTION   = a separate retention domain (Supabase backups and
+--       point-in-time recovery). Content written before the boundary may persist in backups
+--       for the backup retention period; nothing here shortens or erases it.
+--     No cryptographic erasure is performed or claimed. All retention VALUES are unchanged
+--       (168 h unconsumed, 30 d tombstones, 30 d abandoned rows, 30 d notification logs).
 
 -- ── 1. columns ───────────────────────────────────────────────────────────────
 alter table public.processed_captures
@@ -63,16 +83,44 @@ alter table public.notification_retry_queue
   add constraint notification_retry_queue_notification_log_id_key unique (notification_log_id);
 
 -- ── 2b. logical expiry fence (F1) ────────────────────────────────────────────
--- THE predicate: content is live iff now() < created_at + 7 days (DB clock). STABLE, not
--- IMMUTABLE (now()). NULL created_at fails closed.
+-- THE predicate: content is live iff clock_timestamp() < created_at + 168 hours (the actual
+-- database time at the call, not the transaction start). VOLATILE, so the planner can never
+-- hoist or cache it; callers invoke it after taking their locks. NULL created_at fails closed.
+create or replace function public.capture_content_live_at(p_created_at timestamptz, p_at timestamptz)
+returns boolean
+language sql
+immutable
+set search_path = public, pg_temp
+as $$
+  select p_created_at is not null and p_at is not null and p_at < p_created_at + interval '168 hours';
+$$;
+
 create or replace function public.capture_content_live(p_created_at timestamptz)
 returns boolean
 language sql
-stable
+volatile
 set search_path = public, pg_temp
 as $$
-  select p_created_at is not null and now() < p_created_at + interval '7 days';
+  select public.capture_content_live_at(p_created_at, clock_timestamp());
 $$;
+
+-- created_at is the immutable server creation time the fence is measured from: any UPDATE that
+-- changes it is rejected (a row is never "re-created" to extend its life).
+create or replace function public.processed_captures_created_at_guard()
+returns trigger
+language plpgsql
+set search_path = public, pg_temp
+as $$
+begin
+  raise exception 'processed_captures.created_at is immutable' using errcode = '23514';
+end;
+$$;
+
+drop trigger if exists trg_processed_captures_created_at_immutable on public.processed_captures;
+create trigger trg_processed_captures_created_at_immutable
+  before update on public.processed_captures
+  for each row when (new.created_at is distinct from old.created_at)
+  execute function public.processed_captures_created_at_guard();
 
 -- Opportunistic expiry of ONE row that is past the fence: content nulled, state expired.
 -- Only the four live-able states are touched, so a consumed tombstone (already nulled,
@@ -82,6 +130,7 @@ create or replace function public.capture_expire_row(
   p_payload_id text
 ) returns void
 language sql
+volatile
 set search_path = public, pg_temp
 as $$
   update public.processed_captures
@@ -111,14 +160,16 @@ declare
   v_log uuid;
   v_created timestamptz;
 begin
-  select * into v_dev from public.capture_devices where install_id_hash = p_install_id_hash;
+  -- Locks first (both are re-entrant for the finalize / claim callers, which already hold
+  -- them), THEN the expiry re-check: the fence is judged at the linearisation point.
+  select * into v_dev from public.capture_devices where install_id_hash = p_install_id_hash for share;
   if not found or v_dev.apns_token is null or v_dev.apns_environment is null
      or p_install_id is null or p_install_id = '' then
     return null;
   end if;
   select notification_log_id, created_at into v_log, v_created from public.processed_captures
-   where install_id_hash = p_install_id_hash and payload_id = p_payload_id;
-  -- F1: nothing is derived from expired content.
+   where install_id_hash = p_install_id_hash and payload_id = p_payload_id for update;
+  -- F1: nothing is derived from expired content (clock_timestamp(), after the locks above).
   if not public.capture_content_live(v_created) then
     return null;
   end if;
@@ -149,11 +200,11 @@ $$;
 
 -- Adds push_attempted_at (a timestamp, no content). F1: past the expiry fence it emits
 -- no content and reports state expired (a consumed tombstone stays consumed), whatever
--- the stored row still says; STABLE because the fence reads now().
+-- the stored row still says; VOLATILE because the fence reads clock_timestamp().
 create or replace function public.capture_row_json(r public.processed_captures)
 returns jsonb
 language sql
-stable
+volatile
 set search_path = public, pg_temp
 as $$
   select jsonb_build_object(
@@ -249,7 +300,9 @@ create or replace function public.capture_claim(
   p_raw_fingerprint text,
   p_owner_uid uuid,
   p_contract integer,
-  p_lease_seconds integer default 60
+  p_lease_seconds integer default 60,
+  p_received_at text default null,
+  p_owner_generation bigint default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -259,6 +312,8 @@ declare
   d public.capture_devices%rowtype;
   r public.processed_captures%rowtype;
   v_push jsonb;
+  v_recv timestamptz;
+  v_reject text;
 begin
   -- One snapshot: the device row is share-locked for the rest of this tx, so a
   -- concurrent link / consent change / revoke serializes strictly before or after.
@@ -270,13 +325,29 @@ begin
   if d.revoked_at is not null then
     return jsonb_build_object('outcome', 'denied', 'code', 'credential_revoked');
   end if;
-  if p_contract = 2 then
+  if p_contract = 2 or p_owner_uid is not null then
+    -- Owner-bound upload (any schema version): owner_uid == user_id == consent_owner_uid.
     if p_owner_uid is null or d.user_id is null or d.consent_owner_uid is null
        or p_owner_uid <> d.user_id or d.user_id <> d.consent_owner_uid then
       return jsonb_build_object('outcome', 'denied', 'code', 'capture_owner_mismatch');
     end if;
   elsif d.consent_owner_uid is distinct from d.user_id then
     return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
+  else
+    -- OWNERLESS (true build 50): the only evidence is the client's received_at. It must
+    -- parse, not lie in the future (5 min clock-skew bound) and be AFTER the current
+    -- owner's link; otherwise the capture predates this owner and is never attributed to it.
+    v_recv := public.capture_parse_received_at(p_received_at);
+    if v_recv is null then
+      v_reject := 'received_at_invalid';
+    elsif v_recv > clock_timestamp() + interval '5 minutes' then
+      v_reject := 'received_at_future';
+    elsif d.owner_changed_at is not null and v_recv <= d.owner_changed_at then
+      v_reject := 'received_before_owner_change';
+    end if;
+    if v_reject is not null then
+      return jsonb_build_object('outcome', 'owner_conflict', 'reason', v_reject);
+    end if;
   end if;
   if d.cloud_processing_enabled is not true then
     return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
@@ -284,11 +355,12 @@ begin
 
   insert into public.processed_captures
     (payload_id, install_id_hash, claimed_user_id, status, state, parsed, notification,
-     raw_fingerprint, lease_until, lease_token, attempts, owner_uid, consent_owner_uid, consent_version)
+     raw_fingerprint, lease_until, lease_token, attempts, owner_uid, consent_owner_uid, consent_version,
+     client_owner_generation)
   values
     (p_payload_id, p_install_id_hash, d.user_id, 'rejected', 'processing', '{}'::jsonb, '{}'::jsonb,
      p_raw_fingerprint, now() + make_interval(secs => p_lease_seconds), 1, 1,
-     case when p_contract = 2 then p_owner_uid end, d.consent_owner_uid, d.consent_version)
+     p_owner_uid, d.consent_owner_uid, d.consent_version, p_owner_generation)
   on conflict (install_id_hash, payload_id) do nothing
   returning * into r;
   if found then
@@ -344,7 +416,7 @@ begin
        set state = 'processing', lease_until = now() + make_interval(secs => p_lease_seconds),
            lease_token = lease_token + 1, attempts = attempts + 1,
            consent_owner_uid = d.consent_owner_uid, consent_version = d.consent_version,
-           owner_uid = case when p_contract = 2 then p_owner_uid end,
+           owner_uid = p_owner_uid, client_owner_generation = p_owner_generation,
            ai_started_at = null, ai_consent_version = null, next_attempt_at = null
      where install_id_hash = p_install_id_hash and payload_id = p_payload_id
      returning * into r;
@@ -603,7 +675,7 @@ begin
 end;
 $$;
 
--- Hourly so "unconsumed content is kept at most 7 days" holds to the hour.
+-- Hourly PHYSICAL cleanup (best effort, unchanged). The 168 h guarantee is the logical fence above.
 do $$
 begin
   if exists (select 1 from cron.job where jobname = 'prune-processed-captures-daily') then
@@ -620,13 +692,14 @@ revoke all on function public.run_prune_processed_captures() from public, anon, 
 revoke all on function public.prune_processed_captures() from public, anon, authenticated;
 grant execute on function public.capture_retry_fence(text, text) to service_role;
 revoke all on function public.capture_content_live(timestamptz) from public, anon, authenticated;
+revoke all on function public.capture_content_live_at(timestamptz, timestamptz) from public, anon, authenticated;
 revoke all on function public.capture_expire_row(text, text) from public, anon, authenticated;
-revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer) from public, anon, authenticated;
+revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint) from public, anon, authenticated;
 revoke all on function public.capture_ai_dispatch(text, text, integer) from public, anon, authenticated;
 revoke all on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
   from public, anon, authenticated;
 revoke all on function public.capture_sync_list(text, uuid, boolean) from public, anon, authenticated;
-grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer) to service_role;
+grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint) to service_role;
 grant execute on function public.capture_ai_dispatch(text, text, integer) to service_role;
 grant execute on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
   to service_role;

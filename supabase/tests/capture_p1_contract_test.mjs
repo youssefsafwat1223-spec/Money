@@ -93,3 +93,37 @@ test('rollback files exist for 0110, 0111, 0113', () => {
     assert.ok(names.includes(`${n}_rollback.sql`), n);
   }
 });
+
+test('G1 (Astra required changes) static pins: C.1 owner binding, C.2 ordering, C.3 revoke route, C.6 clock_timestamp fence', () => {
+  const idx = fn('process-ios-sms/index.ts');
+  // C.1: owner_uid is passed on ANY schema version (not only v2); the ownerless rule gets the RAW received_at
+  assert.match(idx, /p_owner_uid: ownerUid \|\| null/);
+  assert.doesNotMatch(idx, /p_owner_uid: v2 && ownerUid/);
+  assert.match(idx, /p_received_at: rawReceivedAt \|\| null/);
+  const s0111 = mig('0111_capture_state_machine.sql');
+  assert.match(s0111, /v_recv > clock_timestamp\(\) \+ interval '5 minutes'/);
+  assert.match(s0111, /v_recv <= d\.owner_changed_at/);
+  // C.2 / C.3: the RPCs, the columns, the edge routes
+  const s0110 = mig('0110_capture_consent_projection.sql');
+  for (const col of ['owner_changed_at', 'owner_generation', 'consent_client_generation', 'last_revoke_generation']) {
+    assert.match(s0110, new RegExp(`add column if not exists ${col}\\b`));
+  }
+  assert.match(s0110, /p_client_generation bigint default 0/);
+  assert.match(s0110, /grant execute on function public\.revoke_capture_consent\([^)]*\)\s+to authenticated/i);
+  assert.match(fn('set-device-consent/index.ts'), /jwt\.client\.rpc\('revoke_capture_consent'/);
+  assert.match(fn('link-capture-device/index.ts'), /p_client_generation/);
+  // C.6: clock_timestamp(), VOLATILE, 168 hours, never now() in the predicate; created_at immutable
+  const s0112 = mig('0112_capture_notifications_retention.sql');
+  const at = s0112.slice(s0112.indexOf('function public.capture_content_live_at'), s0112.indexOf('function public.capture_content_live(') );
+  const live = s0112.slice(s0112.indexOf('function public.capture_content_live('), s0112.indexOf('$$;', s0112.indexOf('function public.capture_content_live(')));
+  assert.match(at, /p_at < p_created_at \+ interval '168 hours'/);
+  assert.match(live, /volatile/);
+  assert.match(live, /capture_content_live_at\(p_created_at, clock_timestamp\(\)\)/);
+  assert.doesNotMatch(live + at, /\bnow\(\)/);
+  assert.match(s0112, /trg_processed_captures_created_at_immutable/);
+  assert.match(s0112, /APPLICATION-ACCESS EXPIRY/);
+  assert.match(s0112, /PHYSICAL CLEANUP/);
+  assert.match(s0112, /BACKUP \/ PITR RETENTION/);
+  // retention VALUES unchanged: the hourly physical job still uses the old bodies
+  assert.match(s0112, /prune-processed-captures-hourly', '15 \* \* \* \*'/);
+});

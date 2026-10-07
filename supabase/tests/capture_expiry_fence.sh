@@ -18,7 +18,7 @@ apply() { for f in "$ROOT"/supabase/migrations/*.sql; do
     | "${P[@]}" -d "$DB" >/dev/null || { echo "FAILED: $(basename "$f")"; exit 1; }
 done; }
 snap() { "${P[@]}" -d "$DB" -Atc "select p.oid::regprocedure::text, md5(pg_get_functiondef(p.oid)), p.provolatile, p.proacl::text from pg_proc p where p.oid in (
-  'public.capture_claim(text,text,text,text,uuid,integer,integer)'::regprocedure, 'public.capture_ai_dispatch(text,text,integer)'::regprocedure,
+  'public.capture_claim(text,text,text,text,uuid,integer,integer,text,bigint)'::regprocedure, 'public.capture_ai_dispatch(text,text,integer)'::regprocedure,
   'public.capture_finalize(text,text,text,integer,text,text,jsonb,jsonb,text,text,boolean,jsonb)'::regprocedure,
   'public.capture_ack(text,uuid,text[])'::regprocedure) order by 1;"; }
 run_proof() { "${P[@]}" -d "$DB" -f "$ROOT/supabase/tests/capture_expiry_fence.sql" | grep -E "^ \[|FAIL|passed|ERROR|^ +[0-9]+ +\|"; [ "${PIPESTATUS[0]}" -eq 0 ]; }
@@ -28,9 +28,10 @@ apply 112 112 || exit 1
 run_proof || { rm -f "$DB".before; exit 1; }
 ( cd "$ROOT" && "${P[@]}" -d "$DB" -f supabase/rollback/0112_capture_notifications_retention_rollback.sql >/dev/null ) || { echo "ROLLBACK FAILED"; exit 1; }
 snap > "$DB.after"
-gone=$("${P[@]}" -d "$DB" -Atc "select count(*) from pg_proc where proname in ('capture_content_live','capture_expire_row','capture_sync_list')")
-if diff -q "$DB.before" "$DB.after" >/dev/null && [ "$gone" = 0 ]; then
-  echo "rollback round trip OK: capture RPCs identical to the 0111 snapshot, fence objects dropped"
+gone=$("${P[@]}" -d "$DB" -Atc "select count(*) from pg_proc where proname in ('capture_content_live','capture_content_live_at','capture_expire_row','capture_sync_list','processed_captures_created_at_guard')")
+trg=$("${P[@]}" -d "$DB" -Atc "select count(*) from pg_trigger where tgname = 'trg_processed_captures_created_at_immutable'")
+if diff -q "$DB.before" "$DB.after" >/dev/null && [ "$gone" = 0 ] && [ "$trg" = 0 ]; then
+  echo "rollback round trip OK: capture RPCs identical to the 0111 snapshot, fence objects and the created_at guard dropped"
 else echo "ROLLBACK ROUND TRIP FAILED (fence objects left: $gone)"; diff "$DB.before" "$DB.after" | head -20; rm -f "$DB".before "$DB".after; exit 1; fi
 rm -f "$DB.before" "$DB.after"
 apply 112 112 || exit 1; echo "0112 re-applied after rollback OK"

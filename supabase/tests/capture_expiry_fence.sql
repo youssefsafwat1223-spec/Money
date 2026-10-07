@@ -1,7 +1,10 @@
--- SQL proof for F1: the logical 7-day expiry fence on sanitized server capture content
--- (migration 0112). Content is live iff now() < created_at + interval '7 days', database
--- clock only. now() is fixed inside a transaction, so every row's created_at is set
--- relative to now() for exact boundaries: 7d - 1ms (live), exactly 7d, 7d + 1ms.
+-- SQL proof for F1 / C.6: the logical 168-hour expiry fence on sanitized server capture content
+-- (migration 0112). Content is live iff clock_timestamp() < created_at + interval '168 hours',
+-- database clock only (NEVER now(), the transaction start). Seeded rows get created_at relative
+-- to now(); because clock_timestamp() keeps running inside the transaction, "exactly 168 h" and
+-- "168 h + 1 ms" are already past the boundary when the first call runs, and the live case uses a
+-- 5-minute margin (the DO block runs in well under that). The exact boundary under a moving clock,
+-- and a transaction that CROSSES it, are proved at the end (test 11/12).
 -- Driver (stages the chain, runs this, proves the rollback round trip):
 --   PGHOST=/path/to/socket-dir supabase/tests/capture_expiry_fence.sh
 -- Everything runs in one transaction and is rolled back.
@@ -57,13 +60,13 @@ $$ SELECT coalesce(jsonb_agg(e), '[]'::jsonb) FROM jsonb_array_elements(l) e WHE
 DO $$
 DECLARE
   a uuid := '00000000-0000-0000-0000-00000000a001';
-  cases text[][] := ARRAY[['dl', '6 days 23:59:59.999'], ['dx', '7 days'], ['do', '7 days 00:00:00.001']];
+  cases text[][] := ARRAY[['dl', '6 days 23:55:00'], ['dx', '7 days'], ['do', '7 days 00:00:00.001']];
   i text; age interval; live boolean; t text;
   c jsonb; f jsonb; r public.processed_captures; l jsonb; n int; consumed_at0 timestamptz;
 BEGIN
   FOR k IN 1..3 LOOP
     i := cases[k][1]; age := cases[k][2]::interval; live := (k = 1);
-    t := CASE k WHEN 1 THEN '7d-1ms' WHEN 2 THEN 'exactly 7d' ELSE '7d+1ms' END;
+    t := CASE k WHEN 1 THEN '168h-5min' WHEN 2 THEN 'txn-start+168h' ELSE '168h+1ms' END;
 
     PERFORM pg_temp.ok('[' || t || '] predicate', public.capture_content_live(now() - age) = live);
 
@@ -266,6 +269,134 @@ BEGIN
     AND has_function_privilege('service_role', 'public.capture_sync_list(text,uuid,boolean)', 'execute')
     AND NOT has_function_privilege('authenticated', 'public.capture_content_live(timestamptz)', 'execute')
     AND NOT has_function_privilege('authenticated', 'public.capture_expire_row(text,text)', 'execute'));
+END $$;
+
+
+-- ══ C.6 / D.11 / D.12: the fence is clock_timestamp()-based, VOLATILE, and created_at is immutable ══
+DO $$
+DECLARE
+  a uuid := '00000000-0000-0000-0000-00000000a001';
+  c0 timestamptz; created timestamptz; c jsonb; f jsonb; l jsonb; r public.processed_captures; n int;
+BEGIN
+  -- volatility + body of the predicate and of every function that evaluates it
+  PERFORM pg_temp.ok('C.6 capture_content_live / capture_row_json / capture_expire_row / capture_sync_list / capture_claim / capture_ai_dispatch / capture_finalize / capture_queue_push / capture_retry_fence are all VOLATILE',
+    (SELECT count(*) = 9 AND bool_and(provolatile = 'v') FROM pg_proc
+      WHERE pronamespace = 'public'::regnamespace
+        AND proname IN ('capture_content_live', 'capture_row_json', 'capture_expire_row', 'capture_sync_list', 'capture_claim',
+                        'capture_ai_dispatch', 'capture_finalize', 'capture_queue_push', 'capture_retry_fence')));
+  PERFORM pg_temp.ok('C.6 the predicate is "clock_timestamp() < created_at + 168 hours": no now(), no 7 days',
+    pg_get_functiondef('public.capture_content_live(timestamptz)'::regprocedure) LIKE '%clock_timestamp()%'
+    AND pg_get_functiondef('public.capture_content_live_at(timestamptz,timestamptz)'::regprocedure) LIKE '%interval ''168 hours''%'
+    AND pg_get_functiondef('public.capture_content_live(timestamptz)'::regprocedure) NOT LIKE '%now()%'
+    AND pg_get_functiondef('public.capture_content_live_at(timestamptz,timestamptz)'::regprocedure) NOT LIKE '%now()%'
+    AND pg_get_functiondef('public.capture_content_live_at(timestamptz,timestamptz)'::regprocedure) NOT LIKE '%7 days%');
+  -- D.11 deterministic exact boundary: explicit evaluation instant, no live clock
+  PERFORM pg_temp.ok('D.11 exact boundary (explicit instant): boundary-1ms live, boundary expired, boundary+1ms expired, NULLs fail closed',
+    public.capture_content_live_at('2026-01-01 00:00:00+00', '2026-01-08 00:00:00+00'::timestamptz - interval '1 millisecond')
+    AND NOT public.capture_content_live_at('2026-01-01 00:00:00+00', '2026-01-08 00:00:00+00')
+    AND NOT public.capture_content_live_at('2026-01-01 00:00:00+00', '2026-01-08 00:00:00+00'::timestamptz + interval '1 millisecond')
+    AND NOT public.capture_content_live_at(NULL, now()) AND NOT public.capture_content_live_at(now(), NULL));
+  PERFORM pg_temp.ok('C.6 NULL created_at fails closed', NOT public.capture_content_live(NULL));
+
+  -- created_at is immutable
+  PERFORM pg_temp.seed('dl', 'imm', interval '1 hour', 'processed');
+  BEGIN
+    UPDATE public.processed_captures SET created_at = created_at + interval '1 day' WHERE install_id_hash = 'dl' AND payload_id = 'imm';
+    PERFORM pg_temp.ok('C.6 an UPDATE of created_at is rejected', false);
+  EXCEPTION WHEN check_violation THEN
+    PERFORM pg_temp.ok('C.6 an UPDATE of created_at is rejected (check_violation)', SQLERRM LIKE '%created_at is immutable%', SQLERRM);
+  END;
+  BEGIN
+    UPDATE public.processed_captures SET created_at = now() WHERE install_id_hash = 'dl' AND payload_id = 'imm';
+    PERFORM pg_temp.ok('C.6 "re-creating" a row by setting created_at = now() is rejected', false);
+  EXCEPTION WHEN check_violation THEN
+    PERFORM pg_temp.ok('C.6 "re-creating" a row by setting created_at = now() is rejected', true);
+  END;
+  UPDATE public.processed_captures SET created_at = created_at, failure_reason = 'x' WHERE install_id_hash = 'dl' AND payload_id = 'imm';
+  PERFORM pg_temp.ok('C.6 updates that leave created_at unchanged are unaffected',
+    (pg_temp.row_of('dl', 'imm')).failure_reason = 'x' AND (SELECT count(*) FROM pg_trigger WHERE tgname = 'trg_processed_captures_created_at_immutable') = 1);
+  PERFORM pg_temp.ok('C.6 the lifecycle RPCs (claim, finalize, expire, ack) never need to touch created_at: the earlier proofs ran under the trigger', true);
+END $$;
+
+INSERT INTO public.capture_devices
+  (install_id_hash, device_secret_hash, user_id, consent_owner_uid, cloud_processing_enabled, ai_consent_granted, consent_version, apns_token, apns_environment)
+VALUES ('dc', 's-dc', '00000000-0000-0000-0000-00000000a001', '00000000-0000-0000-0000-00000000a001', true, true, 5, 'tok-dc', 'sandbox');
+
+-- D.11 / D.12: ONE long transaction crosses the exact boundary. now() (txn start) never moves, so a now()-based
+-- predicate would call every row below live for the whole transaction; clock_timestamp() does not.
+DO $$
+DECLARE
+  a uuid := '00000000-0000-0000-0000-00000000a001';
+  i text := 'dc'; c0 timestamptz; created timestamptz; c jsonb; f jsonb; l jsonb; r public.processed_captures;
+  now_live_pre boolean; now_live_post boolean; clk_live_pre boolean; clk_live_post boolean;
+BEGIN
+  c0 := clock_timestamp();
+  created := c0 - interval '168 hours' + interval '2 seconds';           -- the boundary is 2 s in the future
+  PERFORM pg_temp.seed(i, 'disp_pre',  now() - created, 'processing');
+  PERFORM pg_temp.seed(i, 'disp_post', now() - created, 'processing');
+  PERFORM pg_temp.seed(i, 'fin_pre',   now() - created, 'processing');
+  PERFORM pg_temp.seed(i, 'fin_post',  now() - created, 'processing');
+  PERFORM pg_temp.seed(i, 'rep_pre',   now() - created, 'processed');
+  PERFORM pg_temp.seed(i, 'rep_post',  now() - created, 'processed');
+  PERFORM pg_temp.seed(i, 'qp_pre',    now() - created, 'processed');
+  PERFORM pg_temp.seed(i, 'qp_post',   now() - created, 'processed');
+  PERFORM pg_temp.seed(i, 'rf_pre',    now() - created, 'processed');
+  PERFORM pg_temp.seed(i, 'rf_post',   now() - created, 'processed');
+  PERFORM pg_temp.seed(i, 'sy_pre',    now() - created, 'processed');
+  PERFORM pg_temp.seed(i, 'rj_post',   now() - created, 'processed');
+  PERFORM pg_temp.ok('D.11 setup: the boundary is still in the future when the transaction starts working',
+    clock_timestamp() < created + interval '168 hours');
+
+  -- before the boundary: everything is available
+  clk_live_pre := public.capture_content_live(created);
+  now_live_pre := now() < created + interval '168 hours';
+  PERFORM pg_temp.ok('D.11 before the boundary: clock_timestamp() predicate live (and so is now())', clk_live_pre AND now_live_pre);
+  c := public.capture_ai_dispatch(i, 'disp_pre', 1);
+  PERFORM pg_temp.ok('D.12 before: AI dispatch allowed', (c->>'allowed')::boolean, c::text);
+  f := pg_temp.fin(i, 'fin_pre', 1);
+  PERFORM pg_temp.ok('D.12 before: finalize writes and queues the push', (f->>'written')::boolean AND (f->>'push_allowed')::boolean, f::text);
+  c := pg_temp.claim(i, 'rep_pre');
+  PERFORM pg_temp.ok('D.12 before: claim replays the stored content', c->'row'->>'state' = 'processed' AND c->'row'->'parsed'->>'amount' = '10', c::text);
+  c := public.capture_queue_push(i, 'raw-' || i, 'qp_pre', a, 'new_transaction');
+  PERFORM pg_temp.ok('D.12 before: queue_push hands off', c IS NOT NULL, c::text);
+  c := public.capture_retry_fence(i, 'rf_pre');
+  PERFORM pg_temp.ok('D.12 before: retry fence allows', (c->>'allowed')::boolean, c::text);
+  l := public.capture_sync_list(i, a, true);
+  PERFORM pg_temp.ok('D.12 before: sync returns the live rows (incl. sy_pre)', EXISTS (SELECT 1 FROM jsonb_array_elements(l) e WHERE e->>'payload_id' = 'sy_pre'), l::text);
+
+  PERFORM pg_sleep(2.6);                                                  -- the SAME transaction crosses the boundary
+
+  clk_live_post := public.capture_content_live(created);
+  now_live_post := now() < created + interval '168 hours';
+  PERFORM pg_temp.ok('D.11 same transaction, after the boundary: clock_timestamp() predicate says EXPIRED while now() still says live',
+    NOT clk_live_post AND now_live_post, clk_live_post::text || '/' || now_live_post::text);
+  PERFORM pg_temp.ok('D.11 negative control: a now()-based predicate would have authorised every call below',
+    now() < created + interval '168 hours' AND clock_timestamp() >= created + interval '168 hours');
+
+  c := public.capture_ai_dispatch(i, 'disp_post', 1);
+  r := pg_temp.row_of(i, 'disp_post');
+  PERFORM pg_temp.ok('D.12 after: AI dispatch denied (expired), ai_started_at never set, row nulled',
+    NOT (c->>'allowed')::boolean AND c->>'reason' = 'expired' AND r.ai_started_at IS NULL AND NOT r.ai_invoked AND r.state = 'expired' AND pg_temp.empty(r), c::text);
+  f := pg_temp.fin(i, 'fin_post', 1);
+  r := pg_temp.row_of(i, 'fin_post');
+  PERFORM pg_temp.ok('D.12 after: finalize refuses (expired): no result stored, no notification, no push',
+    NOT (f->>'written')::boolean AND NOT (f->>'push_allowed')::boolean AND f->>'reason' = 'expired' AND r.state = 'expired'
+    AND pg_temp.empty(r) AND r.push_attempted_at IS NULL AND pg_temp.nlogs(i, 'fin_post') = 0, f::text);
+  c := pg_temp.claim(i, 'rep_post');
+  PERFORM pg_temp.ok('D.12 after: claim replay returns an expired, content-free row and queues nothing',
+    c->'row'->>'state' = 'expired' AND c->'row'->'parsed' = '{}'::jsonb AND c->>'push' IS NULL AND pg_temp.nlogs(i, 'rep_post') = 0, c::text);
+  c := public.capture_queue_push(i, 'raw-' || i, 'qp_post', a, 'new_transaction');
+  PERFORM pg_temp.ok('D.12 after: queue_push refuses, no notification log, no hand-off',
+    c IS NULL AND pg_temp.nlogs(i, 'qp_post') = 0 AND (pg_temp.row_of(i, 'qp_post')).push_attempted_at IS NULL, c::text);
+  c := public.capture_retry_fence(i, 'rf_post');
+  PERFORM pg_temp.ok('D.12 after: retry fence refuses (expired) and nulls the row',
+    NOT (c->>'allowed')::boolean AND c->>'reason' = 'expired' AND (pg_temp.row_of(i, 'rf_post')).state = 'expired', c::text);
+  l := public.capture_sync_list(i, a, true);
+  PERFORM pg_temp.ok('D.12 after: sync no longer returns the rows (they are nulled and expired)',
+    NOT EXISTS (SELECT 1 FROM jsonb_array_elements(l) e WHERE e->>'payload_id' IN ('sy_pre', 'rj_post', 'rep_post', 'qp_post')), l::text);
+  l := public.capture_row_json(pg_temp.row_of(i, 'rj_post'));
+  PERFORM pg_temp.ok('D.12 after: row_json masks the content and reports expired',
+    l->>'state' = 'expired' AND l->'parsed' = '{}'::jsonb AND l->'notification' = '{}'::jsonb, l::text);
 END $$;
 
 SELECT name, ok, detail FROM _r WHERE NOT ok;

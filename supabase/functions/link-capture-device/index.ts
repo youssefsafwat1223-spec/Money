@@ -2,6 +2,7 @@ import {
   bumpCaptureEndpointRateLimit,
   corsHeaders,
   json,
+  readGeneration,
   readString,
   serviceClient,
   sha256Hex,
@@ -27,7 +28,9 @@ const LINK_CAPTURE_DEVICE_LIMIT_PER_DAY = 30;
 // reset) in one statement (legacy_link_capture_device).
 // v2 (schema_version 2 + consent {cloud_processing_enabled, ai_consent_granted,
 // version}): link_capture_device RPC called AS THE USER — one UPDATE sets user_id,
-// consent_owner_uid, both flags and consent_version.
+// consent_owner_uid, both flags and consent_version. The optional `client_generation`
+// (the replica's transition generation, absent = 0) orders it against later-arriving
+// writes: an older generation, or one <= a recorded revoke, can only narrow (0110).
 
 type LinkCaptureDeviceDependencies = {
   createServiceClient: typeof serviceClient;
@@ -94,11 +97,21 @@ export async function handleLinkCaptureDevice(
     p_cloud: consent.cloud_processing_enabled === true,
     p_ai: consent.ai_consent_granted === true,
     p_version: version,
+    p_client_generation: readGeneration(consent, 'client_generation', 'clientGeneration') ||
+      readGeneration(body, 'client_generation', 'clientGeneration'),
   });
   if (error) return json({ error: 'link_failed' }, 500);
   const result = (data ?? {}) as Record<string, unknown>;
   if (result.ok !== true) return json({ error: result.error ?? 'link_failed' }, 401);
-  return json({ ok: true, owner_changed: result.owner_changed === true });
+  // Additive fields only; the legacy {ok, owner_changed} keys are unchanged.
+  return json({
+    ok: true,
+    owner_changed: result.owner_changed === true,
+    applied: result.applied,
+    reason: result.reason,
+    owner_generation: result.owner_generation,
+    consent_client_generation: result.consent_client_generation,
+  });
 }
 
 if (import.meta.main) Deno.serve((req) => handleLinkCaptureDevice(req));

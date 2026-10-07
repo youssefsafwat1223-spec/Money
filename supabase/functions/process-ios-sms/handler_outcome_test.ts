@@ -49,7 +49,14 @@ function request(body: Record<string, unknown>): Request {
   return new Request('https://example.test/process-ios-sms', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ schema_version: 1, installId: 'i', deviceSecret: 's', ...body }),
+    // build 50 always sends receivedAt (the ownerless rule in capture_claim requires it)
+    body: JSON.stringify({
+      schema_version: 1,
+      installId: 'i',
+      deviceSecret: 's',
+      receivedAt: new Date().toISOString(),
+      ...body,
+    }),
   });
 }
 

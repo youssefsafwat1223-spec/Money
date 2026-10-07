@@ -43,6 +43,16 @@ export function readString(data: Record<string, unknown>, ...keys: string[]): st
   return '';
 }
 
+// A client transition generation: a non-negative safe integer, else 0 (old clients send none;
+// a 0 write can never widen past a recorded revoke, see the 0110 RPCs).
+export function readGeneration(data: Record<string, unknown>, ...keys: string[]): number {
+  for (const key of keys) {
+    const value = data[key];
+    if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) return value;
+  }
+  return 0;
+}
+
 export type BoundedBody =
   | { ok: true; body: Record<string, unknown> }
   | { ok: false; reason: 'too_large' | 'invalid_json' | 'unsupported_media_type' };

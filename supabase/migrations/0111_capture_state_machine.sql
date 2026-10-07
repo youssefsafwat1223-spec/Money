@@ -12,7 +12,16 @@
 -- that must run under FOR SHARE on the capture_devices row are plpgsql RPCs
 -- (service_role only), called by the process-ios-sms / sync-captures edge
 -- functions:
---   capture_claim        §4.1 gate + §4.8 claim table, one snapshot
+--   capture_claim        §4.1 gate + §4.8 claim table, one snapshot; owner binding on ANY schema
+--                        version when owner_uid is present, and the OWNERLESS (build-50) rule: an
+--                        ownerless upload is refused (owner_conflict, no content, no AI) when its
+--                        received_at is missing / unparseable, later than clock_timestamp() + 5
+--                        minutes, or <= capture_devices.owner_changed_at (0110): it predates the
+--                        current owner's link and cannot be attributed to that owner.
+--                        RESIDUAL (build 50): received_at is client-supplied, so a build-50 client
+--                        whose clock runs ahead (bounded by 5 min) or that forges it can still land
+--                        a pre-relink capture under the new owner. Full closure needs
+--                        min_client_build at P6 (NOT done now).
 --   capture_ai_dispatch  §4.6 AI linearization point
 --   capture_finalize     terminal fence + result + notification_logs row, one tx
 --   capture_ack          tombstone, never from 'processing'
@@ -38,7 +47,8 @@ alter table public.processed_captures
   add column if not exists validator_result jsonb,
   add column if not exists possible_duplicate boolean not null default false,
   add column if not exists consumed_at timestamptz,
-  add column if not exists consumed_by_install_hash text;
+  add column if not exists consumed_by_install_hash text,
+  add column if not exists client_owner_generation bigint;
 
 -- Legacy-status mapping for existing rows.
 update public.processed_captures
@@ -146,12 +156,36 @@ $$;
 revoke all on function public.capture_row_json(public.processed_captures)
   from public, anon, authenticated;
 
+-- ── internal: strict ISO-8601 parse of a client-supplied received_at ──────────
+-- NULL for missing, malformed, or timezone-less text (a local time is ambiguous), so the
+-- ownerless rule in capture_claim treats all of those as "cannot be attributed".
+create or replace function public.capture_parse_received_at(p_text text)
+returns timestamptz
+language plpgsql
+stable
+set search_path = public, pg_temp
+as $$
+begin
+  if p_text is null
+     or p_text !~ '^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9]{2}:[0-9]{2}(:[0-9]{2}([.][0-9]{1,9})?)?(Z|[+-][0-9]{2}(:?[0-9]{2})?)$' then
+    return null;
+  end if;
+  return p_text::timestamptz;
+exception when others then
+  return null;
+end;
+$$;
+
+revoke all on function public.capture_parse_received_at(text) from public, anon, authenticated;
+
 -- ── capture_claim ────────────────────────────────────────────────────────────
--- p_contract: 2 = v2 (p_owner_uid is the stamped owner), 1 = legacy.
+-- p_contract: 2 = v2, 1 = legacy. p_owner_uid is the stamped owner on ANY contract when
+-- present (owner-bound); NULL = ownerless (build 50). p_received_at is the client's raw
+-- received_at text (ownerless rule); p_owner_generation is stored for diagnostics only.
 -- Returns {outcome: ...}:
 --   denied{code}                    gate refused (credential_revoked | capture_owner_mismatch | consent_required)
 --   claimed{lease_token,attempts,claimed_user_id,consent_owner_uid,consent_version,ai_allowed}
---   in_progress | owner_conflict | id_conflict
+--   in_progress | owner_conflict{reason?} | id_conflict
 --   replay{row, push?}              stored processed/rejected/retryable/consumed/expired
 create or replace function public.capture_claim(
   p_install_id_hash text,
@@ -160,7 +194,9 @@ create or replace function public.capture_claim(
   p_raw_fingerprint text,
   p_owner_uid uuid,
   p_contract integer,
-  p_lease_seconds integer default 60
+  p_lease_seconds integer default 60,
+  p_received_at text default null,
+  p_owner_generation bigint default null
 ) returns jsonb
 language plpgsql
 security definer
@@ -170,6 +206,8 @@ declare
   d public.capture_devices%rowtype;
   r public.processed_captures%rowtype;
   v_push jsonb;
+  v_recv timestamptz;
+  v_reject text;
 begin
   -- One snapshot: the device row is share-locked for the rest of this tx, so a
   -- concurrent link / consent change / revoke serializes strictly before or after.
@@ -181,13 +219,29 @@ begin
   if d.revoked_at is not null then
     return jsonb_build_object('outcome', 'denied', 'code', 'credential_revoked');
   end if;
-  if p_contract = 2 then
+  if p_contract = 2 or p_owner_uid is not null then
+    -- Owner-bound upload (any schema version): owner_uid == user_id == consent_owner_uid.
     if p_owner_uid is null or d.user_id is null or d.consent_owner_uid is null
        or p_owner_uid <> d.user_id or d.user_id <> d.consent_owner_uid then
       return jsonb_build_object('outcome', 'denied', 'code', 'capture_owner_mismatch');
     end if;
   elsif d.consent_owner_uid is distinct from d.user_id then
     return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
+  else
+    -- OWNERLESS (true build 50): the only evidence is the client's received_at. It must
+    -- parse, not lie in the future (5 min clock-skew bound) and be AFTER the current
+    -- owner's link; otherwise the capture predates this owner and is never attributed to it.
+    v_recv := public.capture_parse_received_at(p_received_at);
+    if v_recv is null then
+      v_reject := 'received_at_invalid';
+    elsif v_recv > clock_timestamp() + interval '5 minutes' then
+      v_reject := 'received_at_future';
+    elsif d.owner_changed_at is not null and v_recv <= d.owner_changed_at then
+      v_reject := 'received_before_owner_change';
+    end if;
+    if v_reject is not null then
+      return jsonb_build_object('outcome', 'owner_conflict', 'reason', v_reject);
+    end if;
   end if;
   if d.cloud_processing_enabled is not true then
     return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
@@ -195,11 +249,12 @@ begin
 
   insert into public.processed_captures
     (payload_id, install_id_hash, claimed_user_id, status, state, parsed, notification,
-     raw_fingerprint, lease_until, lease_token, attempts, owner_uid, consent_owner_uid, consent_version)
+     raw_fingerprint, lease_until, lease_token, attempts, owner_uid, consent_owner_uid, consent_version,
+     client_owner_generation)
   values
     (p_payload_id, p_install_id_hash, d.user_id, 'rejected', 'processing', '{}'::jsonb, '{}'::jsonb,
      p_raw_fingerprint, now() + make_interval(secs => p_lease_seconds), 1, 1,
-     case when p_contract = 2 then p_owner_uid end, d.consent_owner_uid, d.consent_version)
+     p_owner_uid, d.consent_owner_uid, d.consent_version, p_owner_generation)
   on conflict (install_id_hash, payload_id) do nothing
   returning * into r;
   if found then
@@ -245,7 +300,7 @@ begin
        set state = 'processing', lease_until = now() + make_interval(secs => p_lease_seconds),
            lease_token = lease_token + 1, attempts = attempts + 1,
            consent_owner_uid = d.consent_owner_uid, consent_version = d.consent_version,
-           owner_uid = case when p_contract = 2 then p_owner_uid end,
+           owner_uid = p_owner_uid, client_owner_generation = p_owner_generation,
            ai_started_at = null, ai_consent_version = null, next_attempt_at = null
      where install_id_hash = p_install_id_hash and payload_id = p_payload_id
      returning * into r;
@@ -433,13 +488,13 @@ begin
 end;
 $$;
 
-revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer)
+revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint)
   from public, anon, authenticated;
 revoke all on function public.capture_ai_dispatch(text, text, integer) from public, anon, authenticated;
 revoke all on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
   from public, anon, authenticated;
 revoke all on function public.capture_ack(text, uuid, text[]) from public, anon, authenticated;
-grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer) to service_role;
+grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint) to service_role;
 grant execute on function public.capture_ai_dispatch(text, text, integer) to service_role;
 grant execute on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
   to service_role;

@@ -1,5 +1,5 @@
 import { assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
-import { bumpCaptureEndpointRateLimit, readBoundedJsonBody } from './capture_auth.ts';
+import { bumpCaptureEndpointRateLimit, readBoundedJsonBody, readGeneration } from './capture_auth.ts';
 
 // MALI-060n — the bounded body reader must not trust Content-Length and must
 // count ACTUAL bytes (multi-byte UTF-8 aware) before decoding/parsing.
@@ -128,4 +128,14 @@ Deno.test('T-S7 every device-authenticated endpoint goes through a revoked-aware
   // set-device-consent: legacy path uses resolveVerifiedIdentity (refuses revoked), v2 verifyDevice.
   const consent = await Deno.readTextFile(new URL('set-device-consent/index.ts', root));
   assertEquals(/resolveVerifiedIdentity/.test(consent) && /verifyDevice/.test(consent), true);
+});
+
+Deno.test('readGeneration: a non-negative safe integer under any key, else 0 (old clients send none)', () => {
+  assertEquals(readGeneration({ client_generation: 7 }, 'client_generation', 'clientGeneration'), 7);
+  assertEquals(readGeneration({ clientGeneration: 3 }, 'client_generation', 'clientGeneration'), 3);
+  assertEquals(readGeneration({ client_generation: 0 }, 'client_generation'), 0);
+  for (const bad of [-1, 1.5, '4', null, undefined, NaN, Infinity, 2 ** 60]) {
+    assertEquals(readGeneration({ client_generation: bad }, 'client_generation'), 0, String(bad));
+  }
+  assertEquals(readGeneration({}, 'client_generation'), 0);
 });

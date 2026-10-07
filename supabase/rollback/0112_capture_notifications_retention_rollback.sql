@@ -3,7 +3,7 @@
 -- Restores the 0111 bodies of capture_queue_push / capture_row_json / capture_claim /
 -- capture_ai_dispatch / capture_finalize (by re-running the idempotent 0111 migration from
 -- the repo root, never by hand-editing), drops the F1 expiry-fence objects
--- (capture_content_live, capture_expire_row, capture_sync_list), restores the 0012/0033
+-- (capture_content_live, capture_expire_row, capture_sync_list, the created_at immutability guard), restores the 0012/0033
 -- prune bodies and the daily schedule, and drops the CAP-3 objects.
 -- NOT reversible by this script: rows already expired/pruned, the de-duplicated retry
 -- rows and the 30-day notification_logs pruning (data) -- PITR only.
@@ -71,8 +71,11 @@ ALTER TABLE public.notification_logs DROP COLUMN IF EXISTS install_id_hash;
 -- fence predicate). 0111 is idempotent (add column if not exists, create or replace).
 \i supabase/migrations/0111_capture_state_machine.sql
 
+DROP TRIGGER IF EXISTS trg_processed_captures_created_at_immutable ON public.processed_captures;
+DROP FUNCTION IF EXISTS public.processed_captures_created_at_guard();
 DROP FUNCTION IF EXISTS public.capture_expire_row(text, text);
 DROP FUNCTION IF EXISTS public.capture_content_live(timestamptz);
+DROP FUNCTION IF EXISTS public.capture_content_live_at(timestamptz, timestamptz);
 
 ALTER TABLE public.processed_captures DROP COLUMN IF EXISTS push_attempted_at;
 COMMIT;

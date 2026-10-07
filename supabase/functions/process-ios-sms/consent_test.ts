@@ -42,6 +42,7 @@ async function run(device: Device, body: Record<string, unknown> = {}) {
           deviceSecret: 'secret-1',
           payloadId: 'payload-1',
           sanitizedText: UNRESOLVED,
+          receivedAt: new Date().toISOString(), // build 50 always sends it (ownerless rule)
           allowAi: true,
           ...body,
         }),
@@ -117,6 +118,7 @@ Deno.test('stale replay after revocation stops before parse, storage and APNs', 
           deviceSecret: 'secret-1',
           payloadId: 'payload-1',
           sanitizedText: UNRESOLVED,
+          receivedAt: new Date().toISOString(), // build 50 always sends it (ownerless rule)
         }),
       }),
       {

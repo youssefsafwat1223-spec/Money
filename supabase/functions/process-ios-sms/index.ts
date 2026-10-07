@@ -96,7 +96,7 @@ export async function handleProcessIosSms(
   // MALI-060n — gate ordering. Every gate below completes BEFORE any Gemini
   // (paid upstream) call, which lives in parseSms():
   //   1. body-size   → readBoundedJsonBody (does not trust Content-Length)
-  //   2. schema      → schema_version 1 (legacy) or 2 (owner_uid stamped)
+  //   2. schema      → schema_version 1 (legacy) or 2; owner_uid (any version) is owner-bound
   //   2b. length     → bounded SMS / sender / field lengths
   //   3. device auth → verifyDevice (device secret; revoked refused)
   //   4. claim       → capture_claim RPC: ownership + consent gate, replay,
@@ -138,7 +138,14 @@ export async function handleProcessIosSms(
   // straight back in the response.
   const rawText = reSanitize(readString(body, 'smsText', 'sms_text')) || sanitizedText;
   const sender = readString(body, 'sender', 'senderId', 'sender_id', 'senderName', 'sender_name');
-  const receivedAt = readString(body, 'receivedAt', 'received_at') || new Date().toISOString();
+  const rawReceivedAt = readString(body, 'receivedAt', 'received_at');
+  const receivedAt = rawReceivedAt || new Date().toISOString();
+  // Diagnostics only (the server cannot verify the client's local generation).
+  const rawOwnerGeneration = body.ownerGeneration ?? body.owner_generation;
+  const ownerGeneration = typeof rawOwnerGeneration === 'number' && Number.isSafeInteger(rawOwnerGeneration) &&
+      rawOwnerGeneration >= 0
+    ? rawOwnerGeneration
+    : null;
   const tzOffsetMinutes = typeof body.tzOffsetMinutes === 'number' ? body.tzOffsetMinutes : null;
   const locale = readString(body, 'locale', 'deviceLocale', 'device_locale');
   const allowAi = body.allowAi === true || body.allow_ai === true;
@@ -169,9 +176,13 @@ export async function handleProcessIosSms(
     p_install_id: installId,
     p_payload_id: payloadId,
     p_raw_fingerprint: rawFingerprint,
-    p_owner_uid: v2 && ownerUid ? ownerUid : null,
+    // Owner-bound on ANY schema version when owner_uid is present; ownerless (build 50) is
+    // judged by capture_claim from the RAW received_at (never the defaulted one).
+    p_owner_uid: ownerUid || null,
     p_contract: v2 ? 2 : 1,
     p_lease_seconds: LEASE_SECONDS,
+    p_received_at: rawReceivedAt || null,
+    p_owner_generation: ownerGeneration,
   });
   const claim = claimRes.data as Json | null;
   if (claimRes.error || !claim) return json({ error: 'store_failed' }, 500);

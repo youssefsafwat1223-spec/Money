@@ -10,7 +10,8 @@ BEGIN;
 DROP FUNCTION IF EXISTS public.capture_ack(text, uuid, text[]);
 DROP FUNCTION IF EXISTS public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb);
 DROP FUNCTION IF EXISTS public.capture_ai_dispatch(text, text, integer);
-DROP FUNCTION IF EXISTS public.capture_claim(text, text, text, text, uuid, integer, integer);
+DROP FUNCTION IF EXISTS public.capture_claim(text, text, text, text, uuid, integer, integer, text, bigint);
+DROP FUNCTION IF EXISTS public.capture_parse_received_at(text);
 DROP FUNCTION IF EXISTS public.capture_row_json(public.processed_captures);
 DROP FUNCTION IF EXISTS public.capture_queue_push(text, text, text, uuid, text);
 
@@ -22,6 +23,7 @@ DELETE FROM public.processed_captures WHERE state IN ('processing', 'retryable',
 
 ALTER TABLE public.processed_captures
   DROP CONSTRAINT IF EXISTS processed_captures_state_check,
+  DROP COLUMN IF EXISTS client_owner_generation,
   DROP COLUMN IF EXISTS consumed_by_install_hash,
   DROP COLUMN IF EXISTS consumed_at,
   DROP COLUMN IF EXISTS possible_duplicate,
