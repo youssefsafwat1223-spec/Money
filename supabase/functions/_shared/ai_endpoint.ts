@@ -266,9 +266,10 @@ export async function resolveVerifiedIdentity(
     if (user?.id) {
       const { data: settings, error: settingsError } = await supabase
         .from('user_settings')
-        .select('ai_consent_granted, cloud_processing_enabled')
+        .select('ai_consent_granted, cloud_processing_enabled, consent_version')
         .eq('user_id', user.id)
         .maybeSingle();
+      const provenConsent = Number(settings?.consent_version ?? 0) > 0;
       return {
         ok: true,
         identity: {
@@ -277,8 +278,10 @@ export async function resolveVerifiedIdentity(
           userId: user.id,
           installIdHash: null,
           // Fail closed: a missing or errored settings read is consent OFF.
-          aiConsent: !settingsError && settings?.ai_consent_granted === true,
-          cloudConsent: !settingsError && settings?.cloud_processing_enabled === true,
+          // NULL/FALSE = denied; TRUE counts only with consent_version > 0 (an
+          // unproven TRUE, e.g. a legacy column default, is never sufficient).
+          aiConsent: !settingsError && settings?.ai_consent_granted === true && provenConsent,
+          cloudConsent: !settingsError && settings?.cloud_processing_enabled === true && provenConsent,
         },
       };
     }

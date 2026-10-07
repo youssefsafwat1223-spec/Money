@@ -195,7 +195,10 @@ Deno.test('install_id alone (no secret, no user) is authentication_required', as
 Deno.test('a real user JWT yields a user identity with user_settings consent', async () => {
   const supabase = fakeSupabase({
     user: { data: { user: { id: 'user-77' } }, error: null },
-    settings: { data: { ai_consent_granted: true, cloud_processing_enabled: true }, error: null },
+    settings: {
+      data: { ai_consent_granted: true, cloud_processing_enabled: true, consent_version: 1 },
+      error: null,
+    },
   });
   const out = await resolveVerifiedIdentity(req('Bearer real-user-jwt'), supabase, {}, CID);
   assertEquals(out.ok, true);
@@ -266,6 +269,47 @@ Deno.test('JWT AI path also requires the cloud-processing master gate', async ()
   const out = await resolveVerifiedIdentity(req('Bearer real-user-jwt'), supabase, {}, CID);
   assertEquals(out.ok, true);
   if (out.ok) assertEquals(consentError(out.identity, 'ai', CID)?.status, 403);
+});
+
+// 0109 — server user_settings consent is a conservative denial: NULL/FALSE
+// deny, and TRUE counts only with consent_version > 0.
+for (
+  const [name, row] of [
+    ['NULL grants (the new default)', { ai_consent_granted: null, cloud_processing_enabled: null, consent_version: 0 }],
+    ['an unproven TRUE (consent_version 0)', { ai_consent_granted: true, cloud_processing_enabled: true, consent_version: 0 }],
+    ['TRUE with a NULL consent_version', { ai_consent_granted: true, cloud_processing_enabled: true, consent_version: null }],
+  ] as const
+) {
+  Deno.test(`JWT consent is denied for ${name}`, async () => {
+    const supabase = fakeSupabase({
+      user: { data: { user: { id: 'user-77' } }, error: null },
+      settings: { data: row, error: null },
+    });
+    const out = await resolveVerifiedIdentity(req('Bearer real-user-jwt'), supabase, {}, CID);
+    assertEquals(out.ok, true);
+    if (out.ok) {
+      assertEquals(out.identity.aiConsent, false);
+      assertEquals(out.identity.cloudConsent, false);
+      assertEquals(consentError(out.identity, 'ai', CID)?.status, 403);
+      assertEquals(consentError(out.identity, 'cloud', CID)?.status, 403);
+    }
+  });
+}
+
+Deno.test('JWT consent is accepted for TRUE with consent_version > 0', async () => {
+  const supabase = fakeSupabase({
+    user: { data: { user: { id: 'user-77' } }, error: null },
+    settings: {
+      data: { ai_consent_granted: true, cloud_processing_enabled: true, consent_version: 2 },
+      error: null,
+    },
+  });
+  const out = await resolveVerifiedIdentity(req('Bearer real-user-jwt'), supabase, {}, CID);
+  assertEquals(out.ok, true);
+  if (out.ok) {
+    assertEquals(consentError(out.identity, 'ai', CID), null);
+    assertEquals(consentError(out.identity, 'cloud', CID), null);
+  }
 });
 
 // ── Consent gate ────────────────────────────────────────────────────────────
