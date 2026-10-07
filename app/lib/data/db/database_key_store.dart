@@ -84,6 +84,13 @@ class LocalDatabaseKeyUnavailableException implements Exception {
       'encryption key is missing from secure storage.';
 }
 
+/// WP-3a — every secure-storage entry of the per-UID replica layer (device salt,
+/// registry, per-uid database keys) lives under this prefix. A session wipe must
+/// never delete one: removing a per-uid key while its database file survives
+/// strands that replica exactly like deleting the legacy key does (H-8). Replica
+/// secrets are removed only by `ReplicaStore.remove`.
+const String kReplicaSecretPrefix = 'qirsh.';
+
 /// Outcome of a secure-storage wipe that must preserve the SQLCipher key.
 class SecureStorageWipeResult {
   const SecureStorageWipeResult({required this.deleted, required this.failed});
@@ -140,6 +147,7 @@ Future<SecureStorageWipeResult> wipeSecureStoragePreservingDatabaseKey({
     try {
       final found = (await readAll()).keys.toSet();
       found.remove(preservedKey);
+      found.removeWhere((k) => k.startsWith(kReplicaSecretPrefix));
       return found;
     } catch (_) {
       return null; // unverifiable — fall back to the delete results
@@ -152,6 +160,7 @@ Future<SecureStorageWipeResult> wipeSecureStoragePreservingDatabaseKey({
     final found = <String>{...?(await survivors())};
     found.addAll(knownKeys);
     found.remove(preservedKey);
+    found.removeWhere((k) => k.startsWith(kReplicaSecretPrefix));
     return found;
   }
 

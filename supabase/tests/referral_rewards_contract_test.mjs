@@ -665,10 +665,11 @@ test('the client Drift schema is untouched by this SERVER migration', () => {
   // Schema 35 -> 38. The pin is an ABSOLUTE version by design: it fails if a
   // SERVER migration bumps the CLIENT schema. It also has to be re-pinned
   // whenever the client legitimately migrates, which is what went stale here —
-  // the client reached 38 on 2026-09-06 (cd7174a0, correctness provenance),
+  // the client reached 38 on 2026-09-06 (cd7174a0, correctness provenance) and
+  // 39 with WP-3a (replica_meta, per-UID replicas),
   // weeks after these tests were last touched, and none of those bumps came
   // from the server migration under test. Assertion unchanged, value current.
-  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 38;/);
+  assert.match(read('app/lib/data/db/app_database.dart'), /const int _targetSchemaVersion = 39;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });
 

@@ -410,6 +410,9 @@ class BackupSnapshotBuilder {
     // shadow table: restoring another device's provenance would corrupt the
     // Tier 2 population it feeds, and losing it costs the user nothing visible.
     'proof_correction_events',
+    // WP-3a — which uid owns THIS database file. Restoring a backup must never
+    // overwrite it (the file keeps its owner), and it is never exported.
+    'replica_meta',
     'financial_import_runs',
     'notification_log_events',
     'catalog_metadata',

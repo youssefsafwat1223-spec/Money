@@ -228,6 +228,9 @@ void main() {
       'remote_merchant_keywords',
       'remote_parsers',
       'categories',
+      // WP-3a — file ownership, not user data. The wipe must never clear it;
+      // it goes away only when the whole replica is removed.
+      'replica_meta',
     };
 
     final rows = await db

@@ -243,9 +243,10 @@ test('the catalog migration exists and the client schema is untouched by it', ()
   // Schema 35 -> 38. The pin is an ABSOLUTE version by design: it fails if a
   // SERVER migration bumps the CLIENT schema. It also has to be re-pinned
   // whenever the client legitimately migrates, which is what went stale here —
-  // the client reached 38 on 2026-09-06 (cd7174a0, correctness provenance),
+  // the client reached 38 on 2026-09-06 (cd7174a0, correctness provenance) and
+  // 39 with WP-3a (replica_meta, per-UID replicas),
   // weeks after these tests were last touched, and none of those bumps came
   // from the server migration under test. Assertion unchanged, value current.
-  assert.match(db, /const int _targetSchemaVersion = 38;/);
+  assert.match(db, /const int _targetSchemaVersion = 39;/);
   assert.doesNotMatch(sql, /_targetSchemaVersion|drift/i);
 });

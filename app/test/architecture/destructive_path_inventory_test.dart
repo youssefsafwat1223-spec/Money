@@ -97,6 +97,22 @@ void main() {
   ///
   /// GROUP F — files, never the database.
   ///   database_lease (2)           .lease + intent files of ENDED instances
+  ///
+  /// GROUP G — WP-3a per-UID replica directories (whole replica, by design).
+  ///   replica_store (3)            `remove(uid)`: the ONE user-initiated
+  ///                                "Remove data from this device" for a single
+  ///                                uid's replica dir, reached only from the
+  ///                                explicit removal flow (WP-3b); sign-out
+  ///                                never calls it (SYNC-Q2/Q4). It first
+  ///                                renames the dir to `_removing.<hash>`
+  ///                                (atomic), so a crash leaves either the
+  ///                                intact replica or a tombstone that
+  ///                                recoverPendingRemovals finishes; it never
+  ///                                touches another uid's dir. The third is
+  ///                                legacy adoption discarding its OWN
+  ///                                half-built copy (state `migrating`,
+  ///                                never opened, source legacy file untouched
+  ///                                until the copy is verified).
   const inventory = <String, int>{
     // A
     'lib/core/privacy/data_wipe_service.dart': 2,
@@ -123,6 +139,8 @@ void main() {
     'lib/features/coupons/affiliate_click_gateway.dart': 1,
     // F
     'lib/data/db/database_lease.dart': 2,
+    // G
+    'lib/data/db/replica_store.dart': 3,
   };
 
   /// Statements that can destroy more than one row, or a file.

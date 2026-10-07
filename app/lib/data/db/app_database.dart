@@ -4,8 +4,6 @@ import 'dart:io';
 import 'package:drift/drift.dart';
 import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import '../../core/utils/id_generator.dart';
 import 'database_key_store.dart';
@@ -14,11 +12,12 @@ import 'database_process_liveness.dart';
 import 'database_seed.dart';
 import 'money_v30_backfill.dart';
 import 'ownership_guard.dart';
+import 'replica_location.dart';
 import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 38;
+const int _targetSchemaVersion = 39;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -200,15 +199,24 @@ class AppDatabase extends GeneratedDatabase {
     // from two connections. The MAIN application open (the sole migration owner)
     // uses the default true. See [openSecondary].
     bool runMigrations = true,
+    // WP-3a — which database file/key to open. Null = the legacy shared
+    // `money_companion.sqlite` in the app-support directory (today's behaviour).
+    ReplicaLocation? location,
     @visibleForTesting Future<bool> Function()? databaseFileExists,
     @visibleForTesting Future<void> Function(String phase)? debugFailInit,
   }) async {
     // The existence probe goes INTO the store: the no-mint-over-an-existing-DB
     // invariant then holds wherever the store is used, not only on the path
     // that remembers to check first.
+    final replicaLocation = executor == null
+        ? (location ?? await ReplicaLocation.legacy())
+        : location;
     final resolvedKeyStore = keyStore ??
         SecureDatabaseKeyStore(
-          databaseExists: databaseFileExists ?? _encryptedDatabaseExists,
+          databaseExists: databaseFileExists ??
+              (() => File(replicaLocation!.dbPath).exists()),
+          storageKey: replicaLocation?.keyName ??
+              SecureDatabaseKeyStore.defaultStorageKey,
         );
     if (executor != null) {
       // In-memory/test path. Only exercise the key-state gate when a test opts
@@ -234,10 +242,11 @@ class AppDatabase extends GeneratedDatabase {
     // the loss). Never reads a key from Drift/backup, never deletes.
     await _resolveKeyStateOrThrow(
       resolvedKeyStore,
-      databaseFileExists ?? _encryptedDatabaseExists,
+      databaseFileExists ?? (() => File(replicaLocation!.dbPath).exists()),
     );
     final encryptionKey = await resolvedKeyStore.readOrCreateKey();
-    final encryptedConnection = await _openEncryptedConnection(encryptionKey);
+    final encryptedConnection =
+        await _openEncryptedConnection(encryptionKey, replicaLocation!);
     final db = AppDatabase._(
       encryptedConnection,
       keyStore: resolvedKeyStore,
@@ -262,6 +271,7 @@ class AppDatabase extends GeneratedDatabase {
   /// no-concurrent-migration rule. Batch-5 main-isolate maintenance uses [owner].
   static Future<AppDatabase> openSecondary({
     DatabaseKeyStore? keyStore,
+    ReplicaLocation? location,
     AppDatabase? owner,
     DatabaseLeaseManager? leaseManager,
     OwnershipGuard? ownershipGuard,
@@ -291,7 +301,8 @@ class AppDatabase extends GeneratedDatabase {
           !await ownershipGuard.isCurrent(admissionToken)) {
         throw const StaleOwnershipException();
       }
-      final db = await open(keyStore: keyStore, runMigrations: false);
+      final db = await open(
+          keyStore: keyStore, location: location, runMigrations: false);
       db._lease = lease;
       return db;
     } catch (_) {
@@ -304,18 +315,24 @@ class AppDatabase extends GeneratedDatabase {
   /// files beside the database in the app-support directory. Records are tagged
   /// with the current pid + (when known) the process-instance token established by
   /// [initProcessLiveness].
-  static Future<DatabaseLeaseManager> appSupportLeaseManager() async {
-    final directory = await getApplicationSupportDirectory();
+  ///
+  /// WP-3a — every sidecar (lease dir, maintenance intent, liveness lock and
+  /// instance file) lives in the replica's own directory; [location] null = the
+  /// legacy shared layout.
+  static Future<DatabaseLeaseManager> appSupportLeaseManager(
+      {ReplicaLocation? location}) async {
+    final loc = location ?? await ReplicaLocation.legacy();
     return DatabaseLeaseManager(
-      leaseDir: p.join(directory.path, 'db_leases'),
-      intentPath: p.join(directory.path, 'money_companion.sqlite.maint'),
-      instanceToken: _processLiveness?.instanceToken,
+      leaseDir: loc.leaseDir,
+      intentPath: loc.maintPath,
+      instanceToken: _processLiveness[loc.dbPath]?.instanceToken,
     );
   }
 
-  /// The retained process-liveness handle (Contract B). Held for the process
-  /// lifetime so the OS advisory lock stays taken until this process dies.
-  static ProcessLivenessHandle? _processLiveness;
+  /// The retained process-liveness handles (Contract B), one per database file.
+  /// Held for the process lifetime so each OS advisory lock stays taken until
+  /// this process dies.
+  static final Map<String, ProcessLivenessHandle> _processLiveness = {};
 
   /// MALI-069n §Batch-4-closure-4 — establish PROCESS liveness once at startup
   /// (bootstrap). Takes the process-lifetime OS advisory lock; if this process is
@@ -324,20 +341,21 @@ class AppDatabase extends GeneratedDatabase {
   /// instances (identified by a different owner pid — never a live same-process
   /// isolate's lease). This startup pass, gated by the OS lock, is the ONLY reaping
   /// authority; nothing time-based ever deletes a record. Idempotent per process.
-  static Future<ProcessLivenessHandle> initProcessLiveness() async {
-    final existing = _processLiveness;
+  static Future<ProcessLivenessHandle> initProcessLiveness(
+      {ReplicaLocation? location}) async {
+    final loc = location ?? await ReplicaLocation.legacy();
+    final existing = _processLiveness[loc.dbPath];
     if (existing != null) return existing;
-    final directory = await getApplicationSupportDirectory();
     final liveness = DatabaseProcessLiveness(
-      lockPath: p.join(directory.path, 'money_companion.sqlite.plock'),
-      instancePath: p.join(directory.path, 'money_companion.sqlite.instance'),
+      lockPath: loc.plockPath,
+      instancePath: loc.instancePath,
     );
     final handle = liveness.acquire();
-    _processLiveness = handle;
+    _processLiveness[loc.dbPath] = handle;
     if (handle.acquiredExclusive) {
       final manager = DatabaseLeaseManager(
-        leaseDir: p.join(directory.path, 'db_leases'),
-        intentPath: p.join(directory.path, 'money_companion.sqlite.maint'),
+        leaseDir: loc.leaseDir,
+        intentPath: loc.maintPath,
         ownerPid: handle.ownerPid,
         instanceToken: handle.instanceToken,
       );
@@ -386,21 +404,14 @@ class AppDatabase extends GeneratedDatabase {
   /// Deletes the on-disk encrypted database (and its WAL/SHM sidecars). Used by
   /// the recovery screen when the file can't be decrypted/opened — the data is
   /// unrecoverable without the key, so a clean recreate is the only way forward.
-  static Future<void> deleteDatabaseFile() async {
-    final directory = await getApplicationSupportDirectory();
+  static Future<void> deleteDatabaseFile({ReplicaLocation? location}) async {
+    final loc = location ?? await ReplicaLocation.legacy();
     for (final suffix in const ['', '-wal', '-shm']) {
-      final file =
-          File(p.join(directory.path, 'money_companion.sqlite$suffix'));
+      final file = File('${loc.dbPath}$suffix');
       if (await file.exists()) {
         await file.delete();
       }
     }
-  }
-
-  /// MALI-058n — true when the on-disk encrypted database file already exists.
-  static Future<bool> _encryptedDatabaseExists() async {
-    final directory = await getApplicationSupportDirectory();
-    return File(p.join(directory.path, 'money_companion.sqlite')).exists();
   }
 
   /// MALI-058n — resolve the open-time key state and fail CLOSED with the typed
@@ -634,7 +645,44 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV38ProofCorrectionEvents,
       postcondition: _verifyV38ProofCorrectionEvents,
     ),
+    // WP-3a — per-UID replica ownership. ADDITIVE: one single-row table that
+    // records which uid this database file belongs to. Rows are written by the
+    // replica layer (replica_store.dart), never by the migration: the migration
+    // cannot know the uid, and a pre-existing database must NOT be silently
+    // assigned one.
+    _SchemaMigration(
+      from: 38,
+      to: 39,
+      apply: _applyV39ReplicaMeta,
+      postcondition: _verifyV39ReplicaMeta,
+    ),
   ];
+
+  static Future<void> _applyV39ReplicaMeta(AppDatabase db) =>
+      db._createReplicaMetaTable();
+
+  static Future<bool> _verifyV39ReplicaMeta(AppDatabase db) async {
+    final rows = await db
+        .customSelect("SELECT name FROM sqlite_master WHERE type='table' "
+            "AND name='replica_meta';")
+        .get();
+    return rows.isNotEmpty;
+  }
+
+  /// v39 — `replica_meta`, at most ONE row (CHECK id = 1). `owner_uid` is the
+  /// authoritative owner of this file; the directory name and the registry are
+  /// only hints and are verified against it on open.
+  Future<void> _createReplicaMetaTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS replica_meta (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        owner_uid TEXT NOT NULL,
+        replica_id TEXT NOT NULL,
+        server_epoch INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL
+      );
+    ''');
+  }
 
   static Future<void> _applyV38ProofCorrectionEvents(AppDatabase db) =>
       db._createProofCorrectionEventsTable();
@@ -1274,9 +1322,10 @@ class AppDatabase extends GeneratedDatabase {
     );
   }
 
-  static Future<DatabaseConnection> _openEncryptedConnection(String key) async {
-    final directory = await getApplicationSupportDirectory();
-    final file = File(p.join(directory.path, 'money_companion.sqlite'));
+  static Future<DatabaseConnection> _openEncryptedConnection(
+      String key, ReplicaLocation location) async {
+    final file = File(location.dbPath);
+    await file.parent.create(recursive: true);
     return NativeDatabase.createBackgroundConnection(
       file,
       // MALI-046n: the migration pipeline (_runInitialize) is the SOLE owner of
@@ -1961,6 +2010,7 @@ class AppDatabase extends GeneratedDatabase {
     await _createProofShadowTable();
     await _addProofShadowAttribution();
     await _createProofCorrectionEventsTable();
+    await _createReplicaMetaTable();
 
     // v34 (COUPONS PHASE 1): the merchant catalog cache. Unconditional for the
     // same reason as the two above — a version gate would skip these on a
