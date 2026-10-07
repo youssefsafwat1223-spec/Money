@@ -109,20 +109,24 @@ begin
   v_changed := v_row.user_id is distinct from v_uid
             or v_row.consent_owner_uid is distinct from v_uid;
 
+  -- The link is the authoritative projection of the replica's consent (§4.6):
+  -- flags and version are replaced as sent, so a fresh replica (lower version)
+  -- can never leave a stale server TRUE behind.
   update public.capture_devices
      set user_id = v_uid,
          consent_owner_uid = v_uid,
-         cloud_processing_enabled = case
-           when v_changed or p_version > v_row.consent_version then coalesce(p_cloud, false)
-           else v_row.cloud_processing_enabled end,
-         ai_consent_granted = case
-           when v_changed or p_version > v_row.consent_version then coalesce(p_ai, false)
-           else v_row.ai_consent_granted end,
-         consent_version = case
-           when v_changed then greatest(coalesce(p_version, 0), 0)
-           else greatest(v_row.consent_version, coalesce(p_version, 0)) end,
+         cloud_processing_enabled = coalesce(p_cloud, false),
+         ai_consent_granted = coalesce(p_ai, false),
+         consent_version = greatest(coalesce(p_version, 0), 0),
          last_seen_at = now()
    where install_id_hash = p_install_id_hash;
+
+  if not v_changed
+     and ((v_row.cloud_processing_enabled and not coalesce(p_cloud, false))
+       or (v_row.ai_consent_granted and not coalesce(p_ai, false))) then
+    perform public.capture_revoke_fanout(p_install_id_hash, v_uid, coalesce(p_cloud, false),
+      coalesce(p_ai, false), greatest(coalesce(p_version, 0), 0));
+  end if;
 
   return jsonb_build_object('ok', true, 'owner_changed', v_changed);
 end;
@@ -169,7 +173,19 @@ begin
     return jsonb_build_object('ok', false, 'error', 'capture_owner_mismatch');
   end if;
   if p_version is null or p_version <= v_row.consent_version then
-    return jsonb_build_object('ok', true, 'applied', false, 'reason', 'stale_version');
+    -- A stale version may still narrow consent, never widen it.
+    v_cloud := v_cloud and v_row.cloud_processing_enabled;
+    v_ai := v_ai and v_row.ai_consent_granted;
+    if v_cloud is distinct from v_row.cloud_processing_enabled
+       or v_ai is distinct from v_row.ai_consent_granted then
+      update public.capture_devices
+         set cloud_processing_enabled = v_cloud, ai_consent_granted = v_ai
+       where install_id_hash = p_install_id_hash;
+      perform public.capture_revoke_fanout(p_install_id_hash, v_uid, v_cloud, v_ai,
+        v_row.consent_version);
+    end if;
+    return jsonb_build_object('ok', true, 'applied', false, 'reason', 'stale_version',
+      'consent_version', v_row.consent_version);
   end if;
 
   update public.capture_devices

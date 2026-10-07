@@ -223,8 +223,15 @@ BEGIN
   SET LOCAL ROLE authenticated;
   j := public.set_capture_consent('d1', 'sec1', false, false, 6);
   RESET ROLE;
-  PERFORM pg_temp.ok('set_capture_consent version <= stored is a no-op',
-    (j->>'applied')::boolean IS NOT TRUE AND (SELECT cloud_processing_enabled FROM public.capture_devices WHERE install_id_hash = 'd1'), j::text);
+  PERFORM pg_temp.ok('set_capture_consent with a stale version still narrows consent (fail closed)',
+    (j->>'applied')::boolean IS NOT TRUE AND (j->>'consent_version')::int = 6
+    AND NOT (SELECT cloud_processing_enabled OR ai_consent_granted FROM public.capture_devices WHERE install_id_hash = 'd1'), j::text);
+  SET LOCAL ROLE authenticated;
+  j := public.set_capture_consent('d1', 'sec1', true, true, 5);
+  RESET ROLE;
+  PERFORM pg_temp.ok('set_capture_consent with a stale version never widens consent',
+    NOT (SELECT cloud_processing_enabled OR ai_consent_granted FROM public.capture_devices WHERE install_id_hash = 'd1')
+    AND (SELECT consent_version FROM public.capture_devices WHERE install_id_hash = 'd1') = 6, j::text);
 
   -- A8: B links the same install: projection replaced; A can no longer write consent
   PERFORM pg_temp.as_user(b);
@@ -250,8 +257,8 @@ BEGIN
   j := public.link_capture_device('d1', 'sec1', false, false, 1);
   RESET ROLE;
   SELECT * INTO d FROM public.capture_devices WHERE install_id_hash = 'd1';
-  PERFORM pg_temp.ok('same-owner relink with older version does not roll consent back',
-    d.consent_version = 2 AND d.ai_consent_granted, d::text);
+  PERFORM pg_temp.ok('same-owner relink is authoritative: a fresh replica (lower version) clears a stale server TRUE',
+    d.consent_version = 1 AND NOT d.ai_consent_granted AND NOT d.cloud_processing_enabled, d::text);
 
   -- restore A for later tests
   PERFORM pg_temp.as_user(a);
@@ -444,7 +451,7 @@ BEGIN
 
   -- Revoke fan-out also updates user_settings (monotonic) for the owner
   PERFORM pg_temp.mkdev('tfo', a, 1);
-  UPDATE public.user_settings SET consent_version = 7 WHERE user_id = a;
+  UPDATE public.user_settings SET consent_version = 7, cloud_processing_enabled = true WHERE user_id = a;
   PERFORM public.legacy_set_device_consent('tfo', false, false);   -- version 2 < 7: user_settings not downgraded
   PERFORM pg_temp.ok('fan-out: user_settings update is monotonic (lower version ignored)',
     (SELECT consent_version FROM public.user_settings WHERE user_id = a) = 7 AND (SELECT cloud_processing_enabled FROM public.user_settings WHERE user_id = a));
