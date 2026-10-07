@@ -71,24 +71,16 @@ export async function handleSyncCaptures(
     if (error) return json({ error: 'ack_failed' }, 500);
   }
 
-  let captureQuery = supabase
-    .from('processed_captures')
-    .select(
-      v2
-        ? 'payload_id,status,state,parsed,notification,sanitized_text,failure_reason,created_at'
-        : 'payload_id,status,parsed,notification,sanitized_text,failure_reason,created_at',
-    )
-    .eq('install_id_hash', auth.installIdHash)
-    .in('state', v2 ? ['processed', 'rejected', 'retryable'] : ['processed', 'rejected'])
-    .order('created_at', { ascending: true })
-    .limit(50);
-  captureQuery = auth.userId == null
-    ? captureQuery.is('claimed_user_id', null)
-    : captureQuery.eq('claimed_user_id', auth.userId);
-  const { data, error } = await captureQuery;
-  if (error) return json({ error: 'sync_failed' }, 500);
+  // The 7-day expiry fence (F1) is judged by the DATABASE clock inside capture_sync_list:
+  // rows past it are nulled and never returned. The table is never read directly here.
+  const { data, error } = await supabase.rpc('capture_sync_list', {
+    p_install_id_hash: auth.installIdHash,
+    p_user_id: auth.userId,
+    p_include_state: v2,
+  });
+  if (error || !Array.isArray(data)) return json({ error: 'sync_failed' }, 500);
 
-  return json({ captures: capturesForResponse(data ?? []) });
+  return json({ captures: capturesForResponse(data) });
 }
 
 if (import.meta.main) Deno.serve((req) => handleSyncCaptures(req));

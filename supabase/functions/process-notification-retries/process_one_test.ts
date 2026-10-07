@@ -1,5 +1,6 @@
 import { assert, assertEquals } from 'jsr:@std/assert@1';
 import { processOne } from './process_one.ts';
+import { captureContentLive, CAPTURE_RETENTION_MS } from '../process-ios-sms/capture_rpc_fake.ts';
 
 const row = {
   id: 'retry-1',
@@ -81,6 +82,7 @@ Deno.test('fenced-out retries are dropped without APNs and map to a log error co
     ['consent_revoked', 'consent_revoked'],
     ['owner_changed', 'owner_changed'],
     ['not_pending', 'capture_not_pending'], // consumed / expired / retryable
+    ['expired', 'capture_expired'], // F1: past the 7-day logical expiry fence
     ['no_token', 'retry_unsendable'],
     ['no_content', 'retry_unsendable'],
     ['gone', 'retry_unsendable'],
@@ -159,4 +161,36 @@ Deno.test('exhausted attempts stop retrying', async () => {
     Promise.resolve({ ok: false, reason: 'apns_503_x', httpStatus: 503, errorCode: 'ServiceUnavailable' } as const));
   assertEquals(outcome, 'exhausted');
   assert(resolved(fake.updates));
+});
+
+// F1: capture_retry_fence refuses a notification whose capture is past the 7-day logical
+// expiry fence (database clock, judged inside the RPC). This models the SQL authority
+// (supabase/tests/capture_expiry_fence.sql); the worker must fail closed on it.
+Deno.test('F1 boundaries: retry fence modelled on the DB clock; expired -> dropped, no APNs, no content; 7d-1ms still sends', async () => {
+  const created = Date.parse('2026-10-01T00:00:00Z');
+  for (
+    const [name, delta, live] of [['7d-1ms', -1, true], ['exactly 7d', 0, false], ['7d+1ms', 1, false]] as const
+  ) {
+    const dbNow = created + CAPTURE_RETENTION_MS + delta;
+    const fence = captureContentLive(created, dbNow) ? allowed : { allowed: false, reason: 'expired' };
+    const fake = fakeSupabase(fence);
+    const sent: unknown[] = [];
+    const outcome = await processOne(fake.client, row, (m) => {
+      sent.push(m);
+      return Promise.resolve({ ok: true, apnsId: 'a' } as const);
+    });
+    if (live) {
+      assertEquals([outcome, sent.length], ['sent', 1], name);
+    } else {
+      assertEquals([outcome, sent.length], ['exhausted', 0], name);
+      assert(resolved(fake.updates), name);
+      // the worker only drops: it neither writes capture content nor marks the capture sent
+      assertEquals(fake.updates.some((u) => u.table === 'processed_captures'), false, name);
+      assertEquals(
+        fake.updates.some((u) => u.table === 'notification_logs' && u.values.error_code === 'capture_expired'),
+        true,
+        name,
+      );
+    }
+  }
 });

@@ -32,8 +32,13 @@ test('capture ownership is stamped, filtered, and revoked without sharing A rows
   const unlinkSql = read('supabase/migrations/0110_capture_consent_projection.sql');
   assert.match(processCapture, /rpc\('capture_claim'/);
   assert.match(claim, /\(p_payload_id, p_install_id_hash, d\.user_id,/);
-  assert.match(sync, /\.eq\(['"]claimed_user_id['"], auth\.userId\)/);
-  assert.match(sync, /\.is\(['"]claimed_user_id['"], null\)/);
+  // F1: sync-captures reads through capture_sync_list (0112), scoped to the device user
+  // (NULL = the guest scope) by claimed_user_id, never from the table directly.
+  assert.match(sync, /rpc\('capture_sync_list'/);
+  assert.match(sync, /p_user_id: auth\.userId/);
+  assert.doesNotMatch(sync, /\.from\('processed_captures'\)/);
+  const retention = read('supabase/migrations/0112_capture_notifications_retention.sql');
+  assert.match(retention, /claimed_user_id is not distinct from p_user_id/);
   assert.match(unlink, /unlink_capture_device/);
   const unlinkFn = unlinkSql.slice(unlinkSql.indexOf('function public.unlink_capture_device'));
   assert.match(unlinkFn, /user_id = null/);

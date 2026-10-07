@@ -11,6 +11,7 @@ const DROP_ERROR_CODES: Record<string, string> = {
   consent_revoked: 'consent_revoked',
   owner_changed: 'owner_changed',
   not_pending: 'capture_not_pending',
+  expired: 'capture_expired',
 };
 
 export async function processOne(

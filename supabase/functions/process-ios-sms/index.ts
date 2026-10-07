@@ -258,6 +258,7 @@ export async function handleProcessIosSms(
   if (dispatchDenied) {
     console.log(JSON.stringify({ event: 'capture_ai_not_dispatched', reason: dispatchDenied }));
     if (dispatchDenied === 'lease_lost') return pending(v2, 'in_progress', cid);
+    if (dispatchDenied === 'expired') return json({ error: 'capture_expired', state: 'expired', correlation_id: cid }, 409);
     return refusal(dispatchDenied === 'owner_changed' ? 'capture_owner_mismatch' : 'consent_required', cid);
   }
   const parsed = outcome.parsed;
@@ -309,6 +310,7 @@ export async function handleProcessIosSms(
     // Fenced out: nothing was stored and nothing may be sent.
     console.log(JSON.stringify({ event: 'capture_fenced', reason: done.reason ?? null }));
     if (done.reason === 'lease_lost') return pending(v2, 'in_progress', cid);
+    if (done.reason === 'expired') return json({ error: 'capture_expired', state: 'expired', correlation_id: cid }, 409);
     return refusal(done.reason === 'owner_changed' ? 'capture_owner_mismatch' : 'consent_required', cid);
   }
 

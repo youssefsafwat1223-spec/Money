@@ -1,5 +1,6 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { handleSyncCaptures } from './index.ts';
+import { captureContentLive, CAPTURE_RETENTION_MS } from '../process-ios-sms/capture_rpc_fake.ts';
 
 // sync-captures: ownership scope, no auto-claim, tombstone ACK, v2 JWT scope.
 
@@ -8,57 +9,44 @@ const B = '00000000-0000-0000-0000-00000000b002';
 
 type Row = Record<string, unknown>;
 
-// In-memory processed_captures + the capture_ack RPC (SQL authority:
-// supabase/tests/capture_state_machine_p1.sql).
+// In-memory processed_captures + the capture_sync_list / capture_ack RPCs (SQL authority:
+// supabase/tests/capture_expiry_fence.sql, capture_state_machine_p1.sql). The table itself
+// is NOT readable: sync-captures must go through the RPC, which applies the 7-day fence
+// (F1) with the DATABASE clock (`store.dbNowMs`), never the function's own clock.
 function fakeStore(rows: Row[]) {
-  const log = { updates: 0, ackCalls: [] as Row[], filters: [] as Array<[string, unknown]> };
+  const log = { updates: 0, ackCalls: [] as Row[], listCalls: [] as Row[] };
+  const store = { dbNowMs: Date.parse('2026-09-08T00:00:00Z') };
   const from = (table: string) => {
-    const f: { eq: Row; isNull: string[]; inStates: string[] | null; op: string } = {
-      eq: {},
-      isNull: [],
-      inStates: null,
-      op: 'select',
-    };
-    const run = () => {
-      if (table !== 'processed_captures') return { data: [], error: null };
-      const data = rows
-        .filter((r) => Object.entries(f.eq).every(([k, v]) => r[k] === v))
-        .filter((r) => f.isNull.every((k) => r[k] == null))
-        .filter((r) => !f.inStates || f.inStates.includes(r.state as string))
-        .map((r) => ({ ...r }));
-      return { data, error: null };
-    };
-    const b: Record<string, unknown> = {
-      select: () => b,
-      update: () => {
-        log.updates++; // any update from sync-captures would be an auto-claim
-        return b;
-      },
-      delete: () => {
-        throw new Error('sync-captures must tombstone through capture_ack, never DELETE');
-      },
-      eq: (k: string, v: unknown) => {
-        f.eq[k] = v;
-        log.filters.push([k, v]);
-        return b;
-      },
-      is: (k: string, _v: unknown) => {
-        f.isNull.push(k);
-        log.filters.push([k, null]);
-        return b;
-      },
-      in: (k: string, v: string[]) => {
-        if (k === 'state') f.inStates = v;
-        return b;
-      },
-      order: () => b,
-      limit: () => b,
-      then: (resolve: (v: unknown) => unknown) => Promise.resolve(run()).then(resolve),
-    };
-    return b;
+    if (table === 'processed_captures') throw new Error('sync-captures must not read processed_captures directly (F1)');
+    return { update: () => (log.updates++, {}) };
   };
   const rpc = (fn: string, args: Row) => {
     if (fn === 'bump_capture_rate_limit') return Promise.resolve({ data: false, error: null });
+    if (fn === 'capture_sync_list') {
+      log.listCalls.push(args);
+      const scope = rows.filter((r) =>
+        r.install_id_hash === args.p_install_id_hash && (r.claimed_user_id ?? null) === args.p_user_id
+      );
+      for (const r of scope) {
+        if (
+          ['processing', 'processed', 'retryable', 'rejected'].includes(r.state as string) &&
+          !captureContentLive(Date.parse(r.created_at as string), store.dbNowMs)
+        ) {
+          Object.assign(r, { state: 'expired', parsed: {}, notification: {}, sanitized_text: null });
+        }
+      }
+      const states = args.p_include_state ? ['processed', 'rejected', 'retryable'] : ['processed', 'rejected'];
+      const data = scope
+        .filter((r) => states.includes(r.state as string))
+        .sort((x, y) => String(x.created_at).localeCompare(String(y.created_at)))
+        .slice(0, 50)
+        .map((r) => {
+          const { payload_id, status, parsed, notification, sanitized_text, failure_reason, created_at, state } = r;
+          const out = { payload_id, status, parsed, notification, sanitized_text, failure_reason, created_at };
+          return args.p_include_state ? { ...out, state } : out;
+        });
+      return Promise.resolve({ data, error: null });
+    }
     log.ackCalls.push(args);
     let n = 0;
     for (const r of rows) {
@@ -74,7 +62,7 @@ function fakeStore(rows: Row[]) {
     }
     return Promise.resolve({ data: n, error: null });
   };
-  return { log, client: { from, rpc } };
+  return { log, store, client: { from, rpc } };
 }
 
 function row(payload: string, claimed: string | null, state = 'processed', extra: Row = {}): Row {
@@ -102,8 +90,10 @@ function call(
     status: 401,
     error: 'missing_jwt',
   },
+  dbNowMs?: number,
 ) {
   const store = fakeStore(rows);
+  if (dbNowMs != null) store.store.dbNowMs = dbNowMs;
   const res = handleSyncCaptures(
     new Request('https://example.test/sync-captures', {
       method: 'POST',
@@ -146,9 +136,25 @@ Deno.test('legacy guest (no linked user) sees only NULL-owner rows', async () =>
   assertEquals(out.captures.map((c: Row) => c.payload_id), ['g']);
 });
 
-Deno.test('legacy select list is exactly the build-50 columns', async () => {
+Deno.test('legacy: reads through capture_sync_list WITHOUT state (build-50 columns), v2 asks for state', async () => {
+  const rows = [row('a', A)];
+  const legacy = call(rows, { userId: A }, {});
+  const out = await (await legacy.res).json();
+  assertEquals(legacy.store.log.listCalls, [{ p_install_id_hash: 'h', p_user_id: A, p_include_state: false }]);
+  assertEquals(Object.keys(out.captures[0]).sort(), [
+    'created_at',
+    'failure_reason',
+    'notification',
+    'parsed',
+    'payload_id',
+    'sanitized_text',
+    'status',
+  ]);
+  const v2 = call(rows, { userId: A }, { schema_version: 2 }, { ok: true, userId: A });
+  await v2.res;
+  assertEquals(v2.store.log.listCalls[0].p_include_state, true);
   const src = await Deno.readTextFile(new URL('./index.ts', import.meta.url));
-  assert(src.includes("'payload_id,status,parsed,notification,sanitized_text,failure_reason,created_at'"));
+  assert(!src.includes(".from('processed_captures')"), 'no direct table read');
 });
 
 Deno.test('legacy only returns delivered states (processing/retryable/consumed/expired never leak)', async () => {
@@ -199,4 +205,63 @@ Deno.test('v2: jwt.uid == device user == claimed_user_id returns state and inclu
   const rows = [row('a', A), row('r', A, 'retryable'), row('b', B), row('n', null)];
   const out = await (await call(rows, { userId: A }, { schema_version: 2 }, { ok: true, userId: A }).res).json();
   assertEquals(out.captures.map((c: Row) => [c.payload_id, c.state]), [['a', 'processed'], ['r', 'retryable']]);
+});
+
+// F1: the 7-day logical expiry fence on the sync read path.
+Deno.test('F1 boundaries: an expired row is never returned with content (legacy and v2); 7d-1ms still is', async () => {
+  const created = Date.parse('2026-09-01T00:00:00Z');
+  const createdAt = new Date(created).toISOString();
+  for (
+    const [name, delta, live] of [['7d-1ms', -1, true], ['exactly 7d', 0, false], ['7d+1ms', 1, false]] as const
+  ) {
+    for (const body of [{}, { schema_version: 2 }]) {
+      const rows = [row('p', A, 'processed', { created_at: createdAt }), row('q', A, 'rejected', { created_at: createdAt })];
+      const jwt = { ok: true, userId: A } as const;
+      const out = await (await call(rows, { userId: A }, body, jwt, created + CAPTURE_RETENTION_MS + delta).res).json();
+      if (live) {
+        assertEquals(out.captures.map((c: Row) => c.payload_id), ['p', 'q'], name);
+        assertEquals((out.captures[0].parsed as Row).amount, 10, name);
+      } else {
+        assertEquals(out.captures, [], name);
+        // opportunistic null: the row is expired with no content left
+        assertEquals(rows.map((r) => [r.state, r.parsed, r.notification, r.sanitized_text]), [
+          ['expired', {}, {}, null],
+          ['expired', {}, {}, null],
+        ], name);
+      }
+    }
+  }
+  assert(captureContentLive(0, CAPTURE_RETENTION_MS - 1) && !captureContentLive(0, CAPTURE_RETENTION_MS));
+});
+
+Deno.test('F1: expired retryable rows are not returned by v2, and sync failure fails closed (no rows, 500)', async () => {
+  const created = Date.parse('2026-09-01T00:00:00Z');
+  const rows = [row('r', A, 'retryable', { created_at: new Date(created).toISOString() })];
+  const out = await (await call(rows, { userId: A }, { schema_version: 2 }, { ok: true, userId: A }, created + CAPTURE_RETENTION_MS).res).json();
+  assertEquals(out.captures, []);
+  assertEquals(rows[0].state, 'expired');
+  const store = fakeStore([row('p', A)]);
+  store.client.rpc = ((fn: string) =>
+    Promise.resolve(fn === 'bump_capture_rate_limit' ? { data: false, error: null } : { data: null, error: { message: 'x' } })) as never;
+  const res = await handleSyncCaptures(
+    new Request('https://example.test/sync-captures', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ installId: 'i', deviceSecret: 's' }),
+    }),
+    {
+      createServiceClient: (() => store.client) as never,
+      verifyDevice: (() => Promise.resolve({ ok: true, installIdHash: 'h', userId: A })) as never,
+      verifyUserJwt: (() => Promise.resolve({ ok: false, status: 401, error: 'x' })) as never,
+    },
+  );
+  assertEquals([res.status, (await res.json()).error], [500, 'sync_failed']);
+});
+
+Deno.test('F1: ACK of an expired row still consumes it (content stays null) and it is never returned', async () => {
+  const created = Date.parse('2026-09-01T00:00:00Z');
+  const rows = [row('p', A, 'processed', { created_at: new Date(created).toISOString() })];
+  const { res } = call(rows, { userId: A }, { ackPayloadIds: ['p'] }, undefined, created + CAPTURE_RETENTION_MS);
+  assertEquals((await (await res).json()).captures, []);
+  assertEquals([rows[0].state, rows[0].parsed], ['consumed', {}]);
 });

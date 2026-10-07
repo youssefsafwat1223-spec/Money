@@ -17,6 +17,15 @@
 --     on the device row, returning the CURRENT owner's token.
 --  5. notification_logs.install_id_hash (the raw install_id column stays: the client's
 --     opened-sync still writes it).
+--  6. Logical expiry fence (user decision 2026-10-07, F1): sanitized server content is LIVE
+--     iff now() < created_at + interval '7 days' (database clock only). At exactly the
+--     boundary and after it the content (parsed, notification, sanitized_text,
+--     validator_result) is unavailable to every server path: capture_content_live() is the
+--     single predicate; every RPC that touches content applies it and, when it meets an
+--     expired row, nulls the content and moves the row to `expired` (a consumed tombstone
+--     is never touched; nothing revives an expired row). The hourly prune below stays the
+--     physical garbage collection, unchanged. Edge functions never read the table
+--     directly: sync-captures reads through capture_sync_list().
 
 -- ── 1. columns ───────────────────────────────────────────────────────────────
 alter table public.processed_captures
@@ -53,6 +62,36 @@ alter table public.notification_retry_queue
   drop constraint if exists notification_retry_queue_notification_log_id_key,
   add constraint notification_retry_queue_notification_log_id_key unique (notification_log_id);
 
+-- ── 2b. logical expiry fence (F1) ────────────────────────────────────────────
+-- THE predicate: content is live iff now() < created_at + 7 days (DB clock). STABLE, not
+-- IMMUTABLE (now()). NULL created_at fails closed.
+create or replace function public.capture_content_live(p_created_at timestamptz)
+returns boolean
+language sql
+stable
+set search_path = public, pg_temp
+as $$
+  select p_created_at is not null and now() < p_created_at + interval '7 days';
+$$;
+
+-- Opportunistic expiry of ONE row that is past the fence: content nulled, state expired.
+-- Only the four live-able states are touched, so a consumed tombstone (already nulled,
+-- consumed_at intact) and an already-expired row are left exactly as they are.
+create or replace function public.capture_expire_row(
+  p_install_id_hash text,
+  p_payload_id text
+) returns void
+language sql
+set search_path = public, pg_temp
+as $$
+  update public.processed_captures
+     set state = 'expired', parsed = '{}'::jsonb, notification = '{}'::jsonb,
+         sanitized_text = null, validator_result = null, lease_until = null, next_attempt_at = null
+   where install_id_hash = p_install_id_hash and payload_id = p_payload_id
+     and state in ('processing', 'processed', 'retryable', 'rejected')
+     and not public.capture_content_live(created_at);
+$$;
+
 -- ── 3. fenced hand-off, at most once ─────────────────────────────────────────
 -- Same body as 0111 plus: (a) refuses when a hand-off already happened, (b) marks
 -- push_attempted_at in the same statement that reserves it, (c) install_id_hash.
@@ -70,14 +109,19 @@ as $$
 declare
   v_dev public.capture_devices%rowtype;
   v_log uuid;
+  v_created timestamptz;
 begin
   select * into v_dev from public.capture_devices where install_id_hash = p_install_id_hash;
   if not found or v_dev.apns_token is null or v_dev.apns_environment is null
      or p_install_id is null or p_install_id = '' then
     return null;
   end if;
-  select notification_log_id into v_log from public.processed_captures
+  select notification_log_id, created_at into v_log, v_created from public.processed_captures
    where install_id_hash = p_install_id_hash and payload_id = p_payload_id;
+  -- F1: nothing is derived from expired content.
+  if not public.capture_content_live(v_created) then
+    return null;
+  end if;
   v_log := coalesce(v_log, gen_random_uuid());
   update public.processed_captures
      set notification_log_id = v_log, push_attempted_at = now()
@@ -103,26 +147,29 @@ begin
 end;
 $$;
 
--- Adds push_attempted_at (a timestamp, no content).
+-- Adds push_attempted_at (a timestamp, no content). F1: past the expiry fence it emits
+-- no content and reports state expired (a consumed tombstone stays consumed), whatever
+-- the stored row still says; STABLE because the fence reads now().
 create or replace function public.capture_row_json(r public.processed_captures)
 returns jsonb
 language sql
-immutable
+stable
 set search_path = public, pg_temp
 as $$
   select jsonb_build_object(
     'payload_id', r.payload_id,
     'status', r.status,
-    'parsed', r.parsed,
-    'notification', r.notification,
+    'parsed', case when l.live then r.parsed else '{}'::jsonb end,
+    'notification', case when l.live then r.notification else '{}'::jsonb end,
     'created_at', r.created_at,
     'apns_push_sent_at', r.apns_push_sent_at,
     'push_attempted_at', r.push_attempted_at,
     'notification_log_id', r.notification_log_id,
-    'state', r.state,
+    'state', case when l.live or r.state = 'consumed' then r.state else 'expired' end,
     'attempts', r.attempts,
-    'next_attempt_at', r.next_attempt_at,
-    'failure_reason', r.failure_reason);
+    'next_attempt_at', case when l.live then r.next_attempt_at end,
+    'failure_reason', r.failure_reason)
+  from (select public.capture_content_live(r.created_at) as live) l;
 $$;
 
 -- ── 4. retry fence ───────────────────────────────────────────────────────────
@@ -130,7 +177,7 @@ $$;
 -- device's CURRENT token and the notification type only (never content). Any other
 -- result means: do not call APNs, resolve the retry row.
 --   reason: gone | already_sent | not_pending | credential_revoked | consent_revoked
---           | owner_changed | no_token | no_content
+--           | owner_changed | no_token | no_content | expired
 create or replace function public.capture_retry_fence(
   p_install_id_hash text,
   p_payload_id text
@@ -142,16 +189,26 @@ as $$
 declare
   d public.capture_devices%rowtype;
   r public.processed_captures%rowtype;
+  v_expired boolean;
 begin
   select * into d from public.capture_devices
    where install_id_hash = p_install_id_hash for share;
   select * into r from public.processed_captures
-   where install_id_hash = p_install_id_hash and payload_id = p_payload_id for share;
+   where install_id_hash = p_install_id_hash and payload_id = p_payload_id for update;
   if d.install_id_hash is null or r.payload_id is null then
     return jsonb_build_object('allowed', false, 'reason', 'gone');
   end if;
+  -- F1: a row past the expiry fence is nulled and expired on sight (the row lock is
+  -- exclusive so the null cannot race a finalize); a consumed tombstone is untouched.
+  v_expired := r.state <> 'consumed' and not public.capture_content_live(r.created_at);
+  if v_expired then
+    perform public.capture_expire_row(p_install_id_hash, p_payload_id);
+  end if;
   if r.apns_push_sent_at is not null then
     return jsonb_build_object('allowed', false, 'reason', 'already_sent');
+  end if;
+  if v_expired then
+    return jsonb_build_object('allowed', false, 'reason', 'expired');
   end if;
   -- consumed / expired / retryable / processing: nothing (or nothing yet) to alert about.
   if r.state not in ('processed', 'rejected') then
@@ -180,6 +237,318 @@ begin
     'apns_token', d.apns_token,
     'apns_environment', d.apns_environment,
     'notification_type', r.notification ->> 'type');
+end;
+$$;
+
+-- ── 6. logical expiry fence (F1) applied to the 0111 RPCs ─────────────────────
+-- Same bodies as 0111 plus the capture_content_live() checks marked F1.
+create or replace function public.capture_claim(
+  p_install_id_hash text,
+  p_install_id text,
+  p_payload_id text,
+  p_raw_fingerprint text,
+  p_owner_uid uuid,
+  p_contract integer,
+  p_lease_seconds integer default 60
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  d public.capture_devices%rowtype;
+  r public.processed_captures%rowtype;
+  v_push jsonb;
+begin
+  -- One snapshot: the device row is share-locked for the rest of this tx, so a
+  -- concurrent link / consent change / revoke serializes strictly before or after.
+  select * into d from public.capture_devices
+   where install_id_hash = p_install_id_hash for share;
+  if not found then
+    return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
+  end if;
+  if d.revoked_at is not null then
+    return jsonb_build_object('outcome', 'denied', 'code', 'credential_revoked');
+  end if;
+  if p_contract = 2 then
+    if p_owner_uid is null or d.user_id is null or d.consent_owner_uid is null
+       or p_owner_uid <> d.user_id or d.user_id <> d.consent_owner_uid then
+      return jsonb_build_object('outcome', 'denied', 'code', 'capture_owner_mismatch');
+    end if;
+  elsif d.consent_owner_uid is distinct from d.user_id then
+    return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
+  end if;
+  if d.cloud_processing_enabled is not true then
+    return jsonb_build_object('outcome', 'denied', 'code', 'consent_required');
+  end if;
+
+  insert into public.processed_captures
+    (payload_id, install_id_hash, claimed_user_id, status, state, parsed, notification,
+     raw_fingerprint, lease_until, lease_token, attempts, owner_uid, consent_owner_uid, consent_version)
+  values
+    (p_payload_id, p_install_id_hash, d.user_id, 'rejected', 'processing', '{}'::jsonb, '{}'::jsonb,
+     p_raw_fingerprint, now() + make_interval(secs => p_lease_seconds), 1, 1,
+     case when p_contract = 2 then p_owner_uid end, d.consent_owner_uid, d.consent_version)
+  on conflict (install_id_hash, payload_id) do nothing
+  returning * into r;
+  if found then
+    return jsonb_build_object('outcome', 'claimed', 'lease_token', r.lease_token,
+      'attempts', r.attempts, 'claimed_user_id', d.user_id,
+      'consent_owner_uid', d.consent_owner_uid, 'consent_version', d.consent_version,
+      'ai_allowed', d.ai_consent_granted);
+  end if;
+
+  select * into r from public.processed_captures
+   where install_id_hash = p_install_id_hash and payload_id = p_payload_id for update;
+  if not found then
+    -- Row pruned between the conflict and the read: caller retries.
+    return jsonb_build_object('outcome', 'in_progress');
+  end if;
+
+  if r.claimed_user_id is distinct from d.user_id then
+    return jsonb_build_object('outcome', 'owner_conflict');
+  end if;
+  if r.raw_fingerprint is not null and r.raw_fingerprint is distinct from p_raw_fingerprint then
+    return jsonb_build_object('outcome', 'id_conflict');
+  end if;
+
+  -- F1: past the expiry fence nothing is re-claimed, re-leased or replayed with content:
+  -- the row is nulled and expired, and the stored (empty, expired) result is replayed.
+  if r.state in ('processing', 'processed', 'retryable', 'rejected')
+     and not public.capture_content_live(r.created_at) then
+    perform public.capture_expire_row(p_install_id_hash, p_payload_id);
+    select * into r from public.processed_captures
+     where install_id_hash = p_install_id_hash and payload_id = p_payload_id;
+    return jsonb_build_object('outcome', 'replay', 'row', public.capture_row_json(r));
+  end if;
+
+  if r.state in ('processing', 'retryable') then
+    if r.state = 'processing' and r.lease_until > now() then
+      return jsonb_build_object('outcome', 'in_progress');
+    end if;
+    if r.state = 'retryable' and r.next_attempt_at > now() then
+      return jsonb_build_object('outcome', 'replay', 'row', public.capture_row_json(r));
+    end if;
+    if r.attempts >= 5 then
+      update public.processed_captures
+         set state = 'rejected', status = 'rejected', lease_until = null,
+             failure_reason = 'attempts_exhausted', parsed = '{}'::jsonb,
+             notification = '{}'::jsonb, sanitized_text = null
+       where install_id_hash = p_install_id_hash and payload_id = p_payload_id
+       returning * into r;
+      return jsonb_build_object('outcome', 'replay', 'row', public.capture_row_json(r));
+    end if;
+    -- Re-claim: lease_token and attempts increment AT CLAIM; the consent snapshot
+    -- is retaken; the AI marker is cleared so a new dispatch is required.
+    update public.processed_captures
+       set state = 'processing', lease_until = now() + make_interval(secs => p_lease_seconds),
+           lease_token = lease_token + 1, attempts = attempts + 1,
+           consent_owner_uid = d.consent_owner_uid, consent_version = d.consent_version,
+           owner_uid = case when p_contract = 2 then p_owner_uid end,
+           ai_started_at = null, ai_consent_version = null, next_attempt_at = null
+     where install_id_hash = p_install_id_hash and payload_id = p_payload_id
+     returning * into r;
+    return jsonb_build_object('outcome', 'claimed', 'lease_token', r.lease_token,
+      'attempts', r.attempts, 'claimed_user_id', d.user_id,
+      'consent_owner_uid', d.consent_owner_uid, 'consent_version', d.consent_version,
+      'ai_allowed', d.ai_consent_granted);
+  end if;
+
+  -- processed | rejected | consumed | expired: replay the stored result. A push
+  -- that was never confirmed is re-offered only when the stored consent snapshot
+  -- still matches the device (the replay is inside the same fenced snapshot).
+  if r.state in ('processed', 'rejected') and r.apns_push_sent_at is null
+     and coalesce(r.notification ->> 'title', '') <> ''
+     and r.consent_owner_uid is not distinct from d.consent_owner_uid
+     and r.consent_version is not distinct from d.consent_version then
+    v_push := public.capture_queue_push(p_install_id_hash, p_install_id, p_payload_id,
+      d.user_id, r.notification ->> 'type');
+  end if;
+  return jsonb_build_object('outcome', 'replay', 'row', public.capture_row_json(r), 'push', v_push);
+end;
+$$;
+
+create or replace function public.capture_ai_dispatch(
+  p_install_id_hash text,
+  p_payload_id text,
+  p_lease_token integer
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  d public.capture_devices%rowtype;
+  r public.processed_captures%rowtype;
+  v_reason text;
+begin
+  select * into d from public.capture_devices
+   where install_id_hash = p_install_id_hash for share;
+  select * into r from public.processed_captures
+   where install_id_hash = p_install_id_hash and payload_id = p_payload_id for update;
+  if not found or r.lease_token <> p_lease_token or r.state <> 'processing' or d.install_id_hash is null then
+    return jsonb_build_object('allowed', false, 'reason', 'lease_lost');
+  end if;
+  -- F1: an expired row never starts AI (no ai_started_at); it is nulled and expired.
+  if not public.capture_content_live(r.created_at) then
+    perform public.capture_expire_row(p_install_id_hash, p_payload_id);
+    return jsonb_build_object('allowed', false, 'reason', 'expired');
+  end if;
+
+  if d.user_id is distinct from r.claimed_user_id
+     or d.consent_owner_uid is distinct from r.consent_owner_uid
+     or d.consent_owner_uid is distinct from d.user_id
+     or (r.owner_uid is not null and r.owner_uid is distinct from d.user_id) then
+    v_reason := 'owner_changed';
+  elsif d.revoked_at is not null or d.cloud_processing_enabled is not true
+     or d.ai_consent_granted is not true
+     or d.consent_version is distinct from r.consent_version then
+    v_reason := 'consent_revoked';
+  end if;
+
+  if v_reason is not null then
+    update public.processed_captures
+       set state = 'retryable', failure_reason = v_reason, lease_until = null,
+           next_attempt_at = now() + make_interval(secs => 30 * attempts)
+     where install_id_hash = p_install_id_hash and payload_id = p_payload_id;
+    return jsonb_build_object('allowed', false, 'reason', v_reason);
+  end if;
+
+  update public.processed_captures
+     set ai_started_at = now(), ai_consent_version = d.consent_version, ai_invoked = true
+   where install_id_hash = p_install_id_hash and payload_id = p_payload_id;
+  return jsonb_build_object('allowed', true);
+end;
+$$;
+
+create or replace function public.capture_finalize(
+  p_install_id_hash text,
+  p_install_id text,
+  p_payload_id text,
+  p_lease_token integer,
+  p_state text,
+  p_status text,
+  p_parsed jsonb,
+  p_notification jsonb,
+  p_sanitized_text text,
+  p_failure_reason text,
+  p_possible_duplicate boolean,
+  p_validator_result jsonb
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  d public.capture_devices%rowtype;
+  r public.processed_captures%rowtype;
+  v_reason text;
+  v_push jsonb;
+begin
+  if p_state not in ('processed', 'rejected', 'retryable') then
+    raise exception 'invalid_terminal_state' using errcode = '22023';
+  end if;
+  select * into d from public.capture_devices
+   where install_id_hash = p_install_id_hash for share;
+  select * into r from public.processed_captures
+   where install_id_hash = p_install_id_hash and payload_id = p_payload_id for update;
+  if not found or d.install_id_hash is null or r.lease_token <> p_lease_token or r.state <> 'processing' then
+    return jsonb_build_object('written', false, 'push_allowed', false, 'reason', 'lease_lost');
+  end if;
+  -- F1: an expired lease writes no result and queues no push; it nulls instead.
+  if not public.capture_content_live(r.created_at) then
+    perform public.capture_expire_row(p_install_id_hash, p_payload_id);
+    return jsonb_build_object('written', false, 'push_allowed', false, 'reason', 'expired');
+  end if;
+
+  if d.user_id is distinct from r.claimed_user_id
+     or d.consent_owner_uid is distinct from r.consent_owner_uid
+     or d.consent_owner_uid is distinct from d.user_id
+     or (r.owner_uid is not null and r.owner_uid is distinct from d.user_id) then
+    v_reason := 'owner_changed';
+  elsif d.revoked_at is not null or d.cloud_processing_enabled is not true
+     or d.consent_version is distinct from r.consent_version then
+    v_reason := 'consent_revoked';
+  end if;
+
+  if v_reason is not null then
+    update public.processed_captures
+       set state = 'retryable', failure_reason = v_reason, lease_until = null,
+           next_attempt_at = now() + make_interval(secs => 30 * attempts)
+     where install_id_hash = p_install_id_hash and payload_id = p_payload_id;
+    return jsonb_build_object('written', false, 'push_allowed', false, 'reason', v_reason);
+  end if;
+
+  if p_state = 'retryable' then
+    update public.processed_captures
+       set state = 'retryable', failure_reason = p_failure_reason, lease_until = null,
+           next_attempt_at = now() + make_interval(secs => 30 * attempts)
+     where install_id_hash = p_install_id_hash and payload_id = p_payload_id
+     returning * into r;
+    return jsonb_build_object('written', true, 'push_allowed', false, 'state', 'retryable',
+      'row', public.capture_row_json(r));
+  end if;
+
+  update public.processed_captures
+     set state = p_state, status = p_status, parsed = coalesce(p_parsed, '{}'::jsonb),
+         notification = coalesce(p_notification, '{}'::jsonb), sanitized_text = p_sanitized_text,
+         failure_reason = p_failure_reason, possible_duplicate = coalesce(p_possible_duplicate, false),
+         validator_result = p_validator_result, lease_until = null, next_attempt_at = null
+   where install_id_hash = p_install_id_hash and payload_id = p_payload_id
+   returning * into r;
+  if coalesce(p_notification ->> 'title', '') <> '' then
+    v_push := public.capture_queue_push(p_install_id_hash, p_install_id, p_payload_id,
+      r.claimed_user_id, p_notification ->> 'type');
+    select * into r from public.processed_captures
+     where install_id_hash = p_install_id_hash and payload_id = p_payload_id;
+  end if;
+  return jsonb_build_object('written', true, 'push_allowed', true, 'state', p_state,
+    'row', public.capture_row_json(r), 'push', v_push);
+end;
+$$;
+
+-- sync-captures read path. Replaces the edge function's direct table read so the fence
+-- uses the DATABASE clock: due rows in the caller's scope are nulled and expired first,
+-- then only live processed / rejected (/ retryable for v2) rows come back, in the shape
+-- of the former select (no `state` key for the legacy contract).
+create or replace function public.capture_sync_list(
+  p_install_id_hash text,
+  p_user_id uuid,
+  p_include_state boolean
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_rows jsonb;
+begin
+  update public.processed_captures
+     set state = 'expired', parsed = '{}'::jsonb, notification = '{}'::jsonb,
+         sanitized_text = null, validator_result = null, lease_until = null, next_attempt_at = null
+   where install_id_hash = p_install_id_hash
+     and claimed_user_id is not distinct from p_user_id
+     and state in ('processing', 'processed', 'retryable', 'rejected')
+     and not public.capture_content_live(created_at);
+
+  select coalesce(jsonb_agg(j order by created_at), '[]'::jsonb) into v_rows
+    from (
+      select created_at,
+             jsonb_build_object(
+               'payload_id', payload_id, 'status', status,
+               'parsed', parsed, 'notification', notification,
+               'sanitized_text', sanitized_text, 'failure_reason', failure_reason,
+               'created_at', created_at)
+             || case when p_include_state then jsonb_build_object('state', state) else '{}'::jsonb end as j
+        from public.processed_captures
+       where install_id_hash = p_install_id_hash
+         and claimed_user_id is not distinct from p_user_id
+         and (state in ('processed', 'rejected') or (p_include_state and state = 'retryable'))
+         and public.capture_content_live(created_at)
+       order by created_at
+       limit 50
+    ) t;
+  return v_rows;
 end;
 $$;
 
@@ -250,3 +619,15 @@ revoke all on function public.capture_retry_fence(text, text) from public, anon,
 revoke all on function public.run_prune_processed_captures() from public, anon, authenticated;
 revoke all on function public.prune_processed_captures() from public, anon, authenticated;
 grant execute on function public.capture_retry_fence(text, text) to service_role;
+revoke all on function public.capture_content_live(timestamptz) from public, anon, authenticated;
+revoke all on function public.capture_expire_row(text, text) from public, anon, authenticated;
+revoke all on function public.capture_claim(text, text, text, text, uuid, integer, integer) from public, anon, authenticated;
+revoke all on function public.capture_ai_dispatch(text, text, integer) from public, anon, authenticated;
+revoke all on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
+  from public, anon, authenticated;
+revoke all on function public.capture_sync_list(text, uuid, boolean) from public, anon, authenticated;
+grant execute on function public.capture_claim(text, text, text, text, uuid, integer, integer) to service_role;
+grant execute on function public.capture_ai_dispatch(text, text, integer) to service_role;
+grant execute on function public.capture_finalize(text, text, text, integer, text, text, jsonb, jsonb, text, text, boolean, jsonb)
+  to service_role;
+grant execute on function public.capture_sync_list(text, uuid, boolean) to service_role;

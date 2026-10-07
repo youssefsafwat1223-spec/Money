@@ -1,6 +1,6 @@
 import { assert, assertEquals } from 'https://deno.land/std@0.224.0/assert/mod.ts';
 import { handleProcessIosSms } from './index.ts';
-import { fakeCapture } from './capture_rpc_fake.ts';
+import { CAPTURE_RETENTION_MS, fakeCapture } from './capture_rpc_fake.ts';
 
 // Handler-level pins for the P1 leased state machine (manifest §4.1, §4.6, §4.8).
 // The RPC layer is modelled by capture_rpc_fake.ts; the SQL proofs are the
@@ -508,4 +508,104 @@ Deno.test('CAP-3: a fenced-out finalize (re-link before the result write) sends 
     assertEquals(sent.length, 0);
     assertEquals(fake.state.logs.length, 0);
   });
+});
+
+// ── F1: the 7-day logical expiry fence (migration 0112) ────────────────────────
+// The database clock is pinned (state.dbFixedMs); a row's created_ms is set relative to it:
+// +1 = 7d - 1ms (live), 0 = exactly 7d, -1 = 7d + 1ms. The handler's own clock is never used.
+const T0 = Date.parse('2026-10-07T12:00:00Z');
+const BOUNDARIES: Array<[string, number, boolean]> = [['7d-1ms', 1, true], ['exactly 7d', 0, false], ['7d+1ms', -1, false]];
+const createdAt = (delta: number) => T0 - CAPTURE_RETENTION_MS + delta;
+const pinned = (opts: Parameters<typeof fakeCapture>[0] = {}) => {
+  const fake = fakeCapture(opts);
+  fake.state.dbFixedMs = T0;
+  return fake;
+};
+
+Deno.test('F1: replay of a stored result is served only while live; at 7d and after it is 409 capture_expired with no content', async () => {
+  for (const [name, delta, live] of BOUNDARIES) {
+    const fake = pinned({ device: { ...linkedA, apns_token: 'tok' } });
+    await post(fake, v2({ payloadId: 'p', sanitizedText: RESOLVED }));
+    fake.state.rows.get('p')!.created_ms = createdAt(delta);
+    const logs = fake.state.logs.length;
+    const r = await post(fake, v2({ payloadId: 'p', sanitizedText: RESOLVED }));
+    const row = fake.state.rows.get('p')!;
+    if (live) {
+      assertEquals([r.status, r.json.idempotent], [200, true], name);
+      assertEquals(r.json.capture.parsed.amount, 250, name);
+      assertEquals(row.state, 'processed', name);
+    } else {
+      assertEquals([r.status, r.json.error, r.json.state], [409, 'capture_expired', 'expired'], name);
+      assertEquals('capture' in r.json, false, name);
+      assertEquals([row.state, row.parsed, row.notification, row.sanitized_text], ['expired', {}, {}, null], name);
+    }
+    assertEquals(fake.state.logs.length, logs, name); // a replay never queues a push
+    assertEquals(r.calls, 0, name);
+  }
+});
+
+Deno.test('F1: an expired retryable row is not re-claimed and cannot start AI; a live one is retried', async () => {
+  for (const [name, delta, live] of BOUNDARIES) {
+    const fake = pinned({ device: linkedA });
+    const first = await post(
+      fake,
+      v2({ payloadId: 'p', sanitizedText: UNRESOLVED, allowAi: true }),
+      () => new Response('boom', { status: 503 }),
+    );
+    assertEquals(first.json.state ?? first.json.capture?.state, 'retryable', name);
+    const row = fake.state.rows.get('p')!;
+    Object.assign(row, { created_ms: createdAt(delta), next_attempt_at: Date.now() - 1 });
+    const claims = fake.state.claims, dispatches = fake.state.dispatches;
+    const r = await post(fake, v2({ payloadId: 'p', sanitizedText: UNRESOLVED, allowAi: true }), () => aiResponse(GOOD_AI));
+    if (live) {
+      assertEquals(r.status, 200, name);
+      assertEquals(fake.state.claims, claims + 1, name);
+    } else {
+      assertEquals([r.status, r.json.error], [409, 'capture_expired'], name);
+      assertEquals([fake.state.claims, fake.state.dispatches, r.calls], [claims, dispatches, 0], name);
+      assertEquals([row.state, row.attempts, row.lease_token, row.parsed], ['expired', 1, 1, {}], name);
+    }
+  }
+});
+
+Deno.test('F1: expiry between claim and the AI dispatch point -> AI never called, 409 capture_expired', async () => {
+  for (const [name, delta, live] of BOUNDARIES) {
+    const fake = pinned({
+      device: linkedA,
+      onBeforeDispatch: (s) => {
+        s.rows.get('p')!.created_ms = createdAt(delta);
+      },
+    });
+    const r = await post(fake, v2({ payloadId: 'p', sanitizedText: UNRESOLVED, allowAi: true }), () => aiResponse(GOOD_AI));
+    const row = fake.state.rows.get('p')!;
+    if (live) {
+      assertEquals([r.status, r.calls], [200, 1], name);
+    } else {
+      assertEquals([r.status, r.json.error, r.calls], [409, 'capture_expired', 0], name);
+      assertEquals([row.state, row.ai_started_at, row.ai_invoked, row.parsed], ['expired', undefined, undefined, {}], name);
+    }
+  }
+});
+
+Deno.test('F1: expired lease at the final write -> no result stored, no notification, no APNs, 409 capture_expired', async () => {
+  for (const [name, delta, live] of BOUNDARIES) {
+    const fake = pinned({
+      device: { ...linkedA, apns_token: 'tok' },
+      onFinalize: (s) => {
+        s.rows.get('p')!.created_ms = createdAt(delta);
+      },
+    });
+    const r = await post(fake, v2({ payloadId: 'p', sanitizedText: RESOLVED }));
+    const row = fake.state.rows.get('p')!;
+    if (live) {
+      assertEquals([r.status, row.state], [200, 'processed'], name);
+      assertEquals(fake.state.logs.length, 1, name);
+    } else {
+      assertEquals([r.status, r.json.error, r.json.state], [409, 'capture_expired', 'expired'], name);
+      assertEquals('capture' in r.json, false, name);
+      assertEquals([row.state, row.parsed, row.notification, row.sanitized_text], ['expired', {}, {}, null], name);
+      assertEquals(fake.state.logs.length, 0, name);
+      assertEquals(r.urls.some((u) => u.includes('apple')), false, name);
+    }
+  }
 });

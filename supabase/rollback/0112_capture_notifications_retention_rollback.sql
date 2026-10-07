@@ -1,7 +1,9 @@
 -- ROLLBACK for 0112_capture_notifications_retention.sql
 --
--- Restores the 0111 bodies of capture_queue_push / capture_row_json (by re-running the
--- idempotent 0111 migration from the repo root, never by hand-editing), the 0012/0033
+-- Restores the 0111 bodies of capture_queue_push / capture_row_json / capture_claim /
+-- capture_ai_dispatch / capture_finalize (by re-running the idempotent 0111 migration from
+-- the repo root, never by hand-editing), drops the F1 expiry-fence objects
+-- (capture_content_live, capture_expire_row, capture_sync_list), restores the 0012/0033
 -- prune bodies and the daily schedule, and drops the CAP-3 objects.
 -- NOT reversible by this script: rows already expired/pruned, the de-duplicated retry
 -- rows and the 30-day notification_logs pruning (data) -- PITR only.
@@ -19,6 +21,7 @@ BEGIN
 END $$;
 
 DROP FUNCTION IF EXISTS public.capture_retry_fence(text, text);
+DROP FUNCTION IF EXISTS public.capture_sync_list(text, uuid, boolean);
 
 -- 0033 / 0012 bodies (30 days by created_at; fingerprints 7 days) and the daily job.
 CREATE OR REPLACE FUNCTION public.run_prune_processed_captures()
@@ -63,9 +66,13 @@ ALTER TABLE public.notification_retry_queue
 DROP INDEX IF EXISTS public.idx_notification_logs_created;
 ALTER TABLE public.notification_logs DROP COLUMN IF EXISTS install_id_hash;
 
--- Restore the 0111 bodies of capture_queue_push / capture_row_json (they do not use the
--- columns dropped below). 0111 is idempotent (add column if not exists, create or replace).
+-- Restore the 0111 bodies of capture_queue_push / capture_row_json / capture_claim /
+-- capture_ai_dispatch / capture_finalize (they do not use the columns dropped below, nor the
+-- fence predicate). 0111 is idempotent (add column if not exists, create or replace).
 \i supabase/migrations/0111_capture_state_machine.sql
+
+DROP FUNCTION IF EXISTS public.capture_expire_row(text, text);
+DROP FUNCTION IF EXISTS public.capture_content_live(timestamptz);
 
 ALTER TABLE public.processed_captures DROP COLUMN IF EXISTS push_attempted_at;
 COMMIT;

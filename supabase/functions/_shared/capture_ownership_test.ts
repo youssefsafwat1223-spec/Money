@@ -13,8 +13,14 @@ Deno.test('capture ownership code stamps, filters, and scopes ack by claimed use
   );
   assertStringIncludes(processSource, "rpc('capture_claim'");
   assertStringIncludes(claimSql, '(p_payload_id, p_install_id_hash, d.user_id,');
-  assertStringIncludes(syncSource, ".eq('claimed_user_id', auth.userId)");
-  assertStringIncludes(syncSource, ".is('claimed_user_id', null)");
+  // F1: sync-captures reads through capture_sync_list (0112), scoped by claimed_user_id.
+  const retentionSql = await Deno.readTextFile(
+    new URL('../../migrations/0112_capture_notifications_retention.sql', import.meta.url),
+  );
+  assertStringIncludes(syncSource, "rpc('capture_sync_list'");
+  assertStringIncludes(syncSource, 'p_user_id: auth.userId');
+  assertEquals(syncSource.includes(".from('processed_captures')"), false);
+  assertStringIncludes(retentionSql, 'claimed_user_id is not distinct from p_user_id');
   assertEquals(syncSource.includes('claimed_user_id.eq.'), false);
 });
 

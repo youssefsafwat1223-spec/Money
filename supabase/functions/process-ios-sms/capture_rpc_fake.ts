@@ -6,6 +6,12 @@
 
 type Row = Record<string, unknown>;
 
+// F1 (migration 0112): content is live iff the DATABASE now() < created_at + 7 days. The fake's
+// database clock is Date.now() + state.dbSkewMs, so a test moves it (or a row's created_ms)
+// to put a row at an exact boundary; the handler's own clock is never consulted.
+export const CAPTURE_RETENTION_MS = 7 * 24 * 3600 * 1000;
+export const captureContentLive = (createdMs: number, nowMs: number): boolean => nowMs < createdMs + CAPTURE_RETENTION_MS;
+
 export type FakeDevice = {
   user_id: string | null;
   consent_owner_uid: string | null;
@@ -44,26 +50,44 @@ export function fakeCapture(opts: {
     writes: [] as Array<{ table: string; op: string; row?: Row; opts?: Row; filters: Array<[string, unknown]> }>,
     tablesTouched: new Set<string>(),
     rateLimited: false,
+    dbSkewMs: 0,
+    dbFixedMs: null as number | null, // pin the database clock for exact-boundary tests
+  };
+  const dbNow = () => state.dbFixedMs ?? Date.now() + state.dbSkewMs;
+  const liveRow = (r: Row) => captureContentLive(r.created_ms as number, dbNow());
+  // capture_expire_row: content nulled, state expired; consumed / expired rows untouched.
+  const expireRow = (r: Row) => {
+    if (['processing', 'processed', 'retryable', 'rejected'].includes(r.state as string) && !liveRow(r)) {
+      Object.assign(r, {
+        state: 'expired',
+        parsed: {},
+        notification: {},
+        sanitized_text: null,
+        lease_until: null,
+        next_attempt_at: null,
+      });
+    }
   };
   let seq = 0;
 
+  // capture_row_json: no content past the fence, state reported as expired (tombstones stay consumed).
   const rowJson = (r: Row): Row => ({
     payload_id: r.payload_id,
     status: r.status,
-    parsed: r.parsed,
-    notification: r.notification,
+    parsed: liveRow(r) ? r.parsed : {},
+    notification: liveRow(r) ? r.notification : {},
     created_at: '2026-09-07T19:30:00Z',
     apns_push_sent_at: r.apns_push_sent_at ?? null,
     push_attempted_at: r.push_attempted_at ?? null,
     notification_log_id: r.notification_log_id ?? null,
-    state: r.state,
+    state: liveRow(r) || r.state === 'consumed' ? r.state : 'expired',
     attempts: r.attempts,
     next_attempt_at: r.next_attempt_at ?? null,
     failure_reason: r.failure_reason ?? null,
   });
   const queuePush = (r: Row, installId: string, type: unknown) => {
     // 0112: a capture's push is handed off at most once (push_attempted_at).
-    if (!device.apns_token || r.push_attempted_at) return null;
+    if (!device.apns_token || r.push_attempted_at || !liveRow(r)) return null;
     r.push_attempted_at = new Date().toISOString();
     const id = (r.notification_log_id as string) ?? `log-${++seq}`;
     r.notification_log_id = id;
@@ -104,6 +128,7 @@ export function fakeCapture(opts: {
           parsed: {},
           notification: {},
           raw_fingerprint: a.p_raw_fingerprint,
+          created_ms: dbNow(),
           claimed_user_id: device.user_id,
           owner_uid: contract === 2 ? a.p_owner_uid : null,
           consent_owner_uid: device.consent_owner_uid,
@@ -118,6 +143,10 @@ export function fakeCapture(opts: {
       }
       if (ex.claimed_user_id !== device.user_id) return { outcome: 'owner_conflict' };
       if (ex.raw_fingerprint && ex.raw_fingerprint !== a.p_raw_fingerprint) return { outcome: 'id_conflict' };
+      if (!liveRow(ex)) {
+        expireRow(ex);
+        return { outcome: 'replay', row: rowJson(ex) };
+      }
       if (ex.state === 'processing' && (ex.lease_until as number) > Date.now()) return { outcome: 'in_progress' };
       if (ex.state === 'processing' || ex.state === 'retryable') {
         if (ex.state === 'retryable' && (ex.next_attempt_at as number) > Date.now()) {
@@ -151,6 +180,10 @@ export function fakeCapture(opts: {
       if (!r || r.lease_token !== a.p_lease_token || r.state !== 'processing') {
         return { allowed: false, reason: 'lease_lost' };
       }
+      if (!liveRow(r)) {
+        expireRow(r);
+        return { allowed: false, reason: 'expired' };
+      }
       const revoked = device.revoked || !device.cloud || !device.ai || device.version !== r.consent_version;
       const moved = device.user_id !== r.claimed_user_id || device.consent_owner_uid !== r.consent_owner_uid ||
         device.consent_owner_uid !== device.user_id;
@@ -168,6 +201,10 @@ export function fakeCapture(opts: {
       opts.onFinalize?.(state);
       if (!r || r.lease_token !== a.p_lease_token || r.state !== 'processing') {
         return { written: false, push_allowed: false, reason: 'lease_lost' };
+      }
+      if (!liveRow(r)) {
+        expireRow(r);
+        return { written: false, push_allowed: false, reason: 'expired' };
       }
       const revoked = device.revoked || !device.cloud || device.version !== r.consent_version;
       const moved = device.user_id !== r.claimed_user_id || device.consent_owner_uid !== r.consent_owner_uid ||
