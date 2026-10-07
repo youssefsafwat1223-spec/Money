@@ -46,8 +46,33 @@ void main() {
     return blocks;
   }
 
+  /// CAP-6: private helpers do the read-modify-write of the lazy v3 load
+  /// (expiry pruning, the one-time v2 migration). They are not lexically inside a
+  /// `withQueueLock { }`, so they count as locked regions ONLY because the test
+  /// below proves every call to them sits inside one.
+  const lockedHelpers = ['loadQueue', 'loadQueuePruned', 'migrateLegacyQueue'];
+
+  List<({int start, int end})> helperBodies() {
+    final bodies = <({int start, int end})>[];
+    for (final name in lockedHelpers) {
+      final def = source.indexOf('private static func $name(');
+      expect(def, greaterThan(-1), reason: '$name must exist');
+      final open = source.indexOf('{', source.indexOf(')', def));
+      var depth = 0;
+      for (var i = open; i < source.length; i++) {
+        if (source[i] == '{') depth++;
+        if (source[i] == '}' && --depth == 0) {
+          bodies.add((start: open, end: i));
+          break;
+        }
+      }
+    }
+    return bodies;
+  }
+
   bool insideALock(int offset, List<({int start, int end})> blocks) =>
-      blocks.any((b) => offset > b.start && offset < b.end);
+      blocks.any((b) => offset > b.start && offset < b.end) ||
+      helperBodies().any((b) => offset > b.start && offset < b.end);
 
   test('the lock is a cross-PROCESS file lock, not an in-process one', () {
     final at = source.indexOf('func withQueueLock');
@@ -89,6 +114,25 @@ void main() {
       expect(insideALock(call.start, blocks), isTrue,
           reason: 'saveQueue is called OUTSIDE withQueueLock at offset '
               '${call.start} — the write would race the other process');
+    }
+  });
+
+  test('the locked-region helpers are only ever CALLED under the lock', () {
+    final blocks = lockBlocks();
+    final helpers = helperBodies();
+    for (final name in lockedHelpers) {
+      final def = source.indexOf('private static func $name(');
+      final calls = RegExp('$name\\(').allMatches(source).where(
+        (m) => m.start != def + 'private static func '.length,
+      );
+      expect(calls, isNotEmpty, reason: '$name is never called');
+      for (final call in calls) {
+        final underLock =
+            blocks.any((b) => call.start > b.start && call.start < b.end) ||
+                helpers.any((b) => call.start > b.start && call.start < b.end);
+        expect(underLock, isTrue,
+            reason: '$name is called outside withQueueLock at ${call.start}');
+      }
     }
   });
 

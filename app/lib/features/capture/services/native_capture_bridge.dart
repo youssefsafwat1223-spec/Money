@@ -21,6 +21,8 @@ class SharedCapturedMessage {
     this.status,
     this.failureReason,
     this.receivedAtInferred,
+    this.ownerUid,
+    this.localOnly,
   });
 
   final String? id;
@@ -38,6 +40,141 @@ class SharedCapturedMessage {
   /// layer inferred the receive time; null when the native layer did not report
   /// it (share extension, builds before R9).
   final bool? receivedAtInferred;
+
+  /// CAP-6: the uid this item is stamped to (queue v3). The native peek returns
+  /// only the active owner's items; CAP-5 still checks equality before import.
+  final String? ownerUid;
+
+  /// CAP-6 §4.3: bound by an explicit claim. Import it with the local
+  /// deterministic parser only: no upload, no AI.
+  final bool? localOnly;
+}
+
+/// The active capture owner `{uid, uidHash, generation}` held natively (§4.2).
+class CaptureOwnerRecord {
+  const CaptureOwnerRecord({
+    required this.uid,
+    required this.uidHash,
+    required this.generation,
+  });
+
+  final String uid;
+  final String uidHash;
+  final int generation;
+
+  static CaptureOwnerRecord? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final uid = raw['uid'];
+    final hash = raw['uidHash'];
+    final generation = raw['generation'];
+    if (uid is! String || hash is! String || generation is! int) return null;
+    return CaptureOwnerRecord(uid: uid, uidHash: hash, generation: generation);
+  }
+}
+
+/// What the "N bank messages were received while you were signed out" prompt
+/// may show: a count and the senders (§4.3). [ids] is the snapshot the claim /
+/// discard CAS is checked against; it is never displayed.
+class UnboundCaptureSummary {
+  const UnboundCaptureSummary({required this.ids, required this.senders});
+
+  final List<String> ids;
+  final List<String> senders;
+
+  int get count => ids.length;
+}
+
+enum CaptureClaimStatus {
+  /// The CAS held; [CaptureClaimResult.count] items were bound / discarded.
+  applied,
+
+  /// The items changed since the prompt snapshot. Nothing was mutated.
+  stale,
+
+  /// uid, owner record, generation, replica owner and session uid did not all
+  /// agree. Nothing was mutated.
+  ownerMismatch,
+}
+
+class CaptureClaimResult {
+  const CaptureClaimResult(this.status, this.count);
+
+  final CaptureClaimStatus status;
+  final int count;
+
+  bool get applied => status == CaptureClaimStatus.applied;
+}
+
+/// §4.4 destructive barrier for a Remove-data run.
+class CaptureRemovalBarrier {
+  const CaptureRemovalBarrier({
+    required this.nonce,
+    required this.uidHash,
+    required this.startedAt,
+  });
+
+  final String nonce;
+  final String uidHash;
+  final String startedAt;
+
+  static CaptureRemovalBarrier? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final nonce = raw['nonce'];
+    final hash = raw['uidHash'];
+    final startedAt = raw['startedAt'];
+    if (nonce is! String || hash is! String || startedAt is! String) {
+      return null;
+    }
+    return CaptureRemovalBarrier(
+      nonce: nonce,
+      uidHash: hash,
+      startedAt: startedAt,
+    );
+  }
+}
+
+/// Why the native queue refused a write (v3). Nothing was written in any case.
+enum CaptureQueueFailure {
+  /// §4.5 count or byte quota exhausted. Nothing is evicted.
+  quotaExceeded,
+
+  /// A Remove-data barrier is in force (§4.4).
+  removalInProgress,
+
+  /// The active owner is not the owner the caller required.
+  ownerChanged,
+
+  /// Any other refusal (key, lock, unreadable queue, channel).
+  unavailable,
+}
+
+/// Thrown by the owner / claim / barrier calls when the native layer refuses.
+/// Callers MUST treat it as "the operation did not happen" and fail closed.
+class CaptureQueueException implements Exception {
+  const CaptureQueueException(this.code, [this.message]);
+
+  /// `queue_unavailable`, `quota_exceeded`, `removal_in_progress`,
+  /// `owner_changed`, `bad_args` or `channel_unavailable`.
+  final String code;
+  final String? message;
+
+  CaptureQueueFailure get failure => _failureForCode(code);
+
+  @override
+  String toString() => 'CaptureQueueException($code)';
+}
+
+CaptureQueueFailure _failureForCode(String code) {
+  switch (code) {
+    case 'quota_exceeded':
+      return CaptureQueueFailure.quotaExceeded;
+    case 'removal_in_progress':
+      return CaptureQueueFailure.removalInProgress;
+    case 'owner_changed':
+      return CaptureQueueFailure.ownerChanged;
+    default:
+      return CaptureQueueFailure.unavailable;
+  }
 }
 
 class ApnsTokenInfo {
@@ -173,10 +310,13 @@ enum SmsPermissionStatus {
   /// Build does not declare RECEIVE_SMS — the automatic path is not in this build.
   unavailable,
   granted,
+
   /// Denied, but the system will still show the dialog if asked again.
   denied,
+
   /// "Don't ask again", or the OS blocks the prompt. Only Settings can change it.
   permanentlyDenied,
+
   /// A request is already in flight; never queue a second dialog.
   inProgress,
 }
@@ -377,6 +517,10 @@ class NativeCaptureBridge {
     required String anonKey,
     bool aiConsentGranted = false,
     String? deviceSecret,
+
+    /// Mirror of the server capability `capture_contract_v2`. Default false:
+    /// the App Intent keeps uploading on the legacy contract.
+    bool captureContractV2 = false,
   }) async {
     if (!Platform.isIOS) {
       return;
@@ -389,10 +533,188 @@ class NativeCaptureBridge {
         'backendUrl': backendUrl,
         'anonKey': anonKey,
         'aiConsentGranted': aiConsentGranted,
+        'captureContractV2': captureContractV2,
       });
     } on MissingPluginException {
       return;
     }
+  }
+
+  // ── CAP-6 queue v3: owner record, unbound claim, Remove-data barrier ───────
+  //
+  // Every call below runs natively under the queue flock. They throw
+  // [CaptureQueueException] when the native layer refuses and do nothing on
+  // platforms without the iOS queue. The account-scoped drain/import that uses
+  // them (WP-3 / CAP-5) is NOT implemented here.
+
+  static bool get _hasNativeQueue => debugTreatHostAsNative || Platform.isIOS;
+
+  static Future<T?> _queueCall<T>(
+    String method, [
+    Map<String, Object?>? arguments,
+  ]) async {
+    try {
+      return await _channel.invokeMethod<T>(method, arguments);
+    } on PlatformException catch (e) {
+      throw CaptureQueueException(e.code, e.message);
+    } on MissingPluginException {
+      throw const CaptureQueueException('channel_unavailable');
+    }
+  }
+
+  /// Publishes [uid] as the active capture owner. Call ONLY after the replica is
+  /// admitted AND `link_capture_device(consent)` succeeded (§4.2). Idempotent for
+  /// the current owner; refused (`removal_in_progress`) during a barrier.
+  static Future<CaptureOwnerRecord?> publishCaptureOwner(String uid) async {
+    if (!_hasNativeQueue) return null;
+    return CaptureOwnerRecord.tryParse(
+      await _queueCall<Object?>('publishCaptureOwner', {'uid': uid}),
+    );
+  }
+
+  /// Clears the active owner (sign-out, or the start of an account transition).
+  /// [clearHint] true at a transition: captures made during it are unbound with
+  /// no hint. At a plain sign-out the hint stays so the same uid can recover.
+  static Future<void> clearCaptureOwner({required bool clearHint}) async {
+    if (!_hasNativeQueue) return;
+    await _queueCall<Object?>('clearCaptureOwner', {'clearHint': clearHint});
+  }
+
+  static Future<CaptureOwnerRecord?> getCaptureOwner() async {
+    if (!_hasNativeQueue) return null;
+    return CaptureOwnerRecord.tryParse(
+      await _queueCall<Object?>('getCaptureOwner'),
+    );
+  }
+
+  /// Advisory per-owner consent mirror, read by the App Intent for the stamped
+  /// owner only (§4.6). Written by the consent flow (WP-6).
+  static Future<void> setCaptureConsentMirror({
+    required String uid,
+    required bool cloud,
+    required bool ai,
+    required int version,
+  }) async {
+    if (!_hasNativeQueue) return;
+    await _queueCall<Object?>('setCaptureConsentMirror', {
+      'uid': uid,
+      'cloud': cloud,
+      'ai': ai,
+      'version': version,
+    });
+  }
+
+  /// The unbound items hinted to [uid]; empty when there are none, or when the
+  /// hint is another uid's or absent.
+  static Future<UnboundCaptureSummary> unboundCaptureSummary(String uid) async {
+    if (!_hasNativeQueue) {
+      return const UnboundCaptureSummary(ids: [], senders: []);
+    }
+    final raw =
+        await _queueCall<Object?>('unboundCaptureSummary', {'uid': uid});
+    if (raw is! Map) return const UnboundCaptureSummary(ids: [], senders: []);
+    List<String> strings(Object? v) =>
+        v is List ? v.whereType<String>().toList() : const <String>[];
+    return UnboundCaptureSummary(
+      ids: strings(raw['ids']),
+      senders: strings(raw['senders']),
+    );
+  }
+
+  /// "Add them to my account" (§4.3): the native CAS. [uid], [replicaOwnerUid]
+  /// and [sessionUid] must all be equal and [generation] the current owner
+  /// generation, else nothing is mutated.
+  static Future<CaptureClaimResult> claimUnboundCaptures({
+    required String uid,
+    required int generation,
+    required String replicaOwnerUid,
+    required String sessionUid,
+    required List<String> ids,
+  }) =>
+      _claimCall('claimUnboundCaptures', uid, generation, replicaOwnerUid,
+          sessionUid, ids);
+
+  /// "Discard them": the same CAS, then deletes the items.
+  static Future<CaptureClaimResult> discardUnboundCaptures({
+    required String uid,
+    required int generation,
+    required String replicaOwnerUid,
+    required String sessionUid,
+    required List<String> ids,
+  }) =>
+      _claimCall('discardUnboundCaptures', uid, generation, replicaOwnerUid,
+          sessionUid, ids);
+
+  static Future<CaptureClaimResult> _claimCall(
+    String method,
+    String uid,
+    int generation,
+    String replicaOwnerUid,
+    String sessionUid,
+    List<String> ids,
+  ) async {
+    if (!_hasNativeQueue) {
+      return const CaptureClaimResult(CaptureClaimStatus.stale, 0);
+    }
+    final raw = await _queueCall<Object?>(method, {
+      'uid': uid,
+      'generation': generation,
+      'replicaOwnerUid': replicaOwnerUid,
+      'sessionUid': sessionUid,
+      'ids': ids,
+    });
+    final map = raw is Map ? raw : const <Object?, Object?>{};
+    final count = map['count'] is int ? map['count'] as int : 0;
+    switch (map['status']) {
+      case 'applied':
+        return CaptureClaimResult(CaptureClaimStatus.applied, count);
+      case 'owner_mismatch':
+        return const CaptureClaimResult(CaptureClaimStatus.ownerMismatch, 0);
+      default:
+        // Unknown or missing status: treat as "did not happen".
+        return const CaptureClaimResult(CaptureClaimStatus.stale, 0);
+    }
+  }
+
+  /// §4.7: the adopted replica's verdict on items migrated from the v2 queue.
+  /// [consumedIds] (receipt `capture_payload:<id>` or tx.id == capture_id) are
+  /// removed; [suspectedIds] (fingerprint match) are annotated for review only.
+  /// Returns how many items were removed.
+  static Future<int> resolveLegacyCaptureItems({
+    List<String> consumedIds = const [],
+    List<String> suspectedIds = const [],
+  }) async {
+    if (!_hasNativeQueue) return 0;
+    final removed = await _queueCall<int>('resolveLegacyCaptureItems', {
+      'consumedIds': consumedIds,
+      'suspectedIds': suspectedIds,
+    });
+    return removed ?? 0;
+  }
+
+  /// Remove-data step 1 (§4.4): persists the barrier and clears the owner record
+  /// if it is [uid]'s. Idempotent for the same uid (a resumed removal).
+  static Future<CaptureRemovalBarrier?> beginCaptureRemoval(String uid) async {
+    if (!_hasNativeQueue) return null;
+    return CaptureRemovalBarrier.tryParse(
+      await _queueCall<Object?>('beginCaptureRemoval', {'uid': uid}),
+    );
+  }
+
+  /// A barrier left by a removal that crashed; a launch that finds one resumes
+  /// the removal from the replica teardown step.
+  static Future<CaptureRemovalBarrier?> getCaptureRemovalBarrier() async {
+    if (!_hasNativeQueue) return null;
+    return CaptureRemovalBarrier.tryParse(
+      await _queueCall<Object?>('getCaptureRemovalBarrier'),
+    );
+  }
+
+  /// Remove-data step 5 (§4.4): the final sweep; clears the barrier. Returns how
+  /// many queue items were deleted.
+  static Future<int> finishCaptureRemoval(String uid) async {
+    if (!_hasNativeQueue) return 0;
+    return await _queueCall<int>('finishCaptureRemoval', {'uid': uid}) ?? 0;
   }
 
   static Future<ApnsTokenInfo?> registerForRemoteNotifications() async {
@@ -574,6 +896,8 @@ class NativeCaptureBridge {
       final rawStatus = (item['status'] as String?)?.trim();
       final rawFailureReason = (item['failureReason'] as String?)?.trim();
       final rawInferred = item['receivedAtInferred'];
+      final rawOwnerUid = (item['ownerUid'] as String?)?.trim();
+      final rawLocalOnly = item['localOnly'];
       final sender = _firstNonEmpty([rawSenderId, rawSender, rawSenderName]);
       messages.add(
         SharedCapturedMessage(
@@ -589,6 +913,8 @@ class NativeCaptureBridge {
           status: _emptyToNull(rawStatus),
           failureReason: _emptyToNull(rawFailureReason),
           receivedAtInferred: rawInferred is bool ? rawInferred : null,
+          ownerUid: _emptyToNull(rawOwnerUid),
+          localOnly: rawLocalOnly is bool ? rawLocalOnly : null,
           // MALI-068n §11 — native epoch is authoritative; the ISO string is a
           // legacy fallback; unknown → null (never `now`).
           receivedAt: resolveCapturedReceivedAt(
@@ -609,8 +935,17 @@ class NativeCaptureBridge {
   /// yet) or bridge failure the message is dropped exactly as before this fix.
   static Future<bool> reEnqueueSharedMessage(
     SharedCapturedMessage message,
+  ) async =>
+      await reEnqueueSharedMessageChecked(message) == null;
+
+  /// [reEnqueueSharedMessage] that says WHY a refused write was refused (null =
+  /// re-enqueued). The item goes back under its original [message.ownerUid] or
+  /// not at all (`ownerChanged`); `quotaExceeded` and `removalInProgress` leave
+  /// the queue untouched.
+  static Future<CaptureQueueFailure?> reEnqueueSharedMessageChecked(
+    SharedCapturedMessage message,
   ) async {
-    if (!Platform.isIOS) return false;
+    if (!Platform.isIOS) return CaptureQueueFailure.unavailable;
     try {
       await _channel.invokeMethod<void>('reEnqueueSharedMessage', {
         'text': message.text,
@@ -628,12 +963,14 @@ class NativeCaptureBridge {
         'failureReason': message.failureReason,
         'payloadId': message.id,
         'receivedAtInferred': message.receivedAtInferred,
+        'ownerUid': message.ownerUid,
+        'localOnly': message.localOnly,
       });
-      return true;
-    } on PlatformException {
-      return false;
+      return null;
+    } on PlatformException catch (e) {
+      return _failureForCode(e.code);
     } on MissingPluginException {
-      return false;
+      return CaptureQueueFailure.unavailable;
     }
   }
 

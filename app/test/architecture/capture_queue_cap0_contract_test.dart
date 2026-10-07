@@ -87,8 +87,13 @@ void main() {
       expect(remove, contains('SecItemDelete('));
     });
 
-    test('the queue format is unchanged (v2, AES-GCM blob)', () {
-      expect(store, contains('"pending_bank_messages_v2"'));
+    // CAP-6 (§4.2) deliberately moved the queue from the v2 UserDefaults blob
+    // to a v3 file; the encryption and the key are unchanged. P0's "queue
+    // format is unchanged (v2)" no longer holds once CAP-6 ships.
+    test('the queue blob is still AES-GCM under the same key (v3 file, v2 read only to migrate)', () {
+      expect(store, contains('"pending_bank_messages_v3.bin"'));
+      expect(store, contains('"pending_bank_messages_v2"'),
+          reason: 'the v2 blob is still read once, to migrate it');
       expect(store, contains('AES.GCM.seal'));
       expect(store, contains('capture_queue_key_v1'));
     });

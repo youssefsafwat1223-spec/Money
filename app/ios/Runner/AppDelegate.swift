@@ -266,12 +266,27 @@ enum ApnsEnvironment {
     )
     // CAP-0: a queue failure (key unreadable, lock unavailable, corrupt blob)
     // reaches Dart as a FlutterError — never a crash, never an "empty queue".
-    func queueResult(_ result: FlutterResult, _ body: () throws -> String?) {
+    // CAP-6: a refused write carries its own code (quota_exceeded,
+    // removal_in_progress, owner_changed) so Dart can tell it from a failure.
+    func queueResult(_ result: FlutterResult, _ body: () throws -> Any?) {
       do {
         result(try body())
       } catch {
-        result(FlutterError(code: "queue_unavailable", message: "\(error)", details: nil))
+        var code = "queue_unavailable"
+        switch error as? SharedCaptureStore.QueueError {
+        case .quotaExceeded?: code = "quota_exceeded"
+        case .barrierActive?: code = "removal_in_progress"
+        case .ownerChanged?: code = "owner_changed"
+        default: break
+        }
+        result(FlutterError(code: code, message: "\(error)", details: nil))
       }
+    }
+    func ownerMap(_ record: SharedCaptureStore.OwnerRecord?) -> [String: Any]? {
+      record.map { ["uid": $0.uid, "uidHash": $0.uidHash, "generation": $0.generation] }
+    }
+    func barrierMap(_ barrier: SharedCaptureStore.RemovalBarrier?) -> [String: Any]? {
+      barrier.map { ["nonce": $0.nonce, "uidHash": $0.uidHash, "startedAt": $0.startedAt] }
     }
     channel.setMethodCallHandler { call, result in
       switch call.method {
@@ -315,7 +330,8 @@ enum ApnsEnvironment {
           deviceSecret: args["deviceSecret"] as? String,
           backendURL: args["backendUrl"] as? String,
           anonKey: args["anonKey"] as? String,
-          aiConsentGranted: args["aiConsentGranted"] as? Bool ?? false
+          aiConsentGranted: args["aiConsentGranted"] as? Bool ?? false,
+          captureContractV2: args["captureContractV2"] as? Bool ?? false
         )
         result(nil)
       case "registerForRemoteNotifications":
@@ -376,10 +392,13 @@ enum ApnsEnvironment {
           failureReason: args["failureReason"] as? String,
           payloadID: args["payloadId"] as? String,
           receivedAtInferred: args["receivedAtInferred"] as? Bool,
-          notifyHost: false
+          notifyHost: false,
+          // CAP-6: the item goes back under its ORIGINAL owner or not at all.
+          requireOwnerUid: args["ownerUid"] as? String,
+          localOnly: args["localOnly"] as? Bool
         )
-        if case let .failed(reason, _) = outcome {
-          result(FlutterError(code: "reenqueue_failed", message: reason, details: nil))
+        if case let .failed(reason, kind) = outcome {
+          result(FlutterError(code: kind.bridgeCode, message: reason, details: nil))
         } else {
           result(nil)
         }
@@ -390,6 +409,95 @@ enum ApnsEnvironment {
           UIApplication.shared.open(url)
         }
         result(nil)
+      // ── CAP-6 owner record / unbound claim / Remove-data barrier ──────────
+      // Every call runs under the queue flock inside SharedCaptureStore.
+      case "publishCaptureOwner":
+        guard let uid = (call.arguments as? [String: Any])?["uid"] as? String,
+              !uid.isEmpty else {
+          result(FlutterError(code: "bad_args", message: "Expected uid.", details: nil))
+          return
+        }
+        queueResult(result) { ownerMap(try SharedCaptureStore.publishActiveOwner(uid: uid)) }
+      case "clearCaptureOwner":
+        let clearHint = (call.arguments as? [String: Any])?["clearHint"] as? Bool ?? false
+        queueResult(result) {
+          try SharedCaptureStore.clearActiveOwner(clearHint: clearHint)
+          return true
+        }
+      case "getCaptureOwner":
+        queueResult(result) { ownerMap(try SharedCaptureStore.activeOwner()) }
+      case "setCaptureConsentMirror":
+        guard let args = call.arguments as? [String: Any],
+              let uid = args["uid"] as? String,
+              let cloud = args["cloud"] as? Bool,
+              let ai = args["ai"] as? Bool,
+              let version = args["version"] as? Int else {
+          result(FlutterError(code: "bad_args", message: "Expected consent mirror fields.", details: nil))
+          return
+        }
+        queueResult(result) {
+          try SharedCaptureStore.setConsentMirror(uid: uid, cloud: cloud, ai: ai, version: version)
+          return true
+        }
+      case "unboundCaptureSummary":
+        guard let uid = (call.arguments as? [String: Any])?["uid"] as? String else {
+          result(FlutterError(code: "bad_args", message: "Expected uid.", details: nil))
+          return
+        }
+        queueResult(result) {
+          let summary = try SharedCaptureStore.unboundSummary(forUid: uid)
+          return ["ids": summary.ids, "senders": summary.senders, "count": summary.count]
+        }
+      case "claimUnboundCaptures", "discardUnboundCaptures":
+        guard let args = call.arguments as? [String: Any],
+              let uid = args["uid"] as? String,
+              let generation = args["generation"] as? Int,
+              let replicaOwnerUid = args["replicaOwnerUid"] as? String,
+              let sessionUid = args["sessionUid"] as? String,
+              let ids = args["ids"] as? [String] else {
+          result(FlutterError(code: "bad_args", message: "Expected claim fields.", details: nil))
+          return
+        }
+        let discard = call.method == "discardUnboundCaptures"
+        queueResult(result) {
+          let outcome: SharedCaptureStore.ClaimOutcome
+          if discard {
+            outcome = try SharedCaptureStore.discardUnbound(
+              uid: uid, generation: generation, replicaOwnerUid: replicaOwnerUid,
+              sessionUid: sessionUid, ids: ids)
+          } else {
+            outcome = try SharedCaptureStore.claimUnbound(
+              uid: uid, generation: generation, replicaOwnerUid: replicaOwnerUid,
+              sessionUid: sessionUid, ids: ids)
+          }
+          switch outcome {
+          case let .applied(count): return ["status": "applied", "count": count]
+          case .stale: return ["status": "stale", "count": 0]
+          case .ownerMismatch: return ["status": "owner_mismatch", "count": 0]
+          }
+        }
+      case "resolveLegacyCaptureItems":
+        let args = call.arguments as? [String: Any]
+        queueResult(result) {
+          try SharedCaptureStore.resolveLegacyItems(
+            consumedIds: args?["consumedIds"] as? [String] ?? [],
+            suspectedIds: args?["suspectedIds"] as? [String] ?? []
+          )
+        }
+      case "beginCaptureRemoval":
+        guard let uid = (call.arguments as? [String: Any])?["uid"] as? String else {
+          result(FlutterError(code: "bad_args", message: "Expected uid.", details: nil))
+          return
+        }
+        queueResult(result) { barrierMap(try SharedCaptureStore.beginRemoval(uid: uid)) }
+      case "getCaptureRemovalBarrier":
+        queueResult(result) { barrierMap(try SharedCaptureStore.removalBarrier()) }
+      case "finishCaptureRemoval":
+        guard let uid = (call.arguments as? [String: Any])?["uid"] as? String else {
+          result(FlutterError(code: "bad_args", message: "Expected uid.", details: nil))
+          return
+        }
+        queueResult(result) { try SharedCaptureStore.finishRemoval(uid: uid) }
       case "purgeAllCaptureState":
         // MALI-054n: wipe this identity's capture residue from the App Group.
         result(SharedCaptureStore.purgeUserOwnedState())

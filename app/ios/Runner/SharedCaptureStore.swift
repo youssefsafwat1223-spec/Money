@@ -16,7 +16,18 @@ enum SharedCaptureStore {
   static let pendingMessagesNotificationName =
     "com.youssefsafwat.mali.pendingBankMessages"
 
+  // Queue v3 (CAP-6) is an encrypted file in the App Group container. The v2
+  // UserDefaults blob is read ONLY to migrate it (§4.7) and is deliberately kept
+  // afterwards: the 7-day P2 rollback grace needs it (manifest §13).
   private static let queueKey = "pending_bank_messages_v2"
+  private static let queueFileName = "pending_bank_messages_v3.bin"
+  private static let barrierFileName = "capture_destructive_barrier_v1.json"
+  private static let migratedKey = "pending_bank_messages_v3_migrated"
+  private static let ownerGenerationKey = "capture_owner_generation_v1"
+  private static let consentMirrorKey = "capture_consent_mirror_v1"
+  private static let contractV2Key = "capture_contract_v2"
+  private static let expiredUnboundCountKey = "capture_unbound_expired_count_v1"
+  private static let expiredUnboundLastKey = "capture_unbound_expired_last_v1"
   private static let legacyKey = "pending_bank_message_text"
   private static let pendingCountKey = "pending_bank_messages_count"
   private static let latestPayloadIDKey = "pending_bank_messages_latest_id"
@@ -37,6 +48,27 @@ enum SharedCaptureStore {
   // AES-256 key that encrypts the raw-SMS capture queue at rest.
   private static let deviceSecretKC = "device_secret"
   private static let queueEncryptionKeyKC = "capture_queue_key_v1"
+  // CAP-6 (§4.2): the active owner record and the last-admitted hint live in the
+  // shared Keychain; `uidHmacKeyKC` keys the uidHash (HMAC-SHA256) so a hash is
+  // meaningless off this device.
+  private static let activeOwnerKC = "active_capture_owner_v1"
+  private static let lastAdmittedHashKC = "last_admitted_uid_hash_v1"
+  private static let uidHmacKeyKC = "capture_uid_hmac_key_v1"
+
+  // §4.5 queue quotas. These are the shipping values; changing any of them
+  // needs explicit approval (manifest §14.10).
+  static let ownerMaxItems = 500
+  static let ownerMaxBytes = 2 * 1024 * 1024
+  static let unboundMaxItems = 200
+  static let unboundMaxBytes = 512 * 1024
+  static let deviceMaxBytes = 8 * 1024 * 1024
+  /// Unbound items expire after this long (§4.5). Stamped items never expire by age.
+  static let unboundExpiryDays = 30
+
+  static let ownerStateStamped = "stamped"
+  static let ownerStateUnbound = "unbound"
+  static let originLegacyV2 = "legacy_v2"
+  static let reviewSuspectedAlreadyImported = "suspected_already_imported"
 
   private static var defaults: UserDefaults? {
     UserDefaults(suiteName: appGroupIdentifier)
@@ -65,12 +97,26 @@ enum SharedCaptureStore {
     /// captures.
     case unreadable
     case encodingFailed
+    /// The queue file could not be written or removed.
+    case storageWriteFailed
+    /// §4.5: a count or byte quota is exhausted. Nothing is ever evicted.
+    case quotaExceeded
+    /// §4.4: a Remove-data barrier is in force; the capture is refused visibly.
+    case barrierActive
+    /// The owner record is not the owner the caller required (stamp race).
+    case ownerChanged
   }
 
   /// Test seams (CAP-0), never set in production: the Keychain read of the
   /// queue key, and a forced lock failure.
   static var queueKeyReadOverride: (() -> (status: OSStatus, data: Data?))?
   static var lockUnavailableOverride = false
+  /// CAP-6 test seams: the owner-record Keychain read, and a hook invoked while
+  /// the queue flock is held during stamping (lets a test prove the lock).
+  static var ownerRecordReadOverride: (() -> (status: OSStatus, data: Data?))?
+  static var stampingHook: (() -> Void)?
+  /// CAP-6 test seam for the 30-day unbound expiry.
+  static var clockOverride: (() -> Date)?
 
   struct BackendConfig {
     let cloudProcessingEnabled: Bool
@@ -78,6 +124,9 @@ enum SharedCaptureStore {
     let deviceSecret: String?
     let backendURL: String?
     let anonKey: String?
+    /// Mirror of the server capability `capture_contract_v2`, set by Dart.
+    /// Default false: uploads stay on the legacy contract.
+    var captureContractV2: Bool = false
 
     var canUseBackend: Bool {
       cloudProcessingEnabled &&
@@ -133,6 +182,21 @@ enum SharedCaptureStore {
     /// The Keychain refused access because the iPhone has not been unlocked
     /// since it restarted (errSecInteractionNotAllowed).
     case deviceLocked
+    /// CAP-6 refusals. They reuse the approved storage copy below: NEW
+    /// user-visible copy needs approval (see the CAP-6a report for proposals).
+    case quotaFull
+    case removalInProgress
+    case ownerChanged
+
+    /// Method-channel error code for a refused re-enqueue.
+    var bridgeCode: String {
+      switch self {
+      case .quotaFull: return "quota_exceeded"
+      case .removalInProgress: return "removal_in_progress"
+      case .ownerChanged: return "owner_changed"
+      default: return "reenqueue_failed"
+      }
+    }
 
     /// User-facing copy (approved, R9). Arabic when the device's preferred
     /// language is Arabic, English otherwise. Never carries technical text.
@@ -143,7 +207,7 @@ enum SharedCaptureStore {
         return arabic
           ? "لم يصل نص رسالة البنك إلى قِرش. تأكد أن الاختصار يمرّر نص الرسالة، ثم حاول مرة أخرى."
           : "Qirsh didn't receive the bank message text. Make sure the Shortcut passes the message text, then try again."
-      case .storageUnavailable:
+      case .storageUnavailable, .quotaFull, .removalInProgress, .ownerChanged:
         return arabic
           ? "تعذر الوصول إلى بيانات قِرش الآمنة. افتح قِرش ثم حاول مرة أخرى."
           : "Qirsh couldn't access its secure storage. Open Qirsh, then try again."
@@ -165,13 +229,74 @@ enum SharedCaptureStore {
     let source: String?
     let receivedAt: String?
     let locale: String?
-    let status: String?
-    let failureReason: String?
-    let sentAt: String?
+    var status: String?
+    var failureReason: String?
+    var sentAt: String?
     let createdAt: String?
     /// True when the App Intent's Date Received parameter was missing and the
     /// receive time was inferred (R9). Optional so older builds still decode.
     let receivedAtInferred: Bool?
+
+    // Queue v3 ownership fields (§4.2). All optional so a v2-shaped record
+    // still decodes; Flutter ignores keys it does not know.
+    /// `stamped` (bound to `ownerUid`) or `unbound`.
+    var ownerState: String? = nil
+    var ownerUid: String? = nil
+    /// The owner-record generation this item was stamped under.
+    var ownerGeneration: Int? = nil
+    /// Unbound only: the last admitted uidHash (HMAC). A hint is never authority.
+    var ownerHint: String? = nil
+    /// When the item became unbound (the 30-day expiry runs from here).
+    var unboundAt: String? = nil
+    /// Non-financial annotation (`suspected_already_imported`), review only.
+    var reviewState: String? = nil
+    /// `legacy_v2` for items migrated from the v2 queue.
+    var origin: String? = nil
+    /// Bound by an explicit claim: never uploaded, never AI (§4.3).
+    var localOnly: Bool? = nil
+    /// Remove-data barrier tag (§4.4); swept with its barrier.
+    var barrierNonce: String? = nil
+  }
+
+  /// §4.2 active owner record, held in the shared Keychain.
+  struct OwnerRecord: Codable, Equatable {
+    let uid: String
+    let uidHash: String
+    let generation: Int
+  }
+
+  /// §4.4 destructive barrier, persisted so a crashed removal resumes.
+  struct RemovalBarrier: Codable, Equatable {
+    let nonce: String
+    let uidHash: String
+    let startedAt: String
+  }
+
+  /// What the App Intent may do with a persisted capture (§4.2 pre-upload re-check).
+  enum UploadDecision: Equatable {
+    /// Upload as `ownerUid`. `allowAi` is the owner's consent mirror, nil when
+    /// no mirror exists (the install-level flag then applies, as before).
+    case allowed(ownerUid: String, allowAi: Bool?)
+    /// Zero egress, zero AI; the capture stays on the device for a local parse.
+    case localOnly
+    /// Not this owner's to process now: no egress and no banner.
+    case waiting
+  }
+
+  enum ClaimOutcome: Equatable {
+    /// Number of items bound (claim) or deleted (discard).
+    case applied(Int)
+    /// Items changed since the prompt snapshot; NOTHING was mutated.
+    case stale
+    /// uid / owner record / generation / replica / session do not all agree;
+    /// NOTHING was mutated.
+    case ownerMismatch
+  }
+
+  struct UnboundSummary: Equatable {
+    let ids: [String]
+    let senders: [String]
+    var count: Int { ids.count }
   }
 
   /// Adds a captured bank message to the shared queue.
@@ -182,6 +307,12 @@ enum SharedCaptureStore {
   /// [notifyHost] is false only for Flutter's own re-enqueue of a message whose
   /// processing failed: posting the Darwin notification there would wake the
   /// host again immediately and loop drain → fail → re-enqueue → drain forever.
+  ///
+  /// CAP-6 (§4.2): the owner record is read, the item stamped, the quotas checked
+  /// and the item persisted in ONE critical section under the queue flock. With
+  /// no admitted owner the item is `unbound` (with the last-admitted hint unless
+  /// cleared); with a Remove-data barrier in force nothing is persisted.
+  /// [requireOwnerUid] (a re-enqueue) refuses when the active owner is not that uid.
   @discardableResult
   static func enqueue(
     text: String,
@@ -196,7 +327,9 @@ enum SharedCaptureStore {
     failureReason: String? = nil,
     payloadID: String? = nil,
     receivedAtInferred: Bool? = nil,
-    notifyHost: Bool = true
+    notifyHost: Bool = true,
+    requireOwnerUid: String? = nil,
+    localOnly: Bool? = nil
   ) -> EnqueueResult {
     guard defaults != nil else {
       return .failed("App Group storage is unavailable.", kind: .storageUnavailable)
@@ -242,7 +375,9 @@ enum SharedCaptureStore {
 
     do {
       return try withQueueLock {
-        var queue = try loadQueue()
+        stampingHook?()
+        guard try readBarrier() == nil else { throw QueueError.barrierActive }
+        var queue = try loadQueuePruned()
         if let existing = queue.first(where: { $0.id == payloadID }) {
           if notifyHost {
             notifyPendingMessagesAvailable()
@@ -250,9 +385,25 @@ enum SharedCaptureStore {
           return .duplicate(existing)
         }
 
-        queue.append(payload)
+        var stamped = payload
+        let owner = try readActiveOwner()
+        if let required = requireOwnerUid, normalizedUID(required) != owner?.uid {
+          throw QueueError.ownerChanged
+        }
+        if let owner = owner {
+          stamped.ownerState = ownerStateStamped
+          stamped.ownerUid = owner.uid
+          stamped.ownerGeneration = owner.generation
+        } else {
+          stamped.ownerState = ownerStateUnbound
+          stamped.ownerHint = try readLastAdmittedHash()
+          stamped.unboundAt = createdAtString
+        }
+        stamped.localOnly = localOnly
+        try checkQuotas(queue, adding: stamped)
+        queue.append(stamped)
         try saveQueue(queue, notifyHost: notifyHost)
-        return .enqueued(payload)
+        return .enqueued(stamped)
       }
     } catch {
       var kind = FailureKind.storageUnavailable
@@ -260,6 +411,9 @@ enum SharedCaptureStore {
          status == errSecInteractionNotAllowed {
         kind = .deviceLocked
       }
+      if case QueueError.quotaExceeded = error { kind = .quotaFull }
+      if case QueueError.barrierActive = error { kind = .removalInProgress }
+      if case QueueError.ownerChanged = error { kind = .ownerChanged }
       return .failed("Could not save the SMS payload (\(error)).", kind: kind)
     }
   }
@@ -282,22 +436,11 @@ enum SharedCaptureStore {
       guard let index = queue.firstIndex(where: { $0.id == payloadID }) else {
         return false
       }
-      let current = queue[index]
-      queue[index] = Payload(
-        id: current.id,
-        text: current.text,
-        sender: current.sender,
-        senderName: current.senderName,
-        senderId: current.senderId,
-        source: current.source,
-        receivedAt: current.receivedAt,
-        locale: current.locale,
-        status: status.rawValue,
-        failureReason: clean(failureReason),
-        sentAt: status == .sent ? isoFormatter.string(from: Date()) : current.sentAt,
-        createdAt: current.createdAt,
-        receivedAtInferred: current.receivedAtInferred
-      )
+      var item = queue[index]
+      item.status = status.rawValue
+      item.failureReason = clean(failureReason)
+      if status == .sent { item.sentAt = isoFormatter.string(from: Date()) }
+      queue[index] = item
       try saveQueue(queue, notifyHost: false)
       return true
     }) ?? false
@@ -317,11 +460,17 @@ enum SharedCaptureStore {
   }
 
   /// Returns true when the App Group queue currently has pending messages.
+  /// Only the ACTIVE owner's stamped items count: unbound items and items that
+  /// wait for another owner are not importable now (§4.2). Runs under the lock
+  /// because loading may migrate the v2 queue.
   static func hasPendingMessages() -> Bool {
-    (try? loadQueue())?.isEmpty == false ||
-      ((defaults?.string(forKey: legacyKey)?
+    (try? withQueueLock { () throws -> Bool in
+      let queue = try loadQueue()
+      if !importableItems(queue, owner: try readActiveOwner()).isEmpty { return true }
+      return defaults?.string(forKey: legacyKey)?
         .trimmingCharacters(in: .whitespacesAndNewlines)
-        .isEmpty) == false)
+        .isEmpty == false
+    }) ?? false
   }
 
   /// Returns the queue as JSON WITHOUT deleting anything (per-item lease,
@@ -335,32 +484,8 @@ enum SharedCaptureStore {
   /// legacy key is cleared.
   static func peekPendingPayloadsJSON() throws -> String? {
     try withQueueLock {
-      var queue = try loadQueue()
-      if let legacy = defaults?.string(forKey: legacyKey),
-         !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        let receivedAt = isoFormatter.string(from: Date())
-        queue.append(Payload(
-          id: makePayloadID(
-            text: legacy,
-            sender: nil,
-            senderName: nil,
-            senderID: nil,
-            source: "legacy",
-            receivedAt: receivedAt
-          ),
-          text: legacy,
-          sender: nil,
-          senderName: nil,
-          senderId: nil,
-          source: "legacy",
-          receivedAt: receivedAt,
-          locale: Locale.autoupdatingCurrent.identifier,
-          status: CaptureStatus.pending.rawValue,
-          failureReason: nil,
-          sentAt: nil,
-          createdAt: receivedAt,
-          receivedAtInferred: nil
-        ))
+      var queue = try loadQueuePruned()
+      if foldLegacyText(into: &queue) {
         // Persist the fold first; only then clear the legacy key so the text
         // is never in neither place.
         try saveQueue(queue, notifyHost: false)
@@ -371,7 +496,9 @@ enum SharedCaptureStore {
         updatePendingMetadata([])
         return nil
       }
-      guard let data = try? JSONEncoder().encode(queue),
+      let mine = importableItems(queue, owner: try readActiveOwner())
+      guard !mine.isEmpty,
+            let data = try? JSONEncoder().encode(mine),
             let json = String(data: data, encoding: .utf8) else {
         return nil
       }
@@ -379,50 +506,33 @@ enum SharedCaptureStore {
     }
   }
 
-  /// Drains the whole queue plus any legacy value and returns a JSON array.
+  /// Drains the ACTIVE owner's items (a legacy value is folded in as unbound and
+  /// so not returned) and returns a JSON array. Items stamped to another owner
+  /// and unbound items stay queued.
   ///
-  /// The queue is removed only after JSON encoding succeeds so messages are not
+  /// The items are removed only after JSON encoding succeeds so messages are not
   /// lost if encoding fails.
   static func consumePendingPayloadsJSON() throws -> String? {
     try withQueueLock {
-      var queue = try loadQueue()
-      if let legacy = defaults?.string(forKey: legacyKey),
-         !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-        let receivedAt = isoFormatter.string(from: Date())
-        queue.append(Payload(
-          id: makePayloadID(
-            text: legacy,
-            sender: nil,
-            senderName: nil,
-            senderID: nil,
-            source: "legacy",
-            receivedAt: receivedAt
-          ),
-          text: legacy,
-          sender: nil,
-          senderName: nil,
-          senderId: nil,
-          source: "legacy",
-          receivedAt: receivedAt,
-          locale: Locale.autoupdatingCurrent.identifier,
-          status: CaptureStatus.pending.rawValue,
-          failureReason: nil,
-          sentAt: nil,
-          createdAt: receivedAt,
-          receivedAtInferred: nil
-        ))
-      }
-      guard !queue.isEmpty else {
-        updatePendingMetadata([])
-        return nil
-      }
-      guard let data = try? JSONEncoder().encode(queue),
+      var queue = try loadQueuePruned()
+      let folded = foldLegacyText(into: &queue)
+      let owner = try readActiveOwner()
+      let mine = importableItems(queue, owner: owner)
+      guard !mine.isEmpty,
+            let data = try? JSONEncoder().encode(mine),
             let json = String(data: data, encoding: .utf8) else {
+        if folded {
+          try saveQueue(queue, notifyHost: false)
+          defaults?.removeObject(forKey: legacyKey)
+          defaults?.synchronize()
+        }
+        updatePendingMetadata(queue)
         return nil
       }
-      defaults?.removeObject(forKey: queueKey)
+      let mineIDs = Set(mine.compactMap { $0.id })
+      queue.removeAll(where: { mineIDs.contains($0.id ?? "") })
+      try saveQueue(queue, notifyHost: false)
       defaults?.removeObject(forKey: legacyKey)
-      updatePendingMetadata([])
       defaults?.synchronize()
       return json
     }
@@ -431,19 +541,20 @@ enum SharedCaptureStore {
   /// Backward-compatible single consume that returns the oldest text only.
   static func consumePendingText() throws -> String? {
     try withQueueLock {
-      var queue = try loadQueue()
-      if queue.isEmpty {
+      var queue = try loadQueuePruned()
+      let owner = try readActiveOwner()
+      guard let first = importableItems(queue, owner: owner).first else {
         if let legacy = defaults?.string(forKey: legacyKey),
            !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
           defaults?.removeObject(forKey: legacyKey)
-          updatePendingMetadata([])
+          updatePendingMetadata(queue)
           defaults?.synchronize()
           return legacy
         }
-        updatePendingMetadata([])
+        updatePendingMetadata(queue)
         return nil
       }
-      let first = queue.removeFirst()
+      queue.removeAll(where: { $0.id == first.id })
       try saveQueue(queue)
       return first.text
     }
@@ -455,7 +566,8 @@ enum SharedCaptureStore {
       installID: clean(defaults?.string(forKey: installIDKey)),
       deviceSecret: migratedDeviceSecret(),
       backendURL: clean(defaults?.string(forKey: backendURLKey)),
-      anonKey: clean(defaults?.string(forKey: anonKeyKey))
+      anonKey: clean(defaults?.string(forKey: anonKeyKey)),
+      captureContractV2: defaults?.bool(forKey: contractV2Key) ?? false
     )
   }
 
@@ -481,9 +593,11 @@ enum SharedCaptureStore {
     deviceSecret: String?,
     backendURL: String?,
     anonKey: String?,
-    aiConsentGranted: Bool
+    aiConsentGranted: Bool,
+    captureContractV2: Bool = false
   ) {
     defaults?.set(cloudProcessingEnabled, forKey: cloudProcessingEnabledKey)
+    defaults?.set(captureContractV2, forKey: contractV2Key)
     defaults?.set(aiConsentGranted, forKey: aiConsentGrantedKey)
     setOrRemove(installID, forKey: installIDKey)
     // MALI-031: device secret → shared Keychain only; never a UserDefaults
@@ -636,12 +750,156 @@ enum SharedCaptureStore {
   }
 
   private static func loadQueue() throws -> [Payload] {
-    guard let data = defaults?.data(forKey: queueKey) else { return [] }
-    // MALI-031: the blob is AES-GCM encrypted. A legacy plaintext-JSON blob is
-    // migrated transparently. CAP-0: a blob that cannot be read THROWS — it is
-    // never reported as an empty queue, because the next enqueue would then
-    // overwrite recoverable records. It is deliberately NOT deleted here.
-    return try decodeQueueBlob(data)
+    // MALI-031: the file holds an AES-GCM encrypted blob. CAP-0: a blob that
+    // cannot be read THROWS — it is never reported as an empty queue, because
+    // the next enqueue would then overwrite recoverable records. It is
+    // deliberately NOT deleted here. Callers hold the queue lock.
+    if let data = try readQueueFile() { return try decodeQueueBlob(data) }
+    return try migrateLegacyQueue()
+  }
+
+  /// `loadQueue` plus the §4.5 expiry: unbound items older than
+  /// `unboundExpiryDays` are removed (stamped items never expire by age) and a
+  /// content-free diagnostics counter is bumped. Callers hold the queue lock.
+  private static func loadQueuePruned(now: Date = clockOverride?() ?? Date()) throws -> [Payload] {
+    var queue = try loadQueue()
+    let cutoff = now.addingTimeInterval(-Double(unboundExpiryDays) * 86_400)
+    let before = queue.count
+    queue.removeAll(where: { item in
+      guard item.ownerState == ownerStateUnbound,
+            let since = (item.unboundAt ?? item.createdAt).flatMap(isoFormatter.date(from:))
+      else { return false }
+      return since < cutoff
+    })
+    let expired = before - queue.count
+    if expired > 0 {
+      try saveQueue(queue, notifyHost: false)
+      defaults?.set(
+        (defaults?.integer(forKey: expiredUnboundCountKey) ?? 0) + expired,
+        forKey: expiredUnboundCountKey
+      )
+      defaults?.set(isoFormatter.string(from: now), forKey: expiredUnboundLastKey)
+    }
+    return queue
+  }
+
+  /// §4.7: the v2 queue becomes v3 ONCE. Nothing is imported or dropped here.
+  /// Native cannot see the adopted replica, so every v2 item is quarantined as
+  /// `unbound` with NO hint (the legacy owner marker is never trusted); Dart
+  /// removes the ones its adopted replica proves consumed (receipt or
+  /// tx.id == capture_id) through `resolveLegacyItems`. Quotas do not apply: a
+  /// legacy item is never evicted. The v2 blob stays for the rollback grace.
+  private static func migrateLegacyQueue() throws -> [Payload] {
+    guard defaults?.bool(forKey: migratedKey) != true else { return [] }
+    guard let blob = defaults?.data(forKey: queueKey) else {
+      defaults?.set(true, forKey: migratedKey)
+      return []
+    }
+    let now = isoFormatter.string(from: Date())
+    let items = try decodeQueueBlob(blob).map { quarantinedLegacy($0, at: now) }
+    if !items.isEmpty { try saveQueue(items, notifyHost: false) }
+    defaults?.set(true, forKey: migratedKey)
+    return items
+  }
+
+  private static func quarantinedLegacy(_ item: Payload, at now: String) -> Payload {
+    var item = item
+    item.ownerState = ownerStateUnbound
+    item.ownerUid = nil
+    item.ownerGeneration = nil
+    item.ownerHint = nil
+    item.unboundAt = now
+    item.origin = originLegacyV2
+    return item
+  }
+
+  /// A pre-queue single-text value becomes a quarantined queue item.
+  private static func foldLegacyText(into queue: inout [Payload]) -> Bool {
+    guard let legacy = defaults?.string(forKey: legacyKey),
+          !legacy.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+      return false
+    }
+    let receivedAt = isoFormatter.string(from: Date())
+    queue.append(quarantinedLegacy(Payload(
+      id: makePayloadID(
+        text: legacy,
+        sender: nil,
+        senderName: nil,
+        senderID: nil,
+        source: "legacy",
+        receivedAt: receivedAt
+      ),
+      text: legacy,
+      sender: nil,
+      senderName: nil,
+      senderId: nil,
+      source: "legacy",
+      receivedAt: receivedAt,
+      locale: Locale.autoupdatingCurrent.identifier,
+      status: CaptureStatus.pending.rawValue,
+      failureReason: nil,
+      sentAt: nil,
+      createdAt: receivedAt,
+      receivedAtInferred: nil
+    ), at: receivedAt))
+    return true
+  }
+
+  /// §4.2 consumption rule: only items stamped to the ACTIVE owner are importable.
+  /// Unbound items and items stamped to another owner wait, invisible.
+  private static func importableItems(_ queue: [Payload], owner: OwnerRecord?) -> [Payload] {
+    guard let owner = owner else { return [] }
+    return queue.filter { $0.ownerState == ownerStateStamped && $0.ownerUid == owner.uid }
+  }
+
+  private static func queueFileURL() throws -> URL {
+    try appGroupContainerURL().appendingPathComponent(queueFileName)
+  }
+
+  private static func appGroupContainerURL() throws -> URL {
+    guard let url = FileManager.default.containerURL(
+      forSecurityApplicationGroupIdentifier: appGroupIdentifier
+    ) else {
+      throw QueueError.lockUnavailable
+    }
+    return url
+  }
+
+  /// nil only when the file does not exist; an existing file that cannot be read
+  /// throws (never "empty").
+  private static func readQueueFile() throws -> Data? {
+    let url = try queueFileURL()
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    guard let data = try? Data(contentsOf: url) else { throw QueueError.unreadable }
+    return data
+  }
+
+  /// §4.5 quotas over the queue AS IT WOULD BE after [item] is added; throws
+  /// before anything is written, and never evicts. Scope: the item's stamped
+  /// owner, or all unbound items, plus the device-wide byte cap.
+  private static func checkQuotas(_ queue: [Payload], adding item: Payload) throws {
+    func size(_ value: Payload) throws -> Int {
+      guard let data = try? JSONEncoder().encode(value) else { throw QueueError.encodingFailed }
+      return data.count
+    }
+    let stamped = item.ownerState == ownerStateStamped
+    let scope = queue.filter {
+      stamped
+        ? ($0.ownerState == ownerStateStamped && $0.ownerUid == item.ownerUid)
+        : ($0.ownerState == ownerStateUnbound)
+    }
+    var scopeBytes = 0
+    for value in scope { scopeBytes += try size(value) }
+    var deviceBytes = 0
+    for value in queue { deviceBytes += try size(value) }
+    let itemBytes = try size(item)
+    let maxItems = stamped ? ownerMaxItems : unboundMaxItems
+    let maxBytes = stamped ? ownerMaxBytes : unboundMaxBytes
+    if scope.count + 1 > maxItems
+      || scopeBytes + itemBytes > maxBytes
+      || deviceBytes + itemBytes > deviceMaxBytes {
+      throw QueueError.quotaExceeded
+    }
   }
 
   private static func loadNotificationRoutes() -> [NotificationRoutePayload] {
@@ -665,7 +923,9 @@ enum SharedCaptureStore {
   static func purgeUserOwnedState() -> Bool {
     do {
       try withQueueLock {
+        try removeQueueFile()
         defaults?.removeObject(forKey: queueKey)
+        defaults?.removeObject(forKey: migratedKey)
         defaults?.removeObject(forKey: legacyKey)
         defaults?.removeObject(forKey: pendingCountKey)
         defaults?.removeObject(forKey: latestPayloadIDKey)
@@ -674,6 +934,11 @@ enum SharedCaptureStore {
         defaults?.removeObject(forKey: deviceSecretKey) // legacy plaintext, if any
         SharedKeychain.remove(forKey: deviceSecretKC)
         SharedKeychain.remove(forKey: queueEncryptionKeyKC)
+        // A full wipe also forgets the owner and the hint. The Remove-data
+        // barrier is deliberately NOT cleared here; only its final sweep does.
+        SharedKeychain.remove(forKey: activeOwnerKC)
+        SharedKeychain.remove(forKey: lastAdmittedHashKC)
+        defaults?.removeObject(forKey: consentMirrorKey)
         defaults?.synchronize()
       }
     } catch {
@@ -706,16 +971,421 @@ enum SharedCaptureStore {
 
   private static func saveQueue(_ queue: [Payload], notifyHost: Bool = true) throws {
     if queue.isEmpty {
-      defaults?.removeObject(forKey: queueKey)
+      try removeQueueFile()
     } else {
       let data = try encodeQueueBlob(queue)
-      defaults?.set(data, forKey: queueKey)
+      // Temp file + rename (`.atomic`), readable after the first unlock.
+      do {
+        try data.write(
+          to: try queueFileURL(),
+          options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+        )
+      } catch let error as QueueError {
+        throw error
+      } catch {
+        throw QueueError.storageWriteFailed
+      }
     }
     updatePendingMetadata(queue)
     defaults?.synchronize()
     if notifyHost && !queue.isEmpty {
       notifyPendingMessagesAvailable()
     }
+  }
+
+  private static func removeQueueFile() throws {
+    let url = try queueFileURL()
+    guard FileManager.default.fileExists(atPath: url.path) else { return }
+    do {
+      try FileManager.default.removeItem(at: url)
+    } catch {
+      throw QueueError.storageWriteFailed
+    }
+  }
+
+  // MARK: - Owner record, hint, barrier (CAP-6, §4.2 / §4.4)
+  //
+  // Every function below that writes takes the queue flock, so the owner record
+  // can never change underneath an intent that is stamping or authorizing an
+  // upload. Reads that must agree with the queue also run under it.
+
+  static func normalizedUID(_ uid: String) -> String {
+    uid.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+  }
+
+  private static func readActiveOwner() throws -> OwnerRecord? {
+    let read = ownerRecordReadOverride?() ?? SharedKeychain.read(forKey: activeOwnerKC)
+    switch read.status {
+    case errSecSuccess:
+      guard let data = read.data,
+            let record = try? JSONDecoder().decode(OwnerRecord.self, from: data) else {
+        throw QueueError.keyUnavailable(errSecDecode)
+      }
+      return record
+    case errSecItemNotFound:
+      return nil
+    default:
+      // Before first unlock / Keychain unavailable: the capture is NOT persisted.
+      throw QueueError.keyUnavailable(read.status)
+    }
+  }
+
+  private static func readLastAdmittedHash() throws -> String? {
+    let read = SharedKeychain.read(forKey: lastAdmittedHashKC)
+    switch read.status {
+    case errSecSuccess:
+      return read.data.flatMap { String(data: $0, encoding: .utf8) }
+    case errSecItemNotFound:
+      return nil
+    default:
+      throw QueueError.keyUnavailable(read.status)
+    }
+  }
+
+  private static func writeKeychain(_ data: Data, forKey key: String) throws {
+    let status = SharedKeychain.writeData(data, forKey: key)
+    guard status == errSecSuccess else { throw QueueError.keyUnavailable(status) }
+  }
+
+  private static func removeKeychain(forKey key: String) throws {
+    let status = SharedKeychain.remove(forKey: key)
+    guard status == errSecSuccess || status == errSecItemNotFound else {
+      throw QueueError.keyUnavailable(status)
+    }
+  }
+
+  /// HMAC-SHA256 key for uidHash, created ONLY on errSecItemNotFound (the same
+  /// discipline as the queue key) and always under the queue flock.
+  private static func uidHmacKey() throws -> SymmetricKey {
+    let read = SharedKeychain.read(forKey: uidHmacKeyKC)
+    switch read.status {
+    case errSecSuccess:
+      guard let data = read.data, data.count == 32 else {
+        throw QueueError.keyUnavailable(errSecDecode)
+      }
+      return SymmetricKey(data: data)
+    case errSecItemNotFound:
+      var bytes = [UInt8](repeating: 0, count: 32)
+      guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+        throw QueueError.keyUnavailable(errSecAllocate)
+      }
+      let raw = Data(bytes)
+      try writeKeychain(raw, forKey: uidHmacKeyKC)
+      return SymmetricKey(data: raw)
+    default:
+      throw QueueError.keyUnavailable(read.status)
+    }
+  }
+
+  private static func uidHash(_ uid: String) throws -> String {
+    let mac = HMAC<SHA256>.authenticationCode(
+      for: Data(normalizedUID(uid).utf8),
+      using: try uidHmacKey()
+    )
+    return Data(mac).map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// The active owner record, or nil when no user is admitted.
+  static func activeOwner() throws -> OwnerRecord? {
+    try withQueueLock { try readActiveOwner() }
+  }
+
+  /// Publishes `{uid, uidHash, generation}` as the active owner and records the
+  /// uidHash as the last-admitted hint. Dart calls this ONLY after the replica is
+  /// admitted AND `link_capture_device(consent)` succeeded (§4.2). Re-publishing
+  /// the current owner is a no-op (the generation does not move). Refused while a
+  /// Remove-data barrier is in force.
+  @discardableResult
+  static func publishActiveOwner(uid: String) throws -> OwnerRecord {
+    try withQueueLock {
+      guard try readBarrier() == nil else { throw QueueError.barrierActive }
+      let normalized = normalizedUID(uid)
+      guard !normalized.isEmpty else { throw QueueError.ownerChanged }
+      if let current = try readActiveOwner(), current.uid == normalized { return current }
+      let hash = try uidHash(normalized)
+      let generation = (defaults?.integer(forKey: ownerGenerationKey) ?? 0) + 1
+      let record = OwnerRecord(uid: normalized, uidHash: hash, generation: generation)
+      guard let data = try? JSONEncoder().encode(record) else { throw QueueError.encodingFailed }
+      try writeKeychain(data, forKey: activeOwnerKC)
+      try writeKeychain(Data(hash.utf8), forKey: lastAdmittedHashKC)
+      defaults?.set(generation, forKey: ownerGenerationKey)
+      defaults?.synchronize()
+      return record
+    }
+  }
+
+  /// Clears the owner record (sign-out, or the start of an account transition).
+  /// [clearHint] true at a transition: captures during it are `unbound` with NO
+  /// hint. At a plain sign-out the hint stays so the same uid can recover them.
+  static func clearActiveOwner(clearHint: Bool) throws {
+    try withQueueLock {
+      try removeKeychain(forKey: activeOwnerKC)
+      if clearHint { try removeKeychain(forKey: lastAdmittedHashKC) }
+    }
+  }
+
+  /// Per-owner consent mirror (advisory; read by the intent for the stamped
+  /// owner only). Keyed by uidHash; deleted by the Remove-data sweep.
+  static func setConsentMirror(uid: String, cloud: Bool, ai: Bool, version: Int) throws {
+    try withQueueLock {
+      let hash = try uidHash(uid)
+      var mirror = defaults?.dictionary(forKey: consentMirrorKey) ?? [:]
+      mirror[hash] = ["cloud": cloud, "ai": ai, "version": version]
+      defaults?.set(mirror, forKey: consentMirrorKey)
+      defaults?.synchronize()
+    }
+  }
+
+  private static func consentMirror(forHash hash: String) -> (cloud: Bool, ai: Bool)? {
+    guard let entry = defaults?.dictionary(forKey: consentMirrorKey)?[hash] as? [String: Any],
+          let cloud = entry["cloud"] as? Bool,
+          let ai = entry["ai"] as? Bool else {
+      return nil
+    }
+    return (cloud, ai)
+  }
+
+  /// §4.2 "before any upload": re-reads `{uid, generation}` under the flock and
+  /// allows the upload only if it is still the one the item was stamped under and
+  /// the stamped owner's consent mirror permits cloud. Fails closed.
+  static func authorizeUpload(payloadID: String) -> UploadDecision {
+    (try? withQueueLock { () throws -> UploadDecision in
+      guard try readBarrier() == nil else { return .waiting }
+      guard let item = try loadQueue().first(where: { $0.id == payloadID }) else {
+        return .waiting
+      }
+      if item.ownerState == ownerStateUnbound { return .localOnly }
+      guard item.ownerState == ownerStateStamped,
+            let uid = item.ownerUid,
+            let generation = item.ownerGeneration,
+            let owner = try readActiveOwner(),
+            owner.uid == uid, owner.generation == generation else {
+        return .waiting
+      }
+      if item.localOnly == true { return .localOnly }
+      if let mirror = consentMirror(forHash: owner.uidHash) {
+        return mirror.cloud ? .allowed(ownerUid: uid, allowAi: mirror.ai) : .localOnly
+      }
+      return .allowed(ownerUid: uid, allowAi: nil)
+    }) ?? .waiting
+  }
+
+  // MARK: Unbound recovery (§4.3)
+
+  /// Count/senders of the unbound items whose hint is HMAC([uid]). Items without
+  /// a hint, or hinted to another uid, are never reported.
+  static func unboundSummary(forUid uid: String) throws -> UnboundSummary {
+    try withQueueLock {
+      let hash = try uidHash(uid)
+      let mine = try loadQueuePruned().filter {
+        $0.ownerState == ownerStateUnbound && $0.ownerHint == hash
+      }
+      let senders = Array(Set(mine.compactMap { $0.sender })).sorted()
+      return UnboundSummary(ids: mine.compactMap { $0.id }, senders: senders)
+    }
+  }
+
+  /// "Add them to my account": binds the [ids] snapshot under the flock iff every
+  /// item is still unbound AND hinted to [uid], the active owner record is
+  /// exactly `{uid, generation}`, and replica owner and session uid both equal
+  /// [uid]. Otherwise nothing is mutated. Bound items are `localOnly`: they never
+  /// upload and never use AI.
+  static func claimUnbound(
+    uid: String,
+    generation: Int,
+    replicaOwnerUid: String,
+    sessionUid: String,
+    ids: [String]
+  ) throws -> ClaimOutcome {
+    try casUnbound(uid, generation, replicaOwnerUid, sessionUid, ids) { queue, indexes, owner in
+      for index in indexes {
+        queue[index].ownerState = ownerStateStamped
+        queue[index].ownerUid = owner.uid
+        queue[index].ownerGeneration = owner.generation
+        queue[index].ownerHint = nil
+        queue[index].unboundAt = nil
+        queue[index].localOnly = true
+        if queue[index].status == CaptureStatus.pendingSend.rawValue {
+          queue[index].status = CaptureStatus.sent.rawValue
+        }
+      }
+    }
+  }
+
+  /// "Discard them": the same CAS, then deletes the items.
+  static func discardUnbound(
+    uid: String,
+    generation: Int,
+    replicaOwnerUid: String,
+    sessionUid: String,
+    ids: [String]
+  ) throws -> ClaimOutcome {
+    try casUnbound(uid, generation, replicaOwnerUid, sessionUid, ids) { queue, indexes, _ in
+      for index in indexes.sorted(by: >) { queue.remove(at: index) }
+    }
+  }
+
+  private static func casUnbound(
+    _ uid: String,
+    _ generation: Int,
+    _ replicaOwnerUid: String,
+    _ sessionUid: String,
+    _ ids: [String],
+    apply: (inout [Payload], [Int], OwnerRecord) -> Void
+  ) throws -> ClaimOutcome {
+    try withQueueLock {
+      guard try readBarrier() == nil else { throw QueueError.barrierActive }
+      let target = normalizedUID(uid)
+      guard normalizedUID(replicaOwnerUid) == target,
+            normalizedUID(sessionUid) == target,
+            let owner = try readActiveOwner(),
+            owner.uid == target, owner.generation == generation else {
+        return .ownerMismatch
+      }
+      let hash = try uidHash(target)
+      var queue = try loadQueuePruned()
+      let wanted = Set(ids)
+      let indexes = queue.indices.filter { wanted.contains(queue[$0].id ?? "") }
+      guard !wanted.isEmpty, indexes.count == wanted.count,
+            indexes.allSatisfy({
+              queue[$0].ownerState == ownerStateUnbound && queue[$0].ownerHint == hash
+            }) else {
+        return .stale
+      }
+      apply(&queue, indexes, owner)
+      try saveQueue(queue, notifyHost: false)
+      return .applied(indexes.count)
+    }
+  }
+
+  // MARK: Legacy v2 provenance (§4.7)
+
+  /// Dart's adopted-replica verdict on migrated items: [consumedIds] (receipt
+  /// `capture_payload:<id>` or tx.id == capture_id) are removed; [suspectedIds]
+  /// (fingerprint match) get the non-financial `suspected_already_imported`
+  /// annotation. Only `legacy_v2` unbound items are touched; nothing is bound.
+  @discardableResult
+  static func resolveLegacyItems(consumedIds: [String], suspectedIds: [String]) throws -> Int {
+    try withQueueLock {
+      var queue = try loadQueue()
+      let consumed = Set(consumedIds)
+      let suspected = Set(suspectedIds)
+      let before = queue.count
+      func isLegacy(_ item: Payload) -> Bool {
+        item.origin == originLegacyV2 && item.ownerState == ownerStateUnbound
+      }
+      queue.removeAll(where: { isLegacy($0) && consumed.contains($0.id ?? "") })
+      for index in queue.indices
+      where isLegacy(queue[index]) && suspected.contains(queue[index].id ?? "") {
+        queue[index].reviewState = reviewSuspectedAlreadyImported
+      }
+      try saveQueue(queue, notifyHost: false)
+      return before - queue.count
+    }
+  }
+
+  // MARK: Remove-data barrier (§4.4)
+
+  private static func readBarrier() throws -> RemovalBarrier? {
+    let url = try appGroupContainerURL().appendingPathComponent(barrierFileName)
+    guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+    // An unreadable barrier fails closed: the capture is refused, not persisted.
+    guard let data = try? Data(contentsOf: url),
+          let barrier = try? JSONDecoder().decode(RemovalBarrier.self, from: data) else {
+      throw QueueError.unreadable
+    }
+    return barrier
+  }
+
+  /// Step 1 of Remove data for [uid]: under the flock, persist the barrier and
+  /// clear the owner record if it is [uid]'s. From now on the intent fails
+  /// visibly instead of persisting. Idempotent for the same uid (a resumed removal).
+  static func beginRemoval(uid: String) throws -> RemovalBarrier {
+    try withQueueLock {
+      let target = normalizedUID(uid)
+      let hash = try uidHash(target)
+      let barrier: RemovalBarrier
+      if let existing = try readBarrier() {
+        guard existing.uidHash == hash else { throw QueueError.barrierActive }
+        barrier = existing
+      } else {
+        barrier = RemovalBarrier(
+          nonce: UUID().uuidString.lowercased(),
+          uidHash: hash,
+          startedAt: isoFormatter.string(from: Date())
+        )
+        guard let data = try? JSONEncoder().encode(barrier) else { throw QueueError.encodingFailed }
+        do {
+          try data.write(
+            to: try appGroupContainerURL().appendingPathComponent(barrierFileName),
+            options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication]
+          )
+        } catch let error as QueueError {
+          throw error
+        } catch {
+          throw QueueError.storageWriteFailed
+        }
+      }
+      if let owner = try readActiveOwner(), owner.uid == target {
+        try removeKeychain(forKey: activeOwnerKC)
+      }
+      return barrier
+    }
+  }
+
+  /// The barrier in force, if any. A launch that finds one resumes the removal
+  /// from step 2 (replica teardown), then calls `finishRemoval`.
+  static func removalBarrier() throws -> RemovalBarrier? {
+    try withQueueLock { try readBarrier() }
+  }
+
+  /// Step 5 of Remove data: the final sweep under the flock. Deletes every item
+  /// owned by, hinted to, or created at/after the barrier start of [uid]'s
+  /// removal (or tagged with its nonce), drops the uid's consent mirror and
+  /// last-admitted hint, and clears the barrier LAST so a crash re-runs this
+  /// idempotently. Returns the number of items deleted.
+  @discardableResult
+  static func finishRemoval(uid: String) throws -> Int {
+    try withQueueLock {
+      guard let barrier = try readBarrier() else { return 0 }
+      let target = normalizedUID(uid)
+      let hash = try uidHash(target)
+      guard barrier.uidHash == hash else { throw QueueError.barrierActive }
+      var queue = try loadQueue()
+      let started = isoFormatter.date(from: barrier.startedAt)
+      let before = queue.count
+      queue.removeAll(where: { item in
+        if item.ownerUid == target || item.ownerHint == hash { return true }
+        if item.barrierNonce == barrier.nonce { return true }
+        if let started = started,
+           let created = item.createdAt.flatMap(isoFormatter.date(from:)),
+           created >= started {
+          return true
+        }
+        return false
+      })
+      try saveQueue(queue, notifyHost: false)
+      if try readLastAdmittedHash() == hash { try removeKeychain(forKey: lastAdmittedHashKC) }
+      if let owner = try readActiveOwner(), owner.uid == target {
+        try removeKeychain(forKey: activeOwnerKC)
+      }
+      var mirror = defaults?.dictionary(forKey: consentMirrorKey) ?? [:]
+      mirror.removeValue(forKey: hash)
+      defaults?.set(mirror, forKey: consentMirrorKey)
+      defaults?.synchronize()
+      let url = try appGroupContainerURL().appendingPathComponent(barrierFileName)
+      do {
+        try FileManager.default.removeItem(at: url)
+      } catch {
+        throw QueueError.storageWriteFailed
+      }
+      return before - queue.count
+    }
+  }
+
+  /// Every queued item, for diagnostics and tests. Content-bearing: never log it.
+  static func queueSnapshot() throws -> [Payload] {
+    try withQueueLock { try loadQueue() }
   }
 
   private static func updatePendingMetadata(_ queue: [Payload]) {
@@ -919,7 +1589,8 @@ private enum SharedKeychain {
     return String(data: data, encoding: .utf8)
   }
 
-  static func remove(forKey key: String) {
+  @discardableResult
+  static func remove(forKey key: String) -> OSStatus {
     SecItemDelete(baseQuery(key) as CFDictionary)
   }
 }

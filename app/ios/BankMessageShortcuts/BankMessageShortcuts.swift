@@ -100,7 +100,37 @@ struct PostBankStatusIntent: AppIntent {
         return .result()
       }
 
-      let attempt = await processBackend(request, payloadID: payloadID, config: config)
+      // CAP-6 (§4.2): re-read the owner under the queue flock. Only a capture
+      // still stamped to the ACTIVE owner may leave the device; an unbound
+      // capture (no admitted user), a locally-bound one, or an owner whose cloud
+      // consent mirror is off stays on the device with zero egress and zero AI.
+      let ownerUid: String
+      let mirrorAllowsAi: Bool?
+      switch SharedCaptureStore.authorizeUpload(payloadID: payloadID) {
+      case let .allowed(uid, allowAi):
+        ownerUid = uid
+        mirrorAllowsAi = allowAi
+      case .localOnly:
+        _ = SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)
+        await scheduleLocalParsedOrGenericNotification(
+          payloadID: payloadID,
+          offersSmartAnalysis: true
+        )
+        return .result()
+      case .waiting:
+        // Not this owner's to process now (the owner changed, or a removal is in
+        // progress). Durably queued; it waits and no banner is shown.
+        _ = SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)
+        return .result()
+      }
+
+      let attempt = await processBackend(
+        request,
+        payloadID: payloadID,
+        config: config,
+        ownerUid: ownerUid,
+        allowAi: mirrorAllowsAi
+      )
       if let response = attempt.response {
         // H-19: do NOT remove the durable local copy on backend success. The
         // relay row in processed_captures is swept unconditionally at 30 days
@@ -159,15 +189,21 @@ struct PostBankStatusIntent: AppIntent {
   private func processBackend(
     _ request: BankSMSCaptureRequest,
     payloadID: String,
-    config: SharedCaptureStore.BackendConfig
+    config: SharedCaptureStore.BackendConfig,
+    ownerUid: String,
+    allowAi: Bool?
   ) async -> (response: BackendCaptureResponse?, failureReason: String?) {
     let client = BackendCaptureClient(config: config)
     do {
-      return (try await client.process(request, payloadID: payloadID), nil)
+      return (try await client.process(
+        request, payloadID: payloadID, ownerUid: ownerUid, allowAi: allowAi
+      ), nil)
     } catch {
       guard Self.isTimeoutShaped(error) else { return (nil, "\(error)") }
       do {
-        return (try await client.process(request, payloadID: payloadID), nil)
+        return (try await client.process(
+          request, payloadID: payloadID, ownerUid: ownerUid, allowAi: allowAi
+        ), nil)
       } catch {
         return (nil, "retry_after_timeout: \(error)")
       }
@@ -535,7 +571,9 @@ struct BackendCaptureClient {
 
   func process(
     _ request: BankSMSCaptureRequest,
-    payloadID: String
+    payloadID: String,
+    ownerUid: String? = nil,
+    allowAi: Bool? = nil
   ) async throws -> BackendCaptureResponse {
     guard config.canUseBackend,
           let backendURL = config.backendURL,
@@ -555,7 +593,7 @@ struct BackendCaptureClient {
     urlRequest.setValue(anonKey, forHTTPHeaderField: "apikey")
     urlRequest.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
     let sanitized = try Self.sanitize(request.smsText)
-    let body: [String: Any] = [
+    var body: [String: Any] = [
       "payloadId": payloadID,
       "installId": installID,
       "deviceSecret": deviceSecret,
@@ -568,9 +606,17 @@ struct BackendCaptureClient {
       "tzOffsetMinutes": TimeZone.current.secondsFromGMT() / 60,
       "locale": request.localeIdentifier ?? Locale.autoupdatingCurrent.identifier,
       "source": "ios_shortcut",
-      "allowAi": UserDefaults(suiteName: SharedCaptureStore.appGroupIdentifier)?
+      // The owner's consent mirror wins; without one the install-level flag
+      // applies exactly as before CAP-6.
+      "allowAi": allowAi ?? UserDefaults(suiteName: SharedCaptureStore.appGroupIdentifier)?
         .bool(forKey: "ai_consent_granted") ?? false
     ]
+    // §4.1 v2 contract: every upload carries the stamped owner_uid. Only when the
+    // server capability is mirrored on; otherwise the legacy body is unchanged.
+    if config.captureContractV2, let ownerUid {
+      body["schema_version"] = 2
+      body["owner_uid"] = ownerUid
+    }
     urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
     let (data, response) = try await URLSession.shared.data(for: urlRequest)
