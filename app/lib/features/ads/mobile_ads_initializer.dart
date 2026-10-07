@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../core/privacy/cloud_egress_gate.dart';
+
 /// One-time Google Mobile Ads SDK initialization, shared by every ad format.
 ///
 /// This used to live as a private instance method with a private static latch
@@ -30,9 +32,23 @@ class MobileAdsInitializer {
 
   /// Initialize once. Never throws: a failure leaves [isInitialized] false and
   /// callers simply get no ad, which every caller already treats as normal.
-  static Future<void> ensureInitialized() {
-    if (_initialized) return Future<void>.value();
+  static Future<void> ensureInitialized() async {
+    if (_initialized) return;
+    // Astra H2.5: the Ads SDK is network egress to Google. No initialize (and
+    // therefore no ad load) unless the egress gate permits: resolved, a durable
+    // ON record, no freeze. The callers already treat "not initialized" as "no
+    // ad", which is the product behaviour while Cloud is OFF.
+    if (!await mayServe()) return;
     return _inFlight ??= _run();
+  }
+
+  /// Whether ad/UMP network may run right now. Every ad entry point asks this.
+  static Future<bool> mayServe() async {
+    try {
+      return await CloudEgressGate.instance.permits();
+    } catch (_) {
+      return false;
+    }
   }
 
   static Future<void> _run() async {

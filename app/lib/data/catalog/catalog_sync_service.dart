@@ -102,7 +102,12 @@ class CatalogSyncService {
           ? data
           : data is Map && data['flags'] is List
               ? data['flags'] as List
-              : <Object?>[];
+              : null;
+      // Astra H2.4: a missing/unrecognised envelope is a FAILURE, never "no
+      // flags". `replaceAll` deletes the cache first, so treating it as empty
+      // would revert every cached disabled flag/kill switch to its default (a
+      // default of true re-enables it). The previous cache is preserved.
+      if (items == null) return;
       final flags = items
           .whereType<Map<Object?, Object?>>()
           .map((m) => m.map((k, v) => MapEntry(k.toString(), v)))
@@ -133,7 +138,10 @@ class CatalogSyncService {
           ? data
           : data is Map && data['announcements'] is List
               ? data['announcements'] as List
-              : <Object?>[];
+              : null;
+      // Astra H2.4: same rule — an unrecognised envelope must not wipe a cached
+      // force-update/maintenance announcement (that would be more permissive).
+      if (items == null) return;
       final announcements = items
           .whereType<Map<Object?, Object?>>()
           .map((m) => m.map((k, v) => MapEntry(k.toString(), v)))

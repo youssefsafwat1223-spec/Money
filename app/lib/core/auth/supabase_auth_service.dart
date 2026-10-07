@@ -114,11 +114,17 @@ class SupabaseAuthService implements AuthService {
   final supabase.SupabaseClient _client;
   final GoogleSignIn _googleSignIn;
 
-  /// ESCALATED (Astra G): interactive sign-in / re-authentication is the one
-  /// explicit-user-action exception to the persistent OFF gate. Automatic token
-  /// refresh is never admitted.
-  Future<T> _userInitiated<T>(Future<T> Function() body) =>
-      CloudEgressGate.instance.runUserInitiated(body);
+  /// ESCALATED (Astra H2.1): interactive sign-in / re-authentication is an
+  /// explicit account-control operation, the only network allowed while Cloud is
+  /// OFF. The grant starts HERE, immediately before the Supabase exchange and
+  /// after the native Google/Apple UI returned (the native UI runs only on an
+  /// explicit tap). It is scoped to the sign-in endpoints, expires on a
+  /// monotonic TTL, ends in `finally`, and never enables Cloud or widens any
+  /// consent. The app has one interactive surface (also used when a session
+  /// expired), so [AccountControlOp.signIn] covers re-authentication too; the
+  /// two ops carry identical allowlists.
+  Future<T> _accountControl<T>(Future<T> Function() body) =>
+      CloudEgressGate.instance.runAccountControl(AccountControlOp.signIn, body);
 
   @override
   Future<void> signOutProviderSession() => _googleSignIn.signOut();
@@ -144,7 +150,7 @@ class SupabaseAuthService implements AuthService {
     // inside the id_token without exposing the raw value, so we can't pass a
     // matching nonce here. Supabase's Google provider must have "Skip nonce
     // checks" enabled for this native flow to be accepted.
-    final response = await _userInitiated(() => _client.auth.signInWithIdToken(
+    final response = await _accountControl(() => _client.auth.signInWithIdToken(
           provider: supabase.OAuthProvider.google,
           idToken: idToken,
           accessToken: auth.accessToken,
@@ -199,7 +205,7 @@ class SupabaseAuthService implements AuthService {
       throw const AuthException('لم نستطع قراءة رمز دخول Apple.');
     }
 
-    final response = await _userInitiated(() => _client.auth.signInWithIdToken(
+    final response = await _accountControl(() => _client.auth.signInWithIdToken(
           provider: supabase.OAuthProvider.apple,
           idToken: identityToken,
           // The RAW nonce for THIS attempt. The backend re-hashes it and compares
@@ -222,7 +228,7 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<void> sendEmailCode(String email) async {
-    await _userInitiated(() => _client.auth.signInWithOtp(email: email));
+    await _accountControl(() => _client.auth.signInWithOtp(email: email));
   }
 
   @override
@@ -231,7 +237,7 @@ class SupabaseAuthService implements AuthService {
     required String code,
   }) async {
     final token = code.replaceAll(RegExp(r'\s'), '');
-    final response = await _userInitiated(() => _client.auth.verifyOTP(
+    final response = await _accountControl(() => _client.auth.verifyOTP(
           email: email,
           token: token,
           type: supabase.OtpType.email,

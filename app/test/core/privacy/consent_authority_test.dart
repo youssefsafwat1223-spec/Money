@@ -103,7 +103,7 @@ void main() {
   // Astra G (P1), updated truthfully: the former "never gated" exceptions are
   // gone. Catalog follows cloud consent like everything else; auth is never an
   // automatic decision (an explicit user action goes through
-  // CloudEgressGate.runUserInitiated).
+  // CloudEgressGate.runAccountControl).
   group('no automatic catalog/auth exception', () {
     test('catalog is denied with consent OFF and allowed only with consent ON',
         () {

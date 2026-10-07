@@ -6,7 +6,8 @@ import '../di/rebootstrap_providers.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart' show WidgetsBinding;
+import 'package:flutter/widgets.dart'
+    show AppLifecycleState, WidgetsBinding, WidgetsBindingObserver;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/catalog/seed_loader.dart';
@@ -167,23 +168,27 @@ class BootstrapRunner {
         // frame on a network round-trip. Required before session binding (owner
         // identity), so it stays on the critical path.
         // Every Supabase request (auth, postgrest, functions, storage) goes
-        // through the gated transport: while Cloud is OFF nothing automatic
-        // (token refresh, catalog, metrics) is admitted.
+        // through the gated transport. Astra H2.3: the gate is UNRESOLVED here
+        // (the egress reconciliation runs in `capture_registration`, once the
+        // replica is open), so it denies EVERYTHING — the restore of an expired
+        // session, gotrue's own refresh retries and the recovery timer reach
+        // nothing. `autoRefreshToken: false` is deliberately NOT used: gotrue's
+        // `recoverSession` (gotrue_client.dart:1127-1133) signs the user OUT
+        // locally when the persisted token is expired and auto-refresh is off,
+        // i.e. on nearly every cold start after an hour. Instead the ticker the
+        // SDK starts is stopped immediately below and (re)started only when the
+        // gate permits (onPermitChanged / the resume guard).
         await Supabase.initialize(
           url: SupabaseConfig.url,
           anonKey: SupabaseConfig.anonKey,
           httpClient: GatedHttpClient(),
         );
         _supabaseInitialized = true;
-        if (!await egressGate.permits()) {
-          Supabase.instance.client.auth.stopAutoRefresh();
-        }
+        final auth = Supabase.instance.client.auth;
+        auth.stopAutoRefresh();
+        _resumeGuard ??= _AutoRefreshResumeGuard()..attach();
+        if (await egressGate.permits()) auth.startAutoRefresh();
       });
-      // B2-C — the `app_open` metric is a REMOTE, best-effort telemetry RPC. Fire
-      // it off the critical path so the first financial frame never waits on it
-      // (nor on its offline timeout). logEvent already no-ops when there is no
-      // authenticated session and swallows its own errors.
-      unawaited(MetricsClient().logEvent('app_open'));
     }
 
     await _step('session_restore', () async {
@@ -242,6 +247,11 @@ class BootstrapRunner {
     // the return.
     localFinancialUiUsable.value = true;
     unawaited(_runDeferredStartupWork());
+    // B2-C — the `app_open` metric is a REMOTE, best-effort telemetry RPC, fired
+    // off the critical path. Astra H2.3: only when the gate PERMITS (resolved and
+    // a durable ON record), so it is checked here, after the reconciliation, and
+    // never at Supabase init.
+    if (SupabaseConfig.isConfigured) unawaited(_logAppOpenIfPermitted());
 
     if (kDebugMode) {
       debugPrint(
@@ -250,6 +260,17 @@ class BootstrapRunner {
     }
     return database;
   }
+
+  Future<void> _logAppOpenIfPermitted() async {
+    try {
+      if (!await CloudEgressGate.instance.permits()) return;
+      await MetricsClient().logEvent('app_open');
+    } catch (_) {
+      // Best-effort telemetry; never surfaces.
+    }
+  }
+
+  _AutoRefreshResumeGuard? _resumeGuard;
 
   /// WP-3b — the per-account startup steps. Run by the account-scope host on
   /// EVERY database it opens (launch, sign-in of another uid, sign-out), before
@@ -766,4 +787,25 @@ StreamSubscription<AuthState> _startSenderBankMappingSync(
         return;
     }
   });
+}
+
+/// Astra H2.3: `supabase_flutter` calls `startAutoRefresh()` on EVERY app resume
+/// (supabase_auth.dart `didChangeAppLifecycleState`), whatever Cloud says. Right
+/// after that observer ran, this one stops the ticker again unless the gate
+/// permits, so a resume while OFF / unresolved / DISABLING schedules no refresh.
+/// (The transport would deny the refresh anyway; this keeps the timer from
+/// existing.)
+class _AutoRefreshResumeGuard with WidgetsBindingObserver {
+  void attach() => WidgetsBinding.instance.addObserver(this);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) return;
+    unawaited(() async {
+      try {
+        if (await CloudEgressGate.instance.permits()) return;
+        Supabase.instance.client.auth.stopAutoRefresh();
+      } catch (_) {}
+    }());
+  }
 }

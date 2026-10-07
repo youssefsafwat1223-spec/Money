@@ -274,8 +274,19 @@ void main() {
         },
       );
 
-  Future<void> save({ConsentState? cloud, ConsentState? ai}) async {
+  Future<void> save(
+      {ConsentState? cloud, ConsentState? ai, bool enable = true}) async {
     final s = await repo.getSettings();
+    // Astra H2.2: Cloud becomes ON only through an explicit enable, which also
+    // writes the durable ON record. A test that grants consent models that.
+    if (enable &&
+        (cloud == ConsentState.accepted || ai == ConsentState.accepted)) {
+      final cur = (await egress.gate.view(owner: replicaOwner ?? '')).record;
+      if (cur == null || cur.state != EgressState.on) {
+        await egress.gate
+            .enable(owner: replicaOwner ?? '', reservedVersion: s.consentVersion + 1);
+      }
+    }
     await repo
         .saveSettings(s.copyWith(cloudConsentState: cloud, aiConsentState: ai));
   }
@@ -729,7 +740,7 @@ void main() {
       // honoured; it is reverted to OFF and nothing is sent.
       session = (uid: 'uid-a', jwt: 'jwt-a');
       replicaOwner = 'uid-a';
-      await save(cloud: ConsentState.accepted);
+      await save(cloud: ConsentState.accepted, enable: false);
       await relaunched.syncBackendState();
       expect(calls, isEmpty);
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
@@ -1225,6 +1236,8 @@ void main() {
       await s.syncBackendState(); // A linked
       session = (uid: 'uid-b', jwt: 'jwt-b');
       replicaOwner = 'uid-b';
+      // B explicitly enabled Cloud (Astra H2.2: no adoption of an absent record).
+      await egress.gate.enable(owner: 'uid-b', reservedVersion: 5);
       await s.syncBackendState(); // B links: the single ack slot is now B's
       session = (uid: 'uid-a', jwt: 'jwt-a');
       replicaOwner = 'uid-a';

@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
 import '../../features/capture/services/native_capture_bridge.dart';
+import '../backend/supabase_config.dart';
 import '../security/secure_storage_options.dart';
 import 'consent_authority.dart';
 
@@ -37,9 +38,23 @@ import 'consent_authority.dart';
 /// short in-process lock, reads the durable state and registers the request in
 /// the in-flight set. [beginDisabling] writes DISABLING under the SAME lock, so
 /// no request newly passes admission after DISABLING began. The only request
-/// admitted in DISABLING is the one-shot revoke ([runRevoke]); the only request
-/// admitted in OFF/unset is an explicit user action ([runUserInitiated], i.e.
-/// interactive sign-in) and never an automatic one.
+/// admitted in DISABLING is the one-shot revoke ([runRevoke]).
+///
+/// ## Astra H2: the Cloud-OFF invariant
+/// Cloud OFF blocks all automatic, background and application-data network
+/// egress. The only operations permitted while OFF are explicit user-initiated
+/// sign-in, re-authentication, delete-account and cancel-delete, with their
+/// strictly necessary authentication exchanges. They do not enable Cloud and
+/// authorize nothing else. They run through [runAccountControl], an
+/// operation-scoped, time-boxed, endpoint-allowlisted capability (see
+/// [AccountControlGrant] and [kAccountControlAllowlist]).
+///
+/// UNKNOWN / MISSING / CORRUPT state is OFF / UNRESOLVED / DENY:
+///  * a process-level `resolved` latch: until bootstrap finished the egress
+///    reconciliation ([markResolved]) admission denies EVERYTHING, grants
+///    included;
+///  * an absent record is not ON: [permits] is false, and only an explicit
+///    enable ([enable]) writes ON.
 ///
 /// Requests admitted before DISABLING may complete, but a response that returns
 /// after the in-process epoch advanced is DISCARDED (an [EgressDeniedException]
@@ -441,32 +456,163 @@ class EgressWriteFailedException implements Exception {
   String toString() => 'EgressWriteFailedException($what)';
 }
 
-enum EgressGrantKind { userInitiated, revoke }
+enum EgressGrantKind { accountControl, revoke }
+
+/// The ONLY operations allowed to reach the network while Cloud is OFF
+/// (Astra H2.1). They never enable Cloud and never widen any consent.
+enum AccountControlOp { signIn, reauthenticate, deleteAccount, cancelDelete }
+
+/// One exact endpoint: method + path (+ the one permitted `grant_type` query).
+/// Anything else (another path, another query key, another method) is denied.
+@immutable
+class AccountControlEndpoint {
+  const AccountControlEndpoint(this.method, this.path, {this.grantType});
+  final String method;
+
+  /// Relative to the configured Supabase URL.
+  final String path;
+
+  /// When set, the query must be EXACTLY `grant_type=<this>`; when null the
+  /// query must be empty.
+  final String? grantType;
+
+  bool matches(
+      String requestMethod, String relativePath, Map<String, String> q) {
+    if (requestMethod.toUpperCase() != method || relativePath != path) {
+      return false;
+    }
+    if (grantType == null) return q.isEmpty;
+    return q.length == 1 && q['grant_type'] == grantType;
+  }
+
+  @override
+  String toString() =>
+      '$method $path${grantType == null ? '' : '?grant_type=$grantType'}';
+}
+
+/// The exact per-op OFF allowlist, derived from the app's real code paths and
+/// the pinned package sources (gotrue 2.21.0, supabase 2.12.2, postgrest 2.7.1):
+///
+///  * `signIn` / `reauthenticate` (identical: the app has ONE interactive
+///    sign-in surface, `SupabaseAuthService`, also used when a session expired):
+///    Google/Apple `auth.signInWithIdToken` -> POST /auth/v1/token?grant_type=id_token
+///    (gotrue_client.dart:422-434); email `signInWithOtp(email:)` -> POST
+///    /auth/v1/otp (:470-500); `verifyOTP` -> POST /auth/v1/verify (:577-585).
+///  * `deleteAccount` / `cancelDelete`: `rpc('request_account_deletion')` /
+///    `rpc('cancel_account_deletion')` -> POST /rest/v1/rpc/<fn> (postgrest.dart:118;
+///    POST because `get` defaults false), PLUS the strictly necessary
+///    POST /auth/v1/token?grant_type=refresh_token that
+///    `SupabaseClient._getAccessToken` (supabase_client.dart:253) issues when the
+///    stored access token is expired. That refresh is allowed ONLY inside these
+///    two ops.
+/// `/auth/v1/user`, `/auth/v1/logout`, PostgREST tables, other RPCs,
+/// functions, storage and realtime are NOT on any list.
+const Map<AccountControlOp, List<AccountControlEndpoint>>
+    kAccountControlAllowlist = {
+  AccountControlOp.signIn: _signInEndpoints,
+  AccountControlOp.reauthenticate: _signInEndpoints,
+  AccountControlOp.deleteAccount: [
+    AccountControlEndpoint('POST', '/rest/v1/rpc/request_account_deletion'),
+    AccountControlEndpoint('POST', '/auth/v1/token',
+        grantType: 'refresh_token'),
+  ],
+  AccountControlOp.cancelDelete: [
+    AccountControlEndpoint('POST', '/rest/v1/rpc/cancel_account_deletion'),
+    AccountControlEndpoint('POST', '/auth/v1/token',
+        grantType: 'refresh_token'),
+  ],
+};
+
+const List<AccountControlEndpoint> _signInEndpoints = [
+  AccountControlEndpoint('POST', '/auth/v1/token', grantType: 'id_token'),
+  AccountControlEndpoint('POST', '/auth/v1/otp'),
+  AccountControlEndpoint('POST', '/auth/v1/verify'),
+];
+
+/// Default lifetime of an account-control grant, on a MONOTONIC clock.
+///
+/// Why 30 s: the longest legitimate op is delete/cancel with an expired access
+/// token = one refresh exchange + one RPC, sequential. gotrue itself bounds a
+/// refresh's retry window at 30 s (`Constants.autoRefreshTickDuration`), and a
+/// mobile HTTPS exchange normally takes a few seconds. 30 s covers that with
+/// margin; anything longer would only widen the window in which a forgotten
+/// zone timer could act. The grant starts immediately BEFORE the Supabase
+/// exchange (after any native Google/Apple UI returned) and ends in `finally`.
+const Duration kAccountControlTtl = Duration(seconds: 30);
+
+/// One operation-scoped grant. Admission requires [active] (not ended, not
+/// expired), the configured Supabase host and an endpoint on the op's list.
+class AccountControlGrant {
+  AccountControlGrant._(this.op, this.id, this.ttl, this._now)
+      : _startedAt = _now();
+
+  final AccountControlOp op;
+  final int id;
+  final Duration ttl;
+  final Duration Function() _now;
+  final Duration _startedAt;
+  bool _ended = false;
+
+  bool get active => !_ended && (_now() - _startedAt) < ttl;
+
+  void _end() => _ended = true;
+
+  /// Why [uri]/[method] is outside this grant, or null when it is inside.
+  String? scopeViolation(String method, Uri uri, String supabaseUrl) {
+    final base = Uri.tryParse(supabaseUrl);
+    if (base == null || base.host.isEmpty) return 'grant_host';
+    if (uri.scheme != base.scheme ||
+        uri.host != base.host ||
+        uri.port != base.port ||
+        uri.userInfo.isNotEmpty) {
+      return 'grant_host';
+    }
+    final prefix = base.path.endsWith('/')
+        ? base.path.substring(0, base.path.length - 1)
+        : base.path;
+    if (!uri.path.startsWith(prefix)) return 'grant_endpoint';
+    final relative = uri.path.substring(prefix.length);
+    for (final e in kAccountControlAllowlist[op]!) {
+      if (e.matches(method, relative, uri.queryParameters)) return null;
+    }
+    return 'grant_endpoint';
+  }
+}
+
+/// What the transport asks to send (method + URL only, never the body).
+@immutable
+class AdmissionRequest {
+  const AdmissionRequest(this.method, this.url);
+  final String method;
+  final Uri url;
+}
 
 /// A per-call exception to the persistent gate, carried in the [Zone] so the
 /// transport can see it. Only two exist: the one-shot revoke (DISABLING only)
-/// and an explicit user action (OFF/unset only).
-@immutable
+/// and an operation-scoped account-control grant (never automatic traffic).
 class EgressGrant {
-  const EgressGrant.userInitiated()
-      : kind = EgressGrantKind.userInitiated,
+  EgressGrant.accountControl(AccountControlGrant this.control)
+      : kind = EgressGrantKind.accountControl,
         owner = null,
         generation = null;
   const EgressGrant.revoke(
       {required String this.owner, required int this.generation})
-      : kind = EgressGrantKind.revoke;
+      : kind = EgressGrantKind.revoke,
+        control = null;
 
   final EgressGrantKind kind;
   final String? owner;
   final int? generation;
+  final AccountControlGrant? control;
 }
 
 /// One admitted request.
 class EgressTicket {
-  EgressTicket._(this.owner, this.epoch, this.grant);
+  EgressTicket._(this.owner, this.epoch, this.grant, this.request);
   final String owner;
   final int epoch;
   final EgressGrant? grant;
+  final AdmissionRequest? request;
   final Completer<void> _cancel = Completer<void>();
   bool _released = false;
 
@@ -529,9 +675,19 @@ class CloudEgressGate {
     this.nativePoll = const Duration(milliseconds: 200),
     Future<({int count, DateTime? latestDeadline})?> Function(String owner)?
         nativeInflight,
+    bool resolved = false,
+    String Function()? supabaseUrl,
+    this.accountControlTtl = kAccountControlTtl,
+    Duration Function()? monotonic,
   })  : _nativeInflight = nativeInflight,
         _store = store,
-        _activeOwner = activeOwner;
+        _activeOwner = activeOwner,
+        _resolved = resolved,
+        _supabaseUrl = supabaseUrl ?? (() => SupabaseConfig.url),
+        _monotonic = monotonic ?? _processClock;
+
+  static final Stopwatch _processStopwatch = Stopwatch()..start();
+  static Duration _processClock() => _processStopwatch.elapsed;
 
   /// The process-wide gate. Bootstrap configures [activeOwner]; tests replace it.
   static CloudEgressGate instance = CloudEgressGate();
@@ -539,6 +695,23 @@ class CloudEgressGate {
   static const Symbol _grantKey = #qirshEgressGrant;
 
   final Duration drainTimeout;
+
+  /// Lifetime of one account-control grant (monotonic clock).
+  final Duration accountControlTtl;
+  final Duration Function() _monotonic;
+  final String Function() _supabaseUrl;
+  int _grantSeq = 0;
+  bool _resolved;
+
+  /// H2.3: false until bootstrap completed the egress reconciliation. While
+  /// false admission denies EVERYTHING (grants and the revoke included) and
+  /// [permits] is false.
+  bool get isResolved => _resolved;
+  void markResolved() => _resolved = true;
+
+  /// Fired whenever the synchronous permit mirror changes (Sentry, ads,
+  /// banners follow it).
+  final ValueNotifier<bool> permitNotifier = ValueNotifier<bool>(false);
 
   /// Upper bound on waiting for native extension uploads already admitted.
   final Duration nativeMaxWait;
@@ -574,7 +747,7 @@ class CloudEgressGate {
   /// Synchronous best-effort mirror of "this process may fetch (images)". False
   /// until a clean read says ON for the active owner; false whenever denied.
   bool get permitsNetworkSync =>
-      _permitMirror && !ConsentAuthority.egressFrozen;
+      _permitMirror && _resolved && !ConsentAuthority.egressFrozen;
 
   Future<String> _owner(String? explicit) async {
     if (explicit != null) return explicit;
@@ -597,19 +770,48 @@ class CloudEgressGate {
     return EgressView(o, readout);
   }
 
-  /// Service-level check: false while DISABLING/OFF/uncertain/frozen for the
-  /// active owner. An absent record is allowed here (the settings consent
-  /// decides); the transport additionally requires ON.
+  /// Service-level check: true ONLY for a resolved process, a clean read and a
+  /// durable ON record for the active owner. DISABLING / OFF / uncertain /
+  /// frozen / ABSENT (never explicitly enabled, e.g. an upgrade) / unresolved
+  /// all answer false (Astra H2.2).
   Future<bool> permits({String? owner}) async {
-    if (ConsentAuthority.egressFrozen) return false;
+    if (!_resolved || ConsentAuthority.egressFrozen) return false;
     final v = await view(owner: owner);
-    final ok =
-        !v.uncertain && (v.record == null || v.record!.state == EgressState.on);
-    return ok;
+    return !v.uncertain && v.record?.state == EgressState.on;
   }
 
-  Future<String?> _decide(String owner, EgressGrant? grant) async {
+  /// H2.5 `url_launcher`: whether the app may hand [uri] to the OS browser. An
+  /// external launch is user-visible network egress (the OS fetches the page), so
+  /// it follows [permits]. The only exception is an allowlisted host inside an
+  /// ACTIVE account-control grant (the configured Supabase host); no other
+  /// exception exists.
+  Future<bool> mayLaunchExternal(Uri uri) async {
+    if (await permits()) return true;
+    final control = (Zone.current[_grantKey] as EgressGrant?)?.control;
+    if (control == null ||
+        !control.active ||
+        !_resolved ||
+        ConsentAuthority.egressFrozen) {
+      return false;
+    }
+    final base = Uri.tryParse(_supabaseUrl());
+    return base != null &&
+        base.host.isNotEmpty &&
+        uri.scheme == 'https' &&
+        uri.host == base.host;
+  }
+
+  Future<String?> _decide(
+      String owner, EgressGrant? grant, AdmissionRequest? request) async {
+    if (!_resolved) return 'unresolved';
     final revoke = grant?.kind == EgressGrantKind.revoke;
+    final control = grant?.control;
+    if (control != null) {
+      // A grant that ended or expired admits NOTHING (a zone timer or retry
+      // that fires after the op finished lands here).
+      if (!control.active) return 'grant_inactive';
+      if (request == null) return 'grant_scope';
+    }
     if (ConsentAuthority.egressFrozen && !revoke) return 'frozen';
     final readout = await store.read(owner: owner);
     if (readout.uncertain) return 'state_uncertain';
@@ -622,23 +824,29 @@ class CloudEgressGate {
           : 'disabling';
     }
     if (revoke) return 'revoke_outside_disabling';
-    if (rec == null || rec.state == EgressState.off) {
-      return grant?.kind == EgressGrantKind.userInitiated ? null : 'off';
+    if (control != null) {
+      // Account control: exact host + method + path (+ grant_type) only, in ON,
+      // OFF and unset alike. Everything else inside the allowance is denied.
+      return control.scopeViolation(
+          request!.method, request.url, _supabaseUrl());
     }
+    if (rec == null || rec.state == EgressState.off) return 'off';
     return null;
   }
 
   /// THE admission gate. Throws [EgressDeniedException] when refused.
-  Future<EgressTicket> admit({String? owner, EgressGrant? grant}) async {
+  Future<EgressTicket> admit(
+      {String? owner, EgressGrant? grant, AdmissionRequest? request}) async {
     final g = grant ?? Zone.current[_grantKey] as EgressGrant?;
     // The lock position is taken synchronously, so admission order is call
     // order: a request made before a disable was called is decided before it.
     return _lock.synchronized(() async {
       final o = await _owner(owner);
-      final deny = await _decide(o, g);
-      _setMirror(deny == null && g == null);
+      final deny = await _decide(o, g, request);
+      // A granted request says nothing about whether AUTOMATIC traffic may run.
+      if (g == null) _setMirror(deny == null);
       if (deny != null) throw EgressDeniedException(deny);
-      final t = EgressTicket._(o, _epoch, g);
+      final t = EgressTicket._(o, _epoch, g, request);
       _inFlight.add(t);
       return t;
     });
@@ -670,11 +878,41 @@ class CloudEgressGate {
     }
   }
 
-  /// Interactive sign-in / re-authentication / account deletion: an explicit
-  /// user action. NEVER for automatic traffic (token refresh, catalog, ...).
-  Future<T> runUserInitiated<T>(Future<T> Function() body) {
-    const grant = EgressGrant.userInitiated();
-    return runZoned(body, zoneValues: {_grantKey: grant});
+  /// Runs [body] under an operation-scoped account-control grant (H2.1): the
+  /// ONLY way to reach the network while Cloud is OFF. Call it immediately
+  /// before the Supabase exchange, after any native Google/Apple UI returned.
+  ///
+  ///  * the grant lives in the [Zone] of [body]; unrelated concurrent calls do
+  ///    not inherit it;
+  ///  * it expires after [accountControlTtl] on a monotonic clock and is ended in
+  ///    `finally` on success, failure and timeout; a timer or retry spawned in
+  ///    the zone that fires later finds it inactive and is denied;
+  ///  * on a timeout the requests still running under it are cancelled;
+  ///  * it never writes the egress record, never flips Cloud ON and never touches
+  ///    consent.
+  Future<T> runAccountControl<T>(
+      AccountControlOp op, Future<T> Function() body) async {
+    final control =
+        AccountControlGrant._(op, ++_grantSeq, accountControlTtl, _monotonic);
+    final grant = EgressGrant.accountControl(control);
+    try {
+      // `() async => await body()` on purpose: a lazily-executed builder (a
+      // PostgREST rpc) only sends when it is first awaited, and that await must
+      // happen INSIDE the grant zone, not in the caller's.
+      return await runZoned(() async => await body(),
+              zoneValues: {_grantKey: grant})
+          .timeout(accountControlTtl, onTimeout: () {
+        control._end();
+        for (final t in _inFlight.toList()) {
+          if (identical(t.grant?.control, control) && !t._cancel.isCompleted) {
+            t._cancel.complete();
+          }
+        }
+        throw TimeoutException('account_control_timeout');
+      });
+    } finally {
+      control._end();
+    }
   }
 
   /// The ONE request admitted in DISABLING. At most one call per transition (the
@@ -810,13 +1048,14 @@ class CloudEgressGate {
   /// Refreshes the synchronous mirror and tells [onPermitChanged].
   Future<void> refresh() async {
     final v = await view();
-    _setMirror(!v.uncertain && v.record?.state == EgressState.on);
+    _setMirror(_resolved && !v.uncertain && v.record?.state == EgressState.on);
   }
 
   void _setMirror(bool permits) {
-    final next = permits && !ConsentAuthority.egressFrozen;
+    final next = permits && _resolved && !ConsentAuthority.egressFrozen;
     if (next == _permitMirror) return;
     _permitMirror = next;
+    permitNotifier.value = next;
     final cb = onPermitChanged;
     if (cb != null) unawaited(cb(next).catchError((_) {}));
   }
@@ -842,7 +1081,8 @@ class GatedHttpClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     final gate = CloudEgressGate.instance;
-    final ticket = await gate.admit();
+    final ticket = await gate.admit(
+        request: AdmissionRequest(request.method, request.url));
     final result = Completer<http.StreamedResponse>();
     var settled = false;
     void fail(Object e, [StackTrace? s]) {
@@ -852,6 +1092,9 @@ class GatedHttpClient extends http.BaseClient {
       result.completeError(e, s);
     }
 
+    // H2.1: a granted request must not follow redirects (a 3xx could leave the
+    // allowlisted endpoint or host). Set before the request is finalized.
+    if (ticket.grant?.control != null) request.followRedirects = false;
     unawaited(
         ticket.cancelled.then((_) => fail(EgressDeniedException('cancelled'))));
     http.BaseRequest outgoing = request;

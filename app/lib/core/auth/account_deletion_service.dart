@@ -48,9 +48,10 @@ class AccountDeletionService {
   Future<DateTime?> requestDeletion() async {
     if (!SupabaseConfig.isConfigured) return null;
     try {
-      // ESCALATED (Astra G): an explicit user action, the only non-automatic
-      // exception to the persistent OFF gate besides interactive sign-in.
-      final response = await CloudEgressGate.instance.runUserInitiated(
+      // ESCALATED (Astra H2.1): an explicit account-control operation, scoped to
+      // this RPC (+ the strictly necessary refresh_token exchange) only.
+      final response = await CloudEgressGate.instance.runAccountControl(
+          AccountControlOp.deleteAccount,
           () => _getClient().rpc('request_account_deletion'));
       return DateTime.parse(response as String).toUtc();
     } catch (error) {
@@ -61,7 +62,8 @@ class AccountDeletionService {
   Future<void> cancelDeletion() async {
     if (!SupabaseConfig.isConfigured) return;
     try {
-      await CloudEgressGate.instance.runUserInitiated(
+      await CloudEgressGate.instance.runAccountControl(
+          AccountControlOp.cancelDelete,
           () => _getClient().rpc('cancel_account_deletion'));
     } catch (error) {
       throw mapSupabaseError(error);

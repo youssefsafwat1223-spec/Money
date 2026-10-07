@@ -675,21 +675,21 @@ struct BackendCaptureClient {
     }
     urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
 
-    // C.4 admission, the single native gate: immediately before the request, in
-    // the same flock as the owner/consent re-check, the egress state must still
-    // admit this exact (owner, generation), and the upload is registered in the
-    // durable in-flight registry (deadline = now + timeout + 2 s) so the app's
-    // disable drain can wait for it. This also covers the idempotent timeout
-    // retry. DISABLING / OFF / unreadable => no request is made. The registry
-    // entry is removed on EVERY exit (success or error) once the request ends.
-    guard case let .allowed(admittedUid, admittedGeneration, _) =
-            SharedCaptureStore.admitUpload(payloadID: payloadID),
-          admittedUid == ownerUid, admittedGeneration == ownerGeneration else {
+    // C.4 / H3.1: the request goes ONLY through the one gated native transport
+    // (SharedCaptureStore.gatedUpload). Immediately before the request it admits
+    // under the queue flock (egress state, the exact (owner, generation) and the
+    // durable in-flight registration, deadline = now + timeout + 2 s, so the
+    // app's disable drain can wait for it), removes the registry entry on EVERY
+    // exit, refuses redirects and uses an ephemeral session. This also covers the
+    // idempotent timeout retry. DISABLING / OFF / unreadable => no request.
+    let data: Data
+    let response: URLResponse
+    do {
+      (data, response) = try await SharedCaptureStore.gatedUpload(
+        urlRequest, payloadID: payloadID, ownerUid: ownerUid, ownerGeneration: ownerGeneration)
+    } catch SharedCaptureStore.QueueError.egressDenied {
       throw BackendCaptureError.egressDenied
     }
-    defer { SharedCaptureStore.removeInflightUpload(payloadID: payloadID) }
-
-    let (data, response) = try await URLSession.shared.data(for: urlRequest)
     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0
     guard statusCode == 200 else {
       throw BackendCaptureError.http(statusCode)

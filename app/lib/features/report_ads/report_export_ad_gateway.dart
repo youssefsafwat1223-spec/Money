@@ -98,6 +98,15 @@ class AdMobReportExportAdGateway implements ReportExportAdGateway {
       // Shared with the banner layer: one SDK latch, not one per format.
       await MobileAdsInitializer.ensureInitialized().timeout(_initTimeout);
       if (generation != _loadGeneration) return;
+      // Astra H2.5: no ad load unless the egress gate permits (also covers an
+      // SDK initialised earlier, before Cloud went OFF). `invalidateLoad`
+      // releases `_loading`, so the export proceeds through the existing
+      // "ad unavailable" path (`isAvailable` false -> no ad, report generates).
+      if (!await MobileAdsInitializer.mayServe()) {
+        invalidateLoad();
+        return;
+      }
+      if (generation != _loadGeneration) return;
       final completer = Completer<void>();
       // The Future returned by load() is NOT the completion signal (the
       // callbacks are), but it CAN reject on a platform-channel failure before

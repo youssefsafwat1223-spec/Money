@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import '../../announcements/announcement_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../../core/privacy/gated_url_launcher.dart';
 
 import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
@@ -272,7 +272,7 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
     }
     final url = widget.campaign.actionUrl?.trim();
     if (url != null && url.isNotEmpty) {
-      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      launchExternalUrl(Uri.parse(url));
     }
   }
 }
@@ -455,7 +455,7 @@ class _BannerTile extends ConsumerWidget {
       context.push(url);
       return;
     }
-    launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+    launchExternalUrl(Uri.parse(url));
   }
 }
 

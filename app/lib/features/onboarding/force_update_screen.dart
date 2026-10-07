@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../core/privacy/gated_url_launcher.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
@@ -58,9 +58,8 @@ class ForceUpdateScreen extends ConsumerWidget {
               ),
               const Spacer(),
               FilledButton(
-                onPressed: () => launchUrl(
+                onPressed: () => launchExternalUrl(
                   Uri.parse(actionUrl),
-                  mode: LaunchMode.externalApplication,
                 ),
                 style: FilledButton.styleFrom(
                   backgroundColor: c.cta,

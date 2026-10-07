@@ -4,7 +4,7 @@ import 'announcement_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/utils/l10n_ext.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../core/privacy/gated_url_launcher.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_assets.dart';
@@ -234,7 +234,7 @@ class _MessageCard extends ConsumerWidget {
     }
     final url = item.url?.trim();
     if (url != null && url.isNotEmpty) {
-      launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+      launchExternalUrl(Uri.parse(url));
     }
   }
 }

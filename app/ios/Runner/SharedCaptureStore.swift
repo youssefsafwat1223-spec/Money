@@ -1466,10 +1466,15 @@ enum SharedCaptureStore {
   /// item (APNs registration). Under the flock; false (deny) when either store is
   /// uncertain, the lock is unavailable, the active owner's entry denies, or (no
   /// owner admitted) any owner has a DISABLING/OFF entry.
-  static func egressAdmitsHostRequest() -> Bool {
+  /// H3.1: a caller that passes the transition [generation] it acts under is also
+  /// refused when that generation is older than the active owner's stored one
+  /// (P4); nil keeps the generation-less check.
+  static func egressAdmitsHostRequest(transitionGeneration generation: Int? = nil) -> Bool {
     (try? withQueueLock { () throws -> Bool in
       let owner = try readActiveOwner()
       if egressDenied(forOwner: owner?.uid) { return false }
+      if let generation, let uid = owner?.uid,
+         egressGenerationIsStale(generation, owner: uid) { return false }
       return owner != nil
         || !egressView().maps.contains { $0.owners.values.contains { $0.state != "ON" } }
     }) ?? false
@@ -1613,6 +1618,75 @@ enum SharedCaptureStore {
       let live = try readInflightRaw().filter { $0.ownerHash == hash && $0.deadline > now }
       return (live.count, live.map { $0.deadline }.max().map { Date(timeIntervalSince1970: $0) })
     }
+  }
+
+  // MARK: The ONE native network transport (H3.1)
+
+  /// Answers every redirect with "no new request", so a 3xx is delivered as the
+  /// final response (the caller then sees a non-200 status). An upload carries
+  /// the device secret and the sanitized SMS; it is never replayed to a
+  /// `Location` the server did not admit.
+  private final class RedirectRefusingDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+      _ session: URLSession,
+      task: URLSessionTask,
+      willPerformHTTPRedirection response: HTTPURLResponse,
+      newRequest request: URLRequest,
+      completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+      completionHandler(nil)
+    }
+  }
+
+  /// H3.1: the single place any native process (host app, App Intent, share
+  /// extension) opens a network connection. An architecture test pins that no
+  /// other URL-loading, socket or Network-framework use exists in any iOS target.
+  ///
+  /// - Admission (egress state + owner/generation + in-flight registration, the
+  ///   [admitUpload] decision) runs under the queue flock IMMEDIATELY before the
+  ///   request. DISABLING / OFF / unreadable / a different owner or generation
+  ///   throws [QueueError.egressDenied] and NO request is made.
+  /// - The session is ephemeral (no shared cookie jar, URL cache or credential
+  ///   store), refuses redirects, does not wait for connectivity and has no
+  ///   background identifier, so nothing is retried or resumed by the OS after
+  ///   the process ends.
+  /// - The in-flight registry entry is removed on every exit.
+  /// - It reads ONLY the durable egress state through [admitUpload]. The Dart
+  ///   account-control grant is in-process Dart state; it is never written to
+  ///   the Keychain, the App Group file or any channel, so it cannot admit
+  ///   native traffic.
+  static func gatedUpload(
+    _ request: URLRequest,
+    payloadID: String,
+    ownerUid: String,
+    ownerGeneration: Int
+  ) async throws -> (Data, URLResponse) {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.httpCookieStorage = nil
+    configuration.httpShouldSetCookies = false
+    configuration.urlCache = nil
+    configuration.urlCredentialStorage = nil
+    configuration.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+    configuration.waitsForConnectivity = false
+    configuration.timeoutIntervalForRequest = nativeUploadTimeout
+    configuration.timeoutIntervalForResource = nativeUploadTimeout
+    let session = URLSession(configuration: configuration, delegate: RedirectRefusingDelegate(), delegateQueue: nil)
+    defer { session.finishTasksAndInvalidate() }
+
+    guard case let .allowed(admittedUid, admittedGeneration, _) = admitUpload(payloadID: payloadID) else {
+      throw QueueError.egressDenied
+    }
+    // Registered at admission: removed on EVERY exit, including a stale
+    // (owner, generation) refusal right below.
+    defer { removeInflightUpload(payloadID: payloadID) }
+    guard admittedUid == ownerUid, admittedGeneration == ownerGeneration else {
+      throw QueueError.egressDenied
+    }
+
+    var admitted = request
+    admitted.timeoutInterval = nativeUploadTimeout
+    admitted.httpShouldHandleCookies = false
+    return try await session.data(for: admitted)
   }
 
   #if DEBUG

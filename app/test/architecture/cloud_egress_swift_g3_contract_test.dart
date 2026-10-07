@@ -163,11 +163,17 @@ void main() {
     });
 
     test('the one native network call is gated immediately before it', () {
-      expect(RegExp(r'URLSession\.shared').allMatches(intent).length, 1);
-      final gate = intent.indexOf('admittedUid == ownerUid');
-      final net = intent.indexOf('URLSession.shared.data(for: urlRequest)');
+      // H3.1: the URLSession moved into SharedCaptureStore.gatedUpload; the
+      // client only calls it (full pins: cloud_egress_native_h3_contract_test).
+      expect(intent, isNot(contains('URLSession')));
+      expect(RegExp(r'SharedCaptureStore\.gatedUpload\(').allMatches(intent).length,
+          1);
+      final transport = body(store, 'static func gatedUpload(');
+      final gate = transport.indexOf('admitUpload(payloadID: payloadID)');
+      final net = transport.indexOf('try await session.data(for: admitted)');
       expect(gate, greaterThan(-1));
       expect(gate, lessThan(net));
+      expect(transport, contains('throw QueueError.egressDenied'));
       expect(intent, contains('throw BackendCaptureError.egressDenied'));
       // The gate covers the idempotent timeout retry too: both attempts go
       // through BackendCaptureClient.process.
@@ -176,7 +182,7 @@ void main() {
     });
 
     test('no other native process opens a network connection', () {
-      for (final source in [store, appDelegate, share]) {
+      for (final source in [appDelegate, share]) {
         expect(source, isNot(contains('URLSession')));
         expect(source, isNot(contains('URLRequest')));
         expect(source, isNot(contains('NWConnection')));
@@ -186,12 +192,12 @@ void main() {
 
     test('APNs registration (the only other native request) is gated', () {
       final at = appDelegate.indexOf('case "registerForRemoteNotifications":');
-      final gate = appDelegate.indexOf('egressAdmitsHostRequest()', at);
+      final gate = appDelegate.indexOf('egressAdmitsHostRequest(', at);
       final call = appDelegate.indexOf(
           'UIApplication.shared.registerForRemoteNotifications()', at);
       expect(gate, greaterThan(at));
       expect(gate, lessThan(call));
-      final host = body(store, 'static func egressAdmitsHostRequest()');
+      final host = body(store, 'static func egressAdmitsHostRequest(');
       expect(host, contains('withQueueLock'));
       expect(host, contains('?? false'));
     });
@@ -227,13 +233,12 @@ void main() {
               'urlRequest.timeoutInterval = SharedCaptureStore.nativeUploadTimeout'));
     });
 
-    test('the client registers at admission and removes on every exit', () {
-      final process = body(intent, 'func process(');
-      final admit = process
-          .indexOf('SharedCaptureStore.admitUpload(payloadID: payloadID)');
-      final cleanup = process.indexOf(
-          'defer { SharedCaptureStore.removeInflightUpload(payloadID: payloadID) }');
-      final net = process.indexOf('URLSession.shared.data(for: urlRequest)');
+    test('the transport registers at admission and removes on every exit', () {
+      final transport = body(store, 'static func gatedUpload(');
+      final admit = transport.indexOf('admitUpload(payloadID: payloadID)');
+      final cleanup =
+          transport.indexOf('defer { removeInflightUpload(payloadID: payloadID) }');
+      final net = transport.indexOf('try await session.data(for: admitted)');
       expect(admit, greaterThan(-1));
       expect(cleanup, greaterThan(admit));
       expect(cleanup, lessThan(net),
@@ -438,6 +443,11 @@ void main() {
         'testStaleGenerationNativeWritesAreRefused',
         'testRestrictivePublishIsAtomicAndRefusedWithoutAuthority',
         'testBackendClientOwnerBindingAndAdmissionOrder',
+        'testGatedUploadDeniedInDisablingAndOff',
+        'testGatedUploadStaleGenerationAndOwnerDenied',
+        'testPushRegistrationStaleGenerationDenied',
+        'testNoNetworkUseOutsideTheGatedTransport',
+        'testExtensionHasNoNetworkPushIsGatedAndAllowanceStaysInDart',
       ]) {
         expect(xctest, contains('func $name()'), reason: name);
       }

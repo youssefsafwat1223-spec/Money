@@ -163,7 +163,7 @@ void main() {
             'must work regardless of consent state — gating the exit behind the '
             'permission would trap a user who wants their data gone. Carries no '
             'payload beyond the authenticated identity. Astra G: request and '
-            'cancel run as an explicit user action (runUserInitiated), the one '
+            'cancel run as an operation-scoped account-control grant (runAccountControl), the one '
             'escalated non-automatic exception besides interactive sign-in.',
     'core/session/app_session.dart':
         'EXEMPT: mark_onboarding_completed takes no parameters, is guarded on a '

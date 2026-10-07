@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
-import 'package:url_launcher/url_launcher.dart';
+import '../../core/privacy/gated_url_launcher.dart';
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
@@ -232,7 +232,7 @@ class PrivacyScreen extends ConsumerWidget {
   }
 
   Future<void> _openExternalLink(BuildContext context, Uri url) async {
-    final opened = await launchUrl(url, mode: LaunchMode.externalApplication);
+    final opened = await launchExternalUrl(url);
     if (!opened && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(context.l10n.privLinkFailed)),

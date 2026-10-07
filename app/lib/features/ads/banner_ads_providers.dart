@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/privacy/cloud_egress_gate.dart';
 import '../../core/di/app_providers.dart'
     show featureFlags, loadUserSettingsUseCaseProvider, metricsClientProvider;
 import '../report_ads/report_ads_providers.dart'
@@ -105,6 +106,21 @@ final reportBannerSuppressedProvider = Provider<bool>((ref) {
   return ReportBannerSuppression.active;
 });
 
+/// Bumps whenever the egress gate's permit state changes, so eligibility is
+/// re-evaluated (and a mounted banner is dropped) the moment Cloud goes OFF.
+int _egressPermitRevision = 0;
+final egressPermitRevisionProvider = Provider<int>((ref) {
+  final gate = CloudEgressGate.instance;
+  void onChange() {
+    _egressPermitRevision++;
+    ref.invalidateSelf();
+  }
+
+  gate.permitNotifier.addListener(onChange);
+  ref.onDispose(() => gate.permitNotifier.removeListener(onChange));
+  return _egressPermitRevision;
+});
+
 /// Every non-visual gate for [placement], resolved together.
 ///
 /// Visual gates — offstage, covered by a route, covered by a modal, an empty
@@ -114,6 +130,10 @@ final reportBannerSuppressedProvider = Provider<bool>((ref) {
 final bannerEligibilityProvider =
     FutureProvider.autoDispose.family<bool, AdPlacement>((ref, placement) async {
   if (!ref.watch(bannerPlacementEnabledProvider(placement))) return false;
+  // Astra H2.5: no banner while the egress gate does not permit (Cloud OFF,
+  // unset, unresolved, DISABLING, uncertain). Re-evaluated on every change.
+  ref.watch(egressPermitRevisionProvider);
+  if (!await CloudEgressGate.instance.permits()) return false;
   // Reports is the one surface carrying both a banner and the export
   // interstitial. Suppressed for the whole export ad journey — preparation,
   // notice, native presentation, generation — and for a cooldown after a

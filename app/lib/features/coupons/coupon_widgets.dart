@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
+import '../../core/privacy/gated_url_launcher.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -486,7 +486,7 @@ class CouponDetailsSheet extends ConsumerWidget {
     unawaited(ref.read(couponAnalyticsProvider).recordCtaClick(offer.id));
     var launched = false;
     try {
-      launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+      launched = await launchExternalUrl(uri);
     } catch (_) {
       launched = false;
     }

@@ -119,6 +119,8 @@ void main() {
     final f1 = session.ensureGathered();
     final f2 = session.ensureGathered();
     final f3 = session.ensureGathered();
+    // Astra H2.5: the egress check precedes the gather, so let it settle.
+    await pumpEventQueue();
     expect(consent.gatherCalls, 1, reason: 'concurrent calls de-duplicated');
 
     gate.complete();

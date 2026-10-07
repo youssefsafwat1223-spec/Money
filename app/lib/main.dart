@@ -2,14 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:sentry_flutter/sentry_flutter.dart';
 
 import 'app.dart';
 import 'core/backend/sentry_config.dart';
-import 'core/privacy/diagnostics_consent_gate.dart';
 import 'core/di/app_providers.dart';
 import 'core/observability/diagnostics.dart';
-import 'core/observability/telemetry_sanitizer.dart';
+import 'core/observability/sentry_lifecycle.dart';
 import 'core/session/account_scope.dart';
 import 'core/startup/bootstrap_runner.dart';
 import 'core/theme/app_theme.dart';
@@ -32,42 +30,11 @@ Future<void> main() async {
   // MALI-039 — redact + bound every diagnostic line (all call sites, plugins,
   // future code) before it reaches the platform log, in debug and release.
   Diag.installRedactingSink();
-  if (SentryConfig.isConfigured) {
-    await SentryFlutter.init(
-      (options) {
-        options.dsn = SentryConfig.dsn;
-        options.sendDefaultPii = false;
-        options.tracesSampleRate = 0.0;
-        options.attachScreenshot = false;
-        // MALI-032 — native crashes are serialized by the native SDK and do
-        // NOT pass through the Dart boundary below, so silence native
-        // auto-breadcrumbs (UI/navigation/system) which could otherwise ride
-        // along on a native crash payload unscrubbed.
-        options.enableAutoNativeBreadcrumbs = false;
-        // MALI-032 — allowlist telemetry boundary. Every outbound event and
-        // breadcrumb is stripped down to allowlisted, redacted fields so no
-        // free-form text (SMS/merchant/amount/account/token) can leak. Covers
-        // beforeSend AND beforeBreadcrumb — never assume the former covers the
-        // latter. See TelemetrySanitizer for the exact contract and the
-        // documented native limitation.
-        // OD-05 (C-3) — consent gate BEFORE sanitisation. Sanitising decides
-        // what a payload may contain; it never decides whether the payload may
-        // exist. Sentry was previously armed on DSN presence alone, so crash and
-        // breadcrumb payloads — which carry device, build and context data —
-        // egressed with cloud consent OFF. The gate defaults to DENY and stays
-        // shut until consent is positively established after settings load.
-        options.beforeSend = (event, hint) => DiagnosticsConsentGate.allowed
-            ? TelemetrySanitizer.sanitizeEvent(event)
-            : null;
-        options.beforeBreadcrumb = (crumb, hint) =>
-            DiagnosticsConsentGate.allowed
-                ? TelemetrySanitizer.sanitizeBreadcrumb(crumb)
-                : null;
-      },
-      appRunner: () async => runApp(const StartupApp()),
-    );
-    return;
-  }
+  // Astra H2.5: Sentry is NOT initialised here. It is started (and closed again)
+  // by SentryLifecycle only while the egress gate permits and diagnostics
+  // consent is open — never before bootstrap resolved the gate, never while
+  // Cloud is OFF. `attach` only wires the listeners.
+  if (SentryConfig.isConfigured) SentryLifecycle.attach();
   runApp(const StartupApp());
 }
 

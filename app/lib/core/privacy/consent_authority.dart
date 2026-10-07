@@ -48,9 +48,13 @@ enum EgressClass {
 
   /// Authentication with the identity provider. Astra G (P1) removed the
   /// automatic exception: background token refresh is denied while Cloud is OFF.
-  /// Only an explicit user action (interactive sign-in / re-authentication)
-  /// reaches the network, through `CloudEgressGate.runUserInitiated`, and that
-  /// is an ESCALATED product decision, never a ConsentAuthority decision.
+  /// Astra H2: the only network operations allowed while OFF are explicit
+  /// user-initiated sign-in, re-authentication, delete-account and cancel-delete
+  /// (with their strictly necessary auth exchanges). They run through
+  /// `CloudEgressGate.runAccountControl(op, body)`, an operation-scoped,
+  /// time-boxed, endpoint-allowlisted grant that never enables Cloud and never
+  /// widens consent. That is an ESCALATED product decision, never a
+  /// ConsentAuthority decision.
   auth,
 }
 
@@ -103,8 +107,10 @@ class ConsentAuthority {
   /// Whether [egressClass] may transmit right now.
   Future<bool> allows(EgressClass egressClass) async {
     if (!decide(egressClass, await _settings())) return false;
-    // The durable gate: DISABLING / OFF / unreadable / corrupt / conflicting
-    // state denies for the active owner, whatever the settings read.
+    // The durable gate: DISABLING / OFF / unreadable / corrupt / conflicting /
+    // ABSENT state denies for the active owner, whatever the settings read. The
+    // effective cloud consent is the persisted consent AND a durable ON record
+    // (Astra H2.2).
     return CloudEgressGate.instance.permits();
   }
 
@@ -113,8 +119,8 @@ class ConsentAuthority {
   static bool decide(EgressClass egressClass, UserSettingsEntity settings) {
     final cloud = settings.cloudProcessingEnabled && !egressFrozen;
     switch (egressClass) {
-      // Never automatic: an explicit user action goes through
-      // CloudEgressGate.runUserInitiated instead.
+      // Never automatic: an explicit account-control action goes through
+      // CloudEgressGate.runAccountControl instead.
       case EgressClass.auth:
         return false;
 

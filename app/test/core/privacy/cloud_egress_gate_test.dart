@@ -111,20 +111,18 @@ void main() {
       await putOn();
       ConsentAuthority.egressFrozen = true;
       expect(await admitError(), 'frozen');
-      expect(await admitError(const EgressGrant.userInitiated()), 'frozen');
       ConsentAuthority.egressFrozen = false;
     });
   });
 
   group('the only exceptions', () {
-    test('an explicit user action (sign-in) is admitted in OFF/unset, never in '
-        'DISABLING; automatic traffic never', () async {
+    test(
+        'automatic traffic is never admitted in OFF/unset; an account-control '
+        'grant is not an automatic exception (see account_control_test)',
+        () async {
       expect(await admitError(), 'off');
-      expect(await admitError(const EgressGrant.userInitiated()), isNull);
-      final viaZone = await gate.runUserInitiated(() => admitError());
-      expect(viaZone, isNull);
       await gate.beginDisabling(owner: 'uid-a', reservedVersion: 2);
-      expect(await admitError(const EgressGrant.userInitiated()), 'disabling');
+      expect(await admitError(), 'disabling');
     });
 
     test('the revoke is admitted only in DISABLING and only for its own owner '

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../ads/mobile_ads_initializer.dart';
 import 'report_ads_debug_config.dart';
 
 /// Google UMP is the SOLE ad-consent authority (docs REFERRAL_ADS_ADMIN_SYSTEM.md
@@ -34,6 +35,9 @@ class UmpAdConsentService implements AdConsentService {
 
   @override
   Future<void> gatherConsent() async {
+    // Astra H2.5: the UMP consent-info update and form are network calls to
+    // Google. Not while the egress gate does not permit.
+    if (!await MobileAdsInitializer.mayServe()) return;
     try {
       // Debug/profile-only: force EEA geography (+ optional test device) so a
       // human R6 test can exercise the consent form / privacy-options path.
@@ -78,6 +82,8 @@ class UmpAdConsentService implements AdConsentService {
 
   @override
   Future<bool> isPrivacyOptionsRequired() async {
+    // Hidden while Cloud is OFF: its form is a Google network call (H2.5).
+    if (!await MobileAdsInitializer.mayServe()) return false;
     try {
       final status = await _info.getPrivacyOptionsRequirementStatus();
       return status == PrivacyOptionsRequirementStatus.required;
@@ -88,6 +94,7 @@ class UmpAdConsentService implements AdConsentService {
 
   @override
   Future<void> showPrivacyOptions() async {
+    if (!await MobileAdsInitializer.mayServe()) return;
     final done = Completer<void>();
     ConsentForm.showPrivacyOptionsForm((error) => done.complete());
     await done.future;

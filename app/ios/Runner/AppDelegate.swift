@@ -350,7 +350,10 @@ enum ApnsEnvironment {
       case "registerForRemoteNotifications":
         // C.4 admission: no APNs registration request while egress is DISABLING,
         // OFF or uncertain. Answers "no token" exactly like an unregistered host.
-        guard SharedCaptureStore.egressAdmitsHostRequest() else {
+        let requestedGeneration =
+          (call.arguments as? [String: Any])?["transitionGeneration"] as? Int
+        guard SharedCaptureStore.egressAdmitsHostRequest(
+          transitionGeneration: requestedGeneration) else {
           result(nil)
           return
         }

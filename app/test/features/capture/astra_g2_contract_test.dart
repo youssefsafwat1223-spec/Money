@@ -203,6 +203,15 @@ void main() {
 
   Future<void> save({ConsentState? cloud, ConsentState? ai}) async {
     final s = await repo.getSettings();
+    // Astra H2.2: Cloud becomes ON only through an explicit enable, which also
+    // writes the durable ON record. A test that grants consent models that.
+    if (cloud == ConsentState.accepted || ai == ConsentState.accepted) {
+      final cur = (await egress.gate.view(owner: replicaOwner ?? '')).record;
+      if (cur == null || cur.state != EgressState.on) {
+        await egress.gate
+            .enable(owner: replicaOwner ?? '', reservedVersion: s.consentVersion + 1);
+      }
+    }
     await repo
         .saveSettings(s.copyWith(cloudConsentState: cloud, aiConsentState: ai));
   }
@@ -398,6 +407,8 @@ void main() {
       await plant('uid-a', EgressState.disabling, 4);
       replicaOwner = 'uid-b';
       session = (uid: 'uid-b', jwt: 'jwt-b');
+      // B explicitly enabled Cloud (Astra H2.2: no adoption of an absent record).
+      await egress.gate.enable(owner: 'uid-b', reservedVersion: 10);
       final s = service();
       await s.resolvePendingDisable();
       expect((await repo.getSettings()).cloudProcessingEnabled, isTrue,

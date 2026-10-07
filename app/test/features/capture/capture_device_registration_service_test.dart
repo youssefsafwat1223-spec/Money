@@ -2,7 +2,9 @@ import 'dart:async';
 
 import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
@@ -11,6 +13,8 @@ import 'package:money_companion/features/capture/services/capture_backend_client
 import 'package:money_companion/features/capture/services/capture_consent_client.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
+
+import '../../harness/egress_test_support.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -123,6 +127,8 @@ void main() {
     );
     settingsRepository = DriftUserSettingsRepository(db);
     final settings = await settingsRepository.getSettings();
+    // Astra H2.2: ON needs the explicit-enable record as well as the consent.
+    await CloudEgressGate.instance.enable(owner: '', reservedVersion: 1);
     await settingsRepository.saveSettings(
       settings.copyWith(cloudConsentState: ConsentState.accepted),
     );
@@ -410,6 +416,130 @@ void main() {
         }) async {},
         loadApnsToken: loadApnsToken ?? () async => null,
       );
+
+  test('H2.2 an upgrade with persisted consent ON and NO durable record is NOT '
+      'ON: nothing is adopted, only an explicit enable writes ON', () async {
+    final egress = TestEgress(resolved: false).install(); // no record
+    egress.owner = '';
+    final s = await settingsRepository.getSettings();
+    await settingsRepository.saveSettings(
+        s.copyWith(cloudConsentState: ConsentState.accepted));
+    expect((await settingsRepository.getSettings()).cloudProcessingEnabled,
+        isTrue);
+
+    final service = CaptureDeviceRegistrationService(
+      settingsRepository: settingsRepository,
+      client: _ConsentRecordingClient(),
+      storage: const FlutterSecureStorage(),
+      isIos: () => true,
+      isAndroid: () => false,
+      isBackendConfigured: () => true,
+      loadInstallId: () async => 'install-id',
+      writeNativeBackendConfig: ({
+        required cloudProcessingEnabled,
+        required installId,
+        deviceSecret,
+        required backendUrl,
+        required anonKey,
+        required aiConsentGranted,
+        String? ownerUid,
+        int? transitionGeneration,
+      }) async {},
+      loadApnsToken: () async => null,
+    );
+    expect(egress.gate.isResolved, isFalse);
+    await service.resolvePendingDisable();
+
+    expect(egress.gate.isResolved, isTrue);
+    expect((await egress.gate.view(owner: '')).record, isNull,
+        reason: 'no ON record was adopted');
+    expect(egress.secure.writes + egress.file.writes, 0);
+    expect(await egress.gate.permits(), isFalse);
+    expect((await settingsRepository.getSettings()).cloudProcessingEnabled,
+        isFalse,
+        reason: 'effective consent = persisted AND durable ON: shown as off');
+
+    await service.syncBackendState();
+    expect((await egress.gate.view(owner: '')).record, isNull);
+
+    await service.enableCloud(commitLocalOn: () async {
+      final cur = await settingsRepository.getSettings();
+      await settingsRepository.saveSettings(
+          cur.copyWith(cloudConsentState: ConsentState.accepted));
+    });
+    expect((await egress.gate.view(owner: '')).record!.state, EgressState.on);
+    expect(await egress.gate.permits(), isTrue);
+  });
+
+  group('APNs registration carries the transition generation (H3 request)', () {
+    const channel = MethodChannel('money_companion/native_capture');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    late List<MethodCall> calls;
+
+    CaptureDeviceRegistrationService defaultLoaderService() =>
+        CaptureDeviceRegistrationService(
+          settingsRepository: settingsRepository,
+          client: _ConsentRecordingClient(),
+          storage: const FlutterSecureStorage(),
+          isIos: () => true,
+          isAndroid: () => false,
+          isBackendConfigured: () => true,
+          loadInstallId: () async => 'install-id',
+          writeNativeBackendConfig: ({
+            required cloudProcessingEnabled,
+            required installId,
+            deviceSecret,
+            required backendUrl,
+            required anonKey,
+            required aiConsentGranted,
+            String? ownerUid,
+            int? transitionGeneration,
+          }) async {},
+          // No loadApnsToken: the real default, which calls the native bridge.
+        );
+
+    setUp(() {
+      calls = [];
+      NativeCaptureBridge.debugTreatHostAsNative = true;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        return null;
+      });
+    });
+    tearDown(() {
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+
+    test('the bridge sends the transitionGeneration key', () async {
+      await NativeCaptureBridge.registerForRemoteNotifications(
+          transitionGeneration: 7);
+      final call = calls.singleWhere(
+          (c) => c.method == 'registerForRemoteNotifications');
+      expect(call.arguments, {'transitionGeneration': 7});
+    });
+
+    test('the service passes the CURRENT generation of the active owner, only '
+        'while the gate permits', () async {
+      final gen =
+          (await CloudEgressGate.instance.view(owner: '')).record!.transitionGeneration;
+      await defaultLoaderService().syncBackendState();
+      final call = calls.where((c) => c.method == 'registerForRemoteNotifications');
+      expect(call, isNotEmpty);
+      expect(call.first.arguments, {'transitionGeneration': gen});
+
+      // Cloud OFF (durable OFF record): the native registration is never asked.
+      calls.clear();
+      final freeze = await CloudEgressGate.instance
+          .beginDisabling(owner: '', reservedVersion: 3);
+      await CloudEgressGate.instance.commitOff(freeze);
+      await defaultLoaderService().syncBackendState();
+      expect(
+          calls.where((c) => c.method == 'registerForRemoteNotifications'),
+          isEmpty);
+    });
+  });
 
   const connected =
       CaptureRegistrationStatus(CaptureRegistrationPhase.connected);

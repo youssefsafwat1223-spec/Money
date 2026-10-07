@@ -1237,7 +1237,7 @@ class RunnerTests: XCTestCase {
 
   // D7: an extension / background intent attempt during DISABLING and after OFF
   // makes no request: the admission gate the client runs immediately before
-  // URLSession returns .localOnly and registers nothing in flight.
+  // the network transport returns .localOnly and registers nothing in flight.
   func testDisablingAndOffAdmitNoNativeUpload() throws {
     resetCapSeams()
     defer { resetCapSeams() }
@@ -1429,12 +1429,149 @@ class RunnerTests: XCTestCase {
     XCTAssertLessThan(ownerBody.lowerBound, schema.lowerBound,
                       "owner_uid is not inside the schema_version 2 branch")
     XCTAssertTrue(source.contains("body[\"owner_generation\"] = ownerGeneration"))
-    let gate = try XCTUnwrap(source.range(of: "admittedUid == ownerUid"))
-    XCTAssertTrue(source.contains("SharedCaptureStore.admitUpload(payloadID: payloadID)"))
-    XCTAssertTrue(source.contains("defer { SharedCaptureStore.removeInflightUpload(payloadID: payloadID) }"))
-    let network = try XCTUnwrap(source.range(of: "URLSession.shared.data(for: urlRequest)"))
-    XCTAssertLessThan(gate.lowerBound, network.lowerBound)
-    XCTAssertEqual(source.components(separatedBy: "URLSession.shared").count - 1, 1,
+    // H3.1: the client holds NO admission or URLSession of its own; it calls the one
+    // gated transport, which admits under the flock immediately before the request.
+    XCTAssertFalse(source.contains("URLSession"), "the client must not touch URLSession")
+    XCTAssertFalse(source.contains("admitUpload"), "admission lives inside the transport")
+    XCTAssertEqual(source.components(separatedBy: "SharedCaptureStore.gatedUpload(").count - 1, 1,
                    "exactly one native network call site")
+    XCTAssertTrue(source.contains("catch SharedCaptureStore.QueueError.egressDenied"))
+    XCTAssertTrue(source.contains("throw BackendCaptureError.egressDenied"))
+    let body = try XCTUnwrap(source.range(of: "urlRequest.httpBody = try JSONSerialization"))
+    let call = try XCTUnwrap(source.range(of: "SharedCaptureStore.gatedUpload("))
+    XCTAssertLessThan(body.lowerBound, call.lowerBound)
+  }
+
+  // MARK: H3 native transport (UNCOMPILED here: needs Xcode / a Mac)
+
+  private func iosSource(_ relative: String) throws -> String {
+    let root = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    return try String(contentsOf: root.appendingPathComponent(relative))
+  }
+
+  private func gatedRequest() -> URLRequest {
+    // Never sent: every test below is refused before the transport reaches the network.
+    URLRequest(url: URL(string: "https://invalid.invalid/functions/v1/process-ios-sms")!)
+  }
+
+  // H3.3: the App Intent / background path is denied in DISABLING and OFF, and nothing
+  // is left in the in-flight registry.
+  func testGatedUploadDeniedInDisablingAndOff() async throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, a) = try stampedAllowedItem()
+    for state in ["DISABLING", "OFF"] {
+      try SharedCaptureStore.setCloudEgressState(
+        state: state, ownerUid: ownerA,
+        transitionGeneration: state == "OFF" ? 3 : 2, reservedVersion: 3)
+      do {
+        _ = try await SharedCaptureStore.gatedUpload(
+          gatedRequest(), payloadID: id, ownerUid: ownerA, ownerGeneration: a.generation)
+        XCTFail("\(state): the transport must not make a request")
+      } catch SharedCaptureStore.QueueError.egressDenied {
+        // expected
+      }
+      XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0, state)
+    }
+  }
+
+  // H3.3: a stale generation / a different owner is refused and its in-flight entry is
+  // removed on that exit; an unreadable egress store is refused too.
+  func testGatedUploadStaleGenerationAndOwnerDenied() async throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, a) = try stampedAllowedItem()
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2)
+    for (uid, generation) in [(ownerA, a.generation + 1), (ownerB, a.generation)] {
+      do {
+        _ = try await SharedCaptureStore.gatedUpload(
+          gatedRequest(), payloadID: id, ownerUid: uid, ownerGeneration: generation)
+        XCTFail("a stale (owner, generation) must not reach the network")
+      } catch SharedCaptureStore.QueueError.egressDenied {
+        // expected
+      }
+      XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0)
+    }
+    SharedCaptureStore.lockUnavailableOverride = true
+    do {
+      _ = try await SharedCaptureStore.gatedUpload(
+        gatedRequest(), payloadID: id, ownerUid: ownerA, ownerGeneration: a.generation)
+      XCTFail("no flock means no request")
+    } catch SharedCaptureStore.QueueError.egressDenied {
+      // expected
+    }
+  }
+
+  // H3.1/H3.3: push registration with a stale transition generation is refused; the
+  // current generation (and the generation-less legacy call) is admitted while ON.
+  func testPushRegistrationStaleGenerationDenied() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 5, reservedVersion: 6)
+    XCTAssertTrue(SharedCaptureStore.egressAdmitsHostRequest())
+    XCTAssertTrue(SharedCaptureStore.egressAdmitsHostRequest(transitionGeneration: 5))
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(transitionGeneration: 4), "stale")
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 6, reservedVersion: 7)
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(transitionGeneration: 6), "OFF")
+  }
+
+  // H3.1 source pin: no network use outside the transport in ANY iOS target; the
+  // transport refuses redirects, is ephemeral and never waits or goes background.
+  func testNoNetworkUseOutsideTheGatedTransport() throws {
+    let forbidden = ["URLSession", "dataTask", "uploadTask", "downloadTask", "NWConnection",
+                     "NWPathMonitor", "CFNetwork", "CFReadStream", "NSURLConnection", "WKWebView"]
+    for file in ["Runner/AppDelegate.swift", "Runner/SceneDelegate.swift",
+                 "Runner/NativeGlassView.swift", "Runner/SharedOfferIntentStore.swift",
+                 "ShareBankMessage/ShareViewController.swift",
+                 "ShareBankMessage/SharedOfferIntentStore.swift",
+                 "BankMessageShortcuts/BankMessageShortcuts.swift"] {
+      let source = try iosSource(file)
+      for token in forbidden {
+        XCTAssertFalse(source.contains(token), "\(file) uses \(token)")
+      }
+    }
+    let store = try iosSource("Runner/SharedCaptureStore.swift")
+    XCTAssertEqual(store, try iosSource("ShareBankMessage/SharedCaptureStore.swift"))
+    XCTAssertEqual(store.components(separatedBy: "URLSession(configuration:").count - 1, 1)
+    XCTAssertFalse(store.contains("URLSession.shared"))
+    XCTAssertTrue(store.contains("URLSessionConfiguration.ephemeral"))
+    XCTAssertFalse(store.contains("URLSessionConfiguration.background"))
+    XCTAssertTrue(store.contains("willPerformHTTPRedirection"))
+    XCTAssertTrue(store.contains("completionHandler(nil)"))
+    XCTAssertTrue(store.contains("configuration.waitsForConnectivity = false"))
+    let transport = try XCTUnwrap(store.range(of: "static func gatedUpload("))
+    let admit = try XCTUnwrap(store.range(of: "admitUpload(payloadID: payloadID)",
+                                          range: transport.upperBound..<store.endIndex))
+    let send = try XCTUnwrap(store.range(of: "try await session.data(for: admitted)"))
+    XCTAssertLessThan(admit.lowerBound, send.lowerBound, "admission precedes the request")
+  }
+
+  // H3.3: the extension has no network code and never references the transport; push
+  // registration is reached only through the gated channel; no allowance reaches native.
+  func testExtensionHasNoNetworkPushIsGatedAndAllowanceStaysInDart() throws {
+    let share = try iosSource("ShareBankMessage/ShareViewController.swift")
+    XCTAssertFalse(share.contains("gatedUpload"))
+    XCTAssertFalse(share.contains("URLSession"))
+    XCTAssertTrue(share.contains("SharedCaptureStore.enqueue("))
+    let delegate = try iosSource("Runner/AppDelegate.swift")
+    XCTAssertEqual(delegate.components(separatedBy: "registerForRemoteNotifications()").count - 1, 1)
+    let gate = try XCTUnwrap(delegate.range(of: "egressAdmitsHostRequest("))
+    let register = try XCTUnwrap(delegate.range(of: "UIApplication.shared.registerForRemoteNotifications()"))
+    XCTAssertLessThan(gate.lowerBound, register.lowerBound)
+    for source in [try iosSource("Runner/SharedCaptureStore.swift"), delegate] {
+      XCTAssertFalse(source.lowercased().contains("allowance"), "no Dart allowance in native")
+    }
+    for key in ["UIBackgroundModes", "BGTaskSchedulerPermittedIdentifiers"] {
+      XCTAssertFalse(try iosSource("Runner/Info.plist").contains(key))
+      XCTAssertFalse(try iosSource("ShareBankMessage/Info.plist").contains(key))
+    }
+    XCTAssertFalse(delegate.contains("BGTaskScheduler"))
+    XCTAssertFalse(delegate.contains("performFetchWithCompletionHandler"))
   }
 }

@@ -132,6 +132,8 @@ class AdMobBannerAdLoader
     if (_disposed) return false;
     await MobileAdsInitializer.ensureInitialized();
     if (!MobileAdsInitializer.isInitialized || _disposed) return false;
+    // Astra H2.5: initialised earlier, but Cloud may have gone OFF since.
+    if (!await MobileAdsInitializer.mayServe()) return false;
 
     final completer = Completer<bool>();
     void finish(bool ok) {

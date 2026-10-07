@@ -376,6 +376,13 @@ Future<FeatureFlagService> initFeatureFlagService(
     installId: id,
   );
   await service.init();
+  // Astra H2.4: a failed (re)load must never regress to the bare defaults. A new
+  // service starts from `_defaults`, so replacing a good instance with it would
+  // revert every cached disabled flag whose default is true. Keep the last good
+  // instance instead (a first load that fails still falls back to the defaults).
+  if (!service.isInitialised && _featureFlagInstance != null) {
+    return _featureFlagInstance!;
+  }
   if (applyRemoteOverrides &&
       SupabaseConfig.isConfigured &&
       await CloudEgressGate.instance.permits()) {

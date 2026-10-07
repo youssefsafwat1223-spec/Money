@@ -1112,11 +1112,13 @@ class NativeCaptureBridge {
     return await _queueCall<int>('finishCaptureRemoval', {'uid': uid}) ?? 0;
   }
 
-  static Future<ApnsTokenInfo?> registerForRemoteNotifications() async {
-    if (!Platform.isIOS) return null;
+  static Future<ApnsTokenInfo?> registerForRemoteNotifications(
+      {int? transitionGeneration}) async {
+    if (!_hasNativeQueue) return null; // iOS only (or the host test seam)
     try {
-      final result = await _channel
-          .invokeMethod<Object?>('registerForRemoteNotifications');
+      final result = await _channel.invokeMethod<Object?>(
+          'registerForRemoteNotifications',
+          {'transitionGeneration': transitionGeneration});
       return _tokenInfoFrom(result);
     } on MissingPluginException {
       return null;

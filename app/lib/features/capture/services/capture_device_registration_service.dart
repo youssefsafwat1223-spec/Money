@@ -196,7 +196,7 @@ class CaptureDeviceRegistrationService {
         _loadInstallId = loadInstallId ?? InstallId.get,
         _writeNativeBackendConfig =
             writeNativeBackendConfig ?? NativeCaptureBridge.setBackendConfig,
-        _loadApnsToken = loadApnsToken ?? _defaultLoadApnsToken,
+        _loadApnsTokenOverride = loadApnsToken,
         _consentClient = consentClient,
         _readSession = readSession ?? _defaultReadSession,
         _readReplicaOwnerUid = readReplicaOwnerUid ?? localDataOwnerUid,
@@ -240,7 +240,7 @@ class CaptureDeviceRegistrationService {
   final bool Function() _isBackendConfigured;
   final Future<String> Function() _loadInstallId;
   final NativeBackendConfigWriter _writeNativeBackendConfig;
-  final ApnsTokenLoader _loadApnsToken;
+  final ApnsTokenLoader? _loadApnsTokenOverride;
   final CaptureConsentClient? _consentClient;
   final CaptureSession? Function() _readSession;
   final Future<String?> Function() _readReplicaOwnerUid;
@@ -297,8 +297,16 @@ class CaptureDeviceRegistrationService {
     }
   }
 
-  static Future<ApnsTokenInfo?> _defaultLoadApnsToken() async {
-    return await NativeCaptureBridge.registerForRemoteNotifications() ??
+  /// The APNs registration. Astra H3 cross-unit: the native call carries the
+  /// CURRENT transition generation of the active owner so the native side can
+  /// refuse a stale call, and it is made only while the gate permits.
+  Future<ApnsTokenInfo?> _loadApnsToken(String owner) async {
+    final override = _loadApnsTokenOverride;
+    if (override != null) return override();
+    if (!await _gate.permits()) return null;
+    final generation = await _clientGeneration(owner);
+    return await NativeCaptureBridge.registerForRemoteNotifications(
+            transitionGeneration: generation) ??
         await NativeCaptureBridge.getApnsToken();
   }
 
@@ -531,7 +539,7 @@ class CaptureDeviceRegistrationService {
     // a failure here must never block native config or local capture.
     await _projectConsent(outcome, tx);
     try {
-      final token = await _loadApnsToken();
+      final token = await _loadApnsToken(tx.owner ?? '');
       if (token != null) {
         await syncApnsToken(token);
       }
@@ -1094,6 +1102,13 @@ class CaptureDeviceRegistrationService {
     if (_disableInFlight != null) return;
     if (ConsentAuthority.egressFrozen) ConsentAuthority.egressFrozen = false;
     await _reconcile();
+    // Astra H2.3: reconciliation (DISABLING crash recovery, the store/native
+    // read) has COMPLETED, so admission may start judging the durable record.
+    // Until this line the process-level latch denied everything, grants too. A
+    // throw above leaves it unresolved (deny). An uncertain or restrictive
+    // outcome is still denied by the record/freeze itself.
+    _gate.markResolved();
+    await _gate.refresh();
   }
 
   /// The persistent gate for this replica's owner. A DISABLING record with no
@@ -1101,7 +1116,12 @@ class CaptureDeviceRegistrationService {
   /// local OFF is retried (never the revoke). Another owner's marker is left
   /// alone: it is neither applied to this owner nor discarded.
   Future<_Gate> _gateState() async {
-    if (ConsentAuthority.egressFrozen || _disableInFlight != null) {
+    // An explicit enable writes the ON record and THEN the settings: judging
+    // the pair in between would read "ON record, settings OFF" (or, with no
+    // record yet, "settings ON") as a divergence and align it back down.
+    if (ConsentAuthority.egressFrozen ||
+        _disableInFlight != null ||
+        _enableInFlight != null) {
       return _Gate.blocked;
     }
     return _reconcile();
@@ -1128,19 +1148,23 @@ class CaptureDeviceRegistrationService {
     try {
       final settings = await _settingsRepository.getSettings();
       final on = _cloudOn(settings);
-      if (rec == null && on) {
-        // Legacy adoption: consent granted before the durable record existed.
-        final w = await _gate.writeRecord(CloudEgressRecord(
-          state: EgressState.on,
-          ownerUid: owner,
-          transitionGeneration: 1,
-          reservedVersion: settings.consentVersion,
-        ));
-        if (!w.all) return _Gate.blocked;
-        await _gate.refresh();
-        return _Gate.open;
+      if (rec == null) {
+        // Astra H2.2: an ABSENT record is NOT adopted as ON. Cloud only becomes
+        // ON through an explicit enable ([enableCloud]), which writes ON to
+        // every store. The effective cloud consent is the persisted consent AND
+        // a durable ON record, so an upgraded user whose settings say ON but who
+        // has no record sees Cloud as OFF until they re-enable it: the persisted
+        // value is aligned DOWN (never up), exactly like the OFF-record case.
+        if (on) {
+          await _settingsRepository.saveSettings(settings.copyWith(
+            cloudConsentState: ConsentState.declined,
+            aiConsentState:
+                _isAndroid() ? ConsentState.declined : settings.aiConsentState,
+          ));
+        }
+        return _Gate.off;
       }
-      if (rec != null && rec.state == EgressState.on && !on) {
+      if (rec.state == EgressState.on && !on) {
         // Settings are more restrictive than the record (a disable that never
         // became durable): align the record to OFF, never the other way.
         await _gate.writeRecord(rec.copyWith(
@@ -1148,7 +1172,7 @@ class CaptureDeviceRegistrationService {
             transitionGeneration: rec.transitionGeneration + 1));
         return _Gate.off;
       }
-      if (rec != null && rec.state == EgressState.off && on) {
+      if (rec.state == EgressState.off && on) {
         // The persistent OFF gate wins over a settings value that widened
         // without an explicit enable.
         await _settingsRepository.saveSettings(settings.copyWith(
@@ -1161,7 +1185,6 @@ class CaptureDeviceRegistrationService {
       ConsentAuthority.egressFrozen = true;
       return _Gate.blocked;
     }
-    if (rec == null) return _Gate.open;
     return rec.state == EgressState.off ? _Gate.off : _Gate.open;
   }
 

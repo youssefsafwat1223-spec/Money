@@ -72,16 +72,16 @@ void main() {
     expect(DiagnosticsConsentGate.allowed, isFalse);
   });
 
-  test('main.dart consults the gate BEFORE sanitising', () {
-    // Sanitising decides what a payload may contain; it never decides whether
-    // the payload may exist. If the gate were applied after (or not at all), an
-    // unconsented but well-sanitised crash would still egress.
-    final main = _read('lib/main.dart');
-    expect(main, contains('DiagnosticsConsentGate.allowed'));
+  test('the Sentry options consult the gate BEFORE sanitising', () {
+    // Sanitising decides what a payload may contain; it never decides whether the
+    // payload may exist. Astra H2.5 moved the options out of main() into
+    // SentryLifecycle (Sentry is no longer initialised before runApp).
+    final src = _read('lib/core/observability/sentry_lifecycle.dart');
+    expect(src, contains('DiagnosticsConsentGate.allowed'));
     for (final hook in ['beforeSend', 'beforeBreadcrumb']) {
-      final idx = main.indexOf('options.$hook');
+      final idx = src.indexOf('options.$hook');
       expect(idx, greaterThan(-1), reason: '$hook must be configured');
-      final body = main.substring(idx, idx + 260);
+      final body = src.substring(idx, idx + 260);
       expect(body, contains('DiagnosticsConsentGate.allowed'),
           reason: '$hook must be consent-gated, not only sanitised');
     }

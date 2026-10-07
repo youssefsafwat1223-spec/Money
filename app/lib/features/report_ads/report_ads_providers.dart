@@ -8,6 +8,7 @@ import '../referrals/referrals_providers.dart';
 import 'ad_consent_service.dart';
 import 'report_ads_analytics.dart';
 import '../ads/admob_build_config.dart';
+import '../ads/mobile_ads_initializer.dart';
 import 'report_ads_debug_config.dart';
 import 'report_entitlement.dart';
 import 'report_export_ad_gateway.dart';
@@ -60,6 +61,12 @@ class SessionAdConsent {
   }
 
   Future<void> _run() async {
+    // Astra H2.5: while the egress gate does not permit, nothing is gathered and
+    // nothing is latched, so a later session state with Cloud ON still gathers.
+    if (!await MobileAdsInitializer.mayServe()) {
+      _inFlight = null;
+      return;
+    }
     try {
       await _consent.gatherConsent();
     } catch (_) {
