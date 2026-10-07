@@ -10128,6 +10128,60 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'إعادة المحاولة'**
   String get syncSheetRetry;
+
+  /// No description provided for @signOutKeepData.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الخروج مع الاحتفاظ بالبيانات المشفّرة'**
+  String get signOutKeepData;
+
+  /// No description provided for @signOutKeepDataHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'تبقى بياناتك مشفّرة على هذا الجهاز. سجّل الدخول مجددًا لفتحها.'**
+  String get signOutKeepDataHint;
+
+  /// No description provided for @signOutRemoveData.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الخروج وحذف البيانات من هذا الجهاز'**
+  String get signOutRemoveData;
+
+  /// No description provided for @signOutRemoveDataHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'يحذف بيانات هذا الحساب من هذا الجهاز فقط. لا تتأثر البيانات المحفوظة بالفعل في السحابة.'**
+  String get signOutRemoveDataHint;
+
+  /// No description provided for @signOutUnsyncedKeepBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'بعض البيانات لم تصل إلى السحابة بعد: {list}. تبقى على هذا الجهاز وتُزامَن عند تسجيل دخولك مجددًا.'**
+  String signOutUnsyncedKeepBody(String list);
+
+  /// No description provided for @removeDataTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف البيانات من هذا الجهاز؟'**
+  String get removeDataTitle;
+
+  /// No description provided for @removeDataBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيُحذف نهائيًا كل ما يخص هذا الحساب على هذا الجهاز. يمكنك تنزيل البيانات المحفوظة في السحابة مجددًا بتسجيل الدخول.'**
+  String get removeDataBody;
+
+  /// No description provided for @removeDataUnsyncedBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذه البيانات لم تصل إلى السحابة وستُفقد: {list}.'**
+  String removeDataUnsyncedBody(String list);
+
+  /// No description provided for @removeDataAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف البيانات'**
+  String get removeDataAction;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

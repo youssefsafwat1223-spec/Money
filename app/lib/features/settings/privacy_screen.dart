@@ -6,7 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
-import '../../core/privacy/data_wipe_service.dart';
+import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -245,13 +245,14 @@ class PrivacyScreen extends ConsumerWidget {
       return;
     }
 
+    // The reset replaces the account scope, which disposes this screen, so the
+    // navigation uses the app router rather than this screen's context.
     await AppSession.instance.resetAllLocalData(
-      wipeDatabase: ref.read(dataWipeServiceProvider).wipeAll,
       signOutRemote: SupabaseConfig.isConfigured
           ? supabase.Supabase.instance.client.auth.signOut
           : null,
     );
-    if (context.mounted) context.go('/welcome');
+    appRouter.go('/welcome');
   }
 
   Future<void> _confirmCancelDeletion(

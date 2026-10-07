@@ -1,74 +1,47 @@
-import 'package:drift/native.dart';
+import 'dart:io';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/privacy/data_wipe_service.dart';
-import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/core/session/account_scope.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
-import '../../harness/seed_test_account.dart';
+import 'package:money_companion/data/db/replica_store.dart';
 
-/// AUDIT 10 — USER B MUST NEVER SEE USER A's LOCAL DATA.
+/// AUDIT 10 — USER B MUST NEVER SEE USER A's LOCAL DATA (WP-3b form).
 ///
-/// This app's local database is single-owner by design. There is no `user_id`
-/// column to filter on: one account owns the file at a time, and isolation is
-/// enforced by WIPING on an ownership transition. That makes the wipe a
-/// security boundary, not a convenience, and it means three separate things all
-/// have to hold at once:
-///
-///   1. every user-scoped table is in `DataWipeService.wipedTables`
-///      — `data_wipe_service_test` proves this exhaustively against the live
-///        schema, so no new table escapes classification;
-///   2. the wipe empties them
-///      — proven by construction: `wipeAll` loops the list;
-///   3. the A -> B transition actually RUNS that wipe before admitting B.
-///
-/// Those were each covered in isolation. Nothing connected them, so a
-/// regression in the wiring — the transition calling something else, calling it
-/// after admission, or swallowing its failure — would have left every
-/// individual test green while B inherited A's money. That is the gap this
-/// closes: the REAL DataWipeService against a REAL database, driven through the
-/// REAL AppSession transition, asserting residue by querying every table in the
-/// wipe list rather than trusting the list.
-///
-/// `install_restore_matrix_test` covers the ordering and convergence of that
-/// transition with a fake wipe; this covers what the real wipe leaves behind.
-
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
+/// Isolation used to be a WIPE on an ownership transition inside one shared
+/// file. With one encrypted replica per uid it holds by construction: B is
+/// opened on B's own file, A's file is locked and untouched, and no handle to A's
+/// database is reachable once the scope has switched. These tests drive the real
+/// account-scope host over real SQLCipher replicas.
+late AccountScopeHost host;
+AppDatabase get db => host.current!.database;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  late AppDatabase db;
+  late Directory support;
+  late ReplicaStore store;
 
-  Future<int> countOf(String table) async =>
-      (await db.customSelect('SELECT COUNT(*) AS n FROM $table;').getSingle())
+  Future<int> countOf(AppDatabase d, String table) async =>
+      (await d.customSelect('SELECT COUNT(*) AS n FROM $table;').getSingle())
           .read<int>('n');
 
-  setUp(() async {
+  setUp(() {
+    support = Directory.systemTemp.createTempSync('cross_account_');
     FlutterSecureStorage.setMockInitialValues({});
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
+    store = ReplicaStore(appSupportDirectory: support.path);
+    host = AccountScopeHost(
+      store: store,
+      initialize: (db, uid) async => const AccountScopeInit(),
     );
-    await seedTestAccount(db);
-    // The REAL wipe service, exactly as bootstrap_runner wires it.
-    AppSession.instance.configureLocalDataWipe(DataWipeService(db).wipeAll);
-    AppSession.instance.configureLocalResiduePurge(() async => true);
-    AppSession.instance.configureCaptureDeviceUnlink(null);
-    await AppSession.instance.wipeAndReset();
   });
 
   tearDown(() async {
-    AppSession.instance.configureLocalDataWipe(null);
-    AppSession.instance.configureLocalResiduePurge(null);
-    await AppSession.instance.wipeAndReset();
-    await db.close();
+    await host.lock();
+    host.dispose();
+    if (support.existsSync()) support.deleteSync(recursive: true);
   });
 
   final now = DateTime.now().toUtc().toIso8601String();
@@ -148,102 +121,41 @@ void main() {
     );
   }
 
-  /// Tables the wipe empties and then RESEEDS with catalog/default content, so
-  /// a row count above zero is correct for them and proves nothing either way.
-  /// A's own rows in these are checked by identity in [aRowsSurviving] instead.
-  ///
-  ///   accounts             — one default account, so the app can open
-  ///   user_settings        — one defaults row (its CONTENT is asserted below)
-  ///   streaks / xp_levels  — single-row gamification counters, reset
-  ///   achievements         — the badge catalog, reset to zero progress
-  ///   merchants,
-  ///   merchant_category_map— the seeded merchant→category starter map
-  const reseeded = {
-    'accounts',
-    'user_settings',
-    'streaks',
-    'xp_levels',
-    'achievements',
-    'merchants',
-    'merchant_category_map',
-  };
 
-  /// Every table the wipe claims to empty, queried directly. The list is the
-  /// production constant, so a table added to it is automatically checked here.
-  Future<List<String>> tablesStillHoldingRows() async {
+  Future<List<String>> tablesHoldingA(AppDatabase d) async {
     final dirty = <String>[];
+    const reseeded = {
+      'accounts',
+      'user_settings',
+      'streaks',
+      'xp_levels',
+      'achievements',
+      'merchants',
+      'merchant_category_map',
+    };
     for (final table in DataWipeService.wipedTables) {
       if (reseeded.contains(table)) continue;
-      if (await countOf(table) > 0) dirty.add(table);
+      if (await countOf(d, table) > 0) dirty.add(table);
     }
     return dirty;
   }
 
-  /// A's rows identified by primary key, including in the reseeded tables. This
-  /// is the assertion that actually matters there: the badge catalog coming back
-  /// is fine, A's unlocked badge coming back is not.
-  Future<List<String>> aRowsSurviving() async {
-    const owned = {
-      'accounts': "id = 'a-acct'",
-      'transactions': "id = 'a-tx'",
-      'goals': "id = 'a-goal'",
-      'budgets': "id = 'a-budget'",
-      'subscriptions': "id = 'a-sub'",
-      'merchants': "id = 'a-merchant'",
-      'ledger_sync_outbox': "id = 'a-out'",
-      'sync_cursors': "last_id = 'a-server-id'",
-      'dedup_hashes': "hash = 'a-hash'",
-      'notification_log_events': "id = 'a-note'",
-      'achievements': "id = 'a-badge' OR unlocked_at IS NOT NULL",
-    };
-    final survivors = <String>[];
-    for (final entry in owned.entries) {
-      final n = (await db
-              .customSelect('SELECT COUNT(*) AS n FROM ${entry.key} '
-                  'WHERE ${entry.value};')
-              .getSingle())
-          .read<int>('n');
-      if (n > 0) survivors.add('${entry.key} (${entry.value})');
-    }
-    return survivors;
-  }
-
-  test('signing in as B after A wipes every user-scoped table', () async {
-    await AppSession.instance.setIdentity(method: 'google', userId: 'uid-a');
+  test("B sees none of A's rows, money, queues, cursors or profile", () async {
+    await host.activate('uid-a');
     await seedUserA();
+    expect(await countOf(db, 'transactions'), 1);
+    expect(await countOf(db, 'ledger_sync_outbox'), 1);
 
-    // Sanity: the fixture is real, or everything below is vacuous.
-    expect(await countOf('transactions'), 1);
-    expect(await countOf('goals'), 1);
-    expect(await countOf('ledger_sync_outbox'), 1);
+    await host.activate('uid-b');
 
-    // THE transition.
-    await AppSession.instance.setIdentity(method: 'google', userId: 'uid-b');
-
-    expect(await tablesStillHoldingRows(), isEmpty,
-        reason: 'B inherited rows from A in these tables');
-    // And nothing of A's survives in the reseeded tables either — including
-    // A's merchant name and A's unlocked badge.
-    expect(await aRowsSurviving(), isEmpty,
-        reason: "these rows of A's are still readable by B");
-    expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-b');
-  });
-
-  test("B cannot see A's money, name, queued writes or sync cursors",
-      () async {
-    await AppSession.instance.setIdentity(method: 'google', userId: 'uid-a');
-    await seedUserA();
-    await AppSession.instance.setIdentity(method: 'google', userId: 'uid-b');
-
-    // Money, by value — not just by row count.
+    expect(host.current!.uid, 'uid-b');
+    expect(await tablesHoldingA(db), isEmpty);
     final total = (await db
             .customSelect('SELECT COALESCE(SUM(amount_minor),0) AS m '
                 'FROM transactions;')
             .getSingle())
         .read<int>('m');
-    expect(total, 0, reason: "A's balance is visible to B");
-
-    // Personal identity must be back to defaults, not A's.
+    expect(total, 0);
     final settings = await db
         .customSelect('SELECT display_name, phone_number FROM user_settings;')
         .get();
@@ -251,72 +163,64 @@ void main() {
       expect(row.data['display_name'], isNot('User A'));
       expect(row.data['phone_number'], isNot('0500000000'));
     }
-
-    // A's unsent writes must not be uploadable as B — this is the one that
-    // would push A's private transactions into B's cloud account.
-    expect(await countOf('ledger_sync_outbox'), 0);
-    expect(await countOf('planning_sync_outbox'), 0);
-    // A stale cursor would make B's first pull resume from A's high-water mark
-    // and silently skip B's own history.
-    expect(await countOf('sync_cursors'), 0);
-
-    // And A's raw message text must be gone from the file entirely.
-    final raw = await db
-        .customSelect("SELECT COUNT(*) AS n FROM transactions "
-            "WHERE raw_message LIKE '%A private message%';")
-        .getSingle();
-    expect(raw.read<int>('n'), 0);
-  });
-
-  test('the wipe leaves a consistent, usable database for B', () async {
-    await AppSession.instance.setIdentity(method: 'google', userId: 'uid-a');
-    await seedUserA();
-    await AppSession.instance.setIdentity(method: 'google', userId: 'uid-b');
-
-    // Referential integrity: a wipe that deleted parents but left children
-    // would hand B a database that breaks on first read.
     expect(await db.customSelect('PRAGMA foreign_key_check;').get(), isEmpty);
-    // Catalog data is reference material and must SURVIVE, or B opens into an
-    // app with no categories to spend against.
-    expect(await countOf('categories'), greaterThan(0));
-    // A-7: no silent default account — B creates their own in Account Setup.
-    expect(await countOf('accounts'), 0);
-    expect(await countOf('user_settings'), 1);
+    expect(await countOf(db, 'categories'), greaterThan(0));
   });
 
-  test('a wipe that fails destroys nothing and does not admit B', () async {
-    // The fail-closed contract, with the REAL service: if the wipe throws,
-    // A's data must still be intact and the marker must still say A. A
-    // half-wiped database handed to B is the worst outcome available.
-    await AppSession.instance.setIdentity(method: 'google', userId: 'uid-a');
+  test("A's data is untouched and comes back when A re-authenticates",
+      () async {
+    await host.activate('uid-a');
     await seedUserA();
-    final before = await countOf('transactions');
+    await host.activate('uid-b');
+    await host.activate('uid-a');
 
-    AppSession.instance.configureLocalDataWipe(
-      () async => throw StateError('disk full'),
-    );
+    expect(host.current!.uid, 'uid-a');
+    expect(await countOf(db, 'transactions'), 1);
+    expect(await countOf(db, 'goals'), 1);
+    expect(await countOf(db, 'ledger_sync_outbox'), 1,
+        reason: "A's unsent writes survive for A");
+  });
 
+  test('no cross-uid handle survives a switch: the old database is closed',
+      () async {
+    await host.activate('uid-a');
+    final oldDb = db;
+    final oldGeneration = host.current!.generation;
+
+    await host.activate('uid-b');
+
+    expect(host.current!.generation, greaterThan(oldGeneration));
+    expect(oldDb.lifecycleState, isNot(DatabaseLifecycleState.open));
     await expectLater(
-      AppSession.instance.setIdentity(method: 'google', userId: 'uid-b'),
-      throwsA(anything),
-    );
-
-    expect(await countOf('transactions'), before,
-        reason: "A's data was destroyed by a failed transition");
-    expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-a',
-        reason: 'ownership must not move without a completed wipe');
+        oldDb.customSelect('SELECT 1;').get(), throwsA(anything));
   });
 
-  test('re-signing in as the SAME user never wipes their data', () async {
-    // The other direction of the boundary: an over-eager wipe is data loss.
-    await AppSession.instance.setIdentity(method: 'google', userId: 'uid-a');
-    await seedUserA();
-    final before = await countOf('transactions');
+  test('the previous scope is withdrawn BEFORE the old database closes',
+      () async {
+    await host.activate('uid-a');
+    final seen = <bool>[];
+    final oldDb = db;
+    host.addListener(() {
+      if (host.current == null) {
+        seen.add(oldDb.lifecycleState == DatabaseLifecycleState.open);
+      }
+    });
 
-    for (var launch = 0; launch < 3; launch++) {
-      await AppSession.instance.setIdentity(method: 'google', userId: 'uid-a');
-      expect(await countOf('transactions'), before,
-          reason: 'launch $launch wiped a returning user');
+    await host.activate('uid-b');
+
+    expect(seen, [true],
+        reason: 'listeners (the root widget) learn of the withdrawal while the '
+            'old database is still open, so providers dispose before close');
+  });
+
+  test('re-signing in as the SAME uid keeps the open scope', () async {
+    await host.activate('uid-a');
+    await seedUserA();
+    final gen = host.current!.generation;
+    for (var i = 0; i < 3; i++) {
+      await host.activate('uid-a');
     }
+    expect(host.current!.generation, gen);
+    expect(await countOf(db, 'transactions'), 1);
   });
 }

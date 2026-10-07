@@ -118,6 +118,9 @@ void main() {
       'captured_message_processor.dart',
       'local_notification_service.dart',
       'app_database.dart', // the definitions themselves
+      // WP-3b: the failed-adoption legacy fallback and the in-memory signed-out
+      // scope, both opened only by the account-scope host.
+      'account_scope.dart',
     };
     for (final o in opens) {
       final base = o.split(': ').first.split('/').last;

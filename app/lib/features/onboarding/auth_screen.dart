@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/auth/auth_service.dart';
@@ -12,6 +11,7 @@ import '../../core/auth/supabase_auth_service.dart'
     show AuthCancelledException, AuthConfigurationException;
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
+import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_colors.dart';
@@ -87,6 +87,13 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     setState(() => apple ? _busyApple = true : _busyGoogle = true);
     try {
       final identity = await method();
+      // WP-3b: admitting the uid swaps the account scope, which disposes this
+      // screen and every provider built on the signed-out one. What the rest of
+      // this flow needs is therefore taken now (the device link only uses secure
+      // storage and the auth session, never the database), and navigation goes
+      // through the app router rather than this screen's context.
+      final captureRegistration =
+          ref.read(captureDeviceRegistrationServiceProvider);
       await AppSession.instance.setIdentity(
         method: identity.method,
         email: identity.email,
@@ -96,21 +103,14 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         await AppSession.instance.reconcileAccountOnboarding(
           supabase.Supabase.instance.client,
         );
-        if (!mounted) return;
-        unawaited(
-          ref
-              .read(captureDeviceRegistrationServiceProvider)
-              .linkToCurrentUser()
-              .catchError((_) {}),
-        );
+        unawaited(captureRegistration.linkToCurrentUser().catchError((_) {}));
       }
-      if (!mounted) return;
       if (AppSession.instance.hasCompletedOnboarding) {
-        context.go('/');
+        appRouter.go('/');
         return;
       }
 
-      context.go('/onboarding/setup');
+      appRouter.go('/onboarding/setup');
     } catch (error, stackTrace) {
       if (kDebugMode) {
         debugPrint(

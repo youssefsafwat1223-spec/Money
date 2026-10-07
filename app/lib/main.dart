@@ -10,10 +10,10 @@ import 'core/privacy/diagnostics_consent_gate.dart';
 import 'core/di/app_providers.dart';
 import 'core/observability/diagnostics.dart';
 import 'core/observability/telemetry_sanitizer.dart';
+import 'core/session/account_scope.dart';
 import 'core/startup/bootstrap_runner.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/font_licenses.dart';
-import 'data/db/app_database.dart';
 import 'data/db/planning_canonical_invariants.dart';
 import 'data/db/planning_cutover.dart';
 import 'features/app/startup_loading_screen.dart';
@@ -91,7 +91,7 @@ class StartupApp extends StatefulWidget {
 
 class _StartupAppState extends State<StartupApp> {
   late final BootstrapRunner _runner;
-  AppDatabase? _database;
+  AccountScopeHost? _accountScope;
   Object? _error;
   bool _bootstrapping = false;
 
@@ -115,12 +115,30 @@ class _StartupAppState extends State<StartupApp> {
     _attempt();
   }
 
+  /// A switch of account (sign-in of another uid, sign-out, removal) withdraws
+  /// the published scope and later publishes a new one: rebuild so every
+  /// provider built on the old database is disposed with it.
+  void _onAccountScopeChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
+  void dispose() {
+    _accountScope?.removeListener(_onAccountScopeChanged);
+    super.dispose();
+  }
+
   Future<void> _runBootstrap() async {
     _bootstrapping = true;
     try {
-      final database = await _runner.run();
+      await _runner.run();
       if (!mounted) return;
-      setState(() => _database = database);
+      final host = _runner.accountScope;
+      if (!identical(host, _accountScope)) {
+        _accountScope?.removeListener(_onAccountScopeChanged);
+        host.addListener(_onAccountScopeChanged);
+      }
+      setState(() => _accountScope = host);
     } catch (error) {
       if (!mounted) return;
       setState(() => _error = error);
@@ -131,18 +149,25 @@ class _StartupAppState extends State<StartupApp> {
 
   @override
   Widget build(BuildContext context) {
-    final database = _database;
-    if (database != null) {
+    // While an account switch is in flight the host has withdrawn the previous
+    // scope and not yet published the next: the loading screen below shows.
+    final host = _accountScope;
+    final scope = host?.current;
+    if (scope != null) {
+      final database = scope.database;
       return ProviderScope(
+        // A new generation is a new database and therefore a new provider
+        // graph: nothing built for the previous account survives the switch.
+        key: ValueKey(scope.generation),
         overrides: [
           appDatabaseProvider.overrideWithValue(database),
-          startupHasLocalDataProvider.overrideWithValue(_runner.hasLocalData),
+          startupHasLocalDataProvider.overrideWithValue(scope.hasLocalData),
           // MALI-026 (B8-3 §1/§12) — seed the coordinator with the REAL state
           // resolved from the DB at bootstrap (canonical for fresh v30, unresolved
           // for upgraded-with-data), so P1/P3 behavior is correct from launch.
           planningCutoverCoordinatorProvider.overrideWith(
             (ref) => DbBackedPlanningCutoverCoordinator(
-              initialState: _runner.planningCutoverState,
+              initialState: scope.planningCutoverState,
               readUserVersion: () async => (await database
                       .customSelect('PRAGMA user_version;')
                       .getSingle())

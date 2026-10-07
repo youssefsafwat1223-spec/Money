@@ -4,10 +4,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart' show WidgetsBinding;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/catalog/seed_loader.dart';
 import '../../data/db/app_database.dart';
+import '../../data/db/replica_store.dart';
 import '../../data/db/planning_canonical_invariants.dart';
 import '../../data/db/planning_cutover.dart';
 import '../exporting/managed_export_store.dart';
@@ -25,7 +27,6 @@ import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/capture/capture_runtime.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
-import '../../features/capture/services/native_capture_bridge.dart';
 import '../../features/capture/services/pending_notification_actions.dart';
 import '../../features/capture/services/local_notification_service.dart';
 import '../../features/app/app_boot_loader.dart';
@@ -35,8 +36,10 @@ import '../../features/planning_sync/services/outbox_queue_factory.dart';
 import '../backend/metrics_client.dart';
 import '../backend/supabase_config.dart';
 import '../di/app_providers.dart';
-import '../privacy/data_wipe_service.dart';
+import '../session/account_scope.dart';
 import '../session/app_session.dart';
+import '../session/capture_queue.dart';
+import '../session/remove_data_flow.dart';
 
 /// Thrown when [BootstrapRunner.run] exceeds [BootstrapRunner.timeout].
 class BootstrapTimeoutException implements Exception {
@@ -61,6 +64,12 @@ class BootstrapRunner {
   static const Duration timeout = Duration(seconds: 30);
 
   AppDatabase? _database;
+  ReplicaStore? _replicaStore;
+  AccountScopeHost? _host;
+  StreamSubscription<AuthState>? _senderBankAuthSubscription;
+  RemoveDataFlow? _removeData;
+  bool _removalPending = false;
+  bool _residueHookRegistered = false;
   bool _supabaseInitialized = false;
   bool _senderBankSyncStarted = false;
   bool _goalAutoSavesRan = false;
@@ -89,9 +98,18 @@ class BootstrapRunner {
   /// Deletes the unopenable encrypted DB file so the next [run] can create a
   /// fresh one. Only relevant when [lastStep] is `'database_open'`.
   Future<void> resetDatabaseAndRetry() async {
-    await AppDatabase.deleteDatabaseFile();
+    // WP-3b: the file that failed to open is the signed-in account's replica
+    // (or the legacy file still in use), never a shared one.
+    final location = await (_replicaStore ??= ReplicaStore()).activeLocation();
+    if (location != null) {
+      await AppDatabase.deleteDatabaseFile(location: location);
+    }
     _database = null;
   }
+
+  /// The account-scope host (WP-3b). Valid once [run] has completed; the root
+  /// widget listens to it and rebuilds its `ProviderScope` on every switch.
+  AccountScopeHost get accountScope => _host!;
 
   /// Runs the full startup sequence, or resumes/retries a previous attempt
   /// without repeating steps that already completed. Returns the ready
@@ -108,6 +126,14 @@ class BootstrapRunner {
     // configuration throws (fail closed → startup error screen) instead of
     // silently proceeding into stub auth / no cloud (MALI-003).
     _assertRuntimeConfig();
+
+    // WP-3b — replica recovery + legacy adoption run FIRST, before the session
+    // reconcile below can claim the owner marker: an unowned legacy database must
+    // be quarantined, never adopted by whoever is restored (B4).
+    final host = _host ??= _buildAccountScopeHost();
+    if (_database == null) {
+      await _step('replica_recovery', host.recoverAtLaunch);
+    }
 
     if (SupabaseConfig.isConfigured && !_supabaseInitialized) {
       await _step('supabase_init', () async {
@@ -140,22 +166,86 @@ class BootstrapRunner {
       () => LocalNotificationService.instance.initialize(),
     );
 
-    // MALI-069n §Batch-4-closure-4 (Contract B) — take the process-lifetime OS
-    // advisory lock and, if this is the sole opener, clear leftover lease/intent
-    // records from ENDED process instances BEFORE opening. This startup pass is the
-    // only reaping authority; runtime maintenance never reaps.
-    await _step('database_process_liveness', AppDatabase.initProcessLiveness);
-    _database ??= await _step('database_open', () => AppDatabase.open());
-    final database = _database!;
+    // The residue purge is DB-independent, so it is registered before the replica
+    // opens: a changed owner's purge then resolves BEFORE any replica is opened,
+    // and bootstrap opens the right one straight away (never the previous
+    // owner's first).
+    await _step('residue_purge_registration', () async {
+      _registerCaptureOwnerHooks();
+      final removal = _removeData!;
+      // §4.4 crash safety: a removal interrupted mid-way resumes from step 2
+      // before any account is opened or admitted. While it cannot finish, the
+      // signed-out scope is used.
+      _removalPending = !await removal.resumePending();
+      // Owner gate (MALI-002): the first session reconcile ran before this hook
+      // existed. If it deferred a changed-owner purge, resolve it now so the
+      // marker names the signed-in uid before its replica is opened.
+      if (SupabaseConfig.isConfigured) {
+        await AppSession.instance
+            .resolvePendingLocalDataOwnerConflict(Supabase.instance.client);
+      }
+    });
+
+    final launchUid = _removalPending
+        ? null
+        : await AppSession.instance.readLocalDataOwnerUid();
+    if (host.current == null) {
+      await _step('database_open', () => host.openAtLaunch(launchUid));
+    }
+    AppSession.instance.configureAccountScope(host);
+    final scope = host.current!;
+    final database = _database = scope.database;
+    hasLocalData = scope.hasLocalData;
+    planningCutoverState = scope.planningCutoverState;
+
+    if (initialCaptureTransactionId != null) {
+      CaptureRuntime.instance
+          .seedInitialConfirmation(initialCaptureTransactionId);
+    }
+
+    // B2-C — the safety-critical phase (config, DB open, liveness, admission/
+    // owner-conflict, seed, local flags, owner-safe backfills) is complete: the
+    // local financial UI is usable. Flip the milestone, then run the deferred,
+    // non-critical, off-the-first-frame work (housekeeping only) WITHOUT gating
+    // the return.
+    localFinancialUiUsable.value = true;
+    unawaited(_runDeferredStartupWork());
+
+    if (kDebugMode) {
+      debugPrint(
+        '[Bootstrap] done — session=${AppSession.instance.status.name}',
+      );
+    }
+    return database;
+  }
+
+  /// WP-3b — the per-account startup steps. Run by the account-scope host on
+  /// EVERY database it opens (launch, sign-in of another uid, sign-out), before
+  /// the scope is published. [uid] is null for the signed-out scope: only the
+  /// steps that make the database and the process-wide singletons safe to use are
+  /// run; nothing that reads, repairs or syncs account data.
+  Future<AccountScopeInit> _initializeAccount(
+      AppDatabase database, String? uid) async {
+    // Everything bound to the previous account's database is released first.
+    await _senderBankAuthSubscription?.cancel();
+    _senderBankAuthSubscription = null;
+    _senderBankSyncStarted = false;
+    _goalAutoSavesRan = false;
+    _cardBackfillRan = false;
+    _accountCurrencyRepairRan = false;
+    _cardIdentityBackfillRan = false;
+    _dbKeyRefCleanupRan = false;
+    var localData = true;
+    var cutover = PlanningCutoverState.canonical;
 
     await _step('has_local_data', () async {
       try {
         final row = await database
             .customSelect('SELECT EXISTS(SELECT 1 FROM transactions) AS d')
             .getSingle();
-        hasLocalData = row.read<int>('d') != 0;
+        localData = row.read<int>('d') != 0;
       } catch (_) {
-        hasLocalData = true;
+        localData = true;
       }
     });
 
@@ -164,7 +254,7 @@ class BootstrapRunner {
     // an upgraded-with-data DB is unresolved (P1). main() provides this as the
     // coordinator's initial state so guard/nav/reads react correctly from launch.
     await _step('planning_cutover_state', () async {
-      planningCutoverState = await computePlanningCutoverState(
+      cutover = await computePlanningCutoverState(
         () async => (await database
                 .customSelect('PRAGMA user_version;')
                 .getSingle())
@@ -203,47 +293,35 @@ class BootstrapRunner {
       AppSession.instance.configureCaptureDeviceUnlink(
         captureRegistration.unlinkCurrentDevice,
       );
-      AppSession.instance.configureLocalDataWipe(
-        DataWipeService(database).wipeAll,
-      );
       // C-3 — last-seen tracking is an egress about this person's behaviour.
       // The service is static and cannot reach the database, so the gate is
       // wired here, where it can. It defaults CLOSED, so a build that never
-      // reaches this line transmits nothing.
+      // reaches this line transmits nothing. Re-pointed on every account switch,
+      // and closed again for the signed-out scope.
       UserActivityService.configureConsentGate(
-        () => ConsentAuthority(
-          () => DriftUserSettingsRepository(database).getSettings(),
-        ).allows(EgressClass.profileAndSettings),
+        uid == null
+            ? () async => false
+            : () => ConsentAuthority(
+                  () => DriftUserSettingsRepository(database).getSettings(),
+                ).allows(EgressClass.profileAndSettings),
       );
-      // MALI-054n/070n: residue purge = native App Group / SharedPreferences
-      // capture queue + the pending-notification-actions file. Both run; the
-      // hook reports success only when BOTH are confirmed, so the owner gate can
-      // fail closed. Registered before the deferred owner-conflict resolves so
-      // the conflict path can purge before admitting the new identity.
-      AppSession.instance.configureLocalResiduePurge(() async {
-        final nativePurged = await NativeCaptureBridge.purgeAllCaptureState();
-        final filesCleared = await PendingNotificationActions.clear();
-        // MALI-019 §10 — clear the previous user's pending OS reminders too, so a
-        // stale bill/weekly/streak reminder can never surface after sign-out /
-        // ownership change. Best-effort; does not gate the fail-closed result.
-        await LocalNotificationService.instance.cancelScheduledReminders();
-        return nativePurged && filesCleared;
-      });
-      // Owner gate (MALI-002): the first session reconcile ran before the DB
-      // (and therefore the wipe hook) existed. If it deferred an owner
-      // conflict — the DB still holds a DIFFERENT account's data — resolve it
-      // now: wipe, claim, and re-admit against a clean DB, before any later
-      // step (goal autosaves, card backfill, sync) touches the stale rows.
-      if (SupabaseConfig.isConfigured) {
-        await AppSession.instance
-            .resolvePendingLocalDataOwnerConflict(Supabase.instance.client);
+      if (uid != null) {
+        unawaited(
+          captureRegistration.syncBackendState().catchError((_) {
+            // Capture backend registration is optional; local fallback remains active.
+          }),
+        );
       }
-      unawaited(
-        captureRegistration.syncBackendState().catchError((_) {
-          // Capture backend registration is optional; local fallback remains active.
-        }),
-      );
     });
+
+    // Binds health persistence to THIS database (and drops the previous
+    // account's in-memory state).
+    unawaited(SyncHealth.shared.attach(database));
+    if (uid == null) {
+      DiagnosticsConsentGate.revoke();
+      return AccountScopeInit(
+          hasLocalData: localData, planningCutoverState: cutover);
+    }
 
     // MALI-058n — clear any legacy raw-key value from the deprecated
     // db_encryption_key_ref column. Runs AFTER admission (the identity above is
@@ -270,7 +348,7 @@ class BootstrapRunner {
               database,
               outboxQueue: buildPlanningOutboxQueue(database,
                   coordinator: FixedPlanningCutoverCoordinator(
-                      planningCutoverState)),
+                      cutover)),
             ),
           ).call();
         } catch (_) {
@@ -321,7 +399,7 @@ class BootstrapRunner {
               database,
               outboxQueue: buildPlanningOutboxQueue(database,
                   coordinator: FixedPlanningCutoverCoordinator(
-                      planningCutoverState)),
+                      cutover)),
             ),
             // Both outboxes are wired deliberately: the repair changes real
             // financial state, so it must still reach other devices exactly as
@@ -331,7 +409,7 @@ class BootstrapRunner {
               database,
               outboxQueue: buildLedgerOutboxQueue(database,
                   coordinator: FixedPlanningCutoverCoordinator(
-                      planningCutoverState)),
+                      cutover)),
             ),
           ).run(fallbackCurrency: settings.currency);
         } catch (_) {
@@ -351,8 +429,8 @@ class BootstrapRunner {
           database,
           outboxQueue: buildPlanningOutboxQueue(database,
               coordinator:
-                  FixedPlanningCutoverCoordinator(planningCutoverState)),
-          coordinator: FixedPlanningCutoverCoordinator(planningCutoverState),
+                  FixedPlanningCutoverCoordinator(cutover)),
+          coordinator: FixedPlanningCutoverCoordinator(cutover),
         ).repointOrphanGoalsToDefaultAccount();
       } catch (_) {
         // Best-effort: a refused mutation (unresolved cutover) retries next boot.
@@ -364,7 +442,7 @@ class BootstrapRunner {
         // A-4b: bypass writers (backfills, cutover, import, restore repair) mark
         // server-backed rows pending without outbox rows; record their intent
         // now that admission is complete. Idempotent, consent/owner-gated.
-        final coordinator = FixedPlanningCutoverCoordinator(planningCutoverState);
+        final coordinator = FixedPlanningCutoverCoordinator(cutover);
         await PendingSyncReconciler(
           db: database,
           ledgerQueue: buildLedgerOutboxQueue(database, coordinator: coordinator),
@@ -392,7 +470,7 @@ class BootstrapRunner {
             database,
             outboxQueue: buildPlanningOutboxQueue(database,
                   coordinator: FixedPlanningCutoverCoordinator(
-                      planningCutoverState)),
+                      cutover)),
           ).backfillFromTransactions();
         } catch (_) {
           // Backfill is opportunistic; a failure leaves cards empty, not broken.
@@ -421,30 +499,68 @@ class BootstrapRunner {
 
     if (SupabaseConfig.isConfigured && !_senderBankSyncStarted) {
       await _step('sender_bank_sync_start', () async {
-        _startSenderBankMappingSync(database, Supabase.instance.client);
+        _senderBankAuthSubscription =
+            _startSenderBankMappingSync(database, Supabase.instance.client);
         _senderBankSyncStarted = true;
       });
     }
 
-    if (initialCaptureTransactionId != null) {
-      CaptureRuntime.instance
-          .seedInitialConfirmation(initialCaptureTransactionId);
+    return AccountScopeInit(
+        hasLocalData: localData, planningCutoverState: cutover);
+  }
+
+  /// The native capture queue seam (CAP-6a queue v3); tests substitute a fake.
+  CaptureQueueBridge captureQueue = NativeCaptureQueue();
+
+  /// WP-3b: account transitions RELEASE the capture owner (never purge waiting
+  /// items, §4.2); the queue is purged only by the Remove-data barrier. Also
+  /// clears device-wide non-queue residue and the previous account's OS reminders.
+  void _registerCaptureOwnerHooks() {
+    if (_residueHookRegistered) return;
+    _residueHookRegistered = true;
+    Future<bool> release({required bool clearHint}) async {
+      final cleared = await captureQueue.clearCaptureOwner(clearHint: clearHint);
+      final filesCleared = await PendingNotificationActions.clear();
+      // MALI-019 §10 — clear the previous user's pending OS reminders too.
+      await LocalNotificationService.instance.cancelScheduledReminders();
+      return cleared && filesCleared;
     }
 
-    // B2-C — the safety-critical phase (config, DB open, liveness, admission/
-    // owner-conflict, seed, local flags, owner-safe backfills) is complete: the
-    // local financial UI is usable. Flip the milestone, then run the deferred,
-    // non-critical, off-the-first-frame work (housekeeping only) WITHOUT gating
-    // the return.
-    localFinancialUiUsable.value = true;
-    unawaited(_runDeferredStartupWork());
+    AppSession.instance.configureCaptureOwnerClear(
+      () => release(clearHint: true),
+      atSignOut: () => release(clearHint: false),
+    );
+    // Seam for WP-6: publication moves behind link_capture_device(consent).
+    AppSession.instance
+        .configureCaptureOwnerPublish(captureQueue.publishCaptureOwner);
+    _removeData = RemoveDataFlow(
+      store: _replicaStore!,
+      scope: _host!,
+      barrier: CaptureQueueRemoveBarrier(captureQueue),
+      clearOwnerMarker: AppSession.instance.clearLocalDataOwnerMarker,
+    );
+    AppSession.instance.configureRemoveData(_removeData);
+  }
 
-    if (kDebugMode) {
-      debugPrint(
-        '[Bootstrap] done — session=${AppSession.instance.status.name}',
-      );
-    }
-    return database;
+  AccountScopeHost _buildAccountScopeHost() {
+    final store = _replicaStore = ReplicaStore(
+      opener: ({location, runMigrations = true}) async {
+        // Process liveness (Contract B) is per database file; the legacy file is
+        // only ever read during adoption and takes none.
+        if (location != null && location.dbFileName == ReplicaStore.dbFileName) {
+          await AppDatabase.initProcessLiveness(location: location);
+        }
+        return AppDatabase.open(
+            location: location, runMigrations: runMigrations);
+      },
+    );
+    return AccountScopeHost(
+      store: store,
+      initialize: _initializeAccount,
+      prepareLocation: (location) =>
+          AppDatabase.initProcessLiveness(location: location),
+      afterWithdraw: () => WidgetsBinding.instance.endOfFrame,
+    );
   }
 
   /// B2-C — deferred, non-critical startup housekeeping that must NOT gate the
@@ -542,7 +658,7 @@ Future<void> _registerBrandLogos() async {
   }
 }
 
-void _startSenderBankMappingSync(
+StreamSubscription<AuthState> _startSenderBankMappingSync(
   AppDatabase database,
   SupabaseClient client,
 ) {
@@ -559,7 +675,7 @@ void _startSenderBankMappingSync(
     health: SyncHealth.shared,
   );
   unawaited(service.sync());
-  client.auth.onAuthStateChange.listen((state) {
+  return client.auth.onAuthStateChange.listen((state) {
     switch (state.event) {
       case AuthChangeEvent.initialSession:
       case AuthChangeEvent.signedIn:

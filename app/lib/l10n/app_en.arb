@@ -3098,5 +3098,28 @@
     }
   },
   "syncSheetNeverSynced": "No successful sync yet",
-  "syncSheetRetry": "Retry"
+  "syncSheetRetry": "Retry",
+  "signOutKeepData": "Sign out and keep encrypted data",
+  "signOutKeepDataHint": "Your data stays encrypted on this device. Sign in again to open it.",
+  "signOutRemoveData": "Sign out and remove data from this device",
+  "signOutRemoveDataHint": "Deletes this account's data from this device only. Data already saved to the cloud is not affected.",
+  "signOutUnsyncedKeepBody": "Some data has not reached the cloud yet: {list}. It stays on this device and syncs when you sign back in.",
+  "@signOutUnsyncedKeepBody": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "removeDataTitle": "Remove data from this device?",
+  "removeDataBody": "This permanently deletes this account's data on this device. Data already saved to the cloud can be downloaded again by signing in.",
+  "removeDataUnsyncedBody": "This has not reached the cloud and will be lost: {list}.",
+  "@removeDataUnsyncedBody": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "removeDataAction": "Remove data"
 }

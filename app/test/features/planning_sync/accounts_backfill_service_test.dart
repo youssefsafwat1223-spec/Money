@@ -98,7 +98,6 @@ void main() {
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
     AppSession.instance.configureCaptureDeviceUnlink(null);
-    AppSession.instance.configureLocalDataWipe(null);
     await AppSession.instance.wipeAndReset();
   });
 

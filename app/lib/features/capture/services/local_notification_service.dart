@@ -10,6 +10,7 @@ import 'package:timezone/timezone.dart' as tz;
 import '../../../core/platform/device_timezone.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/ownership_guard.dart';
+import '../../../data/db/replica_store.dart';
 import '../../../data/db/planning_cutover.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
 import '../../../domain/entities/transaction_entity.dart';
@@ -1295,8 +1296,12 @@ class LocalNotificationService {
       // concurrent migrations, and a CROSS-ISOLATE shared lease (refused while
       // file-exclusive maintenance is in progress). Points 1/2 admission checks
       // run inside openSecondary. Closed in the finally below (releases the lease).
+      // WP-3b — the account's own replica; none (signed out/locked) defers.
+      final location = await ReplicaStore().activeLocation();
+      if (location == null) throw const StaleOwnershipException();
       db = await AppDatabase.openSecondary(
-        leaseManager: await AppDatabase.appSupportLeaseManager(),
+        location: location,
+        leaseManager: await AppDatabase.appSupportLeaseManager(location: location),
         ownershipGuard: ownershipGuard,
         admissionToken: admissionToken,
       );

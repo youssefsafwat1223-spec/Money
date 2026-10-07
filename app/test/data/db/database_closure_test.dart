@@ -233,10 +233,10 @@ void main() {
       const store = FlutterSecureStorage();
       final session = AppSession.instance;
       var wipeSawGenerationAbsent = false;
-      session.configureLocalDataWipe(() async {
+      session.configureCaptureOwnerClear(() async => true, atSignOut: () async {
         wipeSawGenerationAbsent = (await store.read(key: _kGen)) == null;
+        return true;
       });
-      session.configureLocalResiduePurge(() async => true);
       session.configureSignOutFlush(null);
       session.configureCaptureDeviceUnlink(null);
 
@@ -250,7 +250,7 @@ void main() {
       expect(await store.read(key: _kGen), isNull,
           reason: 'generation invalidated at sign-out');
       expect(wipeSawGenerationAbsent, isTrue,
-          reason: 'invalidation happened BEFORE the sign-out wipe/purge');
+          reason: 'invalidation happened BEFORE the sign-out owner release');
 
       await session.setIdentity(method: 'google', email: 'a@x.com', userId: 'A');
       final g2 = await store.read(key: _kGen);
@@ -261,8 +261,7 @@ void main() {
 
       // Leave the shared singleton clean for other tests.
       await session.signOut();
-      session.configureLocalDataWipe(null);
-      session.configureLocalResiduePurge(null);
+      session.configureCaptureOwnerClear(null);
     });
   });
 

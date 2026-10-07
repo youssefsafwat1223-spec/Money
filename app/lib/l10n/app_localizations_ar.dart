@@ -6008,4 +6008,38 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get syncSheetRetry => 'إعادة المحاولة';
+
+  @override
+  String get signOutKeepData => 'تسجيل الخروج مع الاحتفاظ بالبيانات المشفّرة';
+
+  @override
+  String get signOutKeepDataHint =>
+      'تبقى بياناتك مشفّرة على هذا الجهاز. سجّل الدخول مجددًا لفتحها.';
+
+  @override
+  String get signOutRemoveData => 'تسجيل الخروج وحذف البيانات من هذا الجهاز';
+
+  @override
+  String get signOutRemoveDataHint =>
+      'يحذف بيانات هذا الحساب من هذا الجهاز فقط. لا تتأثر البيانات المحفوظة بالفعل في السحابة.';
+
+  @override
+  String signOutUnsyncedKeepBody(String list) {
+    return 'بعض البيانات لم تصل إلى السحابة بعد: $list. تبقى على هذا الجهاز وتُزامَن عند تسجيل دخولك مجددًا.';
+  }
+
+  @override
+  String get removeDataTitle => 'حذف البيانات من هذا الجهاز؟';
+
+  @override
+  String get removeDataBody =>
+      'سيُحذف نهائيًا كل ما يخص هذا الحساب على هذا الجهاز. يمكنك تنزيل البيانات المحفوظة في السحابة مجددًا بتسجيل الدخول.';
+
+  @override
+  String removeDataUnsyncedBody(String list) {
+    return 'هذه البيانات لم تصل إلى السحابة وستُفقد: $list.';
+  }
+
+  @override
+  String get removeDataAction => 'حذف البيانات';
 }

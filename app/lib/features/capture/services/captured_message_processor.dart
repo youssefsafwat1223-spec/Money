@@ -14,6 +14,7 @@ import '../../../domain/capture/proof_commit_gate.dart';
 import '../../../core/di/app_providers.dart' show featureFlags;
 import '../../../data/db/app_database.dart';
 import '../../../data/db/ownership_guard.dart';
+import '../../../data/db/replica_store.dart';
 import '../../../data/repositories/drift_budget_repository.dart';
 import '../../../data/repositories/drift_card_repository.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
@@ -110,12 +111,22 @@ class CapturedMessageProcessor {
     final ownershipGuard = shouldCloseDatabase ? OwnershipGuard() : null;
     final admissionToken =
         ownershipGuard != null ? await ownershipGuard.capture() : null;
-    final db = database ??
-        await AppDatabase.openSecondary(
-          leaseManager: await AppDatabase.appSupportLeaseManager(),
-          ownershipGuard: ownershipGuard,
-          admissionToken: admissionToken,
-        );
+    final AppDatabase db;
+    if (database != null) {
+      db = database;
+    } else {
+      // WP-3b — the account's own replica (owner marker + registry), never a
+      // shared file. No admitted account, or a locked one (signed out), is a
+      // refusal: the capture stays queued for its owner.
+      final location = await ReplicaStore().activeLocation();
+      if (location == null) throw const StaleOwnershipException();
+      db = await AppDatabase.openSecondary(
+        location: location,
+        leaseManager: await AppDatabase.appSupportLeaseManager(location: location),
+        ownershipGuard: ownershipGuard,
+        admissionToken: admissionToken,
+      );
+    }
     try {
       final settingsRepository = DriftUserSettingsRepository(db);
       // MALI-060n — the AI/enrichment endpoints authenticate on the server-

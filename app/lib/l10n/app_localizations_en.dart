@@ -6001,4 +6001,38 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get syncSheetRetry => 'Retry';
+
+  @override
+  String get signOutKeepData => 'Sign out and keep encrypted data';
+
+  @override
+  String get signOutKeepDataHint =>
+      'Your data stays encrypted on this device. Sign in again to open it.';
+
+  @override
+  String get signOutRemoveData => 'Sign out and remove data from this device';
+
+  @override
+  String get signOutRemoveDataHint =>
+      'Deletes this account\'s data from this device only. Data already saved to the cloud is not affected.';
+
+  @override
+  String signOutUnsyncedKeepBody(String list) {
+    return 'Some data has not reached the cloud yet: $list. It stays on this device and syncs when you sign back in.';
+  }
+
+  @override
+  String get removeDataTitle => 'Remove data from this device?';
+
+  @override
+  String get removeDataBody =>
+      'This permanently deletes this account\'s data on this device. Data already saved to the cloud can be downloaded again by signing in.';
+
+  @override
+  String removeDataUnsyncedBody(String list) {
+    return 'This has not reached the cloud and will be lost: $list.';
+  }
+
+  @override
+  String get removeDataAction => 'Remove data';
 }

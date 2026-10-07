@@ -7,6 +7,12 @@ import 'package:go_router/go_router.dart';
 import 'package:money_companion/core/auth/account_deletion_service.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/privacy/data_wipe_service.dart';
+import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/core/session/remove_data_flow.dart';
+import 'package:money_companion/data/db/replica_store.dart';
+import '../../core/session/fake_account_scope.dart';
+import '../../core/session/fake_remove_barrier.dart';
+import 'dart:io';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/settings/privacy_screen.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
@@ -49,6 +55,22 @@ class _NoopDataWipeService implements DataWipeService {
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+/// Seeds an owner marker and wires the removal flow to a recording fake queue.
+List<String> _wireRemoval() {
+  FlutterSecureStorage.setMockInitialValues({'local_data_owner_uid': 'uid-x'});
+  final calls = <String>[];
+  final scope = FakeAccountScope(calls);
+  AppSession.instance.configureAccountScope(scope);
+  AppSession.instance.configureRemoveData(RemoveDataFlow(
+    store: ReplicaStore(
+        appSupportDirectory: Directory.systemTemp.createTempSync('pd_').path),
+    scope: scope,
+    barrier: FakeRemoveBarrier(calls),
+    clearOwnerMarker: AppSession.instance.clearLocalDataOwnerMarker,
+  ));
+  return calls;
 }
 
 Widget _app(_FakeAccountDeletionService service, _NoopDataWipeService wipe) {
@@ -135,6 +157,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     final service = _FakeAccountDeletionService();
     final wipe = _NoopDataWipeService();
+    final removal = _wireRemoval();
     await tester.pumpWidget(_app(service, wipe));
     await tester.pumpAndSettle();
 
@@ -143,15 +166,19 @@ void main() {
     await tester.tap(find.text('حذف الحساب'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
-    // The secure-storage invalidation (platform channel) runs before the wipe.
-    for (var i = 0; i < 5 && wipe.wipeCalls == 0; i++) {
+    // The secure-storage invalidation (platform channel) runs before the removal.
+    for (var i = 0; i < 5 && !removal.contains('finish:uid-x'); i++) {
       await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 50)));
       await tester.pump();
     }
 
     expect(service.requestCalls, 1);
-    expect(wipe.wipeCalls, 1);
+    // WP-3b: account deletion runs the §4.4 Remove-data flow (not an in-place wipe).
+    expect(removal, contains('finish:uid-x'));
+    expect(wipe.wipeCalls, 0);
+    AppSession.instance.configureRemoveData(null);
+    AppSession.instance.configureAccountScope(null);
   });
 
   testWidgets(
@@ -160,6 +187,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     final service = _FakeAccountDeletionService(throwOnRequest: true);
     final wipe = _NoopDataWipeService();
+    final removal = _wireRemoval();
     await tester.pumpWidget(_app(service, wipe));
     await tester.pumpAndSettle();
 
@@ -170,7 +198,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(service.requestCalls, 1);
-    expect(wipe.wipeCalls, 0);
+    expect(removal, isEmpty, reason: 'no local removal after a failed request');
+    AppSession.instance.configureRemoveData(null);
+    AppSession.instance.configureAccountScope(null);
     expect(find.text('تعذّر جدولة الحذف الآن. حاول مجدداً.'), findsOneWidget);
 
     // AppToast schedules a static 3-second auto-dismiss Timer (app_toast.dart)

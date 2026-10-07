@@ -18,13 +18,15 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/auth/auth_service.dart';
 import '../../core/backend/supabase_config.dart';
-import '../../core/privacy/data_wipe_service.dart';
 import '../../core/di/app_providers.dart';
 import '../planning_sync/planning_conflicts_sheet.dart';
+import 'sign_out_sheet.dart';
 import '../../core/theme/app_shadows.dart';
 import '../../data/catalog/catalog_daos.dart';
 import '../../core/security/app_lock_service.dart';
+import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
+import '../../core/session/remove_data_flow.dart' show RemoveDataIncompleteException;
 import '../../core/session/unsynced_inventory.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
@@ -909,80 +911,63 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  /// يمسح بيانات هذا المستخدم محلياً أولاً (عبر AppSession.signOut، والذي
-  /// يفشل بالكامل بدل الاستمرار صامتاً إن تعذّر المسح) قبل إنهاء الجلسة على
-  /// خادم Supabase — بهذا الترتيب فقط: فشل المسح المحلي لا يترك الجهاز بلا
-  /// جلسة بعيدة بينما تبقى بياناته المالية قابلة للقراءة لمن يسجّل دخوله بعده.
+  /// Sign-out (WP-3b, SYNC-Q2/Q3/Q8). The default choice LOCKS this account's
+  /// encrypted replica and keeps everything on the device; a separate, confirmed
+  /// choice removes this account's data from the device. Unsynced work is only
+  /// WARNED about: it never blocks either choice and nothing is discarded unless
+  /// the person explicitly chose removal. The local sign-out comes first so a
+  /// failure leaves the device signed in rather than half signed out.
   Future<void> _signOut(BuildContext context, WidgetRef ref) async {
-    // MALI-053n/011/017: sign-out wipes local data, so unsynced/local-only user
-    // data (pending ledger/planning/child outboxes, smart-inbox status, and
-    // cloud-unsupported local-only cards) must never be destroyed silently.
-    // Take a full pre-wipe inventory; if anything is pending, attempt a bounded
-    // flush, then RE-CHECK (a timeout is NOT success); only what still remains
-    // is offered for explicit discard, and the user can always cancel.
+    // Signing out replaces the account scope, which disposes this screen and
+    // every provider built on it: everything the flow needs comes from `ref` now.
+    final inventory = ref.read(unsyncedInventoryServiceProvider);
+    final auth = ref.read(authServiceProvider);
+    UnsyncedInventory? pending;
     try {
-      final inventory = ref.read(unsyncedInventoryServiceProvider);
-      var pending = await inventory.collect();
+      pending = await inventory.collect();
       if (pending.hasPendingUserData) {
         await AppSession.instance.flushPendingForSignOut();
         pending = await inventory.collect(); // re-check after the flush
       }
-      if (pending.hasPendingUserData && context.mounted) {
-        final proceed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            title: Text(context.l10n.setUnsyncedData),
-            content: Text(_unsyncedSignOutMessage(context, pending)),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: Text(context.l10n.setCancel),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: Text(context.l10n.setSignOutDiscard),
-              ),
-            ],
-          ),
-        );
-        if (proceed != true) return; // cancel → abort sign-out, nothing wiped
-      }
     } catch (_) {
-      // A detection failure must never trap the user in the app — but it also
-      // must not silently wipe. Surface it and abort so the user can retry.
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content:
-                Text(context.l10n.setUnsyncedCheckFailed),
-          ),
-        );
+      // Never traps the user and never discards: without an inventory the sheet
+      // simply shows no warning, and its default keeps the data.
+      pending = null;
+    }
+    if (!context.mounted) return;
+    // Captured while the screen still exists.
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final failedText = context.l10n.setSignOutFailed;
+    final choice = await showSignOutSheet(context, pending: pending);
+    if (choice == null) return;
+    if (choice == SignOutChoice.removeData) {
+      if (!context.mounted) return;
+      if (!await confirmRemoveData(context, pending: pending)) return;
+    }
+    try {
+      if (choice == SignOutChoice.removeData) {
+        await AppSession.instance.removeDataFromDevice();
+      } else {
+        await AppSession.instance.signOut();
       }
+    } on RemoveDataIncompleteException {
+      // The device is signed out locally and the unfinished removal resumes at
+      // the next launch or sign-in; fall through to the remote sign-out.
+    } catch (_) {
+      messenger?.showSnackBar(SnackBar(content: Text(failedText)));
       return;
     }
     try {
-      await AppSession.instance.signOut();
+      await auth.signOutProviderSession();
     } catch (_) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(context.l10n.setSignOutFailed),
-          ),
-        );
-      }
-      return;
-    }
-    try {
-      await ref.read(authServiceProvider).signOutProviderSession();
-    } catch (_) {
-      // The local wipe is already authoritative. A provider logout failure
-      // must not restore access to the previous user's local financial data.
+      // The local sign-out is already authoritative. A provider logout failure
+      // must not reopen access to this account's local data.
     }
     if (SupabaseConfig.isConfigured) {
       try {
         await supabase.Supabase.instance.client.auth.signOut();
       } catch (_) {
-        // Local wipe/sign-out above already protects the device even if the
+        // The local sign-out above already protects the device even if the
         // network sign-out fails.
       }
     }
@@ -1664,13 +1649,14 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       ),
     );
     if (confirmed != true) return;
+    // The reset replaces the account scope, which disposes this screen, so the
+    // navigation uses the app router rather than this screen's context.
     await AppSession.instance.resetAllLocalData(
-      wipeDatabase: ref.read(dataWipeServiceProvider).wipeAll,
       signOutRemote: SupabaseConfig.isConfigured
           ? supabase.Supabase.instance.client.auth.signOut
           : null,
     );
-    if (context.mounted) context.go('/welcome');
+    appRouter.go('/welcome');
   }
 }
 
@@ -2356,32 +2342,6 @@ class _CaptureHealthTile extends StatelessWidget {
 }
 
 /// MALI-053n: precise "what will be lost" text for the sign-out discard dialog.
-String _unsyncedSignOutMessage(BuildContext context, UnsyncedInventory inv) {
-  final l10n = context.l10n;
-  final parts = <String>[];
-  if (inv.ledgerOutbox > 0) {
-    parts.add(l10n.setUnsyncedLedger(inv.ledgerOutbox));
-  }
-  if (inv.planningOutbox > 0) {
-    parts.add(l10n.setUnsyncedPlanning(inv.planningOutbox));
-  }
-  if (inv.smartInboxPending > 0) {
-    parts.add(l10n.setUnsyncedInbox(inv.smartInboxPending));
-  }
-  if (inv.localOnlyCards > 0) {
-    parts.add(l10n.setUnsyncedCards(inv.localOnlyCards));
-  }
-  // Audit H-3: rows that never reached the cloud and are not even queued —
-  // previously invisible here, so sign-out destroyed them without a word.
-  if (inv.unprovenFinancialRows > 0) {
-    parts.add(l10n.setUnsyncedUnproven(inv.unprovenFinancialRows));
-  }
-  if (inv.unresolvedConflicts > 0) {
-    parts.add(l10n.setUnsyncedConflicts(inv.unresolvedConflicts));
-  }
-  return l10n.setUnsyncedSignOutBody(parts.join(l10n.setListSeparator));
-}
-
 String _captureGapLabel(BuildContext context, Duration gap) {
   if (gap.inDays >= 1) return context.l10n.setGapDays(gap.inDays);
   if (gap.inHours >= 1) return context.l10n.setGapHours(gap.inHours);

@@ -10,6 +10,7 @@ import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/router/app_router.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'fake_account_scope.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Builds a [SupabaseClient] whose `auth.currentSession` can be set to a
@@ -53,12 +54,12 @@ void main() {
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
     AppSession.instance.configureCaptureDeviceUnlink(null);
-    AppSession.instance.configureLocalDataWipe(null);
     // MALI-054n: production always registers the native/file residue purge
     // hook (bootstrap capture_registration). Default it to success here so the
     // owner-lifecycle tests exercise the production wiring; fail-closed tests
     // override it. wipeAndReset() below now also runs this hook.
-    AppSession.instance.configureLocalResiduePurge(() async => true);
+    AppSession.instance.configureCaptureOwnerClear(() async => true);
+    AppSession.instance.configureAccountScope(null);
     await AppSession.instance.wipeAndReset();
   });
 
@@ -480,40 +481,37 @@ void main() {
   // scenarios cover the sign-out-side half of the fix: the wipe must run,
   // must gate sign-out (not run best-effort), and must be idempotent.
 
-  group('scenario K — sign-out wipes local data before clearing identity', () {
-    test('the configured wipe callback runs during sign-out', () async {
+  group('scenario K — sign-out LOCKS the replica before clearing identity', () {
+    test('the account scope is locked (never wiped) during sign-out', () async {
       await AppSession.instance.completeOnboarding(
         method: 'google',
         email: 'user@example.com',
         userId: 'uid-1',
       );
-      var wipeCalls = 0;
-      AppSession.instance.configureLocalDataWipe(() async {
-        wipeCalls++;
-      });
+      final scope = FakeAccountScope();
+      AppSession.instance.configureAccountScope(scope);
 
       await AppSession.instance.signOut();
 
-      expect(wipeCalls, 1);
+      expect(scope.calls, ['lock']);
       expect(AppSession.instance.status, SessionStatus.needsOnboarding);
     });
 
-    test('a failing wipe aborts sign-out entirely — fail-closed, not silent',
+    test('a failing lock aborts sign-out entirely — fail-closed, not silent',
         () async {
       await AppSession.instance.completeOnboarding(
         method: 'google',
         email: 'user@example.com',
         userId: 'uid-1',
       );
-      AppSession.instance.configureLocalDataWipe(() async {
-        throw Exception('disk full');
-      });
+      AppSession.instance
+          .configureAccountScope(FakeAccountScope()..lockError = Exception('x'));
 
       await expectLater(AppSession.instance.signOut(), throwsA(isException));
 
-      // Nothing about the signed-in identity may change if the wipe failed —
-      // a caller that ignored the thrown error must never observe a device
-      // that looks signed-out while the previous user's data is still there.
+      // Nothing about the signed-in identity may change if the lock failed: a
+      // caller that ignored the thrown error must never observe a device that
+      // looks signed-out while the account's database is still open.
       expect(AppSession.instance.status, SessionStatus.authenticated);
       expect(AppSession.instance.authMethod, 'google');
       expect(AppSession.instance.email, 'user@example.com');
@@ -526,32 +524,30 @@ void main() {
         email: 'user@example.com',
         userId: 'uid-1',
       );
-      var wipeCalls = 0;
-      AppSession.instance.configureLocalDataWipe(() async {
-        wipeCalls++;
-      });
+      final scope = FakeAccountScope();
+      AppSession.instance.configureAccountScope(scope);
 
       await AppSession.instance.signOut();
       await AppSession.instance.signOut();
       await AppSession.instance.signOut();
 
-      expect(wipeCalls, 3);
+      expect(scope.calls, ['lock', 'lock', 'lock']);
       expect(AppSession.instance.status, SessionStatus.needsOnboarding);
       expect(AppSession.instance.authMethod, isNull);
     });
 
     test(
         'a reactive sign-out from a Supabase auth-state event never throws '
-        'even if the wipe fails (no interactive context to report to)',
+        'even if the lock would fail (it is not even attempted: only an '
+        'explicit sign-out locks)',
         () async {
       await AppSession.instance.completeOnboarding(
         method: 'google',
         email: 'user@example.com',
         userId: 'uid-1',
       );
-      AppSession.instance.configureLocalDataWipe(() async {
-        throw Exception('disk full');
-      });
+      final scope = FakeAccountScope()..lockError = Exception('disk full');
+      AppSession.instance.configureAccountScope(scope);
       final client = _client();
 
       // signedOut/userDeleted auth-state events are handled by the same
@@ -567,6 +563,8 @@ void main() {
       // as a test failure here rather than silently after teardown.
       await Future<void>.delayed(Duration.zero);
       await Future<void>.delayed(Duration.zero);
+      expect(scope.calls.contains('lock'), isFalse,
+          reason: 'a server-driven auth loss keeps the replica open');
     });
   });
 
@@ -625,18 +623,20 @@ void main() {
       await _recoverValidSession(clientB,
           userId: 'uid-b', email: 'b@example.com');
       AppSession.instance.authMethod = 'google';
+      AppSession.instance.configureCaptureOwnerClear(null);
       await AppSession.instance.bindSupabaseAuth(clientB);
 
       expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-a',
-          reason: 'must stay uid-a until an explicit wipe clears it');
+          reason: 'must stay uid-a until the owner changes through a '
+              'confirmed residue release (or an explicit sign-out)');
     });
   });
 
   group('owner gate — MALI-002 (user B must never see user A\'s local data)',
       () {
     test(
-        'conflicting owner + registered wipe hook: reconcile wipes, '
-        'then claims for the new UID', () async {
+        'conflicting owner + registered purge hook: reconcile releases residue, '
+        'claims for the new UID and switches replica (no wipe)', () async {
       // User A owned the device, session expired without a sign-out wipe.
       await AppSession.instance.completeOnboarding(
         method: 'google',
@@ -645,8 +645,8 @@ void main() {
       );
       expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-a');
 
-      var wiped = false;
-      AppSession.instance.configureLocalDataWipe(() async => wiped = true);
+      final scope = FakeAccountScope();
+      AppSession.instance.configureAccountScope(scope);
 
       // User B's session reconciles on the same device.
       final clientB = _client();
@@ -654,13 +654,13 @@ void main() {
           userId: 'uid-b', email: 'b@example.com');
       await AppSession.instance.bindSupabaseAuth(clientB);
 
-      expect(wiped, isTrue,
-          reason: 'A\'s financial rows must be wiped before B is admitted');
+      expect(scope.calls, ['activate:uid-b'],
+          reason: 'B gets B\'s own replica; A\'s is locked, never wiped');
       expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-b');
     });
 
     test(
-        'conflicting owner + NO wipe hook (pre-database bootstrap): admission '
+        'conflicting owner + NO purge hook (pre-bootstrap): admission '
         'deferred, then resolvePendingLocalDataOwnerConflict completes it',
         () async {
       await AppSession.instance.completeOnboarding(
@@ -668,8 +668,8 @@ void main() {
         email: 'a@example.com',
         userId: 'uid-a',
       );
-      AppSession.instance.configureLocalDataWipe(null);
 
+      AppSession.instance.configureCaptureOwnerClear(null);
       final clientB = _client();
       await _recoverValidSession(clientB,
           userId: 'uid-b', email: 'b@example.com');
@@ -678,30 +678,29 @@ void main() {
       // Deferred: ownership untouched, nothing claimed for B yet.
       expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-a');
 
-      // Bootstrap registers the wipe hook (DB open) and resolves.
-      var wiped = false;
-      AppSession.instance.configureLocalDataWipe(() async => wiped = true);
+      // Bootstrap registers the purge hook and resolves.
+      AppSession.instance.configureCaptureOwnerClear(() async => true);
       await AppSession.instance.resolvePendingLocalDataOwnerConflict(clientB);
 
-      expect(wiped, isTrue);
       expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-b');
     });
 
-    test('same owner: reconcile never wipes', () async {
+    test('same owner: reconcile never locks or switches', () async {
       await AppSession.instance.completeOnboarding(
         method: 'google',
         email: 'a@example.com',
         userId: 'uid-a',
       );
-      var wiped = false;
-      AppSession.instance.configureLocalDataWipe(() async => wiped = true);
+      final scope = FakeAccountScope();
+      AppSession.instance.configureAccountScope(scope);
 
       final clientA = _client();
       await _recoverValidSession(clientA,
           userId: 'uid-a', email: 'a@example.com');
       await AppSession.instance.bindSupabaseAuth(clientA);
 
-      expect(wiped, isFalse);
+      expect(scope.calls, ['activate:uid-a'],
+          reason: 'idempotent re-admission of the same uid; nothing is locked');
       expect(await AppSession.instance.readLocalDataOwnerUid(), 'uid-a');
     });
   });

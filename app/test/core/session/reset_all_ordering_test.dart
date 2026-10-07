@@ -3,54 +3,82 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/core/session/remove_data_flow.dart';
+import 'package:money_companion/data/db/replica_store.dart';
+import 'fake_account_scope.dart';
+import 'fake_remove_barrier.dart';
 
 const String _kGen = 'local_data_owner_generation';
 
 /// B15 — "erase all data" / account deletion must (1) invalidate the admission
-/// generation BEFORE wiping, so an in-flight drain cannot write into the wiped
-/// DB, then (2) wipe, then (3) sign out of the remote auth session.
+/// generation BEFORE removing, so an in-flight drain cannot write into the DB
+/// being deleted, then (2) run the §4.4 Remove-data flow (WP-3b), then (3) sign
+/// out of the remote auth session.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+  late Directory support;
+  late List<String> order;
+  late FakeRemoveBarrier barrier;
 
-  test('generation is invalidated before the wipe; remote sign-out runs last',
+  setUp(() {
+    FlutterSecureStorage.setMockInitialValues({});
+    support = Directory.systemTemp.createTempSync('reset_all_');
+    order = [];
+    barrier = FakeRemoveBarrier(order);
+    final scope = FakeAccountScope(order);
+    AppSession.instance.configureAccountScope(scope);
+    AppSession.instance.configureRemoveData(RemoveDataFlow(
+      store: ReplicaStore(appSupportDirectory: support.path),
+      scope: scope,
+      barrier: barrier,
+      clearOwnerMarker: AppSession.instance.clearLocalDataOwnerMarker,
+    ));
+  });
+
+  tearDown(() {
+    AppSession.instance.configureCaptureOwnerClear(null);
+    AppSession.instance.configureAccountScope(null);
+    AppSession.instance.configureRemoveData(null);
+    support.deleteSync(recursive: true);
+  });
+
+  test('generation is invalidated before the removal; remote sign-out runs last',
       () async {
     const store = FlutterSecureStorage();
     final session = AppSession.instance;
-    session.configureLocalResiduePurge(() async => true);
+    session.configureCaptureOwnerClear(() async => true);
     await session.setIdentity(method: 'google', email: 'a@x.com', userId: 'A');
     expect(await store.read(key: _kGen), isNotNull);
 
-    final order = <String>[];
-    var generationAtWipe = 'unset';
+    order.clear();
+    var generationAtBegin = 'unset';
+    barrier.onCall = (c) async {
+      if (c.startsWith('begin')) {
+        generationAtBegin = (await store.read(key: _kGen)) ?? 'absent';
+      }
+    };
     await session.resetAllLocalData(
-      wipeDatabase: () async {
-        generationAtWipe = (await store.read(key: _kGen)) ?? 'absent';
-        order.add('wipe');
-      },
       signOutRemote: () async => order.add('signOut'),
     );
 
-    expect(generationAtWipe, 'absent',
-        reason: 'invalidated BEFORE the DB wipe began');
-    expect(order, ['wipe', 'signOut']);
+    expect(generationAtBegin, 'absent',
+        reason: 'invalidated BEFORE the removal began');
+    expect(order, ['begin:A', 'detach', 'finish:A', 'signOut']);
     expect(session.isGuest || session.authMethod == null, isTrue,
         reason: 'wipeAndReset ran');
-    session.configureLocalResiduePurge(null);
   });
 
   test('a failing remote sign-out does not fail the (already complete) local reset',
       () async {
     final session = AppSession.instance;
-    session.configureLocalResiduePurge(() async => true);
-    var wiped = false;
+    session.configureCaptureOwnerClear(() async => true);
+    await session.setIdentity(method: 'google', email: 'a@x.com', userId: 'A');
+    order.clear();
     await session.resetAllLocalData(
-      wipeDatabase: () async => wiped = true,
       signOutRemote: () async => throw StateError('offline'),
     );
-    expect(wiped, isTrue);
-    session.configureLocalResiduePurge(null);
+    expect(order, contains('finish:A'));
   });
 
   test('both destructive UI flows go through resetAllLocalData', () {
@@ -63,6 +91,7 @@ void main() {
       expect(src.contains('wipeAndReset()'), isFalse,
           reason: '$path must not hand-roll wipe -> reset without the fence');
       expect(src.contains('.wipeAll()'), isFalse, reason: path);
+      expect(src.contains('wipeDatabase'), isFalse, reason: path);
     }
   });
 }

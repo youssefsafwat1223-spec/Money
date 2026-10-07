@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'fake_account_scope.dart';
 
 /// THE OWNERSHIP TRANSITION MUST NEVER DESTROY DATA IT CANNOT FINISH CLAIMING.
 ///
@@ -40,10 +41,8 @@ void main() {
     purgeFailuresBeforeSuccess = 0;
 
     AppSession.instance.configureCaptureDeviceUnlink(null);
-    AppSession.instance.configureLocalDataWipe(() async {
-      calls.add('wipe');
-    });
-    AppSession.instance.configureLocalResiduePurge(() async {
+    AppSession.instance.configureAccountScope(FakeAccountScope(calls));
+    AppSession.instance.configureCaptureOwnerClear(() async {
       calls.add('purge');
       if (purgeFailuresBeforeSuccess > 0) {
         purgeFailuresBeforeSuccess--;
@@ -56,8 +55,7 @@ void main() {
   });
 
   tearDown(() async {
-    AppSession.instance.configureLocalDataWipe(null);
-    AppSession.instance.configureLocalResiduePurge(null);
+    AppSession.instance.configureCaptureOwnerClear(null);
     await AppSession.instance.wipeAndReset();
   });
 
@@ -83,8 +81,9 @@ void main() {
       );
 
       expect(calls, ['purge'],
-          reason: 'the purge was attempted and NOTHING was destroyed');
-      expect(calls.contains('wipe'), isFalse, reason: 'THE regression');
+          reason: 'the purge was attempted and NOTHING was changed');
+      expect(calls.contains('activate:uid-new'), isFalse,
+          reason: 'the new replica is not opened on an unconfirmed purge');
       expect(await owner(), 'uid-old',
           reason: 'the marker is untouched, so the retry still sees the '
               'conflict rather than a half-finished transition');
@@ -94,8 +93,8 @@ void main() {
       await AppSession.instance
           .setIdentity(method: 'google', userId: 'uid-new');
 
-      expect(calls, ['purge', 'wipe'], reason: 'purge BEFORE wipe');
-      expect(calls.where((c) => c == 'wipe').length, 1, reason: 'exactly once');
+      expect(calls, ['purge', 'activate:uid-new'],
+          reason: 'purge BEFORE the new replica is opened');
       expect(await owner(), 'uid-new', reason: 'ownership claimed exactly once');
     });
   });
@@ -112,8 +111,8 @@ void main() {
         );
       }
 
-      expect(calls.contains('wipe'), isFalse,
-          reason: 'a purge that never confirms must never cost the user data');
+      expect(calls.contains('activate:uid-new'), isFalse,
+          reason: 'a purge that never confirms never admits the new uid');
       expect(await owner(), 'uid-old', reason: 'no claim on a failed purge');
       expect(calls.where((c) => c == 'purge').length, 3,
           reason: 'it retries across launches, it does not give up silently');
@@ -121,19 +120,19 @@ void main() {
   });
 
   group('3. owner mismatch + purge succeeds first try', () {
-    test('exact ordering: purge -> wipe -> claim', () async {
+    test('exact ordering: purge -> claim -> open the new replica', () async {
       await seedPreviousOwner('uid-old');
 
       await AppSession.instance
           .setIdentity(method: 'google', userId: 'uid-new');
 
-      expect(calls, ['purge', 'wipe']);
+      expect(calls, ['purge', 'activate:uid-new']);
       expect(await owner(), 'uid-new');
     });
   });
 
   group('4. second launch after a successful transition', () {
-    test('owner matches: no purge, no wipe', () async {
+    test('owner matches: no purge', () async {
       await seedPreviousOwner('uid-old');
       await AppSession.instance
           .setIdentity(method: 'google', userId: 'uid-new');
@@ -143,8 +142,8 @@ void main() {
       await AppSession.instance
           .setIdentity(method: 'google', userId: 'uid-new');
 
-      expect(calls, isEmpty,
-          reason: 'the loop this whole fix exists to break');
+      expect(calls, ['activate:uid-new'],
+          reason: 'no purge and no switch: the loop this whole fix exists to break');
       expect(await owner(), 'uid-new');
     });
   });
@@ -156,8 +155,7 @@ void main() {
       await AppSession.instance
           .setIdentity(method: 'google', userId: 'uid-first');
 
-      expect(calls.contains('wipe'), isFalse,
-          reason: 'a fresh install has no previous owner to displace');
+      expect(calls.contains('activate:uid-first'), isTrue);
       expect(await owner(), 'uid-first');
     });
   });
@@ -171,16 +169,13 @@ void main() {
       await AppSession.instance
           .setIdentity(method: 'google', userId: 'uid-a');
 
-      expect(calls, isEmpty);
+      expect(calls, ['activate:uid-a']);
       expect(await owner(), 'uid-a');
     });
   });
 
   group('ordering is pinned in the source, not only in behaviour', () {
-    test('the wipe cannot be moved back above the purge', () async {
-      // Behavioural tests above would still pass if a refactor reintroduced the
-      // old order behind a condition these fixtures happen not to hit. This
-      // reads the transition itself.
+    test('the claim cannot move above the purge, and nothing is wiped', () async {
       final src = File(
         '${Directory.current.path}/lib/core/session/app_session.dart',
       ).readAsStringSync();
@@ -189,27 +184,18 @@ void main() {
           src.indexOf('Future<LocalDataOwnership> _resolveLocalDataOwnership'));
       final body = fn.substring(0, fn.indexOf('\n  }'));
 
-      final purgeAt = body.indexOf('_runResiduePurge()');
-      // The pre-wipe proof: the transition sentinel written and read back.
-      final sentinelAt = body.indexOf('_kOwnerTransitionPrefix');
-      final wipeAt = body.indexOf('await wipe();');
-      // LAST occurrence: the unowned branch claims earlier in the same
-      // function, and that one is legitimately above the wipe.
+      // The CHANGED-OWNER branch is the last one in the function.
+      final purgeAt = body.lastIndexOf('_runOwnerClear()');
       final claimAt = body.lastIndexOf('_writeOwnerMarkerVerified(uid)');
+      final admitAt = body.lastIndexOf('_admitReplica(uid)');
 
       expect(purgeAt, greaterThan(-1));
-      expect(sentinelAt, greaterThan(-1));
-      expect(wipeAt, greaterThan(-1));
-      expect(claimAt, greaterThan(-1));
-
-      expect(purgeAt, lessThan(sentinelAt),
-          reason: 'PURGE MUST PRECEDE WIPE — reversing these is the exact bug '
-              'that wiped every TestFlight user on every launch');
-      expect(sentinelAt, lessThan(wipeAt),
-          reason: 'the marker must be proven writable before anything is '
-              'destroyed');
-      expect(wipeAt, lessThan(claimAt),
-          reason: 'the claim records a transition that already happened');
+      expect(purgeAt, lessThan(claimAt),
+          reason: 'the residue release must be confirmed before ownership moves');
+      expect(claimAt, lessThan(admitAt),
+          reason: 'the new replica opens only after the claim is read back');
+      expect(body.contains('wipe'), isFalse,
+          reason: 'WP-3b: there is no wipe-and-reclaim any more');
     });
   });
 }

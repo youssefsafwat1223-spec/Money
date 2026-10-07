@@ -12,6 +12,8 @@ import '../backend/supabase_config.dart';
 import '../tracking/user_activity_service.dart';
 import '../security/secure_storage_options.dart';
 import '../sync/sync_wakeup.dart' show AuthSessionValid;
+import 'account_scope.dart';
+import 'remove_data_flow.dart';
 
 /// [sessionExpired] is distinct from [needsOnboarding]: onboarding metadata
 /// (auth method, completed-account keys) stays intact — only the *live*
@@ -102,26 +104,43 @@ class AppSession extends ValueNotifier<SessionStatus> {
   final Set<String> _completedAccountKeys = <String>{};
   StreamSubscription<supabase.AuthState>? _supabaseAuthSubscription;
   Future<void> Function()? _unlinkCaptureDevice;
-  Future<void> Function()? _wipeLocalFinancialData;
   Future<void> Function()? _flushPendingSync;
 
-  /// MALI-054n/070n: purges USER-OWNED native + filesystem capture residue (the
-  /// App Group / SharedPreferences message queue, notification routes/log, and
-  /// the pending-notification-actions file) that the Drift wipe does NOT cover.
-  /// Returns true only when the purge is confirmed. Injected by bootstrap so the
-  /// session layer stays decoupled from the capture/native layer.
-  Future<bool> Function()? _purgeLocalResidue;
+  /// WP-3b: the account-scope layer. Null before bootstrap has opened a database
+  /// (the first reconcile runs before `database_open`): the owner marker is then
+  /// the whole admission and bootstrap opens the replica the marker names.
+  AccountScopeControl? _accountScope;
 
-  /// UID whose admission is deferred because the local DB is still owned by a
-  /// DIFFERENT account and the wipe hook wasn't registered yet (the first
-  /// session reconcile runs before `database_open`). Bootstrap resolves it via
-  /// [resolvePendingLocalDataOwnerConflict] right after registering the wipe.
+  /// WP-3b: the §4.4 Remove-data flow. Null until bootstrap registers it.
+  RemoveDataFlow? _removeData;
+
+  /// MALI-054n/070n, reshaped by WP-3b: releases the native capture OWNER and
+  /// clears device-wide non-queue residue (pending notification actions, OS
+  /// reminders) at an account transition. It does NOT purge waiting queue items:
+  /// a non-active owner's items wait (§4.2); only the Remove-data barrier purges.
+  /// Returns true only when confirmed. Injected by bootstrap so the session layer
+  /// stays decoupled from the capture/native layer.
+  Future<bool> Function()? _captureOwnerClear;
+
+  /// Same, for a PLAIN sign-out (the owner hint is kept). Falls back to
+  /// [_captureOwnerClear] when not registered.
+  Future<bool> Function()? _captureOwnerClearAtSignOut;
+
+  /// Publishes the admitted uid as the native capture owner (WP-6 gates it on
+  /// the consent link). Best effort; never blocks admission.
+  Future<void> Function(String uid)? _publishCaptureOwner;
+
+  /// UID whose admission is deferred because another account's native residue
+  /// has to be purged first and the purge hook wasn't registered yet (the first
+  /// session reconcile runs before bootstrap registers it). Bootstrap resolves it
+  /// via [resolvePendingLocalDataOwnerConflict] right after registering the purge.
   String? _pendingOwnerConflictUid;
 
-  /// Owner-marker value while an ownership transition is in flight. Never a
-  /// valid uid, so every reader of the marker treats it as "not this user" and
-  /// fails closed. A crash mid-transition leaves it behind, and the next
-  /// reconcile redoes the transition rather than admitting onto un-wiped rows.
+  /// Owner-marker value an OLDER build left while its wipe-and-reclaim
+  /// transition was in flight. Never a valid uid, so every reader of the marker
+  /// treats it as "not this user" and fails closed. This build no longer writes
+  /// it (there is no wipe-and-reclaim: each uid has its own replica); a leftover
+  /// is just a conflict, resolved by purging residue and claiming for the uid.
   static const String _kOwnerTransitionPrefix = 'owner-transition-pending:';
 
   /// Serialises every ownership reconcile. Bootstrap, the auth stream
@@ -137,17 +156,26 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// an interactive sign-in ([setIdentity]) clears it for one fresh attempt.
   String? _unresolvedOwnerUid;
 
+  /// Bumped by every server-driven auth loss. A reconcile that started before one
+  /// must not overwrite its `sessionExpired` once its (now slower: it opens a
+  /// replica) admission finishes.
+  int _authLossSeq = 0;
+
   SessionStatus get status => value;
 
   void configureCaptureDeviceUnlink(Future<void> Function()? unlink) {
     _unlinkCaptureDevice = unlink;
   }
 
-  /// يربط تسجيل الخروج بمسح البيانات المالية المحلية (DataWipeService) قبل
-  /// إتمامه — يضمن ألا تبقى بيانات المستخدم الحالي متاحة لمن يسجّل دخوله
-  /// بعده على نفس الجهاز. انظر `signOut` لسبب الفشل المتحكَّم به بدل الصمت.
-  void configureLocalDataWipe(Future<void> Function()? wipe) {
-    _wipeLocalFinancialData = wipe;
+  /// WP-3b: wires the per-uid replica layer. Sign-out then LOCKS the active
+  /// replica instead of wiping it, and an admitted uid unlocks and opens its own.
+  void configureAccountScope(AccountScopeControl? scope) {
+    _accountScope = scope;
+  }
+
+  /// WP-3b: wires the §4.4 Remove-data flow (see [removeDataFromDevice]).
+  void configureRemoveData(RemoveDataFlow? flow) {
+    _removeData = flow;
   }
 
   /// دفعة أخيرة للـ outbox قبل مسح تسجيل الخروج — التغييرات الأخيرة (مثلاً
@@ -158,18 +186,26 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   /// Registers the native/filesystem residue purge (MALI-054n/070n). See
-  /// [_purgeLocalResidue]. Wired by bootstrap to the capture bridge + pending
+  /// [_captureOwnerClear]. Wired by bootstrap to the capture bridge + pending
   /// actions file.
-  void configureLocalResiduePurge(Future<bool> Function()? purge) {
-    _purgeLocalResidue = purge;
+  void configureCaptureOwnerClear(Future<bool> Function()? atTransition,
+      {Future<bool> Function()? atSignOut}) {
+    _captureOwnerClear = atTransition;
+    _captureOwnerClearAtSignOut = atSignOut;
+  }
+
+  void configureCaptureOwnerPublish(Future<void> Function(String uid)? publish) {
+    _publishCaptureOwner = publish;
   }
 
   /// Runs the injected residue purge. Returns false (cannot confirm) when the
   /// hook is not yet registered or the purge throws/reports failure — callers
   /// at identity-admission boundaries MUST treat false as "residue may remain"
   /// and fail closed.
-  Future<bool> _runResiduePurge() async {
-    final purge = _purgeLocalResidue;
+  Future<bool> _runOwnerClear({bool signOut = false}) async {
+    final purge = signOut
+        ? (_captureOwnerClearAtSignOut ?? _captureOwnerClear)
+        : _captureOwnerClear;
     if (purge == null) return false;
     try {
       return await purge();
@@ -252,25 +288,34 @@ class AppSession extends ValueNotifier<SessionStatus> {
     return run;
   }
 
-  /// Ensures the shared local DB belongs to [uid] BEFORE the session is
-  /// admitted (MALI-002). A stored owner with a different UID means the
-  /// previous user's session ended without the sign-out wipe (expiry,
-  /// revocation, crash) — their financial data must never become visible to
-  /// the new identity.
+  /// Admits [uid] BEFORE the session is shown (MALI-002): the owner marker names
+  /// [uid] (read back), and its own replica is the open database.
+  ///
+  /// WP-3b: there is no wipe. Each uid has its own encrypted replica, so a marker
+  /// that names ANOTHER uid (the previous owner's session ended without a
+  /// sign-out: expiry, revocation, crash) is not a conflict over rows. The
+  /// previous owner's replica is simply locked and left untouched, and [uid]
+  /// gets or creates its own. What still has to be cleared is device-wide native
+  /// residue that is not stamped with an owner, and that is purged BEFORE the
+  /// claim and fails closed (MALI-054n): an unconfirmed purge never admits.
   ///
   /// INVARIANT: if ownership is unresolved, preserve local data and deny
-  /// access. Never destroy data because ownership could not be resolved. A
-  /// destructive transition happens only after the marker has been PROVEN
-  /// writable (a sentinel write that reads back), and admission ([owned]) only
-  /// after the new owner has been READ BACK from the marker. An unverified
-  /// claim previously reported success while the marker kept the old uid, so
-  /// every later reconcile wiped the user's data again.
+  /// access. Admission ([owned]) only after the new owner has been READ BACK from
+  /// the marker. A database nobody provably owns is never adopted by whoever
+  /// signs in next (B4): such a file is quarantined by the replica layer.
   ///
-  /// If the wipe hook is not registered (first reconcile runs before
-  /// `database_open`), nothing is attempted: the conflict is recorded and
-  /// [LocalDataOwnership.deferred] returned until
+  /// If the purge hook is not registered (first reconcile runs before bootstrap
+  /// registers it), nothing is attempted for a changed owner: the conflict is
+  /// recorded and [LocalDataOwnership.deferred] returned until
   /// [resolvePendingLocalDataOwnerConflict] runs.
   Future<LocalDataOwnership> _resolveLocalDataOwnership(String uid) async {
+    // A removal a crash interrupted finishes BEFORE anyone is admitted: its sweep
+    // would otherwise delete this uid's fresh captures (created after the barrier).
+    final removal = _removeData;
+    if (removal != null && !await removal.resumePending()) {
+      return _markOwnershipUnresolved(uid);
+    }
+
     final String? existing;
     try {
       existing = await _storage.read(key: _kLocalDataOwnerUid);
@@ -283,90 +328,53 @@ class AppSession extends ValueNotifier<SessionStatus> {
       _pendingOwnerConflictUid = null;
       _unresolvedOwnerUid = null;
       // MALI-069n §Blocker-1: mint a fresh admission generation ONLY when none
-      // exists (a genuine (re-)admission — sign-out/wipe/ownership-change
-      // cleared it). An idempotent reconcile of the SAME live session keeps its
+      // exists (a genuine (re-)admission — sign-out/ownership-change cleared
+      // it). An idempotent reconcile of the SAME live session keeps its
       // generation, so its own in-flight background jobs stay valid; a real
       // re-login always sees the generation absent and rotates, rejecting the
       // previous session's jobs — even for the same UID.
       await _mintOwnerGenerationIfAbsent();
-      return LocalDataOwnership.owned;
+      return _admitReplica(uid);
     }
 
     if (existing == null) {
       _pendingOwnerConflictUid = null;
-      // Claiming a currently-unowned DB. Best-effort residue purge as defense
-      // in depth (e.g. a prior reset whose purge failed): a genuinely fresh
-      // install has nothing to purge, so this is a no-op and never blocks
+      // Claiming a device nobody currently owns. Best-effort residue purge as
+      // defense in depth (e.g. a prior reset whose purge failed): a genuinely
+      // fresh install has nothing to purge, so this is a no-op and never blocks
       // first-run admission (the hook may not be registered this early).
-      await _runResiduePurge();
+      await _runOwnerClear();
       if (!await _writeOwnerMarkerVerified(uid)) {
         return _markOwnershipUnresolved(uid);
       }
       await _mintOwnerGenerationIfAbsent();
       _unresolvedOwnerUid = null;
-      return LocalDataOwnership.owned;
+      return _admitReplica(uid);
     }
 
-    // CONFLICT: another uid, or a leftover transition sentinel.
+    // ANOTHER uid (or a leftover transition sentinel from an older build).
     if (_unresolvedOwnerUid == uid) {
       // Already failed in this process; do not retry on every auth event.
       return LocalDataOwnership.unresolved;
     }
-    final wipe = _wipeLocalFinancialData;
-    if (wipe == null) {
+    if (_captureOwnerClear == null) {
       _pendingOwnerConflictUid = uid;
       return LocalDataOwnership.deferred;
     }
     // MALI-069n §Blocker-1: invalidate the admission generation BEFORE anything
-    // destructive, so a background job from the previous owner is rejected
-    // before any destructive step and the incoming owner mints a fresh
-    // generation on claim below.
+    // changes, so a background job from the previous owner is rejected and the
+    // incoming owner mints a fresh generation on claim below.
     await _invalidateOwnerGeneration();
 
-    // PURGE BEFORE WIPE. The order used to be wipe → purge → claim, and that
-    // ordering is what destroyed TestFlight users' data on EVERY launch.
-    //
-    // The purge calls a native method channel. Under the UIScene lifecycle the
-    // Flutter view controller does not exist during
-    // `didFinishLaunchingWithOptions`, so `rootFlutterViewController()` returns
-    // nil, the capture channel is not registered yet, and the call raises
-    // MissingPluginException. Dart bootstrap runs inside that window. The old
-    // order had already wiped by then, and the `!residuePurged` bail-out
-    // returned WITHOUT clearing or re-claiming the owner marker — so the next
-    // launch saw the same mismatch, wiped again, and failed again. A permanent
-    // destructive loop from a transient startup race.
-    //
-    // Purging first makes that impossible: nothing is destroyed until the step
-    // that must follow it is known to have succeeded. Admission is still
-    // withheld on failure (fail closed, MALI-054n), so a different identity
-    // still never lands on the previous owner's rows — it simply lands on
-    // nothing having been destroyed either.
-    final residuePurged = await _runResiduePurge();
+    // Purge first. The purge calls a native method channel that, under the
+    // UIScene lifecycle, does not exist during `didFinishLaunchingWithOptions`
+    // (Dart bootstrap runs inside that window), so it can fail transiently. A
+    // failure is a safe stop: the marker still names the previous owner, nothing
+    // was changed, and the next attempt redoes it.
+    final residuePurged = await _runOwnerClear();
     if (!residuePurged) {
       _pendingOwnerConflictUid = uid;
       return _markOwnershipUnresolved(uid);
-    }
-
-    // PRE-WIPE PROOF. Nothing has been destroyed yet; if the marker cannot be
-    // made to say what we write, a wipe would only repeat forever. The sentinel
-    // is never a valid uid, so a crash between here and the final claim leaves
-    // a marker that the next reconcile treats as a conflict and redoes.
-    if (!await _writeOwnerMarkerVerified('$_kOwnerTransitionPrefix$uid')) {
-      _pendingOwnerConflictUid = uid;
-      return _markOwnershipUnresolved(uid);
-    }
-
-    try {
-      await wipe();
-    } catch (_) {
-      // The wipe is transactional, so nothing was destroyed. Put the marker
-      // back to the previous owner: a failed transition must not move
-      // ownership, or the previous owner signing back in would take the
-      // conflict path and lose their own data. Best-effort; if even this
-      // cannot be verified the sentinel stays and every reader fails closed.
-      await _writeOwnerMarkerVerified(existing);
-      _pendingOwnerConflictUid = uid;
-      rethrow;
     }
 
     if (!await _writeOwnerMarkerVerified(uid)) {
@@ -376,19 +384,40 @@ class AppSession extends ValueNotifier<SessionStatus> {
     await _mintOwnerGenerationIfAbsent();
     _pendingOwnerConflictUid = null;
     _unresolvedOwnerUid = null;
+    return _admitReplica(uid);
+  }
+
+  /// Unlocks and opens [uid]'s replica (locking the previously active uid's),
+  /// once the scope layer exists. Before bootstrap has opened a database the
+  /// marker is the whole admission and bootstrap opens the replica it names. A
+  /// replica that cannot be opened is a safe stop (fail closed), never an
+  /// adoption of someone else's file.
+  Future<LocalDataOwnership> _admitReplica(String uid) async {
+    final scope = _accountScope;
+    if (scope == null) return LocalDataOwnership.owned;
+    try {
+      await scope.activate(uid);
+    } catch (_) {
+      return _markOwnershipUnresolved(uid);
+    }
+    try {
+      await _publishCaptureOwner?.call(uid);
+    } catch (_) {
+      // Capture simply stays unbound until the next admission publishes it.
+    }
     return LocalDataOwnership.owned;
   }
 
   /// Completes an owner conflict deferred by [_ensureLocalDataOwnedBy] once
-  /// the wipe hook exists (bootstrap calls this right after registering it,
-  /// with the DB open). Wipes the previous account's rows, claims ownership
-  /// for the pending UID, then re-runs the session reconcile so the gated
-  /// identity is finally admitted against a clean DB.
+  /// the purge hook exists (bootstrap calls this right after registering it,
+  /// with the DB open). Purges the previous account's native residue, claims
+  /// ownership for the pending UID and switches to its replica, then re-runs the
+  /// session reconcile so the gated identity is finally admitted.
   Future<void> resolvePendingLocalDataOwnerConflict(
     supabase.SupabaseClient client,
   ) async {
     if (_pendingOwnerConflictUid == null) return;
-    if (_wipeLocalFinancialData == null) return;
+    if (_captureOwnerClear == null) return;
     final uid = _pendingOwnerConflictUid!;
     final ownership = await _ensureLocalDataOwnedBy(uid);
     if (ownership == LocalDataOwnership.unresolved) {
@@ -484,21 +513,22 @@ class AppSession extends ValueNotifier<SessionStatus> {
     String? userId,
   }) async {
     // Owner gate (MALI-002): interactive sign-in happens long after bootstrap,
-    // so a conflicting previous owner is wiped inline here before the new
-    // identity is stored — user B must start from a clean local DB, never
-    // on top of user A's rows.
+    // so the new uid's own replica is unlocked and opened inline here before the
+    // new identity is stored — user B works in B's replica, never on top of user
+    // A's rows, and A's replica is locked and untouched.
     if (userId != null && userId.isNotEmpty) {
       // Interactive sign-in is explicit user intent: allow one fresh attempt
       // even if an earlier automatic reconcile latched this uid unresolved.
       if (_unresolvedOwnerUid == userId) _unresolvedOwnerUid = null;
       final ownership = await _ensureLocalDataOwnedBy(userId);
       if (ownership == LocalDataOwnership.unresolved) {
-        // Ownership could not be established (previous owner's data/residue
-        // not cleared, or the owner marker could not be verified). Fail closed
-        // (MALI-054n): do NOT admit this identity. Local data is preserved.
-        // The interactive sign-in caller catches this and surfaces an error.
-        // (`deferred` — hook absent before database_open — continues as
-        // before: admission is deferred, not blocked.)
+        // Ownership could not be established (previous owner's residue not
+        // cleared, the owner marker could not be verified, or the replica could
+        // not be opened). Fail closed (MALI-054n): do NOT admit this identity.
+        // Local data is preserved. The interactive sign-in caller catches this
+        // and surfaces an error. (`deferred` — purge hook absent before
+        // bootstrap registers it — continues as before: admission is deferred,
+        // not blocked.)
         throw const LocalDataOwnershipException();
       }
     }
@@ -595,12 +625,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
     await finishOnboarding();
   }
 
-  /// Signs the current identity out. Wipes local financial data FIRST — a
-  /// wipe failure aborts sign-out entirely (rethrows, no identity/session
-  /// state is touched) rather than leaving the device signed out while the
-  /// previous user's data is still readable by whoever signs in next. Safe
-  /// to call repeatedly: an already-signed-out state and an already-wiped DB
-  /// are both no-ops for every step below.
+  /// Signs the current identity out (WP-3b: LOCKS the replica, never wipes it).
+  ///
+  /// The uid's encrypted replica, its outboxes, cursors and consent stay on the
+  /// device. Locking marks it `locked` and closes it, so it opens again only after
+  /// the SAME uid authenticates successfully (SYNC-Q3: no offline reopen). A lock
+  /// failure aborts the sign-out (rethrows, no identity state touched) rather than
+  /// leaving the account's database open behind a signed-out UI. Safe to call
+  /// repeatedly: an already-locked replica and an already-signed-out state are
+  /// no-ops for every step below. "Remove data from this device" is a separate,
+  /// explicit action ([removeDataFromDevice]).
   /// Runs the registered best-effort outbox flush with a bounded timeout.
   /// Public (MALI-053n) so the sign-out UI can flush and then RE-CHECK the
   /// unsynced inventory before deciding — a timeout/failure here is NEVER
@@ -618,26 +652,29 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   Future<void> signOut() async {
     // MALI-069n §Blocker-1: invalidate the admission generation FIRST, before any
-    // purge/wipe begins, so an in-flight background job bound to this session is
+    // close/purge begins, so an in-flight background job bound to this session is
     // rejected at its next validation boundary and can neither commit nor
     // acknowledge under the outgoing (or a subsequent) admission.
     await _invalidateOwnerGeneration();
-    // Best-effort final push BEFORE the wipe: the wipe deletes the sync
-    // outboxes, so any change made in the last seconds (e.g. a country
-    // change right before signing out) would otherwise be destroyed
-    // un-uploaded. Offline sign-out still proceeds.
+    // Best-effort final push BEFORE the replica is closed: a change made in the
+    // last seconds should reach the cloud now rather than wait for the next
+    // sign-in. Offline sign-out still proceeds; nothing is discarded either way.
     await flushPendingForSignOut();
-    final wipe = _wipeLocalFinancialData;
-    if (wipe != null) {
-      await wipe();
-    }
-    // MALI-054n/070n: purge native + filesystem capture residue BEFORE releasing
-    // ownership. If the purge cannot be confirmed, KEEP the owner uid so the DB
-    // stays marked as owned by THIS identity — the next DIFFERENT user then hits
-    // the conflict path (_ensureLocalDataOwnedBy), which re-purges and fails
-    // closed rather than admitting them onto un-purged residue. (Same user
-    // re-login is unaffected: their own residue is not a cross-user leak.)
-    final residuePurged = await _runResiduePurge();
+    // Lock + close the active replica and publish the signed-out scope.
+    await _accountScope?.lock();
+    await _finishSignedOut();
+  }
+
+  /// Everything after the replica is locked/removed: native residue purge, owner
+  /// release, capture unlink and identity cleanup. Shared by [signOut] and
+  /// [removeDataFromDevice].
+  Future<void> _finishSignedOut() async {
+    // MALI-054n/070n: release the native capture owner BEFORE releasing ownership. If the purge cannot be confirmed, KEEP the owner uid: the next
+    // DIFFERENT user then hits the changed-owner path (_ensureLocalDataOwnedBy),
+    // which re-purges and fails closed rather than admitting them onto un-purged
+    // residue. (Same user re-login is unaffected: their own residue is not a
+    // cross-user leak.)
+    final residuePurged = await _runOwnerClear(signOut: true);
     if (residuePurged) {
       await _storage.delete(key: _kLocalDataOwnerUid);
     }
@@ -661,6 +698,36 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _unresolvedOwnerUid = null;
     value = SessionStatus.needsOnboarding;
   }
+
+  /// "Remove data from this device" for the signed-in uid (manifest §4.4):
+  /// deletes that uid's replica, key and native residue, then signs out. Throws
+  /// [RemoveDataIncompleteException] when a step could not be confirmed; the
+  /// barrier is then kept and resumes at the next launch or admission, and the
+  /// caller must not report completion.
+  Future<void> removeDataFromDevice() async {
+    final uid = await _storage.read(key: _kLocalDataOwnerUid);
+    await _invalidateOwnerGeneration();
+    if (uid != null && uid.isNotEmpty && !uid.startsWith(_kOwnerTransitionPrefix)) {
+      final flow = _removeData;
+      try {
+        if (flow == null) throw const RemoveDataIncompleteException();
+        await flow.remove(uid);
+      } on RemoveDataIncompleteException {
+        // The barrier is kept and resumes at the next launch/admission. Until
+        // then the device must not sit signed in on a half-removed account:
+        // lock whatever is still open and sign out locally, then report it.
+        await _accountScope?.lock();
+        await _finishSignedOut();
+        rethrow;
+      }
+    }
+    await _finishSignedOut();
+  }
+
+  /// Step 1 of the removal: the owner record is cleared (the native owner record
+  /// is cleared by the barrier's `begin`).
+  Future<void> clearLocalDataOwnerMarker() =>
+      _storage.delete(key: _kLocalDataOwnerUid);
 
   Future<void> bindSupabaseAuth(supabase.SupabaseClient client) async {
     _supabaseAuthSubscription ??=
@@ -714,6 +781,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     switch (state.event) {
       case supabase.AuthChangeEvent.signedOut:
       case supabase.AuthChangeEvent.userDeleted:
+        _authLossSeq++;
         // A server-driven auth loss is not an explicit request to destroy the
         // local-first database. It can be emitted during cold-start token
         // recovery, resume, revocation, or account deletion. With the old call
@@ -721,7 +789,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
         // table, including settings and the persisted notification journey
         // state. Keep the encrypted local data owned by this UID and withhold
         // access until the user re-authenticates. Explicit UI logout still
-        // calls signOut() directly and therefore retains its intentional wipe.
+        // calls signOut() directly, which LOCKS the replica (never wipes it).
         markSessionInvalid();
         return;
       case supabase.AuthChangeEvent.initialSession:
@@ -757,7 +825,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // (first reconcile runs before database_open), leave the coarse status
     // untouched — the boot loader is showing — and let bootstrap resolve the
     // conflict via resolvePendingLocalDataOwnerConflict, which re-enters here.
+    final lossSeq = _authLossSeq;
     final ownership = await _ensureLocalDataOwnedBy(session.user.id);
+    if (lossSeq != _authLossSeq) return; // the session was lost meanwhile
     if (ownership == LocalDataOwnership.deferred) return;
     if (ownership == LocalDataOwnership.unresolved) {
       // Fail closed: local data is preserved but must not be shown to an
@@ -791,6 +861,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       _completedAccountKeys.add(accountKey);
       await _persistCompletedAccountKeys();
     }
+    if (lossSeq != _authLossSeq) return;
     _onboardingDone = completed;
     value =
         completed ? SessionStatus.authenticated : SessionStatus.needsOnboarding;
@@ -867,17 +938,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   /// B15 — the ONE full-reset sequence (Settings "erase all data", Privacy
-  /// account deletion). Same fence as [signOut]: the admission generation is
-  /// invalidated FIRST so an in-flight drain bound to it is rejected and cannot
-  /// write into the DB being wiped; then the DB wipe, then [wipeAndReset]; and
-  /// finally the remote auth sign-out ([signOutRemote], best effort — the local
-  /// wipe already protects the device if the network call fails).
+  /// account deletion). WP-3b: the database step is the §4.4 Remove-data flow
+  /// ([removeDataFromDevice]: the admission generation is invalidated FIRST, then
+  /// the uid's replica, key and native residue are deleted); then [wipeAndReset];
+  /// and finally the remote auth sign-out ([signOutRemote], best effort — the
+  /// local removal already protects the device if the network call fails). A
+  /// removal that cannot be confirmed throws before anything else runs.
   Future<void> resetAllLocalData({
-    required Future<void> Function() wipeDatabase,
     Future<void> Function()? signOutRemote,
   }) async {
-    await _invalidateOwnerGeneration();
-    await wipeDatabase();
+    await removeDataFromDevice();
     await wipeAndReset();
     if (signOutRemote != null) {
       try {
@@ -894,7 +964,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // full reset (account deletion / reset-all), BEFORE the secure-storage wipe
     // drops the owner marker — otherwise leftover native captures could be
     // imported by the next identity that null-claims the reset device.
-    await _runResiduePurge();
+    await _runOwnerClear();
     // Audit H-8. The SQLCipher key must survive this wipe: the caller empties
     // the DB tables, but the encrypted FILE stays on disk, so destroying its key
     // would orphan that file and make the database unopenable next launch

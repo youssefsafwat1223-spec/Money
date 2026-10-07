@@ -1,6 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'fake_account_scope.dart';
 
 /// MALI-054n / MALI-011 / MALI-017: destructive-lifecycle residue purge +
 /// fail-closed cross-user admission. Exercises AppSession through its injected
@@ -9,29 +10,29 @@ import 'package:money_companion/core/session/app_session.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  var wipeCalls = 0;
+  late FakeAccountScope scope;
   var purgeCalls = 0;
   var purgeResult = true;
 
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
-    wipeCalls = 0;
     purgeCalls = 0;
     purgeResult = true;
     AppSession.instance.configureCaptureDeviceUnlink(null);
-    AppSession.instance.configureLocalDataWipe(() async => wipeCalls++);
-    AppSession.instance.configureLocalResiduePurge(() async {
+    scope = FakeAccountScope();
+    AppSession.instance.configureAccountScope(scope);
+    AppSession.instance.configureCaptureOwnerClear(() async {
       purgeCalls++;
       return purgeResult;
     });
     await AppSession.instance.wipeAndReset();
-    wipeCalls = 0;
+    scope.calls.clear();
     purgeCalls = 0;
   });
 
   tearDown(() async {
-    AppSession.instance.configureLocalDataWipe(null);
-    AppSession.instance.configureLocalResiduePurge(null);
+    AppSession.instance.configureCaptureOwnerClear(null);
+    AppSession.instance.configureAccountScope(null);
     await AppSession.instance.wipeAndReset();
   });
 
@@ -87,23 +88,24 @@ void main() {
     // asserted: B is REFUSED and the DB stays owned by A. Not destroying A's
     // rows on the way to refusing B is strictly safer — B is never admitted, so
     // there is nothing for the wipe to protect against here.
-    expect(wipeCalls, 0,
-        reason: 'a purge that cannot be confirmed must not cost A their data');
+    expect(scope.calls.contains('activate:uid-b'), isFalse,
+        reason: 'B\'s replica is not even opened while the purge is unconfirmed');
     expect(await owner(), 'uid-a',
         reason: 'ownership NOT transferred to B while residue may remain');
     expect(AppSession.instance.status, isNot(SessionStatus.authenticated));
   });
 
   test(
-      'cross-user admission SUCCEEDS once residue purge is confirmed: A wiped, '
-      'residue purged, ownership transferred to B', () async {
+      'cross-user admission SUCCEEDS once residue release is confirmed: B gets '
+      'B\'s replica (A\'s is locked, never wiped), ownership moves to B',
+      () async {
     await AppSession.instance.setIdentity(method: 'google', userId: 'uid-a');
-    wipeCalls = 0;
+    scope.calls.clear();
     purgeCalls = 0;
 
     await AppSession.instance.setIdentity(method: 'google', userId: 'uid-b');
 
-    expect(wipeCalls, greaterThanOrEqualTo(1));
+    expect(scope.calls, ['activate:uid-b']);
     expect(purgeCalls, greaterThanOrEqualTo(1));
     expect(await owner(), 'uid-b');
   });

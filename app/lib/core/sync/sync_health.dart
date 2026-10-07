@@ -244,6 +244,14 @@ class SyncHealth {
   /// touched in this process win over the persisted copy.
   Future<void> attach(AppDatabase db) async {
     if (identical(_db, db)) return;
+    // WP-3b: another account's database means another account's health. Nothing
+    // observed under the previous one carries over (an in-memory state would
+    // otherwise be persisted into, and shown for, the next account).
+    if (_db != null) {
+      _state.clear();
+      _notes.clear();
+      _capabilityStates.clear();
+    }
     _db = db;
     try {
       final rows = await db

@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../data/db/app_database.dart';
 import '../../data/db/database_lease.dart';
 import '../../data/db/ownership_guard.dart';
+import '../../data/db/replica_store.dart';
 import '../session/app_session.dart';
 import '../utils/id_generator.dart';
 import 'backup_crypto.dart';
@@ -540,7 +541,10 @@ class EncryptedBackupService implements BackupService {
     }
     DatabaseLeaseManager? leaseManager;
     try {
-      leaseManager = await AppDatabase.appSupportLeaseManager();
+      final location = await ReplicaStore().activeLocation();
+      leaseManager = location == null
+          ? null
+          : await AppDatabase.appSupportLeaseManager(location: location);
     } catch (_) {
       leaseManager = null; // headless/test → logical maintenance
     }

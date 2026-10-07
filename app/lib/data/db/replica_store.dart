@@ -362,6 +362,37 @@ class ReplicaStore {
     return _open[hash] = db;
   }
 
+  /// The pre-WP-3a shared database location (for the failed-adoption fallback).
+  Future<ReplicaLocation> legacyLocation() => _legacyLocation();
+
+  /// Where [uid]'s replica lives (whether or not it exists yet).
+  Future<ReplicaLocation> locationFor(String uid) async =>
+      _location(await uidHash(uid));
+
+  /// Where the signed-in account's database lives, resolved from persisted state
+  /// only (the owner marker + the registry), for code that has no in-memory
+  /// account scope: the background capture/notification isolates and the backup
+  /// service. Null when no account is admitted or its replica is not `active`
+  /// (signed out = locked, SYNC-Q3), so such callers fail closed instead of
+  /// opening someone else's file. A `migrating` replica whose legacy file is
+  /// still in place resolves to the legacy file (a failed adoption "leaves the
+  /// legacy file in place and in use").
+  Future<ReplicaLocation?> activeLocation() async {
+    final marker = await _marker();
+    if (marker == null || marker.isEmpty || marker.startsWith(_transitionPrefix)) {
+      return null;
+    }
+    final hash = await uidHash(marker);
+    final entry = (await _readRegistry())[hash];
+    if (entry == null) return null;
+    if (entry.state == ReplicaState.active) return _location(hash);
+    if (entry.state == ReplicaState.migrating) {
+      final legacy = await _legacyLocation();
+      if (await File(legacy.dbPath).exists()) return legacy;
+    }
+    return null;
+  }
+
   /// Closes the open replica of [uid], if any. Idempotent.
   Future<void> closeReplica(String uid) async {
     final db = _open.remove(await uidHash(uid));

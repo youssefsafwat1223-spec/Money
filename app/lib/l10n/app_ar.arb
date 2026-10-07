@@ -3215,5 +3215,28 @@
     }
   },
   "syncSheetNeverSynced": "لا توجد مزامنة ناجحة بعد",
-  "syncSheetRetry": "إعادة المحاولة"
+  "syncSheetRetry": "إعادة المحاولة",
+  "signOutKeepData": "تسجيل الخروج مع الاحتفاظ بالبيانات المشفّرة",
+  "signOutKeepDataHint": "تبقى بياناتك مشفّرة على هذا الجهاز. سجّل الدخول مجددًا لفتحها.",
+  "signOutRemoveData": "تسجيل الخروج وحذف البيانات من هذا الجهاز",
+  "signOutRemoveDataHint": "يحذف بيانات هذا الحساب من هذا الجهاز فقط. لا تتأثر البيانات المحفوظة بالفعل في السحابة.",
+  "signOutUnsyncedKeepBody": "بعض البيانات لم تصل إلى السحابة بعد: {list}. تبقى على هذا الجهاز وتُزامَن عند تسجيل دخولك مجددًا.",
+  "@signOutUnsyncedKeepBody": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "removeDataTitle": "حذف البيانات من هذا الجهاز؟",
+  "removeDataBody": "سيُحذف نهائيًا كل ما يخص هذا الحساب على هذا الجهاز. يمكنك تنزيل البيانات المحفوظة في السحابة مجددًا بتسجيل الدخول.",
+  "removeDataUnsyncedBody": "هذه البيانات لم تصل إلى السحابة وستُفقد: {list}.",
+  "@removeDataUnsyncedBody": {
+    "placeholders": {
+      "list": {
+        "type": "String"
+      }
+    }
+  },
+  "removeDataAction": "حذف البيانات"
 }

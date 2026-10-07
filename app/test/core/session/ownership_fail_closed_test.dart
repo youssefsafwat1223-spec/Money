@@ -9,8 +9,8 @@ import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
-import 'package:money_companion/core/privacy/data_wipe_service.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'fake_account_scope.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -92,8 +92,16 @@ void main() {
 
   late AppDatabase db;
   late _KeychainFake fake;
-  late int wipeCalls;
+  late int purges;
   late bool purgeOk;
+  late FakeAccountScope scope;
+  List<String> activations() =>
+      scope.calls.where((c) => c.startsWith('activate')).toList();
+
+  Future<bool> countingPurge() async {
+    purges++;
+    return purgeOk;
+  }
   final session = AppSession.instance;
 
   Future<int> count(String table, String id) async => (await db
@@ -137,15 +145,15 @@ void main() {
       userId: uid,
     );
     fake.ownerWriteAttempts = 0;
-    wipeCalls = 0;
+    purges = 0;
+    scope.calls.clear();
   }
 
   String? marker() => fake.data[_ownerKey];
 
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
-    session.configureLocalDataWipe(null);
-    session.configureLocalResiduePurge(() async => true);
+    session.configureCaptureOwnerClear(() async => true);
     await session.wipeAndReset();
     fake = _KeychainFake({});
     FlutterSecureStoragePlatform.instance = fake;
@@ -154,20 +162,18 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
-    wipeCalls = 0;
-    session.configureLocalResiduePurge(() async => purgeOk);
-    session.configureLocalDataWipe(() async {
-      wipeCalls++;
-      await DataWipeService(db).wipeAll();
-    });
+    purges = 0;
+    scope = FakeAccountScope();
+    session.configureAccountScope(scope);
+    session.configureCaptureOwnerClear(countingPurge);
   });
 
   tearDown(() async {
     // Let the teardown reset actually delete the deliberately stuck marker.
     fake.legacy.clear();
     fake.dropWrites.clear();
-    session.configureLocalDataWipe(null);
-    session.configureLocalResiduePurge(null);
+    session.configureCaptureOwnerClear(null);
+    session.configureAccountScope(null);
     await session.wipeAndReset();
     await db.close();
   });
@@ -186,7 +192,7 @@ void main() {
       throwsA(isA<LocalDataOwnershipException>()),
     );
 
-    expect(wipeCalls, 0);
+    expect(activations(), isEmpty);
     await expectDataIntact('x');
     expect(marker(), 'X');
   });
@@ -206,13 +212,13 @@ void main() {
     await session.revalidateSupabaseSessionOnResume(client);
 
     expect(session.status, SessionStatus.sessionExpired);
-    expect(wipeCalls, 0);
+    expect(activations(), isEmpty);
     await expectDataIntact('x');
     expect(marker(), 'X');
   });
 
   // B. Repairable legacy marker (the real-world case): one wipe, ever.
-  test('B legacy mismatched marker: exactly one wipe across 6 reconciles',
+  test('B legacy mismatched marker: exactly one transition across 6 reconciles',
       () async {
     await signedInAs('Y');
     await seedUserData('x');
@@ -223,7 +229,7 @@ void main() {
 
     await session.revalidateSupabaseSessionOnResume(client);
 
-    expect(wipeCalls, 1);
+    expect(purges, 1);
     expect(marker(), 'Y');
     expect(await session.readLocalDataOwnerUid(), 'Y');
 
@@ -233,12 +239,12 @@ void main() {
     for (var i = 0; i < 2; i++) {
       await session.setIdentity(method: 'google', userId: 'Y');
     }
-    expect(wipeCalls, 1, reason: 'later reconciles must observe the claim');
+    expect(purges, 1, reason: 'later reconciles must observe the claim');
     expect(marker(), 'Y');
   });
 
   // C. Same owner.
-  test('C same owner: no wipe, admitted, data intact', () async {
+  test('C same owner: no purge, admitted, data intact', () async {
     await signedInAs('Y');
     await seedUserData('y');
     final client = _client();
@@ -247,7 +253,7 @@ void main() {
     await session.revalidateSupabaseSessionOnResume(client);
     await session.setIdentity(method: 'google', userId: 'Y');
 
-    expect(wipeCalls, 0);
+    expect(purges, 0);
     expect(session.status, SessionStatus.authenticated);
     expect(marker(), 'Y');
     await expectDataIntact('y');
@@ -271,13 +277,13 @@ void main() {
     await session.revalidateSupabaseSessionOnResume(client);
 
     expect(fake.ownerWriteAttempts, afterFirst);
-    expect(wipeCalls, 0);
+    expect(activations(), isEmpty);
     expect(session.status, SessionStatus.sessionExpired);
     await expectDataIntact('x');
   });
 
   // E. Overlapping reconciles converge on exactly one transition.
-  test('E overlapping reconciles on a repairable conflict wipe once',
+  test('E overlapping reconciles on a repairable conflict transition once',
       () async {
     await signedInAs('Y');
     await seedUserData('x');
@@ -286,14 +292,11 @@ void main() {
     final client = _client();
     await _recoverSession(client, 'Y');
 
-    // Mirror bootstrap: first reconcile runs with the wipe hook unset.
-    session.configureLocalDataWipe(null);
+    // Mirror bootstrap: first reconcile runs with the purge hook unset.
+    session.configureCaptureOwnerClear(null);
     await session.revalidateSupabaseSessionOnResume(client);
-    expect(wipeCalls, 0);
-    session.configureLocalDataWipe(() async {
-      wipeCalls++;
-      await DataWipeService(db).wipeAll();
-    });
+    expect(purges, 0);
+    session.configureCaptureOwnerClear(countingPurge);
 
     await Future.wait([
       session.resolvePendingLocalDataOwnerConflict(client),
@@ -301,11 +304,11 @@ void main() {
       session.setIdentity(method: 'google', userId: 'Y'),
     ]);
 
-    expect(wipeCalls, 1);
+    expect(purges, 1);
     expect(marker(), 'Y');
   });
 
-  test('E overlapping reconciles on an unrepairable conflict wipe nothing',
+  test('E overlapping reconciles on an unrepairable conflict admit nothing',
       () async {
     await signedInAs('Y');
     await seedUserData('x');
@@ -315,12 +318,9 @@ void main() {
     final client = _client();
     await _recoverSession(client, 'Y');
 
-    session.configureLocalDataWipe(null);
+    session.configureCaptureOwnerClear(null);
     await session.revalidateSupabaseSessionOnResume(client);
-    session.configureLocalDataWipe(() async {
-      wipeCalls++;
-      await DataWipeService(db).wipeAll();
-    });
+    session.configureCaptureOwnerClear(countingPurge);
 
     final results = await Future.wait([
       session.resolvePendingLocalDataOwnerConflict(client).then((_) => null),
@@ -331,24 +331,25 @@ void main() {
     ]);
 
     expect(results[2], isA<LocalDataOwnershipException>());
-    expect(wipeCalls, 0);
+    expect(activations(), isEmpty);
     expect(marker(), 'X');
     await expectDataIntact('x');
   });
 
-  // F. Explicit logout keeps its destructive semantics.
-  test('F explicit signOut wipes exactly once', () async {
+  // F. Explicit logout LOCKS; it never wipes.
+  test('F explicit signOut locks the replica and keeps the data', () async {
     await signedInAs('Y');
     await seedUserData('y');
 
     await session.signOut();
 
-    expect(wipeCalls, 1);
-    expect(await count('accounts', 'a-y'), 0);
+    expect(scope.calls, ['lock']);
+    await expectDataIntact('y');
   });
 
   // G. Genuine different-user transition with a normal marker.
-  test('G different user: one wipe, marker becomes B, no repeat', () async {
+  test('G different user: one transition, marker becomes B, A is untouched',
+      () async {
     await signedInAs('A');
     await seedUserData('a');
     final client = _client();
@@ -356,19 +357,19 @@ void main() {
 
     await session.revalidateSupabaseSessionOnResume(client);
 
-    expect(wipeCalls, 1);
+    expect(purges, 1);
+    expect(activations(), ['activate:B']);
     expect(marker(), 'B');
-    expect(await count('accounts', 'a-a'), 0);
-    expect(await count('transactions', 't-a'), 0);
+    await expectDataIntact('a'); // A's replica is a different file: untouched
 
     await session.revalidateSupabaseSessionOnResume(client);
     await session.setIdentity(method: 'google', userId: 'B');
-    expect(wipeCalls, 1);
+    expect(purges, 1);
     expect(marker(), 'B');
   });
 
   // H. Crash between the sentinel and the wipe converges.
-  test('H leftover transition sentinel is redone: one wipe, marker Y',
+  test('H leftover transition sentinel is resolved: one transition, marker Y',
       () async {
     await signedInAs('Y');
     await seedUserData('x');
@@ -378,13 +379,13 @@ void main() {
 
     await session.revalidateSupabaseSessionOnResume(client);
 
-    expect(wipeCalls, 1);
+    expect(purges, 1);
     expect(marker(), 'Y');
-    expect(await count('accounts', 'a-x'), 0);
+    expect(activations(), ['activate:Y']);
   });
 
   // I. Residue purge failure on a conflict preserves data.
-  test('I failed residue purge on conflict: no wipe, unresolved', () async {
+  test('I failed residue purge on conflict: not admitted, unresolved', () async {
     await signedInAs('Y');
     await seedUserData('x');
     fake.data[_ownerKey] = 'X';
@@ -395,33 +396,30 @@ void main() {
       throwsA(isA<LocalDataOwnershipException>()),
     );
 
-    expect(wipeCalls, 0);
+    expect(activations(), isEmpty);
     expect(marker(), 'X');
     await expectDataIntact('x');
   });
 
-  // J. A failed wipe must not move ownership; the previous owner is unharmed.
-  test('J failed wipe restores previous owner; A signing back in keeps data',
-      () async {
+  // J. A replica that cannot be opened refuses the new uid; the previous owner
+  // signing back in is unharmed.
+  test('J failed activation refuses B; A signing back in keeps data', () async {
     await signedInAs('A');
     await seedUserData('a');
-    session.configureLocalDataWipe(() async {
-      wipeCalls++;
-      throw StateError('disk full');
-    });
+    scope.activateError = StateError('disk full');
 
     await expectLater(
       session.setIdentity(method: 'google', userId: 'B'),
-      throwsA(isA<StateError>()),
+      throwsA(isA<LocalDataOwnershipException>()),
     );
-    expect(marker(), 'A');
     await expectDataIntact('a');
 
-    wipeCalls = 0;
+    scope.activateError = null;
+    scope.calls.clear();
     await session.setIdentity(method: 'google', userId: 'A');
 
-    expect(wipeCalls, 0);
     expect(marker(), 'A');
+    expect(activations(), ['activate:A']);
     expect(session.status, SessionStatus.authenticated);
     await expectDataIntact('a');
   });

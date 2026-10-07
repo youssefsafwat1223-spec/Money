@@ -5,7 +5,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
-import 'package:money_companion/core/privacy/data_wipe_service.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
@@ -125,10 +124,9 @@ void main() {
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
     AppSession.instance.configureCaptureDeviceUnlink(null);
-    AppSession.instance.configureLocalDataWipe(null);
     // MALI-054n: production always registers the residue purge hook; default it
     // to success so sign-out releases ownership exactly as it does in the app.
-    AppSession.instance.configureLocalResiduePurge(() async => true);
+    AppSession.instance.configureCaptureOwnerClear(() async => true);
     await AppSession.instance.wipeAndReset();
   });
 
@@ -349,12 +347,15 @@ void main() {
   });
 
   // The exact scenario from the release-blocker report: User A creates local
-  // data, signs out (which must wipe it), User B signs in, and a backfill run
-  // triggered by User B (e.g. restoring a backup) must upload zero of User
-  // A's rows — proven here by both an empty table AND a getClient that fails
-  // the test outright if anything ever tries to call Supabase.
+  // data, signs out, User B signs in, and a backfill run triggered by User B
+  // (e.g. restoring a backup) must upload zero of User A's rows. WP-3b: A's rows
+  // are KEPT in A's own replica (sign-out locks, never wipes) and B works in a
+  // different database — proven here by an empty table in B's replica AND a
+  // getClient that fails the test outright if anything ever tries to call
+  // Supabase.
 
-  test('end-to-end: sign-out wipes A\'s data, B\'s backfill uploads zero rows',
+  test('end-to-end: sign-out keeps A\'s data in A\'s replica, B\'s backfill '
+      'uploads zero rows',
       () async {
     final db = await _openDb();
     addTearDown(db.close);
@@ -376,17 +377,18 @@ void main() {
         .getSingle();
     expect(countBeforeSignOut.read<int>('n'), 1);
 
-    // User A signs out — this must wipe the local data (B1 fix) and clear
-    // the ownership marker.
-    AppSession.instance.configureLocalDataWipe(DataWipeService(db).wipeAll);
+    // User A signs out — A's replica is kept (locked), the ownership marker is
+    // cleared.
     await AppSession.instance.signOut();
 
     final countAfterSignOut = await db
         .customSelect('SELECT COUNT(*) AS n FROM transactions;')
         .getSingle();
-    expect(countAfterSignOut.read<int>('n'), 0,
-        reason: 'User A\'s transaction must not survive sign-out');
+    expect(countAfterSignOut.read<int>('n'), 1,
+        reason: 'sign-out never discards A\'s data');
     expect(await AppSession.instance.readLocalDataOwnerUid(), isNull);
+    final dbB = await _openDb();
+    addTearDown(dbB.close);
 
     // User B signs in on the same device and their session reconciles,
     // claiming the now-unclaimed marker.
@@ -400,16 +402,16 @@ void main() {
     await AppSession.instance.bindSupabaseAuth(clientB);
     expect(await AppSession.instance.readLocalDataOwnerUid(), 'user-b');
 
-    // The wipe reseeds one fresh default account for User B; mark it as
+    // B's own replica is seeded with one fresh default account; mark it as
     // already backfilled so only the transactions ownership guard (this
     // test's actual subject) is exercised, not the separate, already
     // independently-testable accounts-backfill precondition.
-    await db.customStatement("UPDATE accounts SET server_id = 'srv-acct-b';");
+    await dbB.customStatement("UPDATE accounts SET server_id = 'srv-acct-b';");
 
     // User B triggers a backfill (e.g. via restoring a backup). A throwing
     // getClient means this test fails loudly if any row were ever uploaded.
     final service = TransactionsBackfillService(
-      db: db,
+      db: dbB,
       getAuthUserId: () async => 'user-b',
       getClient: _refusingClient,
     );

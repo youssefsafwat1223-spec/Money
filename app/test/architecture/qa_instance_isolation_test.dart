@@ -187,17 +187,23 @@ void main() {
     });
   });
 
-  test('the production owner gate still wipes', () {
-    // The defect that started this was real product behaviour. QA routes around
-    // it with a separate container; it must never be softened to let a test
-    // pass. If this fails, check that weakening was intended.
+  test('the production owner gate still fails closed on residue and never '
+      'wipes (WP-3b: per-uid replicas)', () {
+    // QA routes around the single-owner defect with a separate container; it
+    // must never be softened to let a test pass. WP-3b removed the wipe-and-
+    // reclaim: each uid has its own replica. What must stay is the fail-closed
+    // order on an owner change: residue release confirmed -> claim read back ->
+    // replica opened. If this fails, check that weakening was intended.
     final session = read('lib/core/session/app_session.dart');
-    // Scoped to the owner gate itself: `await wipe();` anywhere in the file
-    // would also be satisfied by the unrelated sign-out wipe.
     final gate = session.substring(
         session.indexOf('Future<LocalDataOwnership> _resolveLocalDataOwnership'));
     final body = gate.substring(0, gate.indexOf('\n  }'));
-    expect(body.contains('await wipe();'), isTrue,
-        reason: 'owner-change wipe removed — QA must not change product safety');
+    expect(body.contains('wipe'), isFalse,
+        reason: 'owner-change wipe must not return: it would destroy a replica');
+    final release = body.lastIndexOf('_runOwnerClear()');
+    final claim = body.lastIndexOf('_writeOwnerMarkerVerified(uid)');
+    final admit = body.lastIndexOf('_admitReplica(uid)');
+    expect(release, lessThan(claim));
+    expect(claim, lessThan(admit));
   });
 }

@@ -1,6 +1,7 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'fake_account_scope.dart';
 
 /// AUDIT 2 — THE INSTALL / REINSTALL / KEYCHAIN / RESTORE STATE MATRIX.
 ///
@@ -34,8 +35,8 @@ void main() {
     purgeAvailable = true;
 
     AppSession.instance.configureCaptureDeviceUnlink(null);
-    AppSession.instance.configureLocalDataWipe(() async => calls.add('wipe'));
-    AppSession.instance.configureLocalResiduePurge(() async {
+    AppSession.instance.configureAccountScope(FakeAccountScope(calls));
+    AppSession.instance.configureCaptureOwnerClear(() async {
       calls.add('purge');
       return purgeAvailable;
     });
@@ -44,8 +45,8 @@ void main() {
   });
 
   tearDown(() async {
-    AppSession.instance.configureLocalDataWipe(null);
-    AppSession.instance.configureLocalResiduePurge(null);
+    AppSession.instance.configureCaptureOwnerClear(null);
+    AppSession.instance.configureAccountScope(null);
     await AppSession.instance.wipeAndReset();
   });
 
@@ -69,7 +70,7 @@ void main() {
       expect(await owner(), isNull);
       expect(await launchAs('uid-a'), isNull);
 
-      expect(count('wipe'), 0, reason: 'nothing existed to displace');
+      expect(calls, ['purge', 'activate:uid-a']);
       expect(await owner(), 'uid-a');
     });
   });
@@ -81,7 +82,8 @@ void main() {
 
       // Reinstall: the DB is gone but the Keychain marker is not.
       expect(await launchAs('uid-a'), isNull);
-      expect(calls, isEmpty, reason: 'same owner — nothing to transition');
+      expect(calls, ['activate:uid-a'],
+          reason: 'same owner — no purge, no switch');
       expect(await owner(), 'uid-a');
     });
   });
@@ -92,20 +94,22 @@ void main() {
       calls.clear();
 
       expect(await launchAs('uid-b'), isNull);
-      expect(calls, ['purge', 'wipe'], reason: 'purge proves, then wipe');
+      expect(calls, ['purge', 'activate:uid-b'],
+          reason: 'purge proves, then the new replica opens');
       expect(await owner(), 'uid-b');
 
       // THE regression: every subsequent launch must be inert.
       for (var launch = 0; launch < 5; launch++) {
         calls.clear();
         expect(await launchAs('uid-b'), isNull);
-        expect(calls, isEmpty, reason: 'launch $launch must do nothing');
+        expect(calls, ['activate:uid-b'],
+            reason: 'launch $launch: no purge, no switch');
       }
     });
   });
 
   group('E/F. App Group residue vs main DB — independent lifetimes', () {
-    test('residue that cannot be purged blocks the wipe, not the user',
+    test('residue that cannot be released blocks the switch, not the user',
         () async {
       // F: the main DB is here, the App Group state is not reachable (the
       // channel is down, the container is missing) so the purge cannot confirm.
@@ -119,7 +123,8 @@ void main() {
             reason: 'admission withheld, fail closed');
       }
 
-      expect(count('wipe'), 0, reason: 'NOTHING destroyed while blocked');
+      expect(calls.any((c) => c.startsWith('activate')), isFalse,
+          reason: 'B\'s replica never opens while blocked');
       expect(await owner(), 'uid-a', reason: 'A still owns their own data');
       expect(count('purge'), 4, reason: 'it keeps trying across launches');
     });
@@ -133,7 +138,7 @@ void main() {
       purgeAvailable = true; // channel comes up / container reachable
       expect(await launchAs('uid-b'), isNull);
 
-      expect(calls, ['purge', 'wipe']);
+      expect(calls, ['purge', 'activate:uid-b']);
       expect(await owner(), 'uid-b');
     });
   });
@@ -153,17 +158,17 @@ void main() {
   });
 
   group('H. logout A then immediate sign-in as B', () {
-    test('sign-out wipes and releases; B then claims a clean DB', () async {
+    test('sign-out locks and releases; B then gets B\'s own replica', () async {
       await launchAs('uid-a');
       calls.clear();
 
       await AppSession.instance.signOut();
-      expect(count('wipe'), 1, reason: 'an explicit sign-out DOES wipe');
+      expect(count('lock'), 1, reason: 'an explicit sign-out locks (never wipes)');
       expect(await owner(), isNull, reason: 'ownership released on clean purge');
 
       calls.clear();
       expect(await launchAs('uid-b'), isNull);
-      expect(count('wipe'), 0, reason: 'nothing left to displace');
+      expect(calls, ['purge', 'activate:uid-b']);
       expect(await owner(), 'uid-b');
     });
 
@@ -182,7 +187,7 @@ void main() {
   });
 
   group('I. process killed during the ownership transition', () {
-    test('killed AFTER the wipe but BEFORE the claim still converges',
+    test('killed AFTER the switch but BEFORE the claim still converges',
         () async {
       await launchAs('uid-a');
       calls.clear();
@@ -190,24 +195,24 @@ void main() {
       // Launch 1: purge and wipe succeed, then the process dies before the
       // claim is durable. Simulated by resetting the marker to A afterwards.
       expect(await launchAs('uid-b'), isNull);
-      expect(calls, ['purge', 'wipe']);
+      expect(calls, ['purge', 'activate:uid-b']);
       // Simulate the process dying before the claim reached the Keychain by
       // putting the OLD marker back through the same storage the session uses.
       // `local_data_owner_uid` is the key AppSession writes (app_session.dart:55).
       await const FlutterSecureStorage()
           .write(key: 'local_data_owner_uid', value: 'uid-a');
 
-      // Launch 2: the same conflict is seen again. The wipe is harmless (the DB
-      // is already empty) and this time the claim lands.
+      // Launch 2: the same conflict is seen again. Re-opening B's replica is
+      // idempotent and this time the claim lands.
       calls.clear();
       expect(await launchAs('uid-b'), isNull);
-      expect(calls, ['purge', 'wipe']);
+      expect(calls, ['purge', 'activate:uid-b']);
       expect(await owner(), 'uid-b');
 
       // Launch 3 onward: inert. This is convergence, not a loop.
       calls.clear();
       expect(await launchAs('uid-b'), isNull);
-      expect(calls, isEmpty);
+      expect(calls, ['activate:uid-b']);
     });
   });
 
@@ -221,7 +226,6 @@ void main() {
         await launchAs('uid-b');
       }
 
-      expect(count('wipe'), 1, reason: 'ONE transition across ten launches');
       expect(count('purge'), 1);
       expect(await owner(), 'uid-b');
     });

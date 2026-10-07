@@ -5,8 +5,8 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
-import 'package:money_companion/core/privacy/data_wipe_service.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'fake_account_scope.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -46,7 +46,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase db;
-  late int wipeCalls;
+  late FakeAccountScope scope;
 
   Future<String> language() async => (await db
           .customSelect('SELECT language FROM user_settings LIMIT 1;')
@@ -55,24 +55,20 @@ void main() {
 
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
-    AppSession.instance.configureLocalDataWipe(null);
-    AppSession.instance.configureLocalResiduePurge(() async => true);
+    AppSession.instance.configureCaptureOwnerClear(() async => true);
     await AppSession.instance.wipeAndReset();
     db = await AppDatabase.open(
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
     await db.customStatement("UPDATE user_settings SET language = 'en';");
-    wipeCalls = 0;
-    AppSession.instance.configureLocalDataWipe(() async {
-      wipeCalls++;
-      await DataWipeService(db).wipeAll();
-    });
+    scope = FakeAccountScope();
+    AppSession.instance.configureAccountScope(scope);
   });
 
   tearDown(() async {
-    AppSession.instance.configureLocalDataWipe(null);
-    AppSession.instance.configureLocalResiduePurge(null);
+    AppSession.instance.configureCaptureOwnerClear(null);
+    AppSession.instance.configureAccountScope(null);
     await AppSession.instance.wipeAndReset();
     await db.close();
   });
@@ -91,7 +87,7 @@ void main() {
     await client.auth.signOut();
     await Future<void>.delayed(const Duration(milliseconds: 100));
 
-    expect(wipeCalls, 0,
+    expect(scope.calls.contains('lock'), isFalse,
         reason: 'a remote/session-expiry event is not an explicit request to '
             'destroy the local-first database');
     expect(AppSession.instance.status, SessionStatus.sessionExpired);
@@ -111,11 +107,11 @@ void main() {
     await AppSession.instance.revalidateSupabaseSessionOnResume(_client());
 
     expect(AppSession.instance.status, SessionStatus.sessionExpired);
-    expect(wipeCalls, 0);
+    expect(scope.calls.contains('lock'), isFalse);
     expect(await language(), 'en', reason: 'session recovery wiped local data');
   });
 
-  test('explicit user logout still performs destructive cleanup', () async {
+  test('explicit user logout LOCKS the replica and never wipes it', () async {
     await AppSession.instance.completeOnboarding(
       method: 'google',
       email: 'user@example.com',
@@ -124,9 +120,9 @@ void main() {
 
     await AppSession.instance.signOut();
 
-    expect(wipeCalls, 1);
-    expect(await language(), 'ar',
-        reason: 'explicit logout did not reset local user data');
+    expect(scope.calls.last, 'lock');
+    expect(await language(), 'en',
+        reason: 'explicit logout keeps the encrypted data (SYNC-Q2/Q8)');
     expect(AppSession.instance.status, SessionStatus.needsOnboarding);
   });
 }
