@@ -2,9 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/privacy/consent_authority.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/entities/supporting_entities.dart';
@@ -46,13 +48,18 @@ typedef OwnerPublisher = Future<void> Function({
   required int expectedEpoch,
 });
 
-/// A-12.4 — the single best-effort revoke projection call sent as the closing
-/// act of the user's own Cloud ON->OFF action (constraints on
-/// [CaptureDeviceRegistrationService._revokeOnSwitchOff]). It is a PRODUCT
-/// decision awaiting user ratification: set this to false to drop it. Dropping
-/// it leaves already-stored server content to CAP-3 retention (7 days) and means
-/// the §4.6 revoke fan-out never runs for users who switch Cloud OFF.
+/// A-12.4 / E1 — the single best-effort revoke projection call sent as the
+/// FINAL control-plane action of the ON state, inside
+/// [CaptureDeviceRegistrationService.disableCloud] (user-ratified). Set this to
+/// false to drop it: the transition then only freezes and commits OFF with zero
+/// requests, and already-stored server content is left to CAP-3 retention.
 const bool kRevokeAtCloudSwitchOff = true;
+
+/// Upper bound on the one revoke request. The user is waiting on the toggle and
+/// OFF is committed only after the request settles, so the bound must be short;
+/// 5 s covers a normal mobile round trip of this tiny content-free call, and a
+/// slower server is covered by CAP-3 retention. Timing out never blocks OFF.
+const Duration kCloudOffRevokeTimeout = Duration(seconds: 5);
 
 /// WP-6: the consent the replica holds, as projected to the server and to the
 /// native mirror. Derived ONLY from the replica's own explicit, versioned choice
@@ -105,7 +112,13 @@ class CaptureDeviceRegistrationService {
     ConsentMirrorWriter? writeConsentMirror,
     OwnerPublisher? publishOwner,
     Future<int> Function()? readOwnerEpoch,
-  })  : _settingsRepository = settingsRepository,
+    bool revokeAtSwitchOff = kRevokeAtCloudSwitchOff,
+    Duration revokeTimeout = kCloudOffRevokeTimeout,
+    Future<Directory> Function()? markerDirectory,
+  })  : _revokeAtSwitchOff = revokeAtSwitchOff,
+        _revokeTimeout = revokeTimeout,
+        _markerDirectory = markerDirectory ?? getApplicationSupportDirectory,
+        _settingsRepository = settingsRepository,
         _client = client,
         _storage = storage ?? SecureStorageOptions.storage,
         _isIos = isIos ?? (() => Platform.isIOS),
@@ -137,6 +150,15 @@ class CaptureDeviceRegistrationService {
   /// so a crash or a restart can never send it (a second time).
   static const _revokeMarkerKey = 'qirsh_capture_revoke_marker';
 
+  /// E1: durable proof that a Cloud ON->OFF transition began. `qirsh.` prefix so
+  /// the session wipe keeps it. If it is found at startup the process died
+  /// mid-transition: OFF is committed locally and NO revoke is ever sent.
+  static const _disablePendingKey = 'qirsh.capture_disable_pending.v1';
+
+  /// One transition at a time, process-wide (the UI and startup own different
+  /// service instances).
+  static Future<void>? _disableInFlight;
+
   final DriftUserSettingsRepository _settingsRepository;
   final CaptureBackendClient? _client;
   final FlutterSecureStorage _storage;
@@ -152,16 +174,16 @@ class CaptureDeviceRegistrationService {
   final ConsentMirrorWriter _writeConsentMirror;
   final OwnerPublisher _publishOwner;
   final Future<int> Function() _readOwnerEpoch;
+  final bool _revokeAtSwitchOff;
+  final Duration _revokeTimeout;
+
+  /// Second, independent durable store for the `disable_pending` marker (a file
+  /// in app support), so a failed Keychain write plus a failed local OFF write
+  /// still leaves the next launch something to complete OFF from.
+  final Future<Directory> Function() _markerDirectory;
+  static const _disablePendingFile = 'capture_disable_pending.v1';
   Future<bool>? _linkInFlight;
   final Map<String, int> _mirrorVersions = {};
-
-  /// The uid whose Cloud-ON state this process observed. It is what makes the
-  /// switch-off revoke a reaction to the user's own toggle in a RUNNING app: a
-  /// relaunch starts empty, so startup and resume can never send it.
-  String? _cloudOnSeenUid;
-
-  /// Android: this process saw a Cloud/AI-ON consent push succeed.
-  bool _androidOnAcked = false;
   Future<String>? _credentialRecovery;
   Future<void>? _apnsSyncInFlight;
   String? _lastSyncedApnsTokenKey;
@@ -213,6 +235,7 @@ class CaptureDeviceRegistrationService {
   Future<void> syncBackendState() async {
     final ios = _isIos();
     if (!ios && !_isAndroid()) return;
+    if (await _frozen()) return;
     final generation = ++_syncGeneration;
     void record(CaptureRegistrationStatus next) {
       // A newer sync owns the status; never let a stale run overwrite it.
@@ -277,16 +300,13 @@ class CaptureDeviceRegistrationService {
   ///
   /// Cloud OFF = ZERO EGRESS here too (A-12-min R6, no platform carve-out): with
   /// no opt-in nothing is sent, ever, even when a secret exists. The only
-  /// exception is [_revokeAndroidOnSwitchOff].
+  /// exception is the revoke inside [disableCloud].
   Future<void> _syncAndroidConsentState(_SyncOutcome outcome) async {
     if (!_isBackendConfigured()) return;
     final settings = await _settingsRepository.getSettings();
     final wantsCloudOrAi =
         settings.cloudProcessingEnabled || settings.aiConsentGranted;
-    if (!wantsCloudOrAi) {
-      await _revokeAndroidOnSwitchOff(settings.consentVersion);
-      return;
-    }
+    if (!wantsCloudOrAi) return;
     final installId = await _loadInstallId();
     var secret = await _storage.read(key: _secretKey);
 
@@ -303,50 +323,19 @@ class CaptureDeviceRegistrationService {
       }
     }
 
-    final pushed = await _pushDeviceConsent(
+    await _pushDeviceConsent(
       outcome,
       installId: installId,
       deviceSecret: secret,
       aiConsentGranted: settings.aiConsentGranted,
       cloudProcessingEnabled: settings.cloudProcessingEnabled,
     );
-    if (pushed) _androidOnAcked = true;
-  }
-
-  /// A-12.4 on Android: the one-shot revoke at the user's own ON->OFF toggle.
-  /// Android has no uid-bound ack, so the proof that the server holds an ON
-  /// state is [_androidOnAcked] (a push this process saw succeed); like iOS it
-  /// is in-memory only (a relaunch never sends it), the durable marker is
-  /// written BEFORE sending, there is no 401 recovery and it is never retried.
-  Future<void> _revokeAndroidOnSwitchOff(int version) async {
-    final acked = _androidOnAcked;
-    _androidOnAcked = false;
-    if (!kRevokeAtCloudSwitchOff || !acked) return;
-    final secret = await _storage.read(key: _secretKey);
-    if (secret == null || secret.isEmpty) return;
-    final marker = 'android|$version';
-    try {
-      if (await _storage.read(key: _revokeMarkerKey) == marker) return;
-      await _storage.write(key: _revokeMarkerKey, value: marker);
-    } catch (_) {
-      return;
-    }
-    try {
-      await _backendClient.setDeviceConsent(
-        installId: await _loadInstallId(),
-        deviceSecret: secret,
-        aiConsentGranted: false,
-        cloudProcessingEnabled: false,
-      );
-    } catch (_) {
-      // Best-effort and final.
-    }
   }
 
   Future<void> syncNativeState() => _syncNativeState(_SyncOutcome());
 
   Future<void> _syncNativeState(_SyncOutcome outcome) async {
-    if (!_isIos()) return;
+    if (!_isIos() || await _frozen()) return;
     final settings = await _settingsRepository.getSettings();
     final installId = await _loadInstallId();
     var secret = await _storage.read(key: _secretKey);
@@ -361,15 +350,11 @@ class CaptureDeviceRegistrationService {
       );
       // Cloud OFF = ZERO EGRESS (A-12-min R6): no link, no registerDevice, no
       // setConsent, no APNs registration and no 401 recovery. The owner and its
-      // restrictive mirror are published LOCALLY, first; then (only for the
-      // user's own ON->OFF toggle in this running app) at most one revoke.
-      if (!settings.cloudProcessingEnabled) {
-        await _linkOnce();
-        await _revokeOnSwitchOff();
-      }
+      // restrictive mirror are published LOCALLY. This branch NEVER sends a
+      // revoke: the only one lives inside [disableCloud].
+      if (!settings.cloudProcessingEnabled) await _linkOnce();
       return;
     }
-    _cloudOnSeenUid = _readSession()?.uid;
 
     if (!settings.aiConsentGranted || secret == null || secret.isEmpty) {
       // Clear stale native consent before any later step that can fail. If the
@@ -472,7 +457,7 @@ class CaptureDeviceRegistrationService {
   }
 
   Future<bool> _linkAndPublish() async {
-    if (!_isIos()) return false;
+    if (!_isIos() || await _frozen()) return false;
     final session = _readSession();
     if (session == null) return false;
     if (await _readReplicaOwnerUid() != session.uid) return false;
@@ -488,12 +473,13 @@ class CaptureDeviceRegistrationService {
         if (!await _linkWithConsent(session, snapshot)) return false;
       }
       linked = snapshot;
-      _cloudOnSeenUid = session.uid;
     }
     // Re-checked after the round trip: an account switch in between must not
-    // publish the previous user as the owner.
+    // publish the previous user as the owner, and a Cloud-OFF transition that
+    // began meanwhile must not have its restricted mirror widened.
     final current = _readSession();
-    if (current == null ||
+    if (ConsentAuthority.egressFrozen ||
+        current == null ||
         current.uid != session.uid ||
         await _readReplicaOwnerUid() != session.uid) {
       return false;
@@ -552,6 +538,7 @@ class CaptureDeviceRegistrationService {
   /// retries the same absolute state. A never-linked install goes through the
   /// full gate instead. Cloud ON only: Cloud OFF never reaches this (R6).
   Future<void> _projectConsent(_SyncOutcome outcome) async {
+    if (ConsentAuthority.egressFrozen) return;
     final session = _readSession();
     if (session == null || await _readReplicaOwnerUid() != session.uid) return;
     final snapshot = _snapshotOf(await _settingsRepository.getSettings());
@@ -620,6 +607,7 @@ class CaptureDeviceRegistrationService {
   /// The mirror never moves to an older version within a process (a slow link
   /// finishing after a newer consent change must not overwrite it).
   Future<void> _writeMirror(String uid, _ConsentSnapshot snapshot) async {
+    if (ConsentAuthority.egressFrozen) return;
     final last = _mirrorVersions[uid];
     if (last != null && snapshot.version < last) return;
     await _writeConsentMirror(
@@ -676,51 +664,233 @@ class CaptureDeviceRegistrationService {
     return uid == null ? null : _mirrorVersions[uid];
   }
 
-  /// A-12.4 — the one-shot revoke projection call at the user's own Cloud
-  /// ON->OFF toggle. The mirror already restricted (see [_syncNativeState]); this
-  /// only tells the server so it can null content it already holds. Constraints:
-  /// content-free, not a link; only for a toggle observed in THIS running
-  /// process; only while the uid-bound ack shows Cloud ON for this uid; the
-  /// `(uid, version)` marker is durable BEFORE sending and the ack is cleared
-  /// before sending, so a crash, a restart or a later OFF sync never sends it
-  /// again; no 401 recovery; never retried.
-  Future<void> _revokeOnSwitchOff() async {
-    final session = _readSession();
-    final seen = _cloudOnSeenUid;
-    _cloudOnSeenUid = null;
-    if (!kRevokeAtCloudSwitchOff ||
-        session == null ||
-        seen != session.uid ||
-        !_isBackendConfigured()) {
-      return;
+  /// Whether saving [after] over [before] switches the capture cloud from ON to
+  /// OFF on this platform (Android treats AI like cloud, see
+  /// [_syncAndroidConsentState]). Such a change MUST go through [disableCloud].
+  bool isDisablingCloud(UserSettingsEntity before, UserSettingsEntity after) {
+    if (_isAndroid()) {
+      return (before.cloudProcessingEnabled || before.aiConsentGranted) &&
+          !(after.cloudProcessingEnabled || after.aiConsentGranted);
     }
-    final ack = await _readAck(session.uid);
-    if (ack == null || !ack.cloud) return;
-    final snapshot = _snapshotOf(await _settingsRepository.getSettings());
-    if (snapshot.cloud) return;
-    final marker = '${session.uid}|${snapshot.version}';
-    final secret = await _storage.read(key: _secretKey);
-    if (secret == null || secret.isEmpty) return;
-    final installId = await _loadInstallId();
+    return before.cloudProcessingEnabled && !after.cloudProcessingEnabled;
+  }
+
+  /// E1 — the user-ratified Cloud ON->OFF transition. In order:
+  ///  (a) FREEZE, synchronously: every egress gate refuses from this line on
+  ///      (the stored consent still reads ON until (c)), a durable
+  ///      `disable_pending` marker is written and the native side is restricted;
+  ///  (b) at most ONE best-effort, content-free revoke, with the inputs captured
+  ///      while still ON, bounded by [_revokeTimeout]; no 401 recovery, no
+  ///      retry, no link/register fallback; any failure is swallowed;
+  ///  (c) in a `finally`: [commitLocalOff] (save OFF), then the marker is
+  ///      cleared and the freeze lifted. A failed or hung revoke never blocks OFF.
+  /// A crash in between leaves the marker: [_frozen] commits OFF at the next
+  /// start without any revoke. Concurrent calls share one transition.
+  Future<void> disableCloud({
+    required Future<void> Function() commitLocalOff,
+  }) =>
+      _disableInFlight ??= _disableCloud(commitLocalOff)
+          .whenComplete(() => _disableInFlight = null);
+
+  Future<void> _disableCloud(Future<void> Function() commitLocalOff) async {
+    ConsentAuthority.egressFrozen = true;
     try {
-      if (await _storage.read(key: _revokeMarkerKey) == marker) return;
+      // The value names the replica owner: settings are per replica, so only
+      // that replica may complete the commit after a crash.
+      String owner = '';
+      try {
+        owner = await _readReplicaOwnerUid() ?? '';
+      } catch (_) {}
+      await _writeDisablePending(owner);
+      Future<void> Function()? revoke;
+      try {
+        revoke = await _freezeAndPrepareRevoke();
+      } catch (_) {}
+      if (revoke != null) {
+        try {
+          await revoke().timeout(_revokeTimeout);
+        } catch (_) {
+          // Best-effort and final: CAP-3 retention covers a call that never lands.
+        }
+      }
+    } finally {
+      // FAIL CLOSED: if the local OFF write fails, the process-wide freeze stays
+      // on, Cloud is never restored to ON, nothing more is sent, and the marker
+      // is re-written (both stores) so the next launch completes OFF.
+      try {
+        await commitLocalOff();
+      } catch (_) {
+        String owner = '';
+        try {
+          owner = await _readReplicaOwnerUid() ?? '';
+        } catch (_) {}
+        await _writeDisablePending(owner);
+        rethrow;
+      }
+      await _clearDisablePending();
+      ConsentAuthority.egressFrozen = false;
+    }
+  }
+
+  Future<File> _disablePendingMarkerFile() async =>
+      File('${(await _markerDirectory()).path}/$_disablePendingFile');
+
+  /// Writes the marker to both stores; each failure is independent.
+  Future<void> _writeDisablePending(String owner) async {
+    try {
+      await _storage.write(key: _disablePendingKey, value: owner);
+    } catch (_) {}
+    try {
+      await (await _disablePendingMarkerFile()).writeAsString(owner, flush: true);
+    } catch (_) {}
+  }
+
+  /// The pending owner from either store. Throws when neither store can be read
+  /// so the caller fails closed; returns null only when both reads succeeded and
+  /// found nothing.
+  Future<String?> _readDisablePending() async {
+    String? fromStorage;
+    var storageRead = false;
+    try {
+      fromStorage = await _storage.read(key: _disablePendingKey);
+      storageRead = true;
+    } catch (_) {}
+    if (fromStorage != null) return fromStorage;
+    String? fromFile;
+    var fileRead = false;
+    try {
+      final file = await _disablePendingMarkerFile();
+      fromFile = await file.exists() ? await file.readAsString() : null;
+      fileRead = true;
+    } catch (_) {}
+    if (fromFile != null) return fromFile;
+    if (!storageRead && !fileRead) {
+      throw StateError('disable_pending unreadable');
+    }
+    return null;
+  }
+
+  Future<void> _clearDisablePending() async {
+    try {
+      await _storage.delete(key: _disablePendingKey);
+    } catch (_) {}
+    try {
+      final file = await _disablePendingMarkerFile();
+      if (await file.exists()) await file.delete();
+    } catch (_) {}
+  }
+
+  /// Restricts the native side (no network) and, while the state is still ON,
+  /// captures what the revoke needs. Returns the send closure, or null when no
+  /// revoke is due. Writes the durable `(uid, version)` marker and clears the ack
+  /// BEFORE the closure can send.
+  Future<Future<void> Function()?> _freezeAndPrepareRevoke() async {
+    final ios = _isIos();
+    if (!ios && !_isAndroid()) return null;
+    final settings = await _settingsRepository.getSettings();
+    final next = settings.consentVersion + 1;
+    final session = _readSession();
+    final installId = await _loadInstallId();
+    if (ios) {
+      try {
+        await _writeNativeBackendConfig(
+          cloudProcessingEnabled: false,
+          installId: installId,
+          backendUrl: SupabaseConfig.url,
+          anonKey: SupabaseConfig.anonKey,
+          aiConsentGranted: false,
+        );
+      } catch (_) {}
+      try {
+        if (session != null && await _readReplicaOwnerUid() == session.uid) {
+          await _writeConsentMirror(
+              uid: session.uid, cloud: false, ai: false, version: next);
+          _mirrorVersions[session.uid] = next;
+        }
+      } catch (_) {}
+    }
+    final wasOn = ios
+        ? settings.cloudProcessingEnabled
+        : settings.cloudProcessingEnabled || settings.aiConsentGranted;
+    if (!_revokeAtSwitchOff || !wasOn || !_isBackendConfigured()) return null;
+    final secret = await _storage.read(key: _secretKey);
+    if (secret == null || secret.isEmpty) return null;
+    String? uid;
+    if (ios) {
+      uid = session?.uid;
+      if (uid == null) return null;
+      final ack = await _readAck(uid);
+      if (ack == null || !ack.cloud) return null;
+    }
+    final marker = '${uid ?? 'android'}|$next';
+    try {
+      if (await _storage.read(key: _revokeMarkerKey) == marker) return null;
       await _storage.write(key: _revokeMarkerKey, value: marker);
     } catch (_) {
-      return; // no durable marker, no send
+      return null; // no durable marker, no send
     }
-    await _clearAck();
+    if (ios) await _clearAck();
+    if (!ios) {
+      return () => _backendClient.setDeviceConsent(
+            installId: installId,
+            deviceSecret: secret,
+            aiConsentGranted: false,
+            cloudProcessingEnabled: false,
+          );
+    }
+    final jwt = session!.jwt;
+    return () => _consent.setConsent(
+          installId: installId,
+          deviceSecret: secret,
+          jwt: jwt,
+          cloud: false,
+          ai: false,
+          version: next,
+        );
+  }
+
+  /// Startup hook: finishes a Cloud-OFF transition a dead process left behind,
+  /// before any other egress can start. No revoke, ever (see [_frozen]).
+  Future<void> resolvePendingDisable() async {
+    await _frozen();
+  }
+
+  /// True while a transition is running (every egress path refuses). If instead
+  /// a `disable_pending` marker is found with no transition running, the process
+  /// died mid-transition: OFF is committed locally now, the ack and the marker
+  /// are cleared and NO revoke is sent (it is never retried); then not frozen.
+  Future<bool> _frozen() async {
+    if (ConsentAuthority.egressFrozen) return true;
+    String? pending;
     try {
-      await _consent.setConsent(
-        installId: installId,
-        deviceSecret: secret,
-        jwt: session.jwt,
-        cloud: false,
-        ai: false,
-        version: snapshot.version,
-      );
+      pending = await _readDisablePending();
     } catch (_) {
-      // Best-effort and final: retention (CAP-3) covers a call that never lands.
+      return true; // marker state unknown: fail closed for this call
     }
+    if (pending == null) return false;
+    try {
+      if (pending != (await _readReplicaOwnerUid() ?? '')) return false;
+    } catch (_) {
+      return true; // owner unknown: fail closed for this call
+    }
+    ConsentAuthority.egressFrozen = true;
+    try {
+      final settings = await _settingsRepository.getSettings();
+      if (settings.cloudProcessingEnabled ||
+          (_isAndroid() && settings.aiConsentGranted)) {
+        await _settingsRepository.saveSettings(settings.copyWith(
+          cloudConsentState: ConsentState.declined,
+          aiConsentState:
+              _isAndroid() ? ConsentState.declined : settings.aiConsentState,
+        ));
+      }
+      await _clearAck();
+      await _clearDisablePending();
+      ConsentAuthority.egressFrozen = false;
+    } catch (_) {
+      return true; // not committed: stay frozen, fail closed
+    }
+    return false;
   }
 
   /// Revokes the mutable user/APNs association without deleting the relay
@@ -731,8 +901,7 @@ class CaptureDeviceRegistrationService {
   /// sign-out or Remove data ends this replica's consent history.
   Future<void> unlinkCurrentDevice() async {
     _mirrorVersions.clear();
-    _cloudOnSeenUid = null;
-    if (!_isIos() || !_isBackendConfigured()) return;
+    if (!_isIos() || !_isBackendConfigured() || await _frozen()) return;
     final ack = await _readAckAny();
     if (ack == null || !ack.snapshot.cloud) return;
     final secret = await _storage.read(key: _secretKey);
@@ -763,7 +932,8 @@ class CaptureDeviceRegistrationService {
   /// missing link never falls through to a projection that may still belong to
   /// someone else. Android has no link and is unchanged.
   Future<bool> isLinkedForCloud() async {
-    if (!_isIos()) return true;
+    if (!_isIos()) return !await _frozen();
+    if (await _frozen()) return false;
     final uid = _readSession()?.uid;
     if (uid == null) return false;
     final ack = await _readAck(uid);
@@ -792,7 +962,7 @@ class CaptureDeviceRegistrationService {
     ApnsTokenInfo token,
     String tokenKey,
   ) async {
-    if (!_isIos() || !_isBackendConfigured()) return;
+    if (!_isIos() || !_isBackendConfigured() || await _frozen()) return;
     final settings = await _settingsRepository.getSettings();
     if (!settings.cloudProcessingEnabled) return;
     final secret = await _storage.read(key: _secretKey);
@@ -841,7 +1011,8 @@ class CaptureDeviceRegistrationService {
   }) async {
     // Cloud OFF = zero egress (R6): a 401 never re-registers the device while
     // the user's Cloud consent is OFF (e.g. switched off mid-flight).
-    if (!(await _settingsRepository.getSettings()).cloudProcessingEnabled) {
+    if (ConsentAuthority.egressFrozen ||
+        !(await _settingsRepository.getSettings()).cloudProcessingEnabled) {
       throw const CaptureBackendException('recovery_skipped_cloud_off');
     }
     final stored = await _storage.read(key: _secretKey);

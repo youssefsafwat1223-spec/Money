@@ -264,7 +264,9 @@ void main() {
     expect(client.consentCalls, isEmpty);
   });
 
-  test('Android: the user\'s own ON->OFF toggle sends ONE revoke, never again',
+  // E1 (updated truthfully): the revoke is no longer a side effect of the OFF
+  // sync; it is sent only inside the explicit disableCloud transition.
+  test('Android: the ON->OFF transition sends ONE revoke; OFF syncs never do',
       () async {
     FlutterSecureStorage.setMockInitialValues({});
     await setConsent(ai: true, cloud: true);
@@ -274,14 +276,14 @@ void main() {
     expect(client.consentCalls.last, (ai: true, cloud: true));
     client.consentCalls.clear();
 
-    await setConsent(ai: false, cloud: false);
-    await service.syncBackendState();
+    await service.disableCloud(
+        commitLocalOff: () => setConsent(ai: false, cloud: false));
     expect(client.consentCalls, [(ai: false, cloud: false)]);
     await service.syncBackendState();
     await service.syncBackendState();
     expect(client.consentCalls, hasLength(1), reason: 'never retried');
 
-    // A relaunch (new instance, no in-memory ON proof) sends nothing.
+    // A relaunch (new instance) sends nothing.
     await androidService(client).syncBackendState();
     expect(client.consentCalls, hasLength(1));
     expect(client.registeredPlatforms, ['android'], reason: 'no re-register');

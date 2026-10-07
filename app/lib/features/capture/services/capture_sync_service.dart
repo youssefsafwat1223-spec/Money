@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/privacy/consent_authority.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/db/ownership_guard.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
@@ -171,7 +172,9 @@ class CaptureSyncService {
     await requireCurrentAdmission();
     final settings = await _settingsRepository.getSettings();
     final backendConfigured = _backendConfigured ?? SupabaseConfig.isConfigured;
-    if (!settings.cloudProcessingEnabled || !backendConfigured) {
+    if (!settings.cloudProcessingEnabled ||
+        !backendConfigured ||
+        ConsentAuthority.egressFrozen) {
       return const CaptureSyncResult(
         importedPayloadIds: {},
         ackedPayloadIds: {},
@@ -263,7 +266,11 @@ class CaptureSyncService {
     if (message.status != 'pendingSend' || message.id == null) return false;
     final settings = await _settingsRepository.getSettings();
     final configured = _backendConfigured ?? SupabaseConfig.isConfigured;
-    if (!settings.cloudProcessingEnabled || !configured) return false;
+    if (!settings.cloudProcessingEnabled ||
+        !configured ||
+        ConsentAuthority.egressFrozen) {
+      return false;
+    }
     // A-12-min R2: native `authorizeUpload == allowed` is required for EVERY
     // upload, this replay included. localOnly (Cloud OFF / no mirror at capture
     // time, or a claimed item) is refused for good; waiting is retried later.

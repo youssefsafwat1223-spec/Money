@@ -283,7 +283,7 @@ void main() {
     test('the OFF branch of _syncNativeState sends nothing', () {
       final fn = body(registration, 'Future<void> _syncNativeState(');
       final off = fn
-          .substring(0, fn.indexOf('_cloudOnSeenUid = '))
+          .substring(0, fn.indexOf('if (!settings.aiConsentGranted ||'))
           .split('\n')
           .where((l) => !l.trimLeft().startsWith('//'))
           .join('\n');
@@ -300,7 +300,12 @@ void main() {
       ]) {
         expect(off, isNot(contains(egress)), reason: egress);
       }
-      inOrder(off, ['_linkOnce()', '_revokeOnSwitchOff()']);
+      // E1: the OFF sync branch never revokes; the revoke lives in disableCloud.
+      expect(off, contains('_linkOnce()'));
+      expect(off, isNot(contains('revoke')));
+      expect(registration, isNot(contains('_cloudOnSeenUid')));
+      expect(registration, isNot(contains('_revokeOnSwitchOff')));
+      expect(registration, isNot(contains('_revokeAndroidOnSwitchOff')));
     });
 
     test('_linkAndPublish: OFF never needs the backend, ON links first', () {
@@ -356,21 +361,24 @@ void main() {
     });
   });
 
-  group('Dart: the one-shot revoke (A-12.4)', () {
+  group('Dart: the one-shot revoke inside the OFF transition (A-12.4, E1)', () {
     test('one named constant, referenced by exactly one gate', () {
       expect(RegExp(r'const bool kRevokeAtCloudSwitchOff = true;')
           .hasMatch(registration), isTrue);
-      expect(
-          RegExp(r'kRevokeAtCloudSwitchOff').allMatches(registration).length,
-          greaterThanOrEqualTo(2));
-      final fn = body(registration, 'Future<void> _revokeOnSwitchOff()');
-      expect(fn, contains('!kRevokeAtCloudSwitchOff'));
+      final fn = body(registration,
+          'Future<Future<void> Function()?> _freezeAndPrepareRevoke()');
+      expect(fn, contains('!_revokeAtSwitchOff'));
+      expect(RegExp(r'revokeAtSwitchOff = kRevokeAtCloudSwitchOff')
+          .hasMatch(registration), isTrue);
     });
 
-    test('marker durable first, ack cleared, no 401 recovery, no retry', () {
-      final fn = body(registration, 'Future<void> _revokeOnSwitchOff()');
+    test('freeze first, marker durable first, ack cleared, no 401 recovery', () {
+      final fn = body(registration,
+          'Future<Future<void> Function()?> _freezeAndPrepareRevoke()');
       inOrder(fn, [
-        '_readAck(session.uid)',
+        '_writeNativeBackendConfig(',
+        '_writeConsentMirror(',
+        '_readAck(uid)',
         '_revokeMarkerKey',
         '_clearAck()',
         '_consent.setConsent(',
@@ -383,12 +391,41 @@ void main() {
       ]) {
         expect(fn, isNot(contains(forbidden)), reason: forbidden);
       }
-      // Only the OFF branch of the sync triggers it; nothing at startup/resume.
-      expect(
-          RegExp(r'_revokeOnSwitchOff\(\)').allMatches(registration).length, 2,
-          reason: 'the definition and the single OFF-branch call');
-      expect(body(registration, 'Future<void> _revokeOnSwitchOff()'),
-          contains('seen != session.uid'));
+    });
+
+    test('disableCloud: freeze is the first statement, commit is in finally',
+        () {
+      final fn = body(registration,
+          'Future<void> _disableCloud(Future<void> Function() commitLocalOff)');
+      inOrder(fn, [
+        'ConsentAuthority.egressFrozen = true;',
+        '_writeDisablePending(owner)',
+        '_freezeAndPrepareRevoke()',
+        '.timeout(_revokeTimeout)',
+        'finally',
+        'await commitLocalOff();',
+        // FAIL CLOSED: a failed local OFF write re-persists the marker and
+        // rethrows BEFORE the marker is cleared or the freeze is lifted.
+        '_writeDisablePending(owner)',
+        'rethrow;',
+        '_clearDisablePending()',
+        'ConsentAuthority.egressFrozen = false;',
+      ]);
+      final writer = body(
+          registration, 'Future<void> _writeDisablePending(String owner)');
+      expect(writer, contains('_disablePendingKey'));
+      expect(writer, contains('_disablePendingMarkerFile()'));
+      expect(RegExp(r'\.timeout\(').allMatches(fn).length, 1);
+    });
+
+    test('the revoke has exactly one trigger; the UI routes OFF through it',
+        () {
+      expect(RegExp(r'_freezeAndPrepareRevoke\(\)').allMatches(registration).length,
+          2, reason: 'the definition and the single call in _disableCloud');
+      final screen =
+          File('lib/features/settings/privacy_screen.dart').readAsStringSync();
+      expect(screen, contains('registration.isDisablingCloud(before, updated)'));
+      expect(screen, contains('registration.disableCloud('));
     });
   });
 

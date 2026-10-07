@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/privacy/consent_authority.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import 'capture_backend_client.dart';
@@ -106,7 +107,11 @@ class BackendCaptureServerPort implements CaptureServerPort {
   Future<({String installId, String secret})?> _credentials() async {
     final settings = await _settings.getSettings();
     final configured = _backendConfigured ?? SupabaseConfig.isConfigured;
-    if (!settings.cloudProcessingEnabled || !configured) return null;
+    if (!settings.cloudProcessingEnabled ||
+        !configured ||
+        ConsentAuthority.egressFrozen) {
+      return null;
+    }
     await _registration.syncBackendState();
     // A-12-min R5: no legacy device-credential call (fetch, ACK) without a
     // uid-bound ack for this user at Cloud ON; "not configured" imports locally.

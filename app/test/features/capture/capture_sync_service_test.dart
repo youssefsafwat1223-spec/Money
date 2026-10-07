@@ -36,6 +36,19 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
   final bool linked;
 
   @override
+  Future<void> disableCloud({
+    required Future<void> Function() commitLocalOff,
+  }) =>
+      commitLocalOff();
+
+  @override
+  bool isDisablingCloud(UserSettingsEntity before, UserSettingsEntity after) =>
+      false;
+
+  @override
+  Future<void> resolvePendingDisable() async {}
+
+  @override
   Future<({bool cloud, bool ai, int version})?> consentAckSnapshot() async =>
       null;
 

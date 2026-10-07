@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/ownership_guard.dart';
@@ -28,6 +29,20 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 }
 
 class _FakeRegistrationService implements CaptureDeviceRegistrationService {
+
+  @override
+  Future<void> disableCloud({
+    required Future<void> Function() commitLocalOff,
+  }) =>
+      commitLocalOff();
+
+  @override
+  bool isDisablingCloud(UserSettingsEntity before, UserSettingsEntity after) =>
+      false;
+
+  @override
+  Future<void> resolvePendingDisable() async {}
+
   @override
   Future<({bool cloud, bool ai, int version})?> consentAckSnapshot() async =>
       null;

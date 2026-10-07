@@ -325,12 +325,14 @@ void main() {
 
     // A-12-min (updated truthfully): the old test pinned a RETRY of the revoke.
     // Cloud OFF = zero egress: the revoke is one-shot and is never retried.
+    // E1 (updated truthfully): it is sent by the disableCloud transition, not by
+    // the OFF sync.
     test('a failed revoke still stops the device and is NOT retried', () async {
       final s = await linked();
-      await save(cloud: ConsentState.declined);
       server.setError = const CaptureBackendException('offline');
 
-      await s.syncBackendState();
+      await s.disableCloud(
+          commitLocalOff: () => save(cloud: ConsentState.declined));
       expect(mirrors.single.$2, (cloud: false, ai: false, version: 2));
       expect(server.sets, isEmpty);
       expect(events.where((e) => e == 'set'), hasLength(1));
@@ -370,7 +372,8 @@ void main() {
       final sent = <int>[latest()];
       for (final step in [
         () => save(ai: ConsentState.declined),
-        () => save(cloud: ConsentState.declined),
+        () => s.disableCloud(
+            commitLocalOff: () => save(cloud: ConsentState.declined)),
         () => save(cloud: ConsentState.accepted),
         () => save(ai: ConsentState.accepted),
       ]) {

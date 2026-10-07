@@ -302,6 +302,9 @@ class BootstrapRunner {
         readOwnerEpoch: captureQueue.captureOwnerEpoch,
       );
       _captureRegistration = captureRegistration;
+      // E1: a Cloud-OFF transition that a dead process left half-done is
+      // committed (without any revoke) before anything else can egress.
+      await captureRegistration.resolvePendingDisable();
       AppSession.instance.configureCaptureDeviceUnlink(
         captureRegistration.unlinkCurrentDevice,
       );

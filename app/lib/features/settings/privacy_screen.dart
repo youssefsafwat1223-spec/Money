@@ -188,19 +188,36 @@ class PrivacyScreen extends ConsumerWidget {
     WidgetRef ref,
     UserSettingsEntity updated,
   ) async {
-    await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
-    ref.invalidate(userSettingsProvider);
-    // OD-05 (C-3) — apply the diagnostics gate IMMEDIATELY, in the same turn as
-    // the toggle. Sentry's beforeSend is synchronous and cannot await a settings
-    // read, so the gate is pushed rather than pulled: a revocation must take
-    // effect before the next crash, not at the next startup.
-    DiagnosticsConsentGate.set(
-      ConsentAuthority.decide(EgressClass.diagnostics, updated),
-    );
+    final registration = ref.read(captureDeviceRegistrationServiceProvider);
+    Future<void> commit() async {
+      await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
+      ref.invalidate(userSettingsProvider);
+      // OD-05 (C-3) — apply the diagnostics gate IMMEDIATELY, in the same turn as
+      // the toggle. Sentry's beforeSend is synchronous and cannot await a settings
+      // read, so the gate is pushed rather than pulled: a revocation must take
+      // effect before the next crash, not at the next startup.
+      DiagnosticsConsentGate.set(
+        ConsentAuthority.decide(EgressClass.diagnostics, updated),
+      );
+    }
+
+    final before = await ref.read(userSettingsRepositoryProvider).getSettings();
+    if (registration.isDisablingCloud(before, updated)) {
+      // E1: Cloud ON->OFF is a transition, not a plain save: freeze egress, one
+      // best-effort revoke, then commit OFF whatever the revoke did.
+      DiagnosticsConsentGate.set(false);
+      try {
+        await registration.disableCloud(commitLocalOff: commit);
+      } catch (_) {
+        // FAIL CLOSED: the local OFF write failed. Egress stays frozen for this
+        // process and the next launch completes OFF; nothing to retry here.
+        return;
+      }
+    } else {
+      await commit();
+    }
     try {
-      await ref
-          .read(captureDeviceRegistrationServiceProvider)
-          .syncBackendState();
+      await registration.syncBackendState();
     } catch (_) {
       // Best-effort: the startup sync re-applies the stored value anyway.
     }

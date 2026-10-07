@@ -83,6 +83,13 @@ enum EgressClass {
 class ConsentAuthority {
   const ConsentAuthority(this._settings);
 
+  /// E1: set (synchronously) the moment the user starts switching Cloud OFF and
+  /// cleared only once OFF is committed locally. While true every consent-gated
+  /// class is denied, so no new egress can start during the ON->OFF transition
+  /// even though the stored consent still reads ON. Process-wide on purpose: the
+  /// startup and the UI own different service instances.
+  static bool egressFrozen = false;
+
   /// Reads settings FRESH on every call. See the no-caching note above.
   final Future<UserSettingsEntity> Function() _settings;
 
@@ -100,7 +107,7 @@ class ConsentAuthority {
   /// Pure decision function — the whole policy in one readable place, so it can
   /// be exhaustively tested without a database.
   static bool decide(EgressClass egressClass, UserSettingsEntity settings) {
-    final cloud = settings.cloudProcessingEnabled;
+    final cloud = settings.cloudProcessingEnabled && !egressFrozen;
     switch (egressClass) {
       case EgressClass.catalog:
       case EgressClass.auth:
