@@ -173,6 +173,8 @@ class RunnerTests: XCTestCase {
     SharedCaptureStore.ownerRecordReadOverride = nil
     SharedCaptureStore.stampingHook = nil
     SharedCaptureStore.clockOverride = nil
+    SharedCaptureStore.egressKeychainReadOverride = nil
+    SharedCaptureStore.debugResetCloudEgressState()
     try? FileManager.default.removeItem(
       at: container.appendingPathComponent("capture_destructive_barrier_v1.json"))
     SharedCaptureStore.purgeUserOwnedState()
@@ -359,12 +361,12 @@ class RunnerTests: XCTestCase {
     guard case .enqueued(let item) = put("upload 6.00 SAR") else { return XCTFail("enqueue") }
     let id = try XCTUnwrap(item.id)
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id),
-                   .allowed(ownerUid: ownerA, allowAi: false),
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: false),
                    "published with a Cloud-ON mirror (ai false)")
 
     try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: true, ai: false, version: 3)
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id),
-                   .allowed(ownerUid: ownerA, allowAi: false))
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: false))
     try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: false, ai: false, version: 4)
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly,
                    "cloud OFF in the owner's mirror means zero egress")
@@ -787,13 +789,13 @@ class RunnerTests: XCTestCase {
   func testCloudOnStampsUploadableAndKeepsPendingSend() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try publish(ownerA, cloud: true, ai: true)
+    let a = try publish(ownerA, cloud: true, ai: true)
     guard case .enqueued(let item) = SharedCaptureStore.enqueue(
       text: "on 1.00 SAR", sender: "ACME", status: .pendingSend) else { return XCTFail("enqueue") }
     XCTAssertNil(item.localOnly)
     XCTAssertEqual(item.status, "pendingSend")
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)),
-                   .allowed(ownerUid: ownerA, allowAi: true))
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: true))
   }
 
   // R2/R3: a missing mirror never uploads: new captures are stamped local-only,
@@ -821,7 +823,7 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(again, a)
     guard case .enqueued(let item) = put("mirror 3.00 SAR") else { return XCTFail("enqueue") }
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)),
-                   .allowed(ownerUid: ownerA, allowAi: true))
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: true))
   }
 
   // R4: compare-and-swap. A publish that read its epoch before a transition
@@ -1080,5 +1082,359 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(
       handler.contains("guard let environment"),
       "an unresolved environment must withhold the token")
+  }
+
+  // MARK: - G3 cloud-egress denial state (C.4 / C.5), C.1 owner binding, P4 / P6
+
+  private var egressFileURL: URL { container.appendingPathComponent("cloud_egress_state_v1.json") }
+  private var inflightFileURL: URL { container.appendingPathComponent("native_inflight_uploads_v1.json") }
+
+  private typealias Rec = SharedCaptureStore.CloudEgressRecord
+
+  private func rec(_ state: String, _ generation: Int) -> Rec {
+    Rec(state: state, transitionGeneration: generation, reservedVersion: generation + 1)
+  }
+
+  /// The stored map JSON: one entry per owner, keyed by uidHash.
+  private func egressJSON(_ entries: [(String, String, Int)]) throws -> Data {
+    var owners: [String: Rec] = [:]
+    for (uid, state, generation) in entries {
+      owners[try SharedCaptureStore.debugOwnerHash(uid)] = rec(state, generation)
+    }
+    return try JSONEncoder().encode(SharedCaptureStore.CloudEgressMap(owners: owners))
+  }
+
+  private func egressState(_ uid: String) throws -> SharedCaptureStore.EgressSnapshot {
+    try SharedCaptureStore.cloudEgressState(forUid: uid)
+  }
+
+  /// An item stamped to A under a Cloud-ON mirror, upload-eligible until a denial.
+  private func stampedAllowedItem() throws -> (id: String, record: SharedCaptureStore.OwnerRecord) {
+    let a = try publish(ownerA, cloud: true, ai: true)
+    guard case .enqueued(let item) = put("egress 5.00 SAR") else { XCTFail("enqueue"); throw QueueTestError.enqueue }
+    let id = try XCTUnwrap(item.id)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id),
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: true))
+    return (id, a)
+  }
+
+  private enum QueueTestError: Error { case enqueue }
+
+  // D5 (native): a corrupt egress FILE denies; the item stays local-only.
+  func testCorruptEgressFileDeniesEgress() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2)
+    XCTAssertNotEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    try Data([0x00, 0xFF, 0x7B]).write(to: egressFileURL)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    XCTAssertEqual(try egressState(ownerA), .uncertain)
+    XCTAssertEqual(try egressState(ownerB), .uncertain, "an unreadable store denies every owner")
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+    // A restrictive write repairs the corrupt file (a valid OFF in either store wins).
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 3)
+    XCTAssertEqual(try egressState(ownerA), .record(rec("OFF", 2)))
+  }
+
+  // D5 (native): an UNREADABLE Keychain copy denies (never "treated as absent").
+  func testUnreadableEgressKeychainDeniesEgress() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecInteractionNotAllowed, nil) }
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    XCTAssertEqual(try egressState(ownerA), .uncertain)
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecSuccess, Data([0x01, 0x02])) }
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly,
+                   "undecodable Keychain bytes are corrupt, not absent")
+    // With no readable store at all, an ON write cannot widen over the corruption.
+    XCTAssertThrowsError(try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 9, reservedVersion: 10))
+  }
+
+  // D4 (native part): mixed-store records. A valid DISABLING/OFF in EITHER store
+  // wins over ON or absence in the other.
+  func testMixedStoreDisablingRecordWinsInEitherStore() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 3, reservedVersion: 4)
+    XCTAssertNotEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+
+    // File says DISABLING, Keychain still says ON.
+    try egressJSON([(ownerA, "DISABLING", 4)]).write(to: egressFileURL)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    XCTAssertEqual(try egressState(ownerA), .record(rec("DISABLING", 4)))
+
+    // Keychain says OFF, file says ON (crash between the two writes).
+    try egressJSON([(ownerA, "ON", 3)]).write(to: egressFileURL)
+    let off = try egressJSON([(ownerA, "OFF", 4)])
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecSuccess, off) }
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+
+    // File absent, Keychain DISABLING: the single marker still denies.
+    try? FileManager.default.removeItem(at: egressFileURL)
+    let disabling = try egressJSON([(ownerA, "DISABLING", 4)])
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecSuccess, disabling) }
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+
+    // Two ON entries that disagree (generation) for the owner: conflicting => denied.
+    try egressJSON([(ownerA, "ON", 5)]).write(to: egressFileURL)
+    let staleOn = try egressJSON([(ownerA, "ON", 3)])
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecSuccess, staleOn) }
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+  }
+
+  // C.5: per-owner records. B's restrictive write leaves A's DISABLING intact,
+  // A's relaunch (a fresh read of both stores) still sees it, and A's entry
+  // neither denies nor allows B.
+  func testOtherOwnersWriteNeverDiscardsDisablingMarker() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try SharedCaptureStore.setCloudEgressState(
+      state: "DISABLING", ownerUid: ownerA, transitionGeneration: 7, reservedVersion: 8)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerB, transitionGeneration: 1, reservedVersion: 2)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerB, transitionGeneration: 2, reservedVersion: 3)
+    XCTAssertEqual(try egressState(ownerA), .record(rec("DISABLING", 7)),
+                   "B's writes never touch A's entry")
+    XCTAssertEqual(try egressState(ownerB), .record(rec("ON", 2)))
+
+    // A's relaunch: each store alone still carries A's marker.
+    let fileData = try Data(contentsOf: egressFileURL)
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecItemNotFound, nil) }
+    XCTAssertEqual(try egressState(ownerA), .record(rec("DISABLING", 7)), "file alone")
+    try FileManager.default.removeItem(at: egressFileURL)
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecSuccess, fileData) }
+    XCTAssertEqual(try egressState(ownerA), .record(rec("DISABLING", 7)), "Keychain alone")
+
+    // The stored keys are uidHash, never the raw uid.
+    let text = String(data: fileData, encoding: .utf8) ?? ""
+    XCTAssertFalse(text.contains(ownerA))
+    XCTAssertTrue(text.contains(try SharedCaptureStore.debugOwnerHash(ownerA)))
+  }
+
+  // C.5: A's OFF entry does not deny B, B's own entry does.
+  func testOtherOwnersOffRecordDoesNotDenyActiveOwner() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 4, reservedVersion: 5)
+    let b = try publish(ownerB, cloud: true, ai: false)
+    guard case .enqueued(let item) = put("B 2.00 SAR") else { return XCTFail("enqueue") }
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)),
+                   .allowed(ownerUid: ownerB, ownerGeneration: b.generation, allowAi: false))
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerB, transitionGeneration: 1, reservedVersion: 2)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)), .localOnly)
+    XCTAssertEqual(try egressState(ownerA), .record(rec("OFF", 4)))
+  }
+
+  // D7: an extension / background intent attempt during DISABLING and after OFF
+  // makes no request: the admission gate the client runs immediately before
+  // URLSession returns .localOnly and registers nothing in flight.
+  func testDisablingAndOffAdmitNoNativeUpload() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, a) = try stampedAllowedItem()
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id),
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: true))
+
+    try SharedCaptureStore.setCloudEgressState(
+      state: "DISABLING", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 3)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly, "DISABLING")
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0)
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "no APNs registration")
+
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 3)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly, "OFF")
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0)
+    // The persistent gate survives a sign-out wipe of the queue and owner.
+    SharedCaptureStore.purgeUserOwnedState()
+    XCTAssertEqual(try egressState(ownerA), .record(rec("OFF", 2)))
+
+    // A widening write is refused while denied, a restrictive one is not.
+    XCTAssertFalse(SharedCaptureStore.setBackendConfig(
+      cloudProcessingEnabled: true, installID: "i", deviceSecret: "s",
+      backendURL: "https://example.test", anonKey: "k", aiConsentGranted: false,
+      ownerUid: ownerA, transitionGeneration: 2))
+    XCTAssertTrue(SharedCaptureStore.setBackendConfig(
+      cloudProcessingEnabled: false, installID: "i", deviceSecret: "s",
+      backendURL: "https://example.test", anonKey: "k", aiConsentGranted: false,
+      ownerUid: ownerA, transitionGeneration: 2))
+    XCTAssertThrowsError(try SharedCaptureStore.setConsentMirror(
+      uid: ownerA, cloud: true, ai: true, version: 9, transitionGeneration: 2)) { error in
+      guard case SharedCaptureStore.QueueError.egressDenied = error else {
+        return XCTFail("expected egressDenied, got \(error)")
+      }
+    }
+    try SharedCaptureStore.setConsentMirror(
+      uid: ownerA, cloud: false, ai: false, version: 9, transitionGeneration: 2)
+
+    // Explicit enable: strictly greater generation, then egress is admitted again.
+    XCTAssertThrowsError(try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 4))
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 3, reservedVersion: 4)
+    XCTAssertEqual(try egressState(ownerA), .record(rec("ON", 3)))
+  }
+
+  // C.4: the durable in-flight registry. Admission registers
+  // {payloadId, ownerHash, deadline = admitted_at + 8 s + 2 s}; removal clears it;
+  // an entry past its deadline counts as finished.
+  func testInflightRegistryRegistrationRemovalAndDeadline() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let base = Date(timeIntervalSince1970: 1_800_000_000)
+    var now = base
+    SharedCaptureStore.clockOverride = { now }
+    let (id, a) = try stampedAllowedItem()
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0)
+
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id),
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: true))
+    var live = try SharedCaptureStore.inflightUploads(forUid: ownerA)
+    XCTAssertEqual(live.count, 1)
+    XCTAssertEqual(live.latestDeadline, base.addingTimeInterval(10))
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerB).count, 0,
+                   "scoped to the owner")
+    // The registry never holds the raw uid.
+    let raw = String(data: try Data(contentsOf: inflightFileURL), encoding: .utf8) ?? ""
+    XCTAssertFalse(raw.contains(ownerA))
+    XCTAssertTrue(raw.contains(id))
+
+    // A retry of the same payload replaces its entry (one entry, new deadline).
+    now = base.addingTimeInterval(3)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id),
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: true))
+    live = try SharedCaptureStore.inflightUploads(forUid: ownerA)
+    XCTAssertEqual(live.count, 1)
+    XCTAssertEqual(live.latestDeadline, base.addingTimeInterval(13))
+
+    // Completion (success or error) removes it.
+    SharedCaptureStore.removeInflightUpload(payloadID: id)
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0)
+
+    // An entry whose process died is finished once its deadline passes.
+    XCTAssertNotEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+    now = base.addingTimeInterval(3 + 9.9)
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 1)
+    now = base.addingTimeInterval(3 + 10.1)
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0)
+
+    // An unreadable registry is "unavailable" to the reader and denies admission.
+    now = Date()  // real time: the corrupt file is fresh, so it is not yet replaceable
+    try Data([0x00, 0xFF]).write(to: inflightFileURL)
+    XCTAssertThrowsError(try SharedCaptureStore.inflightUploads(forUid: ownerA))
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+  }
+
+  // D3 (native writes): a stale-generation mirror / config / publish / egress
+  // write is refused and changes nothing.
+  func testStaleGenerationNativeWritesAreRefused() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let a = try publish(ownerA, cloud: true, ai: false)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 5, reservedVersion: 6)
+
+    XCTAssertThrowsError(try SharedCaptureStore.setConsentMirror(
+      uid: ownerA, cloud: false, ai: false, version: 9, transitionGeneration: 4)) { error in
+      guard case SharedCaptureStore.QueueError.staleGeneration = error else {
+        return XCTFail("expected staleGeneration, got \(error)")
+      }
+    }
+    guard case .enqueued(let item) = put("stale 1.00 SAR") else { return XCTFail("enqueue") }
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)),
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: false),
+                   "the refused stale mirror write changed nothing")
+
+    XCTAssertThrowsError(try SharedCaptureStore.publishActiveOwner(
+      uid: ownerA,
+      mirror: SharedCaptureStore.ConsentMirrorValue(cloud: false, ai: false, version: 9),
+      expectedEpoch: try SharedCaptureStore.ownerEpoch(),
+      transitionGeneration: 4))
+
+    SharedCaptureStore.setBackendConfig(
+      cloudProcessingEnabled: true, installID: "keep", deviceSecret: "s",
+      backendURL: "https://example.test", anonKey: "k", aiConsentGranted: false)
+    XCTAssertFalse(SharedCaptureStore.setBackendConfig(
+      cloudProcessingEnabled: false, installID: "stale", deviceSecret: nil,
+      backendURL: nil, anonKey: nil, aiConsentGranted: false,
+      ownerUid: ownerA, transitionGeneration: 4))
+    XCTAssertEqual(SharedCaptureStore.backendConfig().installID, "keep")
+    XCTAssertTrue(SharedCaptureStore.backendConfig().cloudProcessingEnabled)
+
+    XCTAssertThrowsError(try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 4, reservedVersion: 5)) { error in
+      guard case SharedCaptureStore.QueueError.staleGeneration = error else {
+        return XCTFail("expected staleGeneration, got \(error)")
+      }
+    }
+    // A new owner starts fresh: B at generation 1 is not stale against A's 5.
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerB, transitionGeneration: 1, reservedVersion: 2)
+  }
+
+  // P6: a restrictive mirror (cloud=false, ai=false) is published atomically with
+  // the owner under the flock; the capture is local-only, never uploaded. A
+  // publish with no authority (stale epoch / barrier) writes nothing.
+  func testRestrictivePublishIsAtomicAndRefusedWithoutAuthority() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    let a = try SharedCaptureStore.publishActiveOwner(
+      uid: ownerA,
+      mirror: SharedCaptureStore.ConsentMirrorValue(cloud: false, ai: false, version: 1),
+      expectedEpoch: epoch)
+    XCTAssertEqual(try SharedCaptureStore.activeOwner(), a)
+    guard case .enqueued(let item) = put("restrictive 1.00 SAR") else { return XCTFail("enqueue") }
+    XCTAssertEqual(item.localOnly, true)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)), .localOnly)
+
+    try SharedCaptureStore.clearActiveOwner(clearHint: true)
+    XCTAssertThrowsError(try SharedCaptureStore.publishActiveOwner(
+      uid: ownerB,
+      mirror: SharedCaptureStore.ConsentMirrorValue(cloud: false, ai: false, version: 1),
+      expectedEpoch: epoch))
+    XCTAssertNil(try SharedCaptureStore.activeOwner())
+    let currentEpoch = try SharedCaptureStore.ownerEpoch()
+    SharedCaptureStore.lockUnavailableOverride = true
+    XCTAssertThrowsError(try SharedCaptureStore.publishActiveOwner(
+      uid: ownerB,
+      mirror: SharedCaptureStore.ConsentMirrorValue(cloud: false, ai: false, version: 1),
+      expectedEpoch: currentEpoch), "uncertain authority (no flock) must refuse")
+  }
+
+  // C.1 + C.4 source pins for the one native network client: ownerless is
+  // impossible, owner_uid/owner_generation go on EVERY schema version, and the
+  // admission re-check sits between building the body and URLSession.
+  func testBackendClientOwnerBindingAndAdmissionOrder() throws {
+    let root = URL(fileURLWithPath: #filePath)
+      .deletingLastPathComponent()
+      .deletingLastPathComponent()
+    let source = try String(
+      contentsOf: root.appendingPathComponent("BankMessageShortcuts/BankMessageShortcuts.swift"))
+    XCTAssertFalse(source.contains("ownerUid: String? = nil"), "an ownerless upload must not compile")
+    let ownerBody = try XCTUnwrap(source.range(of: "body[\"owner_uid\"] = ownerUid"))
+    let schema = try XCTUnwrap(source.range(of: "body[\"schema_version\"] = 2"))
+    XCTAssertLessThan(ownerBody.lowerBound, schema.lowerBound,
+                      "owner_uid is not inside the schema_version 2 branch")
+    XCTAssertTrue(source.contains("body[\"owner_generation\"] = ownerGeneration"))
+    let gate = try XCTUnwrap(source.range(of: "admittedUid == ownerUid"))
+    XCTAssertTrue(source.contains("SharedCaptureStore.admitUpload(payloadID: payloadID)"))
+    XCTAssertTrue(source.contains("defer { SharedCaptureStore.removeInflightUpload(payloadID: payloadID) }"))
+    let network = try XCTUnwrap(source.range(of: "URLSession.shared.data(for: urlRequest)"))
+    XCTAssertLessThan(gate.lowerBound, network.lowerBound)
+    XCTAssertEqual(source.components(separatedBy: "URLSession.shared").count - 1, 1,
+                   "exactly one native network call site")
   }
 }

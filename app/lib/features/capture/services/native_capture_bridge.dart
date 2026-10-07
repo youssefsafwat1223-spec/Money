@@ -72,6 +72,60 @@ class CaptureOwnerRecord {
   }
 }
 
+/// The reconciled native `cloud_egress_state` (C.4 / C.5).
+enum CloudEgressStatus { unset, record, uncertain }
+
+class CloudEgressSnapshot {
+  const CloudEgressSnapshot(
+    this.status, {
+    this.state,
+    this.ownerUid,
+    this.transitionGeneration,
+    this.reservedVersion,
+  });
+
+  final CloudEgressStatus status;
+
+  /// `ON`, `DISABLING` or `OFF`; set only when [status] is `record`.
+  final String? state;
+  final String? ownerUid;
+  final int? transitionGeneration;
+  final int? reservedVersion;
+
+  /// Unreadable, corrupt or conflicting native state: egress is DENIED.
+  bool get uncertain => status == CloudEgressStatus.uncertain;
+
+  /// Null on a malformed answer; the caller treats null as unavailable (deny).
+  static CloudEgressSnapshot? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    switch (raw['status']) {
+      case 'unset':
+        return const CloudEgressSnapshot(CloudEgressStatus.unset);
+      case 'uncertain':
+        return const CloudEgressSnapshot(CloudEgressStatus.uncertain);
+      case 'record':
+        final state = raw['state'];
+        final uid = raw['ownerUid'];
+        final generation = raw['transitionGeneration'];
+        final version = raw['reservedVersion'];
+        if (state is! String ||
+            uid is! String ||
+            generation is! int ||
+            version is! int) {
+          return null;
+        }
+        return CloudEgressSnapshot(
+          CloudEgressStatus.record,
+          state: state,
+          ownerUid: uid,
+          transitionGeneration: generation,
+          reservedVersion: version,
+        );
+    }
+    return null;
+  }
+}
+
 /// A-12-min R2: the native verdict on whether a persisted capture may leave the
 /// device. Fail-closed: anything but [allowed] means zero egress.
 enum CaptureUploadDecision { allowed, localOnly, waiting }
@@ -82,6 +136,7 @@ class CaptureUploadAuthorization {
     this.ownerUid,
     this.allowAi = false,
     this.contractV2 = false,
+    this.ownerGeneration,
   });
 
   /// Zero egress. Used off iOS and whenever the native call fails.
@@ -92,6 +147,10 @@ class CaptureUploadAuthorization {
 
   /// The stamped owner; set only when [decision] is allowed.
   final String? ownerUid;
+
+  /// C.1: the owner generation the item was stamped under; set only when
+  /// [decision] is allowed. The upload sends it as `owner_generation`.
+  final int? ownerGeneration;
 
   /// The owner's consent mirror (never the install-level flag).
   final bool allowAi;
@@ -264,11 +323,15 @@ enum CaptureQueueFailure {
 
 /// Thrown by the owner / claim / barrier calls when the native layer refuses.
 /// Callers MUST treat it as "the operation did not happen" and fail closed.
+/// The native `cloud_egress_state` of one owner.
 class CaptureQueueException implements Exception {
   const CaptureQueueException(this.code, [this.message]);
 
   /// `queue_unavailable`, `quota_exceeded`, `removal_in_progress`,
-  /// `owner_changed`, `bad_args` or `channel_unavailable`.
+  /// `owner_changed`, `stale_generation` (P4: the write carried an older
+  /// transition generation, or a config write was refused), `egress_denied`
+  /// (C.4: a widening write while egress is denied/uncertain), `bad_args` or
+  /// `channel_unavailable`.
   final String code;
   final String? message;
 
@@ -635,6 +698,14 @@ class NativeCaptureBridge {
     /// Mirror of the server capability `capture_contract_v2`. Default false:
     /// the App Intent keeps uploading on the legacy contract.
     bool captureContractV2 = false,
+
+    /// P4: when BOTH are given the native write is refused with
+    /// [CaptureQueueException] `stale_generation` if [transitionGeneration] is
+    /// older than the stored egress generation for [ownerUid]. Omitted: no
+    /// generation guard (a widening write is still refused natively while egress
+    /// is denied or uncertain).
+    String? ownerUid,
+    int? transitionGeneration,
   }) async {
     if (!Platform.isIOS) {
       return;
@@ -648,7 +719,15 @@ class NativeCaptureBridge {
         'anonKey': anonKey,
         'aiConsentGranted': aiConsentGranted,
         'captureContractV2': captureContractV2,
+        if (ownerUid != null) 'ownerUid': ownerUid,
+        if (transitionGeneration != null)
+          'transitionGeneration': transitionGeneration,
       });
+    } on PlatformException catch (e) {
+      if (e.code == 'stale_generation') {
+        throw CaptureQueueException(e.code, e.message);
+      }
+      rethrow;
     } on MissingPluginException {
       return;
     }
@@ -694,6 +773,7 @@ class NativeCaptureBridge {
     required bool ai,
     required int version,
     required int expectedEpoch,
+    int? transitionGeneration,
   }) async {
     if (!_hasNativeQueue) return null;
     return CaptureOwnerRecord.tryParse(
@@ -703,6 +783,8 @@ class NativeCaptureBridge {
         'ai': ai,
         'version': version,
         'expectedEpoch': expectedEpoch,
+        if (transitionGeneration != null)
+          'transitionGeneration': transitionGeneration,
       }),
     );
   }
@@ -734,9 +816,13 @@ class NativeCaptureBridge {
             ownerUid: uid,
             allowAi: raw['allowAi'] == true,
             contractV2: raw['contractV2'] == true,
+            ownerGeneration: raw['ownerGeneration'] is int
+                ? raw['ownerGeneration'] as int
+                : null,
           );
         case 'waiting':
-          return const CaptureUploadAuthorization(CaptureUploadDecision.waiting);
+          return const CaptureUploadAuthorization(
+              CaptureUploadDecision.waiting);
         default:
           return CaptureUploadAuthorization.denied;
       }
@@ -779,6 +865,7 @@ class NativeCaptureBridge {
     required bool cloud,
     required bool ai,
     required int version,
+    int? transitionGeneration,
   }) async {
     if (!_hasNativeQueue) return;
     await _queueCall<Object?>('setCaptureConsentMirror', {
@@ -786,7 +873,75 @@ class NativeCaptureBridge {
       'cloud': cloud,
       'ai': ai,
       'version': version,
+      if (transitionGeneration != null)
+        'transitionGeneration': transitionGeneration,
     });
+  }
+
+  /// C.4: writes `cloud_egress_state` to BOTH native stores (shared Keychain and
+  /// an App Group file) under the queue flock. [state] is `ON`, `DISABLING` or
+  /// `OFF`. Throws [CaptureQueueException]: `stale_generation` (older than the
+  /// stored generation for [ownerUid], or an ON that is not strictly newer than
+  /// a stored OFF/DISABLING at the same generation), `egress_denied` (ON over a wholly unreadable/corrupt state: write a
+  /// restrictive state first), `queue_unavailable` (no store took it; an ON
+  /// needs both). A restrictive write succeeds if at least one store took it.
+  /// No-op off iOS (Android keeps its own store).
+  static Future<void> setCloudEgressState({
+    required String state,
+    required String ownerUid,
+    required int transitionGeneration,
+    required int reservedVersion,
+  }) async {
+    if (!_hasNativeQueue) return;
+    await _queueCall<Object?>('setCloudEgressState', {
+      'state': state,
+      'ownerUid': ownerUid,
+      'transitionGeneration': transitionGeneration,
+      'reservedVersion': reservedVersion,
+    });
+  }
+
+  /// C.5: the reconciled native `cloud_egress_state` entry of [ownerUid] (a valid
+  /// DISABLING/OFF in either store wins). The state is stored per owner (keyed by
+  /// the HMAC uidHash): another owner's entry is never applied to, or discarded
+  /// by, this call. Null off iOS. Throws [CaptureQueueException] when the native
+  /// layer is unavailable: the caller MUST fail closed on that, on null, and on
+  /// [CloudEgressSnapshot.uncertain] (an unreadable store denies every owner).
+  static Future<CloudEgressSnapshot?> getCloudEgressState({
+    required String ownerUid,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return CloudEgressSnapshot.tryParse(
+      await _queueCall<Object?>('getCloudEgressState', {'ownerUid': ownerUid}),
+    );
+  }
+
+  /// C.4: native (App Intent / extension) uploads already admitted for
+  /// [ownerUid] and not yet past their registry deadline (admitted_at + the
+  /// 8 s URLSession timeout + 2 s). Disable must wait until [latestDeadline]
+  /// (entries past it count as finished). Null means unavailable (unreadable
+  /// registry or no lock): the caller fails closed by waiting the longest
+  /// possible deadline. Off iOS there is no native process: count 0.
+  static Future<({int count, DateTime? latestDeadline})?>
+      nativeInflightUploads({
+    required String ownerUid,
+  }) async {
+    if (!_hasNativeQueue) return (count: 0, latestDeadline: null);
+    try {
+      final raw = await _queueCall<Object?>(
+          'nativeInflightUploads', {'ownerUid': ownerUid});
+      if (raw is! Map) return null;
+      final count = raw['count'];
+      if (count is! int) return null;
+      final ms = raw['latestDeadlineMs'];
+      return (
+        count: count,
+        latestDeadline:
+            ms is int ? DateTime.fromMillisecondsSinceEpoch(ms) : null,
+      );
+    } on CaptureQueueException {
+      return null;
+    }
   }
 
   /// The unbound items hinted to [uid]; empty when there are none, or when the
@@ -908,7 +1063,8 @@ class NativeCaptureBridge {
   static Future<void> setCaptureNotifyV2(bool enabled) async {
     if (!_hasNativeQueue) return;
     try {
-      await _channel.invokeMethod<void>('setCaptureNotifyV2', {'enabled': enabled});
+      await _channel
+          .invokeMethod<void>('setCaptureNotifyV2', {'enabled': enabled});
     } on PlatformException {
       return;
     } on MissingPluginException {
@@ -1069,7 +1225,7 @@ class NativeCaptureBridge {
     if (!debugTreatHostAsNative && !Platform.isIOS && !Platform.isAndroid) {
       return true;
     }
-    for (var attempt = 0; ; attempt++) {
+    for (var attempt = 0;; attempt++) {
       try {
         final ok = await _channel.invokeMethod<bool>('purgeAllCaptureState');
         return ok ?? false;

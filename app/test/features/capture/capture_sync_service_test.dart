@@ -49,6 +49,20 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
   Future<void> resolvePendingDisable() async {}
 
   @override
+  Future<void> enableCloud({
+    required Future<void> Function() commitLocalOn,
+  }) =>
+      commitLocalOn();
+
+  @override
+  bool isEnablingCloud(UserSettingsEntity before, UserSettingsEntity after) =>
+      false;
+
+  @override
+  Future<({ServerRevocation status, int generation})?> serverRevocation() async =>
+      null;
+
+  @override
   Future<({bool cloud, bool ai, int version})?> consentAckSnapshot() async =>
       null;
 
@@ -100,6 +114,9 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
   var syncCalls = 0;
   bool? lastAllowAi;
   String? lastOwnerUid;
+  int? lastOwnerGeneration;
+  bool? lastSchemaV2;
+  Object? processError;
 
   @override
   Future<void> processIosSms({
@@ -111,11 +128,16 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
     required bool allowAi,
     String? sender,
     String? locale,
-    String? ownerUid,
+    required String ownerUid,
+    required int ownerGeneration,
+    bool schemaV2 = false,
   }) async {
     processedPayloadIds.add(payloadId);
+    if (processError != null) throw processError!;
     lastAllowAi = allowAi;
     lastOwnerUid = ownerUid;
+    lastOwnerGeneration = ownerGeneration;
+    lastSchemaV2 = schemaV2;
   }
 
   @override
@@ -217,7 +239,8 @@ void main() {
     bool linked = true,
     CaptureUploadAuthorization authorization = const CaptureUploadAuthorization(
         CaptureUploadDecision.allowed,
-        ownerUid: 'user-A'),
+        ownerUid: 'user-A',
+        ownerGeneration: 4),
   }) {
     return CaptureSyncService(
       settingsRepository: settingsRepository,
@@ -637,18 +660,65 @@ void main() {
               CaptureUploadDecision.allowed,
               ownerUid: 'user-A',
               allowAi: false,
-              contractV2: true));
+              contractV2: true,
+              ownerGeneration: 4));
       expect(await svc.retryPendingSend(pending()), isTrue);
       expect(client.processedPayloadIds, ['payload-gate']);
       expect(client.lastAllowAi, isFalse);
       expect(client.lastOwnerUid, 'user-A', reason: 'v2 contract sends owner');
+      expect(client.lastOwnerGeneration, 4);
+      expect(client.lastSchemaV2, isTrue);
     });
 
-    test('the legacy contract replay sends no owner_uid', () async {
+    // Astra G C.1 (updated truthfully): this test used to pin "the legacy
+    // contract replay sends no owner_uid". The replay now ALWAYS sends the
+    // stamped owner and its generation, on schema v1 too.
+    test('the legacy (v1) replay still sends owner_uid and owner_generation',
+        () async {
       final client = _FakeCaptureBackendClient(const []);
       final svc = service(client);
       expect(await svc.retryPendingSend(pending()), isTrue);
-      expect(client.lastOwnerUid, isNull);
+      expect(client.lastOwnerUid, 'user-A');
+      expect(client.lastOwnerGeneration, 4);
+      expect(client.lastSchemaV2, isFalse);
+    });
+
+    test('an ownerless authorization (no owner generation) is never uploaded',
+        () async {
+      final client = _FakeCaptureBackendClient(const []);
+      final svc = service(client,
+          authorization: const CaptureUploadAuthorization(
+              CaptureUploadDecision.allowed,
+              ownerUid: 'user-A'));
+      expect(await svc.retryPendingSend(pending()), isFalse);
+      expect(client.processedPayloadIds, isEmpty);
+    });
+
+    for (final code in const [
+      'capture_owner_mismatch',
+      'capture_owner_conflict',
+      'capture_id_conflict',
+      'capture_expired',
+    ]) {
+      test('a 409 $code is terminal: no upload retry, the caller parses locally',
+          () async {
+        final client = _FakeCaptureBackendClient(const [])
+          ..processError =
+              const CaptureBackendException('process_ios_sms_failed_409');
+        final svc = service(client);
+        // false = "not uploaded": app_shell falls through to the local
+        // deterministic parser (no AI) instead of retrying forever.
+        expect(await svc.retryPendingSend(pending()), isFalse);
+        expect(await svc.retryPendingSend(pending()), isFalse);
+      });
+    }
+
+    test('a 5xx replay failure still propagates (retried later)', () async {
+      final client = _FakeCaptureBackendClient(const [])
+        ..processError =
+            const CaptureBackendException('process_ios_sms_failed_503');
+      await expectLater(service(client).retryPendingSend(pending()),
+          throwsA(isA<CaptureBackendException>()));
     });
 
     test('the legacy sync-captures never runs without a uid-bound ack',

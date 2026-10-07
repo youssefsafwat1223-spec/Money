@@ -50,7 +50,13 @@ void main() {
   /// (expiry pruning, the one-time v2 migration). They are not lexically inside a
   /// `withQueueLock { }`, so they count as locked regions ONLY because the test
   /// below proves every call to them sits inside one.
-  const lockedHelpers = ['loadQueue', 'loadQueuePruned', 'migrateLegacyQueue'];
+  const lockedHelpers = [
+    'loadQueue',
+    'loadQueuePruned',
+    'migrateLegacyQueue',
+    // G3: the authorizeUpload decision, shared by authorizeUpload and admitUpload.
+    'authorizeUploadLocked',
+  ];
 
   List<({int start, int end})> helperBodies() {
     final bodies = <({int start, int end})>[];

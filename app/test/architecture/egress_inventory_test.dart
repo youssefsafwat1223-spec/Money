@@ -72,6 +72,11 @@ void main() {
             'service is static and cannot reach the database, so the gate is '
             'injected from bootstrap and DEFAULTS CLOSED: an unconfigured build '
             'transmits nothing',
+    'data/catalog/catalog_sync_service.dart':
+        'EgressClass.catalog — Astra G (P1) REMOVED the former "never gated" '
+            'exemption: no automatic catalog fetch while Cloud is OFF. Gated by '
+            'its caller (syncCatalog) through CloudEgressGate.permits(), by '
+            'syncAll itself, and below both by the gated Supabase transport.',
     'features/gamification/services/gamification_sync_service.dart':
         'EgressClass.gamification — achievements, streaks and XP, derived from '
             'what this person did in the app. Was UNGATED and LEAKING: observed '
@@ -138,6 +143,7 @@ void main() {
     // Static service, no DI — the gate is wired once during bootstrap.
     'core/tracking/user_activity_service.dart':
         'core/startup/bootstrap_runner.dart',
+    'data/catalog/catalog_sync_service.dart': 'core/di/app_providers.dart',
   };
 
   /// Files that reach the network WITHOUT a consent gate, each with the reason.
@@ -156,7 +162,9 @@ void main() {
         'EXEMPT: request_account_deletion / cancel_account_deletion. Deletion '
             'must work regardless of consent state — gating the exit behind the '
             'permission would trap a user who wants their data gone. Carries no '
-            'payload beyond the authenticated identity.',
+            'payload beyond the authenticated identity. Astra G: request and '
+            'cancel run as an explicit user action (runUserInitiated), the one '
+            'escalated non-automatic exception besides interactive sign-in.',
     'core/session/app_session.dart':
         'EXEMPT: mark_onboarding_completed takes no parameters, is guarded on a '
             'live session and a non-guest account, and records account state '
@@ -172,7 +180,9 @@ void main() {
             '(MALI-075n), unknown keys are silent no-ops, and it sends a key '
             'plus a coarse dimension rather than user data. It is awaited from '
             'bootstrap, so a consent read there would need to survive a cold '
-            'start with no settings loaded. Tracked, not hidden.',
+            'start with no settings loaded. Tracked, not hidden. Astra G: it '
+            'now goes through the gated Supabase transport, so it is denied '
+            'while Cloud is OFF / DISABLING / uncertain.',
 
     'features/gamification/services/engagement_event_service.dart':
         'OPEN FINDING — unwired, not exempt. SupabaseEngagementRecorder is '
@@ -193,10 +203,6 @@ void main() {
             'it does not exist in a release build. Listed rather than ignored '
             'because the tables it reads are financial — if it is ever called '
             'outside that guard it must move to `gated`.',
-    'data/catalog/catalog_sync_service.dart':
-        'EXEMPT: catalog carries no user data, and delivers parser rules, '
-            'feature flags and the force-update kill switch. Gating it would '
-            'disable safety controls for the most privacy-conscious users.',
   };
 
   test('every file that reaches the network is a listed decision', () {

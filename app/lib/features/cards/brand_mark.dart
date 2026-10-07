@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/privacy/gated_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
@@ -462,12 +463,12 @@ class BrandMark extends ConsumerWidget {
         color: Colors.white,
         shape: AppAvatar.shapeFor(size),
       ),
-      child: Image.network(
-        url,
+      child: Image(
+        image: GatedNetworkImage(url),
         fit: BoxFit.contain,
         errorBuilder: (_, __, ___) => fallback,
-        loadingBuilder: (ctx, child, progress) =>
-            progress == null ? child : fallback,
+        frameBuilder: (ctx, child, frame, sync) =>
+            frame == null && !sync ? fallback : child,
       ),
     );
   }

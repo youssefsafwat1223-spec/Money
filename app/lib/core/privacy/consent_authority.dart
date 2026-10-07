@@ -1,4 +1,5 @@
 import '../../domain/entities/supporting_entities.dart';
+import 'cloud_egress_gate.dart';
 
 /// Every distinct class of data that can leave the device.
 ///
@@ -41,12 +42,15 @@ enum EgressClass {
   diagnostics,
 
   /// Remote catalog: banks, parsers, flags, announcements, coupons, campaigns.
-  /// Contains NO user data and is required for the app to be correct at all
-  /// (parser rules, kill switches, force-update). Never consent-gated.
+  /// Contains no user data, but Astra G (P1) removed its Cloud-OFF exception:
+  /// while Cloud is OFF or unset NO automatic catalog fetch happens.
   catalog,
 
-  /// Authentication with the identity provider. Never consent-gated: the user
-  /// is deliberately signing in.
+  /// Authentication with the identity provider. Astra G (P1) removed the
+  /// automatic exception: background token refresh is denied while Cloud is OFF.
+  /// Only an explicit user action (interactive sign-in / re-authentication)
+  /// reaches the network, through `CloudEgressGate.runUserInitiated`, and that
+  /// is an ESCALATED product decision, never a ConsentAuthority decision.
   auth,
 }
 
@@ -72,9 +76,10 @@ enum EgressClass {
 ///   user and context information, so it follows cloud consent. A future
 ///   genuinely-anonymous essential channel needs its own documented contract —
 ///   it is not assumed here.
-/// * **Catalog and auth are never gated.** Catalog carries no user data and
-///   delivers the kill switches and parser rules the app needs to be correct;
-///   gating it would disable safety controls for privacy-conscious users.
+/// * **Catalog and auth are gated like everything else** (Astra G, P1). There is
+///   no automatic exception while Cloud is OFF: no catalog fetch, no background
+///   token refresh. [decide] answers false for [EgressClass.auth]; only an
+///   explicit user action may authenticate (see [EgressClass.auth]).
 ///
 /// ## What this class deliberately does NOT do
 /// It does not cache. Callers must consult it at the moment of egress, because
@@ -84,10 +89,12 @@ class ConsentAuthority {
   const ConsentAuthority(this._settings);
 
   /// E1: set (synchronously) the moment the user starts switching Cloud OFF and
-  /// cleared only once OFF is committed locally. While true every consent-gated
-  /// class is denied, so no new egress can start during the ON->OFF transition
-  /// even though the stored consent still reads ON. Process-wide on purpose: the
-  /// startup and the UI own different service instances.
+  /// cleared only once durable OFF is committed. While true every class is
+  /// denied, so no new egress can start during the ON->OFF transition even
+  /// though the stored consent still reads ON. Process-wide on purpose: the
+  /// startup and the UI own different service instances. This is the
+  /// synchronous in-process mirror; the DURABLE denial is the
+  /// `CloudEgressGate` record, which outlives this flag (persistent OFF gate).
   static bool egressFrozen = false;
 
   /// Reads settings FRESH on every call. See the no-caching note above.
@@ -95,13 +102,10 @@ class ConsentAuthority {
 
   /// Whether [egressClass] may transmit right now.
   Future<bool> allows(EgressClass egressClass) async {
-    switch (egressClass) {
-      case EgressClass.catalog:
-      case EgressClass.auth:
-        return true;
-      default:
-        return decide(egressClass, await _settings());
-    }
+    if (!decide(egressClass, await _settings())) return false;
+    // The durable gate: DISABLING / OFF / unreadable / corrupt / conflicting
+    // state denies for the active owner, whatever the settings read.
+    return CloudEgressGate.instance.permits();
   }
 
   /// Pure decision function — the whole policy in one readable place, so it can
@@ -109,9 +113,10 @@ class ConsentAuthority {
   static bool decide(EgressClass egressClass, UserSettingsEntity settings) {
     final cloud = settings.cloudProcessingEnabled && !egressFrozen;
     switch (egressClass) {
-      case EgressClass.catalog:
+      // Never automatic: an explicit user action goes through
+      // CloudEgressGate.runUserInitiated instead.
       case EgressClass.auth:
-        return true;
+        return false;
 
       // Cloud consent is the master gate for everything carrying user data.
       case EgressClass.financialSync:
@@ -122,6 +127,7 @@ class ConsentAuthority {
       case EgressClass.gamification:
       case EgressClass.telemetry:
       case EgressClass.diagnostics:
+      case EgressClass.catalog:
         return cloud;
 
       // OD-07: restrictive state wins. AI needs BOTH.
@@ -134,6 +140,7 @@ class ConsentAuthority {
   /// user-facing copy.
   static String denialReason(EgressClass egressClass, UserSettingsEntity s) {
     if (decide(egressClass, s)) return 'allowed';
+    if (egressClass == EgressClass.auth) return 'auth_explicit_user_action_only';
     if (egressClass == EgressClass.aiProcessing && !s.cloudProcessingEnabled) {
       return 'ai_requires_cloud_consent';
     }

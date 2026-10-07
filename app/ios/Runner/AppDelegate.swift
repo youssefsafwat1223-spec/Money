@@ -277,6 +277,8 @@ enum ApnsEnvironment {
         case .quotaExceeded?: code = "quota_exceeded"
         case .barrierActive?: code = "removal_in_progress"
         case .ownerChanged?: code = "owner_changed"
+        case .staleGeneration?: code = "stale_generation"
+        case .egressDenied?: code = "egress_denied"
         default: break
         }
         result(FlutterError(code: code, message: "\(error)", details: nil))
@@ -324,17 +326,34 @@ enum ApnsEnvironment {
           ))
           return
         }
-        SharedCaptureStore.setBackendConfig(
+        // P4: false means the native config write was refused (stale transition
+        // generation, or it would widen while egress is denied/uncertain).
+        guard SharedCaptureStore.setBackendConfig(
           cloudProcessingEnabled: args["cloudProcessingEnabled"] as? Bool ?? false,
           installID: args["installId"] as? String,
           deviceSecret: args["deviceSecret"] as? String,
           backendURL: args["backendUrl"] as? String,
           anonKey: args["anonKey"] as? String,
           aiConsentGranted: args["aiConsentGranted"] as? Bool ?? false,
-          captureContractV2: args["captureContractV2"] as? Bool ?? false
-        )
+          captureContractV2: args["captureContractV2"] as? Bool ?? false,
+          ownerUid: args["ownerUid"] as? String,
+          transitionGeneration: args["transitionGeneration"] as? Int
+        ) else {
+          result(FlutterError(
+            code: "stale_generation",
+            message: "Backend config write refused.",
+            details: nil
+          ))
+          return
+        }
         result(nil)
       case "registerForRemoteNotifications":
+        // C.4 admission: no APNs registration request while egress is DISABLING,
+        // OFF or uncertain. Answers "no token" exactly like an unregistered host.
+        guard SharedCaptureStore.egressAdmitsHostRequest() else {
+          result(nil)
+          return
+        }
         UIApplication.shared.registerForRemoteNotifications()
         if let info = SharedCaptureStore.apnsTokenInfo() {
           result([
@@ -426,7 +445,8 @@ enum ApnsEnvironment {
           ownerMap(try SharedCaptureStore.publishActiveOwner(
             uid: uid,
             mirror: SharedCaptureStore.ConsentMirrorValue(cloud: cloud, ai: ai, version: version),
-            expectedEpoch: expectedEpoch))
+            expectedEpoch: expectedEpoch,
+            transitionGeneration: args["transitionGeneration"] as? Int))
         }
       case "captureOwnerEpoch":
         queueResult(result) { try SharedCaptureStore.ownerEpoch() }
@@ -440,8 +460,11 @@ enum ApnsEnvironment {
         queueResult(result) {
           let contractV2 = SharedCaptureStore.backendConfig().captureContractV2
           switch SharedCaptureStore.authorizeUpload(payloadID: payloadId) {
-          case let .allowed(uid, allowAi):
-            return ["decision": "allowed", "ownerUid": uid, "allowAi": allowAi, "contractV2": contractV2]
+          case let .allowed(uid, generation, allowAi):
+            return [
+              "decision": "allowed", "ownerUid": uid, "ownerGeneration": generation,
+              "allowAi": allowAi, "contractV2": contractV2,
+            ]
           case .localOnly:
             return ["decision": "localOnly"]
           case .waiting:
@@ -485,8 +508,61 @@ enum ApnsEnvironment {
           return
         }
         queueResult(result) {
-          try SharedCaptureStore.setConsentMirror(uid: uid, cloud: cloud, ai: ai, version: version)
+          try SharedCaptureStore.setConsentMirror(
+            uid: uid, cloud: cloud, ai: ai, version: version,
+            transitionGeneration: args["transitionGeneration"] as? Int)
           return true
+        }
+      // ── C.4 / C.5 durable cloud-egress denial state (Keychain + App Group file)
+      case "setCloudEgressState":
+        guard let args = call.arguments as? [String: Any],
+              let state = args["state"] as? String,
+              let ownerUid = args["ownerUid"] as? String,
+              let generation = args["transitionGeneration"] as? Int,
+              let reservedVersion = args["reservedVersion"] as? Int else {
+          result(FlutterError(code: "bad_args", message: "Expected egress state fields.", details: nil))
+          return
+        }
+        queueResult(result) {
+          try SharedCaptureStore.setCloudEgressState(
+            state: state, ownerUid: ownerUid,
+            transitionGeneration: generation, reservedVersion: reservedVersion)
+          return true
+        }
+      case "nativeInflightUploads":
+        // C.4: live (before their deadline) native uploads admitted for the owner.
+        guard let ownerUid = (call.arguments as? [String: Any])?["ownerUid"] as? String,
+              !ownerUid.isEmpty else {
+          result(FlutterError(code: "bad_args", message: "Expected ownerUid.", details: nil))
+          return
+        }
+        queueResult(result) {
+          let live = try SharedCaptureStore.inflightUploads(forUid: ownerUid)
+          var map: [String: Any] = ["count": live.count]
+          if let deadline = live.latestDeadline {
+            map["latestDeadlineMs"] = Int((deadline.timeIntervalSince1970 * 1000).rounded(.up))
+          }
+          return map
+        }
+      case "getCloudEgressState":
+        guard let ownerUid = (call.arguments as? [String: Any])?["ownerUid"] as? String,
+              !ownerUid.isEmpty else {
+          result(FlutterError(code: "bad_args", message: "Expected ownerUid.", details: nil))
+          return
+        }
+        queueResult(result) {
+          switch try SharedCaptureStore.cloudEgressState(forUid: ownerUid) {
+          case .unset:
+            return ["status": "unset"]
+          case .uncertain:
+            return ["status": "uncertain"]
+          case let .record(record):
+            return [
+              "status": "record", "state": record.state, "ownerUid": ownerUid,
+              "transitionGeneration": record.transitionGeneration,
+              "reservedVersion": record.reservedVersion,
+            ]
+          }
         }
       case "unboundCaptureSummary":
         guard let uid = (call.arguments as? [String: Any])?["uid"] as? String else {

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../../core/privacy/cloud_egress_gate.dart';
 class CaptureBackendClient {
   CaptureBackendClient({
     required String supabaseUrl,
@@ -10,7 +11,7 @@ class CaptureBackendClient {
     Duration processIosSmsTimeout = const Duration(seconds: 25),
   })  : _supabaseUrl = supabaseUrl,
         _anonKey = anonKey,
-        _http = httpClient ?? http.Client(),
+        _http = httpClient ?? GatedHttpClient(),
         _processIosSmsTimeout = processIosSmsTimeout;
 
   final String _supabaseUrl;
@@ -159,8 +160,12 @@ class CaptureBackendClient {
     required bool allowAi,
     String? sender,
     String? locale,
-    // v2 contract (§4.1): the stamped owner; with it the body is schema 2.
-    String? ownerUid,
+    // C.1: the stamped owner and the owner generation the item was stamped
+    // under are ALWAYS sent (an ownerless upload is impossible). `schemaV2`
+    // only selects the schema marker; the owner fields ride on both versions.
+    required String ownerUid,
+    required int ownerGeneration,
+    bool schemaV2 = false,
   }) async {
     final response = await _http
         .post(
@@ -177,10 +182,9 @@ class CaptureBackendClient {
             'locale': locale,
             'tzOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
             'allowAi': allowAi,
-            if (ownerUid != null) ...{
-              'schema_version': 2,
-              'owner_uid': ownerUid,
-            },
+            if (schemaV2) 'schema_version': 2,
+            'owner_uid': ownerUid,
+            'owner_generation': ownerGeneration,
           }),
         )
         // Unlike the App Intent's strict 8-second budget, this replay runs

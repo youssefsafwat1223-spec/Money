@@ -41,6 +41,8 @@ import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/privacy/cloud_egress_gate.dart';
+
 /// What a shadow attempt did. Telemetry only — there is nothing here to commit.
 enum ProofShadowOutcome {
   /// The arm is off, or this message was not sampled.
@@ -107,7 +109,7 @@ class ProofShadowClient {
         _getAnonJwt = getAnonJwt,
         _loadDeviceSecret = loadDeviceSecret,
         _config = config,
-        _http = httpClient ?? http.Client(),
+        _http = httpClient ?? GatedHttpClient(),
         _random = random ?? Random();
 
   final String _url;

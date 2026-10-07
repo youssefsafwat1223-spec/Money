@@ -46,6 +46,12 @@ enum SharedCaptureStore {
   private static let pendingNotificationRoutesKey = "pending_notification_routes_v1"
   private static let notificationLogEventsKey = "pending_notification_log_events_v1"
   private static let queueLockFileName = "pending_bank_messages.lock"
+  // C.4: the durable cloud-egress denial record lives in BOTH the shared
+  // Keychain and an App Group file (no UserDefaults copy: it must survive a
+  // purge and is only ever written under the queue flock).
+  private static let egressStateKC = "cloud_egress_state_v1"
+  private static let egressStateFileName = "cloud_egress_state_v1.json"
+  private static let inflightFileName = "native_inflight_uploads_v1.json"
 
   // MALI-031 — secret material lives in the shared Keychain, never UserDefaults.
   // `deviceSecretKC` is the device auth secret; `queueEncryptionKeyKC` is the
@@ -109,18 +115,34 @@ enum SharedCaptureStore {
     case barrierActive
     /// The owner record is not the owner the caller required (stamp race).
     case ownerChanged
+    /// P4: the write carries a transition generation older than the stored one.
+    case staleGeneration
+    /// C.4/C.5: the cloud-egress state denies (or is uncertain for) the owner, so
+    /// a write that would widen consent or egress is refused.
+    case egressDenied
   }
 
-  /// Test seams (CAP-0), never set in production: the Keychain read of the
-  /// queue key, and a forced lock failure.
+  /// Test seams (CAP-0, CAP-6, C.5): the Keychain read of the queue key, a forced
+  /// lock failure, the owner-record Keychain read, a hook invoked while the queue
+  /// flock is held during stamping, the clock (30-day unbound expiry, in-flight
+  /// deadlines) and the egress-state Keychain read. They exist ONLY in DEBUG
+  /// builds: in a release build they are inert constants, so production code can
+  /// never be steered by them.
+  #if DEBUG
   static var queueKeyReadOverride: (() -> (status: OSStatus, data: Data?))?
   static var lockUnavailableOverride = false
-  /// CAP-6 test seams: the owner-record Keychain read, and a hook invoked while
-  /// the queue flock is held during stamping (lets a test prove the lock).
   static var ownerRecordReadOverride: (() -> (status: OSStatus, data: Data?))?
   static var stampingHook: (() -> Void)?
-  /// CAP-6 test seam for the 30-day unbound expiry.
   static var clockOverride: (() -> Date)?
+  static var egressKeychainReadOverride: (() -> (status: OSStatus, data: Data?))?
+  #else
+  static let queueKeyReadOverride: (() -> (status: OSStatus, data: Data?))? = nil
+  static let lockUnavailableOverride = false
+  static let ownerRecordReadOverride: (() -> (status: OSStatus, data: Data?))? = nil
+  static let stampingHook: (() -> Void)? = nil
+  static let clockOverride: (() -> Date)? = nil
+  static let egressKeychainReadOverride: (() -> (status: OSStatus, data: Data?))? = nil
+  #endif
 
   struct BackendConfig {
     let cloudProcessingEnabled: Bool
@@ -281,9 +303,11 @@ enum SharedCaptureStore {
 
   /// What the App Intent may do with a persisted capture (§4.2 pre-upload re-check).
   enum UploadDecision: Equatable {
-    /// Upload as `ownerUid`. `allowAi` is the owner's consent mirror. A missing
-    /// mirror is never `allowed` (A-12-min R2): there is no install-level fallback.
-    case allowed(ownerUid: String, allowAi: Bool)
+    /// Upload as `ownerUid` under `ownerGeneration` (C.1: both are ALWAYS sent).
+    /// `allowAi` is the owner's consent mirror. A missing mirror is never
+    /// `allowed` (A-12-min R2): there is no install-level fallback. Egress state
+    /// DISABLING / OFF / uncertain for the owner is never `allowed` (C.4).
+    case allowed(ownerUid: String, ownerGeneration: Int, allowAi: Bool)
     /// Zero egress, zero AI; the capture stays on the device for a local parse.
     case localOnly
     /// Not this owner's to process now: no egress and no banner.
@@ -611,6 +635,12 @@ enum SharedCaptureStore {
     return nil
   }
 
+  /// P4/C.4: runs under the queue flock. Returns false (nothing written) when
+  /// [transitionGeneration] is older than the stored egress generation for
+  /// [ownerUid], or when the write would WIDEN (cloud ON) while the egress state
+  /// denies the owner (the explicit [ownerUid], else the active owner) or is
+  /// uncertain. Restrictive writes (cloud OFF) are never refused for denial.
+  @discardableResult
   static func setBackendConfig(
     cloudProcessingEnabled: Bool,
     installID: String?,
@@ -618,23 +648,37 @@ enum SharedCaptureStore {
     backendURL: String?,
     anonKey: String?,
     aiConsentGranted: Bool,
-    captureContractV2: Bool = false
-  ) {
-    defaults?.set(cloudProcessingEnabled, forKey: cloudProcessingEnabledKey)
-    defaults?.set(captureContractV2, forKey: contractV2Key)
-    defaults?.set(aiConsentGranted, forKey: aiConsentGrantedKey)
-    setOrRemove(installID, forKey: installIDKey)
-    // MALI-031: device secret → shared Keychain only; never a UserDefaults
-    // duplicate. Any legacy plaintext value is removed.
-    if let secret = clean(deviceSecret) {
-      SharedKeychain.setString(secret, forKey: deviceSecretKC)
-    } else {
-      SharedKeychain.remove(forKey: deviceSecretKC)
+    captureContractV2: Bool = false,
+    ownerUid: String? = nil,
+    transitionGeneration: Int? = nil
+  ) -> Bool {
+    let written = try? withQueueLock { () throws -> Bool in
+      if let ownerUid, let transitionGeneration,
+         egressGenerationIsStale(transitionGeneration, owner: ownerUid) {
+        return false
+      }
+      if cloudProcessingEnabled || aiConsentGranted {
+        let subject = ownerUid.map(normalizedUID) ?? (try readActiveOwner())?.uid
+        if egressDenied(forOwner: subject) { return false }
+      }
+      defaults?.set(cloudProcessingEnabled, forKey: cloudProcessingEnabledKey)
+      defaults?.set(captureContractV2, forKey: contractV2Key)
+      defaults?.set(aiConsentGranted, forKey: aiConsentGrantedKey)
+      setOrRemove(installID, forKey: installIDKey)
+      // MALI-031: device secret → shared Keychain only; never a UserDefaults
+      // duplicate. Any legacy plaintext value is removed.
+      if let secret = clean(deviceSecret) {
+        SharedKeychain.setString(secret, forKey: deviceSecretKC)
+      } else {
+        SharedKeychain.remove(forKey: deviceSecretKC)
+      }
+      defaults?.removeObject(forKey: deviceSecretKey)
+      setOrRemove(backendURL, forKey: backendURLKey)
+      setOrRemove(anonKey, forKey: anonKeyKey)
+      defaults?.synchronize()
+      return true
     }
-    defaults?.removeObject(forKey: deviceSecretKey)
-    setOrRemove(backendURL, forKey: backendURLKey)
-    setOrRemove(anonKey, forKey: anonKeyKey)
-    defaults?.synchronize()
+    return written ?? false
   }
 
   static func setApnsToken(_ token: String?, environment: String?) {
@@ -1146,7 +1190,8 @@ enum SharedCaptureStore {
   static func publishActiveOwner(
     uid: String,
     mirror: ConsentMirrorValue,
-    expectedEpoch: Int
+    expectedEpoch: Int,
+    transitionGeneration: Int? = nil
   ) throws -> OwnerRecord {
     try withQueueLock {
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
@@ -1155,9 +1200,14 @@ enum SharedCaptureStore {
       }
       let normalized = normalizedUID(uid)
       guard !normalized.isEmpty else { throw QueueError.ownerChanged }
+      // P4/P6: refuse before ANY write a stale generation, or a widening mirror
+      // while the egress state denies (or is uncertain for) this owner. A
+      // restrictive mirror (cloud=false, ai=false) is always publishable.
+      try guardMirrorWrite(owner: normalized, mirror: mirror, transitionGeneration: transitionGeneration)
       let hash = try uidHash(normalized)
+      let current = try readActiveOwner()
       writeConsentMirrorEntry(hash: hash, mirror: mirror)
-      if let current = try readActiveOwner(), current.uid == normalized { return current }
+      if let current, current.uid == normalized { return current }
       let generation = (defaults?.integer(forKey: ownerGenerationKey) ?? 0) + 1
       let record = OwnerRecord(uid: normalized, uidHash: hash, generation: generation)
       guard let data = try? JSONEncoder().encode(record) else { throw QueueError.encodingFailed }
@@ -1183,14 +1233,29 @@ enum SharedCaptureStore {
 
   /// Per-owner consent mirror (advisory; read by the intent for the stamped
   /// owner only). Keyed by uidHash; deleted by the Remove-data sweep.
-  static func setConsentMirror(uid: String, cloud: Bool, ai: Bool, version: Int) throws {
+  static func setConsentMirror(
+    uid: String, cloud: Bool, ai: Bool, version: Int, transitionGeneration: Int? = nil
+  ) throws {
     try withQueueLock {
       // A-12-min R4: refused while a Remove-data barrier is in force.
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
-      writeConsentMirrorEntry(
-        hash: try uidHash(uid),
-        mirror: ConsentMirrorValue(cloud: cloud, ai: ai, version: version)
-      )
+      let mirror = ConsentMirrorValue(cloud: cloud, ai: ai, version: version)
+      try guardMirrorWrite(
+        owner: normalizedUID(uid), mirror: mirror, transitionGeneration: transitionGeneration)
+      writeConsentMirrorEntry(hash: try uidHash(uid), mirror: mirror)
+    }
+  }
+
+  /// P4: callers hold the flock. Stale generation or a widening mirror under a
+  /// denial throws before anything is written.
+  private static func guardMirrorWrite(
+    owner: String, mirror: ConsentMirrorValue, transitionGeneration: Int?
+  ) throws {
+    if let transitionGeneration, egressGenerationIsStale(transitionGeneration, owner: owner) {
+      throw QueueError.staleGeneration
+    }
+    if (mirror.cloud || mirror.ai) && egressDenied(forOwner: owner) {
+      throw QueueError.egressDenied
     }
   }
 
@@ -1217,7 +1282,11 @@ enum SharedCaptureStore {
   /// and says cloud ON. Fails closed. EVERY upload path (the App Intent and the
   /// app's pendingSend replay) must call this first (A-12-min R2).
   static func authorizeUpload(payloadID: String) -> UploadDecision {
-    (try? withQueueLock { () throws -> UploadDecision in
+    (try? withQueueLock { try authorizeUploadLocked(payloadID) }) ?? .waiting
+  }
+
+  /// The authorizeUpload decision; the caller holds the queue flock.
+  private static func authorizeUploadLocked(_ payloadID: String) throws -> UploadDecision {
       guard try readBarrier() == nil else { return .waiting }
       guard let item = try loadQueue().first(where: { $0.id == payloadID }) else {
         return .waiting
@@ -1230,13 +1299,336 @@ enum SharedCaptureStore {
             owner.uid == uid, owner.generation == generation else {
         return .waiting
       }
+      // C.4 admission: the denial state is read under THIS flock, with the owner
+      // check. DISABLING / OFF / unreadable / conflicting for the stamped owner
+      // means no request; the item stays on the device (local parse only).
+      if egressDenied(forOwner: uid) { return .localOnly }
       if item.localOnly == true { return .localOnly }
       // A-12-min R2: fail closed. No mirror means nothing is known about this
       // owner's consent, so the item waits; it is never `allowed` by default.
       guard let mirror = consentMirror(forHash: owner.uidHash) else { return .waiting }
-      return mirror.cloud ? .allowed(ownerUid: uid, allowAi: mirror.ai) : .localOnly
+      return mirror.cloud
+        ? .allowed(ownerUid: uid, ownerGeneration: generation, allowAi: mirror.ai)
+        : .localOnly
+  }
+
+  /// C.4 native admission + in-flight registration, ONE flock: the same decision
+  /// as [authorizeUpload], and when it is `.allowed` the upload is durably
+  /// registered in the in-flight registry (`{payloadId, ownerHash, deadline}`)
+  /// BEFORE the caller touches the network. A registry that cannot be read or
+  /// written denies (`.localOnly`): no request. The caller MUST call
+  /// [removeInflightUpload] when the request finishes, success or error.
+  static func admitUpload(payloadID: String) -> UploadDecision {
+    (try? withQueueLock { () throws -> UploadDecision in
+      let decision = try authorizeUploadLocked(payloadID)
+      guard case let .allowed(uid, _, _) = decision else { return decision }
+      let now = egressNow()
+      var entries: [InflightUpload]
+      do {
+        entries = try readInflightRaw()
+      } catch {
+        // A corrupt registry cannot say what is in flight. It is replaced only
+        // once it is older than every deadline it could hold.
+        guard inflightFileIsStale(now: now) else { return .localOnly }
+        entries = []
+      }
+      entries.removeAll { $0.payloadId == payloadID || $0.deadline <= now.timeIntervalSince1970 }
+      entries.append(InflightUpload(
+        payloadId: payloadID,
+        ownerHash: try uidHash(uid),
+        deadline: now.addingTimeInterval(nativeUploadTimeout + inflightGrace).timeIntervalSince1970))
+      do { try writeInflight(entries) } catch { return .localOnly }
+      return decision
     }) ?? .waiting
   }
+
+  // MARK: Cloud egress state (C.4 / C.5)
+
+  /// One owner's entry. The owner is the KEY of [CloudEgressMap] (uidHash, HMAC),
+  /// never a raw uid. [state] is ON, DISABLING or OFF.
+  struct CloudEgressRecord: Codable, Equatable {
+    let state: String
+    let transitionGeneration: Int
+    let reservedVersion: Int
+  }
+
+  /// `cloud_egress_state` as stored (identically) in the Keychain item and the
+  /// App Group file: one entry per owner, so a write for B never touches A's.
+  struct CloudEgressMap: Codable, Equatable {
+    var owners: [String: CloudEgressRecord] = [:]
+  }
+
+  /// The reconciled view of ONE owner for Dart (C.5).
+  enum EgressSnapshot: Equatable {
+    /// Neither store holds an entry for the owner (never disabled).
+    case unset
+    case record(CloudEgressRecord)
+    /// Unreadable / corrupt / conflicting with no restrictive entry: DENIED.
+    case uncertain
+  }
+
+  /// Seconds an intent upload may run (its request timeout) and the grace
+  /// added to its in-flight deadline.
+  static let nativeUploadTimeout: TimeInterval = 8
+  private static let inflightGrace: TimeInterval = 2
+
+  /// One admitted native upload (C.4 in-flight set). [deadline] is epoch seconds.
+  struct InflightUpload: Codable, Equatable {
+    let payloadId: String
+    let ownerHash: String
+    let deadline: Double
+  }
+
+  private static func egressNow() -> Date { clockOverride?() ?? Date() }
+
+  private static func egressRank(_ state: String) -> Int? {
+    switch state {
+    case "ON": return 0
+    case "DISABLING": return 1
+    case "OFF": return 2
+    default: return nil
+    }
+  }
+
+  private static func decodeEgressMap(_ data: Data) -> CloudEgressMap? {
+    guard let map = try? JSONDecoder().decode(CloudEgressMap.self, from: data) else { return nil }
+    for (hash, record) in map.owners {
+      guard !hash.isEmpty, egressRank(record.state) != nil,
+            record.transitionGeneration >= 0, record.reservedVersion >= 0 else {
+        return nil
+      }
+    }
+    return map
+  }
+
+  private static func egressFileURL() throws -> URL {
+    try appGroupContainerURL().appendingPathComponent(egressStateFileName)
+  }
+
+  /// Both stores, read. A valid map is collected per store; any store that exists
+  /// but cannot be read or decoded marks the view `uncertain`.
+  private static func egressView() -> (maps: [CloudEgressMap], uncertain: Bool) {
+    var maps: [CloudEgressMap] = []
+    var uncertain = false
+    let kc = egressKeychainReadOverride?() ?? SharedKeychain.read(forKey: egressStateKC)
+    switch kc.status {
+    case errSecSuccess:
+      if let data = kc.data, let map = decodeEgressMap(data) {
+        maps.append(map)
+      } else {
+        uncertain = true
+      }
+    case errSecItemNotFound:
+      break
+    default:
+      uncertain = true
+    }
+    if let url = try? egressFileURL() {
+      if FileManager.default.fileExists(atPath: url.path) {
+        if let data = try? Data(contentsOf: url), let map = decodeEgressMap(data) {
+          maps.append(map)
+        } else {
+          uncertain = true
+        }
+      }
+    } else {
+      uncertain = true
+    }
+    return (maps, uncertain)
+  }
+
+  /// C.5 owner-scoped evaluation; callers hold the queue flock. DENIED when:
+  /// either store is unreadable/corrupt (the owner cannot be known, so EVERY owner
+  /// is denied); the owner's own entry is DISABLING or OFF in either store; the
+  /// two stores' entries for the owner disagree; or the owner cannot be hashed.
+  /// Another owner's entry is never applied to this owner and never discarded.
+  /// A nil [owner] is denied only when a store is uncertain.
+  private static func egressDenied(forOwner owner: String?) -> Bool {
+    let view = egressView()
+    if view.uncertain { return true }
+    guard let owner else { return false }
+    guard let hash = try? uidHash(owner) else { return true }
+    let mine = view.maps.compactMap { $0.owners[hash] }
+    if mine.contains(where: { $0.state != "ON" }) { return true }
+    return mine.count == 2 && mine[0] != mine[1]
+  }
+
+  /// P4: [generation] is older than a stored entry of the SAME owner (a new owner
+  /// starts fresh). Callers hold the flock.
+  private static func egressGenerationIsStale(_ generation: Int, owner: String) -> Bool {
+    guard let hash = try? uidHash(owner) else { return true }
+    return egressView().maps.contains {
+      ($0.owners[hash]?.transitionGeneration ?? -1) > generation
+    }
+  }
+
+  /// C.4 admission for a host-app native request that is not tied to a capture
+  /// item (APNs registration). Under the flock; false (deny) when either store is
+  /// uncertain, the lock is unavailable, the active owner's entry denies, or (no
+  /// owner admitted) any owner has a DISABLING/OFF entry.
+  static func egressAdmitsHostRequest() -> Bool {
+    (try? withQueueLock { () throws -> Bool in
+      let owner = try readActiveOwner()
+      if egressDenied(forOwner: owner?.uid) { return false }
+      return owner != nil
+        || !egressView().maps.contains { $0.owners.values.contains { $0.state != "ON" } }
+    }) ?? false
+  }
+
+  /// The reconciled state of [uid] (C.5): a valid DISABLING/OFF entry in EITHER
+  /// store wins (most restrictive, then newest).
+  static func cloudEgressState(forUid uid: String) throws -> EgressSnapshot {
+    try withQueueLock {
+      let hash = try uidHash(uid)
+      let view = egressView()
+      let mine = view.maps.compactMap { $0.owners[hash] }
+      if let top = mine.filter({ $0.state != "ON" }).max(by: {
+        (egressRank($0.state) ?? 0, $0.transitionGeneration)
+          < (egressRank($1.state) ?? 0, $1.transitionGeneration)
+      }) {
+        return .record(top)
+      }
+      if view.uncertain { return .uncertain }
+      if mine.isEmpty { return .unset }
+      if mine.count == 2 && mine[0] != mine[1] { return .uncertain }
+      return .record(mine[0])
+    }
+  }
+
+  /// Writes the OWNER's entry (only) to BOTH stores under the queue flock, keeping
+  /// every other owner's entry (merged from whichever stores are readable, so a
+  /// write also repairs a corrupt store). Refused when the generation is older than
+  /// the stored one for the same owner (or equal with a less restrictive state:
+  /// enable needs a strictly greater generation) and when an ON write finds no
+  /// readable store at all (corrupt: restrict first). A restrictive write succeeds
+  /// if at least ONE store took it (C.5); an ON write needs BOTH.
+  static func setCloudEgressState(
+    state: String, ownerUid: String, transitionGeneration: Int, reservedVersion: Int
+  ) throws {
+    let owner = normalizedUID(ownerUid)
+    guard let rank = egressRank(state), !owner.isEmpty,
+          transitionGeneration >= 0, reservedVersion >= 0 else {
+      throw QueueError.encodingFailed
+    }
+    let restrictive = rank > 0
+    try withQueueLock {
+      let hash = try uidHash(owner)
+      let view = egressView()
+      for map in view.maps {
+        if let stored = map.owners[hash] {
+          let storedRank = egressRank(stored.state) ?? 0
+          if transitionGeneration < stored.transitionGeneration
+            || (transitionGeneration == stored.transitionGeneration && rank < storedRank) {
+            throw QueueError.staleGeneration
+          }
+        }
+      }
+      if !restrictive && view.maps.isEmpty && view.uncertain {
+        throw QueueError.egressDenied
+      }
+      var merged: [String: CloudEgressRecord] = [:]
+      for map in view.maps {
+        for (other, record) in map.owners {
+          if let kept = merged[other],
+             (egressRank(kept.state) ?? 0, kept.transitionGeneration)
+               >= (egressRank(record.state) ?? 0, record.transitionGeneration) {
+            continue
+          }
+          merged[other] = record
+        }
+      }
+      merged[hash] = CloudEgressRecord(
+        state: state, transitionGeneration: transitionGeneration,
+        reservedVersion: reservedVersion)
+      guard let data = try? JSONEncoder().encode(CloudEgressMap(owners: merged)) else {
+        throw QueueError.encodingFailed
+      }
+      var fileOK = false
+      if let url = try? egressFileURL() {
+        fileOK = (try? data.write(
+          to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        ) != nil
+      }
+      let keychainOK = SharedKeychain.writeData(data, forKey: egressStateKC) == errSecSuccess
+      guard restrictive ? (fileOK || keychainOK) : (fileOK && keychainOK) else {
+        throw QueueError.storageWriteFailed
+      }
+    }
+  }
+
+  // MARK: Native in-flight registry (C.4)
+
+  private static func inflightFileURL() throws -> URL {
+    try appGroupContainerURL().appendingPathComponent(inflightFileName)
+  }
+
+  /// All entries (expired ones included); callers hold the flock. Absent file is
+  /// empty; an unreadable/undecodable file throws.
+  private static func readInflightRaw() throws -> [InflightUpload] {
+    let url = try inflightFileURL()
+    guard FileManager.default.fileExists(atPath: url.path) else { return [] }
+    guard let data = try? Data(contentsOf: url),
+          let entries = try? JSONDecoder().decode([InflightUpload].self, from: data) else {
+      throw QueueError.unreadable
+    }
+    return entries
+  }
+
+  private static func writeInflight(_ entries: [InflightUpload]) throws {
+    let url = try inflightFileURL()
+    if entries.isEmpty {
+      if FileManager.default.fileExists(atPath: url.path) {
+        try FileManager.default.removeItem(at: url)
+      }
+      return
+    }
+    try JSONEncoder().encode(entries).write(
+      to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+  }
+
+  /// A corrupt registry older than the longest possible deadline holds nothing live.
+  private static func inflightFileIsStale(now: Date) -> Bool {
+    guard let url = try? inflightFileURL(),
+          let modified = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.modificationDate] as? Date
+    else { return false }
+    return now.timeIntervalSince(modified) > nativeUploadTimeout + inflightGrace
+  }
+
+  /// Removes the upload's entry (success or error). Best effort: an entry that is
+  /// not removed simply expires at its deadline.
+  static func removeInflightUpload(payloadID: String) {
+    _ = try? withQueueLock {
+      let entries = try readInflightRaw()
+      try writeInflight(entries.filter { $0.payloadId != payloadID })
+    }
+  }
+
+  /// The live (not past its deadline) admitted uploads of [uid]. Throws when the
+  /// registry or the lock is unavailable: the caller must then wait the longest
+  /// possible deadline.
+  static func inflightUploads(forUid uid: String) throws -> (count: Int, latestDeadline: Date?) {
+    try withQueueLock {
+      let hash = try uidHash(uid)
+      let now = egressNow().timeIntervalSince1970
+      let live = try readInflightRaw().filter { $0.ownerHash == hash && $0.deadline > now }
+      return (live.count, live.map { $0.deadline }.max().map { Date(timeIntervalSince1970: $0) })
+    }
+  }
+
+  #if DEBUG
+  /// Test-only reset (XCTest): the egress state is deliberately NOT cleared by
+  /// `purgeUserOwnedState`, because the persistent OFF gate outlives sign-out.
+  static func debugResetCloudEgressState() {
+    SharedKeychain.remove(forKey: egressStateKC)
+    if let url = try? egressFileURL() { try? FileManager.default.removeItem(at: url) }
+    if let url = try? inflightFileURL() { try? FileManager.default.removeItem(at: url) }
+  }
+
+  /// Test-only: the uidHash used as the egress-map key.
+  static func debugOwnerHash(_ uid: String) throws -> String {
+    try withQueueLock { try uidHash(uid) }
+  }
+  #endif
 
   // MARK: Unbound recovery (§4.3)
 

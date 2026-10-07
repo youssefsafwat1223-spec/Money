@@ -7,6 +7,7 @@ import 'announcement_service.dart';
 import 'catalog_daos.dart';
 import 'parser_authority.dart';
 import '../../core/observability/diagnostics.dart';
+import '../../core/privacy/cloud_egress_gate.dart';
 import '../../core/observability/telemetry_error.dart';
 import '../../features/coupons/coupon_models.dart';
 
@@ -28,6 +29,10 @@ class CatalogSyncService {
   final AnnouncementService _announcementService;
 
   Future<void> syncAll({String? countryCode}) async {
+    // Astra G (P1): no automatic catalog fetch while Cloud is OFF / DISABLING /
+    // unset / uncertain. The transport gate enforces it too; this avoids the
+    // pointless authority-epoch work and a burst of denied requests.
+    if (!await CloudEgressGate.instance.permits()) return;
     try {
       // Delta sync for versioned categories
       // AUTHORITY EPOCH — before anything else. An install already at the

@@ -25,12 +25,19 @@ void main() {
       smsText: 'bank message',
       receivedAt: DateTime.utc(2026, 7, 14, 12),
       allowAi: false,
+      ownerUid: 'uid-a',
+      ownerGeneration: 3,
     );
 
     final body = jsonDecode(sent.body) as Map<String, dynamic>;
     expect(body['payloadId'], 'stable-payload');
     expect(body['allowAi'], isFalse);
     expect(sent.url.path, '/functions/v1/process-ios-sms');
+    // Astra G C.1 (new assertions): the owner and its generation are ALWAYS sent,
+    // also on the v1 body (no schema_version marker there).
+    expect(body['owner_uid'], 'uid-a');
+    expect(body['owner_generation'], 3);
+    expect(body.containsKey('schema_version'), isFalse);
   });
 
   test('pending-send replay keeps a bounded configurable timeout', () async {
@@ -52,6 +59,8 @@ void main() {
         smsText: 'bank message',
         receivedAt: DateTime.utc(2026, 7, 14, 12),
         allowAi: false,
+        ownerUid: 'uid-a',
+        ownerGeneration: 3,
       ),
       throwsA(isA<TimeoutException>()),
     );

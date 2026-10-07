@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../../core/privacy/cloud_egress_gate.dart';
 import 'capture_backend_client.dart';
 
 /// WP-6 — the v2 (JWT) consent contract of the capture backend: both calls carry
@@ -15,7 +16,7 @@ class CaptureConsentClient {
     http.Client? httpClient,
   })  : _supabaseUrl = supabaseUrl,
         _anonKey = anonKey,
-        _http = httpClient ?? http.Client();
+        _http = httpClient ?? GatedHttpClient();
 
   final String _supabaseUrl;
   final String _anonKey;
@@ -38,6 +39,9 @@ class CaptureConsentClient {
     required bool cloud,
     required bool ai,
     required int version,
+    // C.2: the client transition generation, so a late link can never widen
+    // consent over a newer disable (`p_client_generation`).
+    required int clientGeneration,
   }) async {
     final response = await _http
         .post(
@@ -51,6 +55,7 @@ class CaptureConsentClient {
               'cloud_processing_enabled': cloud,
               'ai_consent_granted': ai,
               'version': version,
+              'client_generation': clientGeneration,
             },
           }),
         )
@@ -70,6 +75,7 @@ class CaptureConsentClient {
     required bool cloud,
     required bool ai,
     required int version,
+    required int clientGeneration,
   }) async {
     final response = await _http
         .post(
@@ -82,6 +88,7 @@ class CaptureConsentClient {
             'cloud_processing_enabled': cloud,
             'ai_consent_granted': ai,
             'consent_version': version,
+            'client_generation': clientGeneration,
           }),
         )
         .timeout(const Duration(seconds: 12));
@@ -90,4 +97,61 @@ class CaptureConsentClient {
           'set_consent_failed_${response.statusCode}');
     }
   }
+
+  /// Astra G C.3: the ONE-SHOT revoke (`revoke_capture_consent`, JWT required;
+  /// narrows only; idempotent per (install, owner, transition_generation)).
+  /// Isolated behind this single method and [kRevokeRoute] so the edge route
+  /// name G1 chooses is a one-line change. The caller makes at most one call per
+  /// transition and never retries it.
+  Future<RevokeResult> revoke({
+    required String installId,
+    required String deviceSecret,
+    required String jwt,
+    required String ownerUid,
+    required int transitionGeneration,
+    required int version,
+  }) async {
+    final response = await _http
+        .post(
+          _uri(kRevokeRoute),
+          headers: _headers(jwt),
+          body: jsonEncode({
+            'installId': installId,
+            'deviceSecret': deviceSecret,
+            'schema_version': 2,
+            'action': 'revoke',
+            'owner_uid': ownerUid,
+            'transition_generation': transitionGeneration,
+            'consent_version': version,
+          }),
+        )
+        .timeout(const Duration(seconds: 12));
+    if (response.statusCode != 200) {
+      throw CaptureBackendException('revoke_failed_${response.statusCode}');
+    }
+    try {
+      final decoded = jsonDecode(response.body);
+      if (decoded is Map) {
+        return RevokeResult(
+          ok: decoded['ok'] == true,
+          applied: decoded['applied'] == true,
+          reason: decoded['reason'] is String ? decoded['reason'] as String : null,
+        );
+      }
+    } catch (_) {}
+    return const RevokeResult(ok: false, applied: false);
+  }
+
+  /// The Edge Function that exposes `revoke_capture_consent` (G1 decides:
+  /// `set-device-consent` v2 `action: 'revoke'`, or a new function).
+  static const String kRevokeRoute = 'set-device-consent';
+}
+
+/// `{ok, applied, reason}` as the revoke RPC returns it. Only `ok && applied` is
+/// a CONFIRMED server revocation.
+class RevokeResult {
+  const RevokeResult({required this.ok, required this.applied, this.reason});
+  final bool ok;
+  final bool applied;
+  final String? reason;
 }

@@ -58,6 +58,21 @@ class FakeRegistrationService implements CaptureDeviceRegistrationService {
 
   int syncCalls = 0;
 
+  /// Astra G: widening Cloud goes through an explicit enable.
+  int enableCalls = 0;
+
+  @override
+  bool isEnablingCloud(UserSettingsEntity before, UserSettingsEntity after) =>
+      !before.cloudProcessingEnabled && after.cloudProcessingEnabled;
+
+  @override
+  Future<void> enableCloud({
+    required Future<void> Function() commitLocalOn,
+  }) async {
+    enableCalls++;
+    await commitLocalOn();
+  }
+
   @override
   Future<void> syncBackendState() async => syncCalls++;
 

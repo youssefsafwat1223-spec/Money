@@ -283,11 +283,20 @@ class CaptureSyncService {
     final auth = gate != null
         ? await gate(message.id!)
         : CaptureUploadAuthorization(CaptureUploadDecision.allowed,
-            ownerUid: _currentUserId(), allowAi: settings.aiConsentGranted);
+            ownerUid: _currentUserId(),
+            allowAi: settings.aiConsentGranted,
+            ownerGeneration: 0);
     if (auth.decision == CaptureUploadDecision.waiting) {
       throw const CaptureBackendException('upload_waiting');
     }
     if (!auth.allowed) return false;
+    // C.1: an ownerless replay is impossible. The stamped owner and the owner
+    // generation it was stamped under always travel together.
+    final ownerUid = auth.ownerUid;
+    final ownerGeneration = auth.ownerGeneration;
+    if (ownerUid == null || ownerUid.isEmpty || ownerGeneration == null) {
+      return false;
+    }
     if (!await _registrationService.isLinkedForCloud()) return false;
     final secret = await _registrationService.readDeviceSecret();
     if (secret == null || secret.isEmpty) return false;
@@ -296,24 +305,33 @@ class CaptureSyncService {
           supabaseUrl: SupabaseConfig.url,
           anonKey: SupabaseConfig.anonKey,
         );
-    await client.processIosSms(
-      installId: await (_loadInstallId ?? InstallId.get)(),
-      deviceSecret: secret,
-      payloadId: message.id!,
-      // The server persists this value verbatim (processed_captures.parsed.
-      // rawMessage) for every message regardless of outcome, so it must never
-      // carry card/phone/account numbers or third-party beneficiary names —
-      // sanitize on-device first, same discipline as SmsSanitizer's other
-      // call sites (add_transaction_usecase.dart, bank_discovery_service.dart).
-      smsText: SmsSanitizer.sanitize(message.text),
-      sender: message.sender,
-      receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
-      locale: message.locale,
-      // The owner's consent mirror, never the install-level flag.
-      allowAi: auth.allowAi,
-      // On the v2 contract the replay carries the stamped owner too.
-      ownerUid: auth.contractV2 ? auth.ownerUid : null,
-    );
+    try {
+      await client.processIosSms(
+        installId: await (_loadInstallId ?? InstallId.get)(),
+        deviceSecret: secret,
+        payloadId: message.id!,
+        // The server persists this value verbatim (processed_captures.parsed.
+        // rawMessage) for every message regardless of outcome, so it must never
+        // carry card/phone/account numbers or third-party beneficiary names —
+        // sanitize on-device first, same discipline as SmsSanitizer's other
+        // call sites (add_transaction_usecase.dart, bank_discovery_service.dart).
+        smsText: SmsSanitizer.sanitize(message.text),
+        sender: message.sender,
+        receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
+        locale: message.locale,
+        // The owner's consent mirror, never the install-level flag.
+        allowAi: auth.allowAi,
+        ownerUid: ownerUid,
+        ownerGeneration: ownerGeneration,
+        schemaV2: auth.contractV2,
+      );
+    } on CaptureBackendException catch (e) {
+      // §4.8 / G1: a 409 (`capture_owner_mismatch`, `capture_owner_conflict`,
+      // `capture_id_conflict`, `capture_expired`) is TERMINAL for the upload:
+      // the caller parses on-device with no AI, and it is never retried.
+      if (e.reason.endsWith('_409')) return false;
+      rethrow;
+    }
     return true;
   }
 

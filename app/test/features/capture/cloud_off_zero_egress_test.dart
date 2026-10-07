@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
 import 'package:money_companion/core/privacy/consent_authority.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/ownership_guard.dart';
@@ -22,6 +23,8 @@ import 'package:money_companion/features/capture/services/capture_import_ports.d
 import 'package:money_companion/features/capture/services/capture_server_port.dart';
 import 'package:money_companion/features/capture/services/capture_sync_service.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
+
+import '../../harness/egress_test_support.dart';
 
 // A-12-min — CLOUD OFF = ZERO EGRESS. A network spy: every transport the
 // capture path owns is a fake that records the call, and the tests assert the
@@ -106,7 +109,9 @@ class _SpyBackend extends CaptureBackendClient {
     required bool allowAi,
     String? sender,
     String? locale,
-    String? ownerUid,
+    required String ownerUid,
+    required int ownerGeneration,
+    bool schemaV2 = false,
   }) async {
     calls.add('processIosSms');
   }
@@ -131,6 +136,7 @@ class _SpyConsent extends CaptureConsentClient {
     required bool cloud,
     required bool ai,
     required int version,
+  required int clientGeneration,
   }) async {
     calls.add('link');
     await onLink?.call();
@@ -146,11 +152,32 @@ class _SpyConsent extends CaptureConsentClient {
     required bool cloud,
     required bool ai,
     required int version,
+  required int clientGeneration,
   }) async {
     calls.add('set');
     await onSet?.call();
     if (setError != null) throw setError!;
     sets.add((cloud: cloud, ai: ai, version: version));
+  }
+
+  /// Astra G C.3: the one-shot `revoke_capture_consent` (JWT).
+  final revokes = <_Consent>[];
+  RevokeResult revokeResult = const RevokeResult(ok: true, applied: true);
+
+  @override
+  Future<RevokeResult> revoke({
+    required String installId,
+    required String deviceSecret,
+    required String jwt,
+    required String ownerUid,
+    required int transitionGeneration,
+    required int version,
+  }) async {
+    calls.add('revoke');
+    await onSet?.call();
+    if (setError != null) throw setError!;
+    revokes.add((cloud: false, ai: false, version: version));
+    return revokeResult;
   }
 }
 
@@ -179,6 +206,7 @@ void main() {
   CaptureSession? session;
   String? replicaOwner;
   late Directory markerDir;
+  late TestEgress egress;
 
   CaptureDeviceRegistrationService service({
     bool backendConfigured = true,
@@ -206,6 +234,8 @@ void main() {
           required backendUrl,
           required anonKey,
           required aiConsentGranted,
+          String? ownerUid,
+          int? transitionGeneration,
         }) async {
           nativeConfigs.add(cloudProcessingEnabled);
           if (nativeConfigError != null) throw nativeConfigError!;
@@ -221,6 +251,7 @@ void main() {
           required cloud,
           required ai,
           required version,
+        int? transitionGeneration,
         }) async {
           mirrors.add((uid: uid, cloud: cloud, ai: ai, version: version));
         },
@@ -231,7 +262,8 @@ void main() {
           required ai,
           required version,
           required expectedEpoch,
-        }) async {
+        int? transitionGeneration,
+          }) async {
           published.add((
             uid: uid,
             cloud: cloud,
@@ -266,6 +298,8 @@ void main() {
     session = (uid: 'uid-a', jwt: 'jwt-a');
     replicaOwner = 'uid-a';
     markerDir = Directory.systemTemp.createTempSync('cloud_off_marker');
+    egress = TestEgress()..owner = 'uid-a';
+    egress.install();
   });
   tearDown(() async {
     ConsentAuthority.egressFrozen = false;
@@ -421,7 +455,8 @@ void main() {
           required ai,
           required version,
           required expectedEpoch,
-        }) async =>
+        int? transitionGeneration,
+          }) async =>
             throw const CaptureQueueException('owner_changed'),
       );
       await s.linkToCurrentUser(); // _linkOnce swallows: fail closed
@@ -511,8 +546,8 @@ void main() {
       final nativeStart = nativeConfigs.length;
 
       final done = s.disableCloud(commitLocalOff: commit);
-      await _waitFor(() => calls.contains('set'));
-      expect(calls, ['set'], reason: 'the revoke is in flight');
+      await _waitFor(() => calls.contains('revoke'));
+      expect(calls, ['revoke'], reason: 'the revoke is in flight');
       expect(ConsentAuthority.egressFrozen, isTrue);
       expect((await repo.getSettings()).cloudProcessingEnabled, isTrue,
           reason: 'OFF is committed only after the revoke settles');
@@ -525,16 +560,15 @@ void main() {
 
       await everyPath(s, authCalls);
 
-      expect(calls, ['set'], reason: 'zero new requests while frozen');
+      expect(calls, ['revoke'], reason: 'zero new requests while frozen');
       expect(authCalls, isEmpty, reason: 'native authorize is never asked');
       expect(nativeConfigs.length, nativeBefore);
       expect(mirrors.length, mirrorsBefore, reason: 'no widening, no republish');
       expect(await s.isLinkedForCloud(), isFalse);
       final authority = ConsentAuthority(repo.getSettings);
+      // Astra G (updated truthfully): catalog and auth are no longer exempt.
       for (final c in EgressClass.values) {
-        expect(await authority.allows(c),
-            c == EgressClass.catalog || c == EgressClass.auth,
-            reason: '$c');
+        expect(await authority.allows(c), isFalse, reason: '$c');
       }
       expect(commits, 0);
 
@@ -543,9 +577,9 @@ void main() {
       expect(commits, 1);
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
       expect(ConsentAuthority.egressFrozen, isFalse);
-      expect(consent.sets.single.cloud, isFalse);
-      expect(consent.sets.single.ai, isFalse);
-      expect(consent.sets.single.version,
+      expect(consent.revokes.single.cloud, isFalse);
+      expect(consent.revokes.single.ai, isFalse);
+      expect(consent.revokes.single.version,
           (await repo.getSettings()).consentVersion,
           reason: 'the revoke carries the next consent version');
     });
@@ -581,7 +615,7 @@ void main() {
       final b = s.disableCloud(commitLocalOff: commit);
       final c = other.disableCloud(commitLocalOff: commit);
       await Future.wait([a, b, c]);
-      expect(calls, ['set']);
+      expect(calls, ['revoke']);
       expect(commits, 1, reason: 'one transition, one commit');
 
       for (var i = 0; i < 3; i++) {
@@ -589,16 +623,16 @@ void main() {
       }
       await service().syncBackendState(); // relaunch
       await service().resolvePendingDisable();
-      expect(calls, ['set']);
+      expect(calls, ['revoke']);
 
       // A later, separate toggle of an already-OFF state sends nothing either.
       await s.disableCloud(commitLocalOff: commit);
-      expect(calls, ['set']);
+      expect(calls, ['revoke']);
     });
 
     for (final failure in <String, Object>{
       'exception': const CaptureBackendException('offline'),
-      '401': const CaptureBackendException('set_consent_failed_401'),
+      '401': const CaptureBackendException('revoke_failed_401'),
     }.entries) {
       test('POINT 3: a revoke failing with ${failure.key} still commits '
           'OFF and never throws', () async {
@@ -608,7 +642,7 @@ void main() {
         expect(commits, 1);
         expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
         expect(ConsentAuthority.egressFrozen, isFalse);
-        expect(calls, ['set'], reason: 'no 401 recovery, no link, no register');
+        expect(calls, ['revoke'], reason: 'no 401 recovery, no link, no register');
       });
     }
 
@@ -618,7 +652,7 @@ void main() {
       await s.disableCloud(commitLocalOff: commit);
       expect(commits, 1);
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
-      expect(calls, ['set']);
+      expect(calls, ['revoke']);
     });
 
     test('POINT 3: a native-restriction failure does not block OFF either',
@@ -644,15 +678,19 @@ void main() {
       await relaunched.resolvePendingDisable();
       await relaunched.syncBackendState();
       await Future<void>.delayed(const Duration(milliseconds: 200)); // timers
-      expect(calls, ['set'], reason: 'one attempt, success or not');
+      expect(calls, ['revoke'], reason: 'one attempt, success or not');
     });
 
-    test('POINT 4: the durable (uid, version) marker blocks a second send',
-        () async {
+    test('POINT 4: a durable consumed revoke_attempt for this (owner, '
+        'generation) blocks a second send', () async {
       final s = await linkedOn();
-      final version = (await repo.getSettings()).consentVersion + 1;
-      await const FlutterSecureStorage()
-          .write(key: 'qirsh_capture_revoke_marker', value: 'uid-a|$version');
+      final gen =
+          (await CloudEgressGate.instance.view()).record!.transitionGeneration +
+              1;
+      await const FlutterSecureStorage().write(
+          key: 'qirsh.capture_revoke_attempt.v1',
+          value:
+              '{"owner":"uid-a","transition_generation":$gen,"consumed":true}');
       await s.disableCloud(commitLocalOff: commit);
       expect(calls, isEmpty);
       expect(commits, 1);
@@ -687,31 +725,56 @@ void main() {
       expect(nativeConfigs.skip(nativeAfterOff).every((c) => !c), isTrue);
       expect(await s.isLinkedForCloud(), isFalse);
 
-      // Explicit enable: egress resumes (link) only now.
+      // The persistent OFF gate: a bare save of ON (no explicit enable) is NOT
+      // honoured; it is reverted to OFF and nothing is sent.
       session = (uid: 'uid-a', jwt: 'jwt-a');
       replicaOwner = 'uid-a';
       await save(cloud: ConsentState.accepted);
       await relaunched.syncBackendState();
+      expect(calls, isEmpty);
+      expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
+
+      // Explicit enable: a NEW generation, then egress resumes (link).
+      final offGen =
+          (await CloudEgressGate.instance.view()).record!.transitionGeneration;
+      await relaunched.enableCloud(
+          commitLocalOn: () => save(cloud: ConsentState.accepted));
+      expect((await CloudEgressGate.instance.view()).record!.transitionGeneration,
+          greaterThan(offGen));
+      await relaunched.syncBackendState();
       expect(calls, contains('link'));
     });
 
-    test('a crash with disable_pending: relaunch commits OFF, sends no revoke, '
-        'clears the marker', () async {
+    Future<void> plantDisabling(String owner) async {
+      final g = CloudEgressGate.instance;
+      final cur = (await g.view(owner: owner)).record;
+      await g.writeRecord(CloudEgressRecord(
+        state: EgressState.disabling,
+        ownerUid: owner,
+        transitionGeneration: (cur?.transitionGeneration ?? 0) + 1,
+        reservedVersion: 9,
+      ));
+    }
+
+    test('a crash with a DISABLING record: relaunch commits OFF, sends no '
+        'revoke, and leaves a durable OFF', () async {
       await linkedOn(); // ON, acked; then the process "dies" mid-transition
-      const storage = FlutterSecureStorage();
-      await storage.write(
-          key: 'qirsh.capture_disable_pending.v1', value: 'uid-a');
+      await plantDisabling('uid-a');
 
       final relaunched = service();
       await relaunched.resolvePendingDisable();
 
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
       expect(calls, isEmpty);
-      expect(await storage.read(key: 'qirsh.capture_disable_pending.v1'),
+      expect((await CloudEgressGate.instance.view()).record!.state,
+          EgressState.off,
+          reason: 'clearing DISABLING only after durable OFF is written');
+      expect(await const FlutterSecureStorage().read(key: 'qirsh_capture_consent_ack'),
           isNull);
-      expect(await storage.read(key: 'qirsh_capture_consent_ack'), isNull);
       expect(await relaunched.isLinkedForCloud(), isFalse);
       expect(ConsentAuthority.egressFrozen, isFalse);
+      expect((await relaunched.serverRevocation())!.status,
+          ServerRevocation.notAttempted);
       await relaunched.syncBackendState();
       await relaunched.syncBackendState();
       expect(calls, isEmpty, reason: 'never retried');
@@ -720,22 +783,26 @@ void main() {
     test('a crash marker is completed by the first sync as well, before any '
         'egress', () async {
       await linkedOn();
-      await const FlutterSecureStorage()
-          .write(key: 'qirsh.capture_disable_pending.v1', value: 'uid-a');
+      await plantDisabling('uid-a');
       await service().syncBackendState();
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
       expect(calls, isEmpty);
     });
 
-    test('a marker left by ANOTHER replica owner is not applied here', () async {
+    test('a marker left by ANOTHER replica owner is neither applied here nor '
+        'discarded (C.5)', () async {
       await linkedOn();
-      const storage = FlutterSecureStorage();
-      await storage.write(
-          key: 'qirsh.capture_disable_pending.v1', value: 'uid-other');
+      await plantDisabling('uid-other');
       await service().resolvePendingDisable();
       expect((await repo.getSettings()).cloudProcessingEnabled, isTrue);
-      expect(await storage.read(key: 'qirsh.capture_disable_pending.v1'),
-          'uid-other');
+      expect(
+          (await CloudEgressGate.instance.view(owner: 'uid-other'))
+              .record!
+              .state,
+          EgressState.disabling);
+      // uid-a's own state is evaluated independently and is untouched.
+      expect((await CloudEgressGate.instance.view()).record!.state,
+          EgressState.on);
     });
 
     test('kRevokeAtCloudSwitchOff = false: freeze + commit, zero requests',
@@ -837,7 +904,9 @@ void main() {
       await save(cloud: ConsentState.accepted, ai: ConsentState.accepted);
       final s = android(revoke: revoke, timeout: timeout);
       await s.syncBackendState();
-      expect(calls, ['registerDevice', 'setDeviceConsent']);
+      // Astra G C.3/P7: the Android ON path links its row to the owner with the
+      // JWT link, exactly like iOS (it used to push the device-secret consent).
+      expect(calls, ['registerDevice', 'link']);
       calls.clear();
       commits = 0;
       return s;
@@ -865,49 +934,51 @@ void main() {
         'then OFF and silence (also after relaunch)', () async {
       final s = await androidOn();
       final gate = Completer<void>();
-      backend.onSetDevice = () => gate.future;
+      consent.onSet = () => gate.future;
 
       final done = s.disableCloud(commitLocalOff: commit);
-      await _waitFor(() => calls.contains('setDeviceConsent'));
-      expect(calls, ['setDeviceConsent']);
+      await _waitFor(() => calls.contains('revoke'));
+      expect(calls, ['revoke']);
       for (var i = 0; i < 3; i++) {
         await s.syncBackendState();
       }
       await android().syncBackendState();
-      expect(calls, ['setDeviceConsent'], reason: 'frozen: nothing else');
+      expect(calls, ['revoke'], reason: 'frozen: nothing else');
       expect((await repo.getSettings()).cloudProcessingEnabled, isTrue);
 
       gate.complete();
       await done;
       expect(commits, 1);
-      expect(backend.deviceConsents.last, (cloud: false, ai: false));
+      expect(consent.revokes.last.cloud, isFalse);
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
 
       await s.syncBackendState();
       await android().syncBackendState(); // relaunch
-      expect(calls, ['setDeviceConsent'], reason: 'POINT 5: silence');
+      expect(calls, ['revoke'], reason: 'POINT 5: silence');
     });
 
     test('POINTS 3+4: a failing or timed-out revoke still commits OFF and is '
         'never retried', () async {
       final s = await androidOn(timeout: const Duration(milliseconds: 50));
-      backend.onSetDevice = () => Completer<void>().future;
+      consent.onSet = () => Completer<void>().future;
       await s.disableCloud(commitLocalOff: commit);
       expect(commits, 1);
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
-      backend.onSetDevice = null;
+      expect((await s.serverRevocation())!.status, ServerRevocation.unconfirmed);
+      consent.onSet = null;
       await s.syncBackendState();
       await android().syncBackendState();
       await Future<void>.delayed(const Duration(milliseconds: 100));
-      expect(calls, ['setDeviceConsent']);
+      expect(calls, ['revoke']);
     });
 
-    test('a relaunch before the toggle still sends the one revoke (ON is '
-        'proven by the stored secret, not by in-memory state)', () async {
+    test('a relaunch before the toggle still sends the one revoke (authorised '
+        'by the uid-bound ack + the frozen-owner JWT, NOT by the stored '
+        'secret)', () async {
       await androidOn();
       final relaunched = android();
       await relaunched.disableCloud(commitLocalOff: commit);
-      expect(calls, ['setDeviceConsent']);
+      expect(calls, ['revoke']);
       expect(commits, 1);
     });
 
@@ -927,11 +998,15 @@ void main() {
       expect(commits, 1);
     });
 
-    test('a crash with disable_pending commits OFF on relaunch, no revoke',
+    test('a crash with a DISABLING record commits OFF on relaunch, no revoke',
         () async {
       await androidOn();
-      await const FlutterSecureStorage()
-          .write(key: 'qirsh.capture_disable_pending.v1', value: 'uid-a');
+      await CloudEgressGate.instance.writeRecord(const CloudEgressRecord(
+        state: EgressState.disabling,
+        ownerUid: 'uid-a',
+        transitionGeneration: 9,
+        reservedVersion: 9,
+      ));
       await android().syncBackendState();
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
       expect((await repo.getSettings()).aiConsentGranted, isFalse);
@@ -959,17 +1034,15 @@ void main() {
   });
 
   group('E1 fail-closed: the local OFF write fails', () {
-    const markerKey = 'qirsh.capture_disable_pending.v1';
     var failCommit = true;
     Future<void> commit() async {
       if (failCommit) throw StateError('local OFF write failed');
       await save(cloud: ConsentState.declined);
     }
 
-    Future<CaptureDeviceRegistrationService> linkedOn(
-        {FlutterSecureStorage? storage}) async {
+    Future<CaptureDeviceRegistrationService> linkedOn() async {
       await save(cloud: ConsentState.accepted, ai: ConsentState.accepted);
-      final s = service(storage: storage);
+      final s = service();
       await s.syncBackendState();
       expect(consent.links, hasLength(1));
       calls.clear();
@@ -977,27 +1050,26 @@ void main() {
       return s;
     }
 
-    File markerFile() => File('${markerDir.path}/capture_disable_pending.v1');
+    Future<EgressState?> stateOf() async =>
+        (await CloudEgressGate.instance.view(owner: 'uid-a')).record?.state;
 
-    test('freeze stays, Cloud is NOT restored, both markers persist, and '
-        'nothing more is sent', () async {
+    test('freeze stays, Cloud is NOT restored, DISABLING persists in both '
+        'stores, and nothing more is sent', () async {
       final s = await linkedOn();
       await expectLater(
           s.disableCloud(commitLocalOff: commit), throwsStateError);
-      expect(consent.sets, hasLength(1), reason: 'the one revoke, nothing more');
+      expect(consent.revokes, hasLength(1), reason: 'the one revoke, nothing more');
       calls.clear();
       expect(ConsentAuthority.egressFrozen, isTrue);
-      // The DB write failed, so the stored value is still ON; nothing reverts
-      // it to "allowed" and no egress follows.
       expect((await repo.getSettings()).cloudProcessingEnabled, isTrue);
-      expect(await const FlutterSecureStorage().read(key: markerKey), 'uid-a');
-      expect(markerFile().readAsStringSync(), 'uid-a');
+      expect(await stateOf(), EgressState.disabling);
+      expect(egress.secure.value, contains('DISABLING'));
+      expect(egress.file.value, contains('DISABLING'));
       for (final reg in [s, service()]) {
         await reg.syncBackendState();
         expect(await reg.isLinkedForCloud(), isFalse);
       }
       for (final c in EgressClass.values) {
-        if (c == EgressClass.catalog || c == EgressClass.auth) continue;
         expect(
             ConsentAuthority.decide(c, await repo.getSettings()), isFalse,
             reason: '$c must stay denied while frozen');
@@ -1005,8 +1077,8 @@ void main() {
       expect(calls, isEmpty);
     });
 
-    test('next launch completes OFF from the marker, sends no revoke, and '
-        'clears both markers', () async {
+    test('next launch completes OFF from DISABLING, sends no revoke, and '
+        'writes durable OFF', () async {
       final s = await linkedOn();
       await expectLater(
           s.disableCloud(commitLocalOff: commit), throwsStateError);
@@ -1016,25 +1088,40 @@ void main() {
       await relaunched.resolvePendingDisable();
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
       expect(ConsentAuthority.egressFrozen, isFalse);
-      expect(await const FlutterSecureStorage().read(key: markerKey), isNull);
-      expect(markerFile().existsSync(), isFalse);
+      expect(await stateOf(), EgressState.off);
       await relaunched.syncBackendState();
       expect(calls, isEmpty, reason: 'no revoke, no egress after OFF');
     });
 
-    test('Keychain marker write fails too: the file marker still lets the next '
-        'launch complete OFF', () async {
-      final flaky = _FlakyStorage()..failMarkerWrite = true;
-      final s = await linkedOn(storage: flaky);
+    test('mixed-store crash: DISABLING only in the FILE (secure write failed) '
+        'still lets the next launch complete OFF', () async {
+      final s = await linkedOn();
+      egress.secure.failWrites = true;
       await expectLater(
           s.disableCloud(commitLocalOff: commit), throwsStateError);
-      expect(await const FlutterSecureStorage().read(key: markerKey), isNull);
-      expect(markerFile().readAsStringSync(), 'uid-a');
+      expect(egress.file.value, contains('DISABLING'));
+      expect(egress.secure.value, isNot(contains('DISABLING')));
+      egress.secure.failWrites = false;
       calls.clear();
       ConsentAuthority.egressFrozen = false; // a new process
       await service().resolvePendingDisable();
       expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
+      expect(await stateOf(), EgressState.off);
       expect(calls, isEmpty);
+    });
+
+    test('mixed-store crash: DISABLING only in SECURE storage (file write '
+        'failed) overrides the absent file', () async {
+      final s = await linkedOn();
+      egress.file.failWrites = true;
+      await expectLater(
+          s.disableCloud(commitLocalOff: commit), throwsStateError);
+      expect(egress.secure.value, contains('DISABLING'));
+      egress.file.failWrites = false;
+      ConsentAuthority.egressFrozen = false;
+      await service().resolvePendingDisable();
+      expect((await repo.getSettings()).cloudProcessingEnabled, isFalse);
+      expect(await stateOf(), EgressState.off);
     });
 
     test('a relaunch whose OFF write fails again stays frozen with zero '
@@ -1062,6 +1149,8 @@ void main() {
           required backendUrl,
           required anonKey,
           required aiConsentGranted,
+          String? ownerUid,
+          int? transitionGeneration,
         }) async {},
         readSession: () => session,
         readReplicaOwnerUid: () async => replicaOwner,
@@ -1071,16 +1160,15 @@ void main() {
       await relaunched.syncBackendState();
       expect(await relaunched.isLinkedForCloud(), isFalse);
       expect(calls, isEmpty);
-      expect(markerFile().existsSync(), isTrue, reason: 'kept for the next try');
+      expect(await stateOf(), EgressState.disabling,
+          reason: 'kept for the next try; never reopened');
     });
 
-    test('marker state unreadable in BOTH stores: fail closed, no egress',
-        () async {
+    test('state unreadable in BOTH stores: fail closed, no egress', () async {
       await save(cloud: ConsentState.accepted, ai: ConsentState.accepted);
-      final flaky = _FlakyStorage()..failMarkerRead = true;
-      final s = service(
-          storage: flaky,
-          markerDirectory: () async => throw const FileSystemException('fs'));
+      egress.secure.failReads = true;
+      egress.file.failReads = true;
+      final s = service();
       await s.syncBackendState();
       expect(calls, isEmpty);
       expect(await s.isLinkedForCloud(), isFalse);
@@ -1166,45 +1254,6 @@ void main() {
 CaptureSyncService _unusedSync() => _Unused();
 
 
-/// Fails only the `disable_pending` marker reads/writes; everything else uses
-/// the mock store.
-class _FlakyStorage extends FlutterSecureStorage {
-  _FlakyStorage();
-  bool failMarkerWrite = false;
-  bool failMarkerRead = false;
-  static const _marker = 'qirsh.capture_disable_pending.v1';
-
-  @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    IOSOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    MacOsOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) {
-    if (failMarkerWrite && key == _marker) throw StateError('keychain');
-    return super.write(key: key, value: value);
-  }
-
-  @override
-  Future<String?> read({
-    required String key,
-    IOSOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    MacOsOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) {
-    if (failMarkerRead && key == _marker) throw StateError('keychain');
-    return super.read(key: key);
-  }
-}
-
-/// A settings repository whose save always fails (the local OFF write).
 class _FailingSaveRepo extends DriftUserSettingsRepository {
   _FailingSaveRepo(super.db);
   @override

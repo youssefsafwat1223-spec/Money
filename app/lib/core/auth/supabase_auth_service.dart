@@ -7,6 +7,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../privacy/cloud_egress_gate.dart';
 import 'auth_service.dart';
 
 /// Audit **H-9** — Apple Sign-In nonce binding.
@@ -106,12 +107,18 @@ class SupabaseAuthService implements AuthService {
     TargetPlatform? platform,
   })  : _client = client ?? supabase.Supabase.instance.client,
         _platform = platform ?? defaultTargetPlatform,
-        _googleSignIn =
-            googleSignIn ?? buildGoogleSignIn(platform ?? defaultTargetPlatform);
+        _googleSignIn = googleSignIn ??
+            buildGoogleSignIn(platform ?? defaultTargetPlatform);
 
   final TargetPlatform _platform;
   final supabase.SupabaseClient _client;
   final GoogleSignIn _googleSignIn;
+
+  /// ESCALATED (Astra G): interactive sign-in / re-authentication is the one
+  /// explicit-user-action exception to the persistent OFF gate. Automatic token
+  /// refresh is never admitted.
+  Future<T> _userInitiated<T>(Future<T> Function() body) =>
+      CloudEgressGate.instance.runUserInitiated(body);
 
   @override
   Future<void> signOutProviderSession() => _googleSignIn.signOut();
@@ -137,11 +144,11 @@ class SupabaseAuthService implements AuthService {
     // inside the id_token without exposing the raw value, so we can't pass a
     // matching nonce here. Supabase's Google provider must have "Skip nonce
     // checks" enabled for this native flow to be accepted.
-    final response = await _client.auth.signInWithIdToken(
-      provider: supabase.OAuthProvider.google,
-      idToken: idToken,
-      accessToken: auth.accessToken,
-    );
+    final response = await _userInitiated(() => _client.auth.signInWithIdToken(
+          provider: supabase.OAuthProvider.google,
+          idToken: idToken,
+          accessToken: auth.accessToken,
+        ));
     final email = response.user?.email ?? account.email;
     return AuthIdentity(
       method: 'google',
@@ -192,14 +199,14 @@ class SupabaseAuthService implements AuthService {
       throw const AuthException('لم نستطع قراءة رمز دخول Apple.');
     }
 
-    final response = await _client.auth.signInWithIdToken(
-      provider: supabase.OAuthProvider.apple,
-      idToken: identityToken,
-      // The RAW nonce for THIS attempt. The backend re-hashes it and compares
-      // against the token's `nonce` claim, so a token minted for a different
-      // attempt (or with no nonce at all) cannot be exchanged here.
-      nonce: rawNonce,
-    );
+    final response = await _userInitiated(() => _client.auth.signInWithIdToken(
+          provider: supabase.OAuthProvider.apple,
+          idToken: identityToken,
+          // The RAW nonce for THIS attempt. The backend re-hashes it and compares
+          // against the token's `nonce` claim, so a token minted for a different
+          // attempt (or with no nonce at all) cannot be exchanged here.
+          nonce: rawNonce,
+        ));
 
     if (attempt != _appleAttemptSeq) {
       throw const AuthCancelledException('تم إلغاء تسجيل الدخول بـ Apple.');
@@ -215,7 +222,7 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<void> sendEmailCode(String email) async {
-    await _client.auth.signInWithOtp(email: email);
+    await _userInitiated(() => _client.auth.signInWithOtp(email: email));
   }
 
   @override
@@ -224,11 +231,11 @@ class SupabaseAuthService implements AuthService {
     required String code,
   }) async {
     final token = code.replaceAll(RegExp(r'\s'), '');
-    final response = await _client.auth.verifyOTP(
-      email: email,
-      token: token,
-      type: supabase.OtpType.email,
-    );
+    final response = await _userInitiated(() => _client.auth.verifyOTP(
+          email: email,
+          token: token,
+          type: supabase.OtpType.email,
+        ));
     final user = response.user;
     if (user == null) return null;
     return AuthIdentity(

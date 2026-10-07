@@ -78,7 +78,9 @@ class _RotatingCaptureClient implements CaptureBackendClient {
     required bool allowAi,
     String? sender,
     String? locale,
-    String? ownerUid,
+    required String ownerUid,
+    required int ownerGeneration,
+    bool schemaV2 = false,
   }) async {}
 
   @override
@@ -146,6 +148,8 @@ void main() {
         required backendUrl,
         required anonKey,
         required aiConsentGranted,
+        String? ownerUid,
+        int? transitionGeneration,
       }) async {
         expect(cloudProcessingEnabled, isTrue);
         expect(deviceSecret, 'fresh-device-secret');
@@ -193,6 +197,8 @@ void main() {
         required backendUrl,
         required anonKey,
         required aiConsentGranted,
+        String? ownerUid,
+        int? transitionGeneration,
       }) async {
         if (cloudProcessingEnabled) enabledNativeWrites++;
       },
@@ -264,9 +270,11 @@ void main() {
     expect(client.consentCalls, isEmpty);
   });
 
-  // E1 (updated truthfully): the revoke is no longer a side effect of the OFF
-  // sync; it is sent only inside the explicit disableCloud transition.
-  test('Android: the ON->OFF transition sends ONE revoke; OFF syncs never do',
+  // Astra G C.3 (updated truthfully): this test used to pin the legacy
+  // device-secret revoke on Android ("stored secret + was ON"). That is NOT
+  // ownership proof: with no frozen-owner JWT and uid-bound ack nothing is sent
+  // and the status is NOT_ATTEMPTED. Local OFF still completes and never retries.
+  test('Android: no JWT/ack -> no revoke (NOT_ATTEMPTED); OFF syncs never send',
       () async {
     FlutterSecureStorage.setMockInitialValues({});
     await setConsent(ai: true, cloud: true);
@@ -278,14 +286,17 @@ void main() {
 
     await service.disableCloud(
         commitLocalOff: () => setConsent(ai: false, cloud: false));
-    expect(client.consentCalls, [(ai: false, cloud: false)]);
+    expect(client.consentCalls, isEmpty,
+        reason: 'a stored secret + was-ON is never a revoke authorisation');
+    expect((await service.serverRevocation())!.status,
+        ServerRevocation.notAttempted);
     await service.syncBackendState();
     await service.syncBackendState();
-    expect(client.consentCalls, hasLength(1), reason: 'never retried');
+    expect(client.consentCalls, isEmpty);
 
     // A relaunch (new instance) sends nothing.
     await androidService(client).syncBackendState();
-    expect(client.consentCalls, hasLength(1));
+    expect(client.consentCalls, isEmpty);
     expect(client.registeredPlatforms, ['android'], reason: 'no re-register');
   });
 
@@ -317,6 +328,7 @@ void main() {
         required cloud,
         required ai,
         required version,
+      int? transitionGeneration,
       }) async {},
       storage: const FlutterSecureStorage(),
       isIos: () => true,
@@ -330,6 +342,8 @@ void main() {
         required backendUrl,
         required anonKey,
         required aiConsentGranted,
+        String? ownerUid,
+        int? transitionGeneration,
       }) async {
         nativeWrites.add((
           ai: aiConsentGranted,
@@ -391,6 +405,8 @@ void main() {
           required backendUrl,
           required anonKey,
           required aiConsentGranted,
+          String? ownerUid,
+          int? transitionGeneration,
         }) async {},
         loadApnsToken: loadApnsToken ?? () async => null,
       );
@@ -448,6 +464,7 @@ void main() {
         required cloud,
         required ai,
         required version,
+      int? transitionGeneration,
       }) async {},
       readOwnerEpoch: () async => 0,
       publishOwner: ({
@@ -456,7 +473,8 @@ void main() {
         required ai,
         required version,
         required expectedEpoch,
-      }) async {},
+      int? transitionGeneration,
+        }) async {},
       storage: const FlutterSecureStorage(),
       isIos: () => true,
       isAndroid: () => false,
@@ -469,6 +487,8 @@ void main() {
         required backendUrl,
         required anonKey,
         required aiConsentGranted,
+        String? ownerUid,
+        int? transitionGeneration,
       }) async {},
       loadApnsToken: () async => null,
     );
@@ -592,6 +612,7 @@ class _V2ConsentServer extends CaptureConsentClient {
     required bool cloud,
     required bool ai,
     required int version,
+  required int clientGeneration,
   }) async {
     links.add((cloud: cloud, ai: ai, version: version));
     if (linkThrows) throw const CaptureBackendException('offline');
@@ -605,6 +626,7 @@ class _V2ConsentServer extends CaptureConsentClient {
     required bool cloud,
     required bool ai,
     required int version,
+  required int clientGeneration,
   }) async {
     sets.add((cloud: cloud, ai: ai, version: version));
   }

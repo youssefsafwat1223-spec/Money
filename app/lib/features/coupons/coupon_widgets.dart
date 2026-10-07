@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import '../../core/privacy/gated_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -324,15 +325,15 @@ class _CouponArtwork extends StatelessWidget {
     if (url == null || !url.startsWith('https://')) return fallback;
     return ClipRRect(
       borderRadius: BorderRadius.circular(size * 0.28),
-      child: Image.network(
-        url,
+      child: Image(
+        image: ResizeImage(GatedNetworkImage(url),
+            width: (size * 3).round(), allowUpscaling: false),
         width: size,
         height: size,
         fit: BoxFit.cover,
-        cacheWidth: (size * 3).round(),
         errorBuilder: (_, __, ___) => fallback,
-        loadingBuilder: (context, child, progress) =>
-            progress == null ? child : fallback,
+        frameBuilder: (context, child, frame, sync) =>
+            frame == null && !sync ? fallback : child,
       ),
     );
   }

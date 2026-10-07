@@ -56,6 +56,7 @@ class _ConsentServer extends CaptureConsentClient {
     required bool cloud,
     required bool ai,
     required int version,
+  required int clientGeneration,
   }) async {
     events.add('link');
     if (linkError != null) throw linkError!;
@@ -70,10 +71,29 @@ class _ConsentServer extends CaptureConsentClient {
     required bool cloud,
     required bool ai,
     required int version,
+  required int clientGeneration,
   }) async {
     events.add('set');
     if (setError != null) throw setError!;
     sets.add((cloud: cloud, ai: ai, version: version));
+  }
+
+  /// Astra G C.3: the one-shot revoke is its own call, not a `set`.
+  final revokes = <_Consent>[];
+
+  @override
+  Future<RevokeResult> revoke({
+    required String installId,
+    required String deviceSecret,
+    required String jwt,
+    required String ownerUid,
+    required int transitionGeneration,
+    required int version,
+  }) async {
+    events.add('revoke');
+    if (setError != null) throw setError!;
+    revokes.add((cloud: false, ai: false, version: version));
+    return const RevokeResult(ok: true, applied: true);
   }
 }
 
@@ -107,6 +127,8 @@ void main() {
           required backendUrl,
           required anonKey,
           required aiConsentGranted,
+          String? ownerUid,
+          int? transitionGeneration,
         }) async {},
         loadApnsToken: () async => null,
         readSession: () => session,
@@ -116,6 +138,7 @@ void main() {
           required cloud,
           required ai,
           required version,
+        int? transitionGeneration,
         }) async {
           events.add('mirror');
           mirrors.add((uid, (cloud: cloud, ai: ai, version: version)));
@@ -128,7 +151,8 @@ void main() {
           required ai,
           required version,
           required expectedEpoch,
-        }) async {
+        int? transitionGeneration,
+          }) async {
           events.add('mirror');
           mirrors.add((uid, (cloud: cloud, ai: ai, version: version)));
           events.add('publish');
@@ -283,6 +307,7 @@ void main() {
           required cloud,
           required ai,
           required version,
+        int? transitionGeneration,
         }) async =>
             events.add('mirror'),
         readOwnerEpoch: () async => 0,
@@ -292,7 +317,8 @@ void main() {
           required ai,
           required version,
           required expectedEpoch,
-        }) async =>
+        int? transitionGeneration,
+          }) async =>
             events.add('publish'),
       );
       await s.linkToCurrentUser();
@@ -326,7 +352,8 @@ void main() {
     // A-12-min (updated truthfully): the old test pinned a RETRY of the revoke.
     // Cloud OFF = zero egress: the revoke is one-shot and is never retried.
     // E1 (updated truthfully): it is sent by the disableCloud transition, not by
-    // the OFF sync.
+    // the OFF sync. Astra G (updated truthfully): it is the dedicated
+    // `revoke_capture_consent` call ('revoke'), no longer a `set_capture_consent`.
     test('a failed revoke still stops the device and is NOT retried', () async {
       final s = await linked();
       server.setError = const CaptureBackendException('offline');
@@ -334,13 +361,13 @@ void main() {
       await s.disableCloud(
           commitLocalOff: () => save(cloud: ConsentState.declined));
       expect(mirrors.single.$2, (cloud: false, ai: false, version: 2));
-      expect(server.sets, isEmpty);
-      expect(events.where((e) => e == 'set'), hasLength(1));
+      expect(server.revokes, isEmpty);
+      expect(events.where((e) => e == 'revoke'), hasLength(1));
 
       server.setError = null;
       events.clear();
       await s.syncBackendState();
-      expect(events.where((e) => e == 'set'), isEmpty,
+      expect(events.where((e) => e == 'revoke' || e == 'set'), isEmpty,
           reason: 'one attempt only; retention covers a call that never lands');
     });
 
@@ -368,13 +395,17 @@ void main() {
       int latest() => [
             ...server.links.map((c) => c.version),
             ...server.sets.map((c) => c.version),
+            ...server.revokes.map((c) => c.version),
           ].reduce((a, b) => a > b ? a : b);
       final sent = <int>[latest()];
       for (final step in [
         () => save(ai: ConsentState.declined),
         () => s.disableCloud(
             commitLocalOff: () => save(cloud: ConsentState.declined)),
-        () => save(cloud: ConsentState.accepted),
+        // Astra G (updated truthfully): leaving the persistent OFF gate is an
+        // explicit enable (a plain save of ON would be reverted to OFF).
+        () => s.enableCloud(
+            commitLocalOn: () => save(cloud: ConsentState.accepted)),
         () => save(ai: ConsentState.accepted),
       ]) {
         await step();
@@ -432,6 +463,7 @@ void main() {
           required cloud,
           required ai,
           required version,
+        int? transitionGeneration,
         }) async =>
             mirrors.add((uid, (cloud: cloud, ai: ai, version: version))),
         readOwnerEpoch: () async => 0,
@@ -441,7 +473,8 @@ void main() {
           required ai,
           required version,
           required expectedEpoch,
-        }) async {
+        int? transitionGeneration,
+          }) async {
           mirrors.add((uid, (cloud: cloud, ai: ai, version: version)));
           published.add(uid);
         },
@@ -470,6 +503,7 @@ class _SwitchingServer extends _ConsentServer {
     required bool cloud,
     required bool ai,
     required int version,
+  required int clientGeneration,
   }) async {
     await super.link(
         installId: installId,
@@ -477,7 +511,8 @@ class _SwitchingServer extends _ConsentServer {
         jwt: jwt,
         cloud: cloud,
         ai: ai,
-        version: version);
+        version: version,
+        clientGeneration: clientGeneration);
     onLink(); // the user signs out while the request is in flight
   }
 }

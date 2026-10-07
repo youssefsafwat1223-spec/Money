@@ -16,6 +16,7 @@ abstract class CaptureQueueBridge {
     required bool ai,
     required int version,
     required int expectedEpoch,
+    int? transitionGeneration,
   });
 
   /// The owner epoch read before a publish (bumped by every owner clear).
@@ -57,6 +58,7 @@ class NativeCaptureQueue implements CaptureQueueBridge {
     required bool ai,
     required int version,
     required int expectedEpoch,
+    int? transitionGeneration,
   }) async {
     await NativeCaptureBridge.publishCaptureOwner(
       uid: uid,
@@ -64,6 +66,7 @@ class NativeCaptureQueue implements CaptureQueueBridge {
       ai: ai,
       version: version,
       expectedEpoch: expectedEpoch,
+      transitionGeneration: transitionGeneration,
     );
   }
 

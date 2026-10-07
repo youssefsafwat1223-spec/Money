@@ -123,11 +123,12 @@ void main() {
 
     test('authorizeUpload is fail-closed: no mirror => waiting, no allowed(nil)',
         () {
-      final fn = body(store, 'static func authorizeUpload(');
+      final fn = body(store, 'private static func authorizeUploadLocked(');
       expect(fn, contains('item.localOnly == true'));
       expect(fn, contains('guard let mirror = consentMirror(forHash: owner.uidHash) else { return .waiting }'));
       expect(fn, isNot(contains('allowAi: nil')));
-      expect(store, contains('case allowed(ownerUid: String, allowAi: Bool)'));
+      expect(store,
+          contains('case allowed(ownerUid: String, ownerGeneration: Int, allowAi: Bool)'));
       expect(store, isNot(contains('allowAi: Bool?')));
       inOrder(fn, ['.localOnly', 'consentMirror(forHash', '.allowed(']);
     });
@@ -310,12 +311,12 @@ void main() {
 
     test('_linkAndPublish: OFF never needs the backend, ON links first', () {
       final fn = body(registration, 'Future<bool> _linkAndPublish()');
-      final beforeCloudBranch = fn.substring(0, fn.indexOf('if (snapshot.cloud)'));
+      final beforeCloudBranch = fn.substring(0, fn.indexOf('if (snapshot.cloud &&'));
       expect(beforeCloudBranch, isNot(contains('_isBackendConfigured')));
       expect(beforeCloudBranch, isNot(contains('_linkWithConsent')));
       inOrder(fn, [
         '_readOwnerEpoch()',
-        'if (snapshot.cloud)',
+        'if (snapshot.cloud &&',
         '_linkWithConsent(',
         '_publishOwner(',
       ]);
@@ -361,71 +362,146 @@ void main() {
     });
   });
 
-  group('Dart: the one-shot revoke inside the OFF transition (A-12.4, E1)', () {
+  group('Dart: the one-shot revoke inside the OFF transition (A-12.4, E1, '
+      'Astra G C.3/C.4)', () {
     test('one named constant, referenced by exactly one gate', () {
       expect(RegExp(r'const bool kRevokeAtCloudSwitchOff = true;')
           .hasMatch(registration), isTrue);
       final fn = body(registration,
-          'Future<Future<void> Function()?> _freezeAndPrepareRevoke()');
+          'Future<_RevokeInputs?> _captureRevokeInputs(');
       expect(fn, contains('!_revokeAtSwitchOff'));
       expect(RegExp(r'revokeAtSwitchOff = kRevokeAtCloudSwitchOff')
           .hasMatch(registration), isTrue);
     });
 
-    test('freeze first, marker durable first, ack cleared, no 401 recovery', () {
+    test('inputs need the frozen owner JWT and the uid-bound ack, never just '
+        'a stored secret', () {
       final fn = body(registration,
-          'Future<Future<void> Function()?> _freezeAndPrepareRevoke()');
+          'Future<_RevokeInputs?> _captureRevokeInputs(');
       inOrder(fn, [
-        '_writeNativeBackendConfig(',
-        '_writeConsentMirror(',
-        '_readAck(uid)',
-        '_revokeMarkerKey',
-        '_clearAck()',
-        '_consent.setConsent(',
+        'session.uid != freeze.owner',
+        '_readAck(freeze.owner)',
+        '_secretKey',
       ]);
+    });
+
+    test('attempt durable and consumed first, ack cleared, no 401 recovery, no '
+        'relink', () {
+      final fn = body(
+          registration, 'Future<void> _revokeOnce(DisableFreeze freeze, _RevokeInputs? inputs)');
+      inOrder(fn, [
+        '_attemptRecorded(freeze)',
+        '_revokeAttemptSlots.write(',
+        '_clearAck()',
+        '_gate.runRevoke(',
+        '_consent.revoke(',
+      ]);
+      expect(fn, contains("'consumed': true"));
       for (final forbidden in const [
         '_withSecretRecovery',
         '_recoverRejectedSecret',
         'registerDevice',
         'link(',
+        'setConsent(',
       ]) {
         expect(fn, isNot(contains(forbidden)), reason: forbidden);
       }
     });
 
-    test('disableCloud: freeze is the first statement, commit is in finally',
-        () {
+    test('disableCloud: freeze and epoch first, DISABLING durable before any '
+        'native/revoke work, commit after, durable OFF before unfreezing', () {
       final fn = body(registration,
           'Future<void> _disableCloud(Future<void> Function() commitLocalOff)');
       inOrder(fn, [
         'ConsentAuthority.egressFrozen = true;',
-        '_writeDisablePending(owner)',
-        '_freezeAndPrepareRevoke()',
-        '.timeout(_revokeTimeout)',
+        '_gate.advanceEpoch();',
+        '_gate.beginDisabling(',
+        '_restrictNativeSide(',
+        '_captureRevokeInputs(',
+        '_gate.drain()',
+        '_gate.drainNative(',
+        '_revokeOnce(',
         'finally',
+        '_finishDisable(',
+      ]);
+      final fin = body(registration, 'Future<void> _finishDisable(');
+      inOrder(fin, [
+        'owner_changed',
         'await commitLocalOff();',
-        // FAIL CLOSED: a failed local OFF write re-persists the marker and
-        // rethrows BEFORE the marker is cleared or the freeze is lifted.
-        '_writeDisablePending(owner)',
+        '_gate.rewriteDisabling(freeze)',
         'rethrow;',
-        '_clearDisablePending()',
+        'disabling_not_durable',
+        '_gate.commitOff(freeze)',
         'ConsentAuthority.egressFrozen = false;',
       ]);
-      final writer = body(
-          registration, 'Future<void> _writeDisablePending(String owner)');
-      expect(writer, contains('_disablePendingKey'));
-      expect(writer, contains('_disablePendingMarkerFile()'));
-      expect(RegExp(r'\.timeout\(').allMatches(fn).length, 1);
+      // The reconcile path never sends a revoke.
+      final pending = body(registration, 'Future<bool> _completePendingDisable(');
+      expect(pending, isNot(contains('_consent.')));
+      expect(pending, isNot(contains('_revokeOnce')));
     });
 
     test('the revoke has exactly one trigger; the UI routes OFF through it',
         () {
-      expect(RegExp(r'_freezeAndPrepareRevoke\(\)').allMatches(registration).length,
-          2, reason: 'the definition and the single call in _disableCloud');
+      expect(RegExp(r'_revokeOnce\(freeze, inputs\)').allMatches(registration).length,
+          1, reason: 'the single call in _disableCloud');
       final screen =
           File('lib/features/settings/privacy_screen.dart').readAsStringSync();
       expect(screen, contains('registration.isDisablingCloud(before, updated)'));
       expect(screen, contains('registration.disableCloud('));
+      expect(screen, contains('registration.enableCloud('));
+    });
+  });
+
+  group('Dart: one admission gate (Astra G P1)', () {
+    test('every default transport is the gated client', () {
+      for (final f in const [
+        'lib/features/capture/services/capture_backend_client.dart',
+        'lib/features/capture/services/capture_consent_client.dart',
+        'lib/features/capture/services/capture_server_port.dart',
+        'lib/engine/ai/ai_parser_client.dart',
+        'lib/engine/ai/bank_discovery_client.dart',
+        'lib/engine/ai/proof_shadow_client.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, contains('GatedHttpClient()'), reason: f);
+        expect(src, isNot(contains('?? http.Client()')), reason: f);
+      }
+    });
+
+    test('Supabase is initialised with the gated transport and no automatic '
+        'exception', () {
+      inOrder(bootstrap,
+          ['await Supabase.initialize(', 'httpClient: GatedHttpClient(),']);
+      expect(bootstrap, contains('stopAutoRefresh()'));
+      final consent =
+          File('lib/core/privacy/consent_authority.dart').readAsStringSync();
+      final decide = body(consent, 'static bool decide(');
+      expect(decide, contains('case EgressClass.auth:\n        return false;'));
+    });
+
+    test('catalog sync asks the gate first', () {
+      final catalog =
+          File('lib/data/catalog/catalog_sync_service.dart').readAsStringSync();
+      expect(body(catalog, 'Future<void> syncAll({String? countryCode})'),
+          contains('CloudEgressGate.instance.permits()'));
+    });
+
+    test('network images go through the gated provider', () {
+      for (final f in const [
+        'lib/features/cards/brand_mark.dart',
+        'lib/features/coupons/coupon_widgets.dart',
+      ]) {
+        final src = File(f).readAsStringSync();
+        expect(src, isNot(contains('Image.network(')), reason: f);
+        expect(src, contains('GatedNetworkImage('), reason: f);
+      }
+    });
+
+    test('the Dart replay always sends owner_uid and owner_generation', () {
+      final fn = body(sync, 'Future<bool> retryPendingSend(');
+      expect(fn, contains('ownerGeneration: ownerGeneration'));
+      expect(fn, contains('ownerUid: ownerUid'));
+      expect(fn, isNot(contains('auth.contractV2 ? auth.ownerUid : null')));
     });
   });
 

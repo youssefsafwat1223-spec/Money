@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/privacy/cloud_egress_gate.dart';
 import '../../../core/privacy/consent_authority.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
@@ -23,7 +24,7 @@ class CaptureSyncV2Client {
     http.Client? httpClient,
   })  : _supabaseUrl = supabaseUrl,
         _anonKey = anonKey,
-        _http = httpClient ?? http.Client();
+        _http = httpClient ?? GatedHttpClient();
 
   final String _supabaseUrl;
   final String _anonKey;

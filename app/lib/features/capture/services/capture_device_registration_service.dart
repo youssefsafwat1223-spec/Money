@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -6,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/privacy/cloud_egress_gate.dart';
 import '../../../core/privacy/consent_authority.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
@@ -24,6 +26,8 @@ typedef NativeBackendConfigWriter = Future<void> Function({
   required String backendUrl,
   required String anonKey,
   required bool aiConsentGranted,
+  String? ownerUid,
+  int? transitionGeneration,
 });
 
 typedef ApnsTokenLoader = Future<ApnsTokenInfo?> Function();
@@ -36,6 +40,7 @@ typedef ConsentMirrorWriter = Future<void> Function({
   required bool cloud,
   required bool ai,
   required int version,
+  int? transitionGeneration,
 });
 
 /// A-12-min R4: publishes the owner together with its consent mirror in one
@@ -46,11 +51,12 @@ typedef OwnerPublisher = Future<void> Function({
   required bool ai,
   required int version,
   required int expectedEpoch,
+  int? transitionGeneration,
 });
 
-/// A-12.4 / E1 — the single best-effort revoke projection call sent as the
-/// FINAL control-plane action of the ON state, inside
-/// [CaptureDeviceRegistrationService.disableCloud] (user-ratified). Set this to
+/// A-12.4 / E1 / Astra G C.3 — the single one-shot revoke
+/// (`revoke_capture_consent`, JWT) sent as the ONLY control-plane exception while
+/// DISABLING, inside [CaptureDeviceRegistrationService.disableCloud]. Set this to
 /// false to drop it: the transition then only freezes and commits OFF with zero
 /// requests, and already-stored server content is left to CAP-3 retention.
 const bool kRevokeAtCloudSwitchOff = true;
@@ -66,6 +72,66 @@ const Duration kCloudOffRevokeTimeout = Duration(seconds: 5);
 /// (cloud is the master gate, so AI is on only when cloud is on); never from a
 /// server value.
 typedef _ConsentSnapshot = ({bool cloud, bool ai, int version});
+
+/// P4: what an async mutation captured when it started. Every write after an
+/// await re-checks it ([CaptureDeviceRegistrationService._holds]): the
+/// in-process epoch (advanced by disable / enable / account transitions /
+/// sign-out), the session uid and the replica owner must all be unchanged.
+typedef _Tx = ({int epoch, String? sessionUid, String? owner});
+
+/// The persistent gate as the registration service needs it.
+enum _Gate { open, off, blocked }
+
+/// C.3 / C.4: the outcome of the one-shot revoke. NOT_ATTEMPTED = nothing was
+/// sent (no frozen-owner JWT, ack or secret, or no durable attempt record);
+/// UNCONFIRMED = it was sent (or may have been) and no `applied` answer came
+/// back; CONFIRMED = the server answered `{ok, applied}`. Never a claim that
+/// content was nulled or that work stopped.
+enum ServerRevocation { confirmed, unconfirmed, notAttempted }
+
+/// Thrown by [CaptureDeviceRegistrationService.disableCloud] when the UI must
+/// NOT be told that OFF succeeded (DISABLING could not be made durable, or the
+/// owner changed under the transition).
+class CloudDisableException implements Exception {
+  const CloudDisableException(this.reason);
+  final String reason;
+  @override
+  String toString() => 'CloudDisableException($reason)';
+}
+
+class _RevokeInputs {
+  const _RevokeInputs(this.installId, this.secret, this.jwt);
+  final String installId;
+  final String secret;
+  final String jwt;
+}
+
+/// Two independent durable copies of one small record (secure storage + file).
+class _DualSlot {
+  _DualSlot(this._a, this._b);
+  final DurableSlot _a;
+  final DurableSlot _b;
+
+  Future<bool> write(String value) async {
+    var ok = false;
+    try {
+      await _a.write(value);
+      ok = true;
+    } catch (_) {}
+    try {
+      await _b.write(value);
+      ok = true;
+    } catch (_) {}
+    return ok;
+  }
+
+  Future<String?> read() async {
+    final a = await _a.read();
+    if (a.status == SlotStatus.value) return a.raw;
+    final b = await _b.read();
+    return b.status == SlotStatus.value ? b.raw : null;
+  }
+}
 
 /// Per-run outcome, so overlapping syncs can never pollute each other.
 class _SyncOutcome {
@@ -115,7 +181,9 @@ class CaptureDeviceRegistrationService {
     bool revokeAtSwitchOff = kRevokeAtCloudSwitchOff,
     Duration revokeTimeout = kCloudOffRevokeTimeout,
     Future<Directory> Function()? markerDirectory,
-  })  : _revokeAtSwitchOff = revokeAtSwitchOff,
+    CloudEgressGate? gate,
+  })  : _gateOverride = gate,
+        _revokeAtSwitchOff = revokeAtSwitchOff,
         _revokeTimeout = revokeTimeout,
         _markerDirectory = markerDirectory ?? getApplicationSupportDirectory,
         _settingsRepository = settingsRepository,
@@ -146,18 +214,23 @@ class CaptureDeviceRegistrationService {
   /// unlink and whenever the device credential is replaced.
   static const _ackKey = 'qirsh_capture_consent_ack';
 
-  /// A-12.4: `uid|version` of the switch-off revoke, written BEFORE it is sent,
-  /// so a crash or a restart can never send it (a second time).
-  static const _revokeMarkerKey = 'qirsh_capture_revoke_marker';
+  /// C.4: the durable, consumed `revoke_attempt = {owner, transition_generation,
+  /// consumed: true}`, written BEFORE the single send and SEPARATE from the
+  /// DISABLING record (`disable_pending` is the `cloud_egress_state` DISABLING
+  /// record of [CloudEgressGate]). Nothing ever replays it: a crash after this
+  /// write means the revoke is never sent (the status is then UNCONFIRMED).
+  static const _revokeAttemptKey = 'qirsh.capture_revoke_attempt.v1';
+  static const _revokeAttemptFile = 'capture_revoke_attempt.v1';
 
-  /// E1: durable proof that a Cloud ON->OFF transition began. `qirsh.` prefix so
-  /// the session wipe keeps it. If it is found at startup the process died
-  /// mid-transition: OFF is committed locally and NO revoke is ever sent.
-  static const _disablePendingKey = 'qirsh.capture_disable_pending.v1';
+  /// `{owner, transition_generation, status}` of the last revoke outcome,
+  /// exposed read-only through [serverRevocation].
+  static const _serverRevocationKey = 'qirsh.capture_server_revocation.v1';
+  static const _serverRevocationFile = 'capture_server_revocation.v1';
 
   /// One transition at a time, process-wide (the UI and startup own different
   /// service instances).
   static Future<void>? _disableInFlight;
+  static Future<void>? _enableInFlight;
 
   final DriftUserSettingsRepository _settingsRepository;
   final CaptureBackendClient? _client;
@@ -176,12 +249,10 @@ class CaptureDeviceRegistrationService {
   final Future<int> Function() _readOwnerEpoch;
   final bool _revokeAtSwitchOff;
   final Duration _revokeTimeout;
+  final CloudEgressGate? _gateOverride;
 
-  /// Second, independent durable store for the `disable_pending` marker (a file
-  /// in app support), so a failed Keychain write plus a failed local OFF write
-  /// still leaves the next launch something to complete OFF from.
+  /// App-support directory for the file copies of the revoke records.
   final Future<Directory> Function() _markerDirectory;
-  static const _disablePendingFile = 'capture_disable_pending.v1';
   Future<bool>? _linkInFlight;
   final Map<String, int> _mirrorVersions = {};
   Future<String>? _credentialRecovery;
@@ -195,6 +266,36 @@ class CaptureDeviceRegistrationService {
   int _syncGeneration = 0;
 
   ValueListenable<CaptureRegistrationStatus> get status => _status;
+
+  CloudEgressGate get _gate => _gateOverride ?? CloudEgressGate.instance;
+
+  _DualSlot get _revokeAttemptSlots => _DualSlot(
+      SecureStorageSlot(_storage, _revokeAttemptKey),
+      FileSlot(_markerDirectory, _revokeAttemptFile));
+
+  _DualSlot get _serverRevocationSlots => _DualSlot(
+      SecureStorageSlot(_storage, _serverRevocationKey),
+      FileSlot(_markerDirectory, _serverRevocationFile));
+
+  bool _cloudOn(UserSettingsEntity s) => _isAndroid()
+      ? s.cloudProcessingEnabled || s.aiConsentGranted
+      : s.cloudProcessingEnabled;
+
+  Future<_Tx> _beginTx() async =>
+      (epoch: _gate.epoch, sessionUid: _readSession()?.uid, owner: await _readReplicaOwnerUid());
+
+  /// P4: whether the async mutation that captured [tx] may still write. False
+  /// after a disable / enable / account transition / sign-out advanced the
+  /// epoch, after an account or session switch, or while frozen.
+  Future<bool> _holds(_Tx tx) async {
+    if (_gate.epoch != tx.epoch || ConsentAuthority.egressFrozen) return false;
+    if (_readSession()?.uid != tx.sessionUid) return false;
+    try {
+      return await _readReplicaOwnerUid() == tx.owner;
+    } catch (_) {
+      return false;
+    }
+  }
 
   static Future<ApnsTokenInfo?> _defaultLoadApnsToken() async {
     return await NativeCaptureBridge.registerForRemoteNotifications() ??
@@ -235,7 +336,7 @@ class CaptureDeviceRegistrationService {
   Future<void> syncBackendState() async {
     final ios = _isIos();
     if (!ios && !_isAndroid()) return;
-    if (await _frozen()) return;
+    if (await _gateState() == _Gate.blocked) return;
     final generation = ++_syncGeneration;
     void record(CaptureRegistrationStatus next) {
       // A newer sync owns the status; never let a stale run overwrite it.
@@ -303,6 +404,9 @@ class CaptureDeviceRegistrationService {
   /// exception is the revoke inside [disableCloud].
   Future<void> _syncAndroidConsentState(_SyncOutcome outcome) async {
     if (!_isBackendConfigured()) return;
+    // OFF (persistent gate) or unset: nothing is sent, ever, even with a secret.
+    if (await _gateState() != _Gate.open) return;
+    final tx = await _beginTx();
     final settings = await _settingsRepository.getSettings();
     final wantsCloudOrAi =
         settings.cloudProcessingEnabled || settings.aiConsentGranted;
@@ -317,12 +421,33 @@ class CaptureDeviceRegistrationService {
           platform: 'android',
         );
         await _storage.write(key: _secretKey, value: secret);
+        await _clearAck();
       } catch (_) {
         outcome.registerFailed = true;
         return; // retried on the next sync; nothing leaks, nothing breaks
       }
     }
 
+    // C.3 / P7: the Android device row is linked to its owner with the JWT link
+    // (`link_capture_device(consent)`), exactly like iOS, so the revoke can be
+    // authorised by the same contract. Only a session whose uid IS the admitted
+    // replica owner may link; otherwise (signed out) the legacy device-secret
+    // consent push below is all that exists, and it creates no owner proof.
+    final session = _readSession();
+    if (session != null && tx.owner == session.uid && tx.sessionUid == session.uid) {
+      final snapshot = (
+        cloud: settings.cloudProcessingEnabled,
+        ai: settings.aiConsentGranted,
+        version: settings.consentVersion,
+      );
+      if (await _readAck(session.uid) == snapshot) return;
+      if (!await _linkWithConsent(session, snapshot, tx)) {
+        outcome.consentPushFailed = true;
+      }
+      return;
+    }
+
+    if (!await _holds(tx)) return;
     await _pushDeviceConsent(
       outcome,
       installId: installId,
@@ -335,18 +460,25 @@ class CaptureDeviceRegistrationService {
   Future<void> syncNativeState() => _syncNativeState(_SyncOutcome());
 
   Future<void> _syncNativeState(_SyncOutcome outcome) async {
-    if (!_isIos() || await _frozen()) return;
+    if (!_isIos()) return;
+    final gateState = await _gateState();
+    if (gateState == _Gate.blocked) return;
+    final tx = await _beginTx();
     final settings = await _settingsRepository.getSettings();
     final installId = await _loadInstallId();
     var secret = await _storage.read(key: _secretKey);
 
-    if (!settings.cloudProcessingEnabled || !_isBackendConfigured()) {
+    if (!settings.cloudProcessingEnabled ||
+        !_isBackendConfigured() ||
+        gateState == _Gate.off) {
       await _writeNativeBackendConfig(
         cloudProcessingEnabled: false,
         installId: installId,
         backendUrl: SupabaseConfig.url,
         anonKey: SupabaseConfig.anonKey,
         aiConsentGranted: false,
+        ownerUid: tx.owner ?? '',
+        transitionGeneration: await _clientGeneration(tx.owner ?? ''),
       );
       // Cloud OFF = ZERO EGRESS (A-12-min R6): no link, no registerDevice, no
       // setConsent, no APNs registration and no 401 recovery. The owner and its
@@ -365,6 +497,8 @@ class CaptureDeviceRegistrationService {
         backendUrl: SupabaseConfig.url,
         anonKey: SupabaseConfig.anonKey,
         aiConsentGranted: false,
+        ownerUid: tx.owner ?? '',
+        transitionGeneration: await _clientGeneration(tx.owner ?? ''),
       );
     }
 
@@ -378,6 +512,9 @@ class CaptureDeviceRegistrationService {
       await _storage.write(key: _secretKey, value: secret);
     }
 
+    // P4: the registration round trip may have outlived an account switch or a
+    // transition; the (widening) native config is written only if nothing moved.
+    if (!await _holds(tx)) return;
     await _writeNativeBackendConfig(
       cloudProcessingEnabled: _isBackendConfigured(),
       installId: installId,
@@ -385,12 +522,14 @@ class CaptureDeviceRegistrationService {
       backendUrl: SupabaseConfig.url,
       anonKey: SupabaseConfig.anonKey,
       aiConsentGranted: settings.aiConsentGranted,
+      ownerUid: tx.owner ?? '',
+      transitionGeneration: await _clientGeneration(tx.owner ?? ''),
     );
     // MALI-060n — mirror consent onto the verified server device row so the
     // AI/paid endpoints enforce it authoritatively (revocation propagates the
     // moment the user toggles it, since syncNativeState re-runs). Best-effort:
     // a failure here must never block native config or local capture.
-    await _projectConsent(outcome);
+    await _projectConsent(outcome, tx);
     try {
       final token = await _loadApnsToken();
       if (token != null) {
@@ -457,33 +596,32 @@ class CaptureDeviceRegistrationService {
   }
 
   Future<bool> _linkAndPublish() async {
-    if (!_isIos() || await _frozen()) return false;
+    // P6: OFF (a committed persistent gate) still publishes LOCALLY with a
+    // restrictive mirror; DISABLING / frozen / uncertain authority fails closed.
+    if (!_isIos()) return false;
+    final gateState = await _gateState();
+    if (gateState == _Gate.blocked) return false;
     final session = _readSession();
     if (session == null) return false;
     if (await _readReplicaOwnerUid() != session.uid) return false;
+    final tx = await _beginTx();
     // Read BEFORE any await that can take long: a sign-out / transition / removal
     // clear after this point bumps the epoch and the native publish refuses.
     final epoch = await _readOwnerEpoch();
     final snapshot = _snapshotOf(await _settingsRepository.getSettings());
     var linked = (cloud: false, ai: false, version: snapshot.version);
-    if (snapshot.cloud) {
+    if (snapshot.cloud && gateState == _Gate.open) {
       if (!_isBackendConfigured()) return false;
       final ack = await _readAck(session.uid);
       if (ack != snapshot) {
-        if (!await _linkWithConsent(session, snapshot)) return false;
+        if (!await _linkWithConsent(session, snapshot, tx)) return false;
       }
       linked = snapshot;
     }
     // Re-checked after the round trip: an account switch in between must not
     // publish the previous user as the owner, and a Cloud-OFF transition that
     // began meanwhile must not have its restricted mirror widened.
-    final current = _readSession();
-    if (ConsentAuthority.egressFrozen ||
-        current == null ||
-        current.uid != session.uid ||
-        await _readReplicaOwnerUid() != session.uid) {
-      return false;
-    }
+    if (!await _holds(tx)) return false;
     // The mirror is never wider than what is proven (OFF, or what the server
     // acknowledged), even if consent changed while the link was in flight.
     final now = _snapshotOf(await _settingsRepository.getSettings());
@@ -492,24 +630,28 @@ class CaptureDeviceRegistrationService {
       ai: now.ai && linked.ai,
       version: now.version,
     );
+    if (!await _holds(tx)) return false;
     await _publishOwner(
       uid: session.uid,
       cloud: mirror.cloud,
       ai: mirror.ai,
       version: mirror.version,
       expectedEpoch: epoch,
+      transitionGeneration: await _clientGeneration(session.uid),
     );
     _mirrorVersions[session.uid] = mirror.version;
     return true;
   }
 
   Future<bool> _linkWithConsent(
-      CaptureSession session, _ConsentSnapshot snapshot) async {
+      CaptureSession session, _ConsentSnapshot snapshot, _Tx tx) async {
     final installId = await _loadInstallId();
     var secret = await _storage.read(key: _secretKey);
+    final generation = await _clientGeneration(session.uid);
     try {
       if (secret == null || secret.isEmpty) {
-        secret = await _backendClient.registerDevice(installId: installId);
+        secret = await _backendClient.registerDevice(
+            installId: installId, platform: _isAndroid() ? 'android' : 'ios');
         await _storage.write(key: _secretKey, value: secret);
         await _clearAck();
       }
@@ -521,13 +663,27 @@ class CaptureDeviceRegistrationService {
           cloud: snapshot.cloud,
           ai: snapshot.ai,
           version: snapshot.version,
+          clientGeneration: generation,
         );
       });
     } catch (_) {
       return false;
     }
+    // P4: an ack for a link that completed after an account switch or a
+    // transition is never written; the next admission links again.
+    if (!await _holds(tx)) return false;
     await _writeAck(session.uid, snapshot);
     return true;
+  }
+
+  /// The client transition generation sent as `p_client_generation` (C.2): the
+  /// owner's durable `cloud_egress_state` generation (0 before any record).
+  Future<int> _clientGeneration(String uid) async {
+    try {
+      return (await _gate.view(owner: uid)).record?.transitionGeneration ?? 0;
+    } catch (_) {
+      return 0;
+    }
   }
 
   /// WP-6 — projects a consent CHANGE after the install is linked. A revocation
@@ -537,7 +693,7 @@ class CaptureDeviceRegistrationService {
   /// leaves the restrictive mirror and the old acknowledgement, so the next sync
   /// retries the same absolute state. A never-linked install goes through the
   /// full gate instead. Cloud ON only: Cloud OFF never reaches this (R6).
-  Future<void> _projectConsent(_SyncOutcome outcome) async {
+  Future<void> _projectConsent(_SyncOutcome outcome, _Tx tx) async {
     if (ConsentAuthority.egressFrozen) return;
     final session = _readSession();
     if (session == null || await _readReplicaOwnerUid() != session.uid) return;
@@ -550,11 +706,13 @@ class CaptureDeviceRegistrationService {
       return;
     }
     if (ack == snapshot) return;
+    if (!await _holds(tx)) return;
     await _writeMirror(session.uid, (
       cloud: snapshot.cloud && ack.cloud,
       ai: snapshot.ai && ack.ai,
       version: snapshot.version,
     ));
+    final generation = await _clientGeneration(session.uid);
     try {
       final installId = await _loadInstallId();
       final secret = await _storage.read(key: _secretKey);
@@ -569,12 +727,16 @@ class CaptureDeviceRegistrationService {
           cloud: snapshot.cloud,
           ai: snapshot.ai,
           version: snapshot.version,
+          clientGeneration: generation,
         );
       });
     } catch (_) {
       if (snapshot.cloud) outcome.consentPushFailed = true;
       return;
     }
+    // P4: the answer of a set that outlived an account switch / transition has
+    // no state effect (no widened mirror, no ack).
+    if (!await _holds(tx)) return;
     await _writeMirror(session.uid, snapshot);
     await _writeAck(session.uid, snapshot);
   }
@@ -615,6 +777,7 @@ class CaptureDeviceRegistrationService {
       cloud: snapshot.cloud,
       ai: snapshot.ai,
       version: snapshot.version,
+      transitionGeneration: await _clientGeneration(uid),
     );
     _mirrorVersions[uid] = snapshot.version;
   }
@@ -667,25 +830,37 @@ class CaptureDeviceRegistrationService {
   /// Whether saving [after] over [before] switches the capture cloud from ON to
   /// OFF on this platform (Android treats AI like cloud, see
   /// [_syncAndroidConsentState]). Such a change MUST go through [disableCloud].
-  bool isDisablingCloud(UserSettingsEntity before, UserSettingsEntity after) {
-    if (_isAndroid()) {
-      return (before.cloudProcessingEnabled || before.aiConsentGranted) &&
-          !(after.cloudProcessingEnabled || after.aiConsentGranted);
-    }
-    return before.cloudProcessingEnabled && !after.cloudProcessingEnabled;
-  }
+  bool isDisablingCloud(UserSettingsEntity before, UserSettingsEntity after) =>
+      _cloudOn(before) && !_cloudOn(after);
 
-  /// E1 — the user-ratified Cloud ON->OFF transition. In order:
-  ///  (a) FREEZE, synchronously: every egress gate refuses from this line on
-  ///      (the stored consent still reads ON until (c)), a durable
-  ///      `disable_pending` marker is written and the native side is restricted;
-  ///  (b) at most ONE best-effort, content-free revoke, with the inputs captured
-  ///      while still ON, bounded by [_revokeTimeout]; no 401 recovery, no
-  ///      retry, no link/register fallback; any failure is swallowed;
-  ///  (c) in a `finally`: [commitLocalOff] (save OFF), then the marker is
-  ///      cleared and the freeze lifted. A failed or hung revoke never blocks OFF.
-  /// A crash in between leaves the marker: [_frozen] commits OFF at the next
-  /// start without any revoke. Concurrent calls share one transition.
+  /// The opposite change: OFF/unset -> ON. Such a change MUST go through
+  /// [enableCloud] (an explicit user action; the only way out of the persistent
+  /// OFF gate).
+  bool isEnablingCloud(UserSettingsEntity before, UserSettingsEntity after) =>
+      !_cloudOn(before) && _cloudOn(after);
+
+  /// Astra G C.4 — the Cloud ON->OFF transition. In order:
+  ///  (a) FREEZE, synchronously: the in-process flag and the epoch advance
+  ///      first; then, under the admission lock, `cloud_egress_state = DISABLING`
+  ///      (owner, a NEW transition generation, reserved version = current + 1)
+  ///      is written durably to every store. No request newly passes admission
+  ///      after that, concurrent attempts included. If not one store takes the
+  ///      record NOTHING is sent (no revoke), local OFF is still attempted, and
+  ///      the UI is told ([CloudDisableException]);
+  ///  (b) the native side is restricted (no network), the revoke inputs are
+  ///      FROZEN (owner, generation, version, install, JWT of THAT owner, secret,
+  ///      uid-bound ack), the in-flight requests are drained (bounded, then
+  ///      cancelled) and at most ONE revoke is sent: its `revoke_attempt` is
+  ///      durably written (consumed) BEFORE the send, there is no retry, no
+  ///      relink, no 401 recovery and no startup replay; the outcome is
+  ///      [serverRevocation];
+  ///  (c) [commitLocalOff] persists Cloud OFF, then durable OFF replaces
+  ///      DISABLING and only then is the freeze lifted. If the local write fails
+  ///      the freeze stays on, DISABLING is re-written and the error is rethrown.
+  /// A crash leaves DISABLING: [resolvePendingDisable] commits OFF locally at
+  /// the next start (never a revoke). The callback is skipped when the account
+  /// changed under the transition (the marker stays for its owner). Bytes
+  /// already transmitted before DISABLING cannot be recalled.
   Future<void> disableCloud({
     required Future<void> Function() commitLocalOff,
   }) =>
@@ -694,190 +869,308 @@ class CaptureDeviceRegistrationService {
 
   Future<void> _disableCloud(Future<void> Function() commitLocalOff) async {
     ConsentAuthority.egressFrozen = true;
+    _gate.advanceEpoch(); // P4: advance BEFORE any transition work
+    final sessionUid = _readSession()?.uid;
+    String? owner;
+    DisableFreeze? freeze;
     try {
-      // The value names the replica owner: settings are per replica, so only
-      // that replica may complete the commit after a crash.
-      String owner = '';
       try {
         owner = await _readReplicaOwnerUid() ?? '';
-      } catch (_) {}
-      await _writeDisablePending(owner);
-      Future<void> Function()? revoke;
-      try {
-        revoke = await _freezeAndPrepareRevoke();
-      } catch (_) {}
-      if (revoke != null) {
-        try {
-          await revoke().timeout(_revokeTimeout);
-        } catch (_) {
-          // Best-effort and final: CAP-3 retention covers a call that never lands.
-        }
+        final settings = await _settingsRepository.getSettings();
+        freeze = await _gate.beginDisabling(
+            owner: owner, reservedVersion: settings.consentVersion + 1);
+        await _restrictNativeSide(freeze);
+        final inputs = await _captureRevokeInputs(freeze, settings);
+        await _gate.drain();
+        await _gate.drainNative(freeze.owner);
+        await _revokeOnce(freeze, inputs);
+      } catch (_) {
+        // Nothing above may block the local OFF below. Without a durable
+        // DISABLING record no revoke can have been sent (see beginDisabling).
       }
     } finally {
-      // FAIL CLOSED: if the local OFF write fails, the process-wide freeze stays
-      // on, Cloud is never restored to ON, nothing more is sent, and the marker
-      // is re-written (both stores) so the next launch completes OFF.
-      try {
-        await commitLocalOff();
-      } catch (_) {
-        String owner = '';
-        try {
-          owner = await _readReplicaOwnerUid() ?? '';
-        } catch (_) {}
-        await _writeDisablePending(owner);
-        rethrow;
-      }
-      await _clearDisablePending();
+      await _finishDisable(commitLocalOff, owner, sessionUid, freeze);
+    }
+  }
+
+  Future<void> _finishDisable(
+    Future<void> Function() commitLocalOff,
+    String? owner,
+    String? sessionUid,
+    DisableFreeze? freeze,
+  ) async {
+    // P4: the callback writes the CURRENT replica. If the account changed under
+    // the transition it must not touch the new owner; the DISABLING marker stays
+    // for the old owner's next admission and the new owner is evaluated alone.
+    var sameOwner = false;
+    try {
+      sameOwner = owner != null &&
+          (await _readReplicaOwnerUid() ?? '') == owner &&
+          _readSession()?.uid == sessionUid;
+    } catch (_) {}
+    if (!sameOwner) {
       ConsentAuthority.egressFrozen = false;
+      throw const CloudDisableException('owner_changed');
     }
-  }
-
-  Future<File> _disablePendingMarkerFile() async =>
-      File('${(await _markerDirectory()).path}/$_disablePendingFile');
-
-  /// Writes the marker to both stores; each failure is independent.
-  Future<void> _writeDisablePending(String owner) async {
+    // FAIL CLOSED: if the local OFF write fails, the process-wide freeze stays
+    // on, Cloud is never restored to ON, nothing more is sent, and DISABLING is
+    // re-written so the next launch completes OFF.
     try {
-      await _storage.write(key: _disablePendingKey, value: owner);
-    } catch (_) {}
-    try {
-      await (await _disablePendingMarkerFile()).writeAsString(owner, flush: true);
-    } catch (_) {}
-  }
-
-  /// The pending owner from either store. Throws when neither store can be read
-  /// so the caller fails closed; returns null only when both reads succeeded and
-  /// found nothing.
-  Future<String?> _readDisablePending() async {
-    String? fromStorage;
-    var storageRead = false;
-    try {
-      fromStorage = await _storage.read(key: _disablePendingKey);
-      storageRead = true;
-    } catch (_) {}
-    if (fromStorage != null) return fromStorage;
-    String? fromFile;
-    var fileRead = false;
-    try {
-      final file = await _disablePendingMarkerFile();
-      fromFile = await file.exists() ? await file.readAsString() : null;
-      fileRead = true;
-    } catch (_) {}
-    if (fromFile != null) return fromFile;
-    if (!storageRead && !fileRead) {
-      throw StateError('disable_pending unreadable');
+      await commitLocalOff();
+    } catch (_) {
+      if (freeze != null) await _gate.rewriteDisabling(freeze);
+      rethrow;
     }
-    return null;
+    if (freeze == null) {
+      // DISABLING never became durable: egress stays denied in this process and
+      // the UI is NOT told that OFF succeeded.
+      throw const CloudDisableException('disabling_not_durable');
+    }
+    if (await _gate.commitOff(freeze)) {
+      ConsentAuthority.egressFrozen = false;
+      await _gate.refresh();
+    }
+    // else: durable OFF could not be written; DISABLING (denied) is still
+    // there and the freeze stays, so nothing reopens.
   }
 
-  Future<void> _clearDisablePending() async {
-    try {
-      await _storage.delete(key: _disablePendingKey);
-    } catch (_) {}
-    try {
-      final file = await _disablePendingMarkerFile();
-      if (await file.exists()) await file.delete();
-    } catch (_) {}
+  /// Astra G: an explicit enable (the only way out of the persistent OFF gate).
+  /// Advances to a NEW transition generation and version (strictly greater),
+  /// writes ON to every store, lifts the freeze, then runs [commitLocalOn] (the
+  /// UI's settings save) and the existing ON path ([syncBackendState]).
+  Future<void> enableCloud({
+    required Future<void> Function() commitLocalOn,
+  }) async {
+    final pending = _disableInFlight;
+    if (pending != null) {
+      try {
+        await pending;
+      } catch (_) {}
+    }
+    return _enableInFlight ??=
+        _enableCloud(commitLocalOn).whenComplete(() => _enableInFlight = null);
   }
 
-  /// Restricts the native side (no network) and, while the state is still ON,
-  /// captures what the revoke needs. Returns the send closure, or null when no
-  /// revoke is due. Writes the durable `(uid, version)` marker and clears the ack
-  /// BEFORE the closure can send.
-  Future<Future<void> Function()?> _freezeAndPrepareRevoke() async {
-    final ios = _isIos();
-    if (!ios && !_isAndroid()) return null;
+  Future<void> _enableCloud(Future<void> Function() commitLocalOn) async {
+    _gate.advanceEpoch();
+    final owner = await _readReplicaOwnerUid() ?? '';
     final settings = await _settingsRepository.getSettings();
-    final next = settings.consentVersion + 1;
-    final session = _readSession();
-    final installId = await _loadInstallId();
-    if (ios) {
-      try {
-        await _writeNativeBackendConfig(
-          cloudProcessingEnabled: false,
-          installId: installId,
-          backendUrl: SupabaseConfig.url,
-          anonKey: SupabaseConfig.anonKey,
-          aiConsentGranted: false,
-        );
-      } catch (_) {}
-      try {
-        if (session != null && await _readReplicaOwnerUid() == session.uid) {
-          await _writeConsentMirror(
-              uid: session.uid, cloud: false, ai: false, version: next);
-          _mirrorVersions[session.uid] = next;
-        }
-      } catch (_) {}
+    await _gate.enable(owner: owner, reservedVersion: settings.consentVersion + 1);
+    ConsentAuthority.egressFrozen = false;
+    await commitLocalOn();
+    await _gate.refresh();
+  }
+
+  /// Restricts the native side (no network): backend config cloud=false and a
+  /// restrictive mirror for the frozen owner at the reserved version.
+  Future<void> _restrictNativeSide(DisableFreeze freeze) async {
+    if (!_isIos()) return;
+    try {
+      await _writeNativeBackendConfig(
+        cloudProcessingEnabled: false,
+        installId: await _loadInstallId(),
+        backendUrl: SupabaseConfig.url,
+        anonKey: SupabaseConfig.anonKey,
+        aiConsentGranted: false,
+        ownerUid: freeze.owner,
+        transitionGeneration: freeze.transitionGeneration,
+      );
+    } catch (_) {}
+    try {
+      if (freeze.owner.isNotEmpty) {
+        await _writeConsentMirror(
+            uid: freeze.owner,
+            cloud: false,
+            ai: false,
+            version: freeze.reservedVersion,
+            transitionGeneration: freeze.transitionGeneration);
+        _mirrorVersions[freeze.owner] = freeze.reservedVersion;
+      }
+    } catch (_) {}
+  }
+
+  /// The revoke inputs, FROZEN at DISABLING: the frozen owner's JWT (the live
+  /// session must be that owner), its uid-bound ack showing Cloud ON, the device
+  /// secret and the install id. "Stored secret + was ON" is NEVER enough: with
+  /// no JWT or no ack there is nothing to send (NOT_ATTEMPTED).
+  Future<_RevokeInputs?> _captureRevokeInputs(
+      DisableFreeze freeze, UserSettingsEntity settings) async {
+    if (!_revokeAtSwitchOff ||
+        !_cloudOn(settings) ||
+        !_isBackendConfigured() ||
+        freeze.owner.isEmpty ||
+        (!_isIos() && !_isAndroid())) {
+      return null;
     }
-    final wasOn = ios
-        ? settings.cloudProcessingEnabled
-        : settings.cloudProcessingEnabled || settings.aiConsentGranted;
-    if (!_revokeAtSwitchOff || !wasOn || !_isBackendConfigured()) return null;
+    final session = _readSession();
+    if (session == null || session.uid != freeze.owner) return null;
+    final ack = await _readAck(freeze.owner);
+    if (ack == null || !(_isAndroid() ? ack.cloud || ack.ai : ack.cloud)) {
+      return null;
+    }
     final secret = await _storage.read(key: _secretKey);
     if (secret == null || secret.isEmpty) return null;
-    String? uid;
-    if (ios) {
-      uid = session?.uid;
-      if (uid == null) return null;
-      final ack = await _readAck(uid);
-      if (ack == null || !ack.cloud) return null;
+    return _RevokeInputs(await _loadInstallId(), secret, session.jwt);
+  }
+
+  /// The single send opportunity. The consumed `revoke_attempt` is durably
+  /// written FIRST (no durable record, no send), the ack is cleared, then ONE
+  /// request is made with a hard timeout. No retry, no relink, no 401 recovery.
+  Future<void> _revokeOnce(DisableFreeze freeze, _RevokeInputs? inputs) async {
+    if (inputs == null) {
+      await _recordRevocation(freeze, ServerRevocation.notAttempted);
+      return;
     }
-    final marker = '${uid ?? 'android'}|$next';
+    if (await _attemptRecorded(freeze)) {
+      // A consumed attempt for this (owner, generation) already exists: the one
+      // send opportunity is gone. Never a second send.
+      await _recordRevocation(freeze, ServerRevocation.unconfirmed);
+      return;
+    }
+    final attempt = jsonEncode({
+      'owner': freeze.owner,
+      'transition_generation': freeze.transitionGeneration,
+      'consumed': true,
+    });
+    if (!await _revokeAttemptSlots.write(attempt)) {
+      await _recordRevocation(freeze, ServerRevocation.notAttempted);
+      return;
+    }
+    await _clearAck();
+    var status = ServerRevocation.unconfirmed;
     try {
-      if (await _storage.read(key: _revokeMarkerKey) == marker) return null;
-      await _storage.write(key: _revokeMarkerKey, value: marker);
-    } catch (_) {
-      return null; // no durable marker, no send
-    }
-    if (ios) await _clearAck();
-    if (!ios) {
-      return () => _backendClient.setDeviceConsent(
-            installId: installId,
-            deviceSecret: secret,
-            aiConsentGranted: false,
-            cloudProcessingEnabled: false,
-          );
-    }
-    final jwt = session!.jwt;
-    return () => _consent.setConsent(
-          installId: installId,
-          deviceSecret: secret,
-          jwt: jwt,
-          cloud: false,
-          ai: false,
-          version: next,
+      final result = await _gate.runRevoke(freeze, _revokeTimeout, () {
+        return _consent.revoke(
+          installId: inputs.installId,
+          deviceSecret: inputs.secret,
+          jwt: inputs.jwt,
+          ownerUid: freeze.owner,
+          transitionGeneration: freeze.transitionGeneration,
+          version: freeze.reservedVersion,
         );
+      });
+      if (result.applied || result.reason == 'already_revoked') {
+        status = ServerRevocation.confirmed;
+      }
+    } catch (_) {
+      // Best-effort and final: CAP-3 retention covers a call that never lands.
+    }
+    await _recordRevocation(freeze, status);
   }
 
-  /// Startup hook: finishes a Cloud-OFF transition a dead process left behind,
-  /// before any other egress can start. No revoke, ever (see [_frozen]).
+  Future<void> _recordRevocation(
+      DisableFreeze freeze, ServerRevocation status) async {
+    await _serverRevocationSlots.write(jsonEncode({
+      'owner': freeze.owner,
+      'transition_generation': freeze.transitionGeneration,
+      'status': status.name,
+    }));
+  }
+
+  /// WP-8 diagnostics (read-only): how the last revoke ended. Status and
+  /// generation only; never a uid, secret or content. CONFIRMED means the server
+  /// answered `{ok, applied}` for that call, nothing more.
+  Future<({ServerRevocation status, int generation})?> serverRevocation() async {
+    try {
+      final raw = await _serverRevocationSlots.read();
+      if (raw == null) return null;
+      final m = jsonDecode(raw);
+      if (m is! Map) return null;
+      final status = ServerRevocation.values
+          .where((v) => v.name == m['status'])
+          .firstOrNull;
+      final gen = m['transition_generation'];
+      if (status == null || gen is! int) return null;
+      return (status: status, generation: gen);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Startup hook: finishes a Cloud-OFF transition a dead process left behind
+  /// and reconciles the durable state with the replica, before any other egress
+  /// can start (C.5). No revoke, ever. Uncertain state keeps egress frozen.
   Future<void> resolvePendingDisable() async {
-    await _frozen();
+    if (_disableInFlight != null) return;
+    if (ConsentAuthority.egressFrozen) ConsentAuthority.egressFrozen = false;
+    await _reconcile();
   }
 
-  /// True while a transition is running (every egress path refuses). If instead
-  /// a `disable_pending` marker is found with no transition running, the process
-  /// died mid-transition: OFF is committed locally now, the ack and the marker
-  /// are cleared and NO revoke is sent (it is never retried); then not frozen.
-  Future<bool> _frozen() async {
-    if (ConsentAuthority.egressFrozen) return true;
-    String? pending;
-    try {
-      pending = await _readDisablePending();
-    } catch (_) {
-      return true; // marker state unknown: fail closed for this call
+  /// The persistent gate for this replica's owner. A DISABLING record with no
+  /// transition running in this process means the process died mid-transition:
+  /// local OFF is retried (never the revoke). Another owner's marker is left
+  /// alone: it is neither applied to this owner nor discarded.
+  Future<_Gate> _gateState() async {
+    if (ConsentAuthority.egressFrozen || _disableInFlight != null) {
+      return _Gate.blocked;
     }
-    if (pending == null) return false;
+    return _reconcile();
+  }
+
+  Future<_Gate> _reconcile() async {
+    final String owner;
+    final EgressView view;
     try {
-      if (pending != (await _readReplicaOwnerUid() ?? '')) return false;
-    } catch (_) {
-      return true; // owner unknown: fail closed for this call
+      owner = await _readReplicaOwnerUid() ?? '';
+      view = await _gate.view(owner: owner);
+    } catch (e) {
+      ConsentAuthority.egressFrozen = true; // owner/state unknown: fail closed
+      return _Gate.blocked;
     }
-    ConsentAuthority.egressFrozen = true;
+    if (view.uncertain) {
+      ConsentAuthority.egressFrozen = true;
+      return _Gate.blocked;
+    }
+    final rec = view.record;
+    if (rec != null && rec.state == EgressState.disabling) {
+      return await _completePendingDisable(rec) ? _Gate.off : _Gate.blocked;
+    }
     try {
       final settings = await _settingsRepository.getSettings();
-      if (settings.cloudProcessingEnabled ||
-          (_isAndroid() && settings.aiConsentGranted)) {
+      final on = _cloudOn(settings);
+      if (rec == null && on) {
+        // Legacy adoption: consent granted before the durable record existed.
+        final w = await _gate.writeRecord(CloudEgressRecord(
+          state: EgressState.on,
+          ownerUid: owner,
+          transitionGeneration: 1,
+          reservedVersion: settings.consentVersion,
+        ));
+        if (!w.all) return _Gate.blocked;
+        await _gate.refresh();
+        return _Gate.open;
+      }
+      if (rec != null && rec.state == EgressState.on && !on) {
+        // Settings are more restrictive than the record (a disable that never
+        // became durable): align the record to OFF, never the other way.
+        await _gate.writeRecord(rec.copyWith(
+            state: EgressState.off,
+            transitionGeneration: rec.transitionGeneration + 1));
+        return _Gate.off;
+      }
+      if (rec != null && rec.state == EgressState.off && on) {
+        // The persistent OFF gate wins over a settings value that widened
+        // without an explicit enable.
+        await _settingsRepository.saveSettings(settings.copyWith(
+          cloudConsentState: ConsentState.declined,
+          aiConsentState:
+              _isAndroid() ? ConsentState.declined : settings.aiConsentState,
+        ));
+      }
+    } catch (_) {
+      ConsentAuthority.egressFrozen = true;
+      return _Gate.blocked;
+    }
+    if (rec == null) return _Gate.open;
+    return rec.state == EgressState.off ? _Gate.off : _Gate.open;
+  }
+
+  Future<bool> _completePendingDisable(CloudEgressRecord rec) async {
+    ConsentAuthority.egressFrozen = true;
+    _gate.advanceEpoch();
+    try {
+      final settings = await _settingsRepository.getSettings();
+      if (_cloudOn(settings)) {
         await _settingsRepository.saveSettings(settings.copyWith(
           cloudConsentState: ConsentState.declined,
           aiConsentState:
@@ -885,12 +1178,41 @@ class CaptureDeviceRegistrationService {
         ));
       }
       await _clearAck();
-      await _clearDisablePending();
+      final freeze = DisableFreeze(
+          owner: rec.ownerUid,
+          transitionGeneration: rec.transitionGeneration,
+          reservedVersion: rec.reservedVersion);
+      // Never a revoke here. A consumed attempt without an outcome is UNCONFIRMED.
+      if (await serverRevocation() == null ||
+          (await serverRevocation())!.generation != freeze.transitionGeneration) {
+        final attempted = await _attemptRecorded(freeze);
+        await _recordRevocation(
+            freeze,
+            attempted
+                ? ServerRevocation.unconfirmed
+                : ServerRevocation.notAttempted);
+      }
+      if (!await _gate.commitOff(freeze)) return false;
       ConsentAuthority.egressFrozen = false;
+      await _gate.refresh();
+      return true;
     } catch (_) {
-      return true; // not committed: stay frozen, fail closed
+      return false; // not committed: stay frozen, fail closed
     }
-    return false;
+  }
+
+  Future<bool> _attemptRecorded(DisableFreeze freeze) async {
+    try {
+      final raw = await _revokeAttemptSlots.read();
+      if (raw == null) return false;
+      final m = jsonDecode(raw);
+      return m is Map &&
+          m['owner'] == freeze.owner &&
+          m['transition_generation'] == freeze.transitionGeneration &&
+          m['consumed'] == true;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Revokes the mutable user/APNs association without deleting the relay
@@ -901,7 +1223,8 @@ class CaptureDeviceRegistrationService {
   /// sign-out or Remove data ends this replica's consent history.
   Future<void> unlinkCurrentDevice() async {
     _mirrorVersions.clear();
-    if (!_isIos() || !_isBackendConfigured() || await _frozen()) return;
+    if (!_isIos() || !_isBackendConfigured()) return;
+    if (await _gateState() != _Gate.open) return;
     final ack = await _readAckAny();
     if (ack == null || !ack.snapshot.cloud) return;
     final secret = await _storage.read(key: _secretKey);
@@ -932,8 +1255,8 @@ class CaptureDeviceRegistrationService {
   /// missing link never falls through to a projection that may still belong to
   /// someone else. Android has no link and is unchanged.
   Future<bool> isLinkedForCloud() async {
-    if (!_isIos()) return !await _frozen();
-    if (await _frozen()) return false;
+    if (await _gateState() != _Gate.open) return false;
+    if (!_isIos()) return true;
     final uid = _readSession()?.uid;
     if (uid == null) return false;
     final ack = await _readAck(uid);
@@ -962,7 +1285,9 @@ class CaptureDeviceRegistrationService {
     ApnsTokenInfo token,
     String tokenKey,
   ) async {
-    if (!_isIos() || !_isBackendConfigured() || await _frozen()) return;
+    if (!_isIos() || !_isBackendConfigured()) return;
+    if (await _gateState() != _Gate.open) return;
+    final tx = await _beginTx();
     final settings = await _settingsRepository.getSettings();
     if (!settings.cloudProcessingEnabled) return;
     final secret = await _storage.read(key: _secretKey);
@@ -992,6 +1317,9 @@ class CaptureDeviceRegistrationService {
         apnsEnvironment: token.environment,
       );
     }
+    // P4: a registration that completed after an account switch / transition is
+    // not recorded as synced for the new state.
+    if (!await _holds(tx)) return;
     _lastSyncedApnsTokenKey = tokenKey;
     _apnsRetryBlockedUntil = null;
   }
@@ -1011,7 +1339,7 @@ class CaptureDeviceRegistrationService {
   }) async {
     // Cloud OFF = zero egress (R6): a 401 never re-registers the device while
     // the user's Cloud consent is OFF (e.g. switched off mid-flight).
-    if (ConsentAuthority.egressFrozen ||
+    if (await _gateState() != _Gate.open ||
         !(await _settingsRepository.getSettings()).cloudProcessingEnabled) {
       throw const CaptureBackendException('recovery_skipped_cloud_off');
     }
@@ -1023,10 +1351,13 @@ class CaptureDeviceRegistrationService {
     if (inFlight != null) return inFlight;
 
     final recovery = () async {
+      final tx = await _beginTx();
       final fresh = await _backendClient.registerDevice(installId: installId);
       await _storage.write(key: _secretKey, value: fresh);
       // A new credential is a new server row: nothing was acknowledged for it.
       await _clearAck();
+      // P4: no widening native config after an account switch / transition.
+      if (!await _holds(tx)) return fresh;
       final settings = await _settingsRepository.getSettings();
       await _writeNativeBackendConfig(
         cloudProcessingEnabled:
@@ -1037,6 +1368,8 @@ class CaptureDeviceRegistrationService {
         anonKey: SupabaseConfig.anonKey,
         aiConsentGranted:
             settings.cloudProcessingEnabled && settings.aiConsentGranted,
+        ownerUid: tx.owner ?? '',
+        transitionGeneration: await _clientGeneration(tx.owner ?? ''),
       );
       return fresh;
     }();

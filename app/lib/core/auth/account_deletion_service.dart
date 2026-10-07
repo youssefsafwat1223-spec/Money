@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../backend/supabase_config.dart';
+import '../privacy/cloud_egress_gate.dart';
 import '../../domain/errors/repo_exceptions.dart';
 
 /// Current pending-deletion status for the signed-in user, per the approved
@@ -47,7 +48,10 @@ class AccountDeletionService {
   Future<DateTime?> requestDeletion() async {
     if (!SupabaseConfig.isConfigured) return null;
     try {
-      final response = await _getClient().rpc('request_account_deletion');
+      // ESCALATED (Astra G): an explicit user action, the only non-automatic
+      // exception to the persistent OFF gate besides interactive sign-in.
+      final response = await CloudEgressGate.instance.runUserInitiated(
+          () => _getClient().rpc('request_account_deletion'));
       return DateTime.parse(response as String).toUtc();
     } catch (error) {
       throw mapSupabaseError(error);
@@ -57,7 +61,8 @@ class AccountDeletionService {
   Future<void> cancelDeletion() async {
     if (!SupabaseConfig.isConfigured) return;
     try {
-      await _getClient().rpc('cancel_account_deletion');
+      await CloudEgressGate.instance.runUserInitiated(
+          () => _getClient().rpc('cancel_account_deletion'));
     } catch (error) {
       throw mapSupabaseError(error);
     }

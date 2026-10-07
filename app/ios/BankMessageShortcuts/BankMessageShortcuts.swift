@@ -106,10 +106,12 @@ struct PostBankStatusIntent: AppIntent {
       // consent mirror is missing or off stays on the device with zero egress and
       // zero AI (A-12-min R2/R3; a missing mirror is stamped local-only at capture).
       let ownerUid: String
+      let ownerGeneration: Int
       let mirrorAllowsAi: Bool
       switch SharedCaptureStore.authorizeUpload(payloadID: payloadID) {
-      case let .allowed(uid, allowAi):
+      case let .allowed(uid, generation, allowAi):
         ownerUid = uid
+        ownerGeneration = generation
         mirrorAllowsAi = allowAi
       case .localOnly:
         _ = SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)
@@ -134,6 +136,7 @@ struct PostBankStatusIntent: AppIntent {
         payloadID: payloadID,
         config: config,
         ownerUid: ownerUid,
+        ownerGeneration: ownerGeneration,
         allowAi: mirrorAllowsAi
       )
       if let response = attempt.response {
@@ -211,18 +214,21 @@ struct PostBankStatusIntent: AppIntent {
     payloadID: String,
     config: SharedCaptureStore.BackendConfig,
     ownerUid: String,
+    ownerGeneration: Int,
     allowAi: Bool
   ) async -> (response: BackendCaptureResponse?, failureReason: String?) {
     let client = BackendCaptureClient(config: config)
     do {
       return (try await client.process(
-        request, payloadID: payloadID, ownerUid: ownerUid, allowAi: allowAi
+        request, payloadID: payloadID, ownerUid: ownerUid,
+        ownerGeneration: ownerGeneration, allowAi: allowAi
       ), nil)
     } catch {
       guard Self.isTimeoutShaped(error) else { return (nil, "\(error)") }
       do {
         return (try await client.process(
-          request, payloadID: payloadID, ownerUid: ownerUid, allowAi: allowAi
+          request, payloadID: payloadID, ownerUid: ownerUid,
+        ownerGeneration: ownerGeneration, allowAi: allowAi
         ), nil)
       } catch {
         return (nil, "retry_after_timeout: \(error)")
@@ -600,6 +606,9 @@ struct BackendCaptureResponse {
 enum BackendCaptureError: Error {
   case invalidConfig
   case invalidURL
+  /// C.4 admission: the egress state, the owner or the consent mirror no longer
+  /// permits this upload. NO request was made.
+  case egressDenied
   case http(Int)
   case malformedResponse
   /// A redaction rule failed to compile, so the sanitizer cannot promise the
@@ -616,7 +625,8 @@ struct BackendCaptureClient {
   func process(
     _ request: BankSMSCaptureRequest,
     payloadID: String,
-    ownerUid: String? = nil,
+    ownerUid: String,
+    ownerGeneration: Int,
     allowAi: Bool
   ) async throws -> BackendCaptureResponse {
     guard config.canUseBackend,
@@ -632,7 +642,7 @@ struct BackendCaptureClient {
 
     var urlRequest = URLRequest(url: url)
     urlRequest.httpMethod = "POST"
-    urlRequest.timeoutInterval = 8
+    urlRequest.timeoutInterval = SharedCaptureStore.nativeUploadTimeout
     urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
     urlRequest.setValue(anonKey, forHTTPHeaderField: "apikey")
     urlRequest.setValue("Bearer \(anonKey)", forHTTPHeaderField: "Authorization")
@@ -654,13 +664,30 @@ struct BackendCaptureClient {
       // install-level fallback, so an upload never carries a wider AI grant.
       "allowAi": allowAi
     ]
-    // §4.1 v2 contract: every upload carries the stamped owner_uid. Only when the
-    // server capability is mirrored on; otherwise the legacy body is unchanged.
-    if config.captureContractV2, let ownerUid {
+    // C.1: EVERY upload, on BOTH schema versions, carries the stamped owner_uid
+    // and the owner_generation it was stamped under. An ownerless upload is
+    // impossible: `ownerUid` is not optional, and an unstamped item is never
+    // `.allowed` by authorizeUpload. `schema_version` 2 stays capability-gated.
+    body["owner_uid"] = ownerUid
+    body["owner_generation"] = ownerGeneration
+    if config.captureContractV2 {
       body["schema_version"] = 2
-      body["owner_uid"] = ownerUid
     }
     urlRequest.httpBody = try JSONSerialization.data(withJSONObject: body)
+
+    // C.4 admission, the single native gate: immediately before the request, in
+    // the same flock as the owner/consent re-check, the egress state must still
+    // admit this exact (owner, generation), and the upload is registered in the
+    // durable in-flight registry (deadline = now + timeout + 2 s) so the app's
+    // disable drain can wait for it. This also covers the idempotent timeout
+    // retry. DISABLING / OFF / unreadable => no request is made. The registry
+    // entry is removed on EVERY exit (success or error) once the request ends.
+    guard case let .allowed(admittedUid, admittedGeneration, _) =
+            SharedCaptureStore.admitUpload(payloadID: payloadID),
+          admittedUid == ownerUid, admittedGeneration == ownerGeneration else {
+      throw BackendCaptureError.egressDenied
+    }
+    defer { SharedCaptureStore.removeInflightUpload(payloadID: payloadID) }
 
     let (data, response) = try await URLSession.shared.data(for: urlRequest)
     let statusCode = (response as? HTTPURLResponse)?.statusCode ?? 0

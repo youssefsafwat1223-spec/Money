@@ -35,6 +35,7 @@ import '../../data/catalog/seed_loader.dart';
 import '../../core/utils/id_generator.dart';
 import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
+import '../privacy/cloud_egress_gate.dart';
 import '../privacy/consent_authority.dart';
 import '../../data/sync/planning_currency_capability_probe.dart';
 import '../../data/sync/seq_pull.dart';
@@ -375,7 +376,9 @@ Future<FeatureFlagService> initFeatureFlagService(
     installId: id,
   );
   await service.init();
-  if (applyRemoteOverrides && SupabaseConfig.isConfigured) {
+  if (applyRemoteOverrides &&
+      SupabaseConfig.isConfigured &&
+      await CloudEgressGate.instance.permits()) {
     final client = supabase.Supabase.instance.client;
     await service.applyUserOverrides(client, client.auth.currentUser?.id);
   }
@@ -447,6 +450,8 @@ Future<void> syncCatalog(
   // Init feature flags from seed data before first frame.
   await initFeatureFlagService(database);
   if (!SupabaseConfig.isConfigured) return;
+  // Astra G (P1): no catalog fetch while Cloud is OFF (no automatic exception).
+  if (!await CloudEgressGate.instance.permits()) return;
   if (!force && !await _catalogSyncIsStale(database)) return;
   // The caller is AppShell — a route. Opening a top-level page disposes it
   // while the awaits above are in flight, and every `ref` use after that

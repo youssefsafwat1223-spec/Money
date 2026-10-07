@@ -21,6 +21,7 @@ import '../../data/repositories/drift_card_repository.dart';
 import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
+import '../privacy/cloud_egress_gate.dart';
 import '../privacy/consent_authority.dart';
 import '../tracking/user_activity_service.dart';
 import '../privacy/diagnostics_consent_gate.dart';
@@ -131,6 +132,21 @@ class BootstrapRunner {
     // silently proceeding into stub auth / no cloud (MALI-003).
     _assertRuntimeConfig();
 
+    // Astra G (P1): the ONE admission gate. The owner it judges is the admitted
+    // replica's owner marker; background token auto-refresh follows the gate
+    // (stopped while Cloud is OFF / DISABLING / uncertain).
+    final egressGate = CloudEgressGate.instance
+      ..configureActiveOwner(localDataOwnerUid)
+      ..onPermitChanged = (permits) async {
+        if (!_supabaseInitialized) return;
+        final auth = Supabase.instance.client.auth;
+        if (permits) {
+          auth.startAutoRefresh();
+        } else {
+          auth.stopAutoRefresh();
+        }
+      };
+
     // WP-3b — replica recovery + legacy adoption run FIRST, before the session
     // reconcile below can claim the owner marker: an unowned legacy database must
     // be quarantined, never adopted by whoever is restored (B4).
@@ -150,11 +166,18 @@ class BootstrapRunner {
         // refreshes the token in the background — it does not block the first
         // frame on a network round-trip. Required before session binding (owner
         // identity), so it stays on the critical path.
+        // Every Supabase request (auth, postgrest, functions, storage) goes
+        // through the gated transport: while Cloud is OFF nothing automatic
+        // (token refresh, catalog, metrics) is admitted.
         await Supabase.initialize(
           url: SupabaseConfig.url,
           anonKey: SupabaseConfig.anonKey,
+          httpClient: GatedHttpClient(),
         );
         _supabaseInitialized = true;
+        if (!await egressGate.permits()) {
+          Supabase.instance.client.auth.stopAutoRefresh();
+        }
       });
       // B2-C — the `app_open` metric is a REMOTE, best-effort telemetry RPC. Fire
       // it off the critical path so the first financial frame never waits on it
@@ -296,6 +319,7 @@ class BootstrapRunner {
     );
 
     await _step('capture_registration', () async {
+      CloudEgressGate.instance.advanceEpoch(); // new account scope (P4)
       final captureRegistration = CaptureDeviceRegistrationService(
         settingsRepository: DriftUserSettingsRepository(database),
         publishOwner: captureQueue.publishCaptureOwner,
@@ -538,6 +562,9 @@ class BootstrapRunner {
     if (_residueHookRegistered) return;
     _residueHookRegistered = true;
     Future<bool> release({required bool clearHint}) async {
+      // P4: an account transition / sign-out advances the epoch first, so every
+      // in-flight async mutation of the previous owner is stale from here on.
+      CloudEgressGate.instance.advanceEpoch();
       final cleared = await captureQueue.clearCaptureOwner(clearHint: clearHint);
       final filesCleared = await PendingNotificationActions.clear();
       // MALI-019 §10 — clear the previous user's pending OS reminders too.

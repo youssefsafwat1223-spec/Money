@@ -39,7 +39,6 @@ void main() {
     test('every user-data class is denied when cloud consent is UNSET', () {
       final s = _settings(cloud: ConsentState.unset, ai: ConsentState.unset);
       for (final c in allClasses) {
-        if (c == EgressClass.catalog || c == EgressClass.auth) continue;
         expect(ConsentAuthority.decide(c, s), isFalse,
             reason: '$c must not egress before an explicit opt-in');
       }
@@ -48,7 +47,6 @@ void main() {
     test('every user-data class is denied when cloud consent is DECLINED', () {
       final s = _settings(cloud: ConsentState.declined, ai: ConsentState.accepted);
       for (final c in allClasses) {
-        if (c == EgressClass.catalog || c == EgressClass.auth) continue;
         expect(ConsentAuthority.decide(c, s), isFalse, reason: '$c');
       }
     });
@@ -102,14 +100,23 @@ void main() {
     });
   });
 
-  group('never gated', () {
-    test('catalog stays available with consent fully OFF', () {
-      // Catalog carries no user data and delivers parser rules, feature flags
-      // and the force-update kill switch. Gating it would disable safety
-      // controls for exactly the most privacy-conscious users.
-      final s = _settings(cloud: ConsentState.declined, ai: ConsentState.declined);
-      expect(ConsentAuthority.decide(EgressClass.catalog, s), isTrue);
-      expect(ConsentAuthority.decide(EgressClass.auth, s), isTrue);
+  // Astra G (P1), updated truthfully: the former "never gated" exceptions are
+  // gone. Catalog follows cloud consent like everything else; auth is never an
+  // automatic decision (an explicit user action goes through
+  // CloudEgressGate.runUserInitiated).
+  group('no automatic catalog/auth exception', () {
+    test('catalog is denied with consent OFF and allowed only with consent ON',
+        () {
+      final off =
+          _settings(cloud: ConsentState.declined, ai: ConsentState.declined);
+      final on = _settings(cloud: ConsentState.accepted, ai: ConsentState.unset);
+      expect(ConsentAuthority.decide(EgressClass.catalog, off), isFalse);
+      expect(ConsentAuthority.decide(EgressClass.catalog, on), isTrue);
+    });
+
+    test('auth is never decided automatically, even with consent ON', () {
+      final on = _settings(cloud: ConsentState.accepted, ai: ConsentState.accepted);
+      expect(ConsentAuthority.decide(EgressClass.auth, on), isFalse);
     });
   });
 

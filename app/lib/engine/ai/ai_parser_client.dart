@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/privacy/cloud_egress_gate.dart';
+
 import '../../core/utils/id_generator.dart';
 
 class AiParseException implements Exception {
@@ -70,7 +72,7 @@ class SupabaseAiParserClient implements AiParserClient {
   })  : _url = edgeFunctionUrl,
         _getAnonJwt = getAnonJwt,
         _loadDeviceSecret = loadDeviceSecret,
-        _http = httpClient ?? http.Client();
+        _http = httpClient ?? GatedHttpClient();
 
   final String _url;
   final Future<String?> Function() _getAnonJwt;

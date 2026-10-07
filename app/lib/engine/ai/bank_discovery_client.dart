@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../core/privacy/cloud_egress_gate.dart';
+
 import '../../domain/entities/bank_discovery_models.dart';
 
 abstract class BankDiscoveryClient {
@@ -18,7 +20,7 @@ class GeminiBankDiscoveryClient implements BankDiscoveryClient {
   })  : _url = edgeFunctionUrl,
         _getAnonJwt = getAnonJwt,
         _loadDeviceSecret = loadDeviceSecret,
-        _http = httpClient ?? http.Client(),
+        _http = httpClient ?? GatedHttpClient(),
         _timeout = timeout;
 
   final String _url;

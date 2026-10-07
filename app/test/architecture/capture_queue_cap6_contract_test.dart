@@ -238,7 +238,7 @@ void main() {
       final claim = body(store, 'static func claimUnbound(');
       expect(claim, contains('localOnly = true'));
       expect(claim, contains('ownerHint = nil'));
-      final auth = body(store, 'static func authorizeUpload(');
+      final auth = body(store, 'private static func authorizeUploadLocked(');
       expect(auth, contains('item.localOnly == true'));
       expect(auth, contains('return .localOnly'));
     });
@@ -350,11 +350,14 @@ void main() {
       expect(intent.indexOf('status: .pendingSend'), lessThan(auth));
     });
 
-    test('v2 upload carries owner_uid only when the capability is mirrored on',
-        () {
-      expect(intent, contains('if config.captureContractV2, let ownerUid'));
+    test('owner_uid is on EVERY upload (C.1); schema_version 2 stays gated', () {
+      // G3/C.1 supersedes the CAP-6 "owner_uid only when v2" rule: the owner is
+      // sent on both schema versions, only schema_version is capability-gated.
+      expect(intent, contains('if config.captureContractV2 {'));
+      expect(intent, isNot(contains('if config.captureContractV2, let ownerUid')));
       expect(intent, contains('body["schema_version"] = 2'));
       expect(intent, contains('body["owner_uid"] = ownerUid'));
+      expect(intent, contains('body["owner_generation"] = ownerGeneration'));
       expect(store, contains('var captureContractV2: Bool = false'));
       expect(store, contains('captureContractV2: Bool = false'));
     });

@@ -213,6 +213,14 @@ class PrivacyScreen extends ConsumerWidget {
         // process and the next launch completes OFF; nothing to retry here.
         return;
       }
+    } else if (registration.isEnablingCloud(before, updated)) {
+      // Astra G: OFF/unset -> ON is an explicit enable (new transition
+      // generation and version) and the only way out of the persistent OFF gate.
+      try {
+        await registration.enableCloud(commitLocalOn: commit);
+      } catch (_) {
+        return; // not enabled: egress stays denied
+      }
     } else {
       await commit();
     }

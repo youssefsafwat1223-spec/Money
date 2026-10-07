@@ -89,8 +89,18 @@ Future<UserSettingsEntity> saveConsentChoice(
     cloudConsentState: cloud ? ConsentState.accepted : null,
     aiConsentState: ai ? ConsentState.accepted : null,
   );
-  await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
-  ref.invalidate(userSettingsProvider);
+  Future<void> save() async {
+    await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
+    ref.invalidate(userSettingsProvider);
+  }
+
+  // Astra G: widening Cloud is an explicit enable (new generation + version).
+  final registration = ref.read(captureDeviceRegistrationServiceProvider);
+  if (registration.isEnablingCloud(current, updated)) {
+    await registration.enableCloud(commitLocalOn: save);
+  } else {
+    await save();
+  }
   DiagnosticsConsentGate.set(
     ConsentAuthority.decide(EgressClass.diagnostics, updated),
   );
