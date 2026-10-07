@@ -119,6 +119,19 @@ void main() {
   ///                                half-built copy (state `migrating`,
   ///                                never opened, source legacy file untouched
   ///                                until the copy is verified).
+  ///
+  /// GROUP H — WP-7 rebootstrap (§4.10).
+  ///   replica_recovery (1)         deletes exactly ONE row of the FRESH replica
+  ///                                (the pulled copy of an entity the user's own
+  ///                                unsynced version replaces, by id), inside the
+  ///                                merge's local transaction on a database the
+  ///                                old replica never shares; the old replica is
+  ///                                only read, and is kept 14 days after the swap.
+  ///   replica_store (+4, total 7)         discarding the half-built `.rb` replica of an
+  ///                                abandoned rebootstrap, purging a `.old`
+  ///                                replica after the 14-day retention, and the
+  ///                                swap superseding an older `.old`; plus the
+  ///                                `.rb`/`.old` tombstones of `remove(uid)`.
   const inventory = <String, int>{
     // A
     'lib/core/privacy/data_wipe_service.dart': 2,
@@ -147,7 +160,9 @@ void main() {
     // F
     'lib/data/db/database_lease.dart': 2,
     // G
-    'lib/data/db/replica_store.dart': 3,
+    'lib/data/db/replica_store.dart': 7,
+    // H
+    'lib/core/session/replica_recovery.dart': 1,
   };
 
   /// Statements that can destroy more than one row, or a file.
@@ -206,6 +221,8 @@ void main() {
     expect(sites.toSet(), {
       'lib/core/privacy/data_wipe_service.dart',
       'lib/core/backup/restore_backup_usecase.dart',
+      // WP-7: one pulled row by id (see GROUP H).
+      'lib/core/session/replica_recovery.dart',
     });
   });
 

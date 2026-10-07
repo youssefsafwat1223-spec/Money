@@ -29,6 +29,31 @@ enum SyncStatusKind {
 
   /// [SyncStatus.count] items failed and need attention.
   failed,
+
+  /// WP-8: nothing failed, but something needs a decision or cannot proceed on
+  /// its own: an unresolved conflict, a quarantined pulled row, or a history
+  /// break (epoch) this build cannot rebootstrap from. Retry does not fix it.
+  needsAttention,
+}
+
+/// WP-8 / WP-4: what is known about the PULL side. [notApplicable] is the
+/// capabilities-false view: the sequence pull is not active, so there is no head
+/// to prove against and "all synced" rests on push ACK truth alone (unchanged).
+enum SyncPullProof {
+  notApplicable,
+
+  /// The last plan read a head and every table's cursor has reached it.
+  proven,
+
+  /// A head was read and some table is behind it (or none has pulled yet).
+  behind,
+
+  /// The pull stopped for a reason that clears by itself (capability or head
+  /// unreadable) or a rebootstrap is in progress.
+  stoppedTransient,
+
+  /// Recorded epoch differs from the server's and no rebootstrap is running.
+  stoppedEpoch,
 }
 
 /// Who the sync would run as.
@@ -80,6 +105,7 @@ class SyncStatus {
   bool get canRetry =>
       kind == SyncStatusKind.waiting ||
       kind == SyncStatusKind.failed ||
+      kind == SyncStatusKind.needsAttention ||
       kind == SyncStatusKind.syncing;
 
   static SyncStatus derive({
@@ -88,6 +114,7 @@ class SyncStatus {
     required bool cloudConsent,
     required SyncIdentity identity,
     required bool syncRunning,
+    SyncPullProof pull = SyncPullProof.notApplicable,
   }) {
     final serverWait =
         (counts.parkedByReason[kParkAwaitingServerFxSupport] ?? 0) +
@@ -101,10 +128,14 @@ class SyncStatus {
         // are NOT in the cloud either.
         counts.unprovenLocalRows;
     final connectionWait = queued - serverWait;
-    // D-5: an unresolved conflict needs the user's decision — never "synced".
-    final attention = counts.deadLetter +
-        counts.senderMappingsPermanentFailed +
-        counts.conflicts;
+    // Failed: retries exhausted / terminal. Decision: a conflict, a quarantined
+    // pulled row or an epoch break (D-5: never "synced" while one exists).
+    final failedCount =
+        counts.deadLetter + counts.senderMappingsPermanentFailed;
+    final decisionCount = counts.conflicts +
+        counts.quarantined +
+        (pull == SyncPullProof.stoppedEpoch ? 1 : 0);
+    final attention = failedCount + decisionCount;
     final stayFailed = (counts.deadLetterByReason[kFailDuplicateBusinessKey] ??
             0) +
         (counts.deadLetterByReason[kFailUnsupportedOperation] ?? 0);
@@ -140,7 +171,10 @@ class SyncStatus {
       return make(SyncStatusKind.signedOut, kept);
     }
     if (!cloudConsent) return make(SyncStatusKind.consentOff, kept);
-    if (attention > 0) return make(SyncStatusKind.failed, attention);
+    if (failedCount > 0) return make(SyncStatusKind.failed, attention);
+    if (decisionCount > 0) {
+      return make(SyncStatusKind.needsAttention, attention);
+    }
     // Offline truth: a run in progress must not mask work that is known to be
     // blocked on the network (outbox rows stalled on transientNetwork, or the
     // outbox domains' latest attempt failed offline). Report waiting(n) — runs
@@ -162,10 +196,15 @@ class SyncStatus {
     // Nothing queued — but ALL-SYNCED additionally requires proof: a push
     // success at or after the newest local mutation. Without it the data is not
     // yet confirmed in the cloud, so the honest state is "syncing".
+    // WP-8: "Syncing…" is bounded by an active run (handled above), so every
+    // unproven idle state is "waiting" — the next run settles it. Head proof:
+    // with the sequence pull active, the pull must also have reached the head.
     final mutated = counts.lastLocalMutationAt;
-    if (mutated != null && (lastPush == null || lastPush.isBefore(mutated))) {
-      return make(SyncStatusKind.syncing, 0);
-    }
+    final pushUnproven =
+        mutated != null && (lastPush == null || lastPush.isBefore(mutated));
+    final pullUnproven = pull == SyncPullProof.behind ||
+        pull == SyncPullProof.stoppedTransient;
+    if (pushUnproven || pullUnproven) return make(SyncStatusKind.waiting, 0);
     return make(SyncStatusKind.allSynced, 0);
   }
 }

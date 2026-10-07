@@ -5942,6 +5942,7 @@ class AppL10nEn extends AppL10n {
       locale: localeName,
       other: '$count changes waiting to sync',
       one: '1 change waiting to sync',
+      zero: 'Waiting to sync',
     );
     return '$_temp0';
   }
@@ -5955,6 +5956,9 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get syncStatusFailed => 'Sync failed — Retry';
+
+  @override
+  String get syncStatusNeedsAttention => 'Needs your attention';
 
   @override
   String get syncSheetTitle => 'Sync status';

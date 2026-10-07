@@ -148,6 +148,28 @@ void main() {
   });
   tearDown(() async => db.close());
 
+  group('WP-8 read-only diagnostics accessors', () {
+    test('ack snapshot and mirror version follow the projection', () async {
+      await save(cloud: ConsentState.accepted, ai: ConsentState.accepted);
+      final s = service();
+      expect(await s.consentAckSnapshot(), isNull);
+      expect(s.mirroredConsentVersion, isNull);
+
+      await s.linkToCurrentUser();
+      expect(await s.consentAckSnapshot(), (cloud: true, ai: true, version: 1));
+      expect(s.mirroredConsentVersion, 1);
+    });
+
+    test('another user\'s acknowledgement is never reported', () async {
+      await save(cloud: ConsentState.accepted);
+      final s = service();
+      await s.linkToCurrentUser();
+      session = (uid: 'uid-b', jwt: 'jwt-b');
+      expect(await s.consentAckSnapshot(), isNull);
+      expect(s.mirroredConsentVersion, isNull);
+    });
+  });
+
   group('owner publication is gated on link_capture_device(consent)', () {
     test('publishes only AFTER the link succeeded, and writes the mirror first',
         () async {

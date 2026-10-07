@@ -37,6 +37,10 @@ const String kCapSyncSeq = 'sync_seq';
 /// RPC key for WP-5 revision CAS / insert-if-absent. Kill switch like [kCapSyncSeq].
 const String kCapRevisionCas = 'revision_cas';
 
+/// RPC key for WP-7 rebootstrap on an epoch change (manifest §8). False in
+/// production until G5; false keeps today's typed `epochMismatch` stop.
+const String kCapReplicaEpoch = 'replica_epoch';
+
 class ServerCapabilitiesService {
   ServerCapabilitiesService({
     required Future<String?> Function() getAuthUserId,
@@ -78,6 +82,8 @@ class ServerCapabilitiesService {
   final Map<String, ServerCapabilityState> _syncSeq = {};
   final Map<String, DateTime> _syncSeqAt = {};
   static const Duration syncSeqTtl = Duration(minutes: 15);
+  final Map<String, ServerCapabilityState> _replicaEpoch = {};
+  final Map<String, DateTime> _replicaEpochAt = {};
   final Map<String, ServerCapabilityState> _revisionCas = {};
   final Map<String, DateTime> _revisionCasAt = {};
 
@@ -143,10 +149,30 @@ class ServerCapabilitiesService {
   Future<ServerCapabilityState> syncSeq({String? uid}) =>
       _killSwitch(kCapSyncSeq, _syncSeq, _syncSeqAt, uid);
 
+  /// WP-7: whether the server advertises `replica_epoch` (kill switch, same
+  /// rules as [syncSeq]).
+  Future<ServerCapabilityState> replicaEpoch({String? uid}) =>
+      _killSwitch(kCapReplicaEpoch, _replicaEpoch, _replicaEpochAt, uid);
+
   /// WP-5: whether the server advertises `revision_cas` (same rules as
   /// [syncSeq]; withdrawing it returns the client to the legacy guarded push).
   Future<ServerCapabilityState> revisionCas({String? uid}) =>
       _killSwitch(kCapRevisionCas, _revisionCas, _revisionCasAt, uid);
+
+  /// WP-8 (diagnostics): the last cached answer for a kill-switch capability
+  /// with no network and no TTL check; [ServerCapabilityState.unknown] when
+  /// nothing was probed. [capKey] is one of [kCapSyncSeq], [kCapReplicaEpoch],
+  /// [kCapRevisionCas], [kCapCaptureContractV2].
+  ServerCapabilityState cachedCapability(String capKey, String uid) {
+    final cache = switch (capKey) {
+      kCapSyncSeq => _syncSeq,
+      kCapReplicaEpoch => _replicaEpoch,
+      kCapRevisionCas => _revisionCas,
+      kCapCaptureContractV2 => _captureV2,
+      _ => null,
+    };
+    return cache?[_key(uid)] ?? ServerCapabilityState.unknown;
+  }
 
   Future<ServerCapabilityState> _killSwitch(
     String capKey,

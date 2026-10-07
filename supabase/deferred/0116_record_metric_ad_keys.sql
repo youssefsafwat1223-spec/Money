@@ -1,4 +1,4 @@
--- 0115_record_metric_ad_keys.sql — allowlist the ads telemetry keys.
+-- 0116_record_metric_ad_keys.sql — allowlist the ads telemetry keys.
 --
 -- NOT DEPLOYED. Source-only until the ledger is re-confirmed against production.
 --

@@ -3181,7 +3181,7 @@
   "onbAccountRequired": "أضف حسابًا لإنهاء الإعداد.",
   "syncStatusAllSynced": "تمت مزامنة كل البيانات",
   "syncStatusSyncing": "جارٍ المزامنة…",
-  "syncStatusWaiting": "{count, plural, =1{تغيير واحد بانتظار المزامنة} =2{تغييران بانتظار المزامنة} few{{count} تغييرات بانتظار المزامنة} many{{count} تغييرًا بانتظار المزامنة} other{{count} تغيير بانتظار المزامنة}}",
+  "syncStatusWaiting": "{count, plural, =0{بانتظار المزامنة} =1{تغيير واحد بانتظار المزامنة} =2{تغييران بانتظار المزامنة} few{{count} تغييرات بانتظار المزامنة} many{{count} تغييرًا بانتظار المزامنة} other{{count} تغيير بانتظار المزامنة}}",
   "@syncStatusWaiting": {
     "placeholders": {
       "count": {
@@ -3192,6 +3192,7 @@
   "syncStatusConsentOff": "المزامنة السحابية متوقفة — بياناتك تبقى على هذا الجهاز",
   "syncStatusSignedOut": "لم تسجّل الدخول — بياناتك تبقى على هذا الجهاز",
   "syncStatusFailed": "فشلت المزامنة — إعادة المحاولة",
+  "syncStatusNeedsAttention": "تحتاج إلى انتباهك",
   "syncSheetTitle": "حالة المزامنة",
   "syncSheetKeptOnDevice": "{count, plural, =0{لا توجد تغييرات معلّقة} =1{تغيير واحد محفوظ على هذا الجهاز} =2{تغييران محفوظان على هذا الجهاز} few{{count} تغييرات محفوظة على هذا الجهاز} many{{count} تغييرًا محفوظًا على هذا الجهاز} other{{count} تغيير محفوظ على هذا الجهاز}}",
   "@syncSheetKeptOnDevice": {

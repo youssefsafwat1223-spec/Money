@@ -44,7 +44,8 @@ void main() {
         health: _health(push: _t0),
       );
       expect(s.kind, isNot(SyncStatusKind.allSynced));
-      expect(s.kind, SyncStatusKind.syncing);
+      // WP-8: "Syncing…" lasts one active run; idle + unproven is waiting.
+      expect(s.kind, SyncStatusKind.waiting);
     });
 
     test('a mutation with no push success at all is not allSynced', () {

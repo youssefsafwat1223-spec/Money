@@ -139,6 +139,10 @@ class CaptureImportService {
 
   Future<CaptureImportReport>? _inFlight;
 
+  /// WP-8 (diagnostics): the outcome counts of the latest finished run of this
+  /// service, in memory only. Counts and enum codes; no ids, no content.
+  CaptureImportReport? lastReport;
+
   // §4.10 quiescence barrier.
   bool _barrier = false;
   final Set<String> _deferredNativeRemovals = {};
@@ -151,7 +155,9 @@ class CaptureImportService {
     }
     final pending = _inFlight;
     if (pending != null) return pending;
-    final run = _runOnce().whenComplete(() => _inFlight = null);
+    final run = _runOnce().then((report) => lastReport = report).whenComplete(
+          () => _inFlight = null,
+        );
     _inFlight = run;
     return run;
   }

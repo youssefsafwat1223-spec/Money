@@ -3058,7 +3058,7 @@
   "onbAccountRequired": "Add an account to finish setup.",
   "syncStatusAllSynced": "All data synced",
   "syncStatusSyncing": "Syncing…",
-  "syncStatusWaiting": "{count, plural, =1{1 change waiting to sync} other{{count} changes waiting to sync}}",
+  "syncStatusWaiting": "{count, plural, =0{Waiting to sync} =1{1 change waiting to sync} other{{count} changes waiting to sync}}",
   "@syncStatusWaiting": {
     "placeholders": {
       "count": {
@@ -3069,6 +3069,7 @@
   "syncStatusConsentOff": "Cloud Sync is off — data stays on this device",
   "syncStatusSignedOut": "Signed out — data stays on this device",
   "syncStatusFailed": "Sync failed — Retry",
+  "syncStatusNeedsAttention": "Needs your attention",
   "syncSheetTitle": "Sync status",
   "syncSheetKeptOnDevice": "{count, plural, =0{No changes are waiting} =1{1 change is kept on this device} other{{count} changes are kept on this device}}",
   "@syncSheetKeptOnDevice": {

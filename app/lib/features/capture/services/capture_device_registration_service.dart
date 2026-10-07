@@ -553,6 +553,20 @@ class CaptureDeviceRegistrationService {
 
   Future<String?> readDeviceSecret() => _storage.read(key: _secretKey);
 
+  /// WP-8 (diagnostics, read-only): what the server last acknowledged for the
+  /// current session user and the newest mirror version written this process.
+  /// Flags and a version only; null when nothing was acknowledged / mirrored.
+  Future<({bool cloud, bool ai, int version})?> consentAckSnapshot() async {
+    final uid = _readSession()?.uid;
+    if (uid == null) return null;
+    return _readAck(uid);
+  }
+
+  int? get mirroredConsentVersion {
+    final uid = _readSession()?.uid;
+    return uid == null ? null : _mirrorVersions[uid];
+  }
+
   /// Revokes the mutable user/APNs association without deleting the relay
   /// secret needed by the App Intent while the host app is signed out.
   Future<void> unlinkCurrentDevice() async {

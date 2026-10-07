@@ -162,7 +162,10 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
   /// marker, or an unowned legacy file would be adopted by whoever is restored.
   Future<AdoptionOutcome> recoverAtLaunch() async {
     await store.recoverPendingRemovals();
-    return store.adoptLegacyIfPresent();
+    final outcome = await store.adoptLegacyIfPresent();
+    // WP-7: a replica a swapped rebootstrap retired is deleted after 14 days.
+    await store.purgeExpiredRetired();
+    return outcome;
   }
 
   /// Opens the uid's replica; a `migrating` one (interrupted adoption) is retried

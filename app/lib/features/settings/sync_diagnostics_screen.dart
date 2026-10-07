@@ -1,17 +1,23 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show Clipboard, ClipboardData;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
-import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
+import '../../core/di/rebootstrap_providers.dart' show RebootstrapRuntime;
+import '../../core/sync/sync_diagnostics_report.dart';
 import '../../core/sync/sync_health.dart';
 import '../../core/sync/sync_wakeup.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../data/sync/exact_transport_capability.dart';
+import '../capture/services/capture_import_ports.dart'
+    show NativeCaptureImportQueue;
+import '../capture/services/native_capture_bridge.dart'
+    show NativeCaptureBridge;
+import 'sync_status_providers.dart' show currentAuthUid;
 import 'settings_providers.dart';
 
 /// A-5: the QA sync diagnostics surface exists ONLY in debug builds, reached
@@ -21,66 +27,27 @@ import 'settings_providers.dart';
 /// release behaviour is testable.
 bool syncDiagnosticsAvailable({bool debugMode = kDebugMode}) => debugMode;
 
-/// First 4 + last 4 characters of an identifier; never the whole value.
-String maskUid(String? uid) {
-  if (uid == null || uid.isEmpty) return '—';
-  if (uid.length <= 8) return '••••';
-  return '${uid.substring(0, 4)}…${uid.substring(uid.length - 4)}';
-}
-
-/// Everything the diagnostics screen shows. Counts, states, timestamps and
-/// masked identifiers only — no row content, no message text.
-class SyncDiagnostics {
-  const SyncDiagnostics({
-    required this.health,
-    required this.counts,
-    required this.authUidMasked,
-    required this.ownerUidMasked,
-    required this.uidsMatch,
-    required this.cloudConsent,
-    required this.aiConsent,
-    required this.capabilities,
-  });
-
-  final Map<SyncDomain, SyncDomainHealth> health;
-  final SyncQueueCounts counts;
-  final String authUidMasked;
-  final String ownerUidMasked;
-  final bool uidsMatch;
-  final bool cloudConsent;
-  final bool aiConsent;
-
-  /// Capability label → state name.
-  final Map<String, String> capabilities;
-}
-
+/// WP-8 / CAP-8: the diagnostics are collected into a content-free report (see
+/// `sync_diagnostics_report.dart`) that the screen renders and "Copy" exports.
 final syncDiagnosticsProvider =
-    FutureProvider.autoDispose<SyncDiagnostics>((ref) async {
+    FutureProvider.autoDispose<SyncDiagnosticsReport>((ref) async {
   ref.watch(dbRevisionProvider);
-  String? authUid;
-  try {
-    if (SupabaseConfig.isConfigured) {
-      authUid = supabase.Supabase.instance.client.auth.currentUser?.id;
-    }
-  } catch (_) {}
+  final authUid = currentAuthUid();
   final ownerUid = await AppSession.instance.readLocalDataOwnerUid();
   final settings = await ref.watch(userSettingsProvider.future);
-  final counts = await SyncHealth.queueCounts(ref.watch(appDatabaseProvider));
-  final fx = authUid == null
-      ? 'unknown'
-      : ref
-          .read(serverCapabilitiesServiceProvider)
-          .cachedAwaitingFx(authUid)
-          .name;
-  return SyncDiagnostics(
-    health: ref.watch(syncHealthProvider).all,
-    counts: counts,
-    authUidMasked: maskUid(authUid),
-    ownerUidMasked: maskUid(ownerUid),
-    uidsMatch: authUid != null && authUid == ownerUid,
-    cloudConsent: settings.cloudProcessingEnabled,
-    aiConsent: settings.aiConsentGranted,
-    capabilities: {
+  final caps = ref.read(serverCapabilitiesServiceProvider);
+  final registration = ref.read(captureDeviceRegistrationServiceProvider);
+  final fx = authUid == null ? 'unknown' : caps.cachedAwaitingFx(authUid).name;
+  final store = RebootstrapRuntime.instance.store;
+  const queue = NativeCaptureImportQueue();
+  return collectSyncDiagnostics(SyncDiagnosticsSources(
+    db: ref.watch(appDatabaseProvider),
+    health: ref.watch(syncHealthProvider),
+    settings: settings,
+    authUid: authUid,
+    ownerUid: ownerUid,
+    cachedCapability: (k) => caps.cachedCapability(k, authUid!),
+    otherCapabilities: {
       'exact push transport': ref.read(exactPushTransportCapabilityProvider).name,
       'exact pull transport': ref.read(exactPullTransportCapabilityProvider).name,
       'planning currency':
@@ -91,8 +58,33 @@ final syncDiagnosticsProvider =
               e.value,
       'awaiting FX': fx,
     },
-  );
+    replicaEntry: () async {
+      if (store == null || authUid == null) return null;
+      final hash = await store.uidHash(authUid);
+      for (final e in await store.list()) {
+        if (e.uidHash == hash) return e;
+      }
+      return null;
+    },
+    captureOwner: queue.getOwner,
+    peekQueue: queue.peek,
+    unboundHinted: (uid) async => (await queue.unboundSummary(uid)).count,
+    removalBarrier: NativeCaptureBridge.getCaptureRemovalBarrier,
+    consentAck: registration.consentAckSnapshot,
+    mirroredConsentVersion: registration.mirroredConsentVersion,
+    registration: registration.status.value,
+    lastImport: ref.read(captureImportServiceProvider).lastReport,
+    captureV3Enabled: _flag('capture_import_v3'),
+  ));
 });
+
+bool _flag(String key) {
+  try {
+    return featureFlags.getBool(key);
+  } catch (_) {
+    return false;
+  }
+}
 
 class SyncDiagnosticsScreen extends ConsumerWidget {
   const SyncDiagnosticsScreen({super.key});
@@ -115,51 +107,20 @@ class SyncDiagnosticsScreen extends ConsumerWidget {
               child: Text('Run sync now'),
             ),
             const SizedBox(height: AppSpacing.s3),
-            _group(c, 'Identity', {
-              'auth uid': d.authUidMasked,
-              'local data owner uid': d.ownerUidMasked,
-              'match': d.uidsMatch ? 'yes' : 'no',
-              'cloud consent': d.cloudConsent ? 'on' : 'off',
-              'AI consent': d.aiConsent ? 'on' : 'off',
-            }),
-            _group(c, 'Capabilities', d.capabilities),
-            _group(c, 'Queue', {
-              'pending': '${d.counts.pending}',
-              'parked': '${d.counts.parked}',
-              'dead letter': '${d.counts.deadLetter}',
-              'in flight': '${d.counts.inFlight}',
-              'sender mappings pending': '${d.counts.senderMappingsPending}',
-              'sender mappings failed': '${d.counts.senderMappingsFailed}',
-              'smart inbox pending': '${d.counts.smartInboxPendingSync}',
-              'next retry': _t(d.counts.nextRetryAt),
-              'last local mutation': _t(d.counts.lastLocalMutationAt),
-            }),
-            _group(c, 'Parked by reason', {
-              for (final e in d.counts.parkedByReason.entries)
-                e.key: '${e.value}',
-            }),
-            _group(c, 'Dead letter by reason', {
-              for (final e in d.counts.deadLetterByReason.entries)
-                e.key: '${e.value}',
-            }),
-            for (final domain in SyncDomain.values)
-              _group(c, 'Domain: ${domain.name}', {
-                'last push': _t(d.health[domain]?.lastPushSuccessAt),
-                'last pull': _t(d.health[domain]?.lastPullSuccessAt),
-                'last error class':
-                    d.health[domain]?.lastErrorClass?.name ?? '—',
-                'last error at': _t(d.health[domain]?.lastErrorAt),
-                'consecutive failures':
-                    '${d.health[domain]?.consecutiveFailures ?? 0}',
-              }),
+            OutlinedButton(
+              key: const ValueKey('copy-diagnostics'),
+              onPressed: () => Clipboard.setData(
+                  ClipboardData(text: d.toRedactedText())),
+              child: const Text('Copy diagnostics (redacted)'),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            for (final section in d.sections)
+              _group(c, section.title, section.rows),
           ],
         ),
       ),
     );
   }
-
-  static String _t(DateTime? t) =>
-      t == null ? '—' : t.toUtc().toIso8601String();
 
   Widget _group(AppColors c, String title, Map<String, String> rows) {
     if (rows.isEmpty) return const SizedBox.shrink();

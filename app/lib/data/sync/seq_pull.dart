@@ -11,6 +11,7 @@ library;
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../core/sync/sync_health.dart';
 import '../db/app_database.dart';
 import 'server_capabilities.dart';
 import 'sync_cursor.dart';
@@ -136,8 +137,18 @@ class SeqPullGate {
   SyncHead? _head;
   DateTime? _headAt;
 
-  /// Never throws: any failure becomes a typed [SeqMode.stopped].
+  /// Never throws: any failure becomes a typed [SeqMode.stopped]. The outcome is
+  /// also reported to [SyncHealth.shared] for the diagnostics (WP-8).
   Future<SeqPlan> plan(String userId) async {
+    final result = await _plan(userId);
+    SyncHealth.shared.recordPullPlan(
+      stop: result.mode == SeqMode.stopped ? lastStop : null,
+      headSeq: result.head?.lastSeq,
+    );
+    return result;
+  }
+
+  Future<SeqPlan> _plan(String userId) async {
     final ServerCapabilityState cap;
     try {
       cap = await _capability();

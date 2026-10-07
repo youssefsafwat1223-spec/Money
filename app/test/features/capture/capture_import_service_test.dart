@@ -272,6 +272,20 @@ void main() {
 
   tearDown(() async => db.close());
 
+  test('WP-8: the service remembers the outcome of its latest run only',
+      () async {
+    final service = buildService();
+    expect(service.lastReport, isNull);
+    queue.items.addAll([item(_id(1)), item(_id(2), owner: 'user-B')]);
+    final report = await service.run();
+    expect(service.lastReport, same(report));
+    expect(service.lastReport!.skippedForeignOwner, 1);
+    expect(service.lastReport!.imported, hasLength(1));
+    await service.run();
+    expect(service.lastReport!.imported, isEmpty,
+        reason: 'the second run found nothing new');
+  });
+
   group('triple-equality guard (capture.owner == replica owner == session)',
       () {
     test('items stamped to another uid, or unstamped, are skipped and left',

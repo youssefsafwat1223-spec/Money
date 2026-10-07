@@ -5942,6 +5942,7 @@ class AppL10nAr extends AppL10n {
       few: '$count تغييرات بانتظار المزامنة',
       two: 'تغييران بانتظار المزامنة',
       one: 'تغيير واحد بانتظار المزامنة',
+      zero: 'بانتظار المزامنة',
     );
     return '$_temp0';
   }
@@ -5956,6 +5957,9 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get syncStatusFailed => 'فشلت المزامنة — إعادة المحاولة';
+
+  @override
+  String get syncStatusNeedsAttention => 'تحتاج إلى انتباهك';
 
   @override
   String get syncSheetTitle => 'حالة المزامنة';

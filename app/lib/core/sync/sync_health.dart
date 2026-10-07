@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart'
 
 import '../../data/db/app_database.dart';
 import '../../data/db/sql_value_codec.dart';
+import '../../data/sync/seq_pull.dart' show SyncPullStop;
 import '../session/unsynced_inventory.dart'
     show countUnprovenFinancialRows, countUnresolvedConflicts;
 import '../di/app_providers.dart' show appDatabaseProvider;
@@ -82,6 +83,19 @@ enum SyncErrorClass {
   }
 }
 
+/// WP-8: what the sequence-pull gate last decided. Enum code, a count and a
+/// timestamp only.
+class SyncPullObservation {
+  const SyncPullObservation({this.stop, this.headSeq, required this.at});
+
+  /// Why the last plan stopped, null when it did not.
+  final SyncPullStop? stop;
+
+  /// The server `last_seq` read for that plan (null: none read).
+  final int? headSeq;
+  final DateTime at;
+}
+
 /// Immutable per-domain snapshot.
 class SyncDomainHealth {
   const SyncDomainHealth({
@@ -144,7 +158,12 @@ class SyncQueueCounts {
     this.conflicts = 0,
     this.unprovenLocalRows = 0,
     this.networkStalled = 0,
+    this.quarantined = 0,
   });
+
+  /// WP-4 §4.11: pulled rows parked for an identity-integrity error
+  /// (`parked_child_rows.reason = 'integrity'`). Needs the user's attention.
+  final int quarantined;
 
   /// D-5: entities in `sync_status = 'conflict'` — a two-device collision the
   /// user must resolve. Counted as needing attention, never "all synced".
@@ -225,6 +244,7 @@ class SyncHealth {
   final Map<SyncDomain, _PhaseNotes> _notes = {};
 
   final Map<String, String> _capabilityStates = {};
+  SyncPullObservation? _pullObservation;
 
   /// Latest observed capability states (label -> state name), in memory only.
   /// Written by capability probes; read by the diagnostics screen.
@@ -233,6 +253,16 @@ class SyncHealth {
 
   void recordCapability(String label, String state) =>
       _capabilityStates[label] = state;
+
+  /// WP-8: the latest sequence-pull plan the gate made (in memory only).
+  SyncPullObservation? get pullObservation => _pullObservation;
+
+  void recordPullPlan({SyncPullStop? stop, int? headSeq}) =>
+      _pullObservation = SyncPullObservation(
+        stop: stop,
+        headSeq: headSeq,
+        at: _clock(),
+      );
 
   SyncDomainHealth of(SyncDomain d) => _state[d] ?? const SyncDomainHealth();
 
@@ -251,6 +281,7 @@ class SyncHealth {
       _state.clear();
       _notes.clear();
       _capabilityStates.clear();
+      _pullObservation = null;
     }
     _db = db;
     try {
@@ -460,6 +491,8 @@ class SyncHealth {
           "WHERE status = 'pending' AND failure_class = 'transientNetwork'");
     }
     return SyncQueueCounts(
+      quarantined: await n('SELECT COUNT(*) AS n FROM parked_child_rows '
+          "WHERE reason = 'integrity'"),
       networkStalled: networkStalled,
       conflicts: await countUnresolvedConflicts(db),
       unprovenLocalRows:

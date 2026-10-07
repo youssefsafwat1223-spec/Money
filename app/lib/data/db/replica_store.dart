@@ -35,6 +35,63 @@ import 'replica_location.dart';
 /// Registry state of one replica.
 enum ReplicaState { active, locked, migrating, quarantined }
 
+/// WP-7 — the manifest §4.10 durable rebootstrap phase, in execution order. A
+/// crash at any phase resumes from the registry marker. Wire names are the
+/// manifest's (`frozen`, `extracted`, `fresh_bootstrapped`, ...).
+enum RebootstrapPhase {
+  frozen('frozen'),
+  extracted('extracted'),
+  freshBootstrapped('fresh_bootstrapped'),
+  receiptsRecovered('receipts_recovered'),
+  pulledMerged('pulled_merged'),
+  outboxRecovered('outbox_recovered'),
+  conflictsMerged('conflicts_merged'),
+  swapped('swapped'),
+  captureResumed('capture_resumed');
+
+  const RebootstrapPhase(this.wire);
+  final String wire;
+
+  static RebootstrapPhase fromWire(String w) =>
+      values.firstWhere((p) => p.wire == w);
+}
+
+/// The in-progress rebootstrap of one replica (counts and names only, never
+/// content). Absent once `capture_resumed` has been reached.
+class RebootstrapMarker {
+  const RebootstrapMarker({
+    required this.phase,
+    required this.reason,
+    required this.startedAt,
+    this.swapping = false,
+  });
+
+  final RebootstrapPhase phase;
+
+  /// The swap's file moves have begun (set before the first one): a resume must
+  /// finish the swap, never rebuild or reopen the replica names mid-move.
+  final bool swapping;
+
+  /// `user_sync_state.epoch_reason` that triggered it (`purge`, `reset`,
+  /// `restore`, ...). `purge` never replays anything.
+  final String reason;
+  final DateTime startedAt;
+
+  Map<String, Object?> toJson() => {
+        'phase': phase.wire,
+        'reason': reason,
+        'startedAt': startedAt.toUtc().toIso8601String(),
+        if (swapping) 'swapping': true,
+      };
+
+  static RebootstrapMarker fromJson(Map<String, Object?> j) => RebootstrapMarker(
+        phase: RebootstrapPhase.fromWire(j['phase']! as String),
+        reason: j['reason']! as String,
+        startedAt: DateTime.parse(j['startedAt']! as String),
+        swapping: j['swapping'] == true,
+      );
+}
+
 /// One registry entry (uidHash → this).
 class ReplicaEntry {
   const ReplicaEntry({
@@ -46,6 +103,8 @@ class ReplicaEntry {
     required this.state,
     this.adoptPending = false,
     this.legacyAdoptedAt,
+    this.rebootstrap,
+    this.retiredAt,
   });
 
   final String uidHash;
@@ -63,6 +122,13 @@ class ReplicaEntry {
   /// grace is measured from here. Null once purged (or never adopted).
   final DateTime? legacyAdoptedAt;
 
+  /// WP-7: the rebootstrap in progress, if any (see [RebootstrapPhase]).
+  final RebootstrapMarker? rebootstrap;
+
+  /// WP-7: when a swapped rebootstrap retired the previous replica to
+  /// `<hash>.old`; the 14-day retention (manifest §13) is measured from here.
+  final DateTime? retiredAt;
+
   ReplicaEntry copyWith({
     DateTime? lastOpenedAt,
     int? schemaVersion,
@@ -71,6 +137,10 @@ class ReplicaEntry {
     bool? adoptPending,
     DateTime? legacyAdoptedAt,
     bool clearLegacyAdoptedAt = false,
+    RebootstrapMarker? rebootstrap,
+    bool clearRebootstrap = false,
+    DateTime? retiredAt,
+    bool clearRetiredAt = false,
   }) =>
       ReplicaEntry(
         uidHash: uidHash,
@@ -83,6 +153,9 @@ class ReplicaEntry {
         legacyAdoptedAt: clearLegacyAdoptedAt
             ? null
             : (legacyAdoptedAt ?? this.legacyAdoptedAt),
+        rebootstrap:
+            clearRebootstrap ? null : (rebootstrap ?? this.rebootstrap),
+        retiredAt: clearRetiredAt ? null : (retiredAt ?? this.retiredAt),
       );
 
   Map<String, Object?> toJson() => {
@@ -94,6 +167,8 @@ class ReplicaEntry {
         if (adoptPending) 'adoptPending': true,
         if (legacyAdoptedAt != null)
           'legacyAdoptedAt': legacyAdoptedAt!.toUtc().toIso8601String(),
+        if (rebootstrap != null) 'rebootstrap': rebootstrap!.toJson(),
+        if (retiredAt != null) 'retiredAt': retiredAt!.toUtc().toIso8601String(),
       };
 
   static ReplicaEntry fromJson(String uidHash, Map<String, Object?> j) =>
@@ -108,6 +183,13 @@ class ReplicaEntry {
         legacyAdoptedAt: j['legacyAdoptedAt'] == null
             ? null
             : DateTime.parse(j['legacyAdoptedAt']! as String),
+        rebootstrap: j['rebootstrap'] == null
+            ? null
+            : RebootstrapMarker.fromJson(
+                (j['rebootstrap']! as Map).cast<String, Object?>()),
+        retiredAt: j['retiredAt'] == null
+            ? null
+            : DateTime.parse(j['retiredAt']! as String),
       );
 }
 
@@ -162,6 +244,16 @@ const List<String> kAdoptionSteps = [
   'afterRename',
 ];
 
+/// Fixed order of the swap steps (WP-7); a test hook may stop the process after
+/// any of them.
+const List<String> kSwapSteps = [
+  'swap:beforeOldMoved',
+  'swap:afterOldMoved',
+  'swap:afterOldKey',
+  'swap:afterFreshMoved',
+  'swap:afterFreshKey',
+];
+
 typedef ReplicaOpener = Future<AppDatabase> Function({
   ReplicaLocation? location,
   bool runMigrations,
@@ -194,6 +286,15 @@ class ReplicaStore {
   /// P2 rollback grace for the `.adopted` legacy file (manifest §13).
   static const Duration adoptedGrace = Duration(days: 7);
 
+  /// WP-7: how long a swapped rebootstrap keeps the replica it retired
+  /// (manifest §13).
+  static const Duration retiredReplicaRetention = Duration(days: 14);
+
+  /// Directory/key suffixes of the side-by-side rebootstrap: `.rb` is the fresh
+  /// replica being built, `.old` the retired one.
+  static const String stagingSuffix = '.rb';
+  static const String retiredSuffix = '.old';
+
   final FlutterSecureStorage _storage;
   final String? _appSupport;
   final DateTime Function() _now;
@@ -202,6 +303,7 @@ class ReplicaStore {
   final Future<void> Function(String step)? _debugStep;
 
   final Map<String, AppDatabase> _open = {};
+  final Map<String, AppDatabase> _staging = {};
   Future<void> _tail = Future.value();
   Future<String>? _saltFuture;
 
@@ -385,12 +487,28 @@ class ReplicaStore {
     final hash = await uidHash(marker);
     final entry = (await _readRegistry())[hash];
     if (entry == null) return null;
+    // WP-7: until `swapped` has committed no background isolate may open the
+    // replica a rebootstrap is replacing (capture delivery stays disabled).
+    final rb = entry.rebootstrap;
+    if (rb != null && rb.phase.index < RebootstrapPhase.swapped.index) {
+      return null;
+    }
     if (entry.state == ReplicaState.active) return _location(hash);
     if (entry.state == ReplicaState.migrating) {
       final legacy = await _legacyLocation();
       if (await File(legacy.dbPath).exists()) return legacy;
     }
     return null;
+  }
+
+  /// Closes every open handle (replicas and fresh staging replicas) without
+  /// deleting anything. Idempotent.
+  Future<void> closeAll() async {
+    for (final db in [..._open.values, ..._staging.values]) {
+      await db.close();
+    }
+    _open.clear();
+    _staging.clear();
   }
 
   /// Closes the open replica of [uid], if any. Idempotent.
@@ -421,6 +539,203 @@ class ReplicaStore {
       (await db.customSelect('PRAGMA user_version;').getSingle())
           .read<int>('user_version');
 
+  // ------------------------------------------------- WP-7 rebootstrap (§4.10)
+
+  /// The rebootstrap marker of [uid]'s replica, or null when none is in progress.
+  Future<RebootstrapMarker?> rebootstrapMarker(String uid) async =>
+      (await _readRegistry())[await uidHash(uid)]?.rebootstrap;
+
+  /// Every replica with a rebootstrap in progress (launch resume).
+  Future<List<ReplicaEntry>> pendingRebootstraps() async => [
+        for (final e in await list())
+          if (e.rebootstrap != null) e,
+      ];
+
+  /// Starts a rebootstrap at `frozen` (a no-op when one is already recorded, so
+  /// the original reason survives a resume). False when the uid has no registry
+  /// entry.
+  Future<bool> beginRebootstrap(String uid, String reason) async {
+    final hash = await uidHash(uid);
+    var found = false;
+    await _mutate(hash, (c) {
+      if (c == null) return null;
+      found = true;
+      if (c.rebootstrap != null) return c;
+      return c.copyWith(
+        rebootstrap: RebootstrapMarker(
+          phase: RebootstrapPhase.frozen,
+          reason: reason,
+          startedAt: _now(),
+        ),
+      );
+    });
+    return found;
+  }
+
+  /// Durably advances the marker. Never moves it backwards; reaching
+  /// `capture_resumed` ends the rebootstrap (the marker is removed).
+  Future<void> advanceRebootstrap(String uid, RebootstrapPhase phase) async {
+    final hash = await uidHash(uid);
+    await _mutate(hash, (c) {
+      final m = c?.rebootstrap;
+      if (c == null || m == null) return c;
+      if (phase == RebootstrapPhase.captureResumed) {
+        return c.copyWith(clearRebootstrap: true);
+      }
+      if (phase.index <= m.phase.index) return c;
+      return c.copyWith(
+        rebootstrap: RebootstrapMarker(
+            phase: phase,
+            reason: m.reason,
+            startedAt: m.startedAt,
+            swapping: m.swapping),
+      );
+    });
+  }
+
+  /// Opens (creating on first use) the FRESH replica a rebootstrap builds next to
+  /// the live one: `replicas/<hash>.rb/` with its own key. It is owned by [uid]
+  /// (asserted like [openReplica]), never registered as the replica, and never
+  /// reachable by [activeLocation] / [openReplica] until [swapStaging].
+  Future<AppDatabase> openStaging(String uid) async {
+    if (uid.isEmpty || uid.startsWith(_transitionPrefix)) {
+      throw const ReplicaOwnershipException();
+    }
+    final hash = await uidHash(uid);
+    final already = _staging[hash];
+    if (already != null &&
+        already.lifecycleState == DatabaseLifecycleState.open) {
+      return already;
+    }
+    final loc = ReplicaLocation(
+      directory: p.join(await _replicasRoot(), '$hash$stagingSuffix'),
+      dbFileName: dbFileName,
+      keyName: '$keyNamePrefix$hash$stagingSuffix',
+    );
+    final existed = await File(loc.dbPath).exists();
+    final db = await _opener(location: loc, runMigrations: true);
+    try {
+      final owner = await _readMeta(db);
+      if (owner == null && !existed) {
+        await _writeMeta(db, uid);
+      } else if (owner != uid) {
+        throw const ReplicaOwnershipException();
+      }
+    } catch (_) {
+      await db.close();
+      rethrow;
+    }
+    return _staging[hash] = db;
+  }
+
+  /// Deletes the fresh replica (directory and key) of an abandoned rebootstrap.
+  Future<void> discardStaging(String uid) async {
+    final hash = await uidHash(uid);
+    await _staging.remove(hash)?.close();
+    final dir = Directory(p.join(await _replicasRoot(), '$hash$stagingSuffix'));
+    if (await dir.exists()) await dir.delete(recursive: true);
+    await _storage.delete(key: '$keyNamePrefix$hash$stagingSuffix');
+  }
+
+  /// Commits the swap: the live replica becomes `<hash>.old` (kept for
+  /// [retiredReplicaRetention]) and the fresh one takes its place, then the
+  /// marker is advanced to `swapped` and `retiredAt` stamped. Every step is
+  /// decided from what is on disk, so a crash after any of [kSwapSteps] is
+  /// finished by calling this again. Open handles are closed first; the caller
+  /// reopens the replica through the account scope afterwards.
+  Future<void> swapStaging(String uid) async {
+    final hash = await uidHash(uid);
+    await closeReplica(uid);
+    await _staging.remove(hash)?.close();
+    await _mutate(hash, (c) {
+      final m = c?.rebootstrap;
+      if (c == null || m == null) return c;
+      return c.copyWith(
+          rebootstrap: RebootstrapMarker(
+              phase: m.phase,
+              reason: m.reason,
+              startedAt: m.startedAt,
+              swapping: true));
+    });
+    final root = await _replicasRoot();
+    final main = Directory(p.join(root, hash));
+    final fresh = Directory(p.join(root, '$hash$stagingSuffix'));
+    final old = Directory(p.join(root, '$hash$retiredSuffix'));
+    final key = '$keyNamePrefix$hash';
+    final freshKey = '$key$stagingSuffix';
+    final oldKey = '$key$retiredSuffix';
+
+    // A: not started (the live replica and the fresh one both exist). Any older
+    // retained replica is superseded.
+    if (await main.exists() && await fresh.exists()) {
+      await _step('swap:beforeOldMoved');
+      if (await old.exists()) await old.delete(recursive: true);
+      await _storage.delete(key: oldKey);
+      await main.rename(old.path);
+      await _step('swap:afterOldMoved');
+    }
+    // B: the live replica is retired but its key is not yet kept under the old
+    // name (the live key still is the old replica's: it is only replaced in E).
+    if (!await main.exists() && await old.exists()) {
+      final existing = await _storage.read(key: oldKey);
+      if (existing == null || existing.isEmpty) {
+        final k = await _storage.read(key: key);
+        if (k != null && k.isNotEmpty) {
+          await _storage.write(key: oldKey, value: k);
+        }
+      }
+      await _step('swap:afterOldKey');
+    }
+    // C: the fresh replica takes the live name.
+    if (!await main.exists() && await fresh.exists()) {
+      await fresh.rename(main.path);
+      await _step('swap:afterFreshMoved');
+    }
+    // D: the live key becomes the fresh replica's.
+    final fk = await _storage.read(key: freshKey);
+    if (fk != null && fk.isNotEmpty) {
+      await _storage.write(key: key, value: fk);
+      await _storage.delete(key: freshKey);
+    }
+    await _step('swap:afterFreshKey');
+    if (!await main.exists()) {
+      throw const FileSystemException('rebootstrap swap has no replica');
+    }
+
+    final hasOld = await old.exists();
+    final now = _now();
+    await _mutate(hash, (c) {
+      if (c == null) return null;
+      final m = c.rebootstrap;
+      final already = m?.phase == RebootstrapPhase.swapped;
+      return c.copyWith(
+        state: ReplicaState.active,
+        retiredAt: hasOld ? (already ? c.retiredAt ?? now : now) : null,
+        rebootstrap: m == null
+            ? null
+            : RebootstrapMarker(
+                phase: RebootstrapPhase.swapped,
+                reason: m.reason,
+                startedAt: m.startedAt),
+      );
+    });
+  }
+
+  /// Deletes retired replicas whose [retiredReplicaRetention] has passed (their
+  /// directory and key). Safe to call on every launch.
+  Future<void> purgeExpiredRetired() async {
+    final now = _now();
+    for (final e in await list()) {
+      final at = e.retiredAt;
+      if (at == null || now.difference(at) < retiredReplicaRetention) continue;
+      final dir = Directory(
+          p.join(await _replicasRoot(), '${e.uidHash}$retiredSuffix'));
+      if (await dir.exists()) await dir.delete(recursive: true);
+      await _storage.delete(key: '$keyNamePrefix${e.uidHash}$retiredSuffix');
+      await _mutate(e.uidHash, (c) => c?.copyWith(clearRetiredAt: true));
+    }
+  }
+
   // ------------------------------------------------------------------ remove
 
   /// Deletes the replica of [uid]: its directory (database, WAL/SHM, every
@@ -433,15 +748,35 @@ class ReplicaStore {
 
   Future<void> _removeHash(String hash) async {
     await _open.remove(hash)?.close();
-    final dir = Directory(p.join(await _replicasRoot(), hash));
-    final tomb = Directory(p.join(await _replicasRoot(), '_removing.$hash'));
-    if (await dir.exists()) {
-      if (await tomb.exists()) await tomb.delete(recursive: true);
-      await dir.rename(tomb.path);
+    await _staging.remove(hash)?.close();
+    final root = await _replicasRoot();
+    // The replica, plus the fresh one a rebootstrap was building (`.rb`) and the
+    // one it retired (`.old`): Remove data deletes every copy of this uid's data.
+    // The registry says which side copies exist, so the common case costs the
+    // same file system calls as before WP-7.
+    final entry = (await _readRegistry())[hash];
+    final suffixes = [
+      '',
+      if (entry?.rebootstrap != null) stagingSuffix,
+      if (entry?.retiredAt != null) retiredSuffix,
+    ];
+    final tombs = <Directory>[];
+    for (final suffix in suffixes) {
+      final dir = Directory(p.join(root, '$hash$suffix'));
+      final tomb = Directory(p.join(root, '_removing.$hash$suffix'));
+      if (await dir.exists()) {
+        if (await tomb.exists()) await tomb.delete(recursive: true);
+        await dir.rename(tomb.path);
+      }
+      tombs.add(tomb);
     }
-    await _storage.delete(key: '$keyNamePrefix$hash');
+    for (final suffix in suffixes) {
+      await _storage.delete(key: '$keyNamePrefix$hash$suffix');
+    }
     await _mutate(hash, (_) => null);
-    if (await tomb.exists()) await tomb.delete(recursive: true);
+    for (final tomb in tombs) {
+      if (await tomb.exists()) await tomb.delete(recursive: true);
+    }
   }
 
   /// Finishes any removal that was interrupted after its directory rename.
@@ -451,7 +786,9 @@ class ReplicaStore {
     await for (final e in root.list()) {
       final name = p.basename(e.path);
       if (e is Directory && name.startsWith('_removing.')) {
-        await _removeHash(name.substring('_removing.'.length));
+        // `_removing.<hash>[.rb|.old]`; the hash is hex, so the first dot ends it.
+        await _removeHash(name.substring('_removing.'.length).split('.').first);
+        if (await e.exists()) await e.delete(recursive: true);
       }
     }
   }

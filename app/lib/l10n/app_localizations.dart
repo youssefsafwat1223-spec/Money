@@ -10054,7 +10054,7 @@ abstract class AppL10n {
   /// No description provided for @syncStatusWaiting.
   ///
   /// In ar, this message translates to:
-  /// **'{count, plural, =1{تغيير واحد بانتظار المزامنة} =2{تغييران بانتظار المزامنة} few{{count} تغييرات بانتظار المزامنة} many{{count} تغييرًا بانتظار المزامنة} other{{count} تغيير بانتظار المزامنة}}'**
+  /// **'{count, plural, =0{بانتظار المزامنة} =1{تغيير واحد بانتظار المزامنة} =2{تغييران بانتظار المزامنة} few{{count} تغييرات بانتظار المزامنة} many{{count} تغييرًا بانتظار المزامنة} other{{count} تغيير بانتظار المزامنة}}'**
   String syncStatusWaiting(int count);
 
   /// No description provided for @syncStatusConsentOff.
@@ -10074,6 +10074,12 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'فشلت المزامنة — إعادة المحاولة'**
   String get syncStatusFailed;
+
+  /// No description provided for @syncStatusNeedsAttention.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحتاج إلى انتباهك'**
+  String get syncStatusNeedsAttention;
 
   /// No description provided for @syncSheetTitle.
   ///

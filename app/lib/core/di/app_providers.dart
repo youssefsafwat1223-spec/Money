@@ -11,6 +11,8 @@ import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
 import '../sync/conflict_policy.dart';
 import '../sync/conflict_resolver.dart';
+import '../sync/sync_conflict_store.dart';
+import '../../domain/entities/transaction_entity.dart' show TransactionStatus;
 import '../sync/sync_health.dart';
 import '../sync/sync_recovery.dart';
 import '../sync/sync_wakeup.dart';
@@ -1013,8 +1015,19 @@ final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
       ConflictEntities.transaction: (id) async {
         final e = await transactions.getById(id);
         if (e == null) return;
+        // WP-7: a recovered create that lost to a tombstone is stored ignored;
+        // its original status is in the conflict's `mine`.
+        var status = e.status;
+        if (status == TransactionStatus.ignored) {
+          final mine = (await SyncConflictStore(ref.read(appDatabaseProvider))
+                  .openFor(ConflictEntities.transaction, id))
+              ?.mine?['status'];
+          for (final v in TransactionStatus.values) {
+            if (v.name == mine && v != TransactionStatus.ignored) status = v;
+          }
+        }
         await transactions.saveTransaction(
-          transaction: e.copyWith(id: IdGenerator.next()),
+          transaction: e.copyWith(id: IdGenerator.next(), status: status),
           categoryKey: null,
           resolvedCategoryId: e.categoryId,
         );

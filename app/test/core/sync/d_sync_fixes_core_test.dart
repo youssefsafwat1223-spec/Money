@@ -137,7 +137,8 @@ void main() {
     test('a conflict is needs-attention, never allSynced', () {
       expect(_derive(const SyncQueueCounts()).kind, SyncStatusKind.allSynced);
       final s = _derive(const SyncQueueCounts(conflicts: 2));
-      expect(s.kind, SyncStatusKind.failed);
+      // WP-8: a conflict is a decision, not a failure Retry could fix.
+      expect(s.kind, SyncStatusKind.needsAttention);
       expect(s.needsAttention, 2);
     });
 

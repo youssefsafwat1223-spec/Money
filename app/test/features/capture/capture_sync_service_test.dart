@@ -32,6 +32,13 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 
 class _FakeRegistrationService implements CaptureDeviceRegistrationService {
   @override
+  Future<({bool cloud, bool ai, int version})?> consentAckSnapshot() async =>
+      null;
+
+  @override
+  int? get mirroredConsentVersion => null;
+
+  @override
   ValueListenable<CaptureRegistrationStatus> get status =>
       ValueNotifier(const CaptureRegistrationStatus(
           CaptureRegistrationPhase.notRequested));

@@ -1,9 +1,10 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_companion/core/sync/sync_health.dart';
+import 'package:money_companion/core/sync/sync_diagnostics_report.dart';
 import 'package:money_companion/core/sync/sync_status.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/settings/sync_diagnostics_screen.dart';
@@ -39,6 +40,11 @@ void main() {
         'لم تسجّل الدخول — بياناتك تبقى على هذا الجهاز'),
     (const SyncStatus(kind: SyncStatusKind.failed, count: 1),
         'Sync failed — Retry', 'فشلت المزامنة — إعادة المحاولة'),
+    // WP-8
+    (const SyncStatus(kind: SyncStatusKind.needsAttention, count: 2),
+        'Needs your attention', 'تحتاج إلى انتباهك'),
+    (const SyncStatus(kind: SyncStatusKind.waiting, count: 0),
+        'Waiting to sync', 'بانتظار المزامنة'),
   ];
 
   for (final (status, en, ar) in cases) {
@@ -85,45 +91,88 @@ void main() {
     expect(find.byKey(const ValueKey('sync-retry-button')), findsNothing);
   });
 
-  group('diagnostics', () {
-    test('maskUid keeps only first 4 + last 4', () {
-      const uid = '123e4567-e89b-12d3-a456-426614174000';
-      final m = maskUid(uid);
-      expect(m, '123e…4000');
-      expect(m.contains('e89b'), isFalse);
-      expect(maskUid(null), '—');
-      expect(maskUid('short'), '••••');
-    });
+  testWidgets('needsAttention sheet lists the attention row and offers Retry',
+      (tester) async {
+    await tester.pumpWidget(_app(const SyncStatus(
+      kind: SyncStatusKind.needsAttention,
+      count: 3,
+      needsAttention: 3,
+    )));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('sync-status-tile')));
+    await tester.pumpAndSettle();
+    expect(find.text('Needs attention'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sync-retry-button')), findsOneWidget);
+    await tester.pumpWidget(_app(
+        const SyncStatus(
+            kind: SyncStatusKind.needsAttention, count: 3, needsAttention: 3),
+        lang: 'ar'));
+    await tester.pumpAndSettle();
+    expect(find.text('تحتاج إلى انتباهك'), findsWidgets);
+  });
 
-    testWidgets('screen shows masked uids only, never the full uid',
+  group('diagnostics', () {
+    const auth = 'aaaa1111-2222-3333-4444-555566667777';
+    const owner = 'bbbb1111-2222-3333-4444-555566668888';
+    const smsText = 'Card 4111111111111234 charged SAR 1,234.56 at ACME COFFEE';
+
+    SyncDiagnosticsReport report() => const SyncDiagnosticsReport([
+          DiagnosticSection('Identity and replica', {
+            'session present': 'yes',
+            'replica owner matches session': 'no',
+          }),
+          DiagnosticSection('Pull', {'last pull stop': 'epochMismatch'}),
+          DiagnosticSection('Empty', {}),
+        ]);
+
+    Future<void> pump(WidgetTester tester, SyncDiagnosticsReport r) =>
+        tester.pumpWidget(ProviderScope(
+          overrides: [syncDiagnosticsProvider.overrideWith((ref) async => r)],
+          child: MaterialApp(
+            theme: AppTheme.light,
+            home: const SyncDiagnosticsScreen(),
+          ),
+        ));
+
+    testWidgets('screen renders the report sections, no uid in any form',
         (tester) async {
-      const auth = 'aaaa1111-2222-3333-4444-555566667777';
-      const owner = 'bbbb1111-2222-3333-4444-555566668888';
-      await tester.pumpWidget(ProviderScope(
-        overrides: [
-          syncDiagnosticsProvider.overrideWith((ref) async => SyncDiagnostics(
-                health: {for (final d in SyncDomain.values) d: const SyncDomainHealth()},
-                counts: const SyncQueueCounts(pending: 2),
-                authUidMasked: maskUid(auth),
-                ownerUidMasked: maskUid(owner),
-                uidsMatch: false,
-                cloudConsent: true,
-                aiConsent: false,
-                capabilities: const {'awaiting FX': 'unknown'},
-              )),
-        ],
-        child: MaterialApp(
-          theme: AppTheme.light,
-          home: const SyncDiagnosticsScreen(),
-        ),
-      ));
+      await pump(tester, report());
       await tester.pumpAndSettle();
-      expect(find.text('aaaa…7777'), findsOneWidget);
-      expect(find.text('bbbb…8888'), findsOneWidget);
+      expect(find.text('Identity and replica'), findsOneWidget);
+      expect(find.text('replica owner matches session'), findsOneWidget);
       expect(find.text('no'), findsOneWidget);
+      expect(find.text('epochMismatch'), findsOneWidget);
+      expect(find.text('Empty'), findsNothing, reason: 'empty sections hide');
       expect(find.byKey(const ValueKey('run-sync-now')), findsOneWidget);
       expect(find.textContaining(auth), findsNothing);
       expect(find.textContaining(owner), findsNothing);
+      expect(find.textContaining('aaaa…'), findsNothing);
+    });
+
+    testWidgets('Copy puts the redacted bundle (only) on the clipboard',
+        (tester) async {
+      String? copied;
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
+      addTearDown(() => tester.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      await pump(tester, report());
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('copy-diagnostics')));
+      await tester.pump();
+      expect(copied, report().toRedactedText());
+      expect(copied, contains('last pull stop: epochMismatch'));
+      expect(copied, isNot(contains(smsText)));
+    });
+
+    test('the report never echoes free text', () {
+      final rows = DiagnosticRows()..add('x', smsText);
+      expect(rows.rows['x'], '[redacted]');
     });
 
     test('not reachable in release: guard + router registration', () {

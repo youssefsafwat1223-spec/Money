@@ -33,6 +33,7 @@ class SyncStatusTile extends ConsumerWidget {
       SyncStatusKind.consentOff => (AppLucideIcons.cloudOff, c.textLight),
       SyncStatusKind.signedOut => (AppLucideIcons.cloudOff, c.textLight),
       SyncStatusKind.failed => (AppLucideIcons.alertTriangle, c.danger),
+      SyncStatusKind.needsAttention => (AppLucideIcons.alertTriangle, c.accent),
     };
     return ListTile(
       key: const ValueKey('sync-status-tile'),
@@ -62,6 +63,7 @@ String syncStatusLabel(BuildContext context, SyncStatus status) {
     SyncStatusKind.consentOff => l10n.syncStatusConsentOff,
     SyncStatusKind.signedOut => l10n.syncStatusSignedOut,
     SyncStatusKind.failed => l10n.syncStatusFailed,
+    SyncStatusKind.needsAttention => l10n.syncStatusNeedsAttention,
   };
 }
 

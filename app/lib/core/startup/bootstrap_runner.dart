@@ -1,6 +1,8 @@
 import '../sync/pending_sync_reconciler.dart';
 import '../sync/sync_health.dart';
 import 'dart:async';
+import '../session/rebootstrap_service.dart';
+import '../di/rebootstrap_providers.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -135,6 +137,11 @@ class BootstrapRunner {
     final host = _host ??= _buildAccountScopeHost();
     if (_database == null) {
       await _step('replica_recovery', host.recoverAtLaunch);
+      // WP-7: an unfinished rebootstrap keeps capture delivery and egress frozen
+      // until the next sync cycle resumes it from its phase marker.
+      if ((await _replicaStore!.pendingRebootstraps()).isNotEmpty) {
+        ReplicaFreeze.instance.freeze();
+      }
     }
 
     if (SupabaseConfig.isConfigured && !_supabaseInitialized) {
@@ -553,6 +560,18 @@ class BootstrapRunner {
       clearOwnerMarker: AppSession.instance.clearLocalDataOwnerMarker,
     );
     AppSession.instance.configureRemoveData(_removeData);
+    // WP-7: the rebootstrap reuses the §4.4 Remove-data flow for epoch_reason
+    // purge, and re-admits the account afterwards.
+    RebootstrapRuntime.instance
+      ..store = _replicaStore
+      ..scope = _host
+      ..removeData = ((uid) => _removeData!.remove(uid))
+      ..readmit = (String _) async {
+        if (SupabaseConfig.isConfigured) {
+          await AppSession.instance
+              .revalidateSupabaseSessionOnResume(Supabase.instance.client);
+        }
+      };
   }
 
   AccountScopeHost _buildAccountScopeHost() {

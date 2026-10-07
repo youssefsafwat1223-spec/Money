@@ -58,6 +58,8 @@ void main() {
     'data/sync/revision_cas.dart':
         'EgressClass.financialSync — the WP-5 CAS RPC transport shared by the '
             'push services; each asks its own `mayEgress` before plan()/any RPC',
+    'core/di/rebootstrap_providers.dart':
+        'EgressClass.financialSync — the rebootstrap runs only after the consent-gated replica_epoch probe',
     'data/sync/seq_pull.dart':
         'EgressClass.financialSync — the WP-4 sequence-pull transport shared by '
             'the pull services; every caller asks its own consent gate before '
@@ -122,6 +124,9 @@ void main() {
         'core/backup/remote_backup_controller.dart',
     'core/backup/encrypted_backup_service.dart':
         'core/backup/remote_backup_controller.dart',
+    // WP-7: the rebootstrap runs only after EpochRebootstrapTrigger probed the
+    // `replica_epoch` capability, which is consent-gated (financialSync).
+    'core/di/rebootstrap_providers.dart': 'core/di/app_providers.dart',
     // The planning/ledger engines hold one gate for the whole pipeline; the
     // individual services are reached only through them.
     'features/planning_sync/services/planning_push_service.dart':

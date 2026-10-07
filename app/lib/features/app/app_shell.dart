@@ -30,6 +30,8 @@ import '../../core/router/modal_route_observer.dart';
 import 'app_boot_loader.dart';
 import '../planning_sync/services/startup_sync_reconcile_service.dart';
 import '../../core/session/app_session.dart';
+import '../../core/session/rebootstrap_service.dart';
+import '../../core/di/rebootstrap_providers.dart';
 import '../help/coach_marks.dart';
 import '../../core/sync/sync_wakeup.dart';
 import '../../core/theme/app_colors.dart';
@@ -799,6 +801,15 @@ class _AppShellState extends ConsumerState<AppShell> {
     // not write or refresh under a new owner. Sub-services also fail-safe (no
     // auth user id after sign-out); this is the belt-and-braces entry check.
     if (!_syncGate.admits(gen)) return;
+    // WP-7: an epoch change rebootstraps the replica (behind `replica_epoch`);
+    // egress is frozen while one is in progress.
+    final uid = supabase.Supabase.instance.client.auth.currentUser?.id;
+    final trigger = ref.read(rebootstrapTriggerProvider);
+    if (trigger != null && uid != null) {
+      final outcome = await trigger.check(uid);
+      if (outcome != RebootstrapOutcome.notNeeded) return;
+    }
+    if (ReplicaFreeze.instance.frozen) return;
     // Reconcile local accounts/transactions that never reached Supabase BEFORE
     // the normal push/pull, so back-filled rows are marked synced and the
     // outbox path takes over cleanly. One-shot per session; the service guards
@@ -937,6 +948,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _consumeSharedInput() async {
+    // WP-7 §4.10: capture delivery stays off until the swap has committed.
+    if (ReplicaFreeze.instance.frozen) return;
     if (_isConsumingSharedInput) return;
     _isConsumingSharedInput = true;
     try {

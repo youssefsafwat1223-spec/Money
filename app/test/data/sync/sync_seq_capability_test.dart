@@ -64,4 +64,22 @@ void main() {
     reply = (r) => http.Response('boom', 503, request: r);
     expect(await svc().syncSeq(), ServerCapabilityState.unknown);
   });
+
+  test('WP-8 cachedCapability: no network, no TTL, unknown until probed',
+      () async {
+    final s = svc();
+    expect(s.cachedCapability(kCapSyncSeq, 'u1'), ServerCapabilityState.unknown);
+    reply = ok({'sync_seq': true, 'revision_cas': false});
+    await s.syncSeq();
+    await s.revisionCas();
+    final before = calls;
+    expect(s.cachedCapability(kCapSyncSeq, 'u1'), ServerCapabilityState.verified);
+    expect(
+        s.cachedCapability(kCapRevisionCas, 'u1'), ServerCapabilityState.unsupported);
+    expect(s.cachedCapability(kCapReplicaEpoch, 'u1'), ServerCapabilityState.unknown);
+    expect(s.cachedCapability(kCapSyncSeq, 'other'), ServerCapabilityState.unknown);
+    now = now.add(const Duration(hours: 1)); // past the TTL
+    expect(s.cachedCapability(kCapSyncSeq, 'u1'), ServerCapabilityState.verified);
+    expect(calls, before, reason: 'a diagnostic read never probes');
+  });
 }
