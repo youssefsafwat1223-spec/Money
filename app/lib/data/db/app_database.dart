@@ -17,7 +17,7 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 39;
+const int _targetSchemaVersion = 40;
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -656,7 +656,54 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV39ReplicaMeta,
       postcondition: _verifyV39ReplicaMeta,
     ),
+    // WP-6 — versioned, per-replica consent. ADDITIVE: four columns on the
+    // existing single-row user_settings (version + time for each of the Cloud
+    // and AI consents). No existing consent VALUE is changed. A consent that is
+    // already an explicit choice (state not NULL) starts at version 1 with an
+    // unknown time; an unset one stays at version 0. Forward-only like v32..v39.
+    _SchemaMigration(
+      from: 39,
+      to: 40,
+      apply: _applyV40ConsentVersions,
+      postcondition: _verifyV40ConsentVersions,
+    ),
   ];
+
+  static Future<void> _applyV40ConsentVersions(AppDatabase db) async {
+    // A database older than MALI-059n has no *_state columns yet (the
+    // compatibility repairs add them AFTER the versioned steps); the backfill
+    // below reads them, so ensure them first. Same definition as that repair.
+    await db._ensureColumn('user_settings', 'ai_consent_state', 'TEXT NULL');
+    await db._ensureColumn('user_settings', 'cloud_consent_state', 'TEXT NULL');
+    await db._ensureColumn(
+        'user_settings', 'cloud_consent_version', 'INTEGER NOT NULL DEFAULT 0');
+    await db._ensureColumn('user_settings', 'cloud_consent_at', 'TEXT NULL');
+    await db._ensureColumn(
+        'user_settings', 'ai_consent_version', 'INTEGER NOT NULL DEFAULT 0');
+    await db._ensureColumn('user_settings', 'ai_consent_at', 'TEXT NULL');
+    await db.customStatement(
+      'UPDATE user_settings SET cloud_consent_version = 1 '
+      'WHERE cloud_consent_state IS NOT NULL AND cloud_consent_version = 0;',
+    );
+    await db.customStatement(
+      'UPDATE user_settings SET ai_consent_version = 1 '
+      'WHERE ai_consent_state IS NOT NULL AND ai_consent_version = 0;',
+    );
+  }
+
+  static Future<bool> _verifyV40ConsentVersions(AppDatabase db) async {
+    final names = (await db
+            .customSelect("SELECT name FROM pragma_table_info('user_settings');")
+            .get())
+        .map((r) => r.read<String>('name'))
+        .toSet();
+    return names.containsAll(const {
+      'cloud_consent_version',
+      'cloud_consent_at',
+      'ai_consent_version',
+      'ai_consent_at',
+    });
+  }
 
   static Future<void> _applyV39ReplicaMeta(AppDatabase db) =>
       db._createReplicaMetaTable();
@@ -1655,6 +1702,12 @@ class AppDatabase extends GeneratedDatabase {
         cloud_processing_enabled INTEGER NOT NULL DEFAULT 0,
         ai_consent_state TEXT NULL,
         cloud_consent_state TEXT NULL,
+        -- WP-6 (v40): the version and time of the last explicit change of each
+        -- consent. Versions only ever increase; 0 = never changed.
+        cloud_consent_version INTEGER NOT NULL DEFAULT 0,
+        cloud_consent_at TEXT NULL,
+        ai_consent_version INTEGER NOT NULL DEFAULT 0,
+        ai_consent_at TEXT NULL,
         updated_at TEXT NULL,
         server_id TEXT NULL,
         synced_at TEXT NULL,
@@ -3404,10 +3457,20 @@ class AppDatabase extends GeneratedDatabase {
     // device — reset both to unset/OFF so the restored device re-asks. (The
     // backup no longer carries consent, but reset unconditionally so legacy
     // backups that do carry it can never auto-authorize.)
+    //
+    // WP-6: the reset is a consent change, so a prior choice moves the version
+    // forward (never back) and the next link/consent push projects the OFF state.
+    await customStatement(
+      'UPDATE user_settings SET '
+      'cloud_consent_version = MAX(cloud_consent_version, ai_consent_version) + 1, '
+      'ai_consent_version = MAX(cloud_consent_version, ai_consent_version) + 1 '
+      'WHERE ai_consent_state IS NOT NULL OR cloud_consent_state IS NOT NULL;',
+    );
     await customStatement(
       'UPDATE user_settings SET ai_consent_granted = 0, '
       'cloud_processing_enabled = 0, ai_consent_state = NULL, '
-      'cloud_consent_state = NULL;',
+      'cloud_consent_state = NULL, cloud_consent_at = NULL, '
+      'ai_consent_at = NULL;',
     );
     await _ensureDefaultAccount();
   }

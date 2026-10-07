@@ -55,6 +55,10 @@ void main() {
             '`mayEgress` covers every push it drives',
     'features/planning_sync/services/planning_server_currency_repair.dart':
         'EgressClass.financialSync — same engine, same gate as the push above',
+    'data/sync/seq_pull.dart':
+        'EgressClass.financialSync — the WP-4 sequence-pull transport shared by '
+            'the pull services; every caller asks its own consent gate before '
+            'it calls plan()/fetch(), and the gate itself holds no consent',
     'features/capture/services/ledger_sync_service.dart':
         'EgressClass.financialSync — the ledger pull, gated by its caller',
     'core/tracking/user_activity_service.dart':
@@ -95,6 +99,10 @@ void main() {
   /// `RemoteBackupController`, which is where the consent decision belongs.
   /// Recording the indirection keeps the check honest instead of loosening it.
   const gatedByCaller = <String, String>{
+    // WP-4: the sequence-pull transport holds no consent itself; each pull
+    // service asks its own gate first (accounts is the representative caller).
+    'data/sync/seq_pull.dart':
+        'features/planning_sync/services/accounts_pull_service.dart',
     // CLOSED 2026-09-02 (was an OPEN finding). The backfills reached from
     // StartupSyncReconcileService gated on TRANSPORT capability and never on
     // consent, while every sibling push/pull service in the same pipeline

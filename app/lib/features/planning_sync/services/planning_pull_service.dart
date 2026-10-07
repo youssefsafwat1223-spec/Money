@@ -13,6 +13,7 @@ import '../../../data/db/bounded_lookup.dart';
 import '../../../data/db/money_codec.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_repository_support.dart';
+import '../../../data/sync/seq_pull.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/finance/money.dart';
@@ -205,7 +206,10 @@ class PlanningPullService {
     /// as one unbounded loop. Epoch/reconcile pulls (`from` given) are exempt —
     /// they restart from epoch each time and must reach EOF to clear their marker.
     int maxPagesPerRun = 10,
+    /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
+    SeqPullGate? seqGate,
   })  : assert(pageSize > 0),
+        _seqGate = seqGate,
         _mayEgressProfile =
             mayEgressProfile ?? mayEgress ?? _denyEgressByDefault,
         _health = health,
@@ -221,6 +225,7 @@ class PlanningPullService {
   final AppDatabase _db;
   final bool Function(String entityType) _isEnabled;
   final int _maxPagesPerRun;
+  final SeqPullGate? _seqGate;
   final Future<String?> Function() _getAuthUserId;
   final PlanningRemoteSource _remoteSource;
   final PlanningOutboxQueue? _outboxQueue;
@@ -328,6 +333,12 @@ class PlanningPullService {
     var tombstoned = 0;
     final completedEntities = <String>{};
 
+    // WP-4: one protocol decision (and one head read) for all entities.
+    final plan = _seqGate != null
+        ? await _seqGate.plan(userId)
+        : const SeqPlan(SeqMode.legacy);
+    if (plan.mode == SeqMode.stopped) return const PlanningPullResult();
+
     for (final entry in _entityTable.entries) {
       final entityType = entry.key;
       final remoteTable = entry.value;
@@ -343,26 +354,40 @@ class PlanningPullService {
 
       try {
         final cursorKey = 'planning_$entityType';
-        var cursor = (fromEpochEntities?.contains(entityType) ?? false)
+        final forcedFromEpoch = fromEpochEntities?.contains(entityType) ?? false;
+        final useSeq = plan.mode == SeqMode.seq && !forcedFromEpoch;
+        var cursor = forcedFromEpoch
             ? const SyncCursor.epoch()
             : await readSyncCursor(_db, cursorKey);
-        var entityReachedEof = false;
-        final capped = !(fromEpochEntities?.contains(entityType) ?? false);
+        var seqCursor =
+            useSeq ? await readSeqCursor(_db, userId, cursorKey) : 0;
+        var entityReachedEof = useSeq && plan.isIdle(seqCursor);
+        final capped = !forcedFromEpoch;
         var pages = 0;
-        while (true) {
+        while (!entityReachedEof) {
           if (!admitted()) break;
-          final rows = await _remoteSource.fetchRows(
-            remoteTable,
-            after: cursor,
-            limit: _pageSize,
-          );
+          final rows = useSeq
+              ? await _seqGate!.fetch(
+                  table: remoteTable,
+                  userId: userId,
+                  afterSeq: seqCursor,
+                  limit: _pageSize,
+                  select: planningPullSelectForTable(remoteTable),
+                )
+              : await _remoteSource.fetchRows(
+                  remoteTable,
+                  after: cursor,
+                  limit: _pageSize,
+                );
           if (!admitted()) break;
           if (rows.isEmpty) {
             entityReachedEof = true;
             break;
           }
 
-          final nextCursor = SyncCursor.fromServerRow(rows.last);
+          final nextSeq = useSeq ? nextSeqOf(rows, seqCursor) : 0;
+          final nextCursor =
+              useSeq ? cursor : SyncCursor.fromServerRow(rows.last);
           final pageResult = await _db.transaction(() async {
             var pageImported = 0;
             var pageUpdated = 0;
@@ -422,7 +447,11 @@ class PlanningPullService {
               }
             }
             if (!admitted()) throw const ReconcilePullCancelled();
-            await writeSyncCursor(_db, cursorKey, nextCursor);
+            if (useSeq) {
+              await writeSeqCursor(_db, userId, cursorKey, nextSeq);
+            } else {
+              await writeSyncCursor(_db, cursorKey, nextCursor);
+            }
             return (
               imported: pageImported,
               updated: pageUpdated,
@@ -435,11 +464,15 @@ class PlanningPullService {
           conflicts += pageResult.conflicts;
           tombstoned += pageResult.tombstoned;
           cursor = nextCursor;
+          if (useSeq) seqCursor = nextSeq;
           if (rows.length < _pageSize) {
             entityReachedEof = true;
             break;
           }
           if (capped && ++pages >= _maxPagesPerRun) break;
+        }
+        if (useSeq && entityReachedEof) {
+          await _seqGate!.markCaughtUp(userId, cursorKey, seqCursor, plan);
         }
         if (entityReachedEof) completedEntities.add(entityType);
       } on ReconcilePullCancelled {

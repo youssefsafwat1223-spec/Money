@@ -44,10 +44,23 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
       // former forced-true clamp made the privacy toggles meaningless.
       final requiredSettings = settings;
       final previousSettings = await getSettings();
-      final consentChanged =
-          previousSettings.aiConsentState != requiredSettings.aiConsentState ||
-              previousSettings.cloudConsentState !=
-                  requiredSettings.cloudConsentState;
+      final cloudChanged = previousSettings.cloudConsentState !=
+          requiredSettings.cloudConsentState;
+      final aiChanged =
+          previousSettings.aiConsentState != requiredSettings.aiConsentState;
+      final consentChanged = cloudChanged || aiChanged;
+      // WP-6: versions are assigned HERE from the stored row, never taken from
+      // the caller's entity, so a stale entity can neither lower a version nor
+      // invent one. Any change of either consent moves the shared version
+      // strictly forward; an untouched consent keeps its own version and time.
+      final nextVersion = previousSettings.consentVersion + 1;
+      final changedAt = dateTimeToSql(DateTime.now().toUtc());
+      Variable<String> consentAt(bool changed, DateTime? previous) =>
+          changed
+              ? Variable.withString(changedAt)
+              : previous == null
+                  ? const Variable<String>(null)
+                  : Variable.withString(dateTimeToSql(previous.toUtc()));
       await _db.customUpdate(
         '''
         UPDATE user_settings
@@ -57,7 +70,10 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
             notifications_json = ?, db_encryption_key_ref = ?,
             privacy_mode_enabled = ?, ai_consent_granted = ?,
             cloud_processing_enabled = ?, ai_consent_state = ?,
-            cloud_consent_state = ?, merchant_personalization_enabled = ?,
+            cloud_consent_state = ?,
+            cloud_consent_version = ?, cloud_consent_at = ?,
+            ai_consent_version = ?, ai_consent_at = ?,
+            merchant_personalization_enabled = ?,
             updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
         WHERE id = ?;
       ''',
@@ -91,6 +107,13 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
           Variable.withInt(requiredSettings.cloudProcessingEnabled ? 1 : 0),
           _consentStateVariable(requiredSettings.aiConsentState),
           _consentStateVariable(requiredSettings.cloudConsentState),
+          Variable.withInt(cloudChanged
+              ? nextVersion
+              : previousSettings.cloudConsentVersion),
+          consentAt(cloudChanged, previousSettings.cloudConsentAt),
+          Variable.withInt(
+              aiChanged ? nextVersion : previousSettings.aiConsentVersion),
+          consentAt(aiChanged, previousSettings.aiConsentAt),
           // COUPONS Phase 1 — persisted locally and DELIBERATELY absent from
           // the settings sync payload below. See UserSettingsEntity.
           Variable.withInt(
@@ -98,13 +121,23 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
           Variable.withString(requiredSettings.id),
         ],
       );
+      final changedAtValue = dateTimeFromSql(changedAt);
+      final saved = requiredSettings.copyWith(
+        cloudConsentVersion:
+            cloudChanged ? nextVersion : previousSettings.cloudConsentVersion,
+        cloudConsentAt:
+            cloudChanged ? changedAtValue : previousSettings.cloudConsentAt,
+        aiConsentVersion:
+            aiChanged ? nextVersion : previousSettings.aiConsentVersion,
+        aiConsentAt: aiChanged ? changedAtValue : previousSettings.aiConsentAt,
+      );
       // S2: أدرج التفضيلات السحابية للمزامنة في الخلفية (الأعمدة السحابية فقط).
       await _outboxQueue?.enqueueSettings(
         PlanningSyncOperation.update,
-        requiredSettings,
+        saved,
         consentChanged: consentChanged,
       );
-      return requiredSettings;
+      return saved;
     });
   }
 }

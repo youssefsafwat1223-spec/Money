@@ -8,6 +8,7 @@ import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/seq_pull.dart';
 import '../../../data/sync/sync_cursor.dart';
 
 class SmartInboxSyncResult {
@@ -104,7 +105,10 @@ class SmartInboxSyncService {
     Future<bool> Function()? mayEgress,
     int pageSize = 200,
     SyncHealth? health,
+    /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
+    SeqPullGate? seqGate,
   })  : assert(pageSize > 0),
+        _seqGate = seqGate,
         _health = health,
         _db = db,
         _isPullEnabled = isPullEnabled,
@@ -131,6 +135,7 @@ class SmartInboxSyncService {
   final SmartInboxRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
   final int _pageSize;
+  final SeqPullGate? _seqGate;
 
   static const _cursorKey = 'smart_inbox';
 
@@ -219,20 +224,39 @@ class SmartInboxSyncService {
 
     var reachedEof = false;
     try {
+      // WP-4: protocol selection (a reconcile pull `from` stays legacy).
+      final plan = from == null && _seqGate != null
+          ? await _seqGate.plan(userId)
+          : const SeqPlan(SeqMode.legacy);
+      if (plan.mode == SeqMode.stopped) {
+        return const SmartInboxSyncResult(status: SyncPullStatus.failed);
+      }
+      final useSeq = plan.mode == SeqMode.seq;
       var cursor = from ?? await readSyncCursor(_db, _cursorKey);
-      while (true) {
+      var seqCursor = useSeq ? await readSeqCursor(_db, userId, _cursorKey) : 0;
+      final skipPages = useSeq && plan.isIdle(seqCursor);
+      if (skipPages) reachedEof = true;
+      while (!skipPages) {
         if (!admitted()) break;
-        final rows = await _remoteSource.fetchRows(
-          after: cursor,
-          limit: _pageSize,
-        );
+        final rows = useSeq
+            ? await _seqGate!.fetch(
+                table: 'user_smart_inbox',
+                userId: userId,
+                afterSeq: seqCursor,
+                limit: _pageSize,
+              )
+            : await _remoteSource.fetchRows(
+                after: cursor,
+                limit: _pageSize,
+              );
         if (!admitted()) break;
         if (rows.isEmpty) {
           reachedEof = true;
           break;
         }
 
-        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        final nextSeq = useSeq ? nextSeqOf(rows, seqCursor) : 0;
+        final nextCursor = useSeq ? cursor : SyncCursor.fromServerRow(rows.last);
         final pageResult = await _db.transaction(() async {
           var pageImported = 0;
           var pageUpdated = 0;
@@ -253,7 +277,11 @@ class SmartInboxSyncService {
             }
           }
           if (!admitted()) throw const ReconcilePullCancelled();
-          await writeSyncCursor(_db, _cursorKey, nextCursor);
+          if (useSeq) {
+            await writeSeqCursor(_db, userId, _cursorKey, nextSeq);
+          } else {
+            await writeSyncCursor(_db, _cursorKey, nextCursor);
+          }
           return (
             imported: pageImported,
             updated: pageUpdated,
@@ -264,10 +292,14 @@ class SmartInboxSyncService {
         updated += pageResult.updated;
         tombstoned += pageResult.tombstoned;
         cursor = nextCursor;
+        if (useSeq) seqCursor = nextSeq;
         if (rows.length < _pageSize) {
           reachedEof = true;
           break;
         }
+      }
+      if (useSeq && reachedEof) {
+        await _seqGate!.markCaughtUp(userId, _cursorKey, seqCursor, plan);
       }
     } on ReconcilePullCancelled {
       // Lifecycle/ownership cancellation, not a transport failure.

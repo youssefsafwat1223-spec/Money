@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../core/sync/outbox_failure.dart';
 import '../db/app_database.dart';
 import '../db/sql_value_codec.dart';
+import 'seq_pull.dart';
 import 'sync_cursor.dart';
 
 /// MALI-072n / MALI-008 — durable, offline-first sender-mapping sync.
@@ -105,7 +106,10 @@ class SenderBankMappingSyncService {
     Future<bool> Function()? mayEgress,
     int pageSize = 200,
     SyncHealth? health,
+    /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
+    SeqPullGate? seqGate,
   })  : assert(pageSize > 0),
+        _seqGate = seqGate,
         _health = health,
         _db = db,
         _remoteStore = remoteStore,
@@ -121,6 +125,7 @@ class SenderBankMappingSyncService {
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
   final int _pageSize;
+  final SeqPullGate? _seqGate;
 
   static const _cursorKey = 'sender_bank_mappings';
 
@@ -271,13 +276,33 @@ class SenderBankMappingSyncService {
     var updated = 0;
     var tombstoned = 0;
     try {
+      // WP-4: protocol selection.
+      final plan = _seqGate != null
+          ? await _seqGate.plan(userId)
+          : const SeqPlan(SeqMode.legacy);
+      if (plan.mode == SeqMode.stopped) {
+        return (imported: 0, updated: 0, tombstoned: 0);
+      }
+      final useSeq = plan.mode == SeqMode.seq;
       var cursor = await readSyncCursor(_db, _cursorKey);
-      while (true) {
-        final rows =
-            await _remoteStore.fetchRows(after: cursor, limit: _pageSize);
-        if (rows.isEmpty) break;
+      var seqCursor = useSeq ? await readSeqCursor(_db, userId, _cursorKey) : 0;
+      var reachedEof = useSeq && plan.isIdle(seqCursor);
+      while (!reachedEof) {
+        final rows = useSeq
+            ? await _seqGate!.fetch(
+                table: 'sender_bank_mappings',
+                userId: userId,
+                afterSeq: seqCursor,
+                limit: _pageSize,
+              )
+            : await _remoteStore.fetchRows(after: cursor, limit: _pageSize);
+        if (rows.isEmpty) {
+          reachedEof = true;
+          break;
+        }
 
-        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        final nextSeq = useSeq ? nextSeqOf(rows, seqCursor) : 0;
+        final nextCursor = useSeq ? cursor : SyncCursor.fromServerRow(rows.last);
         final page = await _db.transaction(() async {
           var pi = 0, pu = 0, pt = 0;
           for (final row in rows) {
@@ -297,14 +322,25 @@ class SenderBankMappingSyncService {
           }
           // Cursor advances ATOMICALLY with the applied rows — a crash cannot
           // skip a page.
-          await writeSyncCursor(_db, _cursorKey, nextCursor);
+          if (useSeq) {
+            await writeSeqCursor(_db, userId, _cursorKey, nextSeq);
+          } else {
+            await writeSyncCursor(_db, _cursorKey, nextCursor);
+          }
           return (pi, pu, pt);
         });
         imported += page.$1;
         updated += page.$2;
         tombstoned += page.$3;
         cursor = nextCursor;
-        if (rows.length < _pageSize) break;
+        if (useSeq) seqCursor = nextSeq;
+        if (rows.length < _pageSize) {
+          reachedEof = true;
+          break;
+        }
+      }
+      if (useSeq && reachedEof) {
+        await _seqGate!.markCaughtUp(userId, _cursorKey, seqCursor, plan);
       }
     } catch (e) {
       _health?.noteFailure(SyncDomain.senderMappings, e);

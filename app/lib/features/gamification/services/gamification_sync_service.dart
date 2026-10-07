@@ -11,6 +11,8 @@ import '../../../data/db/app_database.dart';
 import '../../../domain/entities/achievement_catalog.dart';
 import '../../../domain/usecases/gamification_rules.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/seq_pull.dart';
+import '../../../data/sync/sync_cursor.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/repositories/gamification_repository.dart';
 import '../../../domain/usecases/user_settings_usecases.dart';
@@ -31,6 +33,7 @@ final gamificationSyncServiceProvider = Provider((ref) {
               .getSettings(),
         ).allows(EgressClass.gamification),
     health: ref.watch(syncHealthProvider),
+    seqGate: ref.watch(seqPullGateProvider),
   );
 });
 
@@ -42,7 +45,10 @@ class GamificationSyncService {
     Future<String?> Function()? getAuthUserId,
     Future<bool> Function()? mayEgress,
     SyncHealth? health,
-  })  : _health = health,
+    /// WP-4: sequence pull gate. Null keeps the legacy full pull.
+    SeqPullGate? seqGate,
+  })  : _seqGate = seqGate,
+        _health = health,
         _getAuthUserId =
             getAuthUserId ?? (() async => supabase.auth.currentUser?.id),
         // Defaults CLOSED. A caller that forgets to pass a gate gets no
@@ -57,6 +63,8 @@ class GamificationSyncService {
   final Future<String?> Function() _getAuthUserId;
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
+  final SeqPullGate? _seqGate;
+  static const _pageSize = 200;
 
   Future<void> performSync() async {
     // Read fresh on every call rather than capturing at provider-construction
@@ -82,6 +90,18 @@ class GamificationSyncService {
       if (kDebugMode) debugPrint('[GamificationSync] denied: cloud consent off');
       return;
     }
+    // WP-4: with the sync_seq capability each table is pulled by its own seq
+    // cursor (no more full pull); otherwise the legacy full pull below runs.
+    final gate = _seqGate;
+    if (gate != null) {
+      final plan = await gate.plan(userId);
+      if (plan.mode == SeqMode.stopped) return;
+      if (plan.mode == SeqMode.seq) {
+        await _pullBySeq(gate, plan, userId);
+        return;
+      }
+    }
+
     // Pull Achievements
     final serverAchievements = await supabase
         .from('user_achievements')
@@ -89,6 +109,28 @@ class GamificationSyncService {
         .eq('user_id', userId)
         .isFilter('deleted_at', null);
 
+    final unlockedToNotify = await _applyAchievements(serverAchievements);
+    await _notifyUnlocked(unlockedToNotify);
+
+    // Pull Streak
+    final serverStreak = await supabase
+        .from('user_streaks')
+        .select()
+        .eq('user_id', userId)
+        .maybeSingle();
+    await _applyStreak(serverStreak);
+
+    // Pull XP
+    final serverXp = await supabase
+        .from('user_xp_levels')
+        .select()
+        .eq('user_id', userId)
+        .maybeSingle();
+    await _applyXp(serverXp);
+  }
+
+  Future<List<({String key, String name})>> _applyAchievements(
+      Iterable<Map<String, dynamic>> serverAchievements) async {
     final unlockedToNotify = <({String key, String name})>[];
     for (final row in serverAchievements) {
       final key = row['achievement_key'] as String;
@@ -111,6 +153,11 @@ class GamificationSyncService {
         unlockedToNotify.add((key: key, name: local.read<String>('name_ar')));
       }
     }
+    return unlockedToNotify;
+  }
+
+  Future<void> _notifyUnlocked(
+      List<({String key, String name})> unlockedToNotify) async {
     // Suppressed during the post-sign-in restore (appDataRestoring): the first
     // pull re-learns EVERY previously-earned achievement at once — notifying
     // then would spam the user with their whole history.
@@ -145,14 +192,9 @@ class GamificationSyncService {
         }
       }
     }
+  }
 
-    // Pull Streak
-    final serverStreak = await supabase
-        .from('user_streaks')
-        .select()
-        .eq('user_id', userId)
-        .maybeSingle();
-
+  Future<void> _applyStreak(Map<String, dynamic>? serverStreak) async {
     if (serverStreak != null) {
       final currentStreak = serverStreak['current_streak'] as int;
       final longestStreak = serverStreak['longest_streak'] as int;
@@ -169,14 +211,9 @@ class GamificationSyncService {
         ''', [currentStreak, longestStreak, lastActiveDate]);
       }
     }
+  }
 
-    // Pull XP
-    final serverXp = await supabase
-        .from('user_xp_levels')
-        .select()
-        .eq('user_id', userId)
-        .maybeSingle();
-
+  Future<void> _applyXp(Map<String, dynamic>? serverXp) async {
     if (serverXp != null) {
       final currentXp = serverXp['xp'] as int;
       final currentLevel = serverXp['level'] as int;
@@ -194,5 +231,43 @@ class GamificationSyncService {
         XpLevelEngine.levelKeyForLevel(currentLevel),
       ]);
     }
+  }
+
+  /// WP-4: one seq cursor per table, each advanced in the same local
+  /// transaction as the page it covers. Streak/XP are per-user singletons, so a
+  /// page holds at most one live row for them.
+  Future<void> _pullBySeq(SeqPullGate gate, SeqPlan plan, String userId) async {
+    final unlocked = <({String key, String name})>[];
+    for (final table in const [
+      'user_achievements',
+      'user_streaks',
+      'user_xp_levels',
+    ]) {
+      final entity = 'gamification_$table';
+      var seqCursor = await readSeqCursor(db, userId, entity);
+      if (plan.isIdle(seqCursor)) continue;
+      while (true) {
+        final rows = await gate.fetch(
+            table: table, userId: userId, afterSeq: seqCursor, limit: _pageSize);
+        if (rows.isEmpty) break;
+        final nextSeq = nextSeqOf(rows, seqCursor);
+        await db.transaction(() async {
+          final live = rows.where((r) => r['deleted_at'] == null).toList();
+          switch (table) {
+            case 'user_achievements':
+              unlocked.addAll(await _applyAchievements(live));
+            case 'user_streaks':
+              if (live.isNotEmpty) await _applyStreak(live.last);
+            default:
+              if (live.isNotEmpty) await _applyXp(live.last);
+          }
+          await writeSeqCursor(db, userId, entity, nextSeq);
+        });
+        seqCursor = nextSeq;
+        if (rows.length < _pageSize) break;
+      }
+      await gate.markCaughtUp(userId, entity, seqCursor, plan);
+    }
+    await _notifyUnlocked(unlocked);
   }
 }

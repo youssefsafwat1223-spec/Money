@@ -404,6 +404,11 @@ ConsentState _consentStateFromRow(QueryRow row, String column) {
   }
 }
 
+DateTime? _consentAtFromRow(QueryRow row, String column) {
+  final raw = row.readNullable<String>(column);
+  return raw == null ? null : dateTimeFromSql(raw);
+}
+
 UserSettingsEntity userSettingsFromRow(QueryRow row) {
   final dateOfBirth = row.readNullable<String>('date_of_birth');
   return UserSettingsEntity(
@@ -431,5 +436,9 @@ UserSettingsEntity userSettingsFromRow(QueryRow row) {
     // An unset/declined state means the cloud/AI gates fail closed.
     cloudConsentState: _consentStateFromRow(row, 'cloud_consent_state'),
     aiConsentState: _consentStateFromRow(row, 'ai_consent_state'),
+    cloudConsentVersion: row.readNullable<int>('cloud_consent_version') ?? 0,
+    cloudConsentAt: _consentAtFromRow(row, 'cloud_consent_at'),
+    aiConsentVersion: row.readNullable<int>('ai_consent_version') ?? 0,
+    aiConsentAt: _consentAtFromRow(row, 'ai_consent_at'),
   );
 }

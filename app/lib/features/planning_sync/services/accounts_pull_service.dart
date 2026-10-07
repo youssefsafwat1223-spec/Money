@@ -11,6 +11,7 @@ import '../../../data/db/app_database.dart';
 import '../../../data/db/bounded_lookup.dart';
 import '../../../data/db/money_codec.dart';
 import '../../../data/db/sql_value_codec.dart';
+import '../../../data/sync/seq_pull.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/finance/money.dart';
 import '../../../domain/finance/money_transport.dart';
@@ -126,7 +127,10 @@ class AccountsPullService {
     /// they restart from epoch each time and must reach EOF to clear their marker.
     int maxPagesPerRun = 10,
     SyncHealth? health,
+    /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
+    SeqPullGate? seqGate,
   })  : assert(pageSize > 0),
+        _seqGate = seqGate,
         _health = health,
         _db = db,
         _isEnabled = isEnabled,
@@ -139,6 +143,7 @@ class AccountsPullService {
   final AppDatabase _db;
   final bool Function() _isEnabled;
   final int _maxPagesPerRun;
+  final SeqPullGate? _seqGate;
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
 
@@ -189,21 +194,41 @@ class AccountsPullService {
     var reachedEof = false;
 
     try {
+      // WP-4: protocol selection (a reconcile pull `from` stays legacy).
+      final plan = from == null && _seqGate != null
+          ? await _seqGate.plan(userId)
+          : const SeqPlan(SeqMode.legacy);
+      if (plan.mode == SeqMode.stopped) {
+        return const AccountsPullResult(status: SyncPullStatus.failed);
+      }
+      final useSeq = plan.mode == SeqMode.seq;
       var cursor = from ?? await readSyncCursor(_db, _cursorKey);
+      var seqCursor = useSeq ? await readSeqCursor(_db, userId, _cursorKey) : 0;
+      final skipPages = useSeq && plan.isIdle(seqCursor);
+      if (skipPages) reachedEof = true;
       var pages = 0;
-      while (true) {
+      while (!skipPages) {
         if (!admitted()) break;
-        final rows = await _remoteSource.fetchRows(
-          after: cursor,
-          limit: _pageSize,
-        );
+        final rows = useSeq
+            ? await _seqGate!.fetch(
+                table: 'user_accounts',
+                userId: userId,
+                afterSeq: seqCursor,
+                limit: _pageSize,
+                select: accountsPullSelect,
+              )
+            : await _remoteSource.fetchRows(
+                after: cursor,
+                limit: _pageSize,
+              );
         if (!admitted()) break;
         if (rows.isEmpty) {
           reachedEof = true;
           break;
         }
 
-        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        final nextSeq = useSeq ? nextSeqOf(rows, seqCursor) : 0;
+        final nextCursor = useSeq ? cursor : SyncCursor.fromServerRow(rows.last);
         final pageResult = await _db.transaction(() async {
           var pageImported = 0;
           var pageUpdated = 0;
@@ -237,7 +262,11 @@ class AccountsPullService {
           // survives the page's deletions with a single check (was per-row).
           if (anyTombstone) await _ensureOneDefaultAccount();
           if (!admitted()) throw const ReconcilePullCancelled();
-          await writeSyncCursor(_db, _cursorKey, nextCursor);
+          if (useSeq) {
+            await writeSeqCursor(_db, userId, _cursorKey, nextSeq);
+          } else {
+            await writeSyncCursor(_db, _cursorKey, nextCursor);
+          }
           return (
             imported: pageImported,
             updated: pageUpdated,
@@ -250,11 +279,15 @@ class AccountsPullService {
         conflicts += pageResult.conflicts;
         tombstoned += pageResult.tombstoned;
         cursor = nextCursor;
+        if (useSeq) seqCursor = nextSeq;
         if (rows.length < _pageSize) {
           reachedEof = true;
           break;
         }
         if (from == null && ++pages >= _maxPagesPerRun) break;
+      }
+      if (useSeq && reachedEof) {
+        await _seqGate!.markCaughtUp(userId, _cursorKey, seqCursor, plan);
       }
     } on ReconcilePullCancelled {
       // Lifecycle/ownership cancellation, not a transport failure: no retry,

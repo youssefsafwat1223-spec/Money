@@ -7,7 +7,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
+import '../../../domain/entities/supporting_entities.dart';
+import '../../planning_sync/services/outbox_queue_factory.dart'
+    show localDataOwnerUid;
 import 'capture_backend_client.dart';
+import 'capture_consent_client.dart';
 import 'native_capture_bridge.dart';
 import '../../../core/security/secure_storage_options.dart';
 
@@ -21,6 +25,22 @@ typedef NativeBackendConfigWriter = Future<void> Function({
 });
 
 typedef ApnsTokenLoader = Future<ApnsTokenInfo?> Function();
+
+/// WP-6: the signed-in user as the capture backend sees it.
+typedef CaptureSession = ({String uid, String jwt});
+
+typedef ConsentMirrorWriter = Future<void> Function({
+  required String uid,
+  required bool cloud,
+  required bool ai,
+  required int version,
+});
+
+/// WP-6: the consent the replica holds, as projected to the server and to the
+/// native mirror. Derived ONLY from the replica's own explicit, versioned choice
+/// (cloud is the master gate, so AI is on only when cloud is on); never from a
+/// server value.
+typedef _ConsentSnapshot = ({bool cloud, bool ai, int version});
 
 /// Per-run outcome, so overlapping syncs can never pollute each other.
 class _SyncOutcome {
@@ -61,6 +81,11 @@ class CaptureDeviceRegistrationService {
     Future<String> Function()? loadInstallId,
     NativeBackendConfigWriter? writeNativeBackendConfig,
     ApnsTokenLoader? loadApnsToken,
+    CaptureConsentClient? consentClient,
+    CaptureSession? Function()? readSession,
+    Future<String?> Function()? readReplicaOwnerUid,
+    ConsentMirrorWriter? writeConsentMirror,
+    Future<void> Function(String uid)? publishOwner,
   })  : _settingsRepository = settingsRepository,
         _client = client,
         _storage = storage ?? SecureStorageOptions.storage,
@@ -71,9 +96,22 @@ class CaptureDeviceRegistrationService {
         _loadInstallId = loadInstallId ?? InstallId.get,
         _writeNativeBackendConfig =
             writeNativeBackendConfig ?? NativeCaptureBridge.setBackendConfig,
-        _loadApnsToken = loadApnsToken ?? _defaultLoadApnsToken;
+        _loadApnsToken = loadApnsToken ?? _defaultLoadApnsToken,
+        _consentClient = consentClient,
+        _readSession = readSession ?? _defaultReadSession,
+        _readReplicaOwnerUid = readReplicaOwnerUid ?? localDataOwnerUid,
+        _writeConsentMirror =
+            writeConsentMirror ?? NativeCaptureBridge.setCaptureConsentMirror,
+        _publishOwner = publishOwner ?? NativeCaptureBridge.publishCaptureOwner;
 
   static const _secretKey = 'qirsh_capture_device_secret';
+
+  /// WP-6: the last consent the server ACKNOWLEDGED for this install, as
+  /// `uid|cloud|ai|version` (single slot). It proves the projection is linked to
+  /// that uid at that version, which lets a repeat admission skip the network
+  /// call, and it is the floor for a restrictive-first mirror write. Cleared on
+  /// unlink and whenever the device credential is replaced.
+  static const _ackKey = 'qirsh_capture_consent_ack';
 
   final DriftUserSettingsRepository _settingsRepository;
   final CaptureBackendClient? _client;
@@ -84,6 +122,13 @@ class CaptureDeviceRegistrationService {
   final Future<String> Function() _loadInstallId;
   final NativeBackendConfigWriter _writeNativeBackendConfig;
   final ApnsTokenLoader _loadApnsToken;
+  final CaptureConsentClient? _consentClient;
+  final CaptureSession? Function() _readSession;
+  final Future<String?> Function() _readReplicaOwnerUid;
+  final ConsentMirrorWriter _writeConsentMirror;
+  final Future<void> Function(String uid) _publishOwner;
+  Future<bool>? _linkInFlight;
+  final Map<String, int> _mirrorVersions = {};
   Future<String>? _credentialRecovery;
   Future<void>? _apnsSyncInFlight;
   String? _lastSyncedApnsTokenKey;
@@ -100,6 +145,24 @@ class CaptureDeviceRegistrationService {
     return await NativeCaptureBridge.registerForRemoteNotifications() ??
         await NativeCaptureBridge.getApnsToken();
   }
+
+  static CaptureSession? _defaultReadSession() {
+    try {
+      final session = Supabase.instance.client.auth.currentSession;
+      final user = session?.user;
+      if (session == null || user == null) return null;
+      return (uid: user.id, jwt: session.accessToken);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  CaptureConsentClient get _consent =>
+      _consentClient ??
+      CaptureConsentClient(
+        supabaseUrl: SupabaseConfig.url,
+        anonKey: SupabaseConfig.anonKey,
+      );
 
   CaptureBackendClient get _backendClient =>
       _client ??
@@ -230,13 +293,7 @@ class CaptureDeviceRegistrationService {
       // receive the revocation. With no backend or no secret there is no safe,
       // authenticated row to update, so preserve those guards.
       if (_isBackendConfigured() && secret != null && secret.isNotEmpty) {
-        await _pushDeviceConsent(
-      outcome,
-          installId: installId,
-          deviceSecret: secret,
-          aiConsentGranted: false,
-          cloudProcessingEnabled: false,
-        );
+        await _projectConsent(outcome);
       }
       return;
     }
@@ -275,13 +332,7 @@ class CaptureDeviceRegistrationService {
     // AI/paid endpoints enforce it authoritatively (revocation propagates the
     // moment the user toggles it, since syncNativeState re-runs). Best-effort:
     // a failure here must never block native config or local capture.
-    await _pushDeviceConsent(
-      outcome,
-      installId: installId,
-      deviceSecret: secret,
-      aiConsentGranted: settings.aiConsentGranted,
-      cloudProcessingEnabled: settings.cloudProcessingEnabled,
-    );
+    await _projectConsent(outcome);
     try {
       final token = await _loadApnsToken();
       if (token != null) {
@@ -320,36 +371,184 @@ class CaptureDeviceRegistrationService {
     }
   }
 
-  // Links this device's capture_devices row to the authenticated Supabase user.
-  // Best-effort — safe to call even when offline or before device registration.
-  // Guests (no currentUser) are silently skipped so they always stay relay-only.
+  /// WP-6 — the capture-owner gate (manifest §4.2/§4.6). Links this install to
+  /// the authenticated user with the replica's consent, and ONLY IF the server
+  /// accepted it writes the per-owner consent mirror and publishes the capture
+  /// owner. Any failure (offline, 4xx/5xx, no secret, the session and the
+  /// admitted replica disagree) leaves the owner unpublished, so captures stay
+  /// unbound (fail closed). Safe to call repeatedly; concurrent calls share one
+  /// run. [_linkOnce] reports whether the owner is published.
+  Future<bool> _linkOnce() {
+    final inFlight = _linkInFlight;
+    if (inFlight != null) return inFlight;
+    final run = _linkAndPublish().catchError((_) => false);
+    _linkInFlight = run;
+    return run.whenComplete(() {
+      if (identical(_linkInFlight, run)) _linkInFlight = null;
+    });
+  }
+
+  /// The public entry (sign-in, resume, the admission hook).
   Future<void> linkToCurrentUser() async {
-    if (!_isIos() || !_isBackendConfigured()) return;
-    final client = Supabase.instance.client;
-    final user = client.auth.currentUser;
-    final session = client.auth.currentSession;
-    if (user == null || session == null) return;
-    final secret = await _storage.read(key: _secretKey);
-    if (secret == null || secret.isEmpty) return;
+    await _linkOnce();
+  }
+
+  Future<bool> _linkAndPublish() async {
+    if (!_isIos() || !_isBackendConfigured()) return false;
+    final session = _readSession();
+    if (session == null) return false;
+    if (await _readReplicaOwnerUid() != session.uid) return false;
+    final snapshot = _snapshotOf(await _settingsRepository.getSettings());
+    final ack = await _readAck(session.uid);
+    if (ack != snapshot) {
+      if (!await _linkWithConsent(session, snapshot)) return false;
+    }
+    // Re-checked after the network round trip: an account switch in between must
+    // not publish the previous user as the owner.
+    final current = _readSession();
+    if (current == null ||
+        current.uid != session.uid ||
+        await _readReplicaOwnerUid() != session.uid) {
+      return false;
+    }
+    await _writeMirror(session.uid, snapshot);
+    await _publishOwner(session.uid);
+    return true;
+  }
+
+  Future<bool> _linkWithConsent(
+      CaptureSession session, _ConsentSnapshot snapshot) async {
     final installId = await _loadInstallId();
+    var secret = await _storage.read(key: _secretKey);
     try {
-      await _backendClient.linkDevice(
-        installId: installId,
-        deviceSecret: secret,
-        jwt: session.accessToken,
+      if (secret == null || secret.isEmpty) {
+        secret = await _backendClient.registerDevice(installId: installId);
+        await _storage.write(key: _secretKey, value: secret);
+        await _clearAck();
+      }
+      await _withSecretRecovery(installId, secret, (deviceSecret) {
+        return _consent.link(
+          installId: installId,
+          deviceSecret: deviceSecret,
+          jwt: session.jwt,
+          cloud: snapshot.cloud,
+          ai: snapshot.ai,
+          version: snapshot.version,
+        );
+      });
+    } catch (_) {
+      return false;
+    }
+    await _writeAck(session.uid, snapshot);
+    return true;
+  }
+
+  /// WP-6 — projects a consent CHANGE after the install is linked. A revocation
+  /// reaches the device first (restrictive mirror: never wider than what the
+  /// server last acknowledged); the widened/final mirror is written only after
+  /// the server accepted `set_capture_consent` with the newer version. A failure
+  /// leaves the restrictive mirror and the old acknowledgement, so the next sync
+  /// retries the same absolute state. A never-linked install goes through the
+  /// full gate instead.
+  Future<void> _projectConsent(_SyncOutcome outcome) async {
+    final session = _readSession();
+    if (session == null || await _readReplicaOwnerUid() != session.uid) return;
+    final snapshot = _snapshotOf(await _settingsRepository.getSettings());
+    final ack = await _readAck(session.uid);
+    if (ack == null || ack.version > snapshot.version) {
+      if (!await _linkOnce() && snapshot.cloud) {
+        outcome.consentPushFailed = true;
+      }
+      return;
+    }
+    if (ack == snapshot) return;
+    await _writeMirror(session.uid, (
+      cloud: snapshot.cloud && ack.cloud,
+      ai: snapshot.ai && ack.ai,
+      version: snapshot.version,
+    ));
+    try {
+      final installId = await _loadInstallId();
+      final secret = await _storage.read(key: _secretKey);
+      if (secret == null || secret.isEmpty) {
+        throw const CaptureBackendException('no_secret');
+      }
+      await _withSecretRecovery(installId, secret, (deviceSecret) {
+        return _consent.setConsent(
+          installId: installId,
+          deviceSecret: deviceSecret,
+          jwt: session.jwt,
+          cloud: snapshot.cloud,
+          ai: snapshot.ai,
+          version: snapshot.version,
+        );
+      });
+    } catch (_) {
+      if (snapshot.cloud) outcome.consentPushFailed = true;
+      return;
+    }
+    await _writeMirror(session.uid, snapshot);
+    await _writeAck(session.uid, snapshot);
+  }
+
+  _ConsentSnapshot _snapshotOf(UserSettingsEntity settings) => (
+        cloud: settings.cloudProcessingEnabled,
+        ai: settings.cloudProcessingEnabled && settings.aiConsentGranted,
+        version: settings.consentVersion,
       );
+
+  /// Runs [call] with [secret]; a 401 replaces the credential exactly once
+  /// (shared with every other caller) and retries with the fresh one.
+  Future<void> _withSecretRecovery(
+    String installId,
+    String secret,
+    Future<void> Function(String deviceSecret) call,
+  ) async {
+    try {
+      await call(secret);
     } on CaptureBackendException catch (error) {
       if (!_isUnauthorized(error)) rethrow;
-      final freshSecret = await _recoverRejectedSecret(
+      final fresh = await _recoverRejectedSecret(
         rejectedSecret: secret,
         installId: installId,
       );
-      await _backendClient.linkDevice(
-        installId: installId,
-        deviceSecret: freshSecret,
-        jwt: session.accessToken,
-      );
+      await call(fresh);
     }
+  }
+
+  /// The mirror never moves to an older version within a process (a slow link
+  /// finishing after a newer consent change must not overwrite it).
+  Future<void> _writeMirror(String uid, _ConsentSnapshot snapshot) async {
+    final last = _mirrorVersions[uid];
+    if (last != null && snapshot.version < last) return;
+    await _writeConsentMirror(
+      uid: uid,
+      cloud: snapshot.cloud,
+      ai: snapshot.ai,
+      version: snapshot.version,
+    );
+    _mirrorVersions[uid] = snapshot.version;
+  }
+
+  Future<_ConsentSnapshot?> _readAck(String uid) async {
+    final raw = await _storage.read(key: _ackKey);
+    final parts = raw?.split('|');
+    if (parts == null || parts.length != 4 || parts[0] != uid) return null;
+    final version = int.tryParse(parts[3]);
+    if (version == null) return null;
+    return (cloud: parts[1] == '1', ai: parts[2] == '1', version: version);
+  }
+
+  Future<void> _writeAck(String uid, _ConsentSnapshot snapshot) => _storage.write(
+        key: _ackKey,
+        value:
+            '$uid|${snapshot.cloud ? 1 : 0}|${snapshot.ai ? 1 : 0}|${snapshot.version}',
+      );
+
+  Future<void> _clearAck() async {
+    try {
+      await _storage.delete(key: _ackKey);
+    } catch (_) {}
   }
 
   Future<String?> readDeviceSecret() => _storage.read(key: _secretKey);
@@ -377,6 +576,8 @@ class CaptureDeviceRegistrationService {
         deviceSecret: freshSecret,
       );
     }
+    // The server projection is now unlinked (owner, flags and version reset).
+    await _clearAck();
   }
 
   Future<void> syncApnsToken(ApnsTokenInfo token) {
@@ -458,6 +659,8 @@ class CaptureDeviceRegistrationService {
     final recovery = () async {
       final fresh = await _backendClient.registerDevice(installId: installId);
       await _storage.write(key: _secretKey, value: fresh);
+      // A new credential is a new server row: nothing was acknowledged for it.
+      await _clearAck();
       final settings = await _settingsRepository.getSettings();
       await _writeNativeBackendConfig(
         cloudProcessingEnabled:

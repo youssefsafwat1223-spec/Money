@@ -23,6 +23,8 @@ import '../privacy/consent_authority.dart';
 import '../tracking/user_activity_service.dart';
 import '../privacy/diagnostics_consent_gate.dart';
 import '../../data/sync/sender_bank_mapping_sync_service.dart';
+import '../../data/sync/seq_pull.dart';
+import '../../data/sync/server_capabilities.dart';
 import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/capture/capture_runtime.dart';
@@ -289,7 +291,9 @@ class BootstrapRunner {
     await _step('capture_registration', () async {
       final captureRegistration = CaptureDeviceRegistrationService(
         settingsRepository: DriftUserSettingsRepository(database),
+        publishOwner: captureQueue.publishCaptureOwner,
       );
+      _captureRegistration = captureRegistration;
       AppSession.instance.configureCaptureDeviceUnlink(
         captureRegistration.unlinkCurrentDevice,
       );
@@ -512,6 +516,10 @@ class BootstrapRunner {
   /// The native capture queue seam (CAP-6a queue v3); tests substitute a fake.
   CaptureQueueBridge captureQueue = NativeCaptureQueue();
 
+  /// The ACTIVE account's device-registration service (set by every
+  /// `_initializeAccount`); the capture-owner publish hook drives it.
+  CaptureDeviceRegistrationService? _captureRegistration;
+
   /// WP-3b: account transitions RELEASE the capture owner (never purge waiting
   /// items, §4.2); the queue is purged only by the Remove-data barrier. Also
   /// clears device-wide non-queue residue and the previous account's OS reminders.
@@ -530,9 +538,14 @@ class BootstrapRunner {
       () => release(clearHint: true),
       atSignOut: () => release(clearHint: false),
     );
-    // Seam for WP-6: publication moves behind link_capture_device(consent).
-    AppSession.instance
-        .configureCaptureOwnerPublish(captureQueue.publishCaptureOwner);
+    // WP-6 (§4.2): the owner is published only after the replica is admitted AND
+    // link_capture_device(consent) succeeded; the registration service does both
+    // and writes the per-owner consent mirror first. Not awaited: the link is a
+    // network call and must never delay admission. A failed link leaves the owner
+    // unpublished (captures stay unbound) until a later retry (resume, sign-in).
+    AppSession.instance.configureCaptureOwnerPublish((uid) async {
+      unawaited(_captureRegistration?.linkToCurrentUser().catchError((_) {}));
+    });
     _removeData = RemoveDataFlow(
       store: _replicaStore!,
       scope: _host!,
@@ -673,6 +686,19 @@ StreamSubscription<AuthState> _startSenderBankMappingSync(
           () => DriftUserSettingsRepository(database).getSettings(),
         ).allows(EgressClass.senderBankMappings),
     health: SyncHealth.shared,
+    // WP-4: the same sync_seq gate as the provider construction site, so this
+    // startup instance does not stay on the timestamp pull (B6).
+    seqGate: SeqPullGate(
+      db: database,
+      capability: ServerCapabilitiesService(
+        getAuthUserId: () async => client.auth.currentUser?.id,
+        getClient: () => client,
+        mayEgress: () => ConsentAuthority(
+              () => DriftUserSettingsRepository(database).getSettings(),
+            ).allows(EgressClass.financialSync),
+        health: SyncHealth.shared,
+      ).syncSeq,
+    ),
   );
   unawaited(service.sync());
   return client.auth.onAuthStateChange.listen((state) {

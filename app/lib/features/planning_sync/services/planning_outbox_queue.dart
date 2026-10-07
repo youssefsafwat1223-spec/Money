@@ -466,6 +466,7 @@ class PlanningOutboxQueue {
       'consent_only': true,
       'ai_consent_granted': cloudConsent && s.aiConsentGranted,
       'cloud_processing_enabled': cloudConsent,
+      'consent_version': s.consentVersion,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
   }
@@ -495,6 +496,10 @@ class PlanningOutboxQueue {
       // does not change those defaults; it only carries the user's actual state.
       'ai_consent_granted': cloudConsent && s.aiConsentGranted,
       'cloud_processing_enabled': cloudConsent,
+      // WP-6: the proof of an explicit grant. The server counts a TRUE only with
+      // consent_version > 0 (0109); the client's own versioned choice is the only
+      // source, never anything pulled.
+      'consent_version': s.consentVersion,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
     };
   }

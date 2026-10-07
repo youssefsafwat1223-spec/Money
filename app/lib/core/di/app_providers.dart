@@ -36,6 +36,7 @@ import '../../core/utils/install_id.dart';
 import '../../data/db/app_database.dart';
 import '../privacy/consent_authority.dart';
 import '../../data/sync/planning_currency_capability_probe.dart';
+import '../../data/sync/seq_pull.dart';
 import '../../data/sync/server_capabilities.dart';
 import '../../data/db/ownership_guard.dart';
 import '../../data/db/planning_canonical_invariants.dart';
@@ -582,6 +583,7 @@ final accountsPullServiceProvider = Provider<AccountsPullService>((ref) {
         _planningAccountsSyncEnabled() && exactPullAllowed(pullCap),
     mayEgress: _consentGate(ref, EgressClass.financialSync),
     health: ref.watch(syncHealthProvider),
+    seqGate: ref.watch(seqPullGateProvider),
   );
 });
 
@@ -651,6 +653,7 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
     mayEgress: _consentGate(ref, EgressClass.financialSync),
     mayEgressProfile: _consentGate(ref, EgressClass.profileAndSettings),
     health: ref.watch(syncHealthProvider),
+    seqGate: ref.watch(seqPullGateProvider),
   );
 });
 
@@ -681,6 +684,7 @@ final planningChildSyncServiceProvider =
     pullCapability: () => ref.read(exactPullTransportCapabilityProvider),
     mayEgress: _consentGate(ref, EgressClass.financialSync),
     health: ref.watch(syncHealthProvider),
+    seqGate: ref.watch(seqPullGateProvider),
   );
 });
 
@@ -746,6 +750,16 @@ final serverCapabilitiesServiceProvider =
     getClient: () => supabase.Supabase.instance.client,
     mayEgress: _consentGate(ref, EgressClass.financialSync),
     health: ref.watch(syncHealthProvider),
+  );
+});
+
+/// WP-4: one gate for every pull service (single capability answer, single head
+/// read per sync cycle). The `sync_seq` capability is false in production, so
+/// every service keeps its legacy timestamp pull.
+final seqPullGateProvider = Provider<SeqPullGate>((ref) {
+  return SeqPullGate(
+    db: ref.watch(appDatabaseProvider),
+    capability: () => ref.read(serverCapabilitiesServiceProvider).syncSeq(),
   );
 });
 
@@ -1174,6 +1188,7 @@ final senderBankMappingSyncServiceProvider =
               .getSettings(),
         ).allows(EgressClass.senderBankMappings),
     health: ref.watch(syncHealthProvider),
+    seqGate: ref.watch(seqPullGateProvider),
   );
 });
 
@@ -1282,6 +1297,7 @@ final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
     isPullEnabled: () => exactPullAllowed(pullCap),
     mayEgress: _consentGate(ref, EgressClass.financialSync),
     health: ref.watch(syncHealthProvider),
+    seqGate: ref.watch(seqPullGateProvider),
   );
 });
 
@@ -1327,6 +1343,7 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
           .getSettings(),
     ).allows(EgressClass.smartInbox),
     health: ref.watch(syncHealthProvider),
+    seqGate: ref.watch(seqPullGateProvider),
   );
 });
 

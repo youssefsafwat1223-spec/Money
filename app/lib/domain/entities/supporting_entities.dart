@@ -157,6 +157,10 @@ class UserSettingsEntity {
     this.dateOfBirth,
     this.cloudConsentState = ConsentState.unset,
     this.aiConsentState = ConsentState.unset,
+    this.cloudConsentVersion = 0,
+    this.cloudConsentAt,
+    this.aiConsentVersion = 0,
+    this.aiConsentAt,
     this.merchantPersonalizationEnabled = false,
   });
 
@@ -184,6 +188,21 @@ class UserSettingsEntity {
   /// onboarding, sign-in, restore, migration, or previous defaults.
   final ConsentState cloudConsentState;
   final ConsentState aiConsentState;
+
+  /// WP-6: the version and time of the last explicit change of each consent,
+  /// stored per user per device in this user's replica. Versions only increase
+  /// (0 = never changed) and are assigned by the repository, never by callers:
+  /// a stale entity cannot lower them.
+  final int cloudConsentVersion;
+  final DateTime? cloudConsentAt;
+  final int aiConsentVersion;
+  final DateTime? aiConsentAt;
+
+  /// The single monotonic version projected to the server and the native mirror.
+  /// Every change of either consent moves it strictly forward.
+  int get consentVersion => cloudConsentVersion > aiConsentVersion
+      ? cloudConsentVersion
+      : aiConsentVersion;
 
   /// COUPONS Phase 1 — whether the user asked for offers to be ordered by the
   /// merchants they actually shop at.
@@ -219,6 +238,10 @@ class UserSettingsEntity {
     DateTime? dateOfBirth,
     ConsentState? cloudConsentState,
     ConsentState? aiConsentState,
+    int? cloudConsentVersion,
+    DateTime? cloudConsentAt,
+    int? aiConsentVersion,
+    DateTime? aiConsentAt,
     bool? merchantPersonalizationEnabled,
   }) {
     return UserSettingsEntity(
@@ -237,6 +260,10 @@ class UserSettingsEntity {
       privacyModeEnabled: privacyModeEnabled ?? this.privacyModeEnabled,
       cloudConsentState: cloudConsentState ?? this.cloudConsentState,
       aiConsentState: aiConsentState ?? this.aiConsentState,
+      cloudConsentVersion: cloudConsentVersion ?? this.cloudConsentVersion,
+      cloudConsentAt: cloudConsentAt ?? this.cloudConsentAt,
+      aiConsentVersion: aiConsentVersion ?? this.aiConsentVersion,
+      aiConsentAt: aiConsentAt ?? this.aiConsentAt,
       merchantPersonalizationEnabled:
           merchantPersonalizationEnabled ?? this.merchantPersonalizationEnabled,
     );

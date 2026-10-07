@@ -113,3 +113,65 @@ Future<void> writeSyncCursor(
       last_id = excluded.last_id;
   ''');
 }
+
+/// WP-4 sequence-pull cursor. No schema change: it lives in the existing
+/// `sync_cursors` table under `seq:<uid>:<entity>`, the integer `sync_seq`
+/// rendered in `last_id` (`last_updated_at` stays at [syncCursorEpoch]). Keyed by
+/// uid so a cursor can never be applied to another account's server stream, and
+/// independent of the legacy timestamp cursor (manifest §8: separate cursors).
+String seqCursorEntity(String uid, String entity) => 'seq:$uid:$entity';
+
+/// 0 when absent (a full, idempotent page-through).
+Future<int> readSeqCursor(AppDatabase db, String uid, String entity) async {
+  final c = await readSyncCursor(db, seqCursorEntity(uid, entity));
+  return int.tryParse(c.id) ?? 0;
+}
+
+Future<void> writeSeqCursor(
+  AppDatabase db,
+  String uid,
+  String entity,
+  int seq,
+) =>
+    writeSyncCursor(
+      db,
+      seqCursorEntity(uid, entity),
+      SyncCursor(updatedAt: syncCursorEpoch, id: '$seq'),
+    );
+
+/// The server `user_sync_state.epoch` this replica last pulled under (read and
+/// recorded only; rebootstrap on a mismatch is WP-7). Stored in `sync_cursors`
+/// under `seq_epoch:<uid>`: epoch in `last_id`, reason in `last_updated_at`.
+class RecordedSyncEpoch {
+  const RecordedSyncEpoch(this.epoch, this.reason);
+  final String epoch;
+  final String reason;
+}
+
+Future<RecordedSyncEpoch?> readRecordedSyncEpoch(
+  AppDatabase db,
+  String uid,
+) async {
+  final key = 'seq_epoch:$uid';
+  final row = await db
+      .customSelect(
+        'SELECT last_updated_at, last_id FROM sync_cursors '
+        'WHERE entity = ${sqlString(key)} LIMIT 1;',
+      )
+      .getSingleOrNull();
+  if (row == null) return null;
+  return RecordedSyncEpoch(
+      row.read<String>('last_id'), row.read<String>('last_updated_at'));
+}
+
+Future<void> writeRecordedSyncEpoch(
+  AppDatabase db,
+  String uid,
+  String epoch,
+  String? reason,
+) =>
+    writeSyncCursor(
+      db,
+      'seq_epoch:$uid',
+      SyncCursor(updatedAt: reason ?? '', id: epoch),
+    );

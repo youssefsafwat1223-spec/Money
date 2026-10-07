@@ -528,6 +528,49 @@ void main() {
     expect(await _col(db, 'db_encryption_key_ref'), 'device-key-ref');
   });
 
+  test(
+      'WP-6: an explicit grant pushes its consent_version, the proof the '
+      'server needs before a TRUE counts', () async {
+    await bind();
+    final s = await settings.getSettings();
+    await settings.saveSettings(s.copyWith(
+        cloudConsentState: ConsentState.accepted,
+        aiConsentState: ConsentState.accepted));
+
+    expect((await _push(db, queue, remote).push()).failed, 0);
+
+    final serverRow = remote.rows['user_settings']!['user_settings']!;
+    expect(serverRow['cloud_processing_enabled'], isTrue);
+    expect(serverRow['ai_consent_granted'], isTrue);
+    expect(serverRow['consent_version'], 1);
+  });
+
+  test(
+      'WP-6: a server TRUE consent is never adopted as consent by a pull '
+      '(state, effective grant and version all stay unset)', () async {
+    remote.rows['user_settings'] = {
+      'user_settings': {
+        ..._remoteSettingsRow(
+            aiConsentGranted: true, cloudProcessingEnabled: true),
+        'consent_version': 7,
+        'updated_at': DateTime.utc(2026, 7, 5).toIso8601String(),
+      },
+    };
+
+    await _pull(db, queue, remote).pull();
+
+    expect(await _col(db, 'theme'), 'remote-light', reason: 'the pull ran');
+    final s = await settings.getSettings();
+    expect(s.cloudConsentState, ConsentState.unset);
+    expect(s.aiConsentState, ConsentState.unset);
+    expect(s.cloudProcessingEnabled, isFalse);
+    expect(s.aiConsentGranted, isFalse);
+    expect(s.consentVersion, 0,
+        reason: 'the server version is never copied into the authority');
+    expect(await _intCol(db, 'cloud_processing_enabled'), 0);
+    expect(await _intCol(db, 'ai_consent_granted'), 0);
+  });
+
   test('multi-device: device A change pulls to device B as one settings row',
       () async {
     await bind();

@@ -14,6 +14,7 @@ import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_repository_support.dart';
 import '../../../data/sync/exact_transport_capability.dart';
+import '../../../data/sync/seq_pull.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/finance/money_transport.dart';
 import '../../../engine/parser/capture_money.dart';
@@ -175,7 +176,10 @@ class PlanningChildSyncService {
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
     ExactTransportCapability Function() pullCapability = _defaultPullCapability,
     SyncHealth? health,
+    /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
+    SeqPullGate? seqGate,
   })  : assert(pageSize > 0),
+        _seqGate = seqGate,
         _health = health,
         _db = db,
         _queue = queue,
@@ -197,6 +201,7 @@ class PlanningChildSyncService {
   final bool Function(String entityType) _isPullEnabled;
   final Future<String?> Function() _getAuthUserId;
   final PlanningChildRemote _remote;
+  final SeqPullGate? _seqGate;
   final int _pageSize;
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
@@ -501,6 +506,11 @@ class PlanningChildSyncService {
       // here): an observable STATE, not a silent skip.
       _health?.noteCapabilityParked(SyncDomain.children);
     }
+    // WP-4: one protocol decision (and one head read) for all child tables.
+    final seqUserId = _seqGate == null ? null : await _getAuthUserId();
+    final plan = seqUserId == null
+        ? const SeqPlan(SeqMode.legacy)
+        : await _seqGate!.plan(seqUserId);
     if (_isPullEnabled(PlanningOutboxQueue.goalContributionsEntityType)) {
       // Drain BEFORE the cursor loop so children parked on earlier cycles are
       // re-attempted now that their parents (pulled earlier this cycle) exist.
@@ -511,13 +521,15 @@ class PlanningChildSyncService {
         'goal_contributions',
         _pullGoalContribution,
         _scopeForGoalContributions,
+        plan,
+        seqUserId,
       );
     }
     if (_isPullEnabled(PlanningOutboxQueue.billPaymentsEntityType)) {
       await _drainParked(
           'bill_payments', _pullBillPayment, _scopeForBillPayments);
       await _pullTable('user_bill_payments', 'bill_payments', _pullBillPayment,
-          _scopeForBillPayments);
+          _scopeForBillPayments, plan, seqUserId);
     }
     if (_isPullEnabled(PlanningOutboxQueue.planLinksEntityType)) {
       await _drainParked(
@@ -527,6 +539,8 @@ class PlanningChildSyncService {
         'plan_transaction_links',
         _pullPlanLink,
         _scopeForPlanLinks,
+        plan,
+        seqUserId,
       );
     }
   }
@@ -536,19 +550,42 @@ class PlanningChildSyncService {
     String localTable,
     _ChildApply apply,
     _ChildScopeBuilder buildScope,
+    SeqPlan plan,
+    String? userId,
   ) async {
+    if (plan.mode == SeqMode.stopped) return;
     try {
       final cursorKey = 'planning_child_${table.substring(5)}';
+      final useSeq = plan.mode == SeqMode.seq && userId != null;
       var cursor = await readSyncCursor(_db, cursorKey);
-      while (true) {
-        final rows = await _remote.fetchRows(
-          table,
-          after: cursor,
-          limit: _pageSize,
-        );
-        if (rows.isEmpty) break;
+      var seqCursor = useSeq ? await readSeqCursor(_db, userId, cursorKey) : 0;
+      var reachedEof = useSeq && plan.isIdle(seqCursor);
+      while (!reachedEof) {
+        final rows = useSeq
+            ? await _seqGate!.fetch(
+                table: table,
+                userId: userId,
+                afterSeq: seqCursor,
+                limit: _pageSize,
+                select: switch (table) {
+                  'user_bill_payments' => planningChildBillPaymentSelect,
+                  'user_goal_contributions' =>
+                    planningChildGoalContributionSelect,
+                  _ => '*',
+                },
+              )
+            : await _remote.fetchRows(
+                table,
+                after: cursor,
+                limit: _pageSize,
+              );
+        if (rows.isEmpty) {
+          reachedEof = true;
+          break;
+        }
 
-        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        final nextSeq = useSeq ? nextSeqOf(rows, seqCursor) : 0;
+        final nextCursor = useSeq ? cursor : SyncCursor.fromServerRow(rows.last);
         await _db.transaction(() async {
           // MALI-029: resolve the whole page's parent/child/pending keys in a
           // handful of bounded lookups instead of per-row SELECTs. Children
@@ -567,10 +604,21 @@ class PlanningChildSyncService {
               await _unparkChild(localTable, row['id'] as String);
             }
           }
-          await writeSyncCursor(_db, cursorKey, nextCursor);
+          if (useSeq) {
+            await writeSeqCursor(_db, userId, cursorKey, nextSeq);
+          } else {
+            await writeSyncCursor(_db, cursorKey, nextCursor);
+          }
         });
         cursor = nextCursor;
-        if (rows.length < _pageSize) break;
+        if (useSeq) seqCursor = nextSeq;
+        if (rows.length < _pageSize) {
+          reachedEof = true;
+          break;
+        }
+      }
+      if (useSeq && reachedEof) {
+        await _seqGate!.markCaughtUp(userId, cursorKey, seqCursor, plan);
       }
     } catch (error) {
       _health?.noteFailure(SyncDomain.children, error);

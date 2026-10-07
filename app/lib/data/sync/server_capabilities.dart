@@ -26,6 +26,10 @@ enum ServerCapabilityState {
 /// RPC key for awaiting-FX (amount 0 + foreign amount/currency) transactions.
 const String kCapAwaitingFxTransactions = 'awaiting_fx_transactions';
 
+/// RPC key for the WP-4 sequence pull (manifest §8). It is the kill switch:
+/// withdrawing it sends clients back to the legacy timestamp pull.
+const String kCapSyncSeq = 'sync_seq';
+
 class ServerCapabilitiesService {
   ServerCapabilitiesService({
     required Future<String?> Function() getAuthUserId,
@@ -61,6 +65,12 @@ class ServerCapabilitiesService {
   final Map<String, DateTime> _probedAt = {};
 
   final List<void Function(String uid, ServerCapabilityState)> _listeners = [];
+
+  // WP-4: unlike awaiting-FX a `verified` sync_seq must NOT stick for the whole
+  // session (it is a kill switch), so every answer expires after [syncSeqTtl].
+  final Map<String, ServerCapabilityState> _syncSeq = {};
+  final Map<String, DateTime> _syncSeqAt = {};
+  static const Duration syncSeqTtl = Duration(minutes: 15);
 
   String _key(String uid) => '${_getServerUrl()}|$uid';
 
@@ -113,6 +123,43 @@ class ServerCapabilitiesService {
       }
     }
     _set(user, result);
+    return result;
+  }
+
+  /// WP-4: whether the server advertises `sync_seq` for [uid]. Positive proof
+  /// only: [ServerCapabilityState.unsupported] means the RPC is missing or the
+  /// key is absent/false (-> legacy timestamp pull); auth/network/server errors
+  /// are [ServerCapabilityState.unknown] (never treated as "absent"). Consent
+  /// gated by the caller (the ledger pull checks egress first).
+  Future<ServerCapabilityState> syncSeq({String? uid}) async {
+    final user = uid ?? await _getAuthUserId();
+    if (user == null) return ServerCapabilityState.unknown;
+    final key = _key(user);
+    final at = _syncSeqAt[key];
+    final cached = _syncSeq[key];
+    if (cached != null &&
+        cached != ServerCapabilityState.unknown &&
+        at != null &&
+        _clock().difference(at) < syncSeqTtl) {
+      return cached;
+    }
+    if (!await _mayEgress()) return ServerCapabilityState.unknown;
+    ServerCapabilityState result;
+    try {
+      final raw = await _getClient().rpc('qirsh_server_capabilities');
+      result = raw is Map && raw[kCapSyncSeq] == true
+          ? ServerCapabilityState.verified
+          : ServerCapabilityState.unsupported;
+    } catch (e) {
+      if (_isRpcMissing(e)) {
+        result = ServerCapabilityState.unsupported;
+      } else {
+        result = ServerCapabilityState.unknown;
+        _health?.noteFailure(SyncDomain.ledger, e);
+      }
+    }
+    _syncSeq[key] = result;
+    _syncSeqAt[key] = _clock();
     return result;
   }
 

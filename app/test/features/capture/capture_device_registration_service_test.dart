@@ -8,6 +8,7 @@ import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/features/capture/services/capture_backend_client.dart';
+import 'package:money_companion/features/capture/services/capture_consent_client.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
 
@@ -262,15 +263,27 @@ void main() {
       () async {
     FlutterSecureStorage.setMockInitialValues({
       'qirsh_capture_device_secret': 'existing-secret',
+      // The server last acknowledged (cloud, ai) = (on, on) for this user.
+      'qirsh_capture_consent_ack': 'uid-a|1|1|1',
     });
     // Cloud is the master gate. Keep the local AI preference accepted to prove
     // the iOS cloud-OFF branch does not preserve that stale grant server-side.
     await setConsent(ai: true, cloud: false);
     final client = _ConsentRecordingClient();
+    final consent = _V2ConsentServer();
     final nativeWrites = <({bool ai, bool cloud})>[];
     final service = CaptureDeviceRegistrationService(
       settingsRepository: settingsRepository,
       client: client,
+      consentClient: consent,
+      readSession: () => (uid: 'uid-a', jwt: 'jwt-a'),
+      readReplicaOwnerUid: () async => 'uid-a',
+      writeConsentMirror: ({
+        required uid,
+        required cloud,
+        required ai,
+        required version,
+      }) async {},
       storage: const FlutterSecureStorage(),
       isIos: () => true,
       isAndroid: () => false,
@@ -295,7 +308,10 @@ void main() {
 
     expect(nativeWrites, [(ai: false, cloud: false)]);
     expect(client.registeredPlatforms, isEmpty);
-    expect(client.consentCalls, [(ai: false, cloud: false)]);
+    // WP-6: iOS no longer uses the build-50 device-secret consent call; the v2
+    // (JWT, versioned) call carries the revocation, AI forced off by cloud.
+    expect(client.consentCalls, isEmpty);
+    expect(consent.sets, [(cloud: false, ai: false, version: 2)]);
   });
 
   test('Android offline registration fails closed without throwing', () async {
@@ -381,12 +397,39 @@ void main() {
     expect(client.registeredPlatforms, isEmpty);
   });
 
-  test('iOS setDeviceConsent failure while granting: consent_sync_failed',
+  test('iOS consent link failure while granting: consent_sync_failed',
       () async {
     FlutterSecureStorage.setMockInitialValues({});
     await setConsent(ai: true, cloud: true);
-    final client = _ConsentRecordingClient()..consentThrows = true;
-    final service = iosService(client);
+    final consent = _V2ConsentServer()..linkThrows = true;
+    final service = CaptureDeviceRegistrationService(
+      settingsRepository: settingsRepository,
+      client: _ConsentRecordingClient(),
+      consentClient: consent,
+      readSession: () => (uid: 'uid-a', jwt: 'jwt-a'),
+      readReplicaOwnerUid: () async => 'uid-a',
+      writeConsentMirror: ({
+        required uid,
+        required cloud,
+        required ai,
+        required version,
+      }) async {},
+      publishOwner: (uid) async {},
+      storage: const FlutterSecureStorage(),
+      isIos: () => true,
+      isAndroid: () => false,
+      isBackendConfigured: () => true,
+      loadInstallId: () async => 'install-id',
+      writeNativeBackendConfig: ({
+        required cloudProcessingEnabled,
+        required installId,
+        deviceSecret,
+        required backendUrl,
+        required anonKey,
+        required aiConsentGranted,
+      }) async {},
+      loadApnsToken: () async => null,
+    );
     await service.syncBackendState(); // swallow behaviour unchanged
     expect(service.status.value, failed('consent_sync_failed'));
   });
@@ -489,6 +532,37 @@ class _ConsentRecordingClient extends _RotatingCaptureClient {
   }) async {
     if (consentThrows) throw const CaptureBackendException('offline');
     consentCalls.add((ai: aiConsentGranted, cloud: cloudProcessingEnabled));
+  }
+}
+
+class _V2ConsentServer extends CaptureConsentClient {
+  _V2ConsentServer()
+      : super(supabaseUrl: 'https://x.invalid', anonKey: 'anon');
+  final sets = <({bool cloud, bool ai, int version})>[];
+  bool linkThrows = false;
+
+  @override
+  Future<void> link({
+    required String installId,
+    required String deviceSecret,
+    required String jwt,
+    required bool cloud,
+    required bool ai,
+    required int version,
+  }) async {
+    if (linkThrows) throw const CaptureBackendException('offline');
+  }
+
+  @override
+  Future<void> setConsent({
+    required String installId,
+    required String deviceSecret,
+    required String jwt,
+    required bool cloud,
+    required bool ai,
+    required int version,
+  }) async {
+    sets.add((cloud: cloud, ai: ai, version: version));
   }
 }
 

@@ -13,11 +13,24 @@ import '../../../data/db/money_codec.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_dedup_store.dart';
 import '../../../data/repositories/drift_transaction_repository.dart';
+import '../../../data/sync/seq_pull.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/finance/money.dart';
 import '../../../domain/finance/money_transport.dart';
 import 'ledger_payload.dart';
+
+typedef LedgerPullStop = SyncPullStop;
+
+/// A pulled row whose identity cannot be bound without breaking the §4.11 rule
+/// (its `client_request_id` is already a local transaction id owned by a
+/// different server row). Never resolved with a random replacement id.
+class LedgerIdentityCollision implements Exception {
+  const LedgerIdentityCollision();
+
+  @override
+  String toString() => 'LedgerIdentityCollision';
+}
 
 class LedgerSyncResult {
   const LedgerSyncResult({
@@ -26,8 +39,10 @@ class LedgerSyncResult {
     this.conflicts = 0,
     this.tombstoned = 0,
     this.status = SyncPullStatus.deferred,
+    this.stopped,
   });
 
+  final LedgerPullStop? stopped;
   final int imported;
   final int updated;
   final int conflicts;
@@ -131,6 +146,7 @@ class LedgerSyncService implements LedgerPullAdapter {
     required DriftTransactionRepository transactionRepository,
     required DriftDedupStore dedupStore,
     required bool Function() isPullEnabled,
+
     /// C-3 — financial PULL downloads this user's money from the server.
     /// Consent is asked fresh at egress and defaults to DENY, so a caller that
     /// omits it performs no network at all.
@@ -138,6 +154,7 @@ class LedgerSyncService implements LedgerPullAdapter {
     LedgerRemoteSource? remoteSource,
     Future<String?> Function()? getAuthUserId,
     int pageSize = 200,
+
     /// Per-cycle page cap for a NORMAL incremental pull: after this many pages
     /// the pull stops (not completed) and the next cycle continues from the
     /// persisted cursor, so a first sync with a large server history never runs
@@ -145,7 +162,14 @@ class LedgerSyncService implements LedgerPullAdapter {
     /// they restart from epoch each time and must reach EOF to clear their marker.
     int maxPagesPerRun = 10,
     SyncHealth? health,
+
+    /// WP-4: sequence pull gate. Null (the default) keeps the legacy timestamp
+    /// pull unconditionally; with a gate a verified `sync_seq` capability
+    /// selects the sequence pull, unsupported the legacy pull, and an unknown
+    /// answer pulls nothing this cycle.
+    SeqPullGate? seqGate,
   })  : assert(pageSize > 0),
+        _seqGate = seqGate,
         _health = health,
         _db = db,
         _transactionRepository = transactionRepository,
@@ -183,6 +207,7 @@ class LedgerSyncService implements LedgerPullAdapter {
   final Future<String?> Function() _getAuthUserId;
   final int _pageSize;
   final int _maxPagesPerRun;
+  final SeqPullGate? _seqGate;
 
   // MALI-029 (pull batching) — resolution snapshots primed ONCE per pull instead
   // of a SELECT per row. A ledger pull only WRITES transactions; it never creates
@@ -245,6 +270,20 @@ class LedgerSyncService implements LedgerPullAdapter {
     if (userId == null) return const LedgerSyncResult();
     final admitted = isAdmitted ?? alwaysAdmitted;
 
+    // WP-4: protocol selection. A reconcile pull (`from` given) always runs the
+    // legacy epoch re-pull; so does a service without the capability hook.
+    var plan = const SeqPlan(SeqMode.legacy);
+    if (_seqGate != null && from == null) {
+      plan = await _seqGate.plan(userId);
+      if (plan.mode == SeqMode.stopped) {
+        return LedgerSyncResult(
+          status: SyncPullStatus.failed,
+          stopped: _seqGate.lastStop,
+        );
+      }
+    }
+    final useSeq = plan.mode == SeqMode.seq;
+
     int imported = 0;
     int updated = 0;
     int conflicts = 0;
@@ -256,20 +295,37 @@ class LedgerSyncService implements LedgerPullAdapter {
       await _primeResolutionCaches();
       await _retryQuarantined(admitted);
       var cursor = from ?? await readSyncCursor(_db, _cursorKey);
+      var seqCursor = 0;
+      if (useSeq) seqCursor = await readSeqCursor(_db, userId, _cursorKey);
+      // Server-head short-circuit: nothing newer than this cursor exists, so
+      // an idle pull cost exactly the one head call made by the plan.
+      final skipPages = useSeq && plan.isIdle(seqCursor);
       var pages = 0;
-      while (true) {
+      if (skipPages) reachedEof = true;
+      while (!skipPages) {
         if (!admitted()) break;
-        final rows = await _remoteSource.fetchRows(
-          after: cursor,
-          limit: _pageSize,
-        );
+        final List<Map<String, dynamic>> rows;
+        if (useSeq) {
+          rows = await _seqGate!.fetch(
+            table: 'user_transactions',
+            userId: userId,
+            afterSeq: seqCursor,
+            limit: _pageSize,
+            select: ledgerTransactionSelect,
+          );
+        } else {
+          rows = await _remoteSource.fetchRows(after: cursor, limit: _pageSize);
+        }
         if (!admitted()) break;
         if (rows.isEmpty) {
           reachedEof = true;
           break;
         }
 
-        final nextCursor = SyncCursor.fromServerRow(rows.last);
+        // A non-advancing page would loop forever / skip rows: throws.
+        final nextSeq = useSeq ? nextSeqOf(rows, seqCursor) : 0;
+        final nextCursor =
+            useSeq ? cursor : SyncCursor.fromServerRow(rows.last);
         final pageResult = await _db.transaction(() async {
           var pageImported = 0;
           var pageUpdated = 0;
@@ -301,7 +357,12 @@ class LedgerSyncService implements LedgerPullAdapter {
           // A row that applied cleanly supersedes any earlier quarantined copy.
           await _clearQuarantined(appliedIds);
           if (!admitted()) throw const ReconcilePullCancelled();
-          await writeSyncCursor(_db, _cursorKey, nextCursor);
+          // The cursor advances in the SAME transaction as the page it covers.
+          if (useSeq) {
+            await writeSeqCursor(_db, userId, _cursorKey, nextSeq);
+          } else {
+            await writeSyncCursor(_db, _cursorKey, nextCursor);
+          }
           return (
             imported: pageImported,
             updated: pageUpdated,
@@ -314,11 +375,16 @@ class LedgerSyncService implements LedgerPullAdapter {
         conflicts += pageResult.conflicts;
         tombstoned += pageResult.tombstoned;
         cursor = nextCursor;
+        if (useSeq) seqCursor = nextSeq;
         if (rows.length < _pageSize) {
           reachedEof = true;
           break;
         }
         if (from == null && ++pages >= _maxPagesPerRun) break;
+      }
+      // EOF: everything up to the head read before the fetches is applied.
+      if (useSeq && reachedEof) {
+        await _seqGate!.markCaughtUp(userId, _cursorKey, seqCursor, plan);
       }
     } on ReconcilePullCancelled {
       // Lifecycle/ownership cancellation, not a transport failure.
@@ -391,7 +457,8 @@ class LedgerSyncService implements LedgerPullAdapter {
     final serverRevision = (row['revision'] as num?)?.toInt();
     final now = dateTimeToSql(DateTime.now().toUtc());
 
-    final localId = await _findLocalId(serverId, payloadId);
+    final localId =
+        await _findLocalId(serverId, payloadId, _clientRequestId(row));
 
     if (localId != null) {
       final meta = await _db
@@ -568,7 +635,7 @@ class LedgerSyncService implements LedgerPullAdapter {
   Future<_RowOutcome> _processTombstone(Map<String, dynamic> row) async {
     final serverId = row['id'] as String?;
     if (serverId == null) return _RowOutcome.skipped;
-    final localId = await _findLocalId(serverId, null);
+    final localId = await _findLocalId(serverId, null, _clientRequestId(row));
     if (localId == null) return _RowOutcome.skipped;
 
     final meta = await _db
@@ -634,6 +701,9 @@ class LedgerSyncService implements LedgerPullAdapter {
       final id = row['id'];
       if (id is! String || id.isEmpty) rethrow; // no durable key: cannot park
       _health?.noteFailure(SyncDomain.ledger, e);
+      // An identity collision can never succeed on retry: park it as
+      // 'integrity' (kept, countable, not retried) instead of 'quarantine'.
+      final reason = e is LedgerIdentityCollision ? 'integrity' : 'quarantine';
       final now = sqlString(dateTimeToSql(DateTime.now().toUtc()));
       await _db.customStatement('''
         INSERT INTO parked_child_rows(
@@ -641,9 +711,12 @@ class LedgerSyncService implements LedgerPullAdapter {
           first_seen_at, updated_at
         ) VALUES (
           ${sqlString(_quarantineTable)}, ${sqlString(id)},
-          ${sqlString(jsonEncode(row))}, 'quarantine', 0, $now, $now
+          ${sqlString(jsonEncode(row))}, ${sqlString(reason)}, 0, $now, $now
         ) ON CONFLICT(table_name, server_id) DO UPDATE SET
-          row_json = excluded.row_json, updated_at = excluded.updated_at;
+          row_json = excluded.row_json,
+          reason = CASE WHEN excluded.reason = 'integrity'
+                        THEN 'integrity' ELSE parked_child_rows.reason END,
+          updated_at = excluded.updated_at;
       ''');
       return _RowOutcome.quarantined;
     }
@@ -680,9 +753,12 @@ class LedgerSyncService implements LedgerPullAdapter {
           await _applyRow(row);
           await _clearQuarantined([serverId]);
         });
-      } catch (_) {
-        final reason =
-            attempts >= _quarantineMaxAttempts ? 'terminal' : 'quarantine';
+      } catch (e) {
+        final reason = e is LedgerIdentityCollision
+            ? 'integrity'
+            : attempts >= _quarantineMaxAttempts
+                ? 'terminal'
+                : 'quarantine';
         await _db.customStatement(
           'UPDATE parked_child_rows SET attempt_count = $attempts, '
           'reason = ${sqlString(reason)}, '
@@ -694,7 +770,21 @@ class LedgerSyncService implements LedgerPullAdapter {
     }
   }
 
-  Future<String?> _findLocalId(String serverId, String? payloadId) async {
+  static String? _clientRequestId(Map<String, dynamic> row) {
+    final v = row['client_request_id'];
+    return v is String && v.isNotEmpty ? v : null;
+  }
+
+  /// §4.11 identity: `server_id`, then `client_request_id` (a local transaction
+  /// id), then the legacy payload marker. A local row that already owns the
+  /// `client_request_id` as its id but is bound to a DIFFERENT server row is an
+  /// integrity error ([LedgerIdentityCollision] -> quarantine), never a reason
+  /// to mint a replacement id.
+  Future<String?> _findLocalId(
+    String serverId,
+    String? payloadId,
+    String? clientRequestId,
+  ) async {
     final byServer = await _db
         .customSelect(
           "SELECT id FROM transactions "
@@ -703,6 +793,22 @@ class LedgerSyncService implements LedgerPullAdapter {
         )
         .getSingleOrNull();
     if (byServer != null) return byServer.read<String>('id');
+
+    if (clientRequestId != null) {
+      final byId = await _db
+          .customSelect(
+            'SELECT id, server_id FROM transactions '
+            'WHERE id = ${sqlString(clientRequestId)} LIMIT 1;',
+          )
+          .getSingleOrNull();
+      if (byId != null) {
+        final boundTo = byId.readNullable<String>('server_id');
+        if (boundTo == null || boundTo == serverId) {
+          return byId.read<String>('id');
+        }
+        throw const LedgerIdentityCollision();
+      }
+    }
 
     if (payloadId != null) {
       return _dedupStore.transactionIdFor(
@@ -738,7 +844,9 @@ class LedgerSyncService implements LedgerPullAdapter {
       serverTransactionType: row['transaction_type'] as String? ?? 'unknown',
     );
     return TransactionEntity(
-      id: IdGenerator.next(),
+      // §4.11: a pulled row carrying a client_request_id keeps it as the local
+      // id; only a legacy row without one gets a generated id.
+      id: _clientRequestId(row) ?? IdGenerator.next(),
       amountMoney: pulledMoney.amountMoney,
       currency: currency,
       rawMerchant: row['merchant'] as String?,
@@ -841,6 +949,18 @@ class LedgerSyncService implements LedgerPullAdapter {
   /// MALI-056n — read a canonical string from the server `metadata` JSONB.
   String? _canonicalMeta(dynamic metadata, String key) =>
       metadata is Map ? metadata[key] as String? : null;
+}
+
+/// Number of pulled transaction rows parked for an identity-integrity error
+/// (WP-4, §4.11). Counts only; never row content.
+Future<int> ledgerIntegrityQuarantineCount(AppDatabase db) async {
+  final r = await db
+      .customSelect(
+        "SELECT COUNT(*) AS n FROM parked_child_rows "
+        "WHERE table_name = 'transactions' AND reason = 'integrity';",
+      )
+      .getSingle();
+  return r.read<int>('n');
 }
 
 enum _RowOutcome {

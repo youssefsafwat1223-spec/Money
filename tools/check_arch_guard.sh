@@ -50,12 +50,14 @@ echo "══ MALI-034 architecture guard ══"
 #         provenance log (updated_at cannot distinguish confirm from correct)
 #   v39 — WP-3a: replica_meta, the single-row owner record of a per-uid
 #         replica file (the per-UID encrypted replica layer)
+#   v40 — WP-6: user_settings cloud/ai consent version + time columns
+#         (versioned, per-replica consent that survives sign-out)
 #
 # The guard sat at 31 for four bumps and failed CI on correct, approved work,
 # which is the failure mode that teaches people to ignore a gate. Raising the
 # number is the whole point of the check — an UNAPPROVED bump still fails here,
 # loudly, because whoever makes it has to come and edit this list.
-AUTHORIZED_SCHEMA=39
+AUTHORIZED_SCHEMA=40
 schema_line="$(grep -E 'const int _targetSchemaVersion = [0-9]+;' "$LIB/data/db/app_database.dart" 2>/dev/null)"
 if echo "$schema_line" | grep -qE "= ${AUTHORIZED_SCHEMA};"; then
   okc "schema pinned at ${AUTHORIZED_SCHEMA}"

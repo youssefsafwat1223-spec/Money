@@ -985,6 +985,8 @@ class PlanningPushService {
           'ai_consent_granted': payload['ai_consent_granted'] == true,
           'cloud_processing_enabled':
               payload['cloud_processing_enabled'] == true,
+          if (payload['consent_version'] is int)
+            'consent_version': payload['consent_version'],
         },
       PlanningOutboxQueue.settingsEntityType => {
           'user_id': userId,
@@ -1008,6 +1010,8 @@ class PlanningPushService {
           if (payload.containsKey('cloud_processing_enabled'))
             'cloud_processing_enabled':
                 payload['cloud_processing_enabled'] == true,
+          if (payload['consent_version'] is int)
+            'consent_version': payload['consent_version'],
         },
       _ => throw ArgumentError('Unsupported planning entity: $entityType'),
     };
