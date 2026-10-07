@@ -1461,6 +1461,16 @@ class AppL10nEn extends AppL10n {
       'We could not check for unsaved data. Please try again.';
 
   @override
+  String get rebootUpdatingData => 'Updating your data…';
+
+  @override
+  String get setDataRemovedNotice => 'Data removed from this device';
+
+  @override
+  String get smartConsentAiNeedsCloud =>
+      'Turn on Cloud Sync first to use Smart Analysis.';
+
+  @override
   String get setSignOutFailed =>
       'We could not sign out safely. Please try again.';
 

@@ -68,6 +68,12 @@ abstract class AccountScopeControl {
   /// Remove-data step 2: close the active scope WITHOUT locking, because the
   /// replica is about to be deleted. Publishes the signed-out scope.
   Future<void> detach();
+
+  /// Rebootstrap swap (WP-7): close the active scope like [detach], but publish
+  /// NO scope. The host reports [AccountScopeHost.swapInProgress] and the root
+  /// shows a loading state until the next [activate] (or [detach]/[lock]) so a
+  /// normal swap never flashes the signed-out routes.
+  Future<void> suspendForSwap();
 }
 
 class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
@@ -97,11 +103,15 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
 
   AccountScope? _current;
   int _generation = 0;
+  bool _swapInProgress = false;
   Future<void> _tail = Future<void>.value();
 
   /// The published scope; null only while a switch is in flight.
   AccountScope? get current => _current;
   String? get activeUid => _current?.uid;
+
+  /// True from [suspendForSwap] until the next scope is published.
+  bool get swapInProgress => _swapInProgress;
   int get generation => _generation;
 
   Future<T> _serial<T>(Future<T> Function() f) {
@@ -153,6 +163,13 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
         if (_current == null) return; // launch-time resume: nothing is open yet
         await _withdraw();
         await _publishSignedOut();
+      });
+
+  @override
+  Future<void> suspendForSwap() => _serial(() async {
+        if (_current == null) return;
+        _swapInProgress = true;
+        await _withdraw(); // notifies: the root shows the swap loading state
       });
 
   /// Launch, FIRST (before anything reads or writes the owner marker): finishes a
@@ -221,6 +238,7 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
       planningCutoverState: init.planningCutoverState,
     );
     _current = scope;
+    _swapInProgress = false;
     notifyListeners();
     return scope;
   }

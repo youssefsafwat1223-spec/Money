@@ -515,9 +515,9 @@ class PlanningPushService {
             ? _casUpsert(item, userId, remoteTable, localTable)
             : _pushUpsert(item, userId, remoteTable, localTable);
       case PlanningSyncOperation.delete:
-        // user_categories has no tombstone RPC (deletes re-parent dependants):
-        // its delete keeps the guarded legacy tombstone.
-        return cas && item.entityType != PlanningOutboxQueue.categoriesEntityType
+        // D1: categories tombstone through their own CAS RPC (0116), which
+        // re-parents dependants like delete_user_category_safely does.
+        return cas
             ? _casDelete(item, userId, remoteTable, localTable)
             : _pushDelete(item, userId, remoteTable, localTable);
     }

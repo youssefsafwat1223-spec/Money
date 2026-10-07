@@ -120,7 +120,17 @@ void main() {
           events.add('mirror');
           mirrors.add((uid, (cloud: cloud, ai: ai, version: version)));
         },
-        publishOwner: (uid) async {
+        // A-12-min R4: ONE native call writes the mirror first, then the owner.
+        readOwnerEpoch: () async => 0,
+        publishOwner: ({
+          required uid,
+          required cloud,
+          required ai,
+          required version,
+          required expectedEpoch,
+        }) async {
+          events.add('mirror');
+          mirrors.add((uid, (cloud: cloud, ai: ai, version: version)));
           events.add('publish');
           published.add(uid);
         },
@@ -197,6 +207,7 @@ void main() {
 
     test('offline: a failed link then a later success publishes exactly then',
         () async {
+      await save(cloud: ConsentState.accepted); // Cloud ON: the link is required
       final s = service();
       server.linkError = const CaptureBackendException('offline');
       await s.linkToCurrentUser();
@@ -221,10 +232,14 @@ void main() {
       expect(published, isEmpty);
     });
 
-    test('cloud OFF and AI OFF are linked too, as explicit OFF flags',
+    // A-12-min (updated truthfully): this used to pin an identity-only link for
+    // a Cloud-OFF user. Cloud OFF = ZERO EGRESS: the owner is published
+    // LOCALLY with an explicit OFF mirror and no server call at all.
+    test('cloud OFF and AI OFF publish locally with an OFF mirror, no link',
         () async {
       await service().linkToCurrentUser();
-      expect(server.links.single, (cloud: false, ai: false, version: 0));
+      expect(server.links, isEmpty);
+      expect(events, ['mirror', 'publish']);
       expect(mirrors.single.$2, (cloud: false, ai: false, version: 0));
       expect(published, ['uid-a']);
     });
@@ -233,8 +248,9 @@ void main() {
         () async {
       await save(cloud: ConsentState.declined, ai: ConsentState.accepted);
       await service().linkToCurrentUser();
-      expect(server.links.single.cloud, isFalse);
-      expect(server.links.single.ai, isFalse);
+      expect(server.links, isEmpty, reason: 'OFF is never linked');
+      expect(mirrors.single.$2.cloud, isFalse);
+      expect(mirrors.single.$2.ai, isFalse);
     });
 
     test('a repeat admission with nothing changed does not call the server',
@@ -269,7 +285,15 @@ void main() {
           required version,
         }) async =>
             events.add('mirror'),
-        publishOwner: (uid) async => events.add('publish'),
+        readOwnerEpoch: () async => 0,
+        publishOwner: ({
+          required uid,
+          required cloud,
+          required ai,
+          required version,
+          required expectedEpoch,
+        }) async =>
+            events.add('publish'),
       );
       await s.linkToCurrentUser();
       expect(events, ['link']);
@@ -299,7 +323,9 @@ void main() {
       expect(mirrors.last.$2, (cloud: true, ai: false, version: 2));
     });
 
-    test('a failed revoke still stops the device and is retried', () async {
+    // A-12-min (updated truthfully): the old test pinned a RETRY of the revoke.
+    // Cloud OFF = zero egress: the revoke is one-shot and is never retried.
+    test('a failed revoke still stops the device and is NOT retried', () async {
       final s = await linked();
       await save(cloud: ConsentState.declined);
       server.setError = const CaptureBackendException('offline');
@@ -307,12 +333,13 @@ void main() {
       await s.syncBackendState();
       expect(mirrors.single.$2, (cloud: false, ai: false, version: 2));
       expect(server.sets, isEmpty);
+      expect(events.where((e) => e == 'set'), hasLength(1));
 
       server.setError = null;
       events.clear();
       await s.syncBackendState();
-      expect(server.sets.single, (cloud: false, ai: false, version: 2),
-          reason: 'the same absolute state is retried');
+      expect(events.where((e) => e == 'set'), isEmpty,
+          reason: 'one attempt only; retention covers a call that never lands');
     });
 
     test('a grant widens the mirror only after the server accepted it',
@@ -336,7 +363,11 @@ void main() {
 
     test('versions sent to the server never decrease', () async {
       final s = await linked(); // link at version 1
-      final sent = <int>[server.links.single.version];
+      int latest() => [
+            ...server.links.map((c) => c.version),
+            ...server.sets.map((c) => c.version),
+          ].reduce((a, b) => a > b ? a : b);
+      final sent = <int>[latest()];
       for (final step in [
         () => save(ai: ConsentState.declined),
         () => save(cloud: ConsentState.declined),
@@ -345,7 +376,9 @@ void main() {
       ]) {
         await step();
         await s.syncBackendState();
-        sent.add(server.sets.last.version);
+        // OFF->ON after the one-shot revoke re-links (the ack was cleared), so
+        // the version may arrive through link or set.
+        sent.add(latest());
       }
       expect(sent, [1, 2, 3, 4, 5]);
       for (var i = 1; i < sent.length; i++) {
@@ -398,15 +431,25 @@ void main() {
           required version,
         }) async =>
             mirrors.add((uid, (cloud: cloud, ai: ai, version: version))),
-        publishOwner: (uid) async => published.add(uid),
+        readOwnerEpoch: () async => 0,
+        publishOwner: ({
+          required uid,
+          required cloud,
+          required ai,
+          required version,
+          required expectedEpoch,
+        }) async {
+          mirrors.add((uid, (cloud: cloud, ai: ai, version: version)));
+          published.add(uid);
+        },
       );
       mirrors.clear();
       published.clear();
 
       await b.linkToCurrentUser();
 
-      expect(server.links.last, (cloud: false, ai: false, version: 0),
-          reason: "B is linked with B's own (unset) consent");
+      expect(server.links, hasLength(1),
+          reason: "B is OFF: never linked (zero egress); A's ack is not reused");
       expect(mirrors.single, ('uid-b', (cloud: false, ai: false, version: 0)));
       expect(published, ['uid-b']);
     });

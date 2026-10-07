@@ -79,6 +79,14 @@ void main() {
   /// GROUP E — queue / staging / journal bookkeeping. Operational state, scoped
   /// to a resolved or superseded item, never the financial row itself.
   ///   conflict_resolver (2)        outbox rows for a resolved conflict
+  ///   keep_mine_as_new (2)         D1: the queued CREATE rows of ONE tombstoned
+  ///                                goal's / plan's own UNSYNCED children, by
+  ///                                exact entity id, inside the resolver's local
+  ///                                transaction, right after those children were
+  ///                                re-created under the new record. Their parent
+  ///                                is tombstoned in the cloud, so they could only
+  ///                                dead-letter; a crash halfway rolls back with
+  ///                                the copy and the conflict stays open.
   ///   ledger_outbox_queue (2)      coalesced + acknowledged rows
   ///   outbox_receipt (1)           WP-5 lost-ACK receipt: deletes the ONE outbox
   ///                                row whose operation_id the cloud row carries
@@ -146,6 +154,7 @@ void main() {
     'lib/data/catalog/catalog_daos.dart': 5,
     // E
     'lib/core/sync/conflict_resolver.dart': 2,
+    'lib/core/sync/keep_mine_as_new.dart': 2,
     'lib/features/capture/services/ledger_outbox_queue.dart': 2,
     'lib/core/sync/outbox_receipt.dart': 1,
     'lib/features/planning_sync/services/planning_outbox_queue.dart': 3,

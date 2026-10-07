@@ -56,8 +56,10 @@ class FakeRegistrationService implements CaptureDeviceRegistrationService {
     notifier.value = outcome;
   }
 
+  int syncCalls = 0;
+
   @override
-  Future<void> syncBackendState() async {}
+  Future<void> syncBackendState() async => syncCalls++;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);

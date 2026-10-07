@@ -24,6 +24,9 @@ enum SharedCaptureStore {
   private static let barrierFileName = "capture_destructive_barrier_v1.json"
   private static let migratedKey = "pending_bank_messages_v3_migrated"
   private static let ownerGenerationKey = "capture_owner_generation_v1"
+  // A-12-min R4: bumped by every owner clear (sign-out, transition, removal), so
+  // a publish that started before the clear can never land after it.
+  private static let ownerEpochKey = "capture_owner_epoch_v1"
   private static let consentMirrorKey = "capture_consent_mirror_v1"
   private static let contractV2Key = "capture_contract_v2"
   private static let notifyV2Key = "capture_notify_v2"
@@ -278,9 +281,9 @@ enum SharedCaptureStore {
 
   /// What the App Intent may do with a persisted capture (§4.2 pre-upload re-check).
   enum UploadDecision: Equatable {
-    /// Upload as `ownerUid`. `allowAi` is the owner's consent mirror, nil when
-    /// no mirror exists (the install-level flag then applies, as before).
-    case allowed(ownerUid: String, allowAi: Bool?)
+    /// Upload as `ownerUid`. `allowAi` is the owner's consent mirror. A missing
+    /// mirror is never `allowed` (A-12-min R2): there is no install-level fallback.
+    case allowed(ownerUid: String, allowAi: Bool)
     /// Zero egress, zero AI; the capture stays on the device for a local parse.
     case localOnly
     /// Not this owner's to process now: no egress and no banner.
@@ -394,16 +397,26 @@ enum SharedCaptureStore {
         if let required = requireOwnerUid, normalizedUID(required) != owner?.uid {
           throw QueueError.ownerChanged
         }
+        stamped.localOnly = localOnly
         if let owner = owner {
           stamped.ownerState = ownerStateStamped
           stamped.ownerUid = owner.uid
           stamped.ownerGeneration = owner.generation
+          // A-12-min R3: consent is judged at capture time. A missing mirror or
+          // `cloud == false` makes the item local-only for good: it never uploads
+          // and never reaches AI, even if Cloud is turned ON later. A replay-able
+          // `pendingSend` becomes `sent`, so no drain replays it.
+          if consentMirror(forHash: owner.uidHash)?.cloud != true {
+            stamped.localOnly = true
+            if stamped.status == CaptureStatus.pendingSend.rawValue {
+              stamped.status = CaptureStatus.sent.rawValue
+            }
+          }
         } else {
           stamped.ownerState = ownerStateUnbound
           stamped.ownerHint = try readLastAdmittedHash()
           stamped.unboundAt = createdAtString
         }
-        stamped.localOnly = localOnly
         try checkQuotas(queue, adding: stamped)
         queue.append(stamped)
         try saveQueue(queue, notifyHost: notifyHost)
@@ -949,6 +962,7 @@ enum SharedCaptureStore {
         // barrier is deliberately NOT cleared here; only its final sweep does.
         SharedKeychain.remove(forKey: activeOwnerKC)
         SharedKeychain.remove(forKey: lastAdmittedHashKC)
+        bumpOwnerEpoch()
         defaults?.removeObject(forKey: consentMirrorKey)
         defaults?.synchronize()
       }
@@ -1101,19 +1115,49 @@ enum SharedCaptureStore {
     try withQueueLock { try readActiveOwner() }
   }
 
-  /// Publishes `{uid, uidHash, generation}` as the active owner and records the
-  /// uidHash as the last-admitted hint. Dart calls this ONLY after the replica is
-  /// admitted AND `link_capture_device(consent)` succeeded (§4.2). Re-publishing
-  /// the current owner is a no-op (the generation does not move). Refused while a
-  /// Remove-data barrier is in force.
+  /// The owner epoch: bumped by every owner clear (A-12-min R4). Dart reads it
+  /// BEFORE a publish and passes it back, so a publish that began before a
+  /// sign-out / transition / removal clear cannot land after it.
+  static func ownerEpoch() throws -> Int {
+    try withQueueLock { defaults?.integer(forKey: ownerEpochKey) ?? 0 }
+  }
+
+  private static func bumpOwnerEpoch() {
+    defaults?.set((defaults?.integer(forKey: ownerEpochKey) ?? 0) + 1, forKey: ownerEpochKey)
+  }
+
+  /// The consent a publish writes together with the owner (A-12-min R4).
+  struct ConsentMirrorValue: Equatable {
+    let cloud: Bool
+    let ai: Bool
+    let version: Int
+  }
+
+  /// Publishes `{uid, uidHash, generation}` as the active owner, writing the
+  /// owner's consent mirror FIRST and the owner record second, in ONE flock
+  /// (A-12-min R4): an owner is never visible without its mirror. It compares
+  /// and swaps on [expectedEpoch] (`ownerChanged` when a clear happened since
+  /// Dart read it) and is refused while a Remove-data barrier is in force. The
+  /// caller decides whether a network link was required first: Cloud OFF
+  /// publishes locally; Cloud ON only after `link_capture_device(consent)`
+  /// succeeded (§4.2). Re-publishing the current owner rewrites the mirror and
+  /// keeps the generation.
   @discardableResult
-  static func publishActiveOwner(uid: String) throws -> OwnerRecord {
+  static func publishActiveOwner(
+    uid: String,
+    mirror: ConsentMirrorValue,
+    expectedEpoch: Int
+  ) throws -> OwnerRecord {
     try withQueueLock {
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
+      guard (defaults?.integer(forKey: ownerEpochKey) ?? 0) == expectedEpoch else {
+        throw QueueError.ownerChanged
+      }
       let normalized = normalizedUID(uid)
       guard !normalized.isEmpty else { throw QueueError.ownerChanged }
-      if let current = try readActiveOwner(), current.uid == normalized { return current }
       let hash = try uidHash(normalized)
+      writeConsentMirrorEntry(hash: hash, mirror: mirror)
+      if let current = try readActiveOwner(), current.uid == normalized { return current }
       let generation = (defaults?.integer(forKey: ownerGenerationKey) ?? 0) + 1
       let record = OwnerRecord(uid: normalized, uidHash: hash, generation: generation)
       guard let data = try? JSONEncoder().encode(record) else { throw QueueError.encodingFailed }
@@ -1132,6 +1176,8 @@ enum SharedCaptureStore {
     try withQueueLock {
       try removeKeychain(forKey: activeOwnerKC)
       if clearHint { try removeKeychain(forKey: lastAdmittedHashKC) }
+      bumpOwnerEpoch()
+      defaults?.synchronize()
     }
   }
 
@@ -1139,12 +1185,21 @@ enum SharedCaptureStore {
   /// owner only). Keyed by uidHash; deleted by the Remove-data sweep.
   static func setConsentMirror(uid: String, cloud: Bool, ai: Bool, version: Int) throws {
     try withQueueLock {
-      let hash = try uidHash(uid)
-      var mirror = defaults?.dictionary(forKey: consentMirrorKey) ?? [:]
-      mirror[hash] = ["cloud": cloud, "ai": ai, "version": version]
-      defaults?.set(mirror, forKey: consentMirrorKey)
-      defaults?.synchronize()
+      // A-12-min R4: refused while a Remove-data barrier is in force.
+      guard try readBarrier() == nil else { throw QueueError.barrierActive }
+      writeConsentMirrorEntry(
+        hash: try uidHash(uid),
+        mirror: ConsentMirrorValue(cloud: cloud, ai: ai, version: version)
+      )
     }
+  }
+
+  /// Writes one mirror entry. Callers hold the queue flock.
+  private static func writeConsentMirrorEntry(hash: String, mirror: ConsentMirrorValue) {
+    var entries = defaults?.dictionary(forKey: consentMirrorKey) ?? [:]
+    entries[hash] = ["cloud": mirror.cloud, "ai": mirror.ai, "version": mirror.version]
+    defaults?.set(entries, forKey: consentMirrorKey)
+    defaults?.synchronize()
   }
 
   private static func consentMirror(forHash hash: String) -> (cloud: Bool, ai: Bool)? {
@@ -1157,8 +1212,10 @@ enum SharedCaptureStore {
   }
 
   /// §4.2 "before any upload": re-reads `{uid, generation}` under the flock and
-  /// allows the upload only if it is still the one the item was stamped under and
-  /// the stamped owner's consent mirror permits cloud. Fails closed.
+  /// allows the upload only if it is still the one the item was stamped under,
+  /// the item is not local-only, and the stamped owner's consent mirror EXISTS
+  /// and says cloud ON. Fails closed. EVERY upload path (the App Intent and the
+  /// app's pendingSend replay) must call this first (A-12-min R2).
   static func authorizeUpload(payloadID: String) -> UploadDecision {
     (try? withQueueLock { () throws -> UploadDecision in
       guard try readBarrier() == nil else { return .waiting }
@@ -1174,10 +1231,10 @@ enum SharedCaptureStore {
         return .waiting
       }
       if item.localOnly == true { return .localOnly }
-      if let mirror = consentMirror(forHash: owner.uidHash) {
-        return mirror.cloud ? .allowed(ownerUid: uid, allowAi: mirror.ai) : .localOnly
-      }
-      return .allowed(ownerUid: uid, allowAi: nil)
+      // A-12-min R2: fail closed. No mirror means nothing is known about this
+      // owner's consent, so the item waits; it is never `allowed` by default.
+      guard let mirror = consentMirror(forHash: owner.uidHash) else { return .waiting }
+      return mirror.cloud ? .allowed(ownerUid: uid, allowAi: mirror.ai) : .localOnly
     }) ?? .waiting
   }
 
@@ -1363,6 +1420,7 @@ enum SharedCaptureStore {
       }
       if let owner = try readActiveOwner(), owner.uid == target {
         try removeKeychain(forKey: activeOwnerKC)
+        bumpOwnerEpoch()
       }
       return barrier
     }
@@ -1403,6 +1461,7 @@ enum SharedCaptureStore {
       if try readLastAdmittedHash() == hash { try removeKeychain(forKey: lastAdmittedHashKC) }
       if let owner = try readActiveOwner(), owner.uid == target {
         try removeKeychain(forKey: activeOwnerKC)
+        bumpOwnerEpoch()
       }
       var mirror = defaults?.dictionary(forKey: consentMirrorKey) ?? [:]
       mirror.removeValue(forKey: hash)
@@ -1415,6 +1474,94 @@ enum SharedCaptureStore {
         throw QueueError.storageWriteFailed
       }
       return before - queue.count
+    }
+  }
+
+  // MARK: Queue stats (diagnostics, content-free)
+
+  enum QuotaState: String, Equatable {
+    case ok
+    /// At least 80% of a count or byte limit.
+    case near
+    /// The next capture in this scope would be refused (§4.5).
+    case full
+  }
+
+  /// WP-8 diagnostics: counts, byte sizes and quota state ONLY. No text, sender,
+  /// amount, merchant, account, id or uid ever appears here, and there is no
+  /// per-capture list. Each item falls in exactly one bucket: `unbound`;
+  /// stamped to the active owner (`localOnly` when it never uploads, else
+  /// `stamped`); anything else (another owner's, or no owner is active) is
+  /// `waiting`.
+  struct QueueStats: Equatable {
+    var stamped = 0
+    var localOnly = 0
+    var waiting = 0
+    var unbound = 0
+    var activeOwnerBytes = 0
+    var unboundBytes = 0
+    var deviceBytes = 0
+    var ownerQuota = QuotaState.ok
+    var unboundQuota = QuotaState.ok
+    var deviceQuota = QuotaState.ok
+    /// The v2 queue has not been migrated to v3 yet. Its items are counted as
+    /// unbound (what the migration will make them) WITHOUT migrating.
+    var migrationPending = false
+  }
+
+  /// The queue for stats: STRICTLY read-only. Unlike `loadQueue` it never runs
+  /// the one-time v2 -> v3 migration (a write); a not-yet-migrated v2 blob is
+  /// counted as the unbound items the migration will make of it.
+  private static func loadQueueReadOnly() throws -> (queue: [Payload], migrationPending: Bool) {
+    if let data = try readQueueFile() { return (try decodeQueueBlob(data), false) }
+    guard defaults?.bool(forKey: migratedKey) != true,
+          let blob = defaults?.data(forKey: queueKey) else { return ([], false) }
+    return (try decodeQueueBlob(blob).map { quarantinedLegacy($0, at: "") }, true)
+  }
+
+  /// Read-only, under the flock (writes nothing, migrates nothing). The limits
+  /// are the §4.5 shipping values.
+  static func queueStats() throws -> QueueStats {
+    try withQueueLock {
+      let (queue, migrationPending) = try loadQueueReadOnly()
+      let owner = try readActiveOwner()
+      var stats = QueueStats()
+      stats.migrationPending = migrationPending
+      var ownerItems = 0
+      func size(_ value: Payload) throws -> Int {
+        guard let data = try? JSONEncoder().encode(value) else { throw QueueError.encodingFailed }
+        return data.count
+      }
+      for item in queue {
+        let bytes = try size(item)
+        stats.deviceBytes += bytes
+        if item.ownerState == ownerStateUnbound {
+          stats.unbound += 1
+          stats.unboundBytes += bytes
+        } else if let owner = owner, item.ownerUid == owner.uid {
+          ownerItems += 1
+          stats.activeOwnerBytes += bytes
+          if item.localOnly == true { stats.localOnly += 1 } else { stats.stamped += 1 }
+        } else {
+          stats.waiting += 1
+        }
+      }
+      func state(count: Int, maxCount: Int?, bytes: Int, maxBytes: Int) -> QuotaState {
+        if bytes >= maxBytes || (maxCount.map { count >= $0 } ?? false) { return .full }
+        if bytes * 5 >= maxBytes * 4 || (maxCount.map { count * 5 >= $0 * 4 } ?? false) {
+          return .near
+        }
+        return .ok
+      }
+      stats.ownerQuota = state(
+        count: ownerItems, maxCount: ownerMaxItems,
+        bytes: stats.activeOwnerBytes, maxBytes: ownerMaxBytes)
+      stats.unboundQuota = state(
+        count: stats.unbound, maxCount: unboundMaxItems,
+        bytes: stats.unboundBytes, maxBytes: unboundMaxBytes)
+      stats.deviceQuota = state(
+        count: queue.count, maxCount: nil, bytes: stats.deviceBytes, maxBytes: deviceMaxBytes)
+      return stats
     }
   }
 

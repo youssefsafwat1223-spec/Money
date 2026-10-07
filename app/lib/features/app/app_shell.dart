@@ -157,6 +157,9 @@ class _AppShellState extends ConsumerState<AppShell> {
         id: CoachMarkIds.dashboard,
         marks: dashboardCoachMarks(context),
       ));
+      // After the restore gate has had its frame to open (see below).
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _scheduleConsentReask());
     });
     AppSession.instance.addListener(_handleSessionStatusChange);
     // CAP-7: generic lock-screen text for every capture alert behind the flag.
@@ -277,8 +280,31 @@ class _AppShellState extends ConsumerState<AppShell> {
     });
   }
 
+  VoidCallback? _reaskGateListener;
+
+  /// §4.6 "a new device re-asks": asks the consent question once the root restore
+  /// loader is gone, so the sheet is never opened behind it.
+  void _scheduleConsentReask() {
+    if (!mounted) return;
+    if (!appDataRestoring.value) {
+      unawaited(maybeReaskConsent(context, ref));
+      return;
+    }
+    void onChange() {
+      if (appDataRestoring.value) return;
+      appDataRestoring.removeListener(onChange);
+      _reaskGateListener = null;
+      if (mounted) unawaited(maybeReaskConsent(context, ref));
+    }
+
+    _reaskGateListener = onChange;
+    appDataRestoring.addListener(onChange);
+  }
+
   @override
   void dispose() {
+    final reask = _reaskGateListener;
+    if (reask != null) appDataRestoring.removeListener(reask);
     AppSession.instance.removeListener(_handleSessionStatusChange);
     AppSession.instance.configureSignOutFlush(null);
     _restoreGateTimeout?.cancel();

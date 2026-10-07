@@ -61,6 +61,19 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(values[0], values[1])
   }
 
+  /// A-12-min R4: publishing writes the owner's consent mirror with the owner, in
+  /// one flock, compare-and-swap on the owner epoch. The default is Cloud ON, so
+  /// the stamped items are upload-eligible exactly as before A-12-min.
+  @discardableResult
+  private func publish(
+    _ uid: String, cloud: Bool = true, ai: Bool = false, version: Int = 1
+  ) throws -> SharedCaptureStore.OwnerRecord {
+    try SharedCaptureStore.publishActiveOwner(
+      uid: uid,
+      mirror: SharedCaptureStore.ConsentMirrorValue(cloud: cloud, ai: ai, version: version),
+      expectedEpoch: try SharedCaptureStore.ownerEpoch())
+  }
+
   private var appGroupDefaults: UserDefaults {
     UserDefaults(suiteName: SharedCaptureStore.appGroupIdentifier)!
   }
@@ -84,7 +97,7 @@ class RunnerTests: XCTestCase {
   // as plaintext in App Group UserDefaults, but round-trips out via the store.
   func testCaptureQueueEncryptedAtRestAndRoundTrips() throws {
     SharedCaptureStore.purgeUserOwnedState()
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     let secret = "ACME: purchase 512.34 SAR on card 4417"
     let result = SharedCaptureStore.enqueue(text: secret, sender: "ACME")
     if case .failed(let reason, _) = result { XCTFail("enqueue failed: \(reason)") }
@@ -104,7 +117,7 @@ class RunnerTests: XCTestCase {
     SharedCaptureStore.purgeUserOwnedState()
     let legacy = "[{\"id\":\"abc\",\"text\":\"legacy 10.00\",\"status\":\"pending\"}]"
     appGroupDefaults.set(Data(legacy.utf8), forKey: "pending_bank_messages_v2")
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     let items = try SharedCaptureStore.queueSnapshot()
     XCTAssertEqual(items.map { $0.text }, ["legacy 10.00"])
     XCTAssertNil(try SharedCaptureStore.peekPendingPayloadsJSON(),
@@ -171,7 +184,7 @@ class RunnerTests: XCTestCase {
   func testKeyReadErrorFailsWithoutNewKeyAndKeepsBlob() throws {
     SharedCaptureStore.purgeUserOwnedState()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     let first = "ACME: purchase 77.10 SAR"
     if case .failed(let reason, _) = SharedCaptureStore.enqueue(text: first, sender: "ACME") {
       return XCTFail("setup enqueue failed: \(reason)")
@@ -272,7 +285,7 @@ class RunnerTests: XCTestCase {
   func testReceivedAtInferredRoundTrips() throws {
     SharedCaptureStore.purgeUserOwnedState()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     _ = SharedCaptureStore.enqueue(
       text: "ACME: purchase 4.00 SAR", sender: "ACME", receivedAtInferred: true)
     let json = try XCTUnwrap(try SharedCaptureStore.peekPendingPayloadsJSON())
@@ -299,7 +312,7 @@ class RunnerTests: XCTestCase {
   func testStampingOwnerUnboundHintAndTransition() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    let a = try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    let a = try publish(ownerA)
     put("stamped 1.00 SAR")
     try SharedCaptureStore.clearActiveOwner(clearHint: false)   // sign-out
     put("signed out 2.00 SAR")
@@ -327,13 +340,13 @@ class RunnerTests: XCTestCase {
   func testNonActiveOwnerItemWaitsAndResumes() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     put("A item 5.00 SAR")
-    try SharedCaptureStore.publishActiveOwner(uid: ownerB)
+    try publish(ownerB)
     XCTAssertNil(try SharedCaptureStore.peekPendingPayloadsJSON(), "B must not see A's capture")
     XCTAssertFalse(SharedCaptureStore.hasPendingMessages())
     XCTAssertEqual(try items().count, 1, "A's item is not purged")
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     let json = try XCTUnwrap(try SharedCaptureStore.peekPendingPayloadsJSON())
     XCTAssertTrue(json.contains("A item 5.00 SAR"))
   }
@@ -342,11 +355,12 @@ class RunnerTests: XCTestCase {
   func testUploadAuthorizationOwnerMismatchAndConsentMirror() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    let a = try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    let a = try publish(ownerA)
     guard case .enqueued(let item) = put("upload 6.00 SAR") else { return XCTFail("enqueue") }
     let id = try XCTUnwrap(item.id)
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id),
-                   .allowed(ownerUid: ownerA, allowAi: nil))
+                   .allowed(ownerUid: ownerA, allowAi: false),
+                   "published with a Cloud-ON mirror (ai false)")
 
     try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: true, ai: false, version: 3)
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id),
@@ -356,9 +370,9 @@ class RunnerTests: XCTestCase {
                    "cloud OFF in the owner's mirror means zero egress")
     try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: true, ai: true, version: 5)
 
-    try SharedCaptureStore.publishActiveOwner(uid: ownerB)      // owner changed mid-flight
+    try publish(ownerB)      // owner changed mid-flight
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .waiting)
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)      // same uid, NEW generation
+    try publish(ownerA)      // same uid, NEW generation
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .waiting,
                    "a changed generation is not 'unchanged'")
     XCTAssertGreaterThan(try XCTUnwrap(SharedCaptureStore.activeOwner()).generation, a.generation)
@@ -373,7 +387,7 @@ class RunnerTests: XCTestCase {
   func testOwnerRecordUnavailablePersistsNothing() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     put("before 1.00 SAR")
     let before = try XCTUnwrap(queueFileData())
     SharedCaptureStore.ownerRecordReadOverride = { (status: errSecInteractionNotAllowed, data: nil) }
@@ -388,7 +402,7 @@ class RunnerTests: XCTestCase {
   func testFlockHeldDuringStamping() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     var probed = false
     SharedCaptureStore.stampingHook = {
       let fd = open(self.container.appendingPathComponent("pending_bank_messages.lock").path,
@@ -430,7 +444,7 @@ class RunnerTests: XCTestCase {
   func testOwnerCountQuotaFailsVisiblyWithoutEviction() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     for i in 0..<SharedCaptureStore.ownerMaxItems { put("owner \(i) 1.00 SAR") }
     guard case .failed(_, let kind) = put("one too many 1.00 SAR") else {
       return XCTFail("the 501st stamped capture must be refused")
@@ -438,7 +452,7 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(kind, .quotaFull)
     XCTAssertEqual(try items().count, SharedCaptureStore.ownerMaxItems)
     // Another owner has its own scope.
-    try SharedCaptureStore.publishActiveOwner(uid: ownerB)
+    try publish(ownerB)
     guard case .enqueued = put("b item 1.00 SAR") else { return XCTFail("B has its own quota") }
   }
 
@@ -457,7 +471,7 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(try items().count, 5)
 
     SharedCaptureStore.purgeUserOwnedState()
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     for i in 0..<5 { put(big("o\(i)", 400_000)) }            // ~2.0 MB of 2 MB
     guard case .failed(_, let ownerKind) = put(big("o5", 400_000)) else {
       return XCTFail("per-owner byte quota must refuse")
@@ -473,10 +487,10 @@ class RunnerTests: XCTestCase {
                   "33333333-3333-4333-8333-333333333333",
                   "44444444-4444-4444-8444-444444444444"]
     for (n, uid) in owners.enumerated() {
-      try SharedCaptureStore.publishActiveOwner(uid: uid)
+      try publish(uid)
       for i in 0..<5 { put(big("d\(n)-\(i)", 400_000)) }    // ~2 MB per owner, ~8 MB total
     }
-    try SharedCaptureStore.publishActiveOwner(uid: "55555555-5555-4555-8555-555555555555")
+    try publish("55555555-5555-4555-8555-555555555555")
     guard case .failed(_, let kind) = put(big("e0", 400_000)) else {
       return XCTFail("device-wide 8 MB quota must refuse a fresh owner")
     }
@@ -488,7 +502,7 @@ class RunnerTests: XCTestCase {
   func testUnboundExpiresAfter30DaysStampedDoesNot() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     put("stamped keeps 1.00 SAR")
     try SharedCaptureStore.clearActiveOwner(clearHint: false)
     put("unbound expires 2.00 SAR")
@@ -507,7 +521,7 @@ class RunnerTests: XCTestCase {
       "{\"id\":\"l\($0)\",\"text\":\"legacy \($0) 9.00\",\"status\":\"pendingSend\",\"owner\":\"\(ownerA)\"}"
     }.joined(separator: ",")
     appGroupDefaults.set(Data("[\(legacy)]".utf8), forKey: queueDefaultsKey)
-    let a = try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    let a = try publish(ownerA)
 
     let queue = try items()
     XCTAssertEqual(queue.count, SharedCaptureStore.unboundMaxItems + 50, "no legacy item is dropped")
@@ -545,7 +559,7 @@ class RunnerTests: XCTestCase {
     let legacy = "[{\"id\":\"l0\",\"text\":\"legacy 9.00\",\"status\":\"pendingSend\",\"receivedAt\":\"2026-01-02T03:04:05.000Z\"},"
       + "{\"id\":\"l1\",\"text\":\"legacy 8.00\",\"status\":\"pendingSend\"}]"
     appGroupDefaults.set(Data(legacy.utf8), forKey: queueDefaultsKey)
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     // A stamped, non-legacy item is never listed.
     _ = SharedCaptureStore.enqueue(text: "stamped 7.00", sender: "ACME")
 
@@ -581,14 +595,14 @@ class RunnerTests: XCTestCase {
   func testUnboundHintAndClaimCAS() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     try SharedCaptureStore.clearActiveOwner(clearHint: false)       // signed out
     put("while signed out 1.00 SAR", sender: "BANK1")
     put("while signed out 2.00 SAR", sender: "BANK2")
     let before = try XCTUnwrap(queueFileData())
 
     // Another uid authenticates: it sees nothing and cannot claim (A2).
-    let b = try SharedCaptureStore.publishActiveOwner(uid: ownerB)
+    let b = try publish(ownerB)
     XCTAssertEqual(try SharedCaptureStore.unboundSummary(forUid: ownerB).count, 0)
     let stolen = try SharedCaptureStore.claimUnbound(
       uid: ownerB, generation: b.generation, replicaOwnerUid: ownerB, sessionUid: ownerB,
@@ -597,7 +611,7 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(queueFileData(), before, "a failed claim mutates nothing")
 
     // The hinted uid returns.
-    let a = try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    let a = try publish(ownerA)
     let summary = try SharedCaptureStore.unboundSummary(forUid: ownerA)
     XCTAssertEqual(summary.count, 2)
     XCTAssertEqual(summary.senders, ["BANK1", "BANK2"])
@@ -633,10 +647,10 @@ class RunnerTests: XCTestCase {
   func testDiscardUsesTheSameCAS() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     try SharedCaptureStore.clearActiveOwner(clearHint: false)
     put("discard me 1.00 SAR")
-    let a = try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    let a = try publish(ownerA)
     let ids = try SharedCaptureStore.unboundSummary(forUid: ownerA).ids
     XCTAssertEqual(try SharedCaptureStore.discardUnbound(
       uid: ownerA, generation: a.generation, replicaOwnerUid: ownerB, sessionUid: ownerA, ids: ids),
@@ -652,11 +666,11 @@ class RunnerTests: XCTestCase {
   func testClaimRaceTwoClaimersExactlyOneWins() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     try SharedCaptureStore.clearActiveOwner(clearHint: false)
     put("race 1.00 SAR")
     put("race 2.00 SAR")
-    let a = try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    let a = try publish(ownerA)
     let ids = try SharedCaptureStore.unboundSummary(forUid: ownerA).ids
     let lock = NSLock()
     var outcomes: [SharedCaptureStore.ClaimOutcome] = []
@@ -674,11 +688,11 @@ class RunnerTests: XCTestCase {
   func testRemovalBarrierBlocksIntentAndSweepsEverythingOfA() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    let a = try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    let a = try publish(ownerA)
     put("A stamped 1.00 SAR")
     try SharedCaptureStore.clearActiveOwner(clearHint: false)
     put("A hinted 2.00 SAR")                                         // hint == uidHash(A)
-    let b = try SharedCaptureStore.publishActiveOwner(uid: ownerB)
+    let b = try publish(ownerB)
     put("B stamped 3.00 SAR")
     try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: true, ai: true, version: 1)
     Thread.sleep(forTimeInterval: 1.1)    // created_at has 1 s resolution
@@ -693,7 +707,7 @@ class RunnerTests: XCTestCase {
       return XCTFail("the intent must fail visibly while the barrier is up")
     }
     XCTAssertEqual(kind, .removalInProgress)
-    XCTAssertThrowsError(try SharedCaptureStore.publishActiveOwner(uid: ownerA))
+    XCTAssertThrowsError(try publish(ownerA))
     XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: "anything"), .waiting)
     XCTAssertEqual(try items().count, 3, "the refused capture was not persisted")
 
@@ -712,7 +726,7 @@ class RunnerTests: XCTestCase {
   func testRemovalClearsLastAdmittedHintWhenItIsA() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerA)
+    try publish(ownerA)
     try SharedCaptureStore.clearActiveOwner(clearHint: false)      // sign-out keeps the hint
     _ = try SharedCaptureStore.beginRemoval(uid: ownerA)
     try SharedCaptureStore.finishRemoval(uid: ownerA)
@@ -737,13 +751,206 @@ class RunnerTests: XCTestCase {
   func testReEnqueueRequiresOriginalOwner() throws {
     resetCapSeams()
     defer { resetCapSeams() }
-    try SharedCaptureStore.publishActiveOwner(uid: ownerB)
+    try publish(ownerB)
     guard case .failed(_, let kind) = SharedCaptureStore.enqueue(
       text: "back 1.00 SAR", sender: "ACME", requireOwnerUid: ownerA) else {
       return XCTFail("re-enqueue under another owner must be refused")
     }
     XCTAssertEqual(kind, .ownerChanged)
     XCTAssertEqual(try items().count, 0)
+  }
+
+
+  // ── A-12-min: Cloud OFF = zero egress, local owner publication ────────────
+
+  private func mirrorKeyRemoved() {
+    appGroupDefaults.removeObject(forKey: "capture_consent_mirror_v1")
+  }
+
+  // R3: Cloud OFF at capture time -> the item is local-only for good and a
+  // replay-able pendingSend becomes sent, so no drain ever replays it.
+  func testCloudOffStampsLocalOnlyAndSentEvenIfCloudIsLaterTurnedOn() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try publish(ownerA, cloud: false)
+    guard case .enqueued(let item) = SharedCaptureStore.enqueue(
+      text: "off 1.00 SAR", sender: "ACME", status: .pendingSend) else { return XCTFail("enqueue") }
+    XCTAssertEqual(item.localOnly, true)
+    XCTAssertEqual(item.status, "sent", "a localOnly item is never left pendingSend")
+    let id = try XCTUnwrap(item.id)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: true, ai: true, version: 2)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly,
+                   "consent is judged at capture time: ON later does not make it uploadable")
+  }
+
+  func testCloudOnStampsUploadableAndKeepsPendingSend() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try publish(ownerA, cloud: true, ai: true)
+    guard case .enqueued(let item) = SharedCaptureStore.enqueue(
+      text: "on 1.00 SAR", sender: "ACME", status: .pendingSend) else { return XCTFail("enqueue") }
+    XCTAssertNil(item.localOnly)
+    XCTAssertEqual(item.status, "pendingSend")
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)),
+                   .allowed(ownerUid: ownerA, allowAi: true))
+  }
+
+  // R2/R3: a missing mirror never uploads: new captures are stamped local-only,
+  // and an item stamped earlier waits (there is no `.allowed(nil)` any more).
+  func testMissingMirrorNeverUploads() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try publish(ownerA)
+    guard case .enqueued(let early) = put("early 1.00 SAR") else { return XCTFail("enqueue") }
+    mirrorKeyRemoved()
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(early.id)), .waiting)
+    guard case .enqueued(let late) = SharedCaptureStore.enqueue(
+      text: "late 2.00 SAR", sender: "ACME", status: .pendingSend) else { return XCTFail("enqueue") }
+    XCTAssertEqual(late.localOnly, true)
+    XCTAssertEqual(late.status, "sent")
+  }
+
+  // R4: the mirror and the owner are one publish; the owner is never visible
+  // without its mirror, and republishing the owner keeps the generation.
+  func testPublishWritesMirrorWithOwnerAndKeepsGeneration() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let a = try publish(ownerA, cloud: false)
+    let again = try publish(ownerA, cloud: true, ai: true, version: 7)
+    XCTAssertEqual(again, a)
+    guard case .enqueued(let item) = put("mirror 3.00 SAR") else { return XCTFail("enqueue") }
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)),
+                   .allowed(ownerUid: ownerA, allowAi: true))
+  }
+
+  // R4: compare-and-swap. A publish that read its epoch before a transition
+  // clear is refused afterwards, so B's capture is never stamped as A's.
+  func testLatePublishAfterTransitionClearIsRefused() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let epoch = try SharedCaptureStore.ownerEpoch()          // A's publish starts here
+    try SharedCaptureStore.clearActiveOwner(clearHint: true)  // transition clear
+    XCTAssertGreaterThan(try SharedCaptureStore.ownerEpoch(), epoch)
+    XCTAssertThrowsError(try SharedCaptureStore.publishActiveOwner(
+      uid: ownerA,
+      mirror: SharedCaptureStore.ConsentMirrorValue(cloud: true, ai: false, version: 1),
+      expectedEpoch: epoch)) { error in
+      guard case SharedCaptureStore.QueueError.ownerChanged = error else {
+        return XCTFail("expected ownerChanged, got \(error)")
+      }
+    }
+    XCTAssertNil(try SharedCaptureStore.activeOwner())
+    guard case .enqueued(let item) = put("B capture 4.00 SAR") else { return XCTFail("enqueue") }
+    XCTAssertEqual(item.ownerState, "unbound")
+    XCTAssertNil(item.ownerUid, "a late A publish must never own B's capture")
+  }
+
+  // R4: setConsentMirror is refused while a Remove-data barrier is in force.
+  func testSetConsentMirrorRefusedUnderBarrier() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try publish(ownerA)
+    _ = try SharedCaptureStore.beginRemoval(uid: ownerA)
+    XCTAssertThrowsError(try SharedCaptureStore.setConsentMirror(
+      uid: ownerA, cloud: true, ai: true, version: 9))
+  }
+
+  // The claim path binds items local-only and forces pendingSend -> sent.
+  func testClaimForcesSentAndLocalOnly() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let a = try publish(ownerA)
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    SharedCaptureStore.enqueue(text: "pending 1.00 SAR", sender: "ACME", status: .pendingSend)
+    let a2 = try publish(ownerA)
+    let hinted = try SharedCaptureStore.unboundSummary(forUid: ownerA)
+    XCTAssertEqual(hinted.count, 1)
+    _ = a
+    XCTAssertEqual(
+      try SharedCaptureStore.claimUnbound(
+        uid: ownerA, generation: a2.generation, replicaOwnerUid: ownerA,
+        sessionUid: ownerA, ids: hinted.ids),
+      .applied(1))
+    let claimed = try XCTUnwrap(try items().first)
+    XCTAssertEqual(claimed.localOnly, true)
+    XCTAssertEqual(claimed.status, "sent")
+  }
+
+  // ── captureQueueStats (content-free) ──────────────────────────────────────
+
+  func testQueueStatsBucketsBytesAndQuotaState() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try publish(ownerB)
+    put("B waits 1.00 SAR")
+    try publish(ownerA, cloud: false)
+    put("A local only 2.00 SAR")                  // stamped localOnly (Cloud OFF)
+    try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: true, ai: false, version: 2)
+    put("A stamped 3.00 SAR")
+    try SharedCaptureStore.clearActiveOwner(clearHint: true)
+    put("unbound 4.00 SAR")
+
+    let stats = try SharedCaptureStore.queueStats()
+    XCTAssertEqual(stats.stamped, 0, "no active owner now: A's items wait")
+    XCTAssertEqual(stats.waiting, 3)
+    XCTAssertEqual(stats.unbound, 1)
+    XCTAssertGreaterThan(stats.deviceBytes, 0)
+    XCTAssertEqual(stats.unboundQuota, .ok)
+    XCTAssertEqual(stats.deviceQuota, .ok)
+
+    try publish(ownerA)
+    let active = try SharedCaptureStore.queueStats()
+    XCTAssertEqual(active.stamped, 1)
+    XCTAssertEqual(active.localOnly, 1)
+    XCTAssertEqual(active.waiting, 1)
+    XCTAssertEqual(active.unbound, 1)
+    XCTAssertEqual(active.stamped + active.localOnly + active.waiting + active.unbound,
+                   try items().count, "every item is in exactly one bucket")
+    XCTAssertGreaterThan(active.activeOwnerBytes, 0)
+    XCTAssertLessThanOrEqual(active.activeOwnerBytes + active.unboundBytes, active.deviceBytes)
+  }
+
+  // Stats never write: an unmigrated v2 queue is counted, not migrated.
+  func testQueueStatsNeverMigratesTheV2Queue() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let legacy = "[{\"id\":\"abc\",\"text\":\"legacy 10.00\",\"status\":\"pending\"}]"
+    appGroupDefaults.set(Data(legacy.utf8), forKey: "pending_bank_messages_v2")
+    let stats = try SharedCaptureStore.queueStats()
+    XCTAssertTrue(stats.migrationPending)
+    XCTAssertEqual(stats.unbound, 1)
+    XCTAssertNil(queueFileData(), "no v3 file was written by a stats read")
+    XCTAssertNil(appGroupDefaults.object(forKey: "pending_bank_messages_v3_migrated"),
+                 "the migration flag was not set by a stats read")
+  }
+
+  // A localOnly item that is still `.pending` (not pendingSend) can never be
+  // authorized for upload either, whatever the mirror says later.
+  func testLocalOnlyPendingItemIsNeverAuthorized() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try publish(ownerA, cloud: false)
+    guard case .enqueued(let item) = SharedCaptureStore.enqueue(
+      text: "pending 1.00 SAR", sender: "ACME", status: .pending) else { return XCTFail("enqueue") }
+    XCTAssertEqual(item.localOnly, true)
+    XCTAssertEqual(item.status, "pending")
+    try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: true, ai: true, version: 3)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: try XCTUnwrap(item.id)), .localOnly)
+  }
+
+  func testQueueStatsReadOnlyAndContentFree() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try publish(ownerA)
+    put("SECRET-TEXT 5.00 SAR", sender: "SECRET-SENDER")
+    let before = try XCTUnwrap(queueFileData())
+    let stats = try SharedCaptureStore.queueStats()
+    XCTAssertEqual(queueFileData(), before, "stats never write the queue")
+    let described = String(describing: stats)
+    for fragment in ["SECRET", ownerA, "5.00"] {
+      XCTAssertFalse(described.contains(fragment), "stats must be content-free")
+    }
   }
 
 

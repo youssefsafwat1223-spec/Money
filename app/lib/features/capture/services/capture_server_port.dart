@@ -108,6 +108,9 @@ class BackendCaptureServerPort implements CaptureServerPort {
     final configured = _backendConfigured ?? SupabaseConfig.isConfigured;
     if (!settings.cloudProcessingEnabled || !configured) return null;
     await _registration.syncBackendState();
+    // A-12-min R5: no legacy device-credential call (fetch, ACK) without a
+    // uid-bound ack for this user at Cloud ON; "not configured" imports locally.
+    if (!await _registration.isLinkedForCloud()) return null;
     final secret = await _registration.readDeviceSecret();
     if (secret == null || secret.isEmpty) return null;
     return (

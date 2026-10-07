@@ -74,6 +74,7 @@ class _Fixture {
   CaptureOwnerRecord? owner =
       const CaptureOwnerRecord(uid: _uid, uidHash: 'h', generation: 4);
   List<SharedCapturedMessage> peek = const [];
+  CaptureQueueStats? stats;
   int unbound = 0;
   CaptureRemovalBarrier? barrier;
   ({bool cloud, bool ai, int version})? ack;
@@ -94,6 +95,7 @@ class _Fixture {
           replicaEntry: () async => entry,
           captureOwner: () async => owner,
           peekQueue: () async => peek,
+          queueStats: () async => stats,
           unboundHinted: (_) async => unbound,
           removalBarrier: () async => barrier,
           consentAck: () async => ack,
@@ -279,20 +281,40 @@ void main() {
       expect(_row(r, 'Capture', 'queue items of other owners/unbound (peek)'),
           '1');
       expect(_row(r, 'Capture', 'unbound items hinted to this user'), '2');
-      expect(_row(r, 'Capture', 'queue count quota'), '500');
-      expect(_row(r, 'Capture', 'queue count quota reached'), 'no');
+      // The count-only quota rows were replaced by the native stats rows.
+      expect(_row(r, 'Capture', 'queue limit items (this owner)'), '500');
+      expect(_row(r, 'Capture', 'queue limit items (unbound)'), '200');
+      expect(_row(r, 'Capture', 'queue stats available'), 'no');
+      expect(_row(r, 'Capture', 'queue quota (this owner)'), '—');
     });
 
-    test('CAP-6a: quota reached at the ceiling', () async {
-      f.peek = [
-        for (var i = 0; i < kCaptureOwnerMaxItems; i++)
-          const SharedCapturedMessage(
-              text: 't',
-              source: CapturedMessageSource.iosShortcut,
-              ownerUid: _uid),
-      ];
-      expect(_row(await f.collect(), 'Capture', 'queue count quota reached'),
-          'yes');
+    test('D3: native captureQueueStats rows (counts, bytes, quota state)',
+        () async {
+      f.stats = const CaptureQueueStats(
+        stamped: 4,
+        localOnly: 3,
+        waiting: 2,
+        unbound: 1,
+        activeOwnerBytes: 700,
+        unboundBytes: 90,
+        deviceBytes: 1200,
+        ownerQuota: CaptureQuotaState.near,
+        unboundQuota: CaptureQuotaState.ok,
+        deviceQuota: CaptureQuotaState.full,
+      );
+      final r = await f.collect();
+      expect(_row(r, 'Capture', 'queue stats available'), 'yes');
+      expect(_row(r, 'Capture', 'queue stats: stamped, may upload'), '4');
+      expect(_row(r, 'Capture', 'queue stats: local-only'), '3');
+      expect(_row(r, 'Capture', 'queue stats: waiting (other owners)'), '2');
+      expect(_row(r, 'Capture', 'queue stats: unbound'), '1');
+      expect(_row(r, 'Capture', 'queue bytes (this owner)'), '700');
+      expect(_row(r, 'Capture', 'queue bytes (unbound)'), '90');
+      expect(_row(r, 'Capture', 'queue bytes (device)'), '1200');
+      expect(_row(r, 'Capture', 'queue quota (this owner)'), 'near');
+      expect(_row(r, 'Capture', 'queue quota (unbound)'), 'ok');
+      expect(_row(r, 'Capture', 'queue quota (device)'), 'full');
+      expect(_row(r, 'Capture', 'queue limit bytes (device)'), '8388608');
     });
 
     test('CAP-6a: the removal barrier', () async {
@@ -313,6 +335,19 @@ void main() {
       expect(
           RegExp(r'static let unboundMaxItems = (\d+)').firstMatch(swift)![1],
           '$kCaptureUnboundMaxItems');
+      for (final entry in {
+        'ownerMaxBytes': kCaptureOwnerMaxBytes,
+        'unboundMaxBytes': kCaptureUnboundMaxBytes,
+        'deviceMaxBytes': kCaptureDeviceMaxBytes,
+      }.entries) {
+        final m = RegExp('static let ${entry.key} = (.+)').firstMatch(swift)!;
+        // `2 * 1024 * 1024` style: evaluate the product.
+        final value = m[1]!
+            .split('*')
+            .map((p) => int.parse(p.trim()))
+            .reduce((a, b) => a * b);
+        expect(value, entry.value, reason: entry.key);
+      }
     });
 
     test('CAP-5: latest import outcome and receipts', () async {
@@ -536,6 +571,19 @@ void main() {
       f.lastImport = CaptureImportReport(imported: [
         CaptureImportItem(id: payloadId, path: CaptureImportPath.local),
       ]);
+      // The native stats carry integers and a quota word: nothing else exists.
+      f.stats = const CaptureQueueStats(
+        stamped: 1,
+        localOnly: 2,
+        waiting: 3,
+        unbound: 4,
+        activeOwnerBytes: 5551,
+        unboundBytes: 6662,
+        deviceBytes: 7773,
+        ownerQuota: CaptureQuotaState.near,
+        unboundQuota: CaptureQuotaState.ok,
+        deviceQuota: CaptureQuotaState.full,
+      );
       f.registration = const CaptureRegistrationStatus(
           CaptureRegistrationPhase.failed, 'register_failed');
       f.entry = ReplicaEntry(
@@ -575,6 +623,10 @@ void main() {
       expect(_row(r, 'Queue', 'open conflicts: update'), '1');
       expect(_row(r, 'Capture', 'queue items (this owner)'), '1');
       expect(_row(r, 'Capture', 'receipts in replica'), '1');
+      // The native stats rows are really present (so the scan is not vacuous).
+      expect(_row(r, 'Capture', 'queue stats: local-only'), '2');
+      expect(_row(r, 'Capture', 'queue bytes (device)'), '7773');
+      expect(_row(r, 'Capture', 'queue quota (device)'), 'full');
       expectClean(r.toRedactedText(), where: 'toRedactedText');
       for (final s in r.sections) {
         expectClean(s.title, where: 'section title ${s.title}');

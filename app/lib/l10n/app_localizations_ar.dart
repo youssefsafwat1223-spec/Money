@@ -1427,6 +1427,16 @@ class AppL10nAr extends AppL10n {
       'تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.';
 
   @override
+  String get rebootUpdatingData => 'جارٍ تحديث بياناتك…';
+
+  @override
+  String get setDataRemovedNotice => 'تم حذف البيانات من هذا الجهاز';
+
+  @override
+  String get smartConsentAiNeedsCloud =>
+      'فعّل المزامنة السحابية أولاً لاستخدام التحليل الذكي.';
+
+  @override
   String get setSignOutFailed => 'تعذّر تسجيل الخروج بأمان. حاول مجدداً.';
 
   @override

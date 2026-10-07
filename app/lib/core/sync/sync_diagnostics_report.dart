@@ -10,7 +10,11 @@ import '../../features/capture/services/capture_device_registration_service.dart
 import '../../features/capture/services/capture_import_service.dart'
     show CaptureImportReport;
 import '../../features/capture/services/native_capture_bridge.dart'
-    show CaptureOwnerRecord, CaptureRemovalBarrier, SharedCapturedMessage;
+    show
+        CaptureOwnerRecord,
+        CaptureQueueStats,
+        CaptureRemovalBarrier,
+        SharedCapturedMessage;
 import 'sync_health.dart';
 import 'sync_pull_proof.dart' show readSeqCursors;
 
@@ -26,6 +30,12 @@ const int kCaptureOwnerMaxItems = 500;
 
 /// Manifest §4.5 unbound queue count quota (`SharedCaptureStore.unboundMaxItems`).
 const int kCaptureUnboundMaxItems = 200;
+
+/// Manifest §4.5 byte quotas (`SharedCaptureStore.ownerMaxBytes`,
+/// `unboundMaxBytes`, `deviceMaxBytes`; a test pins them together).
+const int kCaptureOwnerMaxBytes = 2 * 1024 * 1024;
+const int kCaptureUnboundMaxBytes = 512 * 1024;
+const int kCaptureDeviceMaxBytes = 8 * 1024 * 1024;
 
 final RegExp _codeWord = RegExp(r'^[A-Za-z0-9_.:\-]{1,40}$');
 final RegExp _opaqueId = RegExp(r'^[0-9a-fA-F-]{16,}$');
@@ -164,6 +174,7 @@ class SyncDiagnosticsSources {
     required this.removalBarrier,
     required this.consentAck,
     this.mirroredConsentVersion,
+    this.queueStats,
     this.registration,
     this.lastImport,
     this.captureV3Enabled = false,
@@ -188,6 +199,10 @@ class SyncDiagnosticsSources {
   final Future<CaptureRemovalBarrier?> Function() removalBarrier;
   final Future<({bool cloud, bool ai, int version})?> Function() consentAck;
   final int? mirroredConsentVersion;
+
+  /// Native `captureQueueStats` (counts, bytes, quota state; content-free).
+  /// Absent or null off iOS or when the native call fails: the rows read "—".
+  final Future<CaptureQueueStats?> Function()? queueStats;
   final CaptureRegistrationStatus? registration;
   final CaptureImportReport? lastImport;
   final bool captureV3Enabled;
@@ -361,6 +376,7 @@ Future<SyncDiagnosticsReport> collectSyncDiagnostics(
   final unbound = owner == null
       ? null
       : await _guarded(() => s.unboundHinted(owner.uid));
+  final stats = await _guarded(() async => await s.queueStats?.call());
   final barrier = await _guarded(s.removalBarrier);
   final receipts = await _guarded(() => _count(s.db,
           'SELECT COUNT(*) AS n FROM dedup_hashes WHERE hash LIKE ?',
@@ -377,14 +393,29 @@ Future<SyncDiagnosticsReport> collectSyncDiagnostics(
     r.add('native owner published', owner != null);
     r.add('native owner matches session', owner != null && owner.uid == uid);
     r.add('queue items (this owner)', queue.ownerItems);
-    r.add('queue count quota', kCaptureOwnerMaxItems);
-    r.add('queue count quota reached', queue.ownerItems >= kCaptureOwnerMaxItems);
     r.add('queue items bound local-only', queue.localOnly);
     r.add('queue items awaiting upload', queue.awaitingUpload);
     r.add('queue items with failure marker', queue.withFailure);
     r.add('queue items of other owners/unbound (peek)', queue.otherOwners);
     r.add('unbound items hinted to this user', unbound);
-    r.add('unbound count quota', kCaptureUnboundMaxItems);
+    // Native queue statistics: counts, bytes and quota state only (§4.5).
+    r.add('queue stats available', stats != null);
+    r.add('queue stats: stamped, may upload', stats?.stamped);
+    r.add('queue stats: local-only', stats?.localOnly);
+    r.add('queue stats: waiting (other owners)', stats?.waiting);
+    r.add('queue stats: unbound', stats?.unbound);
+    r.add('queue stats: v2 migration pending', stats?.migrationPending);
+    r.add('queue bytes (this owner)', stats?.activeOwnerBytes);
+    r.add('queue bytes (unbound)', stats?.unboundBytes);
+    r.add('queue bytes (device)', stats?.deviceBytes);
+    r.add('queue quota (this owner)', stats?.ownerQuota);
+    r.add('queue quota (unbound)', stats?.unboundQuota);
+    r.add('queue quota (device)', stats?.deviceQuota);
+    r.add('queue limit items (this owner)', kCaptureOwnerMaxItems);
+    r.add('queue limit bytes (this owner)', kCaptureOwnerMaxBytes);
+    r.add('queue limit items (unbound)', kCaptureUnboundMaxItems);
+    r.add('queue limit bytes (unbound)', kCaptureUnboundMaxBytes);
+    r.add('queue limit bytes (device)', kCaptureDeviceMaxBytes);
     r.add('removal barrier active', barrier != null);
     r.add('removal barrier started', barrier == null ? null : DateTime.tryParse(barrier.startedAt));
     r.add('receipts in replica', receipts);

@@ -181,16 +181,30 @@ class RebootstrapService {
         case RebootstrapPhase.conflictsMerged:
           // No more local writes: withdraw the scope, then re-run the (idempotent)
           // recovery for whatever the user did meanwhile, verify, and swap.
-          await _scope.detach();
-          final closedOld = await _store.openReplica(uid);
-          final fresh = await _store.openStaging(uid);
-          final r = recovery(closedOld, fresh);
-          await r.recoverReceipts();
-          await r.mergeRows();
-          await r.recoverOutbox();
-          await r.mergeConflicts();
-          await r.verify();
-          await _store.swapStaging(uid);
+          // The root shows "Updating your data…" meanwhile, never the signed-out
+          // routes (no scope is published until the swap committed).
+          await _scope.suspendForSwap();
+          try {
+            final closedOld = await _store.openReplica(uid);
+            final fresh = await _store.openStaging(uid);
+            final r = recovery(closedOld, fresh);
+            await r.recoverReceipts();
+            await r.mergeRows();
+            await r.recoverOutbox();
+            await r.mergeConflicts();
+            await r.verify();
+            await _store.swapStaging(uid);
+          } catch (_) {
+            // Not swapped: put the account back on whatever replica is live, and
+            // fall back to the signed-out scope only if even that is impossible,
+            // so the root never stays on the loading state.
+            try {
+              await _scope.activate(uid);
+            } catch (_) {
+              await _scope.detach();
+            }
+            rethrow;
+          }
           phase = RebootstrapPhase.swapped;
           await _tick('swapped');
         default:

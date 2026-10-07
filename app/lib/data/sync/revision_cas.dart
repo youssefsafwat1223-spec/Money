@@ -132,13 +132,24 @@ class SupabaseCasRemote implements CasRemote {
     required String serverId,
     required int expectedRevision,
   }) async =>
-      CasResult.fromJson(await _client.rpc('sync_cas_tombstone', params: {
-        'p_table': table,
-        'p_expected_epoch': epoch,
-        'p_op_id': opId,
-        'p_id': serverId,
-        'p_expected_revision': expectedRevision,
-      }));
+      // D1: a category delete must re-parent its dependants, so it has its own
+      // RPC (0116); every other family uses the generic one (0107).
+      table == 'user_categories'
+          ? CasResult.fromJson(
+              await _client.rpc('sync_cas_tombstone_category', params: {
+              'p_expected_epoch': epoch,
+              'p_op_id': opId,
+              'p_id': serverId,
+              'p_expected_revision': expectedRevision,
+            }))
+          : CasResult.fromJson(
+              await _client.rpc('sync_cas_tombstone', params: {
+              'p_table': table,
+              'p_expected_epoch': epoch,
+              'p_op_id': opId,
+              'p_id': serverId,
+              'p_expected_revision': expectedRevision,
+            }));
 
   @override
   Future<Map<String, dynamic>?> fetchRow(String table, String serverId) async {
@@ -189,13 +200,23 @@ class RevisionCasGate {
     if (cap == ServerCapabilityState.unknown) {
       return const CasPlan(CasMode.stopped);
     }
+    final epoch = await epochOrNull(userId);
+    return epoch == null
+        ? const CasPlan(CasMode.stopped)
+        : CasPlan(CasMode.cas, epoch);
+  }
+
+  /// The replica's epoch: the recorded one, else the server's current one; null
+  /// when neither can be read. Also used by the one legacy-path call that has
+  /// no other way to learn it (goal-contribution delete, D1).
+  Future<String?> epochOrNull(String userId) async {
     final recorded = await readRecordedSyncEpoch(_db, userId);
-    if (recorded != null) return CasPlan(CasMode.cas, recorded.epoch);
+    if (recorded != null) return recorded.epoch;
     try {
-      final head = await _remote.fetchHead(userId);
-      if (head != null) return CasPlan(CasMode.cas, head.epoch);
-    } catch (_) {}
-    return const CasPlan(CasMode.stopped);
+      return (await _remote.fetchHead(userId))?.epoch;
+    } catch (_) {
+      return null;
+    }
   }
 }
 

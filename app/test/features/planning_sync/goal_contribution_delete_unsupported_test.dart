@@ -8,10 +8,11 @@ import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 
-/// A-4 (G12): the server has NO goal-contribution delete/reversal endpoint
-/// (only add_goal_contribution), and no local code path enqueues one. If a
-/// delete row ever exists it must dead-letter immediately as an observable
-/// permanent failure — not be retried 12 times as a transient error.
+/// A-4 (G12), narrowed by D1: when the delete endpoint (0116) cannot be used -
+/// here no epoch source is wired, so the push cannot prove the replica's epoch -
+/// a contribution delete must still dead-letter immediately as an observable
+/// permanent failure, not be retried 12 times as a transient error. The endpoint
+/// path itself is covered in goal_contribution_delete_test.dart.
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
   Future<String> readOrCreateKey() async => 'test-key';
@@ -37,6 +38,18 @@ void main() {
       isSyncEnabled: (_) => true,
       getAuthUserId: () async => 'user-1',
     );
+    await db.customStatement('''
+      INSERT INTO goals(id,name,target_amount,saved_amount,vault_skin,status,
+        created_at,server_id,sync_status)
+      VALUES ('goal-1','g',100,25,'classic','active','2026-07-23T09:00:00.000Z',
+        'srv-goal-1','synced');
+    ''');
+    await db.customStatement('''
+      INSERT INTO goal_contributions(id,goal_id,amount,created_at,server_id,
+        sync_status,deleted_at)
+      VALUES ('gc-1','goal-1',25,'2026-07-23T09:00:00.000Z','srv-gc-1','pending',
+        '2026-07-23T09:00:00.000Z');
+    ''');
     await queue.enqueueGoalContribution(
       PlanningSyncOperation.delete,
       GoalContributionEntity(

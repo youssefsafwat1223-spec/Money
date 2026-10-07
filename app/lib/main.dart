@@ -211,6 +211,7 @@ class _StartupAppState extends State<StartupApp> {
               _runner.lastStep == 'database_open'
           ? _DatabaseRecoveryView(onReset: _resetDatabaseAndRetry)
           : StartupLoadingScreen(
+              updatingData: host?.swapInProgress ?? false,
               error: _error,
               lastStep: _runner.lastStep,
               onRetry: _attempt,

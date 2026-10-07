@@ -42,6 +42,9 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 
 class _Registration implements CaptureDeviceRegistrationService {
   @override
+  Future<bool> isLinkedForCloud() async => true;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 

@@ -159,6 +159,8 @@ class CaptureBackendClient {
     required bool allowAi,
     String? sender,
     String? locale,
+    // v2 contract (§4.1): the stamped owner; with it the body is schema 2.
+    String? ownerUid,
   }) async {
     final response = await _http
         .post(
@@ -175,6 +177,10 @@ class CaptureBackendClient {
             'locale': locale,
             'tzOffsetMinutes': DateTime.now().timeZoneOffset.inMinutes,
             'allowAi': allowAi,
+            if (ownerUid != null) ...{
+              'schema_version': 2,
+              'owner_uid': ownerUid,
+            },
           }),
         )
         // Unlike the App Intent's strict 8-second budget, this replay runs

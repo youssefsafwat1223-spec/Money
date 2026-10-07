@@ -131,18 +131,25 @@ void main() {
     expect(service.retryCalls, 1);
   });
 
-  testWidgets('Smart Analysis with cloud OFF explains the dependency and '
-      'enables both together', (tester) async {
+  testWidgets('Smart Analysis with cloud OFF only explains the dependency: '
+      'no grant is offered, so cloud and AI are never granted together',
+      (tester) async {
     await pumpSetup(tester);
     await tester.tap(find.text('Not now'));
     await advance(tester);
 
-    expect(find.textContaining('requires Cloud Sync'), findsOneWidget);
+    expect(find.text('Turn on Cloud Sync first to use Smart Analysis.'),
+        findsOneWidget);
     expect(find.text('Enable Smart Analysis'), findsNothing);
-    await tester.tap(find.text('Enable Cloud Sync and Smart Analysis'));
+    expect(find.text('Enable Cloud Sync and Smart Analysis'), findsNothing);
+    expect(find.text('Enable Cloud Sync'), findsNothing);
+    // The skip control still lets the user move on, writing nothing.
+    await tester.tap(find.text('Not now'));
     await advance(tester);
-    expect(repo.settings.cloudConsentState, ConsentState.accepted);
-    expect(repo.settings.aiConsentState, ConsentState.accepted);
+    expect(find.text('Step 4 of 7'), findsOneWidget);
+    expect(repo.saveCalls, 0);
+    expect(repo.settings.cloudConsentState, ConsentState.unset);
+    expect(repo.settings.aiConsentState, ConsentState.unset);
   });
 
   testWidgets('readiness shows live status and a failure never blocks',

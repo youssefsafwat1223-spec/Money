@@ -68,6 +68,7 @@ final syncDiagnosticsProvider =
     },
     captureOwner: queue.getOwner,
     peekQueue: queue.peek,
+    queueStats: NativeCaptureBridge.captureQueueStats,
     unboundHinted: (uid) async => (await queue.unboundSummary(uid)).count,
     removalBarrier: NativeCaptureBridge.getCaptureRemovalBarrier,
     consentAck: registration.consentAckSnapshot,

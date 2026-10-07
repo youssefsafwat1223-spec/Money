@@ -412,12 +412,61 @@ enum ApnsEnvironment {
       // ── CAP-6 owner record / unbound claim / Remove-data barrier ──────────
       // Every call runs under the queue flock inside SharedCaptureStore.
       case "publishCaptureOwner":
-        guard let uid = (call.arguments as? [String: Any])?["uid"] as? String,
-              !uid.isEmpty else {
-          result(FlutterError(code: "bad_args", message: "Expected uid.", details: nil))
+        // A-12-min R4: mirror + owner in one flock, compare-and-swap on the epoch.
+        guard let args = call.arguments as? [String: Any],
+              let uid = args["uid"] as? String, !uid.isEmpty,
+              let cloud = args["cloud"] as? Bool,
+              let ai = args["ai"] as? Bool,
+              let version = args["version"] as? Int,
+              let expectedEpoch = args["expectedEpoch"] as? Int else {
+          result(FlutterError(code: "bad_args", message: "Expected uid, mirror and epoch.", details: nil))
           return
         }
-        queueResult(result) { ownerMap(try SharedCaptureStore.publishActiveOwner(uid: uid)) }
+        queueResult(result) {
+          ownerMap(try SharedCaptureStore.publishActiveOwner(
+            uid: uid,
+            mirror: SharedCaptureStore.ConsentMirrorValue(cloud: cloud, ai: ai, version: version),
+            expectedEpoch: expectedEpoch))
+        }
+      case "captureOwnerEpoch":
+        queueResult(result) { try SharedCaptureStore.ownerEpoch() }
+      case "authorizeCaptureUpload":
+        // A-12-min R2: the one upload gate for the app's pendingSend replay.
+        // Read-only, under the flock; carries no content.
+        guard let payloadId = (call.arguments as? [String: Any])?["payloadId"] as? String else {
+          result(FlutterError(code: "bad_args", message: "Expected payloadId.", details: nil))
+          return
+        }
+        queueResult(result) {
+          let contractV2 = SharedCaptureStore.backendConfig().captureContractV2
+          switch SharedCaptureStore.authorizeUpload(payloadID: payloadId) {
+          case let .allowed(uid, allowAi):
+            return ["decision": "allowed", "ownerUid": uid, "allowAi": allowAi, "contractV2": contractV2]
+          case .localOnly:
+            return ["decision": "localOnly"]
+          case .waiting:
+            return ["decision": "waiting"]
+          }
+        }
+      case "captureQueueStats":
+        // WP-8 diagnostics: counts, bytes and quota state only. Content-free;
+        // no per-capture list.
+        queueResult(result) {
+          let stats = try SharedCaptureStore.queueStats()
+          return [
+            "stamped": stats.stamped,
+            "localOnly": stats.localOnly,
+            "waiting": stats.waiting,
+            "unbound": stats.unbound,
+            "activeOwnerBytes": stats.activeOwnerBytes,
+            "unboundBytes": stats.unboundBytes,
+            "deviceBytes": stats.deviceBytes,
+            "ownerQuota": stats.ownerQuota.rawValue,
+            "unboundQuota": stats.unboundQuota.rawValue,
+            "deviceQuota": stats.deviceQuota.rawValue,
+            "migrationPending": stats.migrationPending,
+          ]
+        }
       case "clearCaptureOwner":
         let clearHint = (call.arguments as? [String: Any])?["clearHint"] as? Bool ?? false
         queueResult(result) {

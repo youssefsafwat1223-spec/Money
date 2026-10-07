@@ -28,10 +28,15 @@ void main() {
   late FakeRegistrationService service;
   bool? result;
 
-  Future<void> open(WidgetTester tester, {String locale = 'en'}) async {
+  Future<void> open(WidgetTester tester,
+      {String locale = 'en', bool cloudOn = false}) async {
     await tester.binding.setSurfaceSize(const Size(800, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     repo = FakeSettingsRepository();
+    if (cloudOn) {
+      repo.settings =
+          repo.settings.copyWith(cloudConsentState: ConsentState.accepted);
+    }
     service = FakeRegistrationService();
     result = null;
     await tester.pumpWidget(consentApp(
@@ -50,33 +55,56 @@ void main() {
     expect(service.retryCalls, 0);
   }
 
-  testWidgets('nothing is pre-selected and disclosure covers both (EN)',
+  testWidgets('two separate controls, nothing pre-selected (EN)',
       (tester) async {
     await open(tester);
     expectUntouched();
     expect(find.byType(Checkbox), findsNothing);
     expect(find.byType(Switch), findsNothing);
     expect(find.text('Smart Analysis & Cloud Sync'), findsOneWidget);
+    expect(find.text('Cloud Sync'), findsOneWidget);
+    expect(find.text('Smart Analysis'), findsOneWidget);
     expect(find.textContaining('analysed by an AI service'), findsOneWidget);
     expect(find.textContaining('synced and backed up'), findsOneWidget);
-    expect(find.text('Enable Smart Analysis & Cloud Sync'), findsOneWidget);
+    expect(find.text('Enable Cloud Sync'), findsOneWidget);
+    // AI needs cloud: no AI control until cloud is on, and no combined action.
+    expect(find.text('Enable Smart Analysis'), findsNothing);
+    expect(find.text('Enable Smart Analysis & Cloud Sync'), findsNothing);
+    expect(find.text('Turn on Cloud Sync first to use Smart Analysis.'),
+        findsOneWidget);
     expect(find.text('Not now'), findsOneWidget);
     expect(find.text('Privacy settings'), findsOneWidget);
   });
 
-  testWidgets('disclosure covers both (AR)', (tester) async {
+  testWidgets('two separate controls (AR)', (tester) async {
     await open(tester, locale: 'ar');
     expect(find.text('التحليل الذكي والمزامنة السحابية'), findsOneWidget);
-    expect(find.textContaining('وقد يحلّلها مزوّد ذكاء اصطناعي'), findsOneWidget);
-    expect(find.textContaining('مزامنة معاملاتك'), findsOneWidget);
-    expect(find.text('تفعيل التحليل الذكي والمزامنة السحابية'), findsOneWidget);
+    expect(find.text('تفعيل المزامنة السحابية'), findsOneWidget);
+    expect(find.text('تفعيل التحليل الذكي'), findsNothing);
+    expect(find.text('فعّل المزامنة السحابية أولاً لاستخدام التحليل الذكي.'),
+        findsOneWidget);
     expect(find.text('ليس الآن'), findsOneWidget);
   });
 
-  testWidgets('primary grants both states, syncs, shows status, returns true',
+  testWidgets('Enable Cloud Sync grants ONLY cloud; AI stays unset and its '
+      'control appears afterwards', (tester) async {
+    await open(tester);
+    await tester.tap(find.text('Enable Cloud Sync'));
+    await tester.pumpAndSettle();
+    expect(repo.settings.cloudConsentState, ConsentState.accepted);
+    expect(repo.settings.aiConsentState, ConsentState.unset);
+    expect(service.syncCalls, 1);
+    expect(service.retryCalls, 0, reason: 'no AI registration without AI consent');
+    expect(find.text('Enable Smart Analysis'), findsOneWidget);
+    expect(result, isNull);
+  });
+
+  testWidgets('Smart Analysis is its own action, after cloud, and returns true',
       (tester) async {
     await open(tester);
-    await tester.tap(find.text('Enable Smart Analysis & Cloud Sync'));
+    await tester.tap(find.text('Enable Cloud Sync'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enable Smart Analysis'));
     await tester.pumpAndSettle();
     expect(repo.settings.cloudConsentState, ConsentState.accepted);
     expect(repo.settings.aiConsentState, ConsentState.accepted);
@@ -88,12 +116,24 @@ void main() {
     expect(result, isTrue);
   });
 
+  testWidgets('with cloud already on, only the AI control is offered',
+      (tester) async {
+    await open(tester, cloudOn: true);
+    expect(find.text('Enable Cloud Sync'), findsNothing);
+    await tester.tap(find.text('Enable Smart Analysis'));
+    await tester.pumpAndSettle();
+    expect(repo.settings.aiConsentState, ConsentState.accepted);
+    expect(service.retryCalls, 1);
+  });
+
   testWidgets('failed status shows message and Retry re-runs sync',
       (tester) async {
     await open(tester);
     service.outcome = const CaptureRegistrationStatus(
         CaptureRegistrationPhase.failed, 'register_failed');
-    await tester.tap(find.text('Enable Smart Analysis & Cloud Sync'));
+    await tester.tap(find.text('Enable Cloud Sync'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Enable Smart Analysis'));
     await tester.pumpAndSettle();
     expect(find.textContaining("isn't connected"), findsOneWidget);
     await tester.tap(find.text('Retry'));
@@ -105,14 +145,14 @@ void main() {
       (tester) async {
     await open(tester);
     repo.failSave = true;
-    await tester.tap(find.text('Enable Smart Analysis & Cloud Sync'));
+    await tester.tap(find.text('Enable Cloud Sync'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.textContaining('could not be saved'), findsOneWidget);
     expect(repo.settings.cloudConsentState, ConsentState.unset);
     expect(repo.settings.aiConsentState, ConsentState.unset);
     expect(service.retryCalls, 0);
-    expect(find.text('Enable Smart Analysis & Cloud Sync'), findsOneWidget);
+    expect(find.text('Enable Cloud Sync'), findsOneWidget);
     await tester.pumpAndSettle(const Duration(seconds: 6));
   });
 

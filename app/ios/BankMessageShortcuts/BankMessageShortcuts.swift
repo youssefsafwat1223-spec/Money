@@ -103,9 +103,10 @@ struct PostBankStatusIntent: AppIntent {
       // CAP-6 (§4.2): re-read the owner under the queue flock. Only a capture
       // still stamped to the ACTIVE owner may leave the device; an unbound
       // capture (no admitted user), a locally-bound one, or an owner whose cloud
-      // consent mirror is off stays on the device with zero egress and zero AI.
+      // consent mirror is missing or off stays on the device with zero egress and
+      // zero AI (A-12-min R2/R3; a missing mirror is stamped local-only at capture).
       let ownerUid: String
-      let mirrorAllowsAi: Bool?
+      let mirrorAllowsAi: Bool
       switch SharedCaptureStore.authorizeUpload(payloadID: payloadID) {
       case let .allowed(uid, allowAi):
         ownerUid = uid
@@ -210,7 +211,7 @@ struct PostBankStatusIntent: AppIntent {
     payloadID: String,
     config: SharedCaptureStore.BackendConfig,
     ownerUid: String,
-    allowAi: Bool?
+    allowAi: Bool
   ) async -> (response: BackendCaptureResponse?, failureReason: String?) {
     let client = BackendCaptureClient(config: config)
     do {
@@ -616,7 +617,7 @@ struct BackendCaptureClient {
     _ request: BankSMSCaptureRequest,
     payloadID: String,
     ownerUid: String? = nil,
-    allowAi: Bool? = nil
+    allowAi: Bool
   ) async throws -> BackendCaptureResponse {
     guard config.canUseBackend,
           let backendURL = config.backendURL,
@@ -649,10 +650,9 @@ struct BackendCaptureClient {
       "tzOffsetMinutes": TimeZone.current.secondsFromGMT() / 60,
       "locale": request.localeIdentifier ?? Locale.autoupdatingCurrent.identifier,
       "source": "ios_shortcut",
-      // The owner's consent mirror wins; without one the install-level flag
-      // applies exactly as before CAP-6.
-      "allowAi": allowAi ?? UserDefaults(suiteName: SharedCaptureStore.appGroupIdentifier)?
-        .bool(forKey: "ai_consent_granted") ?? false
+      // The owner's consent mirror is the only source (A-12-min R2): there is no
+      // install-level fallback, so an upload never carries a wider AI grant.
+      "allowAi": allowAi
     ]
     // §4.1 v2 contract: every upload carries the stamped owner_uid. Only when the
     // server capability is mirrored on; otherwise the legacy body is unchanged.

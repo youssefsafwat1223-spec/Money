@@ -173,6 +173,45 @@ void main() {
       session.configureCaptureOwnerClear(null);
     }
   });
+
+  test('D2: a completed removal sets the one-shot notice and forgets the '
+      'consent-asked marker; an incomplete one does not set it', () async {
+    final session = AppSession.instance;
+    session.configureAccountScope(_Recording(host, order));
+    session.configureCaptureOwnerClear(() async => true);
+    session.configureRemoveData(flow());
+    session.removalNoticePending.value = false;
+    try {
+      await session.setIdentity(method: 'google', userId: 'uid-b');
+      await session.markConsentPromptSeen();
+      expect(await session.consentPromptSeen(), isTrue);
+      expect(
+          await storage_(const FlutterSecureStorage(),
+              '${kConsentAskedKeyPrefix}uid-b'),
+          isNotNull);
+
+      barrier.failFinish = true;
+      await expectLater(session.removeDataFromDevice(),
+          throwsA(isA<RemoveDataIncompleteException>()));
+      expect(session.removalNoticePending.value, isFalse,
+          reason: 'never claim completion for an unfinished removal');
+
+      barrier.failFinish = false;
+      await session.setIdentity(method: 'google', userId: 'uid-b');
+      await session.removeDataFromDevice();
+      expect(session.removalNoticePending.value, isTrue);
+      expect(
+          await storage_(const FlutterSecureStorage(),
+              '${kConsentAskedKeyPrefix}uid-b'),
+          isNull,
+          reason: 'a fresh replica must re-ask');
+    } finally {
+      session.removalNoticePending.value = false;
+      session.configureRemoveData(null);
+      session.configureAccountScope(null);
+      session.configureCaptureOwnerClear(null);
+    }
+  });
 }
 
 Future<String?> storage_(FlutterSecureStorage s, String key) => s.read(key: key);
@@ -197,4 +236,7 @@ class _Recording implements AccountScopeControl {
     _log.add('lock');
     await _host.lock();
   }
+
+  @override
+  Future<void> suspendForSwap() => _host.suspendForSwap();
 }

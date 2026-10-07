@@ -19,7 +19,12 @@ class StartupLoadingScreen extends StatelessWidget {
     required this.onRetry,
     this.error,
     this.lastStep,
+    this.updatingData = false,
   });
+
+  /// WP-7: a rebootstrap swap is in flight (the account is being re-opened on its
+  /// fresh replica). Shows "Updating your data…" instead of the startup text.
+  final bool updatingData;
 
   /// Non-null once bootstrap has failed or timed out — switches the screen
   /// to the retry state.
@@ -43,7 +48,7 @@ class StartupLoadingScreen extends StatelessWidget {
             child: Padding(
               padding: const EdgeInsets.all(AppSpacing.gutter),
               child: error == null
-                  ? const _LoadingBody()
+                  ? _LoadingBody(updatingData: updatingData)
                   : _ErrorBody(
                       error: error!,
                       lastStep: lastStep,
@@ -58,7 +63,8 @@ class StartupLoadingScreen extends StatelessWidget {
 }
 
 class _LoadingBody extends StatelessWidget {
-  const _LoadingBody();
+  const _LoadingBody({this.updatingData = false});
+  final bool updatingData;
 
   @override
   Widget build(BuildContext context) {
@@ -82,7 +88,9 @@ class _LoadingBody extends StatelessWidget {
         ),
         const SizedBox(height: AppSpacing.s5),
         Text(
-          context.l10n.startPreparing,
+          updatingData
+              ? context.l10n.rebootUpdatingData
+              : context.l10n.startPreparing,
           style: AppTypography.callout(c.textLight),
         ),
       ],

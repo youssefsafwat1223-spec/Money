@@ -577,12 +577,33 @@ class AppSession extends ValueNotifier<SessionStatus> {
       await _storage.write(key: _kCurrentAccount, value: _currentAccountKey);
     }
     await _storage.write(key: _kDone, value: '1');
+    // The onboarding consent steps just asked on this device.
+    await markConsentPromptSeen();
     _onboardingDone = true;
     value = authMethod == null
         ? SessionStatus.needsOnboarding
         : SessionStatus.authenticated;
     await syncRemoteOnboardingCompletion();
     unawaited(UserActivityService.onSignIn());
+  }
+
+  /// Whether the consent question was already shown for the admitted uid on this
+  /// device. True when no uid is admitted (nothing to ask for; consent stays
+  /// unset = denied).
+  Future<bool> consentPromptSeen() async {
+    final uid = await _storage.read(key: _kLocalDataOwnerUid);
+    if (uid == null || uid.isEmpty || uid.startsWith(_kOwnerTransitionPrefix)) {
+      return true;
+    }
+    return await _storage.read(key: '$kConsentAskedKeyPrefix$uid') != null;
+  }
+
+  Future<void> markConsentPromptSeen() async {
+    final uid = await _storage.read(key: _kLocalDataOwnerUid);
+    if (uid == null || uid.isEmpty || uid.startsWith(_kOwnerTransitionPrefix)) {
+      return;
+    }
+    await _storage.write(key: '$kConsentAskedKeyPrefix$uid', value: '1');
   }
 
   /// Reconciles the account-scoped server marker after an interactive sign-in.
@@ -707,6 +728,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> removeDataFromDevice() async {
     final uid = await _storage.read(key: _kLocalDataOwnerUid);
     await _invalidateOwnerGeneration();
+    var removed = false;
     if (uid != null && uid.isNotEmpty && !uid.startsWith(_kOwnerTransitionPrefix)) {
       final flow = _removeData;
       try {
@@ -720,9 +742,18 @@ class AppSession extends ValueNotifier<SessionStatus> {
         await _finishSignedOut();
         rethrow;
       }
+      removed = true;
     }
     await _finishSignedOut();
+    // §4.4 step 6. Held here, not in a widget: the scope swap disposes the screen
+    // that asked, and the root shows it once on the screen that follows.
+    if (removed) removalNoticePending.value = true;
   }
+
+  /// One-shot "data removed" notice (set only by a COMPLETED removal; consumed by
+  /// the root widget). In memory on the singleton, so it survives the
+  /// ProviderScope rebuild the removal causes.
+  final ValueNotifier<bool> removalNoticePending = ValueNotifier<bool>(false);
 
   /// Step 1 of the removal: the owner record is cleared (the native owner record
   /// is cleared by the barrier's `begin`).

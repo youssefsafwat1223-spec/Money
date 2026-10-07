@@ -45,6 +45,9 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 
 class _Registration implements CaptureDeviceRegistrationService {
   @override
+  Future<bool> isLinkedForCloud() async => true;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 
@@ -637,6 +640,19 @@ void main() {
       expect(ingestCalls, 1, reason: 'local deterministic parser only');
       expect(await txIds(), [_id(1)]);
       expect(ai.calls, 0);
+    });
+
+    test('a localOnly item that is still .pending never uploads either',
+        () async {
+      queue.items.add(item(_id(1), status: 'pending', localOnly: true));
+      server.fetch = CaptureServerFetch(
+          CaptureFetchStatus.ok, {_id(1): _processed(_id(1), amount: '45.00')});
+
+      await buildService().run();
+
+      expect(server.uploads, 0);
+      expect(ai.calls, 0);
+      expect(await txIds(), [_id(1)]);
     });
 
     test('server results with no device copy are never imported', () async {

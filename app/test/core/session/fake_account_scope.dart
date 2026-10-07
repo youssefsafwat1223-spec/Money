@@ -21,4 +21,7 @@ class FakeAccountScope implements AccountScopeControl {
 
   @override
   Future<void> detach() async => calls.add('detach');
+
+  @override
+  Future<void> suspendForSwap() async => calls.add('suspendForSwap');
 }

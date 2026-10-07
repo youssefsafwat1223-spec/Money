@@ -6,9 +6,20 @@ import 'remove_data_flow.dart';
 /// match the `NativeCaptureBridge` statics of the same names; a fake stands in
 /// for tests. Never carries SMS content.
 abstract class CaptureQueueBridge {
-  /// Publish [uid] as the queue's active owner. Called after the replica is
-  /// admitted; WP-6 gates it further on `link_capture_device(consent)`.
-  Future<void> publishCaptureOwner(String uid);
+  /// Publish [uid] as the queue's active owner with its consent mirror in one
+  /// native flock, compare-and-swap on [expectedEpoch] (A-12-min R4). Called
+  /// after the replica is admitted; Cloud ON gates it further on
+  /// `link_capture_device(consent)`, Cloud OFF publishes locally.
+  Future<void> publishCaptureOwner({
+    required String uid,
+    required bool cloud,
+    required bool ai,
+    required int version,
+    required int expectedEpoch,
+  });
+
+  /// The owner epoch read before a publish (bumped by every owner clear).
+  Future<int> captureOwnerEpoch();
 
   /// Clear the owner record. [clearHint] true at the start of an account
   /// transition; false at a plain sign-out (the hint keeps the BL-2 prompt
@@ -40,9 +51,24 @@ class CaptureQueueRemoveBarrier implements RemoveDataBarrier {
 /// removal flow turns into [RemoveDataIncompleteException] (barrier kept).
 class NativeCaptureQueue implements CaptureQueueBridge {
   @override
-  Future<void> publishCaptureOwner(String uid) async {
-    await NativeCaptureBridge.publishCaptureOwner(uid);
+  Future<void> publishCaptureOwner({
+    required String uid,
+    required bool cloud,
+    required bool ai,
+    required int version,
+    required int expectedEpoch,
+  }) async {
+    await NativeCaptureBridge.publishCaptureOwner(
+      uid: uid,
+      cloud: cloud,
+      ai: ai,
+      version: version,
+      expectedEpoch: expectedEpoch,
+    );
   }
+
+  @override
+  Future<int> captureOwnerEpoch() => NativeCaptureBridge.captureOwnerEpoch();
 
   @override
   Future<bool> clearCaptureOwner({bool clearHint = false}) async {

@@ -37,6 +37,9 @@ class _Registration implements CaptureDeviceRegistrationService {
   Future<String?> readDeviceSecret() async => 'device-secret';
 
   @override
+  Future<bool> isLinkedForCloud() async => true;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 

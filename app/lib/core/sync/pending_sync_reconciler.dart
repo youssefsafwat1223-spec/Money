@@ -281,8 +281,6 @@ class PendingSyncReconciler {
     });
     each('goal_contributions', pe, 'entity_id',
         outboxEntityType: PlanningOutboxQueue.goalContributionsEntityType,
-        // No delete endpoint exists: a tombstoned contribution has no valid op.
-        extraWhere: 'AND deleted_at IS NULL',
         enqueue: (r) async {
       final row = await _db.customSelect(
         'SELECT c.*, g.currency AS goal_currency FROM goal_contributions c '
@@ -291,7 +289,10 @@ class PendingSyncReconciler {
       ).getSingleOrNull();
       return row != null &&
           await _planning.enqueueGoalContribution(
-            PlanningSyncOperation.create,
+            // D1: a tombstoned contribution is a delete (0116 endpoint).
+            r['deleted_at'] == null
+                ? PlanningSyncOperation.create
+                : PlanningSyncOperation.delete,
             goalContributionFromRow(row, row.read<String>('goal_currency')),
           );
     });

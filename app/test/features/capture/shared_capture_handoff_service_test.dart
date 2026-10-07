@@ -56,6 +56,9 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
   Future<void> syncBackendState() async {}
 
   @override
+  Future<bool> isLinkedForCloud() async => true;
+
+  @override
   Future<void> syncNativeState() async {}
 
   @override

@@ -78,6 +78,7 @@ class _RotatingCaptureClient implements CaptureBackendClient {
     required bool allowAi,
     String? sender,
     String? locale,
+    String? ownerUid,
   }) async {}
 
   @override
@@ -248,18 +249,49 @@ void main() {
     expect(await service.readDeviceSecret(), 'android-secret');
   });
 
-  test('Android revoke: pushes consent false without re-registering', () async {
+  // A-12-min R6 (updated truthfully): this test used to pin a consent push on
+  // every OFF sync of a relaunched app. Cloud OFF = ZERO EGRESS on Android too:
+  // an existing secret does not make an OFF sync talk to the server.
+  test('Android OFF (relaunched): zero egress even with an existing secret',
+      () async {
     FlutterSecureStorage.setMockInitialValues({
       'qirsh_capture_device_secret': 'existing-secret',
     });
     await setConsent(ai: false, cloud: false);
     final client = _ConsentRecordingClient();
     await androidService(client).syncBackendState();
-    expect(client.registeredPlatforms, isEmpty); // secret already present
-    expect(client.consentCalls.last, (ai: false, cloud: false));
+    expect(client.registeredPlatforms, isEmpty);
+    expect(client.consentCalls, isEmpty);
   });
 
-  test('iOS full revoke pushes both consent flags false to the server',
+  test('Android: the user\'s own ON->OFF toggle sends ONE revoke, never again',
+      () async {
+    FlutterSecureStorage.setMockInitialValues({});
+    await setConsent(ai: true, cloud: true);
+    final client = _ConsentRecordingClient();
+    final service = androidService(client);
+    await service.syncBackendState();
+    expect(client.consentCalls.last, (ai: true, cloud: true));
+    client.consentCalls.clear();
+
+    await setConsent(ai: false, cloud: false);
+    await service.syncBackendState();
+    expect(client.consentCalls, [(ai: false, cloud: false)]);
+    await service.syncBackendState();
+    await service.syncBackendState();
+    expect(client.consentCalls, hasLength(1), reason: 'never retried');
+
+    // A relaunch (new instance, no in-memory ON proof) sends nothing.
+    await androidService(client).syncBackendState();
+    expect(client.consentCalls, hasLength(1));
+    expect(client.registeredPlatforms, ['android'], reason: 'no re-register');
+  });
+
+  // A-12-min R6 (updated truthfully): this test used to pin a server revoke on a
+  // RELAUNCHED app. The revoke is the one-shot closing act of the user's own
+  // ON->OFF toggle in a running process (proven in cloud_off_zero_egress_test);
+  // a relaunch with OFF settings and an old Cloud-ON ack sends nothing.
+  test('iOS OFF after a relaunch: native config OFF, zero server calls',
       () async {
     FlutterSecureStorage.setMockInitialValues({
       'qirsh_capture_device_secret': 'existing-secret',
@@ -311,7 +343,8 @@ void main() {
     // WP-6: iOS no longer uses the build-50 device-secret consent call; the v2
     // (JWT, versioned) call carries the revocation, AI forced off by cloud.
     expect(client.consentCalls, isEmpty);
-    expect(consent.sets, [(cloud: false, ai: false, version: 2)]);
+    expect(consent.sets, isEmpty, reason: 'no revoke at startup/resume');
+    expect(consent.links, isEmpty);
   });
 
   test('Android offline registration fails closed without throwing', () async {
@@ -414,7 +447,14 @@ void main() {
         required ai,
         required version,
       }) async {},
-      publishOwner: (uid) async {},
+      readOwnerEpoch: () async => 0,
+      publishOwner: ({
+        required uid,
+        required cloud,
+        required ai,
+        required version,
+        required expectedEpoch,
+      }) async {},
       storage: const FlutterSecureStorage(),
       isIos: () => true,
       isAndroid: () => false,
@@ -539,6 +579,7 @@ class _V2ConsentServer extends CaptureConsentClient {
   _V2ConsentServer()
       : super(supabaseUrl: 'https://x.invalid', anonKey: 'anon');
   final sets = <({bool cloud, bool ai, int version})>[];
+  final links = <({bool cloud, bool ai, int version})>[];
   bool linkThrows = false;
 
   @override
@@ -550,6 +591,7 @@ class _V2ConsentServer extends CaptureConsentClient {
     required bool ai,
     required int version,
   }) async {
+    links.add((cloud: cloud, ai: ai, version: version));
     if (linkThrows) throw const CaptureBackendException('offline');
   }
 

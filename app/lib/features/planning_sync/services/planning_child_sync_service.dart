@@ -14,6 +14,7 @@ import '../../../data/db/planning_cutover.dart';
 import '../../../data/db/sql_value_codec.dart';
 import '../../../data/repositories/drift_repository_support.dart';
 import '../../../data/sync/exact_transport_capability.dart';
+import '../../../data/sync/revision_cas.dart';
 import '../../../data/sync/seq_pull.dart';
 import '../../../data/sync/sync_cursor.dart';
 import '../../../domain/finance/money_transport.dart';
@@ -179,8 +180,12 @@ class PlanningChildSyncService {
     SyncHealth? health,
     /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
     SeqPullGate? seqGate,
+    /// D1: supplies the replica epoch for the goal-contribution delete RPC.
+    /// Null (or no readable epoch) keeps the pre-0116 dead-letter.
+    RevisionCasGate? casGate,
   })  : assert(pageSize > 0),
         _seqGate = seqGate,
+        _casGate = casGate,
         _health = health,
         _db = db,
         _queue = queue,
@@ -203,6 +208,7 @@ class PlanningChildSyncService {
   final Future<String?> Function() _getAuthUserId;
   final PlanningChildRemote _remote;
   final SeqPullGate? _seqGate;
+  final RevisionCasGate? _casGate;
   final int _pageSize;
   final PlanningCutoverCoordinator _coordinator;
   final ExactTransportCapability Function() _pushCapability;
@@ -281,6 +287,10 @@ class PlanningChildSyncService {
           // guarded) together with the entity's synced mark — never a separate
           // markSuccess after the push.
           await _pushItem(userId, item);
+        } on CasEpochMismatch {
+          // Stale epoch: nothing was written; stop the cycle (WP-7 rebootstraps).
+          await _queue.releaseInFlight(item.id);
+          return;
         } catch (error) {
           _health?.noteFailure(SyncDomain.children, error);
           // G12: an operation the server has no endpoint for is PERMANENT — it
@@ -305,7 +315,7 @@ class PlanningChildSyncService {
   Future<void> _pushItem(String userId, PlanningOutboxItem item) async {
     switch (item.entityType) {
       case PlanningOutboxQueue.goalContributionsEntityType:
-        await _pushGoalContribution(item);
+        await _pushGoalContribution(userId, item);
       case PlanningOutboxQueue.billPaymentsEntityType:
         await _pushBillPayment(item);
       case PlanningOutboxQueue.planLinksEntityType:
@@ -315,9 +325,9 @@ class PlanningChildSyncService {
     }
   }
 
-  Future<void> _pushGoalContribution(PlanningOutboxItem item) async {
+  Future<void> _pushGoalContribution(String userId, PlanningOutboxItem item) async {
     if (item.operation == PlanningSyncOperation.delete) {
-      throw UnsupportedError('Goal contribution deletion is not supported');
+      return _deleteGoalContribution(userId, item);
     }
     // WP-5: contributions are IMMUTABLE. An `update` can only be a replay of
     // the same create (the RPC is idempotent on client_request_id); it never
@@ -342,6 +352,83 @@ class PlanningChildSyncService {
           consumed: consumed);
       await _applyContributionGoal(goalId, goal);
     });
+  }
+
+  /// D1: tombstone through `sync_tombstone_goal_contribution` (0116). The
+  /// server reduces the goal's saved_amount exactly once (a replay is an ack) and
+  /// returns the goal, which is applied like an add. The same call serves the CAS
+  /// and the legacy plan: it is additive and tombstone-only. Without a readable
+  /// epoch, or on a server that does not have the function yet, the operation
+  /// dead-letters at once exactly as before (unsupported_operation).
+  Future<void> _deleteGoalContribution(
+      String userId, PlanningOutboxItem item) async {
+    final serverId = await _serverId('goal_contributions', item.entityId);
+    if (serverId == null) {
+      // Never reached the server: nothing to tombstone, the delete converged.
+      await _db.transaction(() async {
+        final consumed = await _queue.acknowledge(item);
+        if (consumed) {
+          await _db.customStatement(
+              "UPDATE goal_contributions SET sync_status = 'synced' "
+              'WHERE id = ${sqlString(item.entityId)};');
+        }
+      });
+      return;
+    }
+    final epoch = await _deleteEpoch(userId);
+    if (epoch == null) {
+      throw UnsupportedError('goal contribution delete: no readable epoch');
+    }
+    final Map<String, dynamic> raw;
+    try {
+      raw = await _remote.callRpc('sync_tombstone_goal_contribution',
+          {'p_expected_epoch': epoch, 'p_id': serverId});
+    } on PostgrestException catch (e) {
+      // PGRST202 / 42883: the function is not deployed on this server.
+      if (e.code == 'PGRST202' || e.code == '42883') {
+        throw UnsupportedError('goal contribution delete: endpoint not deployed');
+      }
+      rethrow;
+    }
+    final result = CasResult.fromJson(raw);
+    switch (result.outcome) {
+      case CasOutcome.epochMismatch:
+        throw const CasEpochMismatch();
+      case CasOutcome.applied || CasOutcome.ack || CasOutcome.notFound:
+        break;
+      default:
+        throw StateError('unexpected contribution delete outcome');
+    }
+    final row = result.row;
+    final goal = raw['goal'];
+    await _db.transaction(() async {
+      final consumed = await _queue.acknowledge(item);
+      if (row != null) {
+        await _markChildSynced('goal_contributions', item.entityId, row,
+            consumed: consumed);
+        if (goal is Map) {
+          await _applyContributionGoal(
+              row['goal_id'] as String, Map<String, dynamic>.from(goal));
+        }
+      } else if (consumed) {
+        // not_found: absent on the server, so the delete is already converged.
+        await _db.customStatement(
+            "UPDATE goal_contributions SET sync_status = 'synced' "
+            'WHERE id = ${sqlString(item.entityId)};');
+      }
+    });
+  }
+
+  /// CAS plan epoch when `revision_cas` is verified; otherwise the recorded /
+  /// server epoch (legacy plan). A plan that cannot be proven right now sends
+  /// nothing, which the cycle reports as a stale epoch (row left pending).
+  Future<String?> _deleteEpoch(String userId) async {
+    final gate = _casGate;
+    if (gate == null) return null;
+    final plan = await gate.plan(userId);
+    if (plan.mode == CasMode.cas) return plan.epoch;
+    if (plan.mode == CasMode.stopped) throw const CasEpochMismatch();
+    return gate.epochOrNull(userId);
   }
 
   Future<void> _applyContributionGoal(

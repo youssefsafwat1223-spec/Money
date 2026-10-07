@@ -505,16 +505,16 @@ void main() {
     test('pending server-backed children without an outbox row are re-enqueued with the right op',
         () async {
       await seedChildren();
-      // goal_contributions(deleted) has no valid op -> 4 recorded, not 5.
-      expect(await reconciler().run(), 4);
+      // D1: a tombstoned contribution is a delete now (0116 endpoint) -> all 5.
+      expect(await reconciler().run(), 5);
 
       final bp = await planningRows('bill_payment');
       expect({for (final r in bp) r['entity_id']: r['operation']},
           {'bp-live': 'create', 'bp-dead': 'delete'});
       final gc = await planningRows('goal_contribution');
       expect({for (final r in gc) r['entity_id']: r['operation']},
-          {'gc-live': 'create'},
-          reason: 'tombstoned contribution: no delete endpoint, no invented op');
+          {'gc-live': 'create', 'gc-dead': 'delete'},
+          reason: 'D1: a tombstoned contribution has a delete endpoint (0116)');
       final links = await planningRows('plan_transaction_link');
       expect({for (final r in links) r['entity_id']: r['operation']},
           {'plan-1:tx-1': 'create'});

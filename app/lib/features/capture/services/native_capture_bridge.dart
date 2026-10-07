@@ -72,6 +72,106 @@ class CaptureOwnerRecord {
   }
 }
 
+/// A-12-min R2: the native verdict on whether a persisted capture may leave the
+/// device. Fail-closed: anything but [allowed] means zero egress.
+enum CaptureUploadDecision { allowed, localOnly, waiting }
+
+class CaptureUploadAuthorization {
+  const CaptureUploadAuthorization(
+    this.decision, {
+    this.ownerUid,
+    this.allowAi = false,
+    this.contractV2 = false,
+  });
+
+  /// Zero egress. Used off iOS and whenever the native call fails.
+  static const CaptureUploadAuthorization denied =
+      CaptureUploadAuthorization(CaptureUploadDecision.localOnly);
+
+  final CaptureUploadDecision decision;
+
+  /// The stamped owner; set only when [decision] is allowed.
+  final String? ownerUid;
+
+  /// The owner's consent mirror (never the install-level flag).
+  final bool allowAi;
+
+  /// The mirrored `capture_contract_v2` capability: the upload then carries
+  /// `owner_uid` and `schema_version` 2.
+  final bool contractV2;
+
+  bool get allowed => decision == CaptureUploadDecision.allowed;
+}
+
+/// WP-8 quota state of one queue scope against the manifest §4.5 limits.
+enum CaptureQuotaState {
+  ok,
+  near,
+  full;
+
+  static CaptureQuotaState parse(Object? raw) => CaptureQuotaState.values
+      .firstWhere((s) => s.name == raw, orElse: () => CaptureQuotaState.ok);
+}
+
+/// Native queue statistics for diagnostics. Counts, bytes and quota state ONLY:
+/// no text, sender, amount, merchant, account, id or uid, and no per-capture
+/// list. Each queued item is in exactly one of [stamped], [localOnly],
+/// [waiting] and [unbound].
+class CaptureQueueStats {
+  const CaptureQueueStats({
+    required this.stamped,
+    required this.localOnly,
+    required this.waiting,
+    required this.unbound,
+    required this.activeOwnerBytes,
+    required this.unboundBytes,
+    required this.deviceBytes,
+    required this.ownerQuota,
+    required this.unboundQuota,
+    required this.deviceQuota,
+    this.migrationPending = false,
+  });
+
+  /// Stamped to the active owner and eligible to upload.
+  final int stamped;
+
+  /// Stamped to the active owner, never uploaded (captured with Cloud OFF).
+  final int localOnly;
+
+  /// Another owner's, or no owner is active: invisible until that owner returns.
+  final int waiting;
+  final int unbound;
+  final int activeOwnerBytes;
+  final int unboundBytes;
+  final int deviceBytes;
+  final CaptureQuotaState ownerQuota;
+  final CaptureQuotaState unboundQuota;
+  final CaptureQuotaState deviceQuota;
+
+  /// The v2 queue is not migrated yet; its items are counted as unbound.
+  final bool migrationPending;
+
+  int get total => stamped + localOnly + waiting + unbound;
+
+  static CaptureQueueStats? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    int n(String k) => raw[k] is int ? raw[k] as int : 0;
+    return CaptureQueueStats(
+      stamped: n('stamped'),
+      localOnly: n('localOnly'),
+      waiting: n('waiting'),
+      unbound: n('unbound'),
+      activeOwnerBytes: n('activeOwnerBytes'),
+      unboundBytes: n('unboundBytes'),
+      deviceBytes: n('deviceBytes'),
+      ownerQuota: CaptureQuotaState.parse(raw['ownerQuota']),
+      unboundQuota: CaptureQuotaState.parse(raw['unboundQuota']),
+      deviceQuota: CaptureQuotaState.parse(raw['deviceQuota']),
+      migrationPending: raw['migrationPending'] == true,
+    );
+  }
+}
+
 /// An unbound `legacy_v2` queue item as the native layer lists it (A6). The
 /// text is the raw SMS: never log it.
 class LegacyQueueItem {
@@ -563,6 +663,10 @@ class NativeCaptureBridge {
 
   static bool get _hasNativeQueue => debugTreatHostAsNative || Platform.isIOS;
 
+  /// Whether this platform has the native v3 queue (iOS). Platforms without it
+  /// (Android, manual paste) have no native upload gate to consult.
+  static bool get hasNativeQueue => _hasNativeQueue;
+
   static Future<T?> _queueCall<T>(
     String method, [
     Map<String, Object?>? arguments,
@@ -576,14 +680,81 @@ class NativeCaptureBridge {
     }
   }
 
-  /// Publishes [uid] as the active capture owner. Call ONLY after the replica is
-  /// admitted AND `link_capture_device(consent)` succeeded (§4.2). Idempotent for
-  /// the current owner; refused (`removal_in_progress`) during a barrier.
-  static Future<CaptureOwnerRecord?> publishCaptureOwner(String uid) async {
+  /// Publishes [uid] as the active capture owner together with its consent
+  /// mirror, in ONE native flock (A-12-min R4): the mirror is written first, the
+  /// owner second. Cloud OFF publishes locally; Cloud ON only after
+  /// `link_capture_device(consent)` succeeded (§4.2). [expectedEpoch] (from
+  /// [captureOwnerEpoch], read BEFORE any network step) is a compare-and-swap: a
+  /// sign-out / transition / removal clear in between makes the native call fail
+  /// (`owner_changed`) instead of publishing a stale owner. Refused
+  /// (`removal_in_progress`) during a barrier.
+  static Future<CaptureOwnerRecord?> publishCaptureOwner({
+    required String uid,
+    required bool cloud,
+    required bool ai,
+    required int version,
+    required int expectedEpoch,
+  }) async {
     if (!_hasNativeQueue) return null;
     return CaptureOwnerRecord.tryParse(
-      await _queueCall<Object?>('publishCaptureOwner', {'uid': uid}),
+      await _queueCall<Object?>('publishCaptureOwner', {
+        'uid': uid,
+        'cloud': cloud,
+        'ai': ai,
+        'version': version,
+        'expectedEpoch': expectedEpoch,
+      }),
     );
+  }
+
+  /// The owner epoch, bumped natively by every owner clear. 0 off iOS.
+  static Future<int> captureOwnerEpoch() async {
+    if (!_hasNativeQueue) return 0;
+    return await _queueCall<int>('captureOwnerEpoch') ?? 0;
+  }
+
+  /// A-12-min R2: the single upload gate. Every egress of a persisted capture,
+  /// including the app's `pendingSend` replay, needs [CaptureUploadAuthorization.allowed].
+  /// Off iOS, and on any native failure, the answer is [CaptureUploadAuthorization.denied].
+  static Future<CaptureUploadAuthorization> authorizeCaptureUpload(
+      String payloadId) async {
+    if (!_hasNativeQueue) return CaptureUploadAuthorization.denied;
+    try {
+      final raw = await _queueCall<Object?>(
+          'authorizeCaptureUpload', {'payloadId': payloadId});
+      if (raw is! Map) return CaptureUploadAuthorization.denied;
+      switch (raw['decision']) {
+        case 'allowed':
+          final uid = raw['ownerUid'];
+          if (uid is! String || uid.isEmpty) {
+            return CaptureUploadAuthorization.denied;
+          }
+          return CaptureUploadAuthorization(
+            CaptureUploadDecision.allowed,
+            ownerUid: uid,
+            allowAi: raw['allowAi'] == true,
+            contractV2: raw['contractV2'] == true,
+          );
+        case 'waiting':
+          return const CaptureUploadAuthorization(CaptureUploadDecision.waiting);
+        default:
+          return CaptureUploadAuthorization.denied;
+      }
+    } on CaptureQueueException {
+      return CaptureUploadAuthorization.denied;
+    }
+  }
+
+  /// WP-8 diagnostics: queue counts, bytes and quota state (content-free, read
+  /// only, no per-capture list). Null off iOS or when the native call fails.
+  static Future<CaptureQueueStats?> captureQueueStats() async {
+    if (!_hasNativeQueue) return null;
+    try {
+      return CaptureQueueStats.tryParse(
+          await _queueCall<Object?>('captureQueueStats'));
+    } on CaptureQueueException {
+      return null;
+    }
   }
 
   /// Clears the active owner (sign-out, or the start of an account transition).

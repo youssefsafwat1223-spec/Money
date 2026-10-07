@@ -72,8 +72,8 @@ class _OnboardingConsentStepState extends ConsumerState<OnboardingConsentStep> {
     final String title;
     final String? lead;
     final List<String> bullets;
-    final String enableLabel;
-    final VoidCallback onEnable;
+    final String? enableLabel;
+    final VoidCallback? onEnable;
     if (isCloud) {
       title = l10n.onbCloudTitle;
       lead = null;
@@ -91,11 +91,13 @@ class _OnboardingConsentStepState extends ConsumerState<OnboardingConsentStep> {
       enableLabel = l10n.onbAiEnable;
       onEnable = () => _grant(cloud: false, ai: true);
     } else {
+      // Cloud and AI are separate consents and one action never grants both:
+      // with Cloud off there is nothing to enable here, only the explanation.
       title = l10n.onbAiTitle;
-      lead = l10n.onbAiNeedsCloud;
-      bullets = [l10n.onbCloudBullet1, l10n.onbAiBullet1, l10n.onbAiBullet2];
-      enableLabel = l10n.onbAiEnableBoth;
-      onEnable = () => _grant(cloud: true, ai: true);
+      lead = l10n.smartConsentAiNeedsCloud;
+      bullets = [l10n.onbAiBullet1, l10n.onbAiBullet2];
+      enableLabel = null;
+      onEnable = null;
     }
 
     final muted = Colors.white.withValues(alpha: 0.72);
@@ -124,17 +126,18 @@ class _OnboardingConsentStepState extends ConsumerState<OnboardingConsentStep> {
               ),
             ),
           const SizedBox(height: AppSpacing.s3),
-          SizedBox(
-            height: AppSpacing.buttonHeight,
-            child: FilledButton(
-              onPressed: _saving ? null : onEnable,
-              style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: AppBrandBlue.brand,
+          if (enableLabel != null && onEnable != null)
+            SizedBox(
+              height: AppSpacing.buttonHeight,
+              child: FilledButton(
+                onPressed: _saving ? null : onEnable,
+                style: FilledButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: AppBrandBlue.brand,
+                ),
+                child: Text(enableLabel),
               ),
-              child: Text(enableLabel),
             ),
-          ),
           const SizedBox(height: AppSpacing.s2),
           TextButton(
             onPressed: _saving ? null : () => widget.onDone(false),

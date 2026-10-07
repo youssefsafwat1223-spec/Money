@@ -31,7 +31,8 @@ class SyncConflict {
   final List<ConflictFieldDiff> fields;
 
   /// False where "keep mine" has no safe server operation (a cloud tombstone is
-  /// never un-deleted, so only a transaction can be kept, as a new record).
+  /// never un-deleted, so only a transaction, goal or plan can be kept, as a new
+  /// record).
   final bool canKeepMine;
 }
 
@@ -42,7 +43,7 @@ typedef ConflictReEnqueue = Future<void> Function(String localId);
 
 /// Keep-mine against a cloud TOMBSTONE: the deleted cloud row is never
 /// un-deleted, so the local record is re-created as a NEW record (new identity,
-/// queued as a create). Injected per entity (transactions only).
+/// queued as a create). Injected per entity (transactions, goals, plans).
 typedef ConflictRestoreAsNew = Future<void> Function(String localId);
 
 /// The current server base for a row: the `updated_at` token and, when the CAS
@@ -92,7 +93,9 @@ class UniversalConflictResolver {
     ConflictBaseFetcher? baseFetcher,
     Map<String, ConflictRemoteSync> remoteSync = const {},
     Map<String, ConflictRestoreAsNew> restoreAsNew = const {},
+    Map<String, ConflictRestoreAsNew> retireChildren = const {},
   })  : _db = db,
+        _retireChildren = retireChildren,
         _store = SyncConflictStore(db),
         _restoreAsNew = restoreAsNew,
         _reEnqueue = reEnqueue,
@@ -101,6 +104,10 @@ class UniversalConflictResolver {
 
   final Map<String, ConflictRemoteSync> _remoteSync;
   final Map<String, ConflictRestoreAsNew> _restoreAsNew;
+
+  /// Keep Cloud on a tombstone: drops the record's own unsynced children (their
+  /// parent is deleted, so they could only dead-letter). Per entity (goal, plan).
+  final Map<String, ConflictRestoreAsNew> _retireChildren;
   final SyncConflictStore _store;
 
   final AppDatabase _db;
@@ -159,9 +166,16 @@ class UniversalConflictResolver {
       await _db.transaction(() async {
         await restore(localId);
         await _removeOutbox(policy, localId);
+        // The old row is retired locally: a transaction by its ignored status,
+        // soft-delete tables (goals, plans) by deleted_at.
         await _db.customStatement(
-          "UPDATE ${policy.localTable} SET sync_status = 'synced', "
-          "status = 'ignored' WHERE id = ${sqlString(localId)};",
+          policy.softDelete
+              ? "UPDATE ${policy.localTable} SET sync_status = 'synced', "
+                  'deleted_at = COALESCE(deleted_at, '
+                  '${sqlString(dateTimeToSql(DateTime.now().toUtc()))}) '
+                  'WHERE id = ${sqlString(localId)};'
+              : "UPDATE ${policy.localTable} SET sync_status = 'synced', "
+                  "status = 'ignored' WHERE id = ${sqlString(localId)};",
         );
         await _store.resolve(entityType, localId, 'mine_as_new');
       });
@@ -321,8 +335,11 @@ class UniversalConflictResolver {
     if (remote == null) return false;
 
     try {
+      final tombstone = (await _store.openFor(entityType, localId))?.kind ==
+          SyncConflictKind.tombstone;
       await _db.transaction(() async {
         await _removeOutbox(policy, localId);
+        if (tombstone) await _retireChildren[entityType]?.call(localId);
         // A null base forces the pull's apply path to write the remote fields.
         await _db.customStatement(
           "UPDATE ${policy.localTable} SET sync_status = 'synced', "

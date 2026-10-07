@@ -39,6 +39,7 @@ import '../privacy/consent_authority.dart';
 import '../../data/sync/planning_currency_capability_probe.dart';
 import '../../data/sync/seq_pull.dart';
 import '../../data/sync/revision_cas.dart';
+import '../sync/keep_mine_as_new.dart';
 import '../../data/sync/server_capabilities.dart';
 import '../../data/db/ownership_guard.dart';
 import '../../data/db/planning_canonical_invariants.dart';
@@ -696,6 +697,7 @@ final planningChildSyncServiceProvider =
     mayEgress: _consentGate(ref, EgressClass.financialSync),
     health: ref.watch(syncHealthProvider),
     seqGate: ref.watch(seqPullGateProvider),
+    casGate: ref.watch(revisionCasGateProvider),
   );
 });
 
@@ -1011,7 +1013,18 @@ final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
     },
     // WP-5: keep-mine against a cloud tombstone re-creates the transaction as
     // a NEW one (a tombstone is never un-deleted).
+    retireChildren: {
+      ConflictEntities.goal: (id) =>
+          retireUnsyncedGoalChildren(ref.read(appDatabaseProvider), id),
+      ConflictEntities.plan: (id) =>
+          retireUnsyncedPlanChildren(ref.read(appDatabaseProvider), id),
+    },
     restoreAsNew: {
+      // D1: goals and plans too (new identity; unsynced children copied).
+      ConflictEntities.goal: (id) => restoreGoalAsNew(
+          db: ref.read(appDatabaseProvider), goals: goals, localId: id),
+      ConflictEntities.plan: (id) => restorePlanAsNew(
+          db: ref.read(appDatabaseProvider), plans: plans, localId: id),
       ConflictEntities.transaction: (id) async {
         final e = await transactions.getById(id);
         if (e == null) return;

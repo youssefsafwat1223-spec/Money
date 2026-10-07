@@ -68,7 +68,11 @@ class CaptureSyncService {
     Future<SharedCapturedMessage?> Function(String payloadId)?
         lookupNativeCapture,
     bool Function()? isLocalAutoConfirmV2,
-  })  : _recoverLocally = recoverLocally,
+    // A-12-min R2: the one native upload gate, consulted before ANY replay.
+    Future<CaptureUploadAuthorization> Function(String payloadId)?
+        authorizeUpload,
+  })  : _authorizeUpload = authorizeUpload,
+        _recoverLocally = recoverLocally,
         _lookupNativeCapture = lookupNativeCapture,
         _isLocalAutoConfirmV2 = isLocalAutoConfirmV2,
         _settingsRepository = settingsRepository,
@@ -106,6 +110,8 @@ class CaptureSyncService {
   final Future<SharedCapturedMessage?> Function(String payloadId)?
       _lookupNativeCapture;
   final bool Function()? _isLocalAutoConfirmV2;
+  final Future<CaptureUploadAuthorization> Function(String payloadId)?
+      _authorizeUpload;
 
   // مزامنة واحدة في الرحلة الواحدة: الاستئناف (resume) وضغطة الإشعار يصلان
   // في نفس اللحظة تقريبًا، وبدون هذا القفل يجلب الاثنان نفس صفوف الـ relay
@@ -174,7 +180,12 @@ class CaptureSyncService {
     }
 
     await _registrationService.syncBackendState();
-    final secret = await _registrationService.readDeviceSecret();
+    // A-12-min R5: the legacy device-credential `sync-captures` (and its ACK)
+    // runs only with a uid-bound ack for THIS user at Cloud ON. A failed link
+    // never falls through to a projection that may still belong to another user.
+    final secret = await _registrationService.isLinkedForCloud()
+        ? await _registrationService.readDeviceSecret()
+        : null;
     if (secret == null || secret.isEmpty) {
       return const CaptureSyncResult(
         importedPayloadIds: {},
@@ -253,6 +264,24 @@ class CaptureSyncService {
     final settings = await _settingsRepository.getSettings();
     final configured = _backendConfigured ?? SupabaseConfig.isConfigured;
     if (!settings.cloudProcessingEnabled || !configured) return false;
+    // A-12-min R2: native `authorizeUpload == allowed` is required for EVERY
+    // upload, this replay included. localOnly (Cloud OFF / no mirror at capture
+    // time, or a claimed item) is refused for good; waiting is retried later.
+    // Only the iOS native v3 queue has this gate; a platform without it (no
+    // `pendingSend` there) keeps its previous Cloud-ON behaviour.
+    final gate = _authorizeUpload ??
+        (NativeCaptureBridge.hasNativeQueue
+            ? NativeCaptureBridge.authorizeCaptureUpload
+            : null);
+    final auth = gate != null
+        ? await gate(message.id!)
+        : CaptureUploadAuthorization(CaptureUploadDecision.allowed,
+            ownerUid: _currentUserId(), allowAi: settings.aiConsentGranted);
+    if (auth.decision == CaptureUploadDecision.waiting) {
+      throw const CaptureBackendException('upload_waiting');
+    }
+    if (!auth.allowed) return false;
+    if (!await _registrationService.isLinkedForCloud()) return false;
     final secret = await _registrationService.readDeviceSecret();
     if (secret == null || secret.isEmpty) return false;
     final client = _client ??
@@ -273,7 +302,10 @@ class CaptureSyncService {
       sender: message.sender,
       receivedAt: message.receivedAt ?? DateTime.now().toUtc(),
       locale: message.locale,
-      allowAi: settings.aiConsentGranted,
+      // The owner's consent mirror, never the install-level flag.
+      allowAi: auth.allowAi,
+      // On the v2 contract the replay carries the stamped owner too.
+      ownerUid: auth.contractV2 ? auth.ownerUid : null,
     );
     return true;
   }

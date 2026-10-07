@@ -31,6 +31,10 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 }
 
 class _FakeRegistrationService implements CaptureDeviceRegistrationService {
+  _FakeRegistrationService({this.linked = true});
+
+  final bool linked;
+
   @override
   Future<({bool cloud, bool ai, int version})?> consentAckSnapshot() async =>
       null;
@@ -48,6 +52,9 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
 
   @override
   Future<void> syncBackendState() async {}
+
+  @override
+  Future<bool> isLinkedForCloud() async => linked;
 
   @override
   Future<void> syncNativeState() async {}
@@ -77,6 +84,9 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
   final Future<void> Function(List<String> payloadIds)? beforeRelayAck;
   final ackedPayloadIds = <String>[];
   final processedPayloadIds = <String>[];
+  var syncCalls = 0;
+  bool? lastAllowAi;
+  String? lastOwnerUid;
 
   @override
   Future<void> processIosSms({
@@ -88,8 +98,11 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
     required bool allowAi,
     String? sender,
     String? locale,
+    String? ownerUid,
   }) async {
     processedPayloadIds.add(payloadId);
+    lastAllowAi = allowAi;
+    lastOwnerUid = ownerUid;
   }
 
   @override
@@ -98,6 +111,7 @@ class _FakeCaptureBackendClient implements CaptureBackendClient {
     required String deviceSecret,
     List<String> ackPayloadIds = const [],
   }) async {
+    syncCalls++;
     if (ackPayloadIds.isNotEmpty) {
       await beforeRelayAck?.call(ackPayloadIds);
     } else {
@@ -187,6 +201,10 @@ void main() {
         const SchemaV29PlanningCutoverCoordinator(),
     OwnershipGuard? ownershipGuard,
     String? Function()? currentUserId,
+    bool linked = true,
+    CaptureUploadAuthorization authorization = const CaptureUploadAuthorization(
+        CaptureUploadDecision.allowed,
+        ownerUid: 'user-A'),
   }) {
     return CaptureSyncService(
       settingsRepository: settingsRepository,
@@ -194,7 +212,7 @@ void main() {
       dedupStore: DriftDedupStore(db),
       smartInboxRepository: DriftSmartInboxRepository(db),
       suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
-      registrationService: _FakeRegistrationService(),
+      registrationService: _FakeRegistrationService(linked: linked),
       ownershipGuard:
           ownershipGuard ?? _MutableOwnershipGuard('user-A', 'generation-A'),
       currentUserId: currentUserId ?? () => 'user-A',
@@ -203,6 +221,7 @@ void main() {
       backendConfigured: true,
       loadInstallId: () async => 'install-id',
       coordinator: coordinator,
+      authorizeUpload: (_) async => authorization,
     );
   }
 
@@ -544,6 +563,91 @@ void main() {
     expect(reviews.single.payloadId, payloadId);
     expect(reviews.single.body, sanitizedRaw);
     expect(client.processedPayloadIds, [payloadId]);
+  });
+
+  group('A-12-min R2/R5: the replay and the legacy sync are gated', () {
+    SharedCapturedMessage pending() => SharedCapturedMessage(
+          id: 'payload-gate',
+          text: 'Debit 1234 500',
+          source: CapturedMessageSource.iosShortcut,
+          status: 'pendingSend',
+          receivedAt: DateTime.utc(2026, 8, 20, 12),
+        );
+
+    test('a localOnly pendingSend (a killed Cloud-OFF intent) never uploads '
+        'even with Cloud ON', () async {
+      final client = _FakeCaptureBackendClient(const []);
+      final svc = service(client,
+          authorization: CaptureUploadAuthorization.denied);
+      expect(await svc.retryPendingSend(pending()), isFalse);
+      expect(client.processedPayloadIds, isEmpty);
+    });
+
+    test('a waiting item is retried later, never uploaded', () async {
+      final client = _FakeCaptureBackendClient(const []);
+      final svc = service(client,
+          authorization: const CaptureUploadAuthorization(
+              CaptureUploadDecision.waiting));
+      await expectLater(svc.retryPendingSend(pending()),
+          throwsA(isA<CaptureBackendException>()));
+      expect(client.processedPayloadIds, isEmpty);
+    });
+
+    test('a localOnly item that is still .pending is never replayed',
+        () async {
+      final client = _FakeCaptureBackendClient(const []);
+      final svc = service(client);
+      final item = SharedCapturedMessage(
+        id: 'payload-pending-local',
+        text: 'Debit 1234 500',
+        source: CapturedMessageSource.iosShortcut,
+        status: 'pending',
+        localOnly: true,
+        receivedAt: DateTime.utc(2026, 8, 20, 12),
+      );
+      expect(await svc.retryPendingSend(item), isFalse);
+      expect(client.processedPayloadIds, isEmpty);
+    });
+
+    test('an unlinked install (no uid-bound ack) never replays', () async {
+      final client = _FakeCaptureBackendClient(const []);
+      final svc = service(client, linked: false);
+      expect(await svc.retryPendingSend(pending()), isFalse);
+      expect(client.processedPayloadIds, isEmpty);
+    });
+
+    test('an allowed replay uses the owner mirror\'s AI flag, not settings',
+        () async {
+      final client = _FakeCaptureBackendClient(const []);
+      final svc = service(client,
+          authorization: const CaptureUploadAuthorization(
+              CaptureUploadDecision.allowed,
+              ownerUid: 'user-A',
+              allowAi: false,
+              contractV2: true));
+      expect(await svc.retryPendingSend(pending()), isTrue);
+      expect(client.processedPayloadIds, ['payload-gate']);
+      expect(client.lastAllowAi, isFalse);
+      expect(client.lastOwnerUid, 'user-A', reason: 'v2 contract sends owner');
+    });
+
+    test('the legacy contract replay sends no owner_uid', () async {
+      final client = _FakeCaptureBackendClient(const []);
+      final svc = service(client);
+      expect(await svc.retryPendingSend(pending()), isTrue);
+      expect(client.lastOwnerUid, isNull);
+    });
+
+    test('the legacy sync-captures never runs without a uid-bound ack',
+        () async {
+      final client = _FakeCaptureBackendClient([
+        _capture(payloadId: 'p-unlinked', status: 'processed'),
+      ]);
+      final result = await service(client, linked: false).sync();
+      expect(result.importedPayloadIds, isEmpty);
+      expect(client.ackedPayloadIds, isEmpty);
+      expect(client.syncCalls, 0, reason: 'zero legacy sync-captures calls');
+    });
   });
 
   test('malformed non-rejected relay also becomes durable review work',

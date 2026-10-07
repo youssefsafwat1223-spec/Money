@@ -200,7 +200,7 @@ void main() {
     final out = await mkService().run(_uid, reason: 'reset');
     expect(out, RebootstrapOutcome.completed);
     await expectRecovered();
-    expect(scope.calls, containsAllInOrder(['detach', 'activate:$_uid']));
+    expect(scope.calls, containsAllInOrder(['suspendForSwap', 'activate:$_uid']));
     // A14: only the deferred id whose committed receipt is in the new replica
     // crosses the barrier.
     expect(capture.resumed, {'c1'});
@@ -380,6 +380,8 @@ void main() {
         try {
           await mkService().run(_uid, reason: 'reset');
         } catch (_) {}
+        // D2: a swap that did not commit puts the account back on a scope.
+        expect(scope.calls, containsAllInOrder(['suspendForSwap', 'activate:$_uid']));
         await store.closeAll();
         store = mkStore();
         expect(await mkService().run(_uid), RebootstrapOutcome.completed);

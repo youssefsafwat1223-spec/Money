@@ -29,6 +29,11 @@ abstract class RemoveDataBarrier {
   Future<void> finish(String uid);
 }
 
+/// "The consent question was shown" marker, per uid on this device (secure
+/// storage, `qirsh.`-prefixed). Remove data deletes it so the next admission into
+/// a fresh replica asks again (§4.6: a new device re-asks).
+const String kConsentAskedKeyPrefix = 'qirsh.consent_asked.v1.';
+
 /// The removal could not be completed. The barrier record is KEPT, so the next
 /// launch (or the next admission) resumes it; nothing has been reported as done.
 class RemoveDataIncompleteException implements Exception {
@@ -130,6 +135,7 @@ class RemoveDataFlow {
       await _step('afterScopeStopped');
       // Step 3.
       await _store.remove(r.uid);
+      await _storage.delete(key: '$kConsentAskedKeyPrefix${r.uid}');
       await _step('afterReplicaRemoved');
       // Step 4, best effort.
       final cleanup = _serverCleanup;

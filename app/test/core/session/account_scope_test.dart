@@ -254,4 +254,27 @@ void main() {
         reason: 'a signed-out (locked) account is never opened by capture');
     host.dispose();
   });
+
+  test('D2/WP-7: a rebootstrap swap publishes NO scope (never the signed-out '
+      'one); a real sign-out still publishes it', () async {
+    final host = newHost(newStore());
+    await host.activate('uid-a');
+    final seen = <String>[];
+    host.addListener(() => seen.add(host.current == null
+        ? 'none'
+        : (host.current!.uid ?? 'signed-out')));
+
+    await host.suspendForSwap();
+    expect(host.current, isNull);
+    expect(host.swapInProgress, isTrue);
+    await host.activate('uid-a');
+    expect(host.swapInProgress, isFalse);
+    expect(seen, ['none', 'uid-a'], reason: 'signed-out never published');
+
+    seen.clear();
+    await host.lock();
+    expect(seen.last, 'signed-out');
+    expect(host.swapInProgress, isFalse);
+    host.dispose();
+  });
 }

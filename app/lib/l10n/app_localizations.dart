@@ -2689,6 +2689,24 @@ abstract class AppL10n {
   /// **'تعذّر التحقق من البيانات غير المحفوظة. حاول مجدداً.'**
   String get setUnsyncedCheckFailed;
 
+  /// No description provided for @rebootUpdatingData.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ تحديث بياناتك…'**
+  String get rebootUpdatingData;
+
+  /// No description provided for @setDataRemovedNotice.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم حذف البيانات من هذا الجهاز'**
+  String get setDataRemovedNotice;
+
+  /// No description provided for @smartConsentAiNeedsCloud.
+  ///
+  /// In ar, this message translates to:
+  /// **'فعّل المزامنة السحابية أولاً لاستخدام التحليل الذكي.'**
+  String get smartConsentAiNeedsCloud;
+
   /// No description provided for @setSignOutFailed.
   ///
   /// In ar, this message translates to:

@@ -299,6 +299,7 @@ class BootstrapRunner {
       final captureRegistration = CaptureDeviceRegistrationService(
         settingsRepository: DriftUserSettingsRepository(database),
         publishOwner: captureQueue.publishCaptureOwner,
+        readOwnerEpoch: captureQueue.captureOwnerEpoch,
       );
       _captureRegistration = captureRegistration;
       AppSession.instance.configureCaptureDeviceUnlink(

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
 
 import 'core/router/app_router.dart';
+import 'core/session/app_session.dart';
 import 'core/security/app_lock_gate.dart';
 import 'features/app/app_boot_loader.dart';
 import 'core/theme/app_theme.dart';
@@ -60,6 +61,7 @@ class MoneyApp extends ConsumerWidget {
           child: Stack(
             children: [
               AppLockGate(child: child!),
+              const RemovalNoticeHost(),
               ValueListenableBuilder<bool>(
                 valueListenable: appDataRestoring,
                 builder: (context, restoring, _) => restoring
@@ -72,4 +74,42 @@ class MoneyApp extends ConsumerWidget {
       },
     );
   }
+}
+
+/// §4.4 step 6 — shows "Data removed from this device" once, on the first screen
+/// after a completed removal. Lives under the app's `ScaffoldMessenger`, so the
+/// snackbar waits for the next screen's scaffold.
+class RemovalNoticeHost extends StatefulWidget {
+  const RemovalNoticeHost({super.key});
+
+  @override
+  State<RemovalNoticeHost> createState() => RemovalNoticeHostState();
+}
+
+class RemovalNoticeHostState extends State<RemovalNoticeHost> {
+  final _pending = AppSession.instance.removalNoticePending;
+
+  @override
+  void initState() {
+    super.initState();
+    _pending.addListener(_maybeShow);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _maybeShow());
+  }
+
+  @override
+  void dispose() {
+    _pending.removeListener(_maybeShow);
+    super.dispose();
+  }
+
+  void _maybeShow() {
+    if (!mounted || !_pending.value) return;
+    _pending.value = false;
+    ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+      SnackBar(content: Text(context.l10n.setDataRemovedNotice)),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }

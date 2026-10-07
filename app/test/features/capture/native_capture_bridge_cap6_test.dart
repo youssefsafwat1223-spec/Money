@@ -35,12 +35,19 @@ void main() {
   group('owner record', () {
     test('publish returns the native {uid, uidHash, generation}', () async {
       fake((_) async => {'uid': 'u-a', 'uidHash': 'h-a', 'generation': 7});
-      final owner = await NativeCaptureBridge.publishCaptureOwner('u-a');
+      final owner = await NativeCaptureBridge.publishCaptureOwner(
+          uid: 'u-a', cloud: true, ai: false, version: 3, expectedEpoch: 5);
       expect(owner?.uid, 'u-a');
       expect(owner?.uidHash, 'h-a');
       expect(owner?.generation, 7);
       expect(calls.single.method, 'publishCaptureOwner');
-      expect(calls.single.arguments, {'uid': 'u-a'});
+      expect(calls.single.arguments, {
+        'uid': 'u-a',
+        'cloud': true,
+        'ai': false,
+        'version': 3,
+        'expectedEpoch': 5,
+      });
     });
 
     test('a malformed owner record is "no owner", not a crash', () async {
@@ -63,7 +70,8 @@ void main() {
       fake((_) async => throw PlatformException(
           code: 'removal_in_progress', message: 'QueueError.barrierActive'));
       await expectLater(
-        NativeCaptureBridge.publishCaptureOwner('u-a'),
+        NativeCaptureBridge.publishCaptureOwner(
+            uid: 'u-a', cloud: true, ai: false, version: 3, expectedEpoch: 5),
         throwsA(isA<CaptureQueueException>()
             .having((e) => e.code, 'code', 'removal_in_progress')
             .having((e) => e.failure, 'failure',
@@ -87,6 +95,108 @@ void main() {
       expect(calls.single.method, 'setCaptureConsentMirror');
       expect(calls.single.arguments,
           {'uid': 'u-a', 'cloud': true, 'ai': false, 'version': 4});
+    });
+  });
+
+  group('A-12-min: owner epoch, upload gate, queue stats', () {
+    test('the owner epoch is read natively (0 off iOS)', () async {
+      fake((_) async => 9);
+      expect(await NativeCaptureBridge.captureOwnerEpoch(), 9);
+      expect(calls.single.method, 'captureOwnerEpoch');
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      expect(await NativeCaptureBridge.captureOwnerEpoch(), 0);
+    });
+
+    test('authorizeUpload maps the allowed verdict with owner, AI and contract',
+        () async {
+      fake((_) async => {
+            'decision': 'allowed',
+            'ownerUid': 'u-a',
+            'allowAi': true,
+            'contractV2': true,
+          });
+      final auth = await NativeCaptureBridge.authorizeCaptureUpload('p1');
+      expect(auth.allowed, isTrue);
+      expect(auth.ownerUid, 'u-a');
+      expect(auth.allowAi, isTrue);
+      expect(auth.contractV2, isTrue);
+      expect(calls.single.arguments, {'payloadId': 'p1'});
+    });
+
+    test('everything but a well-formed allowed verdict is zero egress',
+        () async {
+      for (final raw in <Object?>[
+        {'decision': 'localOnly'},
+        {'decision': 'allowed'}, // no owner
+        {'decision': 'allowed', 'ownerUid': ''},
+        {'decision': 'something-new'},
+        'nonsense',
+        null,
+      ]) {
+        fake((_) async => raw);
+        expect((await NativeCaptureBridge.authorizeCaptureUpload('p')).allowed,
+            isFalse,
+            reason: '$raw');
+      }
+      fake((_) async => {'decision': 'waiting'});
+      expect((await NativeCaptureBridge.authorizeCaptureUpload('p')).decision,
+          CaptureUploadDecision.waiting);
+      fake((_) async => throw PlatformException(code: 'queue_unavailable'));
+      expect((await NativeCaptureBridge.authorizeCaptureUpload('p')).allowed,
+          isFalse);
+      fake((_) async => throw MissingPluginException());
+      expect((await NativeCaptureBridge.authorizeCaptureUpload('p')).allowed,
+          isFalse);
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      expect((await NativeCaptureBridge.authorizeCaptureUpload('p')).allowed,
+          isFalse, reason: 'off iOS there is no native verdict');
+    });
+
+    test('captureQueueStats maps counts, bytes and quota state only',
+        () async {
+      fake((_) async => {
+            'stamped': 4,
+            'localOnly': 3,
+            'waiting': 2,
+            'unbound': 1,
+            'activeOwnerBytes': 700,
+            'unboundBytes': 90,
+            'deviceBytes': 1200,
+            'ownerQuota': 'near',
+            'unboundQuota': 'ok',
+            'deviceQuota': 'full',
+          });
+      final stats = (await NativeCaptureBridge.captureQueueStats())!;
+      expect(calls.single.method, 'captureQueueStats');
+      expect(stats.stamped, 4);
+      expect(stats.localOnly, 3);
+      expect(stats.waiting, 2);
+      expect(stats.unbound, 1);
+      expect(stats.total, 10);
+      expect(stats.activeOwnerBytes, 700);
+      expect(stats.unboundBytes, 90);
+      expect(stats.deviceBytes, 1200);
+      expect(stats.ownerQuota, CaptureQuotaState.near);
+      expect(stats.unboundQuota, CaptureQuotaState.ok);
+      expect(stats.deviceQuota, CaptureQuotaState.full);
+    });
+
+    test('stats ignore any extra (content) key and fail soft', () async {
+      fake((_) async => {
+            'stamped': 1,
+            'text': 'SECRET',
+            'sender': 'SECRET',
+            'ownerQuota': 'bogus',
+          });
+      final stats = (await NativeCaptureBridge.captureQueueStats())!;
+      expect(stats.toString(), isNot(contains('SECRET')));
+      expect(stats.ownerQuota, CaptureQuotaState.ok);
+      fake((_) async => throw PlatformException(code: 'queue_unavailable'));
+      expect(await NativeCaptureBridge.captureQueueStats(), isNull);
+      fake((_) async => 'not a map');
+      expect(await NativeCaptureBridge.captureQueueStats(), isNull);
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      expect(await NativeCaptureBridge.captureQueueStats(), isNull);
     });
   });
 
