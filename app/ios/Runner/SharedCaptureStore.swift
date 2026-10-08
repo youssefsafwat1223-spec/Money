@@ -658,7 +658,7 @@ enum SharedCaptureStore {
         return false
       }
       if cloudProcessingEnabled || aiConsentGranted {
-        let subject = ownerUid.map(normalizedUID) ?? (try readActiveOwner())?.uid
+        let subject = try ownerUid.map(normalizedUID) ?? readActiveOwner()?.uid
         if egressDenied(forOwner: subject) { return false }
       }
       defaults?.set(cloudProcessingEnabled, forKey: cloudProcessingEnabledKey)

@@ -37,6 +37,7 @@ void main() {
       .where((f) => RegExp(r'\.(swift|m|mm|h|c|cc|cpp)$').hasMatch(f.path))
       .where((f) => !f.path.startsWith('ios/Pods/'))
       .where((f) => !f.path.startsWith('ios/Flutter/'))
+      .where((f) => !f.path.startsWith('ios/.symlinks/'))
       .where((f) => f.path != 'ios/RunnerTests/RunnerTests.swift')
       .toList();
 
