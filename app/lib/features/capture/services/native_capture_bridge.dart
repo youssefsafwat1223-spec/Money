@@ -306,6 +306,37 @@ class CaptureRemovalBarrier {
   }
 }
 
+/// F2 — what a read of the native Remove-data barrier found. The four outcomes
+/// stay DISTINCT: [absent] (nothing is pending), [present], [malformed] (the
+/// native layer answered with something unreadable: a barrier IS there) and — as
+/// a thrown [CaptureQueueException] — a transport/read error. Only [absent] means
+/// "no barrier"; collapsing malformed into absent would read a set barrier as
+/// permission to admit.
+enum CaptureRemovalBarrierPresence { absent, present, malformed }
+
+class CaptureRemovalBarrierRead {
+  const CaptureRemovalBarrierRead.absent()
+    : presence = CaptureRemovalBarrierPresence.absent,
+      barrier = null;
+  const CaptureRemovalBarrierRead._present(CaptureRemovalBarrier this.barrier)
+    : presence = CaptureRemovalBarrierPresence.present;
+  const CaptureRemovalBarrierRead.malformed()
+    : presence = CaptureRemovalBarrierPresence.malformed,
+      barrier = null;
+
+  final CaptureRemovalBarrierPresence presence;
+  final CaptureRemovalBarrier? barrier;
+
+  /// A native answer: null is absent, a well-formed record is present, anything
+  /// else is malformed.
+  static CaptureRemovalBarrierRead parse(Object? raw) {
+    if (raw == null) return const CaptureRemovalBarrierRead.absent();
+    final barrier = CaptureRemovalBarrier.tryParse(raw);
+    if (barrier == null) return const CaptureRemovalBarrierRead.malformed();
+    return CaptureRemovalBarrierRead._present(barrier);
+  }
+}
+
 /// Why the native queue refused a write (v3). Nothing was written in any case.
 enum CaptureQueueFailure {
   /// §4.5 count or byte quota exhausted. Nothing is evicted.
@@ -1098,9 +1129,15 @@ class NativeCaptureBridge {
 
   /// A barrier left by a removal that crashed; a launch that finds one resumes
   /// the removal from the replica teardown step.
-  static Future<CaptureRemovalBarrier?> getCaptureRemovalBarrier() async {
-    if (!_hasNativeQueue) return null;
-    return CaptureRemovalBarrier.tryParse(
+  static Future<CaptureRemovalBarrier?> getCaptureRemovalBarrier() async =>
+      (await readCaptureRemovalBarrier()).barrier;
+
+  /// F2: the barrier read with absent / present / malformed kept distinct; a
+  /// transport or read error throws [CaptureQueueException]. The removal flow
+  /// uses this one: only a successful read of "absent" lets anyone be admitted.
+  static Future<CaptureRemovalBarrierRead> readCaptureRemovalBarrier() async {
+    if (!_hasNativeQueue) return const CaptureRemovalBarrierRead.absent();
+    return CaptureRemovalBarrierRead.parse(
       await _queueCall<Object?>('getCaptureRemovalBarrier'),
     );
   }

@@ -33,6 +33,14 @@ void main() {
       scope: scope,
       barrier: barrier,
       clearOwnerMarker: AppSession.instance.clearLocalDataOwnerMarker,
+      invalidateAdmissionGeneration: (uid) async {
+        await AppSession.instance.invalidateRemovalGeneration(uid);
+        order.add('generation');
+      },
+      quiesce: AppSession.instance.drainAdmissions,
+      debugAfterStep: (step) async {
+        if (step == 'afterBarrierRecord') order.add('record');
+      },
     ));
   });
 
@@ -43,7 +51,8 @@ void main() {
     support.deleteSync(recursive: true);
   });
 
-  test('generation is invalidated before the removal; remote sign-out runs last',
+  test(
+      'generation is invalidated before the removal; remote sign-out runs last',
       () async {
     const store = FlutterSecureStorage();
     final session = AppSession.instance;
@@ -64,12 +73,14 @@ void main() {
 
     expect(generationAtBegin, 'absent',
         reason: 'invalidated BEFORE the removal began');
-    expect(order, ['begin:A', 'detach', 'finish:A', 'signOut']);
+    expect(order,
+        ['record', 'generation', 'begin:A', 'detach', 'finish:A', 'signOut']);
     expect(session.isGuest || session.authMethod == null, isTrue,
         reason: 'wipeAndReset ran');
   });
 
-  test('a failing remote sign-out does not fail the (already complete) local reset',
+  test(
+      'a failing remote sign-out does not fail the (already complete) local reset',
       () async {
     final session = AppSession.instance;
     session.configureCaptureOwnerClear(() async => true);

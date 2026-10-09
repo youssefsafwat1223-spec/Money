@@ -196,13 +196,13 @@ void main() {
     // replica opened. If this fails, check that weakening was intended.
     final session = read('lib/core/session/app_session.dart');
     final gate = session.substring(
-        session.indexOf('Future<LocalDataOwnership> _resolveLocalDataOwnership'));
+        session.indexOf('Future<LocalDataOwnership> _resolveAdmitted'));
     final body = gate.substring(0, gate.indexOf('\n  }'));
     expect(body.contains('wipe'), isFalse,
         reason: 'owner-change wipe must not return: it would destroy a replica');
     final release = body.lastIndexOf('_runOwnerClear()');
-    final claim = body.lastIndexOf('_writeOwnerMarkerVerified(uid)');
-    final admit = body.lastIndexOf('_admitReplica(uid)');
+    final claim = body.lastIndexOf('_writeOwnerMarkerVerified(uid,');
+    final admit = body.lastIndexOf('_admitReplica(uid,');
     expect(release, lessThan(claim));
     expect(claim, lessThan(admit));
   });

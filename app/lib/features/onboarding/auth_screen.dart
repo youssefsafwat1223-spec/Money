@@ -85,6 +85,10 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     if (_busy) return;
     HapticFeedback.lightImpact();
     setState(() => apple ? _busyApple = true : _busyGoogle = true);
+    // F2: the attempt is captured BEFORE the provider is awaited. If Remove data
+    // is accepted while the provider sheet is open, this attempt is stale and
+    // cannot authorize (re)creating anything once it completes.
+    final attempt = AppSession.instance.beginAuthAttempt();
     try {
       final identity = await method();
       // WP-3b: admitting the uid swaps the account scope, which disposes this
@@ -98,6 +102,7 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         method: identity.method,
         email: identity.email,
         userId: identity.userId,
+        attempt: attempt,
       );
       if (SupabaseConfig.isConfigured) {
         await AppSession.instance.reconcileAccountOnboarding(

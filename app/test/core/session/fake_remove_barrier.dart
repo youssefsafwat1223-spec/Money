@@ -5,6 +5,10 @@ class FakeRemoveBarrier implements RemoveDataBarrier {
   FakeRemoveBarrier(this.calls);
   final List<String> calls;
   String? pending;
+
+  /// A native barrier is set but its uid is unknown (the production shape: the
+  /// native record holds only an HMAC of the uid).
+  bool unknownBarrier = false;
   bool failFinish = false;
   Future<void> Function(String call)? onCall;
 
@@ -23,9 +27,13 @@ class FakeRemoveBarrier implements RemoveDataBarrier {
   Future<String?> pendingUid() async => pending;
 
   @override
+  Future<bool> nativeBarrierPresent() async => pending != null || unknownBarrier;
+
+  @override
   Future<void> finish(String uid) async {
     await _rec('finish:$uid');
     if (failFinish) throw const RemoveDataIncompleteException();
     pending = null;
+    unknownBarrier = false;
   }
 }

@@ -1,3 +1,4 @@
+import '../session/admission_authority.dart';
 import '../sync/pending_sync_reconciler.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
@@ -369,6 +370,7 @@ Future<FeatureFlagService> initFeatureFlagService(
   // safe default/cached flags for the first frame, then the post-frame refresh
   // lands the server values.
   bool applyRemoteOverrides = true,
+  bool Function()? isCurrent,
 }) async {
   final id = installIdOverride ?? await InstallId.get();
   final service = FeatureFlagService(
@@ -387,10 +389,22 @@ Future<FeatureFlagService> initFeatureFlagService(
       SupabaseConfig.isConfigured &&
       await CloudEgressGate.instance.permits()) {
     final client = supabase.Supabase.instance.client;
-    await service.applyUserOverrides(client, client.auth.currentUser?.id);
+    await service.applyUserOverrides(client, client.auth.currentUser?.id,
+        isCurrent: isCurrent);
   }
+  if (isCurrent != null && !isCurrent()) return service;
   _featureFlagInstance = service;
   return service;
+}
+
+Future<void> _refreshFeatureOverrides(bool Function() current) async {
+  if (!current() || !SupabaseConfig.isConfigured) return;
+  if (!await CloudEgressGate.instance.permits() || !current()) return;
+  final service = _featureFlagInstance;
+  if (service == null) return;
+  final client = supabase.Supabase.instance.client;
+  await service.applyUserOverrides(client, client.auth.currentUser?.id,
+      isCurrent: () => current() && identical(_featureFlagInstance, service));
 }
 
 FeatureFlagService get featureFlags {
@@ -428,59 +442,110 @@ final catalogSyncServiceProvider = Provider<CatalogSyncService>((ref) {
   );
 });
 
+/// Captured scope identity; each local unit drains before removal closes its DB.
+class AdmittedLocalWork implements CatalogLocalWork {
+  AdmittedLocalWork._(this.ref, this.database, this.authority);
+  final WidgetRef ref;
+  final AppDatabase database;
+  final AdmissionAuthority authority;
+  static AdmittedLocalWork? capture(WidgetRef ref) {
+    if (!ref.context.mounted) return null;
+    final authority = AppSession.instance.captureLocalWorkAuthority();
+    if (authority == null) return null;
+    return AdmittedLocalWork._(ref, ref.read(appDatabaseProvider), authority);
+  }
+
+  @override
+  bool get current =>
+      ref.context.mounted &&
+      authority.isCurrent &&
+      identical(ref.read(appDatabaseProvider), database) &&
+      AppSession.instance.status == SessionStatus.authenticated;
+  @override
+  Future<T> local<T>(Future<T> Function() action) {
+    if (!current) throw const StaleAdmissionException();
+    return AppSession.instance.runAdmittedLocalOperation(authority, action);
+  }
+}
+
 Future<void> syncCatalog(
   WidgetRef ref, {
   String? countryCode,
   bool force = false,
+  AdmittedLocalWork? work,
 }) async {
-  // Entry is already a disposal window: this is awaited from _onResume after
-  // other awaits, so the shell can be gone before the first line runs.
-  if (!ref.context.mounted) return;
-  final database = ref.read(appDatabaseProvider);
-  await const SeedLoader().seedIfEmpty(database);
+  work ??= AdmittedLocalWork.capture(ref);
+  if (work == null || !work.current) return;
+  final captured = work;
+  try {
+    // Entry is already a disposal window: this is awaited from _onResume after
+    // other awaits, so the shell can be gone before the first line runs.
+    if (!ref.context.mounted) return;
+    final database = ref.read(appDatabaseProvider);
+    await captured.local(() => const SeedLoader().seedIfEmpty(database));
+    if (!captured.current) return;
 
-  // PARSER AUTHORITY EPOCH — before every early return below.
-  //
-  // This is a purely LOCAL reconcile: if a previous release left bundled rules
-  // active, they are deactivated here. It must not sit behind the staleness or
-  // Supabase-configured guards, because both of them are reasons a launch does
-  // NO sync at all — and an upgraded install would then keep serving money
-  // authority the current release does not trust, until the staleness window
-  // happened to expire. The forced re-fetch half still lives in syncAll; this
-  // half only ever removes authority, so running it early is always safe.
-  await ParserAuthority(
-    RemoteParsersDao(database),
-    CatalogMetadataDao(database),
-    database,
-  ).reconcile();
+    // PARSER AUTHORITY EPOCH — before every early return below.
+    //
+    // This is a purely LOCAL reconcile: if a previous release left bundled rules
+    // active, they are deactivated here. It must not sit behind the staleness or
+    // Supabase-configured guards, because both of them are reasons a launch does
+    // NO sync at all — and an upgraded install would then keep serving money
+    // authority the current release does not trust, until the staleness window
+    // happened to expire. The forced re-fetch half still lives in syncAll; this
+    // half only ever removes authority, so running it early is always safe.
+    await captured.local(() => ParserAuthority(
+          RemoteParsersDao(database),
+          CatalogMetadataDao(database),
+          database,
+        ).reconcile());
+    if (!captured.current) return;
 
-  // Init feature flags from seed data before first frame.
-  await initFeatureFlagService(database);
-  if (!SupabaseConfig.isConfigured) return;
-  // Astra G (P1): no catalog fetch while Cloud is OFF (no automatic exception).
-  if (!await CloudEgressGate.instance.permits()) return;
-  if (!force && !await _catalogSyncIsStale(database)) return;
-  // The caller is AppShell — a route. Opening a top-level page disposes it
-  // while the awaits above are in flight, and every `ref` use after that
-  // throws (observed on a physical iPhone: ref.invalidate from here aborted a
-  // post-auth run). Disposed means stop; the next resume repeats the sync.
-  if (!ref.context.mounted) return;
-  await ref.read(catalogSyncServiceProvider).syncAll(countryCode: countryCode);
-  // Catalog sync replaces remote_feature_flags in Drift; refresh the same
-  // runtime singleton used by sync gates before any outbox/pull work runs.
-  await initFeatureFlagService(database);
-  // Invalidate announcement providers so UI rebuilds with fresh data.
-  if (!ref.context.mounted) return;
-  ref.invalidate(activeAnnouncementsProvider);
-  ref.invalidate(hasForceUpdateProvider);
-  // Same-session flag reactivity (R4 §9): the report-ads placement gate must
-  // re-evaluate after a live catalog sync (cold-start / resume) so it can act
-  // as a production kill switch without an app restart.
-  ref.invalidate(reportAdsEnabledProvider);
-  // Banner flags ride the same re-sync. Without this a remote flip of
-  // `enable_banner_ads` would need an app restart, which is not a kill switch.
-  ref.invalidate(bannerAdsEnabledProvider);
-  ref.invalidate(bannerPlacementEnabledProvider);
+    // Init feature flags from seed data before first frame.
+    await captured.local(() => initFeatureFlagService(database,
+        applyRemoteOverrides: false, isCurrent: () => captured.current));
+    if (!captured.current) return;
+    await _refreshFeatureOverrides(() => captured.current);
+    if (!captured.current) return;
+    if (!SupabaseConfig.isConfigured) return;
+    // Astra G (P1): no catalog fetch while Cloud is OFF (no automatic exception).
+    if (!await CloudEgressGate.instance.permits()) return;
+    if (!captured.current) return;
+    if (!force && !await captured.local(() => _catalogSyncIsStale(database))) {
+      return;
+    }
+    if (!captured.current) return;
+    // The caller is AppShell — a route. Opening a top-level page disposes it
+    // while the awaits above are in flight, and every `ref` use after that
+    // throws (observed on a physical iPhone: ref.invalidate from here aborted a
+    // post-auth run). Disposed means stop; the next resume repeats the sync.
+    if (!ref.context.mounted) return;
+    await ref
+        .read(catalogSyncServiceProvider)
+        .syncAll(countryCode: countryCode, localWork: captured);
+    if (!captured.current) return;
+    // Catalog sync replaces remote_feature_flags in Drift; refresh the same
+    // runtime singleton used by sync gates before any outbox/pull work runs.
+    await captured.local(() => initFeatureFlagService(database,
+        applyRemoteOverrides: false, isCurrent: () => captured.current));
+    if (!captured.current) return;
+    await _refreshFeatureOverrides(() => captured.current);
+    if (!captured.current) return;
+    // Invalidate announcement providers so UI rebuilds with fresh data.
+    if (!ref.context.mounted) return;
+    ref.invalidate(activeAnnouncementsProvider);
+    ref.invalidate(hasForceUpdateProvider);
+    // Same-session flag reactivity (R4 §9): the report-ads placement gate must
+    // re-evaluate after a live catalog sync (cold-start / resume) so it can act
+    // as a production kill switch without an app restart.
+    ref.invalidate(reportAdsEnabledProvider);
+    // Banner flags ride the same re-sync. Without this a remote flip of
+    // `enable_banner_ads` would need an app restart, which is not a kill switch.
+    ref.invalidate(bannerAdsEnabledProvider);
+    ref.invalidate(bannerPlacementEnabledProvider);
+  } on StaleAdmissionException {
+    // Scope revoked: the already-started local unit drained; no next unit starts.
+  }
 }
 
 Future<bool> _catalogSyncIsStale(AppDatabase database) async {
@@ -584,9 +649,9 @@ final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
     // C-3 — money must not leave the device without cloud consent. Read fresh
     // per push so a revocation is observed by the next drain, not the next boot.
     mayEgress: () => ConsentAuthority(
-          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
-              .getSettings(),
-        ).allows(EgressClass.financialSync),
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.financialSync),
     health: ref.watch(syncHealthProvider),
   );
 });
@@ -811,9 +876,9 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
     // C-3 — money must not leave the device without cloud consent. Read fresh
     // per push so a revocation is observed by the next drain, not the next boot.
     mayEgress: () => ConsentAuthority(
-          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
-              .getSettings(),
-        ).allows(EgressClass.financialSync),
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.financialSync),
     health: ref.watch(syncHealthProvider),
   );
 });
@@ -1104,7 +1169,8 @@ final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
         final all = await ref.read(categoryRepositoryProvider).getAll();
         for (final e in all) {
           if (e.id == id) {
-            await planningQueue.enqueueCategory(PlanningSyncOperation.update, e);
+            await planningQueue.enqueueCategory(
+                PlanningSyncOperation.update, e);
           }
         }
       },
@@ -1268,9 +1334,9 @@ final senderBankMappingSyncServiceProvider =
     // C-3 — which banks the user holds is a direct read on their financial
     // life. Consulted fresh on every sync so a revocation is observed.
     mayEgress: () => ConsentAuthority(
-          () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
-              .getSettings(),
-        ).allows(EgressClass.senderBankMappings),
+      () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
+          .getSettings(),
+    ).allows(EgressClass.senderBankMappings),
     health: ref.watch(syncHealthProvider),
     seqGate: ref.watch(seqPullGateProvider),
   );
@@ -1296,9 +1362,9 @@ final captureDeviceRegistrationServiceProvider =
 });
 
 /// Live device-registration status, mirrored from the service's ValueListenable.
-final captureRegistrationStatusProvider =
-    NotifierProvider<_CaptureRegistrationStatusNotifier,
-        CaptureRegistrationStatus>(_CaptureRegistrationStatusNotifier.new);
+final captureRegistrationStatusProvider = NotifierProvider<
+    _CaptureRegistrationStatusNotifier,
+    CaptureRegistrationStatus>(_CaptureRegistrationStatusNotifier.new);
 
 class _CaptureRegistrationStatusNotifier
     extends Notifier<CaptureRegistrationStatus> {
@@ -1345,8 +1411,7 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
     suspectedDuplicateRepository: DriftSuspectedDuplicateRepository(db),
     registrationService: ref.watch(captureDeviceRegistrationServiceProvider),
     ownershipGuard: OwnershipGuard(),
-    currentUserId: () =>
-        supabase.Supabase.instance.client.auth.currentUser?.id,
+    currentUserId: () => supabase.Supabase.instance.client.auth.currentUser?.id,
     accountRepository: ref.watch(accountRepositoryProvider),
     client: ref.watch(captureBackendClientProvider),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
@@ -1468,7 +1533,9 @@ final syncRecoveryServiceProvider = Provider<SyncRecoveryService>((ref) {
       await ref
           .read(serverCapabilitiesServiceProvider)
           .awaitingFxTransactions(force: true);
-      await ref.read(planningCurrencyCapabilityProbeProvider).ensure(force: true);
+      await ref
+          .read(planningCurrencyCapabilityProbeProvider)
+          .ensure(force: true);
     },
     wakeup: SyncWakeup.notify,
   );
@@ -1523,9 +1590,8 @@ final startupSyncReconcileServiceProvider =
     Provider<StartupSyncReconcileService>((ref) {
   return StartupSyncReconcileService(
     db: ref.watch(appDatabaseProvider),
-    planningCurrencyFor: (table) => ref
-        .read(planningCurrencyCapabilityProbeProvider)
-        .ensureTable(table),
+    planningCurrencyFor: (table) =>
+        ref.read(planningCurrencyCapabilityProbeProvider).ensureTable(table),
     health: ref.watch(syncHealthProvider),
     coordinator: ref.watch(planningCutoverCoordinatorProvider),
     // Audit H-4: the backfills are a push path and obey the same transport
@@ -1551,8 +1617,7 @@ final startupSyncReconcileServiceProvider =
 ///
 /// It is seeded lazily from the user's persisted merchant confirmations, so the
 /// learned map stays the single source of truth and no second store exists.
-final merchantIntelligenceProvider =
-    Provider<MerchantIntelligenceStore>((ref) {
+final merchantIntelligenceProvider = Provider<MerchantIntelligenceStore>((ref) {
   final store = MerchantIntelligenceStore();
   // Fire-and-forget rehydrate: the model is an optional suggestion source, so
   // capture must never wait on it. Until it resolves the model simply behaves
@@ -1596,7 +1661,8 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
       // percent-for-permille typo) would have dropped it from 990‰ to ~10%.
       // Remote config may make this gate stricter; it may never make it looser
       // than what shipped.
-      return (v > ProofCommitGate.defaultParserConfidenceMinPermille && v <= 1000)
+      return (v > ProofCommitGate.defaultParserConfidenceMinPermille &&
+              v <= 1000)
           ? v
           : ProofCommitGate.defaultParserConfidenceMinPermille;
     },
@@ -1653,8 +1719,8 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
     // C-3 — the merchant name comes from a financial message; enrichment needs
     // fresh cloud consent, read at call time.
     mayEnrichMerchant: () => ConsentAuthority(
-          () => DriftUserSettingsRepository(db).getSettings(),
-        ).allows(EgressClass.financialSync),
+      () => DriftUserSettingsRepository(db).getSettings(),
+    ).allows(EgressClass.financialSync),
     accountRepository: ref.watch(accountRepositoryProvider),
     dedupStore: DriftDedupStore(db),
     aiClient: SupabaseConfig.isConfigured

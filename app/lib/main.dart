@@ -47,10 +47,14 @@ Future<void> main() async {
 /// Nothing here is a fixed/minimum-duration splash; the loading screen is
 /// removed the instant bootstrap actually finishes.
 class StartupApp extends StatefulWidget {
-  const StartupApp({super.key, this.runner});
+  const StartupApp({super.key, this.runner, this.externalOverrides = const []});
 
   /// Injectable for lifecycle tests. Production always uses a fresh runner.
   final BootstrapRunner? runner;
+
+  /// External service overrides for real startup lifecycle tests.
+  @visibleForTesting
+  final List<Override> externalOverrides;
 
   @override
   State<StartupApp> createState() => _StartupAppState();
@@ -127,6 +131,7 @@ class _StartupAppState extends State<StartupApp> {
         // graph: nothing built for the previous account survives the switch.
         key: ValueKey(scope.generation),
         overrides: [
+          ...widget.externalOverrides,
           appDatabaseProvider.overrideWithValue(database),
           startupHasLocalDataProvider.overrideWithValue(scope.hasLocalData),
           // MALI-026 (B8-3 §1/§12) — seed the coordinator with the REAL state
@@ -217,64 +222,64 @@ class _DatabaseRecoveryViewState extends State<_DatabaseRecoveryView> {
     // Direction follows the resolved locale — this view is now localized, and
     // a forced RTL would mirror an English layout.
     return Scaffold(
-        backgroundColor: Colors.black,
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(AppLucideIcons.alertCircle,
-                    color: Colors.white70, size: 64),
-                const SizedBox(height: 16),
-                Text(
-                  context.l10n.dbRecoveryTitle,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  context.l10n.dbRecoveryBody,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: Colors.white70, height: 1.5),
-                ),
-                const SizedBox(height: 24),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _resetting ? null : _reset,
-                    // الشاشة دي خلفيتها سودا صريحة تحت ثيم فاتح — زر ink
-                    // الفاتح (أسود) هيختفي عليها، فنقلب الألوان يدويًا.
-                    //
-                    // DESTRUCTIVE, and styled as such. This button deletes the
-                    // user's entire local financial history, and it rendered
-                    // white-on-black: the neutral, default affordance, on the
-                    // only control this screen has. The prototype's
-                    // SHELL-DATABASE-RECOVERY frame draws it red, and the rest
-                    // of the app already reserves red for deletion.
-                    //
-                    // The colour is a literal because this view runs BEFORE the
-                    // database opens, which is before the theme extension that
-                    // carries `danger` is available; it is the same
-                    // 0xFFDC2626 that token holds.
-                    style: FilledButton.styleFrom(
-                      backgroundColor: const Color(0xFFDC2626),
-                      foregroundColor: Colors.white,
-                    ),
-                    child: _resetting
-                        ? const SizedBox(
-                            height: 20,
-                            width: 20,
-                            child: CircularProgressIndicator(strokeWidth: 2))
-                        : Text(context.l10n.dbRecoveryReset),
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(AppLucideIcons.alertCircle,
+                  color: Colors.white70, size: 64),
+              const SizedBox(height: 16),
+              Text(
+                context.l10n.dbRecoveryTitle,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                context.l10n.dbRecoveryBody,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _resetting ? null : _reset,
+                  // الشاشة دي خلفيتها سودا صريحة تحت ثيم فاتح — زر ink
+                  // الفاتح (أسود) هيختفي عليها، فنقلب الألوان يدويًا.
+                  //
+                  // DESTRUCTIVE, and styled as such. This button deletes the
+                  // user's entire local financial history, and it rendered
+                  // white-on-black: the neutral, default affordance, on the
+                  // only control this screen has. The prototype's
+                  // SHELL-DATABASE-RECOVERY frame draws it red, and the rest
+                  // of the app already reserves red for deletion.
+                  //
+                  // The colour is a literal because this view runs BEFORE the
+                  // database opens, which is before the theme extension that
+                  // carries `danger` is available; it is the same
+                  // 0xFFDC2626 that token holds.
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFDC2626),
+                    foregroundColor: Colors.white,
                   ),
+                  child: _resetting
+                      ? const SizedBox(
+                          height: 20,
+                          width: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2))
+                      : Text(context.l10n.dbRecoveryReset),
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
         ),
+      ),
     );
   }
 }

@@ -6,7 +6,9 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
 import '../../core/utils/id_generator.dart';
+import 'creation_policy.dart';
 import 'database_key_store.dart';
+import 'existing_only_sqlite3.dart';
 import 'database_lease.dart';
 import 'database_process_liveness.dart';
 import 'database_seed.dart';
@@ -202,6 +204,13 @@ class AppDatabase extends GeneratedDatabase {
     // WP-3a — which database file/key to open. Null = the legacy shared
     // `money_companion.sqlite` in the app-support directory (today's behaviour).
     ReplicaLocation? location,
+    // F2 — what this open may CREATE (the database file, its directory, its key).
+    // [CreationPolicy.denied] opens the existing file only: a missing database is
+    // refused with [DatabaseCreationNotAuthorizedException] BEFORE any key is read
+    // or minted and without creating any directory. Secondary and launch opens
+    // pass it; only an admission that holds creation authority for the uid
+    // creates, and every layer below re-verifies that authority first.
+    CreationPolicy creation = const CreationPolicy.unrestricted(),
     @visibleForTesting Future<bool> Function()? databaseFileExists,
     @visibleForTesting Future<void> Function(String phase)? debugFailInit,
   }) async {
@@ -211,12 +220,20 @@ class AppDatabase extends GeneratedDatabase {
     final replicaLocation = executor == null
         ? (location ?? await ReplicaLocation.legacy())
         : location;
+    final fileExists =
+        databaseFileExists ?? (() => File(replicaLocation!.dbPath).exists());
+    // A file that is not there can only be CREATED: refuse BEFORE any key read,
+    // key mint or directory creation unless creation is authorized right now.
+    creation.requireCurrent();
+    final createsFile = executor == null && !await fileExists();
+    creation.requireCurrent();
+    if (createsFile) creation.requireMayCreate();
     final resolvedKeyStore = keyStore ??
         SecureDatabaseKeyStore(
-          databaseExists: databaseFileExists ??
-              (() => File(replicaLocation!.dbPath).exists()),
+          databaseExists: fileExists,
           storageKey: replicaLocation?.keyName ??
               SecureDatabaseKeyStore.defaultStorageKey,
+          creation: creation,
         );
     if (executor != null) {
       // In-memory/test path. Only exercise the key-state gate when a test opts
@@ -240,13 +257,17 @@ class AppDatabase extends GeneratedDatabase {
     // encrypted DB already exists but its key is gone, fail with a typed state
     // instead of minting a new key (which would leave the DB unopenable and mask
     // the loss). Never reads a key from Drift/backup, never deletes.
-    await _resolveKeyStateOrThrow(
-      resolvedKeyStore,
-      databaseFileExists ?? (() => File(replicaLocation!.dbPath).exists()),
-    );
+    await _resolveKeyStateOrThrow(resolvedKeyStore, fileExists);
+    creation.requireCurrent();
     final encryptionKey = await resolvedKeyStore.readOrCreateKey();
-    final encryptedConnection =
-        await _openEncryptedConnection(encryptionKey, replicaLocation!);
+    creation.requireCurrent();
+    // Re-verified after the awaits above and before the directory/file is made.
+    if (createsFile) creation.requireMayCreate();
+    final encryptedConnection = await _openEncryptedConnection(
+      encryptionKey,
+      replicaLocation!,
+      createFile: createsFile,
+    );
     final db = AppDatabase._(
       encryptedConnection,
       keyStore: resolvedKeyStore,
@@ -292,7 +313,8 @@ class AppDatabase extends GeneratedDatabase {
     // refused while file-exclusive maintenance intent is active and, once open,
     // maintenance in any isolate waits for it to close. Held for the lifetime;
     // released on close.
-    final lease = leaseManager != null ? await leaseManager.acquireShared() : null;
+    final lease =
+        leaseManager != null ? await leaseManager.acquireShared() : null;
     try {
       // MALI-069n §Blocker-1 point 2 — re-validate immediately before opening the
       // connection (ownership can change between the lease and the open).
@@ -301,8 +323,15 @@ class AppDatabase extends GeneratedDatabase {
           !await ownershipGuard.isCurrent(admissionToken)) {
         throw const StaleOwnershipException();
       }
+      // F2: a secondary open attaches to a database that EXISTS; it never
+      // creates one (nor a key, nor a directory), whatever the file system or
+      // Keychain says.
       final db = await open(
-          keyStore: keyStore, location: location, runMigrations: false);
+        keyStore: keyStore,
+        location: location,
+        runMigrations: false,
+        creation: const CreationPolicy.denied(),
+      );
       db._lease = lease;
       return db;
     } catch (_) {
@@ -334,6 +363,12 @@ class AppDatabase extends GeneratedDatabase {
   /// this process dies.
   static final Map<String, ProcessLivenessHandle> _processLiveness = {};
 
+  /// F2 — forget (and release) the process-liveness handle of a replica that is
+  /// being deleted. Idempotent.
+  static void dropProcessLiveness(ReplicaLocation location) {
+    _processLiveness.remove(location.dbPath)?.release();
+  }
+
   /// MALI-069n §Batch-4-closure-4 — establish PROCESS liveness once at startup
   /// (bootstrap). Takes the process-lifetime OS advisory lock; if this process is
   /// the sole opener (acquired the exclusive lock — Contract B guarantees no
@@ -345,14 +380,23 @@ class AppDatabase extends GeneratedDatabase {
       {ReplicaLocation? location}) async {
     final loc = location ?? await ReplicaLocation.legacy();
     final existing = _processLiveness[loc.dbPath];
-    if (existing != null) return existing;
+    if (existing != null) {
+      // F2: a cached handle whose lock file was deleted with its replica is for
+      // deleted filesystem objects; re-acquire instead of reusing it. A failed
+      // acquisition is not retained proof and must also be retried.
+      if (existing.acquiredExclusive && File(loc.plockPath).existsSync()) {
+        return existing;
+      }
+      existing.release();
+      _processLiveness.remove(loc.dbPath);
+    }
     final liveness = DatabaseProcessLiveness(
       lockPath: loc.plockPath,
       instancePath: loc.instancePath,
     );
     final handle = liveness.acquire();
-    _processLiveness[loc.dbPath] = handle;
     if (handle.acquiredExclusive) {
+      _processLiveness[loc.dbPath] = handle;
       final manager = DatabaseLeaseManager(
         leaseDir: loc.leaseDir,
         intentPath: loc.maintPath,
@@ -424,7 +468,8 @@ class AppDatabase extends GeneratedDatabase {
   ) async {
     final storedKey = await keyStore.readStoredKey();
     final exists = await databaseExists();
-    if (classifyDatabaseKeyState(databaseExists: exists, storedKey: storedKey) ==
+    if (classifyDatabaseKeyState(
+            databaseExists: exists, storedKey: storedKey) ==
         DatabaseKeyState.keyUnavailable) {
       throw const LocalDatabaseKeyUnavailableException();
     }
@@ -775,7 +820,8 @@ class AppDatabase extends GeneratedDatabase {
 
   static Future<bool> _verifyV40ConsentVersions(AppDatabase db) async {
     final names = (await db
-            .customSelect("SELECT name FROM pragma_table_info('user_settings');")
+            .customSelect(
+                "SELECT name FROM pragma_table_info('user_settings');")
             .get())
         .map((r) => r.read<String>('name'))
         .toSet();
@@ -985,10 +1031,14 @@ class AppDatabase extends GeneratedDatabase {
         )
         .get();
     if (tables.length != 2) return false;
-    final cols = await db.customSelect('PRAGMA table_info(remote_coupons);').get();
+    final cols =
+        await db.customSelect('PRAGMA table_info(remote_coupons);').get();
     final names = cols.map((r) => r.read<String>('name')).toSet();
     if (!names.containsAll(const {
-      'merchant_id', 'benefit_type', 'discount_bps', 'benefit_currency',
+      'merchant_id',
+      'benefit_type',
+      'discount_bps',
+      'benefit_currency',
       'verification_state',
     })) {
       return false;
@@ -1254,7 +1304,8 @@ class AppDatabase extends GeneratedDatabase {
       //    — this publishes maintenance intent (refusing new secondaries) and
       //    waits (bounded) for every secondary lease to close.
       if (mode == MaintenanceMode.fileExclusive) {
-        exclusive = await leaseManager!.acquireExclusive(timeout: exclusiveTimeout);
+        exclusive =
+            await leaseManager!.acquireExclusive(timeout: exclusiveTimeout);
       }
       final result = await action();
       _lifecycle = DatabaseLifecycleState.open;
@@ -1375,12 +1426,17 @@ class AppDatabase extends GeneratedDatabase {
   static String? targetTableOf(String sql) =>
       _dmlTargetTable.firstMatch(sql)?.group(1);
 
+  /// Lifecycle race seam: the real transaction remains open while this awaits.
+  @visibleForTesting
+  Future<void> Function(String query)? debugBeforeCustomInsert;
+
   @override
   Future<int> customInsert(
     String query, {
     List<Variable> variables = const [],
     Set<ResultSetImplementation<dynamic, dynamic>>? updates,
   }) async {
+    await debugBeforeCustomInsert?.call(query);
     final result = await super.customInsert(
       query,
       variables: variables,
@@ -1452,11 +1508,20 @@ class AppDatabase extends GeneratedDatabase {
   }
 
   static Future<DatabaseConnection> _openEncryptedConnection(
-      String key, ReplicaLocation location) async {
+    String key,
+    ReplicaLocation location, {
+    required bool createFile,
+  }) async {
     final file = File(location.dbPath);
-    await file.parent.create(recursive: true);
+    // F2: only a creating open makes the directory. An existing-only open uses a
+    // sqlite3 that cannot create the file, and drift only makes the parent
+    // directory when it is missing. ReplicaStore tracks primary opens through
+    // connection initialization; secondary callers hold their shared lease, so
+    // removal cannot delete the parent during the resolver/open interval.
+    if (createFile) await file.parent.create(recursive: true);
     return NativeDatabase.createBackgroundConnection(
       file,
+      sqlite3: databaseResolver(file.absolute.path, createFile: createFile),
       // MALI-046n: the migration pipeline (_runInitialize) is the SOLE owner of
       // `PRAGMA user_version`. With Drift migrations enabled, Drift's version
       // delegate stamps `user_version = schemaVersion` at open — BEFORE the
@@ -2300,8 +2365,10 @@ class AppDatabase extends GeneratedDatabase {
     // overwritten by pull, still visible to the unsynced inventory).
     await _ensureColumn('sender_bank_mappings', 'sync_attempt_count',
         'INTEGER NOT NULL DEFAULT 0');
-    await _ensureColumn('sender_bank_mappings', 'sync_next_retry_at', 'TEXT NULL');
-    await _ensureColumn('sender_bank_mappings', 'sync_failure_class', 'TEXT NULL');
+    await _ensureColumn(
+        'sender_bank_mappings', 'sync_next_retry_at', 'TEXT NULL');
+    await _ensureColumn(
+        'sender_bank_mappings', 'sync_failure_class', 'TEXT NULL');
     await _ensureColumn(
         'sender_bank_mappings', 'sync_permanent', 'INTEGER NOT NULL DEFAULT 0');
     // v16: Phase D — local outbox for push sync.
@@ -2463,8 +2530,8 @@ class AppDatabase extends GeneratedDatabase {
     await _ensureColumn('budgets', 'currency', 'TEXT NULL');
     await _ensureColumn('goals', 'currency', 'TEXT NULL');
     // Durable planning cutover marker: 0 = unresolved (P1), 1 = canonical (P3).
-    await _ensureColumn(
-        'user_settings', 'planning_cutover_state', 'INTEGER NOT NULL DEFAULT 0');
+    await _ensureColumn('user_settings', 'planning_cutover_state',
+        'INTEGER NOT NULL DEFAULT 0');
   }
 
   /// MALI-026 (Phase-8 B8-3 §5/§6/§7/§8/§11) — the v30 money DATA migration,

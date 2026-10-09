@@ -1,12 +1,16 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/account_scope.dart';
+import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/replica_location.dart';
 import 'package:money_companion/data/db/replica_store.dart';
 import 'package:path/path.dart' as p;
+
+import 'recording_secure_storage.dart';
 
 // WP-3b — the account-scope host over real SQLCipher replicas in temp dirs.
 
@@ -18,7 +22,7 @@ void main() {
   late List<String?> initialized;
   String? marker;
 
-  ReplicaStore newStore() => ReplicaStore(
+  ReplicaStore newStore() => ReplicaStore(requireCreationAuthority: false, 
         appSupportDirectory: support.path,
         readOwnerMarker: () async => marker,
       );
@@ -205,7 +209,7 @@ void main() {
     await makeLegacy();
     marker = 'uid-owner';
     // Wipe the legacy key: adoption cannot read it and fails, file untouched.
-    final failing = ReplicaStore(
+    final failing = ReplicaStore(requireCreationAuthority: false, 
       appSupportDirectory: support.path,
       readOwnerMarker: () async => marker,
       debugAfterAdoptionStep: (step) async {
@@ -276,5 +280,137 @@ void main() {
     expect(seen.last, 'signed-out');
     expect(host.swapInProgress, isFalse);
     host.dispose();
+  });
+
+  // ---------------------------------------------------------------- F2 ------
+  group('F2: launch opens what exists; activation honors a revoked authority',
+      () {
+    late RecordingSecureStorage rec;
+
+    ReplicaStore strict() => ReplicaStore(appSupportDirectory: support.path);
+
+    Future<List<String>> artifacts(ReplicaStore s, String uid) async {
+      final h = await s.uidHash(uid);
+      return [
+        if (Directory(p.join(support.path, 'replicas', h)).existsSync()) 'dir',
+        if (rec.data.containsKey('qirsh.db_key.$h')) 'key',
+        if ((await s.list()).any((e) => e.uidHash == h)) 'registry',
+      ];
+    }
+
+    setUp(() => rec = RecordingSecureStorage().install());
+
+    test('a launch for a stale owner marker with NO registry entry, file or '
+        'key opens the signed-out scope and creates nothing', () async {
+      final s = strict();
+      final host = newHost(s);
+      await s.uidHash('uid-gone'); // device salt only
+      final before = rec.attempts.length;
+
+      final scope = await host.openAtLaunch('uid-gone');
+
+      expect(scope.uid, isNull);
+      expect(rec.attempts.skip(before), isEmpty);
+      expect(await artifacts(s, 'uid-gone'), isEmpty);
+      host.dispose();
+    });
+
+    test('an activation with a revoked authority changes nothing: the active '
+        'uid stays active and unlocked, the target gets no replica', () async {
+      final s = strict();
+      final host = newHost(s);
+      await host.activate('uid-a',
+          authority: const AdmissionAuthority.forTest('uid-a'));
+      var live = true;
+      final authorityB = AdmissionAuthority('uid-b', () => live, canCreate: true);
+      live = false;
+      final before = rec.attempts.length;
+
+      await expectLater(host.activate('uid-b', authority: authorityB),
+          throwsA(isA<StaleAdmissionException>()));
+
+      expect(host.current!.uid, 'uid-a');
+      expect(rec.attempts.skip(before), isEmpty, reason: 'no lock, no write');
+      expect((await s.list()).single.state, ReplicaState.active);
+      expect(await artifacts(s, 'uid-b'), isEmpty);
+      await host.lock();
+      host.dispose();
+    });
+
+    test('an authority revoked WHILE the replica opens and initializes never '
+        'publishes; the opened handle is closed', () async {
+      final reached = Completer<void>();
+      final proceed = Completer<void>();
+      final s = strict();
+      final host = AccountScopeHost(
+        store: s,
+        initialize: (db, uid) async {
+          if (uid == null) return const AccountScopeInit();
+          reached.complete();
+          await proceed.future;
+          return const AccountScopeInit();
+        },
+      );
+      var live = true;
+      final authority = AdmissionAuthority('uid-a', () => live, canCreate: true);
+      final activation = host.activate('uid-a', authority: authority);
+      final outcome =
+          expectLater(activation, throwsA(isA<StaleAdmissionException>()));
+      await reached.future;
+      live = false; // Remove data accepted
+      proceed.complete();
+      await outcome;
+
+      expect(host.current!.uid, isNull, reason: 'only the signed-out scope');
+      host.dispose();
+    });
+
+    test('a queued activation is checked when its turn STARTS, not when it was '
+        'queued', () async {
+      final reached = Completer<void>();
+      final proceed = Completer<void>();
+      final s = strict();
+      var first = true;
+      final host = AccountScopeHost(
+        store: s,
+        initialize: (db, uid) async {
+          if (first) {
+            first = false;
+            reached.complete();
+            await proceed.future;
+          }
+          return const AccountScopeInit();
+        },
+      );
+      final holding = host.activate('uid-a',
+          authority: const AdmissionAuthority.forTest('uid-a'));
+      await reached.future;
+      var live = true;
+      final queued = host.activate('uid-b',
+          authority: AdmissionAuthority('uid-b', () => live, canCreate: true));
+      final outcome =
+          expectLater(queued, throwsA(isA<StaleAdmissionException>()));
+      live = false;
+      proceed.complete();
+      await holding;
+      await outcome;
+      expect(await artifacts(s, 'uid-b'), isEmpty);
+      expect(host.current!.uid, 'uid-a');
+      await host.lock();
+      host.dispose();
+    });
+
+    test('an open-existing authority (automatic reconcile) cannot create',
+        () async {
+      final s = strict();
+      final host = newHost(s);
+      await expectLater(
+          host.activate('uid-a',
+              authority: const AdmissionAuthority.forTest('uid-a',
+                  canCreate: false)),
+          throwsA(isA<ReplicaMissingException>()));
+      expect(await artifacts(s, 'uid-a'), isEmpty);
+      host.dispose();
+    });
   });
 }

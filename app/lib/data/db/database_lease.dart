@@ -34,7 +34,7 @@ import 'dart:math';
 class DatabaseLeaseUnavailable implements Exception {
   const DatabaseLeaseUnavailable(this.reason);
 
-  /// 'maintenance_in_progress' | 'timeout' — no secrets.
+  /// 'maintenance_in_progress' | 'timeout' | 'replica_missing' — no secrets.
   final String reason;
 
   @override
@@ -44,7 +44,8 @@ class DatabaseLeaseUnavailable implements Exception {
 /// A held database-use lease. Always [release] it in a `finally`; that removes the
 /// record (only if its fencing token still matches).
 class DatabaseFileLease {
-  DatabaseFileLease._(this._file, this.isExclusive, this.token, this._onRelease);
+  DatabaseFileLease._(
+      this._file, this.isExclusive, this.token, this._onRelease);
 
   final File _file;
   final bool isExclusive;
@@ -190,10 +191,19 @@ class DatabaseLeaseManager {
       throw const DatabaseLeaseUnavailable('maintenance_in_progress');
     }
     if (afterPrecheck != null) await afterPrecheck();
-    Directory(leaseDir).createSync(recursive: true);
+    // F2: only the lease directory itself is created, never its parents. The
+    // replica directory is the parent: when Remove data deleted it, a late
+    // secondary is refused here instead of recreating the replica's directory.
+    final leases = Directory(leaseDir);
+    if (!leases.existsSync()) {
+      try {
+        leases.createSync();
+      } on FileSystemException {
+        throw const DatabaseLeaseUnavailable('replica_missing');
+      }
+    }
     final token = _randomToken();
-    final path =
-        '$leaseDir/${ownerPid}_${_seq++}_${_randomToken()}.lease';
+    final path = '$leaseDir/${ownerPid}_${_seq++}_${_randomToken()}.lease';
     _writeRecordAtomic(path, _LeaseRecord(token, ownerPid, instanceToken));
     if (afterCreate != null) await afterCreate();
     if (_intentPresent()) {
@@ -255,7 +265,8 @@ class DatabaseLeaseManager {
     while (true) {
       try {
         f.createSync(exclusive: true); // O_EXCL — existence = intent present
-        _writeRecordAtomic(intentPath, _LeaseRecord(token, ownerPid, instanceToken));
+        _writeRecordAtomic(
+            intentPath, _LeaseRecord(token, ownerPid, instanceToken));
         return token;
       } on FileSystemException {
         if (DateTime.now().isAfter(deadline)) {
@@ -269,9 +280,10 @@ class DatabaseLeaseManager {
   /// STALE-FILE RECOVERY, run ONLY at process start while the caller holds the
   /// process-lifetime OS advisory lock (proof no other process is opening the DB).
   /// Clears lease/intent records that belong to an ENDED instance — identified by a
-  /// different owner pid (pids are unique among live processes) or unparseable
-  /// content (a leftover from a crashed write). Records tagged with the CURRENT pid
-  /// (a live same-process isolate) are left untouched. Returns the count cleared.
+  /// different owner pid (pids are unique among live processes). Unknown records
+  /// and records tagged with the CURRENT pid are preserved. PID reuse can leave
+  /// maintenance blocked until the bounded timeout; uncertainty never permits
+  /// deleting a live same-process isolate's lease. Returns the count cleared.
   int recoverEndedInstances() {
     var cleared = 0;
     // Intent.
@@ -301,18 +313,19 @@ class DatabaseLeaseManager {
   bool _belongsToEndedInstance(File f) {
     try {
       final rec = _LeaseRecord.tryParse(f.readAsStringSync());
-      // Unparseable/partial leftover under the exclusive process lock → ended.
-      if (rec == null) return true;
-      // Keyed by the random per-process-INSTANCE TOKEN, never by PID: pids are
-      // reused across process lifetimes, so PID equality is NOT liveness or
-      // ownership proof (a fresh process can inherit a dead one's pid). A record
-      // carrying THIS instance's token is live and is NEVER removed; any other
-      // token belongs to an ended instance — and recovery runs only while the
-      // caller holds the exclusive process lock, which is what proves the prior
-      // instance ended.
-      return rec.instance != instanceToken;
+      // Isolates have separate token caches while sharing one OS process.
+      // A differing token is therefore not proof of death. Preserve current-PID
+      // and unknown records even under the process lock; PID reuse can block
+      // maintenance, which is safer than deleting a live isolate's lease.
+      if (rec == null ||
+          rec.pid == null ||
+          rec.token.isEmpty ||
+          rec.instance.isEmpty) {
+        return false;
+      }
+      return rec.pid != ownerPid;
     } catch (_) {
-      return true;
+      return false;
     }
   }
 

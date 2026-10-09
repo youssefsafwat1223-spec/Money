@@ -8,6 +8,7 @@ import '../../data/sync/seq_pull.dart';
 import '../../data/sync/server_capabilities.dart';
 import '../../data/sync/sync_cursor.dart';
 import 'account_scope.dart';
+import 'admission_authority.dart';
 import 'replica_recovery.dart';
 
 /// WP-7 — process-wide freeze while a replica is being rebootstrapped (§4.10).
@@ -64,18 +65,20 @@ class RebootstrapService {
     required Future<void> Function(AppDatabase fresh, String uid) bootstrapFresh,
     required LedgerServerLookup lookup,
     required Future<void> Function(String uid) removeData,
-    Future<void> Function(String uid)? readmit,
+    Future<void> Function(String uid, AdmissionAuthority? authority)? readmit,
+    Future<AdmissionAuthority> Function(String uid)? maintenanceAuthority,
     ReplicaFreeze? freeze,
     Future<void> Function(String phase)? debugAfterPhase,
-  })  : _store = store,
-        _capture = capture,
-        _scope = scope,
-        _bootstrapFresh = bootstrapFresh,
-        _lookup = lookup,
-        _removeData = removeData,
-        _readmit = readmit,
-        _freeze = freeze ?? ReplicaFreeze.instance,
-        _debug = debugAfterPhase;
+  }) : _store = store,
+       _capture = capture,
+       _scope = scope,
+       _bootstrapFresh = bootstrapFresh,
+       _lookup = lookup,
+       _removeData = removeData,
+       _readmit = readmit,
+       _maintenance = maintenanceAuthority,
+       _freeze = freeze ?? ReplicaFreeze.instance,
+       _debug = debugAfterPhase;
 
   final ReplicaStore _store;
   final RebootstrapCaptureControl _capture;
@@ -83,7 +86,13 @@ class RebootstrapService {
   final Future<void> Function(AppDatabase fresh, String uid) _bootstrapFresh;
   final LedgerServerLookup _lookup;
   final Future<void> Function(String uid) _removeData;
-  final Future<void> Function(String uid)? _readmit;
+  final Future<void> Function(String uid, AdmissionAuthority? authority)?
+  _readmit;
+
+  /// F2: yields the authority this rebootstrap runs under. Every open, staging
+  /// creation, activation and the purge re-admission re-checks it, so an explicit
+  /// Remove data accepted meanwhile (which revokes it) stops all of them.
+  final Future<AdmissionAuthority> Function(String uid)? _maintenance;
   final ReplicaFreeze _freeze;
   final Future<void> Function(String phase)? _debug;
 
@@ -108,13 +117,33 @@ class RebootstrapService {
       }
       marker = await _store.rebootstrapMarker(uid);
     }
+    AdmissionAuthority? authority;
+    try {
+      authority = await _maintenance?.call(uid);
+    } on StaleAdmissionException {
+      // The uid's data was explicitly removed: nothing to recover or re-admit.
+      return RebootstrapOutcome.notNeeded;
+    }
     _freeze.freeze();
     await _capture.hold();
     await _tick('frozen');
     try {
       return marker!.reason == 'purge'
-          ? await _purge(uid)
-          : await _recover(uid, marker.phase, swapping: marker.swapping);
+          ? await _purge(uid, authority)
+          : await _recover(
+              uid,
+              marker.phase,
+              authority,
+              swapping: marker.swapping,
+            );
+    } on StaleAdmissionException {
+      // An explicit Remove data revoked this rebootstrap mid-way. It is not
+      // resumed and nothing is re-admitted; release what it froze.
+      try {
+        await _capture.resume(const {});
+      } catch (_) {}
+      _freeze.thaw();
+      return RebootstrapOutcome.notNeeded;
     } on RecoveryIncompleteException {
       return RebootstrapOutcome.blocked;
     } catch (_) {
@@ -125,20 +154,32 @@ class RebootstrapService {
   /// §4.10 `epoch_reason = purge`: no replay, receipts dropped (they live in the
   /// replica being deleted), native capture items of the uid removed by the §4.4
   /// sweep, old replica discarded.
-  Future<RebootstrapOutcome> _purge(String uid) async {
+  Future<RebootstrapOutcome> _purge(
+    String uid,
+    AdmissionAuthority? authority,
+  ) async {
+    authority?.requireCurrent();
     await _removeData(uid);
     await _capture.resume(const {});
     _freeze.thaw();
-    await _readmit?.call(uid);
+    // The re-admission is the one thing that may recreate the purged replica;
+    // it carries the maintenance authority and is skipped once that is revoked.
+    authority?.requireCurrent();
+    await _readmit?.call(uid, authority);
     return RebootstrapOutcome.purged;
   }
 
-  Future<RebootstrapOutcome> _recover(String uid, RebootstrapPhase from,
-      {bool swapping = false}) async {
+  Future<RebootstrapOutcome> _recover(
+    String uid,
+    RebootstrapPhase from,
+    AdmissionAuthority? authority, {
+    bool swapping = false,
+  }) async {
     var phase = from;
     if (swapping) {
       // A crash inside the swap: only the (idempotent) file moves are left.
-      await _store.swapStaging(uid);
+      authority?.requireCurrent();
+      await _store.swapStaging(uid, authority: authority);
       phase = RebootstrapPhase.swapped;
     }
     Future<void> done(RebootstrapPhase p) async {
@@ -151,7 +192,8 @@ class RebootstrapService {
         ReplicaRecovery(old: old, fresh: fresh, lookup: _lookup);
 
     while (phase.index < RebootstrapPhase.swapped.index) {
-      final old = await _store.openReplica(uid);
+      authority?.requireCurrent();
+      final old = await _store.openReplica(uid, authority: authority);
       switch (phase) {
         case RebootstrapPhase.frozen:
           // Extraction checkpoint: the live replica must be readable and sound.
@@ -162,44 +204,62 @@ class RebootstrapService {
           }
           await done(RebootstrapPhase.extracted);
         case RebootstrapPhase.extracted:
-          final fresh = await _store.openStaging(uid);
+          final fresh = await _store.openStaging(uid, authority: authority);
           await recovery(old, fresh).seedDeviceLocalState();
           await _bootstrapFresh(fresh, uid);
           await done(RebootstrapPhase.freshBootstrapped);
         case RebootstrapPhase.freshBootstrapped:
-          await recovery(old, await _store.openStaging(uid)).recoverReceipts();
+          await recovery(
+            old,
+            await _store.openStaging(uid, authority: authority),
+          ).recoverReceipts();
           await done(RebootstrapPhase.receiptsRecovered);
         case RebootstrapPhase.receiptsRecovered:
-          await recovery(old, await _store.openStaging(uid)).mergeRows();
+          await recovery(
+            old,
+            await _store.openStaging(uid, authority: authority),
+          ).mergeRows();
           await done(RebootstrapPhase.pulledMerged);
         case RebootstrapPhase.pulledMerged:
-          await recovery(old, await _store.openStaging(uid)).recoverOutbox();
+          await recovery(
+            old,
+            await _store.openStaging(uid, authority: authority),
+          ).recoverOutbox();
           await done(RebootstrapPhase.outboxRecovered);
         case RebootstrapPhase.outboxRecovered:
-          await recovery(old, await _store.openStaging(uid)).mergeConflicts();
+          await recovery(
+            old,
+            await _store.openStaging(uid, authority: authority),
+          ).mergeConflicts();
           await done(RebootstrapPhase.conflictsMerged);
         case RebootstrapPhase.conflictsMerged:
           // No more local writes: withdraw the scope, then re-run the (idempotent)
           // recovery for whatever the user did meanwhile, verify, and swap.
           // The root shows "Updating your data…" meanwhile, never the signed-out
           // routes (no scope is published until the swap committed).
+          authority?.requireCurrent();
           await _scope.suspendForSwap();
           try {
-            final closedOld = await _store.openReplica(uid);
-            final fresh = await _store.openStaging(uid);
+            authority?.requireCurrent();
+            final closedOld = await _store.openReplica(
+              uid,
+              authority: authority,
+            );
+            final fresh = await _store.openStaging(uid, authority: authority);
             final r = recovery(closedOld, fresh);
             await r.recoverReceipts();
             await r.mergeRows();
             await r.recoverOutbox();
             await r.mergeConflicts();
             await r.verify();
-            await _store.swapStaging(uid);
+            authority?.requireCurrent();
+            await _store.swapStaging(uid, authority: authority);
           } catch (_) {
             // Not swapped: put the account back on whatever replica is live, and
             // fall back to the signed-out scope only if even that is impossible,
             // so the root never stays on the loading state.
             try {
-              await _scope.activate(uid);
+              await _scope.activate(uid, authority: authority);
             } catch (_) {
               await _scope.detach();
             }
@@ -214,8 +274,9 @@ class RebootstrapService {
 
     // swapped committed: reopen the account on the new replica, then let
     // capture resume. Only deferred ids whose receipt is in it cross the barrier.
-    await _scope.activate(uid);
-    final committed = await _deferredWithReceipt(uid);
+    authority?.requireCurrent();
+    await _scope.activate(uid, authority: authority);
+    final committed = await _deferredWithReceipt(uid, authority);
     await _capture.resume(committed);
     await _store.advanceRebootstrap(uid, RebootstrapPhase.captureResumed);
     _freeze.thaw();
@@ -223,10 +284,13 @@ class RebootstrapService {
     return RebootstrapOutcome.completed;
   }
 
-  Future<Set<String>> _deferredWithReceipt(String uid) async {
+  Future<Set<String>> _deferredWithReceipt(
+    String uid,
+    AdmissionAuthority? authority,
+  ) async {
     final ids = _capture.deferredCaptureIds;
     if (ids.isEmpty) return const {};
-    final db = await _store.openReplica(uid);
+    final db = await _store.openReplica(uid, authority: authority);
     final out = <String>{};
     for (final id in ids) {
       final row = await db.customSelect(

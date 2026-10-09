@@ -9,8 +9,11 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../../core/security/secure_storage_options.dart';
+import '../../core/session/admission_authority.dart';
 import 'app_database.dart';
+import 'creation_policy.dart';
 import 'database_key_store.dart';
+import 'database_lease.dart';
 import 'replica_location.dart';
 
 /// WP-3a — the per-UID encrypted replica CORE (storage layer only).
@@ -84,7 +87,8 @@ class RebootstrapMarker {
         if (swapping) 'swapping': true,
       };
 
-  static RebootstrapMarker fromJson(Map<String, Object?> j) => RebootstrapMarker(
+  static RebootstrapMarker fromJson(Map<String, Object?> j) =>
+      RebootstrapMarker(
         phase: RebootstrapPhase.fromWire(j['phase']! as String),
         reason: j['reason']! as String,
         startedAt: DateTime.parse(j['startedAt']! as String),
@@ -168,7 +172,8 @@ class ReplicaEntry {
         if (legacyAdoptedAt != null)
           'legacyAdoptedAt': legacyAdoptedAt!.toUtc().toIso8601String(),
         if (rebootstrap != null) 'rebootstrap': rebootstrap!.toJson(),
-        if (retiredAt != null) 'retiredAt': retiredAt!.toUtc().toIso8601String(),
+        if (retiredAt != null)
+          'retiredAt': retiredAt!.toUtc().toIso8601String(),
       };
 
   static ReplicaEntry fromJson(String uidHash, Map<String, Object?> j) =>
@@ -208,6 +213,17 @@ class ReplicaUnavailableException implements Exception {
   final ReplicaState state;
   @override
   String toString() => 'ReplicaUnavailableException(${state.name})';
+}
+
+/// F2 — the replica does not exist and the caller holds no creation authority
+/// (cold launch, rebootstrap re-open, automatic reconcile, revoked authority). A
+/// missing registry entry, file or key never authorizes creation. Nothing was
+/// written. Carries no uid.
+class ReplicaMissingException implements Exception {
+  const ReplicaMissingException();
+  @override
+  String toString() => 'ReplicaMissingException: replica does not exist and '
+      'creation is not authorized.';
 }
 
 /// Result of [ReplicaStore.adoptLegacyIfPresent].
@@ -257,6 +273,7 @@ const List<String> kSwapSteps = [
 typedef ReplicaOpener = Future<AppDatabase> Function({
   ReplicaLocation? location,
   bool runMigrations,
+  CreationPolicy creation,
 });
 
 class ReplicaStore {
@@ -267,6 +284,8 @@ class ReplicaStore {
     ReplicaOpener? opener,
     Future<String?> Function()? readOwnerMarker,
     Future<void> Function(String step)? debugAfterAdoptionStep,
+    this.requireCreationAuthority = true,
+    this.removalDrainTimeout = const Duration(seconds: 10),
   })  : _storage = storage ?? SecureStorageOptions.storage,
         _appSupport = appSupportDirectory,
         _now = now ?? DateTime.now,
@@ -295,6 +314,16 @@ class ReplicaStore {
   static const String stagingSuffix = '.rb';
   static const String retiredSuffix = '.old';
 
+  /// F2 — creating a replica (database file + key + registry entry) needs a
+  /// current [AdmissionAuthority] with `canCreate`. False only for storage-layer
+  /// tests that predate the admission authority and create replicas directly.
+  final bool requireCreationAuthority;
+
+  /// F2 — how long [remove] waits for secondary (background-isolate) connections
+  /// to release their shared leases before it gives up. A timeout deletes
+  /// NOTHING and fails the removal (its barrier is kept and resumes later).
+  final Duration removalDrainTimeout;
+
   final FlutterSecureStorage _storage;
   final String? _appSupport;
   final DateTime Function() _now;
@@ -304,6 +333,17 @@ class ReplicaStore {
 
   final Map<String, AppDatabase> _open = {};
   final Map<String, AppDatabase> _staging = {};
+
+  /// F2 — opens already dispatched per uid hash. [remove] drains them before the
+  /// destructive step, so an open that passed its last authority check cannot
+  /// finish AFTER the deletion and recreate the replica or its key.
+  final Map<String, Set<Future<void>>> _opening = {};
+
+  /// F2 — uid hashes whose replica is being removed. From the instant [remove]
+  /// starts, every open, staging creation and swap for that hash is refused, and
+  /// a retained swap stops at its next mutation boundary. Cleared when the
+  /// removal finishes (an explicit re-admission may then create the replica).
+  final Set<String> _removing = {};
   Future<void> _tail = Future.value();
   Future<String>? _saltFuture;
 
@@ -374,15 +414,18 @@ class ReplicaStore {
 
   /// Serialised read-modify-write of one entry (null result removes it).
   Future<void> _mutate(
-      String hash, ReplicaEntry? Function(ReplicaEntry? current) f) {
+      String hash, ReplicaEntry? Function(ReplicaEntry? current) f,
+      {void Function()? guard}) {
     final run = _tail.then((_) async {
       final reg = await _readRegistry();
+      guard?.call();
       final next = f(reg[hash]);
       if (next == null) {
         reg.remove(hash);
       } else {
         reg[hash] = next;
       }
+      guard?.call();
       await _writeRegistry(reg);
     });
     _tail = run.then<void>((_) {}, onError: (Object _) {});
@@ -395,73 +438,182 @@ class ReplicaStore {
 
   /// Marks the replica `locked` (signed out; refuses open) or `active`.
   /// Returns false when no entry exists.
-  Future<bool> setState(String uid, ReplicaState state) async {
+  Future<bool> setState(String uid, ReplicaState state,
+      {AdmissionAuthority? authority}) async {
+    authority?.requireFor(uid);
     final hash = await uidHash(uid);
+    void guard() {
+      authority?.requireFor(uid);
+      if (authority != null) _requireNotRemoving(hash);
+    }
+
+    guard();
     var found = false;
     await _mutate(hash, (c) {
       if (c == null) return null;
       found = true;
       return c.copyWith(state: state);
-    });
+    }, guard: guard);
     return found;
   }
 
   // -------------------------------------------------------------- open/close
 
-  /// Opens (creating on first use) the replica of [uid].
+  /// Opens the replica of [uid].
+  ///
+  /// F2: CREATING a replica needs [authority] (current, `canCreate`); without it
+  /// a missing database fails with [ReplicaMissingException] before any file,
+  /// key or registry entry is written. An existing replica opens with or without
+  /// authority, but a supplied authority is re-checked before every effect.
   ///
   /// Fails closed with [ReplicaUnavailableException] for `locked`/`migrating`/
   /// `quarantined` entries (call [setState] with `active` first once the session
   /// has authenticated), and with [ReplicaOwnershipException] when the file's
   /// `replica_meta.owner_uid` is absent or not [uid]. At most one open handle per
   /// uid is kept: a second call returns the already-open database.
-  Future<AppDatabase> openReplica(String uid) async {
+  Future<AppDatabase> openReplica(
+    String uid, {
+    AdmissionAuthority? authority,
+  }) async {
     if (uid.isEmpty || uid.startsWith(_transitionPrefix)) {
       throw const ReplicaOwnershipException();
     }
+    authority?.requireFor(uid);
     final hash = await uidHash(uid);
+    _requireNotRemoving(hash);
+    // Re-checked after the await, so a cached handle is never returned to an
+    // authority that was revoked while the salt was read.
+    authority?.requireFor(uid);
     final already = _open[hash];
-    if (already != null && already.lifecycleState == DatabaseLifecycleState.open) {
+    if (already != null &&
+        already.lifecycleState == DatabaseLifecycleState.open) {
       return already;
     }
+    var openedHere = false;
+    final db = await _track(hash, () async {
+      final opened = await _openReplicaChecked(uid, hash, authority);
+      openedHere = true;
+      return opened;
+    });
+    if (authority != null && !authority.isCurrent) {
+      // Revoked between the last check inside the open and this continuation: the
+      // handle this call opened is not handed out.
+      if (openedHere && identical(_open[hash], db)) {
+        _open.remove(hash);
+        await db.close();
+      }
+      throw const StaleAdmissionException();
+    }
+    return db;
+  }
 
+  Future<AppDatabase> _openReplicaChecked(
+    String uid,
+    String hash,
+    AdmissionAuthority? authority,
+  ) async {
     final entry = (await _readRegistry())[hash];
     if (entry != null && entry.state != ReplicaState.active) {
       throw ReplicaUnavailableException(entry.state);
     }
+    authority?.requireFor(uid);
+    if (entry == null &&
+        requireCreationAuthority &&
+        (authority == null || !authority.canCreate)) {
+      throw const ReplicaMissingException();
+    }
     final loc = await _location(hash);
     final existed = await File(loc.dbPath).exists();
-    final db = await _opener(location: loc, runMigrations: true);
+    _requireNotRemoving(hash);
+    final policy = _creationPolicy(uid, existed, authority);
+    final db = await _opener(
+      location: loc,
+      runMigrations: true,
+      creation: policy,
+    );
     try {
       final owner = await _readMeta(db);
       if (owner == null && !existed) {
+        authority?.requireFor(uid);
         await _writeMeta(db, uid);
       } else if (owner != uid) {
         throw const ReplicaOwnershipException();
       }
+      authority?.requireFor(uid);
+      _requireNotRemoving(hash);
       final now = _now();
       final version = await _userVersion(db);
       await _mutate(
         hash,
-        (c) =>
-            c?.copyWith(
+        (c) {
+          if (c == null &&
+              requireCreationAuthority &&
+              (authority == null || !authority.canCreate)) {
+            throw const ReplicaMissingException();
+          }
+          return c?.copyWith(
+                  lastOpenedAt: now,
+                  schemaVersion: version,
+                  state: ReplicaState.active) ??
+              ReplicaEntry(
+                uidHash: hash,
+                createdAt: now,
                 lastOpenedAt: now,
                 schemaVersion: version,
-                state: ReplicaState.active) ??
-            ReplicaEntry(
-              uidHash: hash,
-              createdAt: now,
-              lastOpenedAt: now,
-              schemaVersion: version,
-              epoch: 0,
-              state: ReplicaState.active,
-            ),
+                epoch: 0,
+                state: ReplicaState.active,
+              );
+        },
+        guard: () {
+          authority?.requireFor(uid);
+          _requireNotRemoving(hash);
+        },
       );
+      authority?.requireFor(uid);
+      _requireNotRemoving(hash);
     } catch (_) {
       await db.close();
       rethrow;
     }
     return _open[hash] = db;
+  }
+
+  /// What the open of [uid]'s replica may create. A missing registry entry, file
+  /// or key is never permission: only a current authority of exactly this uid
+  /// that may create is (or a storage-layer test that predates the authority).
+  CreationPolicy _creationPolicy(
+    String uid,
+    bool existed,
+    AdmissionAuthority? authority,
+  ) {
+    authority?.requireFor(uid);
+    if (existed) return CreationPolicy.denied(authority: authority, uid: uid);
+    if (authority != null) {
+      if (!authority.canCreate) throw const ReplicaMissingException();
+      return CreationPolicy.authorized(authority, uid);
+    }
+    if (!requireCreationAuthority) return const CreationPolicy.unrestricted();
+    throw const ReplicaMissingException();
+  }
+
+  void _requireNotRemoving(String hash) {
+    if (_removing.contains(hash)) throw const StaleAdmissionException();
+  }
+
+  Future<T> _track<T>(String hash, Future<T> Function() open) {
+    final run = open();
+    final done = run.then<void>((_) {}, onError: (Object _) {});
+    (_opening[hash] ??= {}).add(done);
+    done.whenComplete(() => _opening[hash]?.remove(done));
+    return run;
+  }
+
+  Future<void> _drainOpens(String hash) async {
+    while (true) {
+      final pending = _opening[hash];
+      if (pending == null || pending.isEmpty) return;
+      await Future.wait(pending.toList());
+    }
   }
 
   /// The pre-WP-3a shared database location (for the failed-adoption fallback).
@@ -481,7 +633,9 @@ class ReplicaStore {
   /// legacy file in place and in use").
   Future<ReplicaLocation?> activeLocation() async {
     final marker = await _marker();
-    if (marker == null || marker.isEmpty || marker.startsWith(_transitionPrefix)) {
+    if (marker == null ||
+        marker.isEmpty ||
+        marker.startsWith(_transitionPrefix)) {
       return null;
     }
     final hash = await uidHash(marker);
@@ -597,35 +751,52 @@ class ReplicaStore {
   /// the live one: `replicas/<hash>.rb/` with its own key. It is owned by [uid]
   /// (asserted like [openReplica]), never registered as the replica, and never
   /// reachable by [activeLocation] / [openReplica] until [swapStaging].
-  Future<AppDatabase> openStaging(String uid) async {
+  Future<AppDatabase> openStaging(
+    String uid, {
+    AdmissionAuthority? authority,
+  }) async {
     if (uid.isEmpty || uid.startsWith(_transitionPrefix)) {
       throw const ReplicaOwnershipException();
     }
+    authority?.requireFor(uid);
     final hash = await uidHash(uid);
+    _requireNotRemoving(hash);
+    authority?.requireFor(uid);
     final already = _staging[hash];
     if (already != null &&
         already.lifecycleState == DatabaseLifecycleState.open) {
       return already;
     }
-    final loc = ReplicaLocation(
-      directory: p.join(await _replicasRoot(), '$hash$stagingSuffix'),
-      dbFileName: dbFileName,
-      keyName: '$keyNamePrefix$hash$stagingSuffix',
-    );
-    final existed = await File(loc.dbPath).exists();
-    final db = await _opener(location: loc, runMigrations: true);
-    try {
-      final owner = await _readMeta(db);
-      if (owner == null && !existed) {
-        await _writeMeta(db, uid);
-      } else if (owner != uid) {
-        throw const ReplicaOwnershipException();
+    return _track(hash, () async {
+      final loc = ReplicaLocation(
+        directory: p.join(await _replicasRoot(), '$hash$stagingSuffix'),
+        dbFileName: dbFileName,
+        keyName: '$keyNamePrefix$hash$stagingSuffix',
+      );
+      final existed = await File(loc.dbPath).exists();
+      _requireNotRemoving(hash);
+      final policy = _creationPolicy(uid, existed, authority);
+      final db = await _opener(
+        location: loc,
+        runMigrations: true,
+        creation: policy,
+      );
+      try {
+        final owner = await _readMeta(db);
+        if (owner == null && !existed) {
+          authority?.requireFor(uid);
+          await _writeMeta(db, uid);
+        } else if (owner != uid) {
+          throw const ReplicaOwnershipException();
+        }
+        authority?.requireFor(uid);
+        _requireNotRemoving(hash);
+      } catch (_) {
+        await db.close();
+        rethrow;
       }
-    } catch (_) {
-      await db.close();
-      rethrow;
-    }
-    return _staging[hash] = db;
+      return _staging[hash] = db;
+    });
   }
 
   /// Deletes the fresh replica (directory and key) of an abandoned rebootstrap.
@@ -643,10 +814,37 @@ class ReplicaStore {
   /// decided from what is on disk, so a crash after any of [kSwapSteps] is
   /// finished by calling this again. Open handles are closed first; the caller
   /// reopens the replica through the account scope afterwards.
-  Future<void> swapStaging(String uid) async {
+  ///
+  /// F2: the swap shares [remove]'s exclusion. It is tracked like an open (so a
+  /// removal waits for it instead of racing it) and it re-verifies [authority]
+  /// and the removal flag immediately before EVERY mutation — each file move and
+  /// each key write — so a removal accepted while it is paused stops it at its
+  /// next boundary with a [StaleAdmissionException], and no key write or move
+  /// lands after the removal.
+  Future<void> swapStaging(
+    String uid, {
+    AdmissionAuthority? authority,
+  }) async {
+    authority?.requireFor(uid);
     final hash = await uidHash(uid);
+    _requireNotRemoving(hash);
+    authority?.requireFor(uid);
+    return _track(hash, () => _swap(uid, hash, authority));
+  }
+
+  Future<void> _swap(
+    String uid,
+    String hash,
+    AdmissionAuthority? authority,
+  ) async {
+    void guard() {
+      _requireNotRemoving(hash);
+      authority?.requireFor(uid);
+    }
+
     await closeReplica(uid);
     await _staging.remove(hash)?.close();
+    guard();
     await _mutate(hash, (c) {
       final m = c?.rebootstrap;
       if (c == null || m == null) return c;
@@ -656,7 +854,8 @@ class ReplicaStore {
               reason: m.reason,
               startedAt: m.startedAt,
               swapping: true));
-    });
+    }, guard: guard);
+    guard();
     final root = await _replicasRoot();
     final main = Directory(p.join(root, hash));
     final fresh = Directory(p.join(root, '$hash$stagingSuffix'));
@@ -669,11 +868,18 @@ class ReplicaStore {
     // retained replica is superseded.
     if (await main.exists() && await fresh.exists()) {
       await _step('swap:beforeOldMoved');
-      if (await old.exists()) await old.delete(recursive: true);
+      guard();
+      if (await old.exists()) {
+        guard();
+        await old.delete(recursive: true);
+      }
+      guard();
       await _storage.delete(key: oldKey);
+      guard();
       await main.rename(old.path);
       await _step('swap:afterOldMoved');
     }
+    guard();
     // B: the live replica is retired but its key is not yet kept under the old
     // name (the live key still is the old replica's: it is only replaced in E).
     if (!await main.exists() && await old.exists()) {
@@ -681,29 +887,37 @@ class ReplicaStore {
       if (existing == null || existing.isEmpty) {
         final k = await _storage.read(key: key);
         if (k != null && k.isNotEmpty) {
+          guard();
           await _storage.write(key: oldKey, value: k);
         }
       }
       await _step('swap:afterOldKey');
     }
+    guard();
     // C: the fresh replica takes the live name.
     if (!await main.exists() && await fresh.exists()) {
+      guard();
       await fresh.rename(main.path);
       await _step('swap:afterFreshMoved');
     }
+    guard();
     // D: the live key becomes the fresh replica's.
     final fk = await _storage.read(key: freshKey);
     if (fk != null && fk.isNotEmpty) {
+      guard();
       await _storage.write(key: key, value: fk);
+      guard();
       await _storage.delete(key: freshKey);
     }
     await _step('swap:afterFreshKey');
+    guard();
     if (!await main.exists()) {
       throw const FileSystemException('rebootstrap swap has no replica');
     }
 
     final hasOld = await old.exists();
     final now = _now();
+    guard();
     await _mutate(hash, (c) {
       if (c == null) return null;
       final m = c.rebootstrap;
@@ -718,7 +932,7 @@ class ReplicaStore {
                 reason: m.reason,
                 startedAt: m.startedAt),
       );
-    });
+    }, guard: guard);
   }
 
   /// Deletes retired replicas whose [retiredReplicaRetention] has passed (their
@@ -746,36 +960,76 @@ class ReplicaStore {
   /// calling remove again). Open handles are closed first.
   Future<void> remove(String uid) async => _removeHash(await uidHash(uid));
 
+  /// F2: removal is exclusive, in this order:
+  ///   1. REVOKE: from this synchronous instant every open, staging creation and
+  ///      swap for this hash is refused ([_removing]);
+  ///   2. DRAIN the primary side: opens and swaps already dispatched finish (a
+  ///      swap stops at its next mutation boundary) and the open handles close;
+  ///   3. DRAIN the secondary side: the exclusive database lease is taken through
+  ///      the existing maintenance protocol, so background-isolate connections
+  ///      holding shared leases release before anything is deleted (a timeout
+  ///      deletes nothing and fails the removal);
+  ///   4. rename every variant (`<hash>`, `.rb`, `.old`) to a tombstone WHILE the
+  ///      lease is held: the maintenance intent travels with the live directory,
+  ///      so exclusion is continuous until the directory is gone, and a late
+  ///      secondary then finds no directory (the lease protocol never creates
+  ///      one);
+  ///   5. delete the keys, the registry entry and the tombstones.
+  /// All three variants are always removed — without consulting the registry,
+  /// whose bookkeeping an interrupted swap may never have completed.
   Future<void> _removeHash(String hash) async {
-    await _open.remove(hash)?.close();
-    await _staging.remove(hash)?.close();
-    final root = await _replicasRoot();
-    // The replica, plus the fresh one a rebootstrap was building (`.rb`) and the
-    // one it retired (`.old`): Remove data deletes every copy of this uid's data.
-    // The registry says which side copies exist, so the common case costs the
-    // same file system calls as before WP-7.
-    final entry = (await _readRegistry())[hash];
-    final suffixes = [
-      '',
-      if (entry?.rebootstrap != null) stagingSuffix,
-      if (entry?.retiredAt != null) retiredSuffix,
-    ];
-    final tombs = <Directory>[];
-    for (final suffix in suffixes) {
-      final dir = Directory(p.join(root, '$hash$suffix'));
-      final tomb = Directory(p.join(root, '_removing.$hash$suffix'));
-      if (await dir.exists()) {
-        if (await tomb.exists()) await tomb.delete(recursive: true);
-        await dir.rename(tomb.path);
+    _removing.add(hash);
+    try {
+      await _drainOpens(hash);
+      await _open.remove(hash)?.close();
+      await _staging.remove(hash)?.close();
+      final root = await _replicasRoot();
+      const suffixes = ['', stagingSuffix, retiredSuffix];
+
+      DatabaseFileLease? lease;
+      final main = Directory(p.join(root, hash));
+      if (await main.exists()) {
+        final location = await _location(hash);
+        final liveness =
+            await AppDatabase.initProcessLiveness(location: location);
+        if (!liveness.acquiredExclusive) {
+          throw const DatabaseLeaseUnavailable('process_lock_unavailable');
+        }
+        final manager = await AppDatabase.appSupportLeaseManager(
+          location: location,
+        );
+        lease = await manager.acquireExclusive(timeout: removalDrainTimeout);
       }
-      tombs.add(tomb);
-    }
-    for (final suffix in suffixes) {
-      await _storage.delete(key: '$keyNamePrefix$hash$suffix');
-    }
-    await _mutate(hash, (_) => null);
-    for (final tomb in tombs) {
-      if (await tomb.exists()) await tomb.delete(recursive: true);
+      final tombs = <Directory>[];
+      try {
+        for (final suffix in suffixes) {
+          final dir = Directory(p.join(root, '$hash$suffix'));
+          AppDatabase.dropProcessLiveness(
+            ReplicaLocation(
+              directory: dir.path,
+              dbFileName: dbFileName,
+              keyName: '$keyNamePrefix$hash$suffix',
+            ),
+          );
+          final tomb = Directory(p.join(root, '_removing.$hash$suffix'));
+          if (await dir.exists()) {
+            if (await tomb.exists()) await tomb.delete(recursive: true);
+            await dir.rename(tomb.path);
+          }
+          tombs.add(tomb);
+        }
+      } finally {
+        await lease?.release();
+      }
+      for (final suffix in suffixes) {
+        await _storage.delete(key: '$keyNamePrefix$hash$suffix');
+      }
+      await _mutate(hash, (_) => null);
+      for (final tomb in tombs) {
+        if (await tomb.exists()) await tomb.delete(recursive: true);
+      }
+    } finally {
+      _removing.remove(hash);
     }
   }
 
@@ -813,29 +1067,61 @@ class ReplicaStore {
   /// One-time, crash-recoverable adoption of the legacy shared database (sync
   /// plan §05). Safe to call on every launch; also deletes `.adopted` files
   /// older than [adoptedGrace]. Never throws for ordinary failures: those return
-  /// [AdoptionOutcome.failed] with the legacy file untouched and in use.
-  Future<AdoptionOutcome> adoptLegacyIfPresent() async {
+  /// [AdoptionOutcome.failed] with the legacy file untouched and in use. Runtime
+  /// admission cancellation throws and is drained by removal; it never falls
+  /// back to opening the legacy file after its authority has been revoked.
+  Future<AdoptionOutcome> adoptLegacyIfPresent(
+      {AdmissionAuthority? authority}) async {
+    authority?.requireFor(authority.uid);
     final legacy = await _legacyLocation();
-    final outcome = await _adoptOrQuarantine(legacy);
-    await _purgeExpiredAdopted(legacy);
-    return outcome;
+    if (authority == null) {
+      final outcome = await _adoptOrQuarantine(legacy);
+      await _purgeExpiredAdopted(legacy);
+      return outcome;
+    }
+    final hash = await uidHash(authority.uid);
+    void guard() {
+      authority.requireFor(authority.uid);
+      _requireNotRemoving(hash);
+    }
+
+    guard();
+    return _track(hash, () async {
+      guard();
+      final outcome = await _adoptOrQuarantine(legacy,
+          authority: authority, runtimeHash: hash, guard: guard);
+      guard();
+      await _purgeExpiredAdopted(legacy, runtimeHash: hash, guard: guard);
+      guard();
+      return outcome;
+    });
   }
 
-  Future<AdoptionOutcome> _adoptOrQuarantine(ReplicaLocation legacy) async {
+  Future<AdoptionOutcome> _adoptOrQuarantine(ReplicaLocation legacy,
+      {AdmissionAuthority? authority,
+      String? runtimeHash,
+      void Function()? guard}) async {
+    guard?.call();
     if (!await File(legacy.dbPath).exists()) {
-      // A crash after the rename but before the registry bookkeeping.
       for (final e in await list()) {
+        if (runtimeHash != null && e.uidHash != runtimeHash) continue;
         if (e.adoptPending && await File('${legacy.dbPath}.adopted').exists()) {
-          await _mutate(
-              e.uidHash,
-              (c) => c?.copyWith(
-                  adoptPending: false, legacyAdoptedAt: _now()));
+          await _mutate(e.uidHash,
+              (c) => c?.copyWith(adoptPending: false, legacyAdoptedAt: _now()),
+              guard: guard);
         }
       }
+      guard?.call();
       return AdoptionOutcome.none;
     }
     final marker = await _marker();
-    if (marker == null || marker.isEmpty || marker.startsWith(_transitionPrefix)) {
+    guard?.call();
+    if (authority != null && marker != authority.uid) {
+      throw const ReplicaOwnershipException();
+    }
+    if (marker == null ||
+        marker.isEmpty ||
+        marker.startsWith(_transitionPrefix)) {
       try {
         await _quarantine(legacy);
         return AdoptionOutcome.quarantined;
@@ -845,21 +1131,28 @@ class ReplicaStore {
     }
     final hash = await uidHash(marker);
     final entry = (await _readRegistry())[hash];
-    if (entry != null && entry.state == ReplicaState.active && !entry.adoptPending) {
+    guard?.call();
+    if (entry != null &&
+        entry.state == ReplicaState.active &&
+        !entry.adoptPending) {
       return AdoptionOutcome.legacyLeftover;
     }
     final target = await _location(hash);
+    guard?.call();
     try {
       if (entry != null &&
           entry.state == ReplicaState.active &&
           entry.adoptPending) {
-        // Replica already verified and active; only the rename is outstanding.
-        await _finishRename(legacy, hash);
+        await _finishRename(legacy, hash, guard: guard);
         return AdoptionOutcome.adopted;
       }
-      await _adopt(legacy, target, marker, hash);
+      await _adopt(legacy, target, marker, hash,
+          authority: authority, guard: guard);
       return AdoptionOutcome.adopted;
+    } on StaleAdmissionException {
+      rethrow;
     } on Exception {
+      guard?.call();
       return AdoptionOutcome.failed;
     }
   }
@@ -870,8 +1163,10 @@ class ReplicaStore {
 
   Future<void> _step(String name) async => _debugStep?.call(name);
 
-  Future<void> _adopt(ReplicaLocation legacy, ReplicaLocation target,
-      String uid, String hash) async {
+  Future<void> _adopt(
+      ReplicaLocation legacy, ReplicaLocation target, String uid, String hash,
+      {AdmissionAuthority? authority, void Function()? guard}) async {
+    guard?.call();
     final now = _now();
     // Re-entrant start: `migrating` + adoptPending, whatever a previous attempt
     // left behind is discarded and redone from the (untouched) legacy file.
@@ -886,15 +1181,27 @@ class ReplicaStore {
         state: ReplicaState.migrating,
         adoptPending: true,
       ),
+      guard: guard,
     );
     await _step('beforeCopy');
+    guard?.call();
     final dir = Directory(target.directory);
-    if (await dir.exists()) await dir.delete(recursive: true);
+    if (await dir.exists()) {
+      guard?.call();
+      await dir.delete(recursive: true);
+    }
+    guard?.call();
     await dir.create(recursive: true);
+    guard?.call();
 
     // Fold any WAL into the main file so a plain file copy is complete.
-    final src = await _opener(location: legacy, runMigrations: false);
+    final src = await _opener(
+      location: legacy,
+      runMigrations: false,
+      creation: CreationPolicy.denied(authority: authority, uid: uid),
+    );
     try {
+      guard?.call();
       final row = await src
           .customSelect('PRAGMA wal_checkpoint(TRUNCATE);')
           .getSingle();
@@ -908,6 +1215,7 @@ class ReplicaStore {
         await File(legacy.walPath).length() > 0) {
       throw const FileSystemException('legacy WAL not folded');
     }
+    guard?.call();
     await File(legacy.dbPath).copy(target.dbPath);
     await _step('afterCopy');
 
@@ -915,46 +1223,63 @@ class ReplicaStore {
     if (legacyKey == null || legacyKey.isEmpty) {
       throw const LocalDatabaseKeyUnavailableException();
     }
+    guard?.call();
     await _storage.write(key: target.keyName, value: legacyKey);
     await _step('afterKeyCopy');
 
-    final copy = await _opener(location: target, runMigrations: true);
+    guard?.call();
+    final copy = await _opener(
+      location: target,
+      runMigrations: true,
+      creation: CreationPolicy.denied(authority: authority, uid: uid),
+    );
     try {
+      guard?.call();
       final integrity =
           await copy.customSelect('PRAGMA integrity_check;').get();
       if (integrity.length != 1 ||
           integrity.single.read<String>('integrity_check') != 'ok') {
         throw const FileSystemException('adopted copy failed integrity check');
       }
+      guard?.call();
       await copy.customSelect('SELECT count(*) FROM sqlite_master;').get();
       await _step('afterProbe');
+      guard?.call();
       if (await _readMeta(copy) != null) {
         throw const FileSystemException('unexpected replica_meta in legacy');
       }
+      guard?.call();
       await _writeMeta(copy, uid);
       await _step('afterReplicaMeta');
       final version = await _userVersion(copy);
-      await _mutate(hash, (c) => c!.copyWith(schemaVersion: version));
+      await _mutate(hash, (c) => c!.copyWith(schemaVersion: version),
+          guard: guard);
     } finally {
       await copy.close();
     }
-    await _mutate(hash, (c) => c!.copyWith(state: ReplicaState.active));
+    await _mutate(hash, (c) => c!.copyWith(state: ReplicaState.active),
+        guard: guard);
     await _step('afterRegistryActive');
-    await _finishRename(legacy, hash);
+    await _finishRename(legacy, hash, guard: guard);
   }
 
   /// Renames the legacy file (+ WAL/SHM, main file LAST so its existence stays
   /// the "adoption incomplete" signal) to `.adopted`, then stamps the grace
   /// start. Idempotent.
-  Future<void> _finishRename(ReplicaLocation legacy, String hash) async {
+  Future<void> _finishRename(ReplicaLocation legacy, String hash,
+      {void Function()? guard}) async {
     await _step('beforeRename');
     for (final path in [legacy.walPath, legacy.shmPath, legacy.dbPath]) {
       final f = File(path);
-      if (await f.exists()) await f.rename('$path.adopted');
+      if (await f.exists()) {
+        guard?.call();
+        await f.rename('$path.adopted');
+      }
     }
     await _step('afterRename');
-    await _mutate(hash,
-        (c) => c?.copyWith(adoptPending: false, legacyAdoptedAt: _now()));
+    await _mutate(
+        hash, (c) => c?.copyWith(adoptPending: false, legacyAdoptedAt: _now()),
+        guard: guard);
   }
 
   /// Moves the legacy file with no provable owner into `_quarantine/` without
@@ -966,28 +1291,38 @@ class ReplicaStore {
     await staging.create(recursive: true);
     for (final path in [legacy.walPath, legacy.shmPath, legacy.dbPath]) {
       final f = File(path);
-      if (await f.exists()) await f.rename(p.join(staging.path, p.basename(path)));
+      if (await f.exists()) {
+        await f.rename(p.join(staging.path, p.basename(path)));
+      }
     }
-    await staging.rename(
-        p.join(root.path, 'legacy-${_now().microsecondsSinceEpoch}'));
+    await staging
+        .rename(p.join(root.path, 'legacy-${_now().microsecondsSinceEpoch}'));
   }
 
   /// Deletes `.adopted` legacy files whose 7-day grace has passed (P2 rollback
   /// window over). Also drops the legacy key, but only when no legacy database
   /// file exists that would still need it.
-  Future<void> _purgeExpiredAdopted(ReplicaLocation legacy) async {
+  Future<void> _purgeExpiredAdopted(ReplicaLocation legacy,
+      {String? runtimeHash, void Function()? guard}) async {
     final now = _now();
     for (final e in await list()) {
+      if (runtimeHash != null && e.uidHash != runtimeHash) continue;
+      guard?.call();
       final at = e.legacyAdoptedAt;
       if (at == null || now.difference(at) < adoptedGrace) continue;
       for (final path in [legacy.walPath, legacy.shmPath, legacy.dbPath]) {
         final f = File('$path.adopted');
-        if (await f.exists()) await f.delete();
+        if (await f.exists()) {
+          guard?.call();
+          await f.delete();
+        }
       }
       if (!await File(legacy.dbPath).exists()) {
+        guard?.call();
         await _storage.delete(key: legacy.keyName);
       }
-      await _mutate(e.uidHash, (c) => c?.copyWith(clearLegacyAdoptedAt: true));
+      await _mutate(e.uidHash, (c) => c?.copyWith(clearLegacyAdoptedAt: true),
+          guard: guard);
     }
   }
 }

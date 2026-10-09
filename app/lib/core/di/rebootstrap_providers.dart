@@ -7,6 +7,7 @@ import '../../data/sync/sync_cursor.dart';
 import '../../features/capture/services/capture_import_ports.dart';
 import '../../features/capture/services/capture_import_service.dart';
 import '../session/account_scope.dart';
+import '../session/admission_authority.dart';
 import '../session/rebootstrap_service.dart';
 import '../session/replica_recovery.dart';
 import 'app_providers.dart';
@@ -21,7 +22,11 @@ class RebootstrapRuntime {
   ReplicaStore? store;
   AccountScopeControl? scope;
   Future<void> Function(String uid)? removeData;
-  Future<void> Function(String uid)? readmit;
+  Future<void> Function(String uid, AdmissionAuthority? authority)? readmit;
+
+  /// F2: the authority a rebootstrap of a uid holds (create the staging replica,
+  /// re-admit after a purge). An explicit Remove data revokes it for good.
+  Future<AdmissionAuthority> Function(String uid)? maintenanceAuthority;
 }
 
 /// Tombstones included: the cloud's rows for recovered client request ids.
@@ -97,6 +102,7 @@ final rebootstrapTriggerProvider = Provider<EpochRebootstrapTrigger?>((ref) {
     lookup: SupabaseLedgerLookup(uid),
     removeData: removeData,
     readmit: rt.readmit,
+    maintenanceAuthority: rt.maintenanceAuthority,
     bootstrapFresh: (fresh, uid) async {
       final c = ProviderContainer(
           overrides: [appDatabaseProvider.overrideWithValue(fresh)]);

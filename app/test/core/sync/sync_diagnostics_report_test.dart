@@ -210,7 +210,7 @@ void main() {
     test('WP-7: the real registry marker is what the report shows', () async {
       final support = Directory.systemTemp.createTempSync('diag_replica_');
       FlutterSecureStorage.setMockInitialValues({});
-      final store = ReplicaStore(
+      final store = ReplicaStore(requireCreationAuthority: false, 
         appSupportDirectory: support.path,
         now: () => _now,
         readOwnerMarker: () async => _uid,

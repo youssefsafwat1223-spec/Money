@@ -1,13 +1,17 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/replica_location.dart';
 import 'package:money_companion/data/db/replica_store.dart';
 import 'package:path/path.dart' as p;
+
+import '../../core/session/recording_secure_storage.dart';
 
 // WP-3a — the per-UID encrypted replica core. Real SQLCipher files in temp
 // directories; secure storage is the plugin's in-memory mock.
@@ -33,6 +37,7 @@ void main() {
     String? crashAt,
   }) =>
       ReplicaStore(
+        requireCreationAuthority: false,
         appSupportDirectory: support.path,
         now: () => clock,
         readOwnerMarker: markerSet ? () async => marker : null,
@@ -79,11 +84,10 @@ void main() {
     await db.close();
   }
 
-  Future<List<String>> probeRows(AppDatabase db) async => (await db
-          .customSelect('SELECT v FROM probe ORDER BY rowid;')
-          .get())
-      .map((r) => r.read<String>('v'))
-      .toList();
+  Future<List<String>> probeRows(AppDatabase db) async =>
+      (await db.customSelect('SELECT v FROM probe ORDER BY rowid;').get())
+          .map((r) => r.read<String>('v'))
+          .toList();
 
   bool exists(String path) => File(path).existsSync();
   String legacyAdopted() => '${legacyLoc().dbPath}.adopted';
@@ -113,21 +117,21 @@ void main() {
       expect(ha, hasLength(32));
       expect(ha, isNot(contains('aaaa')), reason: 'raw uid must not leak');
 
-      expect(exists(p.join(support.path, 'replicas', ha, 'qirsh.sqlite')),
-          isTrue);
-      expect(exists(p.join(support.path, 'replicas', hb, 'qirsh.sqlite')),
-          isTrue);
+      expect(
+          exists(p.join(support.path, 'replicas', ha, 'qirsh.sqlite')), isTrue);
+      expect(
+          exists(p.join(support.path, 'replicas', hb, 'qirsh.sqlite')), isTrue);
       final ka = await storage.read(key: 'qirsh.db_key.$ha');
       final kb = await storage.read(key: 'qirsh.db_key.$hb');
       expect(ka, isNotEmpty);
       expect(kb, isNotEmpty);
       expect(ka, isNot(kb));
-      expect(
-          await storage.read(key: ReplicaLocation.legacyKeyName), isNull,
+      expect(await storage.read(key: ReplicaLocation.legacyKeyName), isNull,
           reason: 'a replica must never mint or touch the legacy key');
 
       // replica_meta carries the owner.
-      final meta = await a.customSelect('SELECT owner_uid FROM replica_meta;').get();
+      final meta =
+          await a.customSelect('SELECT owner_uid FROM replica_meta;').get();
       expect(meta.single.read<String>('owner_uid'), _uidA);
 
       // Put A's file (and A's key) where B's replica lives: the path and the key
@@ -137,8 +141,8 @@ void main() {
       File(p.join(support.path, 'replicas', ha, 'qirsh.sqlite'))
           .copySync(p.join(support.path, 'replicas', hb, 'qirsh.sqlite'));
       await storage.write(key: 'qirsh.db_key.$hb', value: ka!);
-      await expectLater(
-          store().openReplica(_uidB), throwsA(isA<ReplicaOwnershipException>()));
+      await expectLater(store().openReplica(_uidB),
+          throwsA(isA<ReplicaOwnershipException>()));
       // A is unharmed.
       final a2 = await store().openReplica(_uidA);
       expect(await probeRows(a2), ['a-data']);
@@ -151,8 +155,8 @@ void main() {
       final a = await s.openReplica(_uidA);
       await a.customStatement('DELETE FROM replica_meta;');
       await s.closeReplica(_uidA);
-      await expectLater(
-          store().openReplica(_uidA), throwsA(isA<ReplicaOwnershipException>()));
+      await expectLater(store().openReplica(_uidA),
+          throwsA(isA<ReplicaOwnershipException>()));
     });
 
     test('replica_meta holds at most one row', () async {
@@ -172,8 +176,13 @@ void main() {
           dbFileName: 'qirsh.sqlite',
           keyName: 'qirsh.db_key.h');
       for (final path in [
-        loc.dbPath, loc.walPath, loc.shmPath, loc.maintPath, loc.plockPath,
-        loc.instancePath, loc.leaseDir,
+        loc.dbPath,
+        loc.walPath,
+        loc.shmPath,
+        loc.maintPath,
+        loc.plockPath,
+        loc.instancePath,
+        loc.leaseDir,
       ]) {
         expect(p.isWithin(loc.directory, path), isTrue, reason: path);
       }
@@ -208,8 +217,8 @@ void main() {
       clock = clock.add(const Duration(hours: 1));
       await s.closeReplica(_uidA);
       expect(await s.setState(_uidA, ReplicaState.locked), isTrue);
-      await expectLater(s.openReplica(_uidA),
-          throwsA(isA<ReplicaUnavailableException>()));
+      await expectLater(
+          s.openReplica(_uidA), throwsA(isA<ReplicaUnavailableException>()));
       expect(await s.setState(_uidA, ReplicaState.active), isTrue);
       final again = await s.openReplica(_uidA);
       entries = await s.list();
@@ -248,10 +257,12 @@ void main() {
       final hb = await s.uidHash(_uidB);
 
       await s.remove(_uidA);
-      expect(Directory(p.join(support.path, 'replicas', ha)).existsSync(), isFalse);
+      expect(Directory(p.join(support.path, 'replicas', ha)).existsSync(),
+          isFalse);
       expect(await storage.read(key: 'qirsh.db_key.$ha'), isNull);
       expect((await s.list()).map((e) => e.uidHash), [hb]);
-      expect(Directory(p.join(support.path, 'replicas', hb)).existsSync(), isTrue);
+      expect(
+          Directory(p.join(support.path, 'replicas', hb)).existsSync(), isTrue);
       expect(await storage.read(key: 'qirsh.db_key.$hb'), isNotNull);
 
       await s.remove(_uidA); // second time: no-op
@@ -268,12 +279,14 @@ void main() {
       final h = await s.uidHash(_uidA);
       await s.closeReplica(_uidA);
       // State a kill leaves after step 1 (rename) of remove().
-      Directory(p.join(support.path, 'replicas', h)).renameSync(
-          p.join(support.path, 'replicas', '_removing.$h'));
+      Directory(p.join(support.path, 'replicas', h))
+          .renameSync(p.join(support.path, 'replicas', '_removing.$h'));
       expect(await storage.read(key: 'qirsh.db_key.$h'), isNotNull);
 
       await store().recoverPendingRemovals();
-      expect(Directory(p.join(support.path, 'replicas', '_removing.$h')).existsSync(),
+      expect(
+          Directory(p.join(support.path, 'replicas', '_removing.$h'))
+              .existsSync(),
           isFalse);
       expect(await storage.read(key: 'qirsh.db_key.$h'), isNull);
       expect(await store().list(), isEmpty);
@@ -322,11 +335,16 @@ void main() {
 
       final db = await s.openReplica(_uidA);
       expect(await probeRows(db), ['before']);
-      expect((await db.customSelect('SELECT owner_uid FROM replica_meta;').getSingle())
-          .read<String>('owner_uid'), _uidA);
+      expect(
+          (await db
+                  .customSelect('SELECT owner_uid FROM replica_meta;')
+                  .getSingle())
+              .read<String>('owner_uid'),
+          _uidA);
       await db.close();
       // Idempotent next launch.
-      expect(await store(marker: _uidA).adoptLegacyIfPresent(), AdoptionOutcome.none);
+      expect(await store(marker: _uidA).adoptLegacyIfPresent(),
+          AdoptionOutcome.none);
     });
 
     test('the .adopted copy is still a complete, openable legacy database',
@@ -335,7 +353,8 @@ void main() {
       await store(marker: _uidA).adoptLegacyIfPresent();
       // The documented P2 rollback recovery: put the file back at the legacy path.
       File(legacyAdopted()).renameSync(legacyLoc().dbPath);
-      final db = await AppDatabase.open(location: legacyLoc(), runMigrations: false);
+      final db =
+          await AppDatabase.open(location: legacyLoc(), runMigrations: false);
       expect(await probeRows(db), ['before']);
       await db.close();
     });
@@ -350,8 +369,11 @@ void main() {
 
         final next = store(marker: _uidA);
         final outcome = await next.adoptLegacyIfPresent();
-        expect(outcome,
-            step == 'afterRename' ? AdoptionOutcome.none : AdoptionOutcome.adopted);
+        expect(
+            outcome,
+            step == 'afterRename'
+                ? AdoptionOutcome.none
+                : AdoptionOutcome.adopted);
 
         expect(exists(legacyLoc().dbPath), isFalse);
         expect(exists(legacyAdopted()), isTrue);
@@ -373,19 +395,21 @@ void main() {
       expect(exists(legacyLoc().dbPath), isTrue);
       expect(exists(legacyAdopted()), isFalse);
       expect((await s.list()).single.state, ReplicaState.migrating);
-      await expectLater(s.openReplica(_uidA),
-          throwsA(isA<ReplicaUnavailableException>()));
+      await expectLater(
+          s.openReplica(_uidA), throwsA(isA<ReplicaUnavailableException>()));
     });
 
     test('a half-built replica from a dead attempt is discarded and redone',
         () async {
       await makeLegacy();
       await expectLater(
-          store(marker: _uidA, crashAt: 'afterReplicaMeta').adoptLegacyIfPresent(),
+          store(marker: _uidA, crashAt: 'afterReplicaMeta')
+              .adoptLegacyIfPresent(),
           throwsA(isA<_Crash>()));
       // Garbage next to the half-built file must not survive the redo.
       final h = await store().uidHash(_uidA);
-      File(p.join(support.path, 'replicas', h, 'stale.tmp')).writeAsStringSync('x');
+      File(p.join(support.path, 'replicas', h, 'stale.tmp'))
+          .writeAsStringSync('x');
       await store(marker: _uidA).adoptLegacyIfPresent();
       expect(exists(p.join(support.path, 'replicas', h, 'stale.tmp')), isFalse);
     });
@@ -402,7 +426,8 @@ void main() {
       await db.close();
     });
 
-    test('a reappeared legacy file next to an active replica is never overwritten',
+    test(
+        'a reappeared legacy file next to an active replica is never overwritten',
         () async {
       await makeLegacy();
       final s = store(marker: _uidA);
@@ -443,7 +468,8 @@ void main() {
         // Whoever signs in next gets a fresh, EMPTY replica, not this file.
         final db = await s.openReplica(_uidA);
         final t = await db
-            .customSelect("SELECT name FROM sqlite_master WHERE name = 'probe';")
+            .customSelect(
+                "SELECT name FROM sqlite_master WHERE name = 'probe';")
             .get();
         expect(t, isEmpty);
         await db.close();
@@ -460,7 +486,8 @@ void main() {
   });
 
   group('.adopted grace (P2 rollback window)', () {
-    test('kept for 7 days, then deleted together with the legacy key', () async {
+    test('kept for 7 days, then deleted together with the legacy key',
+        () async {
       await makeLegacy();
       final s = store(marker: _uidA);
       await s.adoptLegacyIfPresent();
@@ -479,6 +506,200 @@ void main() {
       final db = await s.openReplica(_uidA);
       expect(await probeRows(db), ['before']);
       await db.close();
+    });
+  });
+
+  // ---------------------------------------------------------------- F2 ------
+  // Creating a replica needs a current admission authority that may create. A
+  // missing registry entry, file or key is never permission. Every case asserts
+  // that NOTHING was written (no file, no key, no registry entry).
+  group('F2: open-existing vs create-with-authority', () {
+    late RecordingSecureStorage rec;
+
+    ReplicaStore strict() => ReplicaStore(
+          appSupportDirectory: support.path,
+          now: () => clock,
+        );
+
+    Future<List<String>> artifacts(ReplicaStore s, String uid) async {
+      final h = await s.uidHash(uid);
+      return [
+        if (Directory(p.join(support.path, 'replicas', h)).existsSync()) 'dir',
+        if (rec.data.containsKey('qirsh.db_key.$h')) 'key',
+        if ((await s.list()).any((e) => e.uidHash == h)) 'registry',
+      ];
+    }
+
+    setUp(() => rec = RecordingSecureStorage().install());
+
+    test(
+        'absent registry + file + key: no authority, stale, or non-creating '
+        'authority all refuse BEFORE any effect', () async {
+      final s = strict();
+      await s.uidHash(_uidA); // the device salt exists; nothing else
+      final before = rec.attempts.length;
+
+      await expectLater(
+          s.openReplica(_uidA), throwsA(isA<ReplicaMissingException>()));
+      var live = true;
+      final revocable = AdmissionAuthority(_uidA, () => live, canCreate: true);
+      live = false;
+      await expectLater(s.openReplica(_uidA, authority: revocable),
+          throwsA(isA<StaleAdmissionException>()));
+      await expectLater(
+          s.openReplica(_uidA,
+              authority:
+                  const AdmissionAuthority.forTest(_uidA, canCreate: false)),
+          throwsA(isA<ReplicaMissingException>()));
+      await expectLater(
+          s.openStaging(_uidA), throwsA(isA<ReplicaMissingException>()));
+
+      expect(rec.attempts.skip(before), isEmpty, reason: 'no storage write');
+      expect(await artifacts(s, _uidA), isEmpty);
+    });
+
+    test('a stale registry entry with no file is not permission to create',
+        () async {
+      final s = strict();
+      await s.openReplica(_uidA,
+          authority: const AdmissionAuthority.forTest(_uidA));
+      await s.closeAll();
+      final h = await s.uidHash(_uidA);
+      Directory(p.join(support.path, 'replicas', h))
+          .deleteSync(recursive: true); // registry + key survive, file gone
+      await expectLater(
+          strict().openReplica(_uidA), throwsA(isA<ReplicaMissingException>()));
+      expect(
+          Directory(p.join(support.path, 'replicas', h)).existsSync(), isFalse);
+    });
+
+    test(
+        'a valid creating authority creates exactly once; reopening needs none',
+        () async {
+      final s = strict();
+      final db = await s.openReplica(_uidA,
+          authority: const AdmissionAuthority.forTest(_uidA));
+      expect(await artifacts(s, _uidA), ['dir', 'key', 'registry']);
+      final h = await s.uidHash(_uidA);
+      expect(rec.attempts.where((a) => a.startsWith('write:qirsh.db_key.$h')),
+          hasLength(1));
+      await db.close();
+      await s.closeAll();
+
+      final relaunch = strict();
+      final again = await relaunch.openReplica(_uidA); // open-existing only
+      expect(again, isNotNull);
+      expect(rec.attempts.where((a) => a.startsWith('write:qirsh.db_key.$h')),
+          hasLength(1),
+          reason: 'no second key');
+      await relaunch.closeAll();
+    });
+
+    test(
+        'an authority revoked after the existence check, before the open, '
+        'creates nothing', () async {
+      final s = strict();
+      var live = true;
+      final authority = AdmissionAuthority(_uidA, () => live, canCreate: true);
+      // The device salt read happens between requireCurrent calls; revoke there.
+      rec.gate = (op, key) async {
+        if (op == 'read' && key == ReplicaStore.registryKey) live = false;
+      };
+      await expectLater(s.openReplica(_uidA, authority: authority),
+          throwsA(isA<StaleAdmissionException>()));
+      rec.gate = null;
+      expect(await artifacts(s, _uidA), isEmpty);
+    });
+
+    test('staging creation follows the same rule', () async {
+      final s = strict();
+      await s.openReplica(_uidA,
+          authority: const AdmissionAuthority.forTest(_uidA));
+      await expectLater(
+          s.openStaging(_uidA), throwsA(isA<ReplicaMissingException>()));
+      final h = await s.uidHash(_uidA);
+      expect(Directory(p.join(support.path, 'replicas', '$h.rb')).existsSync(),
+          isFalse);
+      expect(rec.data.containsKey('qirsh.db_key.$h.rb'), isFalse);
+      final staging = await s.openStaging(_uidA,
+          authority: const AdmissionAuthority.forTest(_uidA));
+      expect(staging, isNotNull);
+      await s.closeAll();
+    });
+
+    test(
+        'an unrelated replica, its key and registry entry are untouched by a '
+        'refused creation and by a removal', () async {
+      final s = strict();
+      await s.openReplica(_uidB,
+          authority: const AdmissionAuthority.forTest(_uidB));
+      await s.closeAll();
+      final hB = await s.uidHash(_uidB);
+      final keyB = rec.data['qirsh.db_key.$hB'];
+      final entryB = (await s.list()).single.toJson();
+
+      await expectLater(
+          s.openReplica(_uidA), throwsA(isA<ReplicaMissingException>()));
+      await s.remove(_uidA); // removing a uid that does not exist
+      expect(rec.data['qirsh.db_key.$hB'], keyB);
+      expect((await s.list()).single.toJson(), entryB);
+      expect(
+          Directory(p.join(support.path, 'replicas', hB)).existsSync(), isTrue);
+    });
+
+    test(
+        'remove() drains an open already dispatched, so it cannot finish '
+        'AFTER the deletion and recreate the replica or key', () async {
+      final started = Completer<void>();
+      final proceed = Completer<void>();
+      final s = ReplicaStore(
+        appSupportDirectory: support.path,
+        opener: ({
+          location,
+          runMigrations = true,
+          creation = const CreationPolicy.unrestricted(),
+        }) async {
+          started.complete();
+          await proceed.future;
+          return AppDatabase.open(
+              location: location,
+              runMigrations: runMigrations,
+              creation: creation);
+        },
+      );
+      final opening = s.openReplica(_uidA,
+          authority: const AdmissionAuthority.forTest(_uidA));
+      await started.future; // dispatched, held inside the opener
+      var removed = false;
+      final removal = s.remove(_uidA).then((_) => removed = true);
+      for (var i = 0; i < 20; i++) {
+        await Future<void>.value();
+      }
+      expect(removed, isFalse, reason: 'removal waits for the dispatched open');
+      final rejected =
+          expectLater(opening, throwsA(isA<StaleAdmissionException>()));
+      proceed.complete();
+      await rejected;
+      await removal;
+      expect(await artifacts(s, _uidA), isEmpty);
+    });
+
+    test(
+        'a process-liveness handle for a deleted replica is not reused when '
+        'it is explicitly recreated (fresh lock files)', () async {
+      final loc = await strict().locationFor(_uidA);
+      Directory(loc.directory).createSync(recursive: true);
+      final first = await AppDatabase.initProcessLiveness(location: loc);
+      expect(File(loc.plockPath).existsSync(), isTrue);
+      AppDatabase.dropProcessLiveness(loc);
+      Directory(loc.directory).deleteSync(recursive: true);
+
+      Directory(loc.directory).createSync(recursive: true);
+      final second = await AppDatabase.initProcessLiveness(location: loc);
+      expect(identical(first, second), isFalse);
+      expect(File(loc.plockPath).existsSync(), isTrue);
+      expect(File(loc.instancePath).existsSync(), isTrue);
+      AppDatabase.dropProcessLiveness(loc);
     });
   });
 }

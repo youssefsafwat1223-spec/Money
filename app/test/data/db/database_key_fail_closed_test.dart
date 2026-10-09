@@ -1,6 +1,10 @@
+import 'dart:io';
+
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
+import 'package:money_companion/data/db/replica_location.dart';
 
 /// A NEW DATABASE KEY MAY ONLY BE MINTED WHEN THERE IS PROVABLY NOTHING TO LOSE.
 ///
@@ -251,6 +255,93 @@ void main() {
         databaseExists: () async => false,
       );
       expect(s.databaseExists, isNotNull);
+    });
+  });
+
+  // ---------------------------------------------------------------- F2 ------
+  group('F2: creation permission reaches the key store', () {
+    test('CreationPolicy.denied never mints, even on a provably fresh install',
+        () async {
+      final s = _Storage();
+      await expectLater(
+        SecureDatabaseKeyStore(
+          storage: s,
+          databaseExists: () async => false,
+          creation: const CreationPolicy.denied(),
+        ).readOrCreateKey(),
+        throwsA(isA<DatabaseCreationNotAuthorizedException>()),
+      );
+      expect(s.writes, 0);
+    });
+
+    test('CreationPolicy.denied still reads an existing key', () async {
+      final s = _Storage(initial: 'existing-key');
+      expect(
+        await SecureDatabaseKeyStore(
+          storage: s,
+          databaseExists: () async => true,
+          creation: const CreationPolicy.denied(),
+        ).readOrCreateKey(),
+        'existing-key',
+      );
+      expect(s.writes, 0);
+    });
+
+    test('existing DB + missing key still fails without minting, with or '
+        'without creation permission', () async {
+      for (final allow in [true, false]) {
+        final s = _Storage();
+        await expectLater(
+          SecureDatabaseKeyStore(
+            storage: s,
+            databaseExists: () async => true,
+            creation: allow
+                ? const CreationPolicy.unrestricted()
+                : const CreationPolicy.denied(),
+          ).readOrCreateKey(),
+          throwsA(isA<LocalDatabaseKeyUnavailableException>()),
+        );
+        expect(s.writes, 0, reason: 'never rotate a key over an existing DB');
+      }
+    });
+
+    test('AppDatabase.open(CreationPolicy.denied) on an absent file refuses before '
+        'the key store is touched', () async {
+      final dir = Directory.systemTemp.createTempSync('f2_open_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final s = _Storage();
+      final loc = ReplicaLocation(
+          directory: dir.path, dbFileName: 'qirsh.sqlite', keyName: 'k');
+      await expectLater(
+        AppDatabase.open(
+          location: loc,
+          creation: const CreationPolicy.denied(),
+          keyStore: SecureDatabaseKeyStore(
+              storage: s, databaseExists: () async => false),
+        ),
+        throwsA(isA<DatabaseCreationNotAuthorizedException>()),
+      );
+      expect(s.readAttempts, 0, reason: 'the key store was not even asked');
+      expect(s.writes, 0);
+      expect(File(loc.dbPath).existsSync(), isFalse);
+    });
+
+    test('a secondary open never creates a database or a key', () async {
+      final dir = Directory.systemTemp.createTempSync('f2_secondary_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final s = _Storage();
+      final loc = ReplicaLocation(
+          directory: dir.path, dbFileName: 'qirsh.sqlite', keyName: 'k');
+      await expectLater(
+        AppDatabase.openSecondary(
+          location: loc,
+          keyStore: SecureDatabaseKeyStore(
+              storage: s, databaseExists: () async => false),
+        ),
+        throwsA(isA<DatabaseCreationNotAuthorizedException>()),
+      );
+      expect(s.writes, 0);
+      expect(File(loc.dbPath).existsSync(), isFalse);
     });
   });
 }

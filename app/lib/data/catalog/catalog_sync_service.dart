@@ -1,3 +1,4 @@
+import '../../core/session/admission_authority.dart';
 import 'package:flutter/foundation.dart';
 import '../../core/backend/app_version.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
@@ -10,6 +11,11 @@ import '../../core/observability/diagnostics.dart';
 import '../../core/privacy/cloud_egress_gate.dart';
 import '../../core/observability/telemetry_error.dart';
 import '../../features/coupons/coupon_models.dart';
+
+abstract interface class CatalogLocalWork {
+  bool get current;
+  Future<T> local<T>(Future<T> Function() action);
+}
 
 class CatalogSyncService {
   CatalogSyncService({
@@ -28,7 +34,14 @@ class CatalogSyncService {
   // ignore: unused_field
   final AnnouncementService _announcementService;
 
-  Future<void> syncAll({String? countryCode}) async {
+  Future<T> _local<T>(CatalogLocalWork? work, Future<T> Function() action) =>
+      work == null ? action() : work.local(action);
+  void _check(CatalogLocalWork? work) {
+    if (work != null && !work.current) throw const StaleAdmissionException();
+  }
+
+  Future<void> syncAll(
+      {String? countryCode, CatalogLocalWork? localWork}) async {
     // Astra G (P1): no automatic catalog fetch while Cloud is OFF / DISABLING /
     // unset / uncertain. The transport gate enforces it too; this avoids the
     // pointless authority-epoch work and a burst of denied requests.
@@ -46,15 +59,16 @@ class CatalogSyncService {
         _metadataDao,
         _database,
       );
-      final authorityAction = await authority.reconcile();
+      final authorityAction = await _local(localWork, authority.reconcile);
       final forceParsers =
           authorityAction == ParserAuthorityAction.refreshRequired;
 
-      final versions = await _fetchVersions();
+      final versions = await _fetchVersions(localWork);
       final stale = <String>[];
       for (final category in CatalogCategories.syncable) {
         final serverVersion = versions[category] ?? 0;
-        final local = await _metadataDao.getVersion(category);
+        final local =
+            await _local(localWork, () => _metadataDao.getVersion(category));
         final localVersion = local?.localVersion ?? 0;
         if (serverVersion > localVersion) {
           stale.add(category);
@@ -67,24 +81,29 @@ class CatalogSyncService {
         ...stale.map((c) => syncCategory(
               c,
               countryCode: countryCode,
+              localWork: localWork,
               // A forced authority refresh must fetch the FULL set: at the
               // device's current version the delta would be empty, so nothing
               // would be reactivated even when the server says it is servable.
               fromZero: forceParsers && c == CatalogCategories.parsers,
             )),
-        syncFlags(countryCode: countryCode),
-        syncAnnouncements(countryCode: countryCode),
-        syncGrowthCampaigns(countryCode: countryCode),
-        syncCoupons(),
+        syncFlags(countryCode: countryCode, localWork: localWork),
+        syncAnnouncements(countryCode: countryCode, localWork: localWork),
+        syncGrowthCampaigns(countryCode: countryCode, localWork: localWork),
+        syncCoupons(localWork: localWork),
       ]);
+    } on StaleAdmissionException {
+      return;
     } catch (error, stackTrace) {
       debugPrint('Catalog sync skipped: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
   }
 
-  Future<void> syncFlags({String? countryCode}) async {
+  Future<void> syncFlags(
+      {String? countryCode, CatalogLocalWork? localWork}) async {
     try {
+      _check(localWork);
       final response = await _client.functions.invoke(
         'catalog-flags',
         method: supabase.HttpMethod.get,
@@ -113,14 +132,19 @@ class CatalogSyncService {
           .map((m) => m.map((k, v) => MapEntry(k.toString(), v)))
           .map(RemoteFeatureFlag.fromJson)
           .toList();
-      await RemoteFeatureFlagsDao(_database).replaceAll(flags);
+      await _local(
+          localWork, () => RemoteFeatureFlagsDao(_database).replaceAll(flags));
+    } on StaleAdmissionException {
+      return;
     } catch (e) {
       debugPrint('Catalog flags sync skipped: $e');
     }
   }
 
-  Future<void> syncAnnouncements({String? countryCode}) async {
+  Future<void> syncAnnouncements(
+      {String? countryCode, CatalogLocalWork? localWork}) async {
     try {
+      _check(localWork);
       final response = await _client.functions.invoke(
         'catalog-announcements',
         method: supabase.HttpMethod.get,
@@ -147,14 +171,19 @@ class CatalogSyncService {
           .map((m) => m.map((k, v) => MapEntry(k.toString(), v)))
           .map(RemoteAnnouncement.fromJson)
           .toList();
-      await RemoteAnnouncementsDao(_database).replaceAll(announcements);
+      await _local(localWork,
+          () => RemoteAnnouncementsDao(_database).replaceAll(announcements));
+    } on StaleAdmissionException {
+      return;
     } catch (e) {
       debugPrint('Catalog announcements sync skipped: $e');
     }
   }
 
-  Future<void> syncGrowthCampaigns({String? countryCode}) async {
+  Future<void> syncGrowthCampaigns(
+      {String? countryCode, CatalogLocalWork? localWork}) async {
     try {
+      _check(localWork);
       final response = await _client.functions.invoke(
         'catalog-campaigns',
         method: supabase.HttpMethod.get,
@@ -178,7 +207,10 @@ class CatalogSyncService {
           .map((m) => m.map((k, v) => MapEntry(k.toString(), v)))
           .map(RemoteGrowthCampaign.fromJson)
           .toList();
-      await RemoteGrowthCampaignsDao(_database).replaceAll(campaigns);
+      await _local(localWork,
+          () => RemoteGrowthCampaignsDao(_database).replaceAll(campaigns));
+    } on StaleAdmissionException {
+      return;
     } catch (e) {
       debugPrint('Catalog campaigns sync skipped: $e');
     }
@@ -199,8 +231,9 @@ class CatalogSyncService {
   ///
   /// No country is sent: eligibility is a render-time decision on the device,
   /// so a client-supplied country never becomes a server-side filter.
-  Future<void> syncCoupons() async {
+  Future<void> syncCoupons({CatalogLocalWork? localWork}) async {
     try {
+      _check(localWork);
       final response = await _client.functions.invoke(
         'catalog-coupons',
         method: supabase.HttpMethod.get,
@@ -238,7 +271,10 @@ class CatalogSyncService {
         return;
       }
 
-      await RemoteCouponsDao(_database).replaceAll(offers);
+      await _local(
+          localWork, () => RemoteCouponsDao(_database).replaceAll(offers));
+    } on StaleAdmissionException {
+      return;
     } catch (e) {
       Diag.error('[CatalogCoupons]', e);
     }
@@ -257,10 +293,12 @@ class CatalogSyncService {
   Future<void> syncCategory(
     String category, {
     String? countryCode,
+
     /// Ignore the stored version and request the FULL set. Used only by the
     /// authority-epoch refresh, where a delta at the device's current version
     /// would be empty and could therefore reactivate nothing.
     bool fromZero = false,
+    CatalogLocalWork? localWork,
   }) async {
     if (!CatalogCategories.syncable.contains(category)) {
       debugPrint('Catalog sync ignored unsupported category: $category');
@@ -268,8 +306,10 @@ class CatalogSyncService {
     }
 
     try {
-      final local = await _metadataDao.getVersion(category);
+      final local =
+          await _local(localWork, () => _metadataDao.getVersion(category));
       final sinceVersion = fromZero ? 0 : (local?.localVersion ?? 0);
+      _check(localWork);
       final response = await _client.functions.invoke(
         'catalog-delta',
         method: supabase.HttpMethod.get,
@@ -314,44 +354,50 @@ class CatalogSyncService {
           : sinceVersion;
       final servableIds = _authoritativeServableIds(data, serverVersion);
 
-      await _database.transaction(() async {
-        await _writeCategory(category, items, deletedIds, servableIds);
-        // A forced refresh deactivated everything first precisely so nothing
-        // serves without proof. The upsert above restores `is_active` from the
-        // server row, so an UNVERIFIED response (old server, truncated,
-        // malformed, stale) would quietly reactivate rules the epoch had just
-        // revoked. Fail closed and retry next launch instead.
-        if (fromZero &&
-            category == CatalogCategories.parsers &&
-            servableIds == null) {
-          await RemoteParsersDao(_database).deactivateAll();
-        }
-        // The epoch advances ONLY here: inside the same transaction that
-        // applied a snapshot the client already proved complete, current and
-        // correctly counted. Offline, truncated, malformed or stale responses
-        // never reach this line, so the forced refresh is retried next launch.
-        if (category == CatalogCategories.parsers && servableIds != null) {
-          await ParserAuthority(
-            RemoteParsersDao(_database),
-            _metadataDao,
-            _database,
-          ).markRefreshed();
-        }
-        final syncedAt = DateTime.now().toUtc();
-        await _metadataDao.upsertVersion(
-          category,
-          serverVersion,
-          serverVersion,
-        );
-        await _metadataDao.setLastSynced(category, syncedAt);
-      });
+      await _local(
+          localWork,
+          () => _database.transaction(() async {
+                await _writeCategory(category, items, deletedIds, servableIds);
+                // A forced refresh deactivated everything first precisely so nothing
+                // serves without proof. The upsert above restores `is_active` from the
+                // server row, so an UNVERIFIED response (old server, truncated,
+                // malformed, stale) would quietly reactivate rules the epoch had just
+                // revoked. Fail closed and retry next launch instead.
+                if (fromZero &&
+                    category == CatalogCategories.parsers &&
+                    servableIds == null) {
+                  await RemoteParsersDao(_database).deactivateAll();
+                }
+                // The epoch advances ONLY here: inside the same transaction that
+                // applied a snapshot the client already proved complete, current and
+                // correctly counted. Offline, truncated, malformed or stale responses
+                // never reach this line, so the forced refresh is retried next launch.
+                if (category == CatalogCategories.parsers &&
+                    servableIds != null) {
+                  await ParserAuthority(
+                    RemoteParsersDao(_database),
+                    _metadataDao,
+                    _database,
+                  ).markRefreshed();
+                }
+                final syncedAt = DateTime.now().toUtc();
+                await _metadataDao.upsertVersion(
+                  category,
+                  serverVersion,
+                  serverVersion,
+                );
+                await _metadataDao.setLastSynced(category, syncedAt);
+              }));
+    } on StaleAdmissionException {
+      return;
     } catch (error, stackTrace) {
       debugPrint('Catalog category sync skipped for $category: $error');
       debugPrintStack(stackTrace: stackTrace);
     }
   }
 
-  Future<Map<String, int>> _fetchVersions() async {
+  Future<Map<String, int>> _fetchVersions(CatalogLocalWork? localWork) async {
+    _check(localWork);
     final response = await _client.functions.invoke(
       'catalog-versions',
       method: supabase.HttpMethod.get,
@@ -414,7 +460,9 @@ class CatalogSyncService {
 
     // And it must describe the same catalog version as the items applied.
     final snapshotVersion = snapshot['catalog_version'];
-    if (snapshotVersion is! int || snapshotVersion != appliedVersion) return null;
+    if (snapshotVersion is! int || snapshotVersion != appliedVersion) {
+      return null;
+    }
 
     return parsed;
   }

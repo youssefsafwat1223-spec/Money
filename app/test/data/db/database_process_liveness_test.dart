@@ -69,67 +69,64 @@ void main() {
     });
   });
 
-  group('startup recovery is keyed by the INSTANCE TOKEN, not PID', () {
-    // MALI-069n pre-Batch-5 gate: pids are reused across process lifetimes, so PID
-    // equality must never be treated as liveness/ownership proof. Recovery keys on
-    // the random per-process-instance token.
-    test('same simulated PID but a DIFFERENT instance token → recognized as an '
-        'ENDED instance and recovered; a record carrying the CURRENT instance '
-        'token is never removed', () {
-      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
-      const currentToken = 'current-instance-token';
-      final samePid = pid; // the OLD record shares THIS process's pid (reuse).
-
-      // Old record: SAME pid, DIFFERENT instance token → belongs to the ended
-      // instance even though the pid matches.
-      final oldRecord = File('${leaseDir.path}/${samePid}_0_a.lease')
-        ..writeAsStringSync('oldtok\n$samePid\nold-instance-token');
-      // Current record: carries the CURRENT instance token (any pid) → must be kept.
-      final currentRecord = File('${leaseDir.path}/${samePid}_1_b.lease')
-        ..writeAsStringSync('curtok\n$samePid\n$currentToken');
-
-      final m = DatabaseLeaseManager(
-        leaseDir: '${dir.path}/leases',
-        intentPath: '${dir.path}/db.maint',
-        instanceToken: currentToken,
-      );
-      final cleared = m.recoverEndedInstances();
-
-      expect(cleared, 1, reason: 'only the different-token record is recovered');
-      expect(oldRecord.existsSync(), isFalse,
-          reason: 'same PID + different instance token → ended → recovered');
-      expect(currentRecord.existsSync(), isTrue,
-          reason: 'the current instance token is never removed');
-      expect(m.debugLiveLeaseCount(), 1);
+  group(
+      'startup recovery conservatively preserves current-PID and unknown holders',
+      () {
+    test('same PID with differing tokens remains protected despite PID reuse',
+        () async {
+      final leaseDir = Directory('${dir.path}/leases')
+        ..createSync(recursive: true);
+      final oldRecord = File('${leaseDir.path}/old.lease')
+        ..writeAsStringSync('oldtok\n$pid\nold-instance');
+      final currentRecord = File('${leaseDir.path}/current.lease')
+        ..writeAsStringSync('curtok\n$pid\ncurrent-instance');
+      final m = _manager(dir);
+      expect(m.recoverEndedInstances(), 0);
+      expect(oldRecord.existsSync(), isTrue);
+      expect(currentRecord.existsSync(), isTrue);
+      expect(m.debugLiveLeaseCount(), 2);
+      await expectLater(
+          m.acquireExclusive(timeout: const Duration(milliseconds: 120)),
+          throwsA(isA<DatabaseLeaseUnavailable>()));
     });
 
-    test('a DIFFERENT pid but the SAME instance token is NOT removed (PID equality '
-        'is neither required nor sufficient)', () {
-      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
-      const currentToken = 'shared-instance-token';
-      // A record from a different pid but the SAME instance token (e.g. a same-
-      // process background isolate that adopted the process token) → kept.
-      File('${leaseDir.path}/777_0_c.lease')
-          .writeAsStringSync('t\n777777\n$currentToken');
-      final m = DatabaseLeaseManager(
-        leaseDir: '${dir.path}/leases',
-        intentPath: '${dir.path}/db.maint',
-        instanceToken: currentToken,
-      );
-      expect(m.recoverEndedInstances(), 0,
-          reason: 'same instance token → live → never removed regardless of pid');
+    test('different PID records recover only under acquired process lock proof',
+        () {
+      final leaseDir = Directory('${dir.path}/leases')
+        ..createSync(recursive: true);
+      final record = File('${leaseDir.path}/ended.lease')
+        ..writeAsStringSync('t\n777777\nshared-instance');
+      final proof = _liveness(dir).acquire();
+      addTearDown(proof.debugReleaseForTest);
+      expect(proof.acquiredExclusive, isTrue);
+      expect(_manager(dir).recoverEndedInstances(), 1);
+      expect(record.existsSync(), isFalse);
     });
 
-    test('a malformed leftover record is recovered under the lock', () {
-      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
-      File('${leaseDir.path}/x.lease').writeAsStringSync(''); // empty/partial
-      final cleared = _manager(dir).recoverEndedInstances();
-      expect(cleared, 1);
+    test(
+        'malformed and unparseable PID records stay unknown under acquired lock',
+        () async {
+      final leaseDir = Directory('${dir.path}/leases')
+        ..createSync(recursive: true);
+      File('${leaseDir.path}/partial.lease').writeAsStringSync('');
+      File('${leaseDir.path}/badpid.lease')
+          .writeAsStringSync('token\nunknown\ninstance');
+      final proof = _liveness(dir).acquire();
+      addTearDown(proof.debugReleaseForTest);
+      expect(proof.acquiredExclusive, isTrue);
+      final m = _manager(dir);
+      expect(m.recoverEndedInstances(), 0);
+      expect(m.debugLiveLeaseCount(), 2);
+      await expectLater(
+          m.acquireExclusive(timeout: const Duration(milliseconds: 120)),
+          throwsA(isA<DatabaseLeaseUnavailable>()));
     });
   });
 
-  group('REAL multi-process (Process.start) — cross-process death recovery', () {
-    test('a live external process holding the lock is NOT reaped; after it is '
+  group('REAL multi-process (Process.start) — cross-process death recovery',
+      () {
+    test(
+        'a live external process holding the lock is NOT reaped; after it is '
         'killed its leftover is recovered and a new instance token is minted',
         () async {
       final helperFile = File('${dir.path}/helper.dart')

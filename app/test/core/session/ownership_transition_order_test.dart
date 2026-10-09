@@ -181,13 +181,13 @@ void main() {
       ).readAsStringSync();
 
       final fn = src.substring(
-          src.indexOf('Future<LocalDataOwnership> _resolveLocalDataOwnership'));
+          src.indexOf('Future<LocalDataOwnership> _resolveAdmitted'));
       final body = fn.substring(0, fn.indexOf('\n  }'));
 
       // The CHANGED-OWNER branch is the last one in the function.
       final purgeAt = body.lastIndexOf('_runOwnerClear()');
-      final claimAt = body.lastIndexOf('_writeOwnerMarkerVerified(uid)');
-      final admitAt = body.lastIndexOf('_admitReplica(uid)');
+      final claimAt = body.lastIndexOf('_writeOwnerMarkerVerified(uid,');
+      final admitAt = body.lastIndexOf('_admitReplica(uid,');
 
       expect(purgeAt, greaterThan(-1));
       expect(purgeAt, lessThan(claimAt),

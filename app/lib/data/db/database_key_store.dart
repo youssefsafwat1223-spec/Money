@@ -3,6 +3,10 @@ import 'dart:math';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import '../../core/security/secure_storage_options.dart';
+import 'creation_policy.dart';
+
+export 'creation_policy.dart'
+    show CreationPolicy, DatabaseCreationNotAuthorizedException;
 
 abstract class DatabaseKeyStore {
   Future<String> readOrCreateKey();
@@ -80,7 +84,8 @@ class LocalDatabaseKeyUnavailableException implements Exception {
   const LocalDatabaseKeyUnavailableException();
 
   @override
-  String toString() => 'LocalDatabaseKeyUnavailableException: the local database '
+  String toString() =>
+      'LocalDatabaseKeyUnavailableException: the local database '
       'encryption key is missing from secure storage.';
 }
 
@@ -200,7 +205,14 @@ class SecureDatabaseKeyStore implements DatabaseKeyStore {
     required this.databaseExists,
     FlutterSecureStorage? storage,
     this.storageKey = defaultStorageKey,
+    this.creation = const CreationPolicy.unrestricted(),
   }) : _storage = storage ?? SecureStorageOptions.storage;
+
+  /// F2 — whether (and for whom) this store may MINT a key. An open-existing-only
+  /// caller holds [CreationPolicy.denied]: an absent key then fails with
+  /// [DatabaseCreationNotAuthorizedException] instead of minting one; an
+  /// authorized caller is re-verified (uid + currentness) right before the write.
+  final CreationPolicy creation;
 
   /// Proves whether a prior encrypted database is already on disk.
   ///
@@ -249,7 +261,9 @@ class SecureDatabaseKeyStore implements DatabaseKeyStore {
       _inFlight ??= _readOrCreate().whenComplete(() => _inFlight = null);
 
   Future<String> _readOrCreate() async {
+    creation.requireCurrent();
     final read = await readKeyOutcome();
+    creation.requireCurrent();
     switch (read.outcome) {
       case DatabaseKeyReadOutcome.found:
         return read.key!;
@@ -270,6 +284,9 @@ class SecureDatabaseKeyStore implements DatabaseKeyStore {
     if (await databaseExists()) {
       throw const LocalDatabaseKeyUnavailableException();
     }
+    // Re-verified AFTER the existence probe, with nothing awaited between this
+    // check and the write.
+    creation.requireMayCreate();
 
     final bytes = List<int>.generate(32, (_) => _random.nextInt(256));
     final key = base64UrlEncode(bytes).replaceAll('=', '');

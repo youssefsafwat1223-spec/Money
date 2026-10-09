@@ -944,33 +944,42 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       if (!context.mounted) return;
       if (!await confirmRemoveData(context, pending: pending)) return;
     }
+    // F2: the provider/SDK logout runs from the session layer at the end of the
+    // removal (this screen is disposed by the scope swap), best effort, and is
+    // neither the admission fence nor a prerequisite of the deletion.
+    Future<void> signOutRemote() async {
+      try {
+        await auth.signOutProviderSession();
+      } catch (_) {
+        // The local sign-out is already authoritative. A provider logout failure
+        // must not reopen access to this account's local data.
+      }
+      if (SupabaseConfig.isConfigured) {
+        try {
+          await supabase.Supabase.instance.client.auth.signOut();
+        } catch (_) {
+          // The local sign-out above already protects the device even if the
+          // network sign-out fails.
+        }
+      }
+    }
+
     try {
       if (choice == SignOutChoice.removeData) {
-        await AppSession.instance.removeDataFromDevice();
-      } else {
-        await AppSession.instance.signOut();
+        await AppSession.instance
+            .removeDataFromDevice(signOutRemote: signOutRemote);
+        return;
       }
+      await AppSession.instance.signOut();
     } on RemoveDataIncompleteException {
       // The device is signed out locally and the unfinished removal resumes at
-      // the next launch or sign-in; fall through to the remote sign-out.
+      // the next launch or sign-in (the remote sign-out already ran).
+      return;
     } catch (_) {
       messenger?.showSnackBar(SnackBar(content: Text(failedText)));
       return;
     }
-    try {
-      await auth.signOutProviderSession();
-    } catch (_) {
-      // The local sign-out is already authoritative. A provider logout failure
-      // must not reopen access to this account's local data.
-    }
-    if (SupabaseConfig.isConfigured) {
-      try {
-        await supabase.Supabase.instance.client.auth.signOut();
-      } catch (_) {
-        // The local sign-out above already protects the device even if the
-        // network sign-out fails.
-      }
-    }
+    await signOutRemote();
   }
 
   Map<String, String> _countryValues(List<RemoteCountry> countries) {

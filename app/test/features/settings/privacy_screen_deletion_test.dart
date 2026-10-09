@@ -57,18 +57,22 @@ class _NoopDataWipeService implements DataWipeService {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-/// Seeds an owner marker and wires the removal flow to a recording fake queue.
+/// Publishes an admitted uid and wires the removal flow to a recording queue.
 List<String> _wireRemoval() {
   FlutterSecureStorage.setMockInitialValues({'local_data_owner_uid': 'uid-x'});
   final calls = <String>[];
-  final scope = FakeAccountScope(calls);
+  final scope = FakeAccountScope(calls)..activeUid = 'uid-x';
+  final support = Directory.systemTemp.createTempSync('pd_');
+  addTearDown(() => support.deleteSync(recursive: true));
   AppSession.instance.configureAccountScope(scope);
   AppSession.instance.configureRemoveData(RemoveDataFlow(
-    store: ReplicaStore(
-        appSupportDirectory: Directory.systemTemp.createTempSync('pd_').path),
+    store: ReplicaStore(appSupportDirectory: support.path),
     scope: scope,
     barrier: FakeRemoveBarrier(calls),
     clearOwnerMarker: AppSession.instance.clearLocalDataOwnerMarker,
+    invalidateAdmissionGeneration:
+        AppSession.instance.invalidateRemovalGeneration,
+    quiesce: AppSession.instance.drainAdmissions,
   ));
   return calls;
 }
@@ -164,14 +168,14 @@ void main() {
     await _tapEnsuringVisible(tester, find.text('حذف الحساب وكل بياناتي'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('حذف الحساب'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 300));
-    // The secure-storage invalidation (platform channel) runs before the removal.
-    for (var i = 0; i < 5 && !removal.contains('finish:uid-x'); i++) {
-      await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 50)));
+    // The dialog continuation belongs to the fake zone; pump its microtasks
+    // between real IO waits, and observe actual terminal completion.
+    for (var i = 0; i < 500 && !removal.contains('finish:uid-x'); i++) {
       await tester.pump();
+      await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 10)));
     }
+    await tester.pump();
 
     expect(service.requestCalls, 1);
     // WP-3b: account deletion runs the §4.4 Remove-data flow (not an in-place wipe).

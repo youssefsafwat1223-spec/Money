@@ -171,7 +171,7 @@ void main() {
 
   group('per user, per device, in the user\'s own replica', () {
     late Directory support;
-    ReplicaStore store() => ReplicaStore(appSupportDirectory: support.path);
+    ReplicaStore store() => ReplicaStore(requireCreationAuthority: false, appSupportDirectory: support.path);
 
     setUp(() {
       support = Directory.systemTemp.createTempSync('consent_replica_');

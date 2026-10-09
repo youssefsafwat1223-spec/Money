@@ -1,6 +1,9 @@
 import '../sync/pending_sync_reconciler.dart';
 import '../sync/sync_health.dart';
 import 'dart:async';
+import 'dart:io' show File;
+
+import '../session/admission_authority.dart';
 import '../session/rebootstrap_service.dart';
 import '../di/rebootstrap_providers.dart';
 
@@ -12,6 +15,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../data/catalog/seed_loader.dart';
 import '../../data/db/app_database.dart';
+import '../../data/db/creation_policy.dart';
 import '../../data/db/replica_store.dart';
 import '../../data/db/planning_canonical_invariants.dart';
 import '../../data/db/planning_cutover.dart';
@@ -62,6 +66,19 @@ class BootstrapTimeoutException implements Exception {
 /// re-opening the database or re-registering listeners a second time —
 /// each side-effecting step below is memoized against a field on this class.
 class BootstrapRunner {
+  BootstrapRunner(
+      {@visibleForTesting SupabaseClient? debugAuthClient,
+      @visibleForTesting this.debugStorageEvent})
+      : _debugAuthClient = debugAuthClient;
+
+  /// Test seam: an auth client standing in for `Supabase.instance.client` in the
+  /// session-binding steps (the real SDK needs a configured backend and the
+  /// network). Null in production.
+  final SupabaseClient? _debugAuthClient;
+  final void Function(String event)? debugStorageEvent;
+  SupabaseClient? get _authClient =>
+      SupabaseConfig.isConfigured ? Supabase.instance.client : _debugAuthClient;
+
   // A brand-new install pays a one-time cost here: SQLCipher key generation,
   // creating the encrypted DB file, and seeding the bundled catalog. Measured
   // ~20s on a debug build / cold simulator for that exact path (session
@@ -74,7 +91,6 @@ class BootstrapRunner {
   AccountScopeHost? _host;
   StreamSubscription<AuthState>? _senderBankAuthSubscription;
   RemoveDataFlow? _removeData;
-  bool _removalPending = false;
   bool _residueHookRegistered = false;
   bool _supabaseInitialized = false;
   bool _senderBankSyncStarted = false;
@@ -152,7 +168,23 @@ class BootstrapRunner {
     // reconcile below can claim the owner marker: an unowned legacy database must
     // be quarantined, never adopted by whoever is restored (B4).
     final host = _host ??= _buildAccountScopeHost();
-    if (_database == null) {
+
+    // F2 — the durable removal state is loaded and acted on BEFORE anything can
+    // admit, adopt or open: auth is not yet bound, no legacy adoption has run, no
+    // replica is open. A pending/unreadable removal or a native barrier of
+    // unknown uid BLOCKS the launch: no legacy adoption, no auth binding or
+    // reconcile, no replica opened or admitted, nothing routed as authenticated —
+    // the signed-out scope is opened and that is all. A stale owner marker of a
+    // removed uid is cleared, not opened.
+    var launchBlocked = false;
+    await _step('removal_recovery', () async {
+      _registerRemoveData();
+      await AppSession.instance.load();
+      launchBlocked =
+          (await AppSession.instance.prepareLaunchAdmission()).blocked;
+    });
+
+    if (_database == null && !launchBlocked) {
       await _step('replica_recovery', host.recoverAtLaunch);
       // WP-7: an unfinished rebootstrap keeps capture delivery and egress frozen
       // until the next sync cycle resumes it from its phase marker.
@@ -192,9 +224,9 @@ class BootstrapRunner {
     }
 
     await _step('session_restore', () async {
-      await AppSession.instance.load();
-      if (SupabaseConfig.isConfigured) {
-        await AppSession.instance.bindSupabaseAuth(Supabase.instance.client);
+      final client = _authClient;
+      if (client != null && !launchBlocked) {
+        await AppSession.instance.bindSupabaseAuth(client);
       }
     });
 
@@ -209,25 +241,31 @@ class BootstrapRunner {
     // owner's first).
     await _step('residue_purge_registration', () async {
       _registerCaptureOwnerHooks();
-      final removal = _removeData!;
-      // §4.4 crash safety: a removal interrupted mid-way resumes from step 2
-      // before any account is opened or admitted. While it cannot finish, the
-      // signed-out scope is used.
-      _removalPending = !await removal.resumePending();
       // Owner gate (MALI-002): the first session reconcile ran before this hook
       // existed. If it deferred a changed-owner purge, resolve it now so the
       // marker names the signed-in uid before its replica is opened.
-      if (SupabaseConfig.isConfigured) {
-        await AppSession.instance
-            .resolvePendingLocalDataOwnerConflict(Supabase.instance.client);
+      final client = _authClient;
+      if (client != null && !launchBlocked) {
+        await AppSession.instance.resolvePendingLocalDataOwnerConflict(client);
       }
     });
 
-    final launchUid = _removalPending
-        ? null
-        : await AppSession.instance.readLocalDataOwnerUid();
+    // §4.4 crash safety: a removal still pending resumes here again (it could not
+    // finish earlier) and blocks the launch owner while it cannot. Open-existing
+    // only: a launch never creates a replica.
+    final launch = launchBlocked
+        ? const LaunchAdmission.blocked()
+        : await AppSession.instance.prepareLaunchAdmission();
+    final launchUid = launch.blocked ? null : launch.uid;
     if (host.current == null) {
       await _step('database_open', () => host.openAtLaunch(launchUid));
+      // The owner marker names a uid whose replica could not be opened (missing,
+      // locked, quarantined): the signed-out scope is open, so the session must
+      // not look authenticated. Routing to sign-in lets an explicit sign-in
+      // create or unlock it.
+      if (launchUid != null && host.current?.uid == null) {
+        AppSession.instance.markSessionInvalid();
+      }
     }
     AppSession.instance.configureAccountScope(host);
     final scope = host.current!;
@@ -308,10 +346,9 @@ class BootstrapRunner {
     // coordinator's initial state so guard/nav/reads react correctly from launch.
     await _step('planning_cutover_state', () async {
       cutover = await computePlanningCutoverState(
-        () async => (await database
-                .customSelect('PRAGMA user_version;')
-                .getSingle())
-            .read<int>('user_version'),
+        () async =>
+            (await database.customSelect('PRAGMA user_version;').getSingle())
+                .read<int>('user_version'),
         () async => (await database
                 .customSelect(
                     'SELECT planning_cutover_state AS s FROM user_settings;')
@@ -407,8 +444,7 @@ class BootstrapRunner {
             DriftGoalRepository(
               database,
               outboxQueue: buildPlanningOutboxQueue(database,
-                  coordinator: FixedPlanningCutoverCoordinator(
-                      cutover)),
+                  coordinator: FixedPlanningCutoverCoordinator(cutover)),
             ),
           ).call();
         } catch (_) {
@@ -451,15 +487,14 @@ class BootstrapRunner {
           // account and only touches `account_id IS NULL` rows — so a repaired
           // install writes nothing on later boots and therefore queues no
           // duplicate outbox rows.
-          final settings =
-              await LoadUserSettingsUseCase(DriftUserSettingsRepository(database))
-                  .call();
+          final settings = await LoadUserSettingsUseCase(
+                  DriftUserSettingsRepository(database))
+              .call();
           await AccountCurrencyRepairService(
             accounts: DriftAccountRepository(
               database,
               outboxQueue: buildPlanningOutboxQueue(database,
-                  coordinator: FixedPlanningCutoverCoordinator(
-                      cutover)),
+                  coordinator: FixedPlanningCutoverCoordinator(cutover)),
             ),
             // Both outboxes are wired deliberately: the repair changes real
             // financial state, so it must still reach other devices exactly as
@@ -468,8 +503,7 @@ class BootstrapRunner {
             transactions: DriftTransactionRepository(
               database,
               outboxQueue: buildLedgerOutboxQueue(database,
-                  coordinator: FixedPlanningCutoverCoordinator(
-                      cutover)),
+                  coordinator: FixedPlanningCutoverCoordinator(cutover)),
             ),
           ).run(fallbackCurrency: settings.currency);
         } catch (_) {
@@ -488,8 +522,7 @@ class BootstrapRunner {
         await DriftGoalRepository(
           database,
           outboxQueue: buildPlanningOutboxQueue(database,
-              coordinator:
-                  FixedPlanningCutoverCoordinator(cutover)),
+              coordinator: FixedPlanningCutoverCoordinator(cutover)),
           coordinator: FixedPlanningCutoverCoordinator(cutover),
         ).repointOrphanGoalsToDefaultAccount();
       } catch (_) {
@@ -505,7 +538,8 @@ class BootstrapRunner {
         final coordinator = FixedPlanningCutoverCoordinator(cutover);
         await PendingSyncReconciler(
           db: database,
-          ledgerQueue: buildLedgerOutboxQueue(database, coordinator: coordinator),
+          ledgerQueue:
+              buildLedgerOutboxQueue(database, coordinator: coordinator),
           planningQueue:
               buildPlanningOutboxQueue(database, coordinator: coordinator),
           getOwnerUid: localDataOwnerUid,
@@ -529,8 +563,7 @@ class BootstrapRunner {
           await DriftCardRepository(
             database,
             outboxQueue: buildPlanningOutboxQueue(database,
-                  coordinator: FixedPlanningCutoverCoordinator(
-                      cutover)),
+                coordinator: FixedPlanningCutoverCoordinator(cutover)),
           ).backfillFromTransactions();
         } catch (_) {
           // Backfill is opportunistic; a failure leaves cards empty, not broken.
@@ -586,7 +619,8 @@ class BootstrapRunner {
       // P4: an account transition / sign-out advances the epoch first, so every
       // in-flight async mutation of the previous owner is stale from here on.
       CloudEgressGate.instance.advanceEpoch();
-      final cleared = await captureQueue.clearCaptureOwner(clearHint: clearHint);
+      final cleared =
+          await captureQueue.clearCaptureOwner(clearHint: clearHint);
       final filesCleared = await PendingNotificationActions.clear();
       // MALI-019 §10 — clear the previous user's pending OS reminders too.
       await LocalNotificationService.instance.cancelScheduledReminders();
@@ -605,37 +639,75 @@ class BootstrapRunner {
     AppSession.instance.configureCaptureOwnerPublish((uid) async {
       unawaited(_captureRegistration?.linkToCurrentUser().catchError((_) {}));
     });
+  }
+
+  /// F2 — builds the §4.4 Remove-data flow and the rebootstrap wiring that
+  /// reuses it. Needs only the store and the scope host (no capture hooks, no
+  /// database), so launch registers it before anything can admit. Idempotent.
+  void _registerRemoveData() {
+    if (_removeData != null) return;
     _removeData = RemoveDataFlow(
       store: _replicaStore!,
       scope: _host!,
       barrier: CaptureQueueRemoveBarrier(captureQueue),
       clearOwnerMarker: AppSession.instance.clearLocalDataOwnerMarker,
+      quiesce: AppSession.instance.drainAdmissions,
+      invalidateAdmissionGeneration:
+          AppSession.instance.invalidateRemovalGeneration,
     );
     AppSession.instance.configureRemoveData(_removeData);
     // WP-7: the rebootstrap reuses the §4.4 Remove-data flow for epoch_reason
-    // purge, and re-admits the account afterwards.
+    // purge, and re-admits the account afterwards. The purge is NOT a user
+    // removal (it does not revoke the uid), and the rebootstrap holds a
+    // maintenance authority that an explicit Remove data revokes for good.
     RebootstrapRuntime.instance
       ..store = _replicaStore
       ..scope = _host
-      ..removeData = ((uid) => _removeData!.remove(uid))
-      ..readmit = (String _) async {
-        if (SupabaseConfig.isConfigured) {
-          await AppSession.instance
-              .revalidateSupabaseSessionOnResume(Supabase.instance.client);
+      ..removeData = ((uid) => _removeData!.remove(uid, revokeAdmission: false))
+      ..maintenanceAuthority = AppSession.instance.maintenanceAuthority
+      ..readmit = (String _, AdmissionAuthority? authority) async {
+        final client = _authClient;
+        if (client != null) {
+          await AppSession.instance.revalidateSupabaseSessionOnResume(
+            client,
+            authority: authority,
+          );
         }
       };
   }
 
   AccountScopeHost _buildAccountScopeHost() {
     final store = _replicaStore = ReplicaStore(
-      opener: ({location, runMigrations = true}) async {
+      debugAfterAdoptionStep: (step) async =>
+          debugStorageEvent?.call("adoption:$step"),
+      opener: ({
+        location,
+        runMigrations = true,
+        creation = const CreationPolicy.unrestricted(),
+      }) async {
+        debugStorageEvent?.call("opener");
         // Process liveness (Contract B) is per database file; the legacy file is
         // only ever read during adoption and takes none.
-        if (location != null && location.dbFileName == ReplicaStore.dbFileName) {
+        if (location != null &&
+            location.dbFileName == ReplicaStore.dbFileName) {
+          // F2: liveness files are created next to the database; an open that may
+          // not create — or whose authority was revoked — must not even make the
+          // directory.
+          if (!await File(location.dbPath).exists()) {
+            creation.requireMayCreate();
+          }
+          creation.requireCurrent();
+          debugStorageEvent?.call("liveness");
           await AppDatabase.initProcessLiveness(location: location);
+          creation.requireCurrent();
         }
+        creation.requireCurrent();
+        debugStorageEvent?.call("native-open");
         return AppDatabase.open(
-            location: location, runMigrations: runMigrations);
+          location: location,
+          runMigrations: runMigrations,
+          creation: creation,
+        );
       },
     );
     return AccountScopeHost(
@@ -754,8 +826,8 @@ StreamSubscription<AuthState> _startSenderBankMappingSync(
     // C-3 — same gate as the provider construction site. Startup is exactly
     // where an ungated sync would run before any UI could reflect consent.
     mayEgress: () => ConsentAuthority(
-          () => DriftUserSettingsRepository(database).getSettings(),
-        ).allows(EgressClass.senderBankMappings),
+      () => DriftUserSettingsRepository(database).getSettings(),
+    ).allows(EgressClass.senderBankMappings),
     health: SyncHealth.shared,
     // WP-4: the same sync_seq gate as the provider construction site, so this
     // startup instance does not stay on the timestamp pull (B6).
@@ -765,8 +837,8 @@ StreamSubscription<AuthState> _startSenderBankMappingSync(
         getAuthUserId: () async => client.auth.currentUser?.id,
         getClient: () => client,
         mayEgress: () => ConsentAuthority(
-              () => DriftUserSettingsRepository(database).getSettings(),
-            ).allows(EgressClass.financialSync),
+          () => DriftUserSettingsRepository(database).getSettings(),
+        ).allows(EgressClass.financialSync),
         health: SyncHealth.shared,
       ).syncSeq,
     ),

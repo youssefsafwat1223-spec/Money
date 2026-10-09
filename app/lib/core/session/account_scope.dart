@@ -4,9 +4,11 @@ import 'package:drift/native.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/db/app_database.dart';
+import '../../data/db/creation_policy.dart';
 import '../../data/db/planning_cutover.dart';
 import '../../data/db/replica_location.dart';
 import '../../data/db/replica_store.dart';
+import 'admission_authority.dart';
 
 /// WP-3b — the ACCOUNT SCOPE: the one database the UI and every service work
 /// against, and the uid it belongs to.
@@ -57,9 +59,19 @@ class AccountScopeInit {
 /// What AppSession needs from the account-scope layer (kept narrow so the session
 /// layer stays decoupled from the database layer, like its other hooks).
 abstract class AccountScopeControl {
+  /// The uid of the published account scope, or null (signed-out / switching).
+  /// The session reads it, synchronously, as the uid an accepted Remove data
+  /// authorizes when no admission completed in this process.
+  String? get activeUid;
+
   /// An authenticated uid is admitted: unlock its replica (registry `active`),
   /// open it and publish it, locking and closing any other uid's replica first.
-  Future<void> activate(String uid);
+  ///
+  /// F2: [authority] is re-checked, for [uid], before every side effect (lock,
+  /// registry write, open/create, publication); a revoked one or one of another
+  /// uid throws [StaleAdmissionException] having changed nothing. Only an
+  /// authority with `canCreate` may create a replica that does not exist.
+  Future<void> activate(String uid, {AdmissionAuthority? authority});
 
   /// Explicit sign-out: lock the active replica (registry `locked`), close it and
   /// publish the signed-out scope. Nothing is deleted.
@@ -85,13 +97,15 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
     Future<void> Function()? afterWithdraw,
   })  : _openSignedOut = openSignedOut ?? _defaultSignedOut,
         _prepareLocation = prepareLocation,
-        _afterWithdraw = afterWithdraw ?? (() => Future<void>.delayed(Duration.zero));
+        _afterWithdraw =
+            afterWithdraw ?? (() => Future<void>.delayed(Duration.zero));
 
   final ReplicaStore store;
 
   /// Per-account startup steps (seed, flags, hooks, repairs). Run on every
   /// database before it is published; a throw closes it and fails the switch.
-  final Future<AccountScopeInit> Function(AppDatabase db, String? uid) initialize;
+  final Future<AccountScopeInit> Function(AppDatabase db, String? uid)
+      initialize;
   final Future<AppDatabase> Function() _openSignedOut;
   final Future<void> Function(ReplicaLocation location)? _prepareLocation;
 
@@ -108,6 +122,7 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
 
   /// The published scope; null only while a switch is in flight.
   AccountScope? get current => _current;
+  @override
   String? get activeUid => _current?.uid;
 
   /// True from [suspendForSwap] until the next scope is published.
@@ -127,26 +142,41 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
         await _withdraw();
         if (uid != null) {
           try {
-            return await _publishOpened(uid, await _openAccount(uid));
+            return await _publishOpened(uid, await _openAccount(uid, null));
           } on ReplicaUnavailableException {
             // Locked (signed out, SYNC-Q3) or quarantined: stays closed.
+          } on ReplicaMissingException {
+            // F2: a launch opens what exists, never creates. A stale owner marker
+            // whose replica is gone (Remove data) opens the signed-out scope.
           }
         }
         return _publishSignedOut();
       });
 
   @override
-  Future<void> activate(String uid) => _serial(() async {
+  Future<void> activate(String uid, {AdmissionAuthority? authority}) =>
+      _serial(() async {
+        // Checked when this turn STARTS, not only when it was queued: a removal
+        // accepted while it waited must find it stale.
+        authority?.requireFor(uid);
         if (_current?.uid == uid &&
             _current!.database.lifecycleState == DatabaseLifecycleState.open) {
-          await store.setState(uid, ReplicaState.active);
+          await store.setState(uid, ReplicaState.active, authority: authority);
+          authority?.requireFor(uid);
           return;
         }
-        await _withdraw(lockPrevious: true);
-        await store.setState(uid, ReplicaState.active);
         try {
-          await _publishOpened(uid, await _openAccount(uid));
+          await _withdraw(lockPrevious: true);
+          authority?.requireFor(uid);
+          await store.setState(uid, ReplicaState.active, authority: authority);
+          await _publishOpened(
+            uid,
+            await _openAccount(uid, authority),
+            authority: authority,
+          );
         } catch (_) {
+          // The previous scope is already withdrawn: never leave the root
+          // without one, whatever stopped the activation.
           await _publishSignedOut();
           rethrow;
         }
@@ -187,28 +217,53 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
 
   /// Opens the uid's replica; a `migrating` one (interrupted adoption) is retried
   /// once, and while it still cannot finish the legacy file stays in use.
-  Future<(AppDatabase, ReplicaLocation?)> _openAccount(String uid) async {
+  Future<(AppDatabase, ReplicaLocation?)> _openAccount(
+    String uid,
+    AdmissionAuthority? authority,
+  ) async {
     try {
-      return await _openReplica(uid);
+      return await _openReplica(uid, authority);
     } on ReplicaUnavailableException catch (e) {
       if (e.state != ReplicaState.migrating) rethrow;
     }
-    final outcome = await store.adoptLegacyIfPresent();
-    if (outcome == AdoptionOutcome.adopted) return _openReplica(uid);
+    authority?.requireFor(uid);
+    final outcome = await store.adoptLegacyIfPresent(authority: authority);
+    authority?.requireFor(uid);
+    if (outcome == AdoptionOutcome.adopted) return _openReplica(uid, authority);
     final legacy = await store.legacyLocation();
+    authority?.requireFor(uid);
     await _prepareLocation?.call(legacy);
-    return (await AppDatabase.open(location: legacy), legacy);
+    authority?.requireFor(uid);
+    return (
+      await AppDatabase.open(
+        location: legacy,
+        creation: CreationPolicy.denied(authority: authority, uid: uid),
+      ),
+      legacy,
+    );
   }
 
-  Future<(AppDatabase, ReplicaLocation?)> _openReplica(String uid) async {
-    final db = await store.openReplica(uid);
+  Future<(AppDatabase, ReplicaLocation?)> _openReplica(
+    String uid,
+    AdmissionAuthority? authority,
+  ) async {
+    final db = await store.openReplica(uid, authority: authority);
     return (db, await store.locationFor(uid));
   }
 
   Future<AccountScope> _publishOpened(
-      String uid, (AppDatabase, ReplicaLocation?) opened) async {
+    String uid,
+    (AppDatabase, ReplicaLocation?) opened, {
+    AdmissionAuthority? authority,
+  }) async {
     final (db, location) = opened;
-    return _publish(db, uid, location, closeOnFailure: () => _close(db, uid));
+    return _publish(
+      db,
+      uid,
+      location,
+      authority: authority,
+      closeOnFailure: () => _close(db, uid),
+    );
   }
 
   Future<AccountScope> _publishSignedOut() async {
@@ -220,11 +275,15 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
     AppDatabase db,
     String? uid,
     ReplicaLocation? location, {
+    AdmissionAuthority? authority,
     required Future<void> Function() closeOnFailure,
   }) async {
     final AccountScopeInit init;
     try {
       init = await initialize(db, uid);
+      // A stale activation never publishes: Remove data may have been accepted
+      // while the replica was opening or initializing.
+      if (authority != null && uid != null) authority.requireFor(uid);
     } catch (_) {
       await closeOnFailure();
       rethrow;

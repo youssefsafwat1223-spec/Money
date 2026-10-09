@@ -50,7 +50,8 @@ void main() {
     if (dir.existsSync()) dir.deleteSync(recursive: true);
   });
 
-  group('no runtime reaping — a live holder is never reaped (heartbeat removed)',
+  group(
+      'no runtime reaping — a live holder is never reaped (heartbeat removed)',
       () {
     test('two secondaries coexist normally', () async {
       final m = _manager(dir);
@@ -62,7 +63,8 @@ void main() {
       expect(m.debugLiveLeaseCount(), 0);
     });
 
-    test('a holder that NEVER releases (a blocked/paused isolate) is not reaped; '
+    test(
+        'a holder that NEVER releases (a blocked/paused isolate) is not reaped; '
         'maintenance returns a typed bounded timeout; releasing lets it proceed',
         () async {
       final m = _manager(dir);
@@ -80,7 +82,8 @@ void main() {
       await ok.release();
     });
 
-    test('lease age / clock anomalies never authorize deletion (existence, not '
+    test(
+        'lease age / clock anomalies never authorize deletion (existence, not '
         'mtime, is liveness)', () async {
       final m = _manager(dir);
       final lease = await m.acquireShared();
@@ -92,8 +95,8 @@ void main() {
       leaseFile.setLastModifiedSync(
           DateTime.now().subtract(const Duration(days: 365)));
       expect(m.debugLiveLeaseCount(), 1);
-      leaseFile.setLastModifiedSync(
-          DateTime.now().add(const Duration(days: 365)));
+      leaseFile
+          .setLastModifiedSync(DateTime.now().add(const Duration(days: 365)));
       expect(m.debugLiveLeaseCount(), 1);
       // Maintenance still refuses to reap and times out.
       await expectLater(
@@ -103,10 +106,12 @@ void main() {
       await lease.release();
     });
 
-    test('an empty/partial record is treated as live/unknown — never deleted at '
+    test(
+        'an empty/partial record is treated as live/unknown — never deleted at '
         'runtime', () async {
       final m = _manager(dir);
-      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
+      final leaseDir = Directory('${dir.path}/leases')
+        ..createSync(recursive: true);
       final partial = File('${leaseDir.path}/p.lease')..writeAsStringSync('');
       // Fencing delete refuses a malformed record.
       await DatabaseLeaseManager.deleteIfTokenForTest(partial, 'anytoken');
@@ -139,11 +144,14 @@ void main() {
     });
   });
 
-  group('runtime never reaps even an ended-instance leftover; startup recovery '
+  group(
+      'runtime never reaps even an ended-instance leftover; startup recovery '
       'does', () {
-    test('a different-pid leftover blocks runtime maintenance (timeout) but is '
+    test(
+        'a different-pid leftover blocks runtime maintenance (timeout) but is '
         'cleared by process-start recovery', () async {
-      final leaseDir = Directory('${dir.path}/leases')..createSync(recursive: true);
+      final leaseDir = Directory('${dir.path}/leases')
+        ..createSync(recursive: true);
       File('${leaseDir.path}/999_0_z.lease')
           .writeAsStringSync('tok\n424242\nended-inst');
       final m = _manager(dir); // ownerPid = current pid (differs from 424242)
@@ -161,8 +169,47 @@ void main() {
     });
   });
 
+  test(
+      'startup recovery preserves same-PID different-token holder and PID reuse',
+      () async {
+    final holder = _manager(dir);
+    final lease = await holder.acquireShared();
+    final recovering = _manager(dir);
+    expect(recovering.recoverEndedInstances(), 0);
+    expect(recovering.debugLiveLeaseCount(), 1);
+    await expectLater(
+        recovering.acquireExclusive(timeout: const Duration(milliseconds: 120)),
+        throwsA(isA<DatabaseLeaseUnavailable>()));
+    await lease.release();
+    final exclusive =
+        await recovering.acquireExclusive(timeout: const Duration(seconds: 2));
+    await exclusive.release();
+    final stale = File('${dir.path}/leases/reused.lease')
+      ..writeAsStringSync('old-token\n$pid\nold-instance');
+    expect(recovering.recoverEndedInstances(), 0);
+    expect(stale.existsSync(), isTrue);
+    await expectLater(
+        recovering.acquireExclusive(timeout: const Duration(milliseconds: 120)),
+        throwsA(isA<DatabaseLeaseUnavailable>()));
+  });
+
+  test('startup recovery preserves malformed unknown lease and intent records',
+      () async {
+    Directory('${dir.path}/leases').createSync();
+    File('${dir.path}/leases/unknown.lease').writeAsStringSync('partial');
+    File('${dir.path}/db.maint').writeAsStringSync('partial');
+    final recovering = _manager(dir);
+    expect(recovering.recoverEndedInstances(), 0);
+    expect(recovering.debugLiveLeaseCount(), 1);
+    expect(recovering.debugIntentPresent(), isTrue);
+    await expectLater(
+        recovering.acquireExclusive(timeout: const Duration(milliseconds: 120)),
+        throwsA(isA<DatabaseLeaseUnavailable>()));
+  });
+
   group('shared-acquire vs maintenance-intent race (two-phase)', () {
-    test('intent that appears BETWEEN the pre-check and lease creation is caught '
+    test(
+        'intent that appears BETWEEN the pre-check and lease creation is caught '
         'by the phase-3 re-check (shared aborts, no lease left)', () async {
       final m = _manager(dir);
       DatabaseFileLease? intent;
@@ -175,12 +222,17 @@ void main() {
       addTearDown(() async => intent?.release());
       final leaseDir = Directory('${dir.path}/leases');
       final leftover = leaseDir.existsSync()
-          ? leaseDir.listSync().whereType<File>().where((f) => f.path.endsWith('.lease')).length
+          ? leaseDir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.lease'))
+              .length
           : 0;
       expect(leftover, 0);
     });
 
-    test('intent that appears immediately AFTER lease creation is caught by the '
+    test(
+        'intent that appears immediately AFTER lease creation is caught by the '
         'phase-3 re-check (shared aborts, no lease left)', () async {
       final m = _manager(dir);
       DatabaseFileLease? intent;
@@ -193,17 +245,23 @@ void main() {
       addTearDown(() async => intent?.release());
       final leaseDir = Directory('${dir.path}/leases');
       final leftover = leaseDir.existsSync()
-          ? leaseDir.listSync().whereType<File>().where((f) => f.path.endsWith('.lease')).length
+          ? leaseDir
+              .listSync()
+              .whereType<File>()
+              .where((f) => f.path.endsWith('.lease'))
+              .length
           : 0;
       expect(leftover, 0);
     });
 
-    test('maintenance never enters exclusivity while a live shared lease exists',
+    test(
+        'maintenance never enters exclusivity while a live shared lease exists',
         () async {
       final m = _manager(dir);
       final shared = await m.acquireShared();
       var entered = false;
-      final fut = m.acquireExclusive(timeout: const Duration(seconds: 2)).then((ex) {
+      final fut =
+          m.acquireExclusive(timeout: const Duration(seconds: 2)).then((ex) {
         entered = true;
         expect(m.debugLiveLeaseCount(), 0);
         return ex;
@@ -216,7 +274,8 @@ void main() {
       await ex.release();
     });
 
-    test('repeated shared-vs-exclusive race across a real isolate has zero overlap',
+    test(
+        'repeated shared-vs-exclusive race across a real isolate has zero overlap',
         () async {
       final m = _manager(dir);
       Directory('${dir.path}/leases').createSync(recursive: true);
@@ -234,7 +293,8 @@ void main() {
       final inbox = _Inbox(ctrl);
       final SendPort stop = await inbox.next() as SendPort;
       for (var i = 0; i < 14; i++) {
-        final ex = await m.acquireExclusive(timeout: const Duration(seconds: 3));
+        final ex =
+            await m.acquireExclusive(timeout: const Duration(seconds: 3));
         expect(m.debugLiveLeaseCount(), 0,
             reason: 'no shared lease may exist inside exclusivity (round $i)');
         await Future<void>.delayed(const Duration(milliseconds: 12));
@@ -247,7 +307,8 @@ void main() {
       ctrl.close();
     });
 
-    test('a shared lease held in ANOTHER isolate blocks exclusive maintenance in '
+    test(
+        'a shared lease held in ANOTHER isolate blocks exclusive maintenance in '
         'the main isolate (cross-isolate)', () async {
       final m = _manager(dir);
       Directory('${dir.path}/leases').createSync(recursive: true);

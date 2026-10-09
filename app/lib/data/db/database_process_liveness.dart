@@ -44,6 +44,12 @@ class ProcessLivenessHandle {
   // closed on purpose in production.
   final RandomAccessFile? _lockFile;
 
+  /// F2 — release the lock and close the fd of a replica whose directory is
+  /// being deleted (Remove data), so a later explicit re-creation takes a FRESH
+  /// lock and writes fresh `.plock`/`.instance` files instead of reusing a handle
+  /// for deleted filesystem objects.
+  void release() => debugReleaseForTest();
+
   /// Test-only: release the advisory lock + close the fd (production never does
   /// this — the OS releases on process exit). Lets a test free the lock between
   /// cases without leaking file descriptors.

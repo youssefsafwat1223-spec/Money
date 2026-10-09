@@ -1,3 +1,4 @@
+import '../../core/backend/auth_client_provider.dart';
 import '../../core/sync/sync_health.dart';
 import '../../core/sync/sync_recovery.dart';
 import '../../core/sync/sync_status.dart';
@@ -163,8 +164,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     });
     AppSession.instance.addListener(_handleSessionStatusChange);
     // CAP-7: generic lock-screen text for every capture alert behind the flag.
-    LocalNotificationService.instance.captureNotifyV2 =
-        _captureNotifyV2Enabled;
+    LocalNotificationService.instance.captureNotifyV2 = _captureNotifyV2Enabled;
     // Final push before the sign-out wipe destroys the outboxes — otherwise a
     // change made seconds before signing out is deleted un-uploaded and lost.
     AppSession.instance.configureSignOutFlush(_flushPendingForSignOut);
@@ -240,24 +240,33 @@ class _AppShellState extends ConsumerState<AppShell> {
     });
 
     WidgetsBinding.instance.addPostFrameCallback((_) async {
+      final work = AdmittedLocalWork.capture(ref);
+      if (work == null) return;
       // Defensive: the router should already have redirected away from this
       // shell for a non-authenticated status before it ever mounted, but
       // never run Supabase-primary startup work without re-confirming.
       if (!await _revalidateAuthSession()) return;
+      if (!work.current) return;
       unawaited(_syncRemoteOnboardingCompletion());
-      await syncCatalog(ref, force: true);
+      await syncCatalog(ref, force: true, work: work);
+      if (!work.current) return;
       // Same coordinated path as app resume — drains any Confirm/Dismiss
       // notification action applied while the app was closed, repairs any
       // dirty Supabase-mirror cache, and refreshes financial providers.
-      await _reconcileDataAfterResume();
+      await _reconcileDataAfterResume(work: work);
+      if (!work.current) return;
       unawaited(UserActivityService.ping()); // cold start — always writes
       await _syncNativeCaptureState();
+      if (!work.current) return;
       unawaited(_linkCaptureDeviceToUser());
       await _consumeSharedInput();
+      if (!work.current) return;
       // Cold start is a recovery-eligible trigger (always attempt).
       unawaited(_runLedgerSync(recoveryProbe: true));
       await _drainPendingNotificationRoutes();
+      if (!work.current) return;
       await _syncEngagement();
+      if (!work.current) return;
       // Cold-start work is a long await chain inside initState's closure, and
       // the shell is a route: opening a top-level page disposes it part-way
       // through, after which this read throws. Nothing below is required for
@@ -371,6 +380,8 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _onResume() async {
+    final work = AdmittedLocalWork.capture(ref);
+    if (work == null) return;
     // Resume = the user is back → reset the poll cadence to its base interval.
     _syncCadence.recordActivity();
     _scheduleAdaptivePoll();
@@ -378,6 +389,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     // auth-state event ever delivered until something touches the client
     // again — re-check before running any Supabase-primary-dependent work.
     if (!await _revalidateAuthSession()) return;
+    if (!work.current) return;
     // B2-C — coalesce the NON-CRITICAL, idempotent refreshes so rapid repeated
     // resumes don't re-run them each time. Safety-critical work below (reconcile,
     // capture import of NEW shared input, the SyncGate-coalesced sync) always
@@ -402,7 +414,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         .reprobeIfStale()
         .then((_) {})
         .catchError((_) {}));
-    if (runNonCritical) await syncCatalog(ref);
+    if (runNonCritical) await syncCatalog(ref, work: work);
+    if (!work.current) return;
     if (runNonCritical) {
       // R4 §7/§11/§21: warm the report-export entitlement decision on resume,
       // then run the one UMP orchestration point (gather consent → refresh the
@@ -421,9 +434,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     // their own `AppDatabase` connection (local_notification_service.dart),
     // so `dbRevisionProvider` never ticks for them on its own. See
     // docs/STALE_UI_ROOT_CAUSE_REPORT.md.
-    await _reconcileDataAfterResume();
+    await _reconcileDataAfterResume(work: work);
+    if (!work.current) return;
     unawaited(UserActivityService.ping()); // resume — writes only if > 30 min
     if (runNonCritical) await _syncNativeCaptureState();
+    if (!work.current) return;
     // Always: a capture may have arrived while backgrounded — never coalesce it.
     await _consumeSharedInput();
     // Resume is a recovery-eligible trigger (always attempt).
@@ -495,11 +510,16 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// Returns false (recovery already triggered, router about to redirect
   /// away from this shell) when the live Supabase session turned out to be
   /// invalid — callers must stop running further Supabase-primary work.
+  ///
+  /// F2: acts only for a mounted shell whose session is currently
+  /// `authenticated` ([AppSession.revalidateForShell]) — not merely "not
+  /// expired", which also accepts `needsOnboarding` (what a Remove data leaves
+  /// while its scope remounts).
   Future<bool> _revalidateAuthSession() async {
-    if (!SupabaseConfig.isConfigured) return true;
-    await AppSession.instance
-        .revalidateSupabaseSessionOnResume(supabase.Supabase.instance.client);
-    return AppSession.instance.status != SessionStatus.sessionExpired;
+    if (!mounted) return false;
+    final stillAuthenticated = await AppSession.instance
+        .revalidateForShell(ref.read(authClientProvider));
+    return stillAuthenticated && mounted;
   }
 
   Future<void> _syncRemoteOnboardingCompletion() async {
@@ -556,7 +576,9 @@ class _AppShellState extends ConsumerState<AppShell> {
   ///
   /// Guarded against re-entry: a second resume firing while the first is
   /// still running is a no-op rather than a duplicate reconciliation pass.
-  Future<void> _reconcileDataAfterResume() async {
+  Future<void> _reconcileDataAfterResume({AdmittedLocalWork? work}) async {
+    work ??= AdmittedLocalWork.capture(ref);
+    if (work == null || !work.current) return;
     if (_isReconcilingAfterResume) {
       if (kDebugMode) {
         debugPrint('[Reconcile] already running — skipping duplicate trigger');
@@ -570,8 +592,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       // A. Pending notification actions — idempotent (PendingNotificationActions
       // .drain() empties the queue first; _applyQuickAction tolerates a
       // confirm/delete that already landed via the background path).
-      final drainedActions = await _drainPendingNotificationActions();
-      if (!mounted) return;
+      final drainedActions = await _drainPendingNotificationActions(work);
+      if (!work.current) return;
       // B. (MALI-034) The recurring Supabase-authoritative cache repair was
       // retired; a legacy dirty marker is now reconciled IN-SLOT during the
       // normal push/pull sync body (see _runLedgerSyncBody), which writes
@@ -984,7 +1006,8 @@ class _AppShellState extends ConsumerState<AppShell> {
         await ref.read(legacyCaptureResolverProvider).resolve();
       } catch (_) {}
       // CAP-7: keep the App Intent's flag mirror current (iOS; best-effort).
-      unawaited(NativeCaptureBridge.setCaptureNotifyV2(_captureNotifyV2Enabled()));
+      unawaited(
+          NativeCaptureBridge.setCaptureNotifyV2(_captureNotifyV2Enabled()));
       if (_captureImportV3Enabled()) {
         await _runCaptureImportV3();
         return;
@@ -1666,21 +1689,26 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   /// زر "تأكيد ✓" أو "تجاهل" من الإشعار والتطبيق شغال — ينفَّذ مباشرة
   /// عبر نفس مسار الشاشات (usecase/repository) ثم تحديث الواجهة.
-  Future<void> _applyQuickAction(CaptureQuickAction action) async {
+  Future<void> _applyQuickAction(CaptureQuickAction action,
+      {AdmittedLocalWork? work}) async {
+    work ??= AdmittedLocalWork.capture(ref);
+    if (work == null || !work.current) return;
     try {
       if (action.confirm) {
-        await ref.read(confirmTransactionUseCaseProvider)(action.transactionId);
+        await work.local(() =>
+            ref.read(confirmTransactionUseCaseProvider)(action.transactionId));
       } else {
-        await ref
+        await work.local(() => ref
             .read(transactionRepositoryProvider)
-            .deleteTransaction(action.transactionId);
+            .deleteTransaction(action.transactionId));
       }
     } catch (_) {
       // العملية قد تكون أُكّدت/حُذفت من مكان آخر بالفعل.
     }
-    if (!mounted) return;
+    if (!work.current) return;
     _refreshAll();
     await _syncEngagement();
+    if (!work.current) return;
     _drainCelebrations();
   }
 
@@ -1688,14 +1716,17 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// تُطبَّق هنا عند أول فتح. Returns true iff at least one action was
   /// actually drained — callers use this to skip a broad refresh when the
   /// queue was already empty.
-  Future<bool> _drainPendingNotificationActions() async {
+  Future<bool> _drainPendingNotificationActions(AdmittedLocalWork work) async {
     final actions = await PendingNotificationActions.drain();
+    if (!work.current) return false;
     for (final action in actions) {
+      if (!work.current) return false;
       await _applyQuickAction(
         CaptureQuickAction(
           transactionId: action.transactionId,
           confirm: action.confirm,
         ),
+        work: work,
       );
     }
     return actions.isNotEmpty;

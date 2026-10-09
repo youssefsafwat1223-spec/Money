@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:money_companion/core/session/rebootstrap_service.dart';
 import 'package:money_companion/core/session/replica_recovery.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -12,6 +13,7 @@ import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:path/path.dart' as p;
 
 import 'fake_account_scope.dart';
+import 'recording_secure_storage.dart';
 
 // WP-7 / manifest §4.10: rebootstrap phases, recovery merge, purge, retention,
 // capability gate. Real encrypted replica files in a temp directory.
@@ -85,7 +87,7 @@ void main() {
   late List<String> removed;
   var clock = DateTime.utc(2026, 10, 1);
 
-  ReplicaStore mkStore() => ReplicaStore(
+  ReplicaStore mkStore() => ReplicaStore(requireCreationAuthority: false, 
         appSupportDirectory: support.path,
         now: () => clock,
         readOwnerMarker: () async => _uid,
@@ -369,7 +371,7 @@ void main() {
     for (final step in kSwapSteps) {
       test('crash after $step', () async {
         await seedOld();
-        store = ReplicaStore(
+        store = ReplicaStore(requireCreationAuthority: false, 
           appSupportDirectory: support.path,
           now: () => clock,
           readOwnerMarker: () async => _uid,
@@ -391,6 +393,160 @@ void main() {
         expect(Directory(p.join(support.path, 'replicas', '$h.rb')).existsSync(), isFalse);
       });
     }
+  });
+
+  // ---------------------------------------------------------------- F2 ------
+  // An explicit Remove data revokes the maintenance authority a rebootstrap
+  // holds. Each continuation, once released, must fail BEFORE it reopens,
+  // recreates a staging replica, re-activates or re-admits.
+  group('F2: explicit Remove data during a rebootstrap', () {
+    late RecordingSecureStorage rec;
+    late ReplicaStore strict;
+    late bool live;
+    late AdmissionAuthority authority;
+    late List<String> readmitted;
+
+    RebootstrapService service({
+      required Future<void> Function(String phase) pause,
+      Future<void> Function(String uid)? removeData,
+    }) =>
+        RebootstrapService(
+          store: strict,
+          capture: capture,
+          scope: scope,
+          lookup: lookup,
+          bootstrapFresh: pull,
+          removeData: removeData ?? (uid) => strict.remove(uid),
+          maintenanceAuthority: (uid) async => authority,
+          readmit: (uid, a) async => readmitted.add(uid),
+          freeze: ReplicaFreeze.instance,
+          debugAfterPhase: pause,
+        );
+
+    setUp(() async {
+      rec = RecordingSecureStorage().install();
+      strict = ReplicaStore(
+        appSupportDirectory: support.path,
+        now: () => clock,
+        readOwnerMarker: () async => _uid,
+      );
+      live = true;
+      authority = AdmissionAuthority(_uid, () => live, canCreate: true);
+      readmitted = [];
+      await strict.openReplica(_uid,
+          authority: const AdmissionAuthority.forTest(_uid));
+      ReplicaFreeze.instance.thaw();
+    });
+
+    tearDown(() async {
+      await strict.closeAll();
+      ReplicaFreeze.instance.thaw();
+    });
+
+    Future<List<String>> artifacts() async {
+      final h = await strict.uidHash(_uid);
+      return [
+        for (final suffix in ['', '.rb', '.old'])
+          if (Directory(p.join(support.path, 'replicas', '$h$suffix')).existsSync())
+            'dir$suffix',
+        for (final suffix in ['', '.rb', '.old'])
+          if (rec.data.containsKey('qirsh.db_key.$h$suffix')) 'key$suffix',
+        if ((await strict.list()).any((e) => e.uidHash == h)) 'registry',
+      ];
+    }
+
+    for (final phase in [
+      'frozen', //                direct reopen of the live replica next
+      'extracted', //             staging creation next
+      'fresh_bootstrapped', //    staging reopen for receipts next
+      'receipts_recovered',
+      'pulled_merged',
+      'outbox_recovered',
+      'conflicts_merged', //      suspendForSwap + final reopen next
+    ]) {
+      test('revoked while paused after "$phase": nothing is reopened, '
+          'recreated or swapped', () async {
+        late int mark;
+        final outcome = await service(pause: (p) async {
+          if (p == phase) {
+            live = false; // explicit Remove data accepted...
+            await strict.remove(_uid); // ...and its sweep ran
+            mark = rec.attempts.length;
+          }
+        }).run(_uid, reason: 'reset');
+
+        expect(outcome, RebootstrapOutcome.notNeeded);
+        expect(await artifacts(), isEmpty,
+            reason: 'no replica, staging copy, key or registry entry came back');
+        expect(
+            rec.attempts.skip(mark).where((a) => a.startsWith('write:qirsh.db_key.')),
+            isEmpty);
+        expect(capture.resumed, isEmpty, reason: 'the capture barrier is released');
+        expect(ReplicaFreeze.instance.frozen, isFalse);
+        expect(scope.calls, isNot(contains('activate:$_uid')),
+            reason: 'no recovery activation');
+      });
+    }
+
+    test('revoked after the swap committed: the recovery activation never '
+        'happens', () async {
+      final outcome = await service(pause: (p) async {
+        if (p == 'swapped') {
+          live = false;
+          await strict.remove(_uid);
+        }
+      }).run(_uid, reason: 'reset');
+      expect(outcome, RebootstrapOutcome.notNeeded);
+      expect(scope.calls.where((c) => c == 'activate:$_uid'), isEmpty);
+      expect(await artifacts(), isEmpty);
+    });
+
+    test('purge: revoked while the purge removal runs, the re-admission is '
+        'skipped for good', () async {
+      final outcome = await service(
+        pause: (_) async {},
+        removeData: (uid) async {
+          await strict.remove(uid);
+          live = false; // explicit Remove data accepted mid-purge
+        },
+      ).run(_uid, reason: 'purge');
+      expect(outcome, RebootstrapOutcome.notNeeded);
+      expect(readmitted, isEmpty);
+      expect(await artifacts(), isEmpty);
+    });
+
+    test('an ordinary authorized server purge still removes, thaws and '
+        're-admits under the maintenance authority', () async {
+      final outcome =
+          await service(pause: (_) async {}).run(_uid, reason: 'purge');
+      expect(outcome, RebootstrapOutcome.purged);
+      expect(readmitted, [_uid]);
+      expect(ReplicaFreeze.instance.frozen, isFalse);
+    });
+
+    test('an ordinary authorized recovery still completes under the '
+        'maintenance authority', () async {
+      expect(await service(pause: (_) async {}).run(_uid, reason: 'reset'),
+          RebootstrapOutcome.completed);
+      expect(readmitted, isEmpty);
+    });
+
+    test('a uid whose maintenance authority is refused (removal pending or '
+        'completed) is not rebootstrapped at all', () async {
+      final refused = RebootstrapService(
+        store: strict,
+        capture: capture,
+        scope: scope,
+        lookup: lookup,
+        bootstrapFresh: pull,
+        removeData: (uid) => strict.remove(uid),
+        maintenanceAuthority: (uid) async => throw const StaleAdmissionException(),
+        freeze: ReplicaFreeze.instance,
+      );
+      expect(await refused.run(_uid, reason: 'reset'), RebootstrapOutcome.notNeeded);
+      expect(capture.holds, 0);
+      expect(ReplicaFreeze.instance.frozen, isFalse);
+    });
   });
 }
 

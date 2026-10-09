@@ -175,14 +175,15 @@ class FeatureFlagService {
   /// المقصودة لهذه الآلية أن تكون شبه فورية لأغراض QA/الطرح التدريجي لكل
   /// مستخدم) وتُطبَّق فوق نتيجة rollout العادية. لا تأثير على المستخدمين
   /// الآخرين ولا على rollout_percent العام.
-  Future<void> applyUserOverrides(
-      SupabaseClient supabaseClient, String? userId) async {
+  Future<void> applyUserOverrides(SupabaseClient supabaseClient, String? userId,
+      {bool Function()? isCurrent}) async {
     if (userId == null) return;
     try {
       final rows = await supabaseClient
           .from('feature_flag_overrides')
           .select('key, enabled')
           .eq('user_id', userId);
+      if (isCurrent != null && !isCurrent()) return;
       for (final row in rows) {
         final key = row['key'] as String?;
         final enabled = row['enabled'];
