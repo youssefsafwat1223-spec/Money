@@ -1,3 +1,4 @@
+import CoreFoundation
 import CryptoKit
 import Darwin
 import Foundation
@@ -1362,6 +1363,8 @@ enum SharedCaptureStore {
   enum EgressSnapshot: Equatable {
     /// Neither store holds an entry for the owner (never disabled).
     case unset
+    /// Complete read-only inspection: no active owner or unresolved native transition.
+    case ownerless(epoch: Int, generation: Int)
     case record(CloudEgressRecord)
     /// Unreadable / corrupt / conflicting with no restrictive entry: DENIED.
     case uncertain
@@ -1480,12 +1483,105 @@ enum SharedCaptureStore {
     }) ?? false
   }
 
+  /// Snapshot reads may never create the HMAC key (unlike explicit owner publication).
+  private static func existingUidHmacKey() throws -> SymmetricKey? {
+    let read = SharedKeychain.read(forKey: uidHmacKeyKC)
+    switch read.status {
+    case errSecItemNotFound: return nil
+    case errSecSuccess:
+      guard let data = read.data, data.count == 32 else { throw QueueError.unreadable }
+      return SymmetricKey(data: data)
+    default: throw QueueError.keyUnavailable(read.status)
+    }
+  }
+
+  private static func validSnapshotHash(_ hash: String) -> Bool {
+    hash.count == 64 && hash.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+  }
+
+  private static func snapshotInteger(_ raw: Any) -> Int? {
+    guard let number = raw as? NSNumber,
+          CFGetTypeID(number) != CFBooleanGetTypeID(),
+          let value = raw as? Int, value >= 0 else { return nil }
+    return value
+  }
+
+  private static func snapshotCounter(_ key: String, in store: UserDefaults) -> Int? {
+    guard let raw = store.object(forKey: key) else { return 0 }
+    return snapshotInteger(raw)
+  }
+
+  private static func snapshotBoolean(_ raw: Any?) -> Bool {
+    guard let number = raw as? NSNumber else { return false }
+    return CFGetTypeID(number) == CFBooleanGetTypeID()
+  }
+
+  /// Called only under the flock. No owner, key, mirror, epoch or record is written.
+  private static func ownerlessEgressSnapshot() throws -> EgressSnapshot {
+    guard try readBarrier() == nil, try readActiveOwner() == nil,
+          let store = defaults,
+          let epoch = snapshotCounter(ownerEpochKey, in: store),
+          let generation = snapshotCounter(ownerGenerationKey, in: store) else { return .uncertain }
+    let key = try existingUidHmacKey()
+    let view = egressView()
+    guard !view.uncertain else { return .uncertain }
+    var records: [String: CloudEgressRecord] = [:]
+    for map in view.maps {
+      for (hash, record) in map.owners {
+        guard validSnapshotHash(hash), record.state != "DISABLING",
+              records[hash] == nil || records[hash] == record else { return .uncertain }
+        records[hash] = record
+      }
+    }
+    // A missing copy of a nonempty map is incomplete evidence, too.
+    if !records.isEmpty {
+      guard view.maps.count == 2, view.maps[0] == view.maps[1] else { return .uncertain }
+    }
+    let hintRead = SharedKeychain.read(forKey: lastAdmittedHashKC)
+    let hint: String?
+    switch hintRead.status {
+    case errSecItemNotFound: hint = nil
+    case errSecSuccess:
+      guard let data = hintRead.data, let hash = String(data: data, encoding: .utf8),
+            validSnapshotHash(hash), generation > 0 else { return .uncertain }
+      hint = hash
+    default: throw QueueError.keyUnavailable(hintRead.status)
+    }
+    let mirrorRaw = store.object(forKey: consentMirrorKey)
+    if let mirrorRaw {
+      guard let mirrors = mirrorRaw as? [String: Any] else { return .uncertain }
+      for (hash, value) in mirrors {
+        guard validSnapshotHash(hash), let entry = value as? [String: Any],
+              snapshotBoolean(entry["cloud"]), snapshotBoolean(entry["ai"]),
+              let rawVersion = entry["version"], snapshotInteger(rawVersion) != nil else { return .uncertain }
+      }
+    }
+    let mirrors = store.dictionary(forKey: consentMirrorKey) ?? [:]
+    let inflight = try readInflightRaw()
+    guard inflight.allSatisfy({ validSnapshotHash($0.ownerHash) && !$0.payloadId.isEmpty
+      && $0.deadline.isFinite && $0.deadline <= egressNow().timeIntervalSince1970 }) else { return .uncertain }
+    if key == nil && (generation > 0 || hint != nil || !records.isEmpty || !mirrors.isEmpty || !inflight.isEmpty) {
+      return .uncertain
+    }
+    return .ownerless(epoch: epoch, generation: generation)
+  }
+
   /// The reconciled state of [uid] (C.5): a valid DISABLING/OFF entry in EITHER
   /// store wins (most restrictive, then newest).
   static func cloudEgressState(forUid uid: String) throws -> EgressSnapshot {
     try withQueueLock {
-      let hash = try uidHash(uid)
+      if uid.isEmpty { return try ownerlessEgressSnapshot() }
+      let normalized = normalizedUID(uid)
+      guard !normalized.isEmpty else { return .uncertain }
       let view = egressView()
+      guard let key = try existingUidHmacKey() else {
+        // An untouched installation has no hash key yet. Inspect before treating
+        // an absent per-owner record as unset; never manufacture the missing key.
+        if case .ownerless = try ownerlessEgressSnapshot() { return .unset }
+        return .uncertain
+      }
+      let mac = HMAC<SHA256>.authenticationCode(for: Data(normalized.utf8), using: key)
+      let hash = Data(mac).map { String(format: "%02x", $0) }.joined()
       let mine = view.maps.compactMap { $0.owners[hash] }
       if let top = mine.filter({ $0.state != "ON" }).max(by: {
         (egressRank($0.state) ?? 0, $0.transitionGeneration)
@@ -1494,6 +1590,19 @@ enum SharedCaptureStore {
         return .record(top)
       }
       if view.uncertain { return .uncertain }
+      // Restrictive records above remain usable for the existing removal revoke.
+      // ON/unset is trustworthy only with readable ownership and generation.
+      guard try readBarrier() == nil, let store = defaults,
+            snapshotCounter(ownerEpochKey, in: store) != nil,
+            let generation = snapshotCounter(ownerGenerationKey, in: store) else { return .uncertain }
+      if let owner = try readActiveOwner() {
+        let ownerUid = normalizedUID(owner.uid)
+        let ownerMac = HMAC<SHA256>.authenticationCode(for: Data(ownerUid.utf8), using: key)
+        let ownerHash = Data(ownerMac).map { String(format: "%02x", $0) }.joined()
+        guard !ownerUid.isEmpty, owner.uid == ownerUid,
+              validSnapshotHash(owner.uidHash), owner.uidHash == ownerHash,
+              owner.generation > 0, owner.generation == generation else { return .uncertain }
+      }
       if mine.isEmpty { return .unset }
       if mine.count == 2 && mine[0] != mine[1] { return .uncertain }
       return .record(mine[0])

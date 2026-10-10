@@ -548,8 +548,7 @@ enum ApnsEnvironment {
           return map
         }
       case "getCloudEgressState":
-        guard let ownerUid = (call.arguments as? [String: Any])?["ownerUid"] as? String,
-              !ownerUid.isEmpty else {
+        guard let ownerUid = (call.arguments as? [String: Any])?["ownerUid"] as? String else {
           result(FlutterError(code: "bad_args", message: "Expected ownerUid.", details: nil))
           return
         }
@@ -557,6 +556,9 @@ enum ApnsEnvironment {
           switch try SharedCaptureStore.cloudEgressState(forUid: ownerUid) {
           case .unset:
             return ["status": "unset"]
+          case let .ownerless(epoch, generation):
+            return ["status": "ownerless", "contractVersion": 1,
+                    "ownerEpoch": epoch, "ownerGeneration": generation]
           case .uncertain:
             return ["status": "uncertain"]
           case let .record(record):

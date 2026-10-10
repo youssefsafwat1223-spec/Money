@@ -1,10 +1,179 @@
 import Flutter
 import UIKit
 import XCTest
+import Security
 
 @testable import Runner
 
 class RunnerTests: XCTestCase {
+
+  // F2 ownerless snapshot contract: inspection must never manufacture keys or authority.
+  private func resetSnapshotState() {
+    SharedCaptureStore.purgeUserOwnedState()
+    for key in ["active_capture_owner_v1", "last_admitted_uid_hash_v1",
+                "capture_uid_hmac_key_v1", "cloud_egress_state_v1"] {
+      SnapshotTestKeychain.remove(forKey: key)
+    }
+    for key in ["capture_owner_epoch_v1", "capture_owner_generation_v1",
+                "capture_consent_mirror_v1"] { appGroupDefaults.removeObject(forKey: key) }
+    for file in ["cloud_egress_state_v1.json", "capture_destructive_barrier_v1.json",
+                 "native_inflight_uploads_v1.json"] {
+      try? FileManager.default.removeItem(at: container.appendingPathComponent(file))
+    }
+    SharedCaptureStore.ownerRecordReadOverride = nil
+    SharedCaptureStore.egressKeychainReadOverride = nil
+  }
+
+  func testOwnerlessSnapshotFreshIsReadOnly() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""),
+                   .ownerless(epoch: 0, generation: 0))
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ownerA), .unset)
+    for key in ["active_capture_owner_v1", "last_admitted_uid_hash_v1",
+                "capture_uid_hmac_key_v1", "capture_queue_key_v1"] {
+      XCTAssertEqual(SnapshotTestKeychain.read(forKey: key).status, errSecItemNotFound)
+    }
+    XCTAssertNil(appGroupDefaults.object(forKey: "capture_owner_generation_v1"))
+  }
+
+  func testOwnerlessSnapshotAfterRemovalKeepsRevocationAndKeysUnchanged() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    try publish(ownerA, cloud: false)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 2)
+    _ = try SharedCaptureStore.beginRemoval(uid: ownerA)
+    _ = try SharedCaptureStore.finishRemoval(uid: ownerA)
+    let key = SnapshotTestKeychain.read(forKey: "capture_uid_hmac_key_v1").data
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""),
+                   .ownerless(epoch: epoch, generation: 1))
+    XCTAssertNil(try SharedCaptureStore.activeOwner())
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: "capture_uid_hmac_key_v1").data, key)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: "capture_queue_key_v1").status, errSecItemNotFound)
+    XCTAssertThrowsError(try SharedCaptureStore.publishActiveOwner(
+      uid: ownerA, mirror: .init(cloud: true, ai: true, version: 2),
+      expectedEpoch: epoch - 1, transitionGeneration: 1))
+    XCTAssertNil(try SharedCaptureStore.activeOwner())
+  }
+
+  func testOwnerlessSnapshotBlocksKnownAndUnknownRemovalBarrier() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    _ = try SharedCaptureStore.beginRemoval(uid: ownerA)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    // The UID is not recoverable from this barrier, but it must still block.
+    let barrier = #"{"nonce":"n","uidHash":"unknown","startedAt":"2026-01-01T00:00:00Z"}"#
+    try Data(barrier.utf8).write(to: container.appendingPathComponent("capture_destructive_barrier_v1.json"))
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+  }
+
+  func testOwnerlessSnapshotFailsClosedOnCorruptOrUnreadableEvidence() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    appGroupDefaults.set("invalid", forKey: "capture_owner_epoch_v1")
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    appGroupDefaults.removeObject(forKey: "capture_owner_epoch_v1")
+    appGroupDefaults.set(-1, forKey: "capture_owner_generation_v1")
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    appGroupDefaults.removeObject(forKey: "capture_owner_generation_v1")
+    SharedCaptureStore.ownerRecordReadOverride = { (errSecInteractionNotAllowed, nil) }
+    XCTAssertThrowsError(try SharedCaptureStore.cloudEgressState(forUid: ""))
+    SharedCaptureStore.ownerRecordReadOverride = nil
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecInteractionNotAllowed, nil) }
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    SharedCaptureStore.egressKeychainReadOverride = nil
+    _ = SnapshotTestKeychain.writeData(Data([0xff]), forKey: "last_admitted_uid_hash_v1")
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+  }
+
+  func testOwnerlessSnapshotRejectsUnverifiableOwnedAndTransitionState() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    try publish(ownerA, cloud: false)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "DISABLING", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 2)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 2)
+    SnapshotTestKeychain.remove(forKey: "capture_uid_hmac_key_v1")
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ownerA), .uncertain)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: "capture_uid_hmac_key_v1").status, errSecItemNotFound)
+  }
+
+  func testOwnerlessSnapshotHistoricalOnHintIsNotAuthority() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    try publish(ownerA)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 1)
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""),
+                   .ownerless(epoch: epoch, generation: 1))
+    XCTAssertNil(try SharedCaptureStore.activeOwner())
+  }
+
+  func testOwnerlessSnapshotRejectsEgressMismatchMissingCopyAndInflight() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    let owner = try publish(ownerA, cloud: false)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 1)
+    try SharedCaptureStore.clearActiveOwner(clearHint: true)
+    let egressFile = container.appendingPathComponent("cloud_egress_state_v1.json")
+    let saved = try Data(contentsOf: egressFile)
+    try Data(#"{"owners":{}}"#.utf8).write(to: egressFile)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    try FileManager.default.removeItem(at: egressFile)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    try saved.write(to: egressFile)
+    let inflightFile = container.appendingPathComponent("native_inflight_uploads_v1.json")
+    let live = "[{\"payloadId\":\"p\",\"ownerHash\":\"\(owner.uidHash)\",\"deadline\":\(Date().timeIntervalSince1970 + 60)}]"
+    try Data(live.utf8).write(to: inflightFile)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    try Data("corrupt".utf8).write(to: inflightFile)
+    XCTAssertThrowsError(try SharedCaptureStore.cloudEgressState(forUid: ""))
+  }
+
+  func testSnapshotStrictMetadataAndOwnedGenerationPreserveRestrictiveRevoke() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    let owner = try publish(ownerA)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 1)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ownerA),
+                   .record(.init(state: "ON", transitionGeneration: 1, reservedVersion: 1)))
+    appGroupDefaults.set(2, forKey: "capture_owner_generation_v1")
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ownerA), .uncertain)
+    appGroupDefaults.set(1, forKey: "capture_owner_generation_v1")
+    appGroupDefaults.set(true, forKey: "capture_owner_epoch_v1")
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ownerA), .uncertain)
+    appGroupDefaults.set(0, forKey: "capture_owner_epoch_v1")
+    let corruptOwner = SharedCaptureStore.OwnerRecord(uid: ownerA, uidHash: String(repeating: "0", count: 64), generation: 1)
+    SharedCaptureStore.ownerRecordReadOverride = { (errSecSuccess, try? JSONEncoder().encode(corruptOwner)) }
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ownerA), .uncertain)
+    SharedCaptureStore.ownerRecordReadOverride = nil
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    for malformed in [true as Any, 1.5 as Any] {
+      appGroupDefaults.set([owner.uidHash: ["cloud": false, "ai": false, "version": malformed]],
+                           forKey: "capture_consent_mirror_v1")
+      XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    }
+    appGroupDefaults.set([owner.uidHash: ["cloud": 0, "ai": false, "version": 1]],
+                         forKey: "capture_consent_mirror_v1")
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
+    appGroupDefaults.removeObject(forKey: "capture_consent_mirror_v1")
+    try SharedCaptureStore.setCloudEgressState(
+      state: "DISABLING", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 2)
+    _ = try SharedCaptureStore.beginRemoval(uid: ownerA)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ownerA),
+                   .record(.init(state: "DISABLING", transitionGeneration: 2, reservedVersion: 2)))
+  }
 
   func testShortcutPersistsBeforeNetworkAndUsesStablePayloadID() throws {
     let root = URL(fileURLWithPath: #filePath)
@@ -1573,5 +1742,47 @@ class RunnerTests: XCTestCase {
     }
     XCTAssertFalse(delegate.contains("BGTaskScheduler"))
     XCTAssertFalse(delegate.contains("performFetchWithCompletionHandler"))
+  }
+}
+
+/// Test-only access to the same isolated service/group as the native store.
+/// Production's file-private Keychain implementation remains private.
+private enum SnapshotTestKeychain {
+  private static func query(_ key: String) -> [String: Any] {
+    var result: [String: Any] = [
+      kSecClass as String: kSecClassGenericPassword,
+      kSecAttrService as String: "com.youssefsafwat.mali.sharedcapture",
+      kSecAttrAccount as String: key,
+    ]
+    if let prefix = Bundle.main.object(forInfoDictionaryKey: "AppIdentifierPrefix") as? String,
+       !prefix.isEmpty {
+      result[kSecAttrAccessGroup as String] = "\(prefix)com.youssefsafwat.mali.shared"
+    }
+    return result
+  }
+
+  static func read(forKey key: String) -> (status: OSStatus, data: Data?) {
+    var request = query(key)
+    request[kSecReturnData as String] = true
+    request[kSecMatchLimit as String] = kSecMatchLimitOne
+    var result: CFTypeRef?
+    let status = SecItemCopyMatching(request as CFDictionary, &result)
+    return (status, status == errSecSuccess ? result as? Data : nil)
+  }
+
+  @discardableResult
+  static func remove(forKey key: String) -> OSStatus {
+    SecItemDelete(query(key) as CFDictionary)
+  }
+
+  static func writeData(_ data: Data, forKey key: String) -> OSStatus {
+    let base = query(key)
+    let status = SecItemUpdate(base as CFDictionary,
+      [kSecValueData as String: data] as CFDictionary)
+    guard status == errSecItemNotFound else { return status }
+    var add = base
+    add[kSecValueData as String] = data
+    add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    return SecItemAdd(add as CFDictionary, nil)
   }
 }

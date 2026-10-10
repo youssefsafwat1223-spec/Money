@@ -73,7 +73,7 @@ class CaptureOwnerRecord {
 }
 
 /// The reconciled native `cloud_egress_state` (C.4 / C.5).
-enum CloudEgressStatus { unset, record, uncertain }
+enum CloudEgressStatus { unset, ownerless, record, uncertain }
 
 class CloudEgressSnapshot {
   const CloudEgressSnapshot(
@@ -82,9 +82,13 @@ class CloudEgressSnapshot {
     this.ownerUid,
     this.transitionGeneration,
     this.reservedVersion,
+    this.ownerEpoch,
+    this.ownerGeneration,
   });
 
   final CloudEgressStatus status;
+  final int? ownerEpoch;
+  final int? ownerGeneration;
 
   /// `ON`, `DISABLING` or `OFF`; set only when [status] is `record`.
   final String? state;
@@ -99,6 +103,16 @@ class CloudEgressSnapshot {
   static CloudEgressSnapshot? tryParse(Object? raw) {
     if (raw is! Map) return null;
     switch (raw['status']) {
+      case 'ownerless':
+        final epoch = raw['ownerEpoch'];
+        final generation = raw['ownerGeneration'];
+        final contract = raw['contractVersion'];
+        if (contract is! int || contract != 1 || epoch is! int || epoch < 0 ||
+            generation is! int || generation < 0 || raw.length != 4) {
+          return null;
+        }
+        return CloudEgressSnapshot(CloudEgressStatus.ownerless,
+          ownerEpoch: epoch, ownerGeneration: generation);
       case 'unset':
         return const CloudEgressSnapshot(CloudEgressStatus.unset);
       case 'uncertain':

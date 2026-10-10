@@ -236,6 +236,12 @@ class NativeEgressSlot {
         if (snap == null || snap.uncertain) {
           throw const FormatException('native_egress_uncertain');
         }
+        if (owner.isEmpty) {
+          if (snap.status != CloudEgressStatus.ownerless) {
+            throw const FormatException('native_ownerless_unverified');
+          }
+          return null;
+        }
         if (snap.status == CloudEgressStatus.unset) return null;
         final state = EgressState.parse(snap.state);
         final generation = snap.transitionGeneration;
@@ -243,7 +249,8 @@ class NativeEgressSlot {
         if (snap.status != CloudEgressStatus.record ||
             state == null ||
             generation == null ||
-            reserved == null) {
+            reserved == null || generation < 0 || reserved < 0 ||
+            snap.ownerUid != owner) {
           throw const FormatException('native_egress_corrupt');
         }
         return CloudEgressRecord(
