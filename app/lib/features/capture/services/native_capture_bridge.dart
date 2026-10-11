@@ -462,6 +462,10 @@ class NativeNotificationLogEvent {
     this.errorCode,
     this.errorReason,
     this.occurredAt,
+    this.eventId,
+    this.ownerUid,
+    this.ownerGeneration,
+    this.originKind,
   });
 
   final String notificationLogId;
@@ -473,6 +477,10 @@ class NativeNotificationLogEvent {
   final String? errorCode;
   final String? errorReason;
   final DateTime? occurredAt;
+  final String? eventId;
+  final String? ownerUid;
+  final int? ownerGeneration;
+  final String? originKind;
 }
 
 /// MALI-013 — honest capture capabilities for Android (share always; SMS is
@@ -1465,12 +1473,14 @@ class NativeCaptureBridge {
   /// events (created/sent/failed) recorded via SharedCaptureStore. Returns
   /// an empty list on Android or when nothing is pending.
   static Future<List<NativeNotificationLogEvent>>
-      consumePendingNotificationLogEvents() async {
+      consumePendingNotificationLogEvents({String? ownerUid, int? ownerGeneration}) async {
     if (!Platform.isIOS) return const [];
     final String? json;
     try {
       json = await _channel
-          .invokeMethod<String>('consumePendingNotificationLogEvents');
+          .invokeMethod<String>('consumePendingNotificationLogEvents', {
+            'ownerUid': ownerUid, 'ownerGeneration': ownerGeneration,
+          });
     } on MissingPluginException {
       return const [];
     }
@@ -1489,6 +1499,10 @@ class NativeCaptureBridge {
             item['channel'] is String &&
             item['notificationType'] is String)
           NativeNotificationLogEvent(
+            eventId: item['eventId'] as String?,
+            ownerUid: item['ownerUid'] as String?,
+            ownerGeneration: item['ownerGeneration'] as int?,
+            originKind: item['originKind'] as String?,
             notificationLogId: item['notificationLogId'] as String,
             eventType: item['eventType'] as String,
             channel: item['channel'] as String,
@@ -1503,6 +1517,19 @@ class NativeCaptureBridge {
                 : null,
           ),
     ];
+  }
+
+  static Future<bool> acknowledgeNotificationLogEvent({
+    required String eventId, required String ownerUid, required int ownerGeneration,
+  }) async {
+    if (!Platform.isIOS) return false;
+    try {
+      return await _channel.invokeMethod<bool>('acknowledgeNotificationLogEvent', {
+        'eventId': eventId, 'ownerUid': ownerUid, 'ownerGeneration': ownerGeneration,
+      }) ?? false;
+    } on MissingPluginException {
+      return false;
+    }
   }
 
   static CapturedMessageSource _iosCapturedSource(String? source) {

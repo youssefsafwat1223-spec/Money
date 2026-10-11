@@ -7,6 +7,85 @@ import Security
 
 class RunnerTests: XCTestCase {
 
+  func testNotificationLogConsumePreservesForeignLegacyAndUnboundOrigins() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    try publish(ownerA, cloud: true)
+    let owner = try XCTUnwrap(SharedCaptureStore.activeOwner())
+    let matching = SharedCaptureStore.NotificationLogEventPayload(
+      notificationLogId: "matching", eventType: "created", channel: "ios_shortcut_local",
+      notificationType: "test", relatedEntityType: nil, relatedEntityId: nil,
+      errorCode: nil, errorReason: nil, occurredAt: "2026-10-11T00:00:00Z",
+      eventId: "00000000-0000-4000-8000-000000000001",
+      originKind: "native", ownerUid: ownerA, ownerGeneration: owner.generation)
+    let foreign = SharedCaptureStore.NotificationLogEventPayload(
+      notificationLogId: "foreign", eventType: "created", channel: "ios_shortcut_local",
+      notificationType: "test", relatedEntityType: nil, relatedEntityId: nil,
+      errorCode: nil, errorReason: nil, occurredAt: matching.occurredAt,
+      originKind: "native", ownerUid: ownerB, ownerGeneration: owner.generation)
+    let legacy = SharedCaptureStore.NotificationLogEventPayload(
+      notificationLogId: "legacy", eventType: "created", channel: "ios_shortcut_local",
+      notificationType: "test", relatedEntityType: nil, relatedEntityId: nil,
+      errorCode: nil, errorReason: nil, occurredAt: matching.occurredAt)
+    var oldGeneration = matching
+    oldGeneration.ownerGeneration = owner.generation - 1
+    appGroupDefaults.set(try JSONEncoder().encode([matching, foreign, legacy, oldGeneration]),
+                         forKey: "pending_notification_log_events_v1")
+    XCTAssertNil(SharedCaptureStore.consumePendingNotificationLogEventsJSON())
+    XCTAssertNil(SharedCaptureStore.consumePendingNotificationLogEventsJSON(
+      ownerUid: ownerA, ownerGeneration: owner.generation + 1))
+    let json = try XCTUnwrap(SharedCaptureStore.consumePendingNotificationLogEventsJSON(
+      ownerUid: ownerA, ownerGeneration: owner.generation))
+    let consumed = try JSONDecoder().decode([SharedCaptureStore.NotificationLogEventPayload].self,
+                                            from: Data(json.utf8))
+    XCTAssertEqual(consumed.map { $0.notificationLogId }, ["matching"])
+    let repeated = try XCTUnwrap(SharedCaptureStore.consumePendingNotificationLogEventsJSON(
+      ownerUid: ownerA, ownerGeneration: owner.generation))
+    let repeatedEvents = try JSONDecoder().decode([SharedCaptureStore.NotificationLogEventPayload].self,
+      from: Data(repeated.utf8))
+    XCTAssertEqual(repeatedEvents.map { $0.eventId }, consumed.map { $0.eventId })
+    XCTAssertFalse(SharedCaptureStore.acknowledgeNotificationLogEvent(
+      eventId: matching.eventId!, ownerUid: ownerB, ownerGeneration: owner.generation))
+    XCTAssertFalse(SharedCaptureStore.acknowledgeNotificationLogEvent(
+      eventId: "malformed", ownerUid: ownerA, ownerGeneration: owner.generation))
+    XCTAssertTrue(SharedCaptureStore.acknowledgeNotificationLogEvent(
+      eventId: matching.eventId!, ownerUid: ownerA, ownerGeneration: owner.generation))
+    let retainedData = try XCTUnwrap(appGroupDefaults.data(forKey: "pending_notification_log_events_v1"))
+    let retained = try JSONDecoder().decode([SharedCaptureStore.NotificationLogEventPayload].self,
+                                            from: retainedData)
+    XCTAssertEqual(retained.map { $0.notificationLogId }, ["foreign", "legacy", "matching"])
+    XCTAssertEqual(retained.last?.ownerGeneration, owner.generation - 1)
+    XCTAssertNil(SharedCaptureStore.consumePendingNotificationLogEventsJSON(
+      ownerUid: ownerA, ownerGeneration: owner.generation))
+  }
+
+  func testNotificationLifecycleRetainsCaptureOriginAcrossOwnerSwitch() throws {
+    resetSnapshotState()
+    defer { resetSnapshotState() }
+    try publish(ownerA)
+    let firstOwner = try XCTUnwrap(SharedCaptureStore.activeOwner())
+    guard case .enqueued(let capture) = SharedCaptureStore.enqueue(
+      text: "purchase 5.00 SAR", sender: "ACME") else {
+      return XCTFail("capture setup failed")
+    }
+    SharedCaptureStore.enqueueNotificationLogEvent(notificationLogId: "attempt",
+      eventType: "created", channel: "ios_shortcut_local", notificationType: "test",
+      relatedEntityType: "payload", relatedEntityId: capture.id)
+    try publish(ownerB)
+    SharedCaptureStore.enqueueNotificationLogEvent(notificationLogId: "attempt",
+      eventType: "sent", channel: "ios_shortcut_local", notificationType: "test",
+      relatedEntityType: "payload", relatedEntityId: capture.id)
+    let owner = try XCTUnwrap(SharedCaptureStore.activeOwner())
+    XCTAssertNil(SharedCaptureStore.consumePendingNotificationLogEventsJSON(
+      ownerUid: ownerB, ownerGeneration: owner.generation))
+    let data = try XCTUnwrap(appGroupDefaults.data(forKey: "pending_notification_log_events_v1"))
+    let events = try JSONDecoder().decode([SharedCaptureStore.NotificationLogEventPayload].self, from: data)
+    XCTAssertEqual(events.count, 2)
+    XCTAssertTrue(events.allSatisfy { $0.ownerUid == ownerA &&
+      $0.ownerGeneration == firstOwner.generation && $0.originKind == "native" })
+    XCTAssertNotNil(try SharedCaptureStore.peekPendingPayloadsJSON())
+  }
+
   // F2 ownerless snapshot contract: inspection must never manufacture keys or authority.
   private func resetSnapshotState() {
     SharedCaptureStore.purgeUserOwnedState()

@@ -1,15 +1,18 @@
 import 'dart:io';
+import 'dart:convert';
 
 import 'package:drift/drift.dart' show QueryRow, Variable;
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
-import '../../../core/utils/id_generator.dart';
+import '../../../core/privacy/cloud_egress_gate.dart';
+import '../../../core/privacy/consent_authority.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
 import 'native_capture_bridge.dart';
+import 'notification_log_ownership.dart';
 
 /// Opportunistically syncs the local `notification_log_events` outbox
 /// (written by [NotificationLogService] and drained from the iOS Shortcut
@@ -22,32 +25,51 @@ import 'native_capture_bridge.dart';
 class NotificationLogSyncService {
   NotificationLogSyncService({
     required AppDatabase db,
+    Future<NotificationLogOrigin?> Function()? readOrigin,
+    Future<List<NativeNotificationLogEvent>> Function(String uid, int generation)?
+        consumeNativeEvents,
+    Future<bool> Function(NativeNotificationLogEvent event)? acknowledgeNativeEvent,
     SupabaseClient Function()? getClient,
     Future<String?> Function()? getAuthUserId,
+    String? Function()? getCurrentAuthUserId,
     Future<String> Function()? getInstallId,
     /// C-3 — notification delivery/open events are telemetry about the user.
     /// Defaults to DENY so a caller that forgets it produces no egress.
     Future<bool> Function()? mayEgress,
   })  : _db = db,
+        _readOrigin = readOrigin,
+        _consumeNativeEvents = consumeNativeEvents,
+        _acknowledgeNativeEvent = acknowledgeNativeEvent,
         _mayEgress = mayEgress ?? _denyEgressByDefault,
         _getClient = getClient ?? (() => Supabase.instance.client),
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
+        _getCurrentAuthUserId = getCurrentAuthUserId ?? _defaultCurrentAuthUserId,
         _getInstallId = getInstallId ?? InstallId.get;
 
   static Future<bool> _denyEgressByDefault() async => false;
 
   final AppDatabase _db;
+  final Future<bool> Function(NativeNotificationLogEvent event)? _acknowledgeNativeEvent;
+  final Future<List<NativeNotificationLogEvent>> Function(String uid, int generation)?
+      _consumeNativeEvents;
+  final Future<NotificationLogOrigin?> Function()? _readOrigin;
+  Future<NotificationLogOrigin?> _origin() =>
+      _readOrigin?.call() ?? readNotificationLogOrigin(_db);
   final Future<bool> Function() _mayEgress;
   final SupabaseClient Function() _getClient;
   final Future<String?> Function() _getAuthUserId;
+  final String? Function() _getCurrentAuthUserId;
   final Future<String> Function() _getInstallId;
 
-  /// Events older than this many failed attempts are marked synced anyway
-  /// (given up on) so one permanently-unsendable row can't block every
-  /// event behind it forever — the local outbox still has the raw event for
-  /// manual inspection, it's just no longer retried.
+  /// Exhausted events remain unsynced for inspection, without blocking later
+  /// eligible rows or causing additional network retries.
   static const _maxAttemptsPerEvent = 8;
   static const _batchSize = 50;
+
+  static String? _defaultCurrentAuthUserId() {
+    try { return Supabase.instance.client.auth.currentUser?.id; }
+    catch (_) { return null; }
+  }
 
   static Future<String?> _defaultGetAuthUserId() async {
     if (!SupabaseConfig.isConfigured) return null;
@@ -66,9 +88,11 @@ class NotificationLogSyncService {
   Future<void> sync() async {
     // C-3 — these are delivery/open events about the user's notifications:
     // telemetry, not something the app needs to function. Read fresh at egress.
-    if (!await _mayEgress()) return;
+    final origin = await _origin();
+    if (origin == null || !await origin.holds()) return;
+    if (!await _mayEgress() || !origin.isCurrent()) return;
     try {
-      await _importNativeEvents();
+      await _importNativeEvents(origin);
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[NotificationLogSync] native import failed: $error');
@@ -76,11 +100,11 @@ class NotificationLogSyncService {
     }
     if (!SupabaseConfig.isConfigured) return;
     final uid = await _getAuthUserId();
-    if (uid == null) {
+    if (uid == null || uid != origin.uid || !await origin.holds()) {
       return; // guest — nothing authenticated to attribute rows to yet.
     }
     try {
-      await _syncBatch(uid);
+      await _syncBatch(uid, origin);
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[NotificationLogSync] sync pass failed: $error');
@@ -95,37 +119,76 @@ class NotificationLogSyncService {
   @visibleForTesting
   Future<void> debugSyncBatch(String userId) => _syncBatch(userId);
 
-  Future<void> _importNativeEvents() async {
-    final events =
-        await NativeCaptureBridge.consumePendingNotificationLogEvents();
+  @visibleForTesting
+  Future<void> debugImportNativeEvents() => _importNativeEvents();
+
+  Future<void> _importNativeEvents([NotificationLogOrigin? captured]) async {
+    final origin = captured ?? await _origin();
+    if (origin == null || origin.nativeGeneration == null || !await origin.holds()) return;
+    final events = await (_consumeNativeEvents?.call(origin.uid, origin.nativeGeneration!) ??
+        NativeCaptureBridge.consumePendingNotificationLogEvents(
+          ownerUid: origin.uid, ownerGeneration: origin.nativeGeneration));
+    if (!await origin.holds()) return;
     if (events.isEmpty) return;
     for (final event in events) {
+      if (!await origin.holds()) return;
+      final eventId = event.eventId;
+      if (eventId == null || !RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$').hasMatch(eventId)) continue;
+      if (event.originKind != 'native' || event.ownerUid != origin.uid ||
+          event.ownerGeneration != origin.nativeGeneration) {
+        continue;
+      }
       final now = dateTimeToSql(DateTime.now().toUtc());
       final occurredAt =
           event.occurredAt != null ? dateTimeToSql(event.occurredAt!) : now;
       try {
         await _db.customInsert(
           '''
-            INSERT INTO notification_log_events(
+            INSERT OR IGNORE INTO notification_log_events(
               id, notification_log_id, event_type, channel, notification_type,
               related_entity_type, related_entity_id, payload_json,
               error_code, error_reason, occurred_at, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, ?, ?);
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
           ''',
           variables: [
-            Variable.withString(IdGenerator.next()),
+            Variable.withString('native:$eventId'),
             Variable.withString(event.notificationLogId),
             Variable.withString(event.eventType),
             Variable.withString(event.channel),
             Variable.withString(event.notificationType),
             _nullableString(event.relatedEntityType),
             _nullableString(event.relatedEntityId),
+            Variable.withString(jsonEncode({
+              NotificationLogOrigin.payloadKey: origin.payload('native'),
+            })),
             _nullableString(event.errorCode),
             _nullableString(event.errorReason),
             Variable.withString(occurredAt),
             Variable.withString(now),
           ],
         );
+        if (!await origin.holds()) return;
+        final persisted = await _db.customSelect(
+          'SELECT * FROM notification_log_events WHERE id = ?',
+          variables: [Variable.withString('native:$eventId')],
+        ).getSingleOrNull();
+        if (!await origin.holds()) return;
+        if (persisted == null ||
+            persisted.read<String>('notification_log_id') != event.notificationLogId ||
+            persisted.read<String>('event_type') != event.eventType ||
+            persisted.read<String>('channel') != event.channel ||
+            persisted.read<String>('notification_type') != event.notificationType ||
+            persisted.readNullable<String>('related_entity_type') != event.relatedEntityType ||
+            persisted.readNullable<String>('related_entity_id') != event.relatedEntityId ||
+            persisted.readNullable<String>('error_code') != event.errorCode ||
+            persisted.readNullable<String>('error_reason') != event.errorReason ||
+            (event.occurredAt != null && persisted.read<String>('occurred_at') != occurredAt) ||
+            !origin.owns(persisted.read<String>('payload_json'))) {
+          continue;
+        }
+        await (_acknowledgeNativeEvent?.call(event) ??
+            NativeCaptureBridge.acknowledgeNotificationLogEvent(eventId: eventId,
+              ownerUid: origin.uid, ownerGeneration: origin.nativeGeneration!));
       } catch (error) {
         if (kDebugMode) {
           debugPrint(
@@ -141,8 +204,21 @@ class NotificationLogSyncService {
   /// upserting 'sent' before 'created' exists would otherwise be harmless,
   /// but upserting 'created' (status=pending) AFTER a already-synced 'sent'
   /// would wrongly regress the row's status backward.
-  Future<void> _syncBatch(String userId) async {
+  Future<void> _syncBatch(String userId, [NotificationLogOrigin? captured]) async {
+    final gate = CloudEgressGate.instance;
+    final epoch = gate.epoch;
+    bool liveEgress() => gate.epoch == epoch && !ConsentAuthority.egressFrozen;
+    final origin = captured ?? await _origin();
+    if (origin == null || origin.uid != userId || !await origin.holds()) return;
+    bool currentAtEffect() => origin.isCurrent() && liveEgress() &&
+        _getCurrentAuthUserId() == userId;
+    Future<bool> currentEgress() async {
+      final uid = await _getAuthUserId();
+      if (uid != userId || !await origin.holds()) return false;
+      return currentAtEffect();
+    }
     final installId = await _getInstallId();
+    if (!await origin.holds()) return;
     final rows = await _db.customSelect(
       // The tie-breaker is `rowid`, NOT `id`. `id` is a random 16-byte value
       // (`IdGenerator.next()`), so when two events for the same notification
@@ -155,24 +231,38 @@ class NotificationLogSyncService {
       // `notification_log_events` is a rowid table, so `rowid` is monotonic
       // with insertion and breaks the tie in true insertion order. No schema
       // change, no migration.
-      'SELECT * FROM notification_log_events '
-      'WHERE synced_at IS NULL '
-      'ORDER BY created_at ASC, rowid ASC LIMIT ?;',
-      variables: [Variable.withInt(_batchSize)],
+      r'''SELECT * FROM notification_log_events
+         WHERE synced_at IS NULL AND sync_attempt_count < ?
+           AND json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,
+                            '$._notification_origin.uid') = ?
+           AND ((json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,
+                              '$._notification_origin.kind') = 'local'
+                 AND json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,
+                                  '$._notification_origin.generation') = ?)
+             OR (json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,
+                              '$._notification_origin.kind') = 'native'
+                 AND json_extract(CASE WHEN json_valid(payload_json) THEN payload_json ELSE '{}' END,
+                                  '$._notification_origin.generation') = ?))
+         ORDER BY created_at ASC, rowid ASC LIMIT ?;''',
+      variables: [Variable.withInt(_maxAttemptsPerEvent), Variable.withString(origin.uid),
+        Variable.withString(origin.localGeneration), Variable<int>(origin.nativeGeneration),
+        Variable.withInt(_batchSize)],
     ).get();
 
     for (final row in rows) {
-      final id = row.read<String>('id');
-      final attemptCount = row.read<int>('sync_attempt_count');
-      if (attemptCount >= _maxAttemptsPerEvent) {
-        await _markSynced(id);
-        continue;
+      if (!await origin.holds()) return;
+      if (!origin.owns(row.read<String>('payload_json'))) continue;
+      if (!await _mayEgress() || !await currentEgress() || !currentAtEffect()) {
+        return;
       }
+      final id = row.read<String>('id');
       try {
         await _syncOne(row, userId: userId, installId: installId);
-        await _markSynced(id);
+        if (!await currentEgress() || !currentAtEffect()) return;
+        await _markSynced(id, row.read<String>('payload_json'));
       } catch (error) {
-        await _bumpAttempt(id);
+        if (!await currentEgress() || !currentAtEffect()) return;
+        await _bumpAttempt(id, row.read<String>('payload_json'));
         if (kDebugMode) {
           debugPrint('[NotificationLogSync] upload failed for $id: $error');
         }
@@ -254,19 +344,19 @@ class NotificationLogSyncService {
     }
   }
 
-  Future<void> _markSynced(String id) async {
+  Future<void> _markSynced(String id, String payload) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.customUpdate(
-      'UPDATE notification_log_events SET synced_at = ? WHERE id = ?;',
-      variables: [Variable.withString(now), Variable.withString(id)],
+      'UPDATE notification_log_events SET synced_at = ? WHERE id = ? AND payload_json = ?;',
+      variables: [Variable.withString(now), Variable.withString(id), Variable.withString(payload)],
     );
   }
 
-  Future<void> _bumpAttempt(String id) async {
+  Future<void> _bumpAttempt(String id, String payload) async {
     await _db.customUpdate(
       'UPDATE notification_log_events '
-      'SET sync_attempt_count = sync_attempt_count + 1 WHERE id = ?;',
-      variables: [Variable.withString(id)],
+      'SET sync_attempt_count = sync_attempt_count + 1 WHERE id = ? AND payload_json = ?;',
+      variables: [Variable.withString(id), Variable.withString(payload)],
     );
   }
 

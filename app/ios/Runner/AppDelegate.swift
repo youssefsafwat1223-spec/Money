@@ -382,7 +382,20 @@ enum ApnsEnvironment {
       case "consumePendingNotificationRoutes":
         result(SharedCaptureStore.consumePendingNotificationRoutesJSON())
       case "consumePendingNotificationLogEvents":
-        result(SharedCaptureStore.consumePendingNotificationLogEventsJSON())
+        let arguments = call.arguments as? [String: Any]
+        result(SharedCaptureStore.consumePendingNotificationLogEventsJSON(
+          ownerUid: arguments?["ownerUid"] as? String,
+          ownerGeneration: arguments?["ownerGeneration"] as? Int))
+      case "acknowledgeNotificationLogEvent":
+        guard let arguments = call.arguments as? [String: Any],
+              let eventId = arguments["eventId"] as? String,
+              let ownerUid = arguments["ownerUid"] as? String,
+              let generation = arguments["ownerGeneration"] as? Int else {
+          result(false)
+          return
+        }
+        result(SharedCaptureStore.acknowledgeNotificationLogEvent(
+          eventId: eventId, ownerUid: ownerUid, ownerGeneration: generation))
       case "reEnqueueSharedMessage":
         // Puts a drained message back after Flutter failed to process it —
         // the queue drain is destructive, so without this a single failing

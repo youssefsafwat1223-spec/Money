@@ -1,12 +1,16 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:drift/native.dart';
+import 'package:drift/drift.dart' show Variable;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/features/capture/services/notification_log_service.dart';
+import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
+import 'package:money_companion/features/capture/services/notification_log_ownership.dart';
 import 'package:money_companion/features/capture/services/notification_log_sync_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -46,11 +50,254 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
-    logService = NotificationLogService(db);
+    logService = NotificationLogService(db, readOrigin: () async =>
+      NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => true));
   });
 
   tearDown(() async {
     await db.close();
+  });
+
+  test('A, legacy and old generation rows remain unsynced under B', () async {
+    final id = await logService.recordCreated(channel: 'local_ios', notificationType: 'test');
+    final unbound = NotificationLogService(db, readOrigin: () async => null);
+    await unbound.recordCreated(channel: 'local_ios', notificationType: 'test');
+    var requests = 0;
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'B', db: db, getAuthUserId: () async => 'B',
+      readOrigin: () async => NotificationLogOrigin('B', 'generation-2', isCurrent: () => true),
+      mayEgress: () async => true,
+      getClient: () => _client(MockClient((r) async { requests++; return _json(<Object>[], r); })),
+      getInstallId: () async => 'install');
+    await sync.debugSyncBatch('B');
+    expect(requests, 0);
+    final rows = await db.customSelect('SELECT synced_at, sync_attempt_count FROM notification_log_events').get();
+    expect(rows, hasLength(2));
+    expect(rows.every((r) => r.readNullable<String>('synced_at') == null && r.read<int>('sync_attempt_count') == 0), isTrue);
+    expect(id, isNotEmpty);
+  });
+
+  test('retained legacy queue cannot starve current scoped events', () async {
+    final unbound = NotificationLogService(db, readOrigin: () async => null);
+    for (var i = 0; i < 51; i++) {
+      await unbound.recordCreated(channel: 'local_ios', notificationType: 'legacy');
+    }
+    final id = await logService.recordCreated(channel: 'local_ios', notificationType: 'current');
+    final requests = <Map<String, dynamic>>[];
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db, getAuthUserId: () async => 'qa-user',
+      readOrigin: () async => NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
+      getClient: () => _client(MockClient((r) async {
+        requests.add(jsonDecode(r.body) as Map<String, dynamic>);
+        return _json(<Object>[], r);
+      })), getInstallId: () async => 'install');
+    await sync.debugSyncBatch('qa-user');
+    expect(requests, hasLength(1));
+    expect(requests.single['id'], id);
+    final retained = await db.customSelect('SELECT 1 FROM notification_log_events WHERE synced_at IS NULL').get();
+    expect(retained, hasLength(51));
+  });
+
+  test('cloud OFF blocks upload and retains current event', () async {
+    await logService.recordCreated(channel: 'local_ios', notificationType: 'test');
+    var requests = 0;
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db, getAuthUserId: () async => 'qa-user',
+      readOrigin: () async => NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => false,
+      getClient: () => _client(MockClient((r) async { requests++; return _json(<Object>[], r); })),
+      getInstallId: () async => 'install');
+    await sync.debugSyncBatch('qa-user');
+    expect(requests, 0);
+    final row = await db.customSelect('SELECT synced_at FROM notification_log_events').getSingle();
+    expect(row.readNullable<String>('synced_at'), isNull);
+  });
+
+  test('revoked operation after install await has no upload or acknowledgement', () async {
+    await logService.recordCreated(channel: 'local_ios', notificationType: 'test');
+    var current = true;
+    var requests = 0;
+    final install = Completer<String>();
+    final entered = Completer<void>();
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db, getAuthUserId: () async => 'qa-user',
+      readOrigin: () async => NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => current),
+      mayEgress: () async => true,
+      getClient: () => _client(MockClient((r) async { requests++; return _json(<Object>[], r); })),
+      getInstallId: () { entered.complete(); return install.future; });
+    final work = sync.debugSyncBatch('qa-user');
+    await entered.future;
+    current = false;
+    install.complete('install');
+    await work;
+    expect(requests, 0);
+    final row = await db.customSelect('SELECT synced_at, sync_attempt_count FROM notification_log_events').getSingle();
+    expect(row.readNullable<String>('synced_at'), isNull);
+    expect(row.read<int>('sync_attempt_count'), 0);
+  });
+
+  test('revocation during upload prevents acknowledgement and retry mutation', () async {
+    await logService.recordCreated(channel: 'local_ios', notificationType: 'test');
+    var current = true;
+    var requests = 0;
+    final pending = Completer<http.Response>();
+    final entered = Completer<void>();
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db, getAuthUserId: () async => 'qa-user',
+      readOrigin: () async => NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => current),
+      mayEgress: () async => true,
+      getClient: () => _client(MockClient((r) { requests++; entered.complete(); return pending.future; })),
+      getInstallId: () async => 'install');
+    final work = sync.debugSyncBatch('qa-user');
+    await entered.future;
+    current = false;
+    pending.complete(http.Response('[]', 200, headers: {'content-type': 'application/json'}));
+    await work;
+    expect(requests, 1);
+    final row = await db.customSelect('SELECT synced_at, sync_attempt_count FROM notification_log_events').getSingle();
+    expect(row.readNullable<String>('synced_at'), isNull);
+    expect(row.read<int>('sync_attempt_count'), 0);
+  });
+
+  for (final changed in ['generation', 'SDK uid']) {
+    test('$changed changes during consent await reject upload without mutating the row', () async {
+      await logService.recordCreated(channel: 'local_ios', notificationType: 'test');
+      var generation = 'generation-1';
+      var sdkUid = 'qa-user';
+      var requests = 0;
+      final sync = NotificationLogSyncService(getCurrentAuthUserId: () => sdkUid, db: db,
+        readOrigin: () async => NotificationLogOrigin('qa-user', 'generation-1',
+          isCurrent: () => true, validate: () async => generation == 'generation-1'),
+        getAuthUserId: () async => sdkUid,
+        mayEgress: () async {
+          if (changed == 'generation') generation = 'generation-2';
+          if (changed == 'SDK uid') sdkUid = 'B';
+          return true;
+        },
+        getClient: () => _client(MockClient((r) async { requests++; return _json(<Object>[], r); })),
+        getInstallId: () async => 'install');
+      await sync.debugSyncBatch('qa-user');
+      expect(requests, 0);
+      final row = await db.customSelect('SELECT synced_at, sync_attempt_count FROM notification_log_events').getSingle();
+      expect(row.readNullable<String>('synced_at'), isNull);
+      expect(row.read<int>('sync_attempt_count'), 0);
+    });
+  }
+
+  test('SDK switch while origin validation is paused rejects final network effect', () async {
+    await logService.recordCreated(channel: 'local_ios', notificationType: 'test');
+    var sdkUid = 'qa-user';
+    var validations = 0;
+    var requests = 0;
+    final entered = Completer<void>();
+    final release = Completer<bool>();
+    final sync = NotificationLogSyncService(db: db,
+      getCurrentAuthUserId: () => sdkUid,
+      getAuthUserId: () async => sdkUid,
+      readOrigin: () async => NotificationLogOrigin('qa-user', 'generation-1',
+        isCurrent: () => true, validate: () async {
+          validations++;
+          if (validations == 4) { entered.complete(); return release.future; }
+          return true;
+        }),
+      mayEgress: () async => true,
+      getClient: () => _client(MockClient((r) async { requests++; return _json(<Object>[], r); })),
+      getInstallId: () async => 'install');
+    final work = sync.debugSyncBatch('qa-user');
+    await entered.future;
+    sdkUid = 'B';
+    release.complete(true);
+    await work;
+    expect(requests, 0);
+    final row = await db.customSelect('SELECT synced_at, sync_attempt_count FROM notification_log_events').getSingle();
+    expect(row.readNullable<String>('synced_at'), isNull);
+    expect(row.read<int>('sync_attempt_count'), 0);
+  });
+
+  test('native retrieval retry persists once and only acknowledges verified origin', () async {
+    const event = NativeNotificationLogEvent(eventId: '00000000-0000-4000-8000-000000000001',
+      notificationLogId: 'native-attempt', eventType: 'created', channel: 'ios_shortcut_local',
+      notificationType: 'test', originKind: 'native', ownerUid: 'B', ownerGeneration: 2);
+    var acknowledgements = 0;
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db,
+      readOrigin: () async => NotificationLogOrigin('B', 'local-B', nativeGeneration: 2, isCurrent: () => true),
+      consumeNativeEvents: (_, __) async => [event],
+      acknowledgeNativeEvent: (e) async { expect(e.eventId, event.eventId); acknowledgements++; return false; });
+    await sync.debugImportNativeEvents();
+    await sync.debugImportNativeEvents();
+    expect(await db.customSelect('SELECT 1 FROM notification_log_events').get(), hasLength(1));
+    expect(acknowledgements, 2);
+    await db.customUpdate("UPDATE notification_log_events SET payload_json = '{}' WHERE id = ?",
+      variables: [Variable.withString('native:${event.eventId}')]);
+    await sync.debugImportNativeEvents();
+    expect(acknowledgements, 2, reason: 'conflicting persistence is never ownership proof');
+  });
+
+  test('persistence failure retains native event without acknowledging it', () async {
+    await db.customStatement('DROP TABLE notification_log_events');
+    var acknowledged = false;
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db,
+      readOrigin: () async => NotificationLogOrigin('B', 'local-B', nativeGeneration: 2, isCurrent: () => true),
+      consumeNativeEvents: (_, __) async => [const NativeNotificationLogEvent(
+        eventId: '00000000-0000-4000-8000-000000000001', notificationLogId: 'native-attempt',
+        eventType: 'created', channel: 'ios_shortcut_local', notificationType: 'test',
+        originKind: 'native', ownerUid: 'B', ownerGeneration: 2)],
+      acknowledgeNativeEvent: (_) async { acknowledged = true; return true; });
+    await sync.debugImportNativeEvents();
+    expect(acknowledged, isFalse);
+  });
+
+  test('revocation after persistence retains native event without acknowledgement', () async {
+    var current = true;
+    var validations = 0;
+    var acknowledged = false;
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db,
+      readOrigin: () async => NotificationLogOrigin('B', 'local-B', nativeGeneration: 2,
+        isCurrent: () => current, validate: () async {
+          validations++;
+          // Entry, response, per-event, then the first post-insert boundary.
+          if (validations == 4) current = false;
+          return current;
+        }),
+      consumeNativeEvents: (_, __) async => [const NativeNotificationLogEvent(
+        eventId: '00000000-0000-4000-8000-000000000001', notificationLogId: 'native-attempt',
+        eventType: 'created', channel: 'ios_shortcut_local', notificationType: 'test',
+        originKind: 'native', ownerUid: 'B', ownerGeneration: 2)],
+      acknowledgeNativeEvent: (_) async { acknowledged = true; return true; });
+    await sync.debugImportNativeEvents();
+    expect(await db.customSelect('SELECT 1 FROM notification_log_events').get(), hasLength(1));
+    expect(acknowledged, isFalse);
+  });
+
+  test('native importer rejects unbound, A and old B generation without relabeling', () async {
+    NativeNotificationLogEvent event(String id, String? uid, int? generation) =>
+      NativeNotificationLogEvent(eventId: '00000000-0000-4000-8000-000000000001', notificationLogId: id, eventType: 'created',
+        channel: 'ios_shortcut_local', notificationType: 'test',
+        originKind: uid == null ? null : 'native', ownerUid: uid, ownerGeneration: generation);
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db, getAuthUserId: () async => 'qa-user',
+      readOrigin: () async => NotificationLogOrigin('B', 'local-B', nativeGeneration: 2, isCurrent: () => true),
+      consumeNativeEvents: (uid, generation) async {
+        expect(uid, 'B'); expect(generation, 2);
+        return [event('unbound', null, null), event('A', 'A', 1), event('old-B', 'B', 1), event('current-B', 'B', 2)];
+      });
+    await sync.debugImportNativeEvents();
+    final rows = await db.customSelect('SELECT notification_log_id, payload_json FROM notification_log_events').get();
+    expect(rows, hasLength(1));
+    expect(rows.single.read<String>('notification_log_id'), 'current-B');
+    expect((jsonDecode(rows.single.read<String>('payload_json')) as Map)[NotificationLogOrigin.payloadKey],
+      {'kind': 'native', 'uid': 'B', 'generation': 2});
+  });
+
+  test('native import continuation revoked during consume performs no database insert', () async {
+    var current = true;
+    final pending = Completer<List<NativeNotificationLogEvent>>();
+    final entered = Completer<void>();
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user', db: db, getAuthUserId: () async => 'qa-user',
+      readOrigin: () async => NotificationLogOrigin('B', 'local-B', nativeGeneration: 2, isCurrent: () => current),
+      consumeNativeEvents: (_, __) { entered.complete(); return pending.future; });
+    final work = sync.debugImportNativeEvents();
+    await entered.future;
+    current = false;
+    pending.complete([const NativeNotificationLogEvent(eventId: '00000000-0000-4000-8000-000000000001', notificationLogId: 'B', eventType: 'created',
+      channel: 'ios_shortcut_local', notificationType: 'test', originKind: 'native', ownerUid: 'B', ownerGeneration: 2)]);
+    await work;
+    expect(await db.customSelect('SELECT 1 FROM notification_log_events').get(), isEmpty);
   });
 
   test('uploads each event as an upsert keyed by the same notification_log_id',
@@ -74,8 +321,11 @@ void main() {
       upserts.add(Map<String, dynamic>.from(decoded as Map));
       return _json(<Object>[], request);
     });
-    final sync = NotificationLogSyncService(
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin(
+        'qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(http),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
@@ -134,8 +384,11 @@ void main() {
       statusesInOrder.add(decoded['status'] as String);
       return _json(<Object>[], request);
     });
-    final sync = NotificationLogSyncService(
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin(
+        'qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(http),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
@@ -173,8 +426,11 @@ void main() {
       statusesInOrder.add(decoded['status'] as String);
       return _json(<Object>[], request);
     });
-    final sync = NotificationLogSyncService(
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin(
+        'qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(http),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
@@ -205,8 +461,11 @@ void main() {
       openedBody = Map<String, dynamic>.from(jsonDecode(request.body) as Map);
       return _json(<Object>[], request);
     });
-    final sync = NotificationLogSyncService(
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin(
+        'qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(http),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
@@ -245,8 +504,11 @@ void main() {
       statusesInOrder.add(decoded['status'] as String);
       return _json(<Object>[], request);
     });
-    final sync = NotificationLogSyncService(
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin(
+        'qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(http),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
@@ -275,8 +537,11 @@ void main() {
       calls++;
       return http.Response('server error', 500, request: request);
     });
-    final failingSync = NotificationLogSyncService(
+    final failingSync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin(
+        'qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(failingHttp),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
@@ -294,8 +559,11 @@ void main() {
 
     final succeedingHttp =
         MockClient((request) async => _json(<Object>[], request));
-    final succeedingSync = NotificationLogSyncService(
+    final succeedingSync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin(
+        'qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(succeedingHttp),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
@@ -310,7 +578,7 @@ void main() {
   });
 
   test(
-      'gives up after the max attempt count instead of blocking the queue forever',
+      'exhausted events remain unsynced without additional network retries',
       () async {
     await logService.recordCreated(
       channel: NotificationLogChannel.localIos,
@@ -318,16 +586,18 @@ void main() {
     );
     final alwaysFailingHttp = MockClient(
         (request) async => http.Response('error', 500, request: request));
-    final sync = NotificationLogSyncService(
+    final sync = NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin(
+        'qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(alwaysFailingHttp),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
     );
 
     // 8 failing attempts bump sync_attempt_count to 8 (NotificationLogSyncService's
-    // _maxAttemptsPerEvent); the give-up check runs at the *start* of the next
-    // pass, so a 9th pass is what actually observes the row as exhausted.
+    // _maxAttemptsPerEvent); later passes exclude the exhausted row.
     for (var i = 0; i < 9; i++) {
       await sync.debugSyncBatch('qa-user');
     }
@@ -337,8 +607,7 @@ void main() {
           "SELECT synced_at, sync_attempt_count FROM notification_log_events;",
         )
         .getSingle();
-    // Given up on — marked synced despite never actually uploading, so it
-    // doesn't block anything queued behind it.
-    expect(row.readNullable<String>('synced_at'), isNotNull);
+    expect(row.readNullable<String>('synced_at'), isNull);
+    expect(row.read<int>('sync_attempt_count'), 8);
   });
 }
