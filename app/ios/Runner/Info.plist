@@ -98,6 +98,10 @@
 	     id lives here. No IDFA/ATT is requested in V1. -->
 	<key>GADApplicationIdentifier</key>
 	<string>$(ADMOB_APP_ID)</string>
+	<!-- Cloud-OFF invariant: the SDK must not start (no reachability/DNS) until
+	     MobileAds.initialize runs behind the egress gate. -->
+	<key>GADDelayInitialization</key>
+	<true/>
 	<key>SKAdNetworkItems</key>
 	<array>
 		<dict>
