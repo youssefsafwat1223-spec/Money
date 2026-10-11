@@ -9,6 +9,7 @@ import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/features/capture/services/notification_log_service.dart';
+import 'package:money_companion/features/capture/services/notification_log_ownership.dart';
 import 'package:money_companion/features/capture/services/notification_log_sync_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -18,8 +19,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// exact server id. The native and Dart plumbing already existed end to end —
 /// only the server key was missing.
 ///
-/// These pin the client half (which server row an open targets, and that a
-/// second tap changes nothing) plus the wiring the fix depends on.
+/// F1: a server id alone is not ownership proof. Unknown taps retain routing
+/// behavior but must never manufacture telemetry owned by the current account.
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -53,7 +54,8 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
-    logService = NotificationLogService(db);
+    logService = NotificationLogService(db, readOrigin: () async =>
+      NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => true));
   });
 
   tearDown(() async => db.close());
@@ -64,8 +66,10 @@ void main() {
       upserts.add(Map<String, dynamic>.from(jsonDecode(request.body) as Map));
       return _json(<Object>[], request);
     });
-    await NotificationLogSyncService(
+    await NotificationLogSyncService(getCurrentAuthUserId: () => 'qa-user',
       db: db,
+      readOrigin: () async => NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => true),
+      mayEgress: () async => true,
       getClient: () => _client(client),
       getAuthUserId: () async => 'qa-user',
       getInstallId: () async => 'qa-install',
@@ -76,72 +80,42 @@ void main() {
   // The server id that arrives in the push; the tap must land on THIS row.
   const serverLogId = 'ab415ae1-b258-485b-9521-86acb1b38bcf';
 
-  group('an APNs tap marks the exact server row opened', () {
-    test('foreground tap upserts opened_at on the server log id', () async {
-      await logService.recordOpened(
-        logId: serverLogId,
-        channel: NotificationLogChannel.apns,
-        notificationType: 'new_transaction',
-        relatedEntityType: 'transaction',
-        relatedEntityId: 'txn-1',
-      );
-
-      final upserts = await syncAndCapture();
-      expect(upserts, hasLength(1));
-      expect(upserts.single['id'], serverLogId,
-          reason: 'the open must target the server row, never a derived id');
-      expect(upserts.single['status'], 'opened');
-      expect(upserts.single['opened_at'], isNotNull);
-      expect(upserts.single.containsKey('channel'), isFalse,
-          reason: 'an open must not overwrite the channel recorded at send');
+  group('an APNs tap without trusted local provenance', () {
+    test('foreground tap never creates or uploads a current-owner row', () async {
+      await logService.recordOpened(logId: serverLogId,
+        channel: NotificationLogChannel.apns, notificationType: 'new_transaction',
+        relatedEntityType: 'transaction', relatedEntityId: 'txn-1');
+      expect(await syncAndCapture(), isEmpty);
+      expect(await db.customSelect('SELECT 1 FROM notification_log_events').get(), isEmpty);
     });
 
-    test('cold-start tap behaves identically — same drain, same id', () async {
-      // A terminated-app tap queues the same route natively and is drained on
-      // launch through the same path; the seam is identical.
-      await logService.recordOpened(
-        logId: serverLogId,
-        channel: NotificationLogChannel.apns,
-        notificationType: 'new_transaction',
-      );
-      final upserts = await syncAndCapture();
-      expect(upserts.single['id'], serverLogId);
-      expect(upserts.single['status'], 'opened');
+    test('cold-start tap is rejected after service reconstruction', () async {
+      logService = NotificationLogService(db, readOrigin: () async =>
+        NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => true));
+      await logService.recordOpened(logId: serverLogId,
+        channel: NotificationLogChannel.apns, notificationType: 'new_transaction');
+      expect(await syncAndCapture(), isEmpty);
+      expect(await db.customSelect('SELECT 1 FROM notification_log_events').get(), isEmpty);
     });
 
-    test('a duplicate tap is idempotent — one event, one upsert', () async {
+    test('duplicate unknown taps never manufacture provenance', () async {
       for (var i = 0; i < 3; i++) {
-        await logService.recordOpened(
-          logId: serverLogId,
-          channel: NotificationLogChannel.apns,
-          notificationType: 'new_transaction',
-        );
+        await logService.recordOpened(logId: serverLogId,
+          channel: NotificationLogChannel.apns, notificationType: 'new_transaction');
       }
-      final rows = await db.customSelect(
-        "SELECT COUNT(*) AS total FROM notification_log_events "
-        "WHERE notification_log_id = ? AND event_type = 'opened';",
-        variables: [Variable.withString(serverLogId)],
-      ).getSingle();
-      expect(rows.read<int>('total'), 1);
-
-      final upserts = await syncAndCapture();
-      expect(upserts, hasLength(1));
+      final row = await db.customSelect('SELECT COUNT(*) AS total FROM notification_log_events '
+        'WHERE notification_log_id = ?', variables: [Variable.withString(serverLogId)]).getSingle();
+      expect(row.read<int>('total'), 0);
+      expect(await syncAndCapture(), isEmpty);
     });
 
-    test('two different notifications keep separate opens', () async {
-      await logService.recordOpened(
-          logId: serverLogId,
-          channel: NotificationLogChannel.apns,
-          notificationType: 'new_transaction');
-      await logService.recordOpened(
-          logId: 'df033304-1b92-b55b-056a-de76de5508e0',
-          channel: NotificationLogChannel.apns,
-          notificationType: 'suspicious_duplicate');
-      final upserts = await syncAndCapture();
-      expect(upserts.map((u) => u['id']).toSet(), {
-        serverLogId,
-        'df033304-1b92-b55b-056a-de76de5508e0',
-      });
+    test('two unknown notification ids cannot become current account telemetry', () async {
+      for (final id in [serverLogId, 'df033304-1b92-b55b-056a-de76de5508e0']) {
+        await logService.recordOpened(logId: id,
+          channel: NotificationLogChannel.apns, notificationType: 'new_transaction');
+      }
+      expect(await syncAndCapture(), isEmpty);
+      expect(await db.customSelect('SELECT 1 FROM notification_log_events').get(), isEmpty);
     });
   });
 

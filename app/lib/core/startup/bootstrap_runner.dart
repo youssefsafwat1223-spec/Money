@@ -362,7 +362,9 @@ class BootstrapRunner {
       await const SeedLoader().seedIfEmpty(database);
       _bindNotificationHistory(database);
       LocalNotificationService.instance.logService =
-          NotificationLogService(database);
+          NotificationLogService(database, isCurrentScope: () =>
+              _host?.current?.uid == uid &&
+              identical(_host?.current?.database, database));
       await _registerBrandLogos();
     });
 

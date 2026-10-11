@@ -112,6 +112,7 @@ import '../../features/capture/services/legacy_capture_resolver.dart';
 import '../../features/capture/services/unbound_capture_prompt_service.dart';
 import '../../features/capture/services/native_capture_bridge.dart';
 import '../../features/capture/services/notification_log_service.dart';
+import '../../features/capture/services/notification_log_ownership.dart';
 import '../../features/capture/services/notification_log_sync_service.dart';
 import '../../features/capture/services/ledger_outbox_queue.dart';
 import '../../features/capture/services/ledger_push_service.dart';
@@ -1380,13 +1381,24 @@ class _CaptureRegistrationStatusNotifier
 
 /// Phase 1 notification tracking (docs/NOTIFICATION_PIPELINE_AUDIT.md).
 final notificationLogServiceProvider = Provider<NotificationLogService>((ref) {
-  return NotificationLogService(ref.watch(appDatabaseProvider));
+  final db = ref.watch(appDatabaseProvider);
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
+  return NotificationLogService(db,
+    isCurrentScope: () => !disposed && identical(ref.read(appDatabaseProvider), db),
+    readOrigin: () => readNotificationLogOrigin(
+    db, isCurrentScope: () => !disposed && identical(ref.read(appDatabaseProvider), db)));
 });
 
 final notificationLogSyncServiceProvider =
     Provider<NotificationLogSyncService>((ref) {
+  final db = ref.watch(appDatabaseProvider);
+  var disposed = false;
+  ref.onDispose(() => disposed = true);
   return NotificationLogSyncService(
-    db: ref.watch(appDatabaseProvider),
+    db: db,
+    readOrigin: () => readNotificationLogOrigin(db,
+      isCurrentScope: () => !disposed && identical(ref.read(appDatabaseProvider), db)),
     // C-3 — telemetry about the user's notifications.
     mayEgress: () => ConsentAuthority(
       () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))

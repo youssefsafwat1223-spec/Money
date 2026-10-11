@@ -1,9 +1,13 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:drift/drift.dart' show Variable;
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/features/capture/services/notification_log_service.dart';
+import 'package:money_companion/features/capture/services/notification_log_ownership.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -42,11 +46,73 @@ void main() {
       executor: NativeDatabase.memory(),
       keyStore: _MemoryKeyStore(),
     );
-    service = NotificationLogService(db);
+    service = NotificationLogService(db, readOrigin: () async => null);
   });
 
   tearDown(() async {
     await db.close();
+  });
+
+  test('unknown delayed opened notification is never claimed by current scope', () async {
+    await service.recordOpened(
+      logId: 'notification-from-another-scope',
+      channel: NotificationLogChannel.localIos,
+      notificationType: 'budget_warning',
+    );
+    expect(await _eventsFor(db, 'notification-from-another-scope'), isEmpty);
+  });
+
+  test('A origin survives restart but cannot be opened by B or later A generation', () async {
+    var uid = 'A';
+    var generation = 'one';
+    Future<NotificationLogOrigin?> read() async {
+      final u = uid;
+      final g = generation;
+      return NotificationLogOrigin(u, g, isCurrent: () => uid == u && generation == g);
+    }
+    service = NotificationLogService(db, readOrigin: read);
+    final id = await service.recordCreated(channel: 'local_ios', notificationType: 'test');
+    service = NotificationLogService(db, readOrigin: read);
+    uid = 'B';
+    await service.recordOpened(logId: id, channel: 'local_ios', notificationType: 'test');
+    uid = 'A';
+    generation = 'two';
+    await service.recordOpened(logId: id, channel: 'local_ios', notificationType: 'test');
+    expect((await _eventsFor(db, id)).map((row) => row['event_type']), ['created']);
+    generation = 'one';
+    await service.recordOpened(logId: id, channel: 'local_ios', notificationType: 'test');
+    expect((await _eventsFor(db, id)).map((row) => row['event_type']), ['created', 'opened']);
+  });
+
+  test('unbound origin cannot be adopted after admission', () async {
+    final id = await service.recordCreated(channel: 'local_ios', notificationType: 'test');
+    service = NotificationLogService(db, readOrigin: () async =>
+        NotificationLogOrigin('B', 'one', isCurrent: () => true));
+    await service.recordOpened(logId: id, channel: 'local_ios', notificationType: 'test');
+    expect((await _eventsFor(db, id)).map((row) => row['event_type']), ['created']);
+  });
+
+  test('caller cannot spoof reserved origin payload', () async {
+    service = NotificationLogService(db, readOrigin: () async =>
+        NotificationLogOrigin('A', 'one', isCurrent: () => true));
+    final id = await service.recordCreated(channel: 'local_ios', notificationType: 'test',
+      payload: {NotificationLogOrigin.payloadKey: {'uid': 'B', 'generation': 'spoof'}});
+    final row = await db.customSelect('SELECT payload_json FROM notification_log_events WHERE notification_log_id = ?',
+        variables: [Variable.withString(id)]).getSingle();
+    expect((jsonDecode(row.read<String>('payload_json')) as Map)[NotificationLogOrigin.payloadKey],
+        {'kind': 'local', 'uid': 'A', 'generation': 'one'});
+  });
+
+  test('disposed continuation after origin await performs no insert', () async {
+    var current = true;
+    final pending = Completer<NotificationLogOrigin?>();
+    service = NotificationLogService(db, isCurrentScope: () => current,
+        readOrigin: () => pending.future);
+    final work = service.recordCreated(channel: 'local_ios', notificationType: 'test');
+    current = false;
+    pending.complete(NotificationLogOrigin('A', 'one', isCurrent: () => false));
+    final id = await work;
+    expect(await _eventsFor(db, id), isEmpty);
   });
 
   test('recordCreated returns a stable id used by every later call', () async {

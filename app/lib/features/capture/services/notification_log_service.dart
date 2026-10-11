@@ -1,9 +1,12 @@
+import 'dart:convert';
+
 import 'package:drift/drift.dart' show Variable;
 import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/id_generator.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/sql_value_codec.dart';
+import 'notification_log_ownership.dart';
 
 /// Notification channels tracked by the Phase 1 pipeline
 /// (docs/NOTIFICATION_PIPELINE_AUDIT.md). Mirrors the CHECK constraint on
@@ -29,9 +32,17 @@ class NotificationLogChannel {
 /// Never pass raw SMS text, full message bodies, or device tokens into
 /// [payload] or [errorReason] — this table is diagnostics/routing-only.
 class NotificationLogService {
-  NotificationLogService(this._db);
+  NotificationLogService(this._db, {
+    Future<NotificationLogOrigin?> Function()? readOrigin,
+    bool Function()? isCurrentScope,
+  }) : _readOrigin = readOrigin, _isCurrentScope = isCurrentScope;
+
+  final Future<NotificationLogOrigin?> Function()? _readOrigin;
 
   final AppDatabase _db;
+  final bool Function()? _isCurrentScope;
+  bool get _live => _db.lifecycleState == DatabaseLifecycleState.open &&
+      (_isCurrentScope?.call() ?? true);
 
   /// Starts a new notification attempt and returns its stable
   /// `notification_log_id`. The SAME id must be threaded through every later
@@ -119,12 +130,13 @@ class NotificationLogService {
     String? relatedEntityId,
   }) async {
     try {
+      if (!_live) return;
       final existing = await _db.customSelect(
         "SELECT 1 FROM notification_log_events "
         "WHERE notification_log_id = ? AND event_type = 'opened' LIMIT 1;",
         variables: [Variable.withString(logId)],
       ).getSingleOrNull();
-      if (existing != null) return;
+      if (!_live || existing != null) return;
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[NotificationLog] opened-dedup check failed: $error');
@@ -152,6 +164,32 @@ class NotificationLogService {
     String? errorReason,
   }) async {
     try {
+      if (!_live) return;
+      final origin = await (_readOrigin?.call() ?? readNotificationLogOrigin(_db));
+      if (!_live || (origin != null && !await origin.holds())) return;
+      final safePayload = Map<String, dynamic>.from(payload)
+        ..remove(NotificationLogOrigin.payloadKey);
+      if (eventType == 'created') {
+        if (origin != null) {
+          safePayload[NotificationLogOrigin.payloadKey] = origin.payload('local');
+        }
+      } else {
+        final original = await _db.customSelect(
+          'SELECT payload_json FROM notification_log_events '
+          'WHERE notification_log_id = ? ORDER BY rowid ASC LIMIT 1;',
+          variables: [Variable.withString(logId)],
+        ).getSingleOrNull();
+        if (!_live || original == null || (origin != null && !await origin.holds())) return;
+        final encoded = original.read<String>('payload_json');
+        if (origin != null && !origin.owns(encoded)) return;
+        final originalPayload = jsonDecode(encoded) as Map;
+        if (originalPayload.containsKey(NotificationLogOrigin.payloadKey)) {
+          if (origin == null) return;
+          safePayload[NotificationLogOrigin.payloadKey] =
+              originalPayload[NotificationLogOrigin.payloadKey];
+        }
+      }
+      if (!_live || (origin != null && !await origin.holds())) return;
       final now = dateTimeToSql(DateTime.now().toUtc());
       await _db.customInsert(
         '''
@@ -169,7 +207,7 @@ class NotificationLogService {
           Variable.withString(notificationType),
           _nullableString(relatedEntityType),
           _nullableString(relatedEntityId),
-          Variable.withString(_encodeJson(payload)),
+          Variable.withString(_encodeJson(safePayload)),
           _nullableString(errorCode),
           _nullableString(errorReason),
           Variable.withString(now),
@@ -205,21 +243,10 @@ class NotificationLogService {
     return '$truncated [${firstFrames.length > 300 ? firstFrames.substring(0, 300) : firstFrames}]';
   }
 
-  static String _encodeJson(Map<String, dynamic> value) {
-    if (value.isEmpty) return '{}';
-    final buffer = StringBuffer('{');
-    var first = true;
-    for (final entry in value.entries) {
-      if (!first) buffer.write(',');
-      first = false;
-      buffer
-        ..write('"')
-        ..write(entry.key.replaceAll('"', r'\"'))
-        ..write('":"')
-        ..write(entry.value.toString().replaceAll('"', r'\"'))
-        ..write('"');
-    }
-    buffer.write('}');
-    return buffer.toString();
-  }
+  static String _encodeJson(Map<String, dynamic> value) => jsonEncode({
+        for (final entry in value.entries)
+          entry.key: entry.key == NotificationLogOrigin.payloadKey
+              ? entry.value
+              : entry.value.toString(),
+      });
 }

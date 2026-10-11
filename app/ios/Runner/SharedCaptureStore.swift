@@ -194,6 +194,10 @@ enum SharedCaptureStore {
     let errorCode: String?
     let errorReason: String?
     let occurredAt: String
+    var eventId: String? = nil
+    var originKind: String? = nil
+    var ownerUid: String? = nil
+    var ownerGeneration: Int? = nil
   }
 
   enum EnqueueResult {
@@ -748,10 +752,8 @@ enum SharedCaptureStore {
     isoFormatter.string(from: date)
   }
 
-  /// Queues one notification lifecycle event. Capped at 200 entries (oldest
-  /// dropped first) so a host app that never opens cannot grow this
-  /// unboundedly — losing the oldest diagnostic events is an acceptable
-  /// trade-off; losing the ability to record new ones is not.
+  /// Appends within the diagnostic quota; never evicts unacknowledged events.
+  @discardableResult
   static func enqueueNotificationLogEvent(
     notificationLogId: String,
     eventType: String,
@@ -761,8 +763,8 @@ enum SharedCaptureStore {
     relatedEntityId: String? = nil,
     errorCode: String? = nil,
     errorReason: String? = nil
-  ) {
-    let payload = NotificationLogEventPayload(
+  ) -> Bool {
+    var payload = NotificationLogEventPayload(
       notificationLogId: notificationLogId,
       eventType: eventType,
       channel: channel,
@@ -774,38 +776,77 @@ enum SharedCaptureStore {
       occurredAt: isoFormatter.string(from: Date())
     )
     // MALI-068n: RMW under the shared cross-process lock.
-    _ = try? withQueueLock {
-      var queue = loadNotificationLogEvents()
-      queue.append(payload)
-      if queue.count > 200 {
-        queue.removeFirst(queue.count - 200)
+    return (try? withQueueLock {
+      var queue = try loadNotificationLogEvents()
+      guard queue.count < 200 else { return false }
+      // Later outcomes retain the first event's origin, even after an account switch.
+      if let origin = queue.first(where: { $0.notificationLogId == notificationLogId }) {
+        payload.originKind = origin.originKind
+        payload.ownerUid = origin.ownerUid
+        payload.ownerGeneration = origin.ownerGeneration
+      } else if eventType == "created", relatedEntityType == "payload",
+                let capture = try loadQueueReadOnly().queue.first(where: { $0.id == relatedEntityId }),
+                capture.ownerState == ownerStateStamped {
+        payload.originKind = "native"
+        payload.ownerUid = capture.ownerUid
+        payload.ownerGeneration = capture.ownerGeneration
       }
-      guard let data = try? JSONEncoder().encode(queue) else { return }
+      payload.eventId = UUID().uuidString.lowercased()
+      queue.append(payload)
+      guard let data = try? JSONEncoder().encode(queue) else { return false }
       defaults?.set(data, forKey: notificationLogEventsKey)
       defaults?.synchronize()
-    }
+      return true
+    }) ?? false
   }
 
-  static func consumePendingNotificationLogEventsJSON() -> String? {
+  static func consumePendingNotificationLogEventsJSON(ownerUid: String? = nil, ownerGeneration: Int? = nil) -> String? {
     try? withQueueLock { () throws -> String? in
-      let queue = loadNotificationLogEvents()
-      guard !queue.isEmpty,
-            let data = try? JSONEncoder().encode(queue),
+      guard let ownerUid, let ownerGeneration,
+            let owner = try readActiveOwner(),
+            owner.uid == ownerUid, owner.generation == ownerGeneration,
+            try readBarrier() == nil else { return nil }
+      let queue = try loadNotificationLogEvents()
+      let matches = queue.filter {
+        $0.originKind == "native" && $0.ownerUid == ownerUid &&
+        $0.ownerGeneration == ownerGeneration
+      }
+      guard !matches.isEmpty,
+            let data = try? JSONEncoder().encode(matches),
             let json = String(data: data, encoding: .utf8) else {
         return nil
       }
-      defaults?.removeObject(forKey: notificationLogEventsKey)
-      defaults?.synchronize()
       return json
     }
   }
 
-  private static func loadNotificationLogEvents() -> [NotificationLogEventPayload] {
-    guard let data = defaults?.data(forKey: notificationLogEventsKey),
-          let queue = try? JSONDecoder().decode([NotificationLogEventPayload].self, from: data) else {
+  /// Removes only a persisted event of the same still-current origin.
+  static func acknowledgeNotificationLogEvent(eventId: String, ownerUid: String,
+                                             ownerGeneration: Int) -> Bool {
+    guard UUID(uuidString: eventId) != nil else { return false }
+    return (try? withQueueLock {
+      guard let owner = try readActiveOwner(), owner.uid == ownerUid,
+            owner.generation == ownerGeneration, try readBarrier() == nil else { return false }
+      let queue = try loadNotificationLogEvents()
+      let retained = queue.filter {
+        !($0.eventId == eventId && $0.originKind == "native" &&
+          $0.ownerUid == ownerUid && $0.ownerGeneration == ownerGeneration)
+      }
+      guard retained.count != queue.count,
+            let data = try? JSONEncoder().encode(retained) else { return false }
+      defaults?.set(data, forKey: notificationLogEventsKey)
+      defaults?.synchronize()
+      return true
+    }) ?? false
+  }
+
+  private static func loadNotificationLogEvents() throws -> [NotificationLogEventPayload] {
+    guard let defaults else { throw QueueError.lockUnavailable }
+    guard let data = defaults.data(forKey: notificationLogEventsKey) else {
+      if defaults.object(forKey: notificationLogEventsKey) != nil { throw QueueError.unreadable }
       return []
     }
-    return queue
+    return try JSONDecoder().decode([NotificationLogEventPayload].self, from: data)
   }
 
   /// Signals the host Flutter app that backend relay state may have changed.
