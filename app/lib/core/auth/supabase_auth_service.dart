@@ -129,6 +129,23 @@ class SupabaseAuthService implements AuthService {
   @override
   Future<void> signOutProviderSession() => _googleSignIn.signOut();
 
+  bool Function() _responseCurrent(supabase.AuthResponse response) {
+    final session = response.session;
+    bool current() {
+      final actual = _client.auth.currentSession;
+      return session != null &&
+          response.user?.id == session.user.id &&
+          !session.isExpired &&
+          actual?.user.id == session.user.id &&
+          actual?.accessToken == session.accessToken;
+    }
+
+    if (!current()) {
+      throw const AuthException('انتهت صلاحية جلسة تسجيل الدخول.');
+    }
+    return current;
+  }
+
   @override
   Future<AuthIdentity> signInWithGoogle() async {
     if (!googleSignInConfigured(platform: _platform)) {
@@ -157,6 +174,7 @@ class SupabaseAuthService implements AuthService {
         ));
     final email = response.user?.email ?? account.email;
     return AuthIdentity(
+      isCurrent: _responseCurrent(response),
       method: 'google',
       email: email,
       userId: response.user?.id,
@@ -220,6 +238,7 @@ class SupabaseAuthService implements AuthService {
 
     final email = response.user?.email ?? credential.email;
     return AuthIdentity(
+      isCurrent: _responseCurrent(response),
       method: 'apple',
       email: email,
       userId: response.user?.id,
@@ -245,6 +264,7 @@ class SupabaseAuthService implements AuthService {
     final user = response.user;
     if (user == null) return null;
     return AuthIdentity(
+      isCurrent: _responseCurrent(response),
       method: 'email',
       email: user.email ?? email,
       userId: user.id,

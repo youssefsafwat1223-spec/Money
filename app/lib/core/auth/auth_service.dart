@@ -6,7 +6,11 @@ import 'supabase_auth_service.dart';
 
 /// هوية المستخدم بعد الدخول.
 class AuthIdentity {
-  const AuthIdentity({required this.method, this.email, this.userId});
+  const AuthIdentity(
+      {required this.method, this.email, this.userId, this.isCurrent});
+
+  /// Live capability from the successful provider response; never persisted.
+  final bool Function()? isCurrent;
 
   final String method; // google | apple | email
   final String? email;

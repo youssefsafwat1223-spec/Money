@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:io' show File;
 
 import '../session/admission_authority.dart';
+import '../session/auth_stream_boundary.dart';
 import '../session/rebootstrap_service.dart';
 import '../di/rebootstrap_providers.dart';
 
@@ -380,6 +381,9 @@ class BootstrapRunner {
       CloudEgressGate.instance.advanceEpoch(); // new account scope (P4)
       final captureRegistration = CaptureDeviceRegistrationService(
         settingsRepository: DriftUserSettingsRepository(database),
+        isCurrentScope: () =>
+            identical(_host?.current?.database, database) &&
+            _host?.current?.uid == uid,
         publishOwner: captureQueue.publishCaptureOwner,
         readOwnerEpoch: captureQueue.captureOwnerEpoch,
       );
@@ -636,8 +640,10 @@ class BootstrapRunner {
     // and writes the per-owner consent mirror first. Not awaited: the link is a
     // network call and must never delay admission. A failed link leaves the owner
     // unpublished (captures stay unbound) until a later retry (resume, sign-in).
-    AppSession.instance.configureCaptureOwnerPublish((uid) async {
-      unawaited(_captureRegistration?.linkToCurrentUser().catchError((_) {}));
+    AppSession.instance.configureCaptureOwnerPublish((uid, authority) async {
+      unawaited(_captureRegistration
+          ?.linkToCurrentUser(admissionAuthority: authority)
+          .catchError((_) {}));
     });
   }
 
@@ -843,14 +849,15 @@ StreamSubscription<AuthState> _startSenderBankMappingSync(
       ).syncSeq,
     ),
   );
-  unawaited(service.sync());
+  const boundary = AuthStreamBoundary('senderBankMapping');
+  unawaited(boundary.run(service.sync));
   return client.auth.onAuthStateChange.listen((state) {
     switch (state.event) {
       case AuthChangeEvent.initialSession:
       case AuthChangeEvent.signedIn:
       case AuthChangeEvent.tokenRefreshed:
       case AuthChangeEvent.userUpdated:
-        unawaited(service.sync());
+        unawaited(boundary.run(service.sync));
         return;
       case AuthChangeEvent.signedOut:
       case AuthChangeEvent.userDeleted:
@@ -858,7 +865,7 @@ StreamSubscription<AuthState> _startSenderBankMappingSync(
       case AuthChangeEvent.mfaChallengeVerified:
         return;
     }
-  });
+  }, onError: boundary.onError);
 }
 
 /// Astra H2.3: `supabase_flutter` calls `startAutoRefresh()` on EVERY app resume

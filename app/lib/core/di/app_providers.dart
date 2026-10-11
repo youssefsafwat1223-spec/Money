@@ -1354,11 +1354,19 @@ final captureBackendClientProvider = Provider<CaptureBackendClient?>((ref) {
 
 final captureDeviceRegistrationServiceProvider =
     Provider<CaptureDeviceRegistrationService>((ref) {
-  return CaptureDeviceRegistrationService(
-    settingsRepository:
-        DriftUserSettingsRepository(ref.watch(appDatabaseProvider)),
+  final database = ref.watch(appDatabaseProvider);
+  var disposed = false;
+  final service = CaptureDeviceRegistrationService(
+    settingsRepository: DriftUserSettingsRepository(database),
     client: ref.watch(captureBackendClientProvider),
+    isCurrentScope: () =>
+        !disposed && identical(ref.read(appDatabaseProvider), database),
   );
+  ref.onDispose(() {
+    disposed = true;
+    service.dispose();
+  });
+  return service;
 });
 
 /// Live device-registration status, mirrored from the service's ValueListenable.

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -168,6 +169,16 @@ void main() {
         appRouter.routeInformationProvider.value.uri.path, '/onboarding/auth');
     final from = storage.attempts.length;
     final openerFrom = storageEvents.length;
+    // Both real application subscribers remain attached across the generation
+    // ProviderScope remount; the SDK broadcast must not escape or admit X.
+    await tester.runAsync(() async {
+      // Inject the real SDK broadcast at the remount boundary.
+      client!.auth
+          // ignore: invalid_use_of_internal_member
+          .notifyException(const AuthException('synthetic remount denial'));
+      await Future<void>.delayed(Duration.zero);
+    });
+    expect(tester.takeException(), isNull);
     hold.release.complete();
     var drained = false;
     await tester.runAsync(() async {

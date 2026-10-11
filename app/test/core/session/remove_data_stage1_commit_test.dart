@@ -43,7 +43,7 @@ void main() {
   Future<void> removedX() async {
     await f.signIn('uid-x');
     await session.removeDataFromDevice();
-    session.configureCaptureOwnerPublish((uid) async => publications.add(uid));
+    session.configureCaptureOwnerPublish((uid, authority) async => publications.add(uid));
   }
 
   test(
@@ -215,7 +215,7 @@ void main() {
       () async {
     await removedX();
     final pendingHook = Completer<void>();
-    session.configureCaptureOwnerPublish((uid) {
+    session.configureCaptureOwnerPublish((uid, authority) {
       publications.add(uid);
       return pendingHook.future;
     });

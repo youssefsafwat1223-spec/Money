@@ -1,3 +1,4 @@
+import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:flutter/foundation.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -31,6 +32,9 @@ class _MemoryKeyStore implements DatabaseKeyStore {
 }
 
 class _FakeRegistrationService implements CaptureDeviceRegistrationService {
+  @override
+  void dispose() {}
+
   _FakeRegistrationService({this.linked = true});
 
   final bool linked;
@@ -90,7 +94,7 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
   Future<String?> readDeviceSecret() async => 'device-secret';
 
   @override
-  Future<void> linkToCurrentUser() async {}
+  Future<void> linkToCurrentUser({AdmissionAuthority? admissionAuthority}) async {}
 
   @override
   Future<void> unlinkCurrentDevice() async {}

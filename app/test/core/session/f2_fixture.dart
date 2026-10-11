@@ -110,6 +110,7 @@ class F2Fixture {
   /// persisted state. Nothing in memory of the previous instances survives.
   Future<void> restart() async {
     await host.lock();
+    await host.current?.database.close();
     host.dispose();
     session.configureRemoveData(null);
     session.configureAccountScope(null);
@@ -146,6 +147,7 @@ class F2Fixture {
     session.configureAccountScope(null);
     session.configureCaptureOwnerClear(null);
     await host.lock();
+    await host.current?.database.close();
     host.dispose();
     await session.wipeAndReset();
     session.debugResetAdmissionState();

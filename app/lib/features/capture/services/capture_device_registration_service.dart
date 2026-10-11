@@ -9,6 +9,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/privacy/cloud_egress_gate.dart';
 import '../../../core/privacy/consent_authority.dart';
+import '../../../core/session/admission_authority.dart';
+import '../../../core/session/app_session.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/entities/supporting_entities.dart';
@@ -77,7 +79,12 @@ typedef _ConsentSnapshot = ({bool cloud, bool ai, int version});
 /// await re-checks it ([CaptureDeviceRegistrationService._holds]): the
 /// in-process epoch (advanced by disable / enable / account transitions /
 /// sign-out), the session uid and the replica owner must all be unchanged.
-typedef _Tx = ({int epoch, String? sessionUid, String? owner});
+typedef _Tx = ({
+  int epoch,
+  String? sessionUid,
+  String? owner,
+  bool Function() current
+});
 
 /// The persistent gate as the registration service needs it.
 enum _Gate { open, off, blocked }
@@ -182,7 +189,17 @@ class CaptureDeviceRegistrationService {
     Duration revokeTimeout = kCloudOffRevokeTimeout,
     Future<Directory> Function()? markerDirectory,
     CloudEgressGate? gate,
-  })  : _gateOverride = gate,
+    bool Function()? isCurrentScope,
+    AdmissionAuthority? Function()? captureWorkAuthority,
+  })  : _isCurrentScope = isCurrentScope ?? (() => true),
+        _captureWorkAuthority = captureWorkAuthority ??
+            (readSession == null
+                ? AppSession.instance.captureLocalWorkAuthority
+                : (() => null)),
+        _requiresAdmission =
+            readSession == null || captureWorkAuthority != null,
+        _initializationEpoch = (gate ?? CloudEgressGate.instance).epoch,
+        _gateOverride = gate,
         _revokeAtSwitchOff = revokeAtSwitchOff,
         _revokeTimeout = revokeTimeout,
         _markerDirectory = markerDirectory ?? getApplicationSupportDirectory,
@@ -203,7 +220,8 @@ class CaptureDeviceRegistrationService {
         _writeConsentMirror =
             writeConsentMirror ?? NativeCaptureBridge.setCaptureConsentMirror,
         _publishOwner = publishOwner ?? NativeCaptureBridge.publishCaptureOwner,
-        _readOwnerEpoch = readOwnerEpoch ?? NativeCaptureBridge.captureOwnerEpoch;
+        _readOwnerEpoch =
+            readOwnerEpoch ?? NativeCaptureBridge.captureOwnerEpoch;
 
   static const _secretKey = 'qirsh_capture_device_secret';
 
@@ -233,6 +251,34 @@ class CaptureDeviceRegistrationService {
   static Future<void>? _enableInFlight;
 
   final DriftUserSettingsRepository _settingsRepository;
+  final bool Function() _isCurrentScope;
+  final AdmissionAuthority? Function() _captureWorkAuthority;
+  final bool _requiresAdmission;
+  bool _disposed = false;
+  int _initializationEpoch;
+
+  /// Provider teardown retires this instance even if the same DB is reused.
+  void dispose() {
+    _disposed = true;
+    _syncGeneration++;
+  }
+
+  bool Function() _captureLifetime({
+    bool requireAdmission = false,
+    bool initializing = false,
+    AdmissionAuthority? admissionAuthority,
+  }) {
+    final uid = _readSession()?.uid;
+    final authority = admissionAuthority ?? _captureWorkAuthority();
+    return () =>
+        !_disposed &&
+        _settingsRepository.isDatabaseOpen &&
+        (initializing || _isCurrentScope()) &&
+        _readSession()?.uid == uid &&
+        (authority?.isCurrent ?? !(_requiresAdmission && requireAdmission)) &&
+        (authority == null || authority.uid == uid);
+  }
+
   final CaptureBackendClient? _client;
   final FlutterSecureStorage _storage;
   final bool Function() _isIos;
@@ -254,6 +300,7 @@ class CaptureDeviceRegistrationService {
   /// App-support directory for the file copies of the revoke records.
   final Future<Directory> Function() _markerDirectory;
   Future<bool>? _linkInFlight;
+  ({String? uid, int? epoch})? _linkAdmission;
   final Map<String, int> _mirrorVersions = {};
   Future<String>? _credentialRecovery;
   Future<void>? _apnsSyncInFlight;
@@ -281,17 +328,33 @@ class CaptureDeviceRegistrationService {
       ? s.cloudProcessingEnabled || s.aiConsentGranted
       : s.cloudProcessingEnabled;
 
-  Future<_Tx> _beginTx() async =>
-      (epoch: _gate.epoch, sessionUid: _readSession()?.uid, owner: await _readReplicaOwnerUid());
+  Future<_Tx> _beginTx({bool Function()? lifetime}) async {
+    final current = lifetime ?? _captureLifetime();
+    if (!current()) throw const StaleAdmissionException();
+    final epoch = _gate.epoch;
+    final uid = _readSession()?.uid;
+    final owner = await _readReplicaOwnerUid();
+    if (!current()) throw const StaleAdmissionException();
+    return (epoch: epoch, sessionUid: uid, owner: owner, current: current);
+  }
 
   /// P4: whether the async mutation that captured [tx] may still write. False
   /// after a disable / enable / account transition / sign-out advanced the
   /// epoch, after an account or session switch, or while frozen.
   Future<bool> _holds(_Tx tx) async {
-    if (_gate.epoch != tx.epoch || ConsentAuthority.egressFrozen) return false;
+    if (!tx.current() ||
+        _gate.epoch != tx.epoch ||
+        ConsentAuthority.egressFrozen) {
+      return false;
+    }
     if (_readSession()?.uid != tx.sessionUid) return false;
     try {
-      return await _readReplicaOwnerUid() == tx.owner;
+      final owner = await _readReplicaOwnerUid();
+      return tx.current() &&
+          _gate.epoch == tx.epoch &&
+          !ConsentAuthority.egressFrozen &&
+          _readSession()?.uid == tx.sessionUid &&
+          owner == tx.owner;
     } catch (_) {
       return false;
     }
@@ -342,19 +405,24 @@ class CaptureDeviceRegistrationService {
   /// trigger point (registration, consent change, startup, resume) instead of
   /// [syncNativeState] directly.
   Future<void> syncBackendState() async {
+    final current = _captureLifetime();
+    if (!current()) return;
     final ios = _isIos();
     if (!ios && !_isAndroid()) return;
-    if (await _gateState() == _Gate.blocked) return;
+    if (await _gateState(current: current) == _Gate.blocked || !current()) {
+      return;
+    }
     final generation = ++_syncGeneration;
     void record(CaptureRegistrationStatus next) {
       // A newer sync owns the status; never let a stale run overwrite it.
-      if (generation == _syncGeneration) _status.value = next;
+      if (current() && generation == _syncGeneration) _status.value = next;
     }
 
     final outcome = _SyncOutcome();
     var tracked = false;
     try {
       final settings = await _settingsRepository.getSettings();
+      if (!current()) return;
       final wantsCloud = ios
           ? settings.cloudProcessingEnabled
           : settings.cloudProcessingEnabled || settings.aiConsentGranted;
@@ -415,12 +483,16 @@ class CaptureDeviceRegistrationService {
     // OFF (persistent gate) or unset: nothing is sent, ever, even with a secret.
     if (await _gateState() != _Gate.open) return;
     final tx = await _beginTx();
+    if (!await _holds(tx)) return;
     final settings = await _settingsRepository.getSettings();
+    if (!await _holds(tx)) return;
     final wantsCloudOrAi =
         settings.cloudProcessingEnabled || settings.aiConsentGranted;
     if (!wantsCloudOrAi) return;
     final installId = await _loadInstallId();
+    if (!await _holds(tx)) return;
     var secret = await _storage.read(key: _secretKey);
+    if (!await _holds(tx)) return;
 
     if (secret == null || secret.isEmpty) {
       try {
@@ -428,7 +500,11 @@ class CaptureDeviceRegistrationService {
           installId: installId,
           platform: 'android',
         );
+        if (!await _holds(tx)) return;
+        if (!await _holds(tx)) return;
         await _storage.write(key: _secretKey, value: secret);
+        if (!await _holds(tx)) return;
+        if (!await _holds(tx)) return;
         await _clearAck();
       } catch (_) {
         outcome.registerFailed = true;
@@ -442,7 +518,9 @@ class CaptureDeviceRegistrationService {
     // replica owner may link; otherwise (signed out) the legacy device-secret
     // consent push below is all that exists, and it creates no owner proof.
     final session = _readSession();
-    if (session != null && tx.owner == session.uid && tx.sessionUid == session.uid) {
+    if (session != null &&
+        tx.owner == session.uid &&
+        tx.sessionUid == session.uid) {
       final snapshot = (
         cloud: settings.cloudProcessingEnabled,
         ai: settings.aiConsentGranted,
@@ -472,13 +550,19 @@ class CaptureDeviceRegistrationService {
     final gateState = await _gateState();
     if (gateState == _Gate.blocked) return;
     final tx = await _beginTx();
+    if (!await _holds(tx)) return;
     final settings = await _settingsRepository.getSettings();
+    if (!await _holds(tx)) return;
     final installId = await _loadInstallId();
+    if (!await _holds(tx)) return;
     var secret = await _storage.read(key: _secretKey);
+    if (!await _holds(tx)) return;
 
     if (!settings.cloudProcessingEnabled ||
         !_isBackendConfigured() ||
         gateState == _Gate.off) {
+      final nativeGeneration = await _clientGeneration(tx.owner ?? '');
+      if (!await _holds(tx)) return;
       await _writeNativeBackendConfig(
         cloudProcessingEnabled: false,
         installId: installId,
@@ -486,7 +570,7 @@ class CaptureDeviceRegistrationService {
         anonKey: SupabaseConfig.anonKey,
         aiConsentGranted: false,
         ownerUid: tx.owner ?? '',
-        transitionGeneration: await _clientGeneration(tx.owner ?? ''),
+        transitionGeneration: nativeGeneration,
       );
       // Cloud OFF = ZERO EGRESS (A-12-min R6): no link, no registerDevice, no
       // setConsent, no APNs registration and no 401 recovery. The owner and its
@@ -499,6 +583,8 @@ class CaptureDeviceRegistrationService {
     if (!settings.aiConsentGranted || secret == null || secret.isEmpty) {
       // Clear stale native consent before any later step that can fail. If the
       // final write does not happen, the App Intent stays local/no-AI.
+      final nativeGeneration = await _clientGeneration(tx.owner ?? '');
+      if (!await _holds(tx)) return;
       await _writeNativeBackendConfig(
         cloudProcessingEnabled: false,
         installId: installId,
@@ -506,7 +592,7 @@ class CaptureDeviceRegistrationService {
         anonKey: SupabaseConfig.anonKey,
         aiConsentGranted: false,
         ownerUid: tx.owner ?? '',
-        transitionGeneration: await _clientGeneration(tx.owner ?? ''),
+        transitionGeneration: nativeGeneration,
       );
     }
 
@@ -517,11 +603,15 @@ class CaptureDeviceRegistrationService {
         outcome.registerFailed = true;
         rethrow;
       }
+      if (!await _holds(tx)) return;
       await _storage.write(key: _secretKey, value: secret);
+      if (!await _holds(tx)) return;
     }
 
     // P4: the registration round trip may have outlived an account switch or a
     // transition; the (widening) native config is written only if nothing moved.
+    if (!await _holds(tx)) return;
+    final nativeGeneration = await _clientGeneration(tx.owner ?? '');
     if (!await _holds(tx)) return;
     await _writeNativeBackendConfig(
       cloudProcessingEnabled: _isBackendConfigured(),
@@ -531,15 +621,18 @@ class CaptureDeviceRegistrationService {
       anonKey: SupabaseConfig.anonKey,
       aiConsentGranted: settings.aiConsentGranted,
       ownerUid: tx.owner ?? '',
-      transitionGeneration: await _clientGeneration(tx.owner ?? ''),
+      transitionGeneration: nativeGeneration,
     );
     // MALI-060n — mirror consent onto the verified server device row so the
     // AI/paid endpoints enforce it authoritatively (revocation propagates the
     // moment the user toggles it, since syncNativeState re-runs). Best-effort:
     // a failure here must never block native config or local capture.
+    if (!await _holds(tx)) return;
     await _projectConsent(outcome, tx);
+    if (!await _holds(tx)) return;
     try {
       final token = await _loadApnsToken(tx.owner ?? '');
+      if (!await _holds(tx)) return;
       if (token != null) {
         await syncApnsToken(token);
       }
@@ -588,39 +681,56 @@ class CaptureDeviceRegistrationService {
   /// unpublished, so captures stay unbound (fail closed). Safe to call
   /// repeatedly; concurrent calls share one run. [_linkOnce] reports whether the
   /// owner is published.
-  Future<bool> _linkOnce() {
+  Future<bool> _linkOnce({AdmissionAuthority? admissionAuthority}) {
+    final authority = admissionAuthority ?? _captureWorkAuthority();
+    final current = _captureLifetime(
+        requireAdmission: true, admissionAuthority: authority);
+    if (!current()) return Future.value(false);
+    final admission = (uid: _readSession()?.uid, epoch: authority?.epoch);
     final inFlight = _linkInFlight;
-    if (inFlight != null) return inFlight;
-    final run = _linkAndPublish().catchError((_) => false);
+    if (inFlight != null && _linkAdmission == admission) return inFlight;
+    final run = _linkAndPublish(current).catchError((_) => false);
+    _linkAdmission = admission;
     _linkInFlight = run;
     return run.whenComplete(() {
-      if (identical(_linkInFlight, run)) _linkInFlight = null;
+      if (identical(_linkInFlight, run)) {
+        _linkInFlight = null;
+        _linkAdmission = null;
+      }
     });
   }
 
-  /// The public entry (sign-in, resume, the admission hook).
-  Future<void> linkToCurrentUser() async {
-    await _linkOnce();
+  /// The admission hook forwards its already committed authority. Other
+  /// callers can only capture the existing authenticated local-work authority.
+  Future<void> linkToCurrentUser({
+    AdmissionAuthority? admissionAuthority,
+  }) async {
+    await _linkOnce(admissionAuthority: admissionAuthority);
   }
 
-  Future<bool> _linkAndPublish() async {
+  Future<bool> _linkAndPublish(bool Function() current) async {
     // P6: OFF (a committed persistent gate) still publishes LOCALLY with a
     // restrictive mirror; DISABLING / frozen / uncertain authority fails closed.
-    if (!_isIos()) return false;
-    final gateState = await _gateState();
+    if (!current() || !_isIos()) return false;
+    final gateState = await _gateState(current: current);
+    if (!current()) return false;
     if (gateState == _Gate.blocked) return false;
     final session = _readSession();
     if (session == null) return false;
-    if (await _readReplicaOwnerUid() != session.uid) return false;
-    final tx = await _beginTx();
+    if (await _readReplicaOwnerUid() != session.uid || !current()) return false;
+    final tx = await _beginTx(lifetime: current);
     // Read BEFORE any await that can take long: a sign-out / transition / removal
     // clear after this point bumps the epoch and the native publish refuses.
+    if (!current()) return false;
     final epoch = await _readOwnerEpoch();
+    if (!current()) return false;
     final snapshot = _snapshotOf(await _settingsRepository.getSettings());
+    if (!current()) return false;
     var linked = (cloud: false, ai: false, version: snapshot.version);
     if (snapshot.cloud && gateState == _Gate.open) {
       if (!_isBackendConfigured()) return false;
       final ack = await _readAck(session.uid);
+      if (!current()) return false;
       if (ack != snapshot) {
         if (!await _linkWithConsent(session, snapshot, tx)) return false;
       }
@@ -639,31 +749,42 @@ class CaptureDeviceRegistrationService {
       version: now.version,
     );
     if (!await _holds(tx)) return false;
+    final transitionGeneration = await _clientGeneration(session.uid);
+    if (!current() || !await _holds(tx)) return false;
     await _publishOwner(
       uid: session.uid,
       cloud: mirror.cloud,
       ai: mirror.ai,
       version: mirror.version,
       expectedEpoch: epoch,
-      transitionGeneration: await _clientGeneration(session.uid),
+      transitionGeneration: transitionGeneration,
     );
+    if (!current()) return false;
     _mirrorVersions[session.uid] = mirror.version;
     return true;
   }
 
   Future<bool> _linkWithConsent(
       CaptureSession session, _ConsentSnapshot snapshot, _Tx tx) async {
+    if (!await _holds(tx)) return false;
     final installId = await _loadInstallId();
+    if (!await _holds(tx)) return false;
     var secret = await _storage.read(key: _secretKey);
+    if (!await _holds(tx)) return false;
     final generation = await _clientGeneration(session.uid);
+    if (!await _holds(tx)) return false;
     try {
       if (secret == null || secret.isEmpty) {
         secret = await _backendClient.registerDevice(
             installId: installId, platform: _isAndroid() ? 'android' : 'ios');
+        if (!await _holds(tx)) return false;
         await _storage.write(key: _secretKey, value: secret);
+        if (!await _holds(tx)) return false;
         await _clearAck();
+        if (!await _holds(tx)) return false;
       }
-      await _withSecretRecovery(installId, secret, (deviceSecret) {
+      await _withSecretRecovery(installId, secret, (deviceSecret) async {
+        if (!await _holds(tx)) throw const StaleAdmissionException();
         return _consent.link(
           installId: installId,
           deviceSecret: deviceSecret,
@@ -673,7 +794,7 @@ class CaptureDeviceRegistrationService {
           version: snapshot.version,
           clientGeneration: generation,
         );
-      });
+      }, lifetime: tx.current);
     } catch (_) {
       return false;
     }
@@ -706,7 +827,9 @@ class CaptureDeviceRegistrationService {
     final session = _readSession();
     if (session == null || await _readReplicaOwnerUid() != session.uid) return;
     final snapshot = _snapshotOf(await _settingsRepository.getSettings());
+    if (!await _holds(tx)) return;
     final ack = await _readAck(session.uid);
+    if (!await _holds(tx)) return;
     if (ack == null || ack.version > snapshot.version) {
       if (!await _linkOnce() && snapshot.cloud) {
         outcome.consentPushFailed = true;
@@ -719,15 +842,19 @@ class CaptureDeviceRegistrationService {
       cloud: snapshot.cloud && ack.cloud,
       ai: snapshot.ai && ack.ai,
       version: snapshot.version,
-    ));
+    ), lifetime: tx.current);
     final generation = await _clientGeneration(session.uid);
+    if (!await _holds(tx)) return;
     try {
       final installId = await _loadInstallId();
+      if (!await _holds(tx)) return;
       final secret = await _storage.read(key: _secretKey);
+      if (!await _holds(tx)) return;
       if (secret == null || secret.isEmpty) {
         throw const CaptureBackendException('no_secret');
       }
-      await _withSecretRecovery(installId, secret, (deviceSecret) {
+      await _withSecretRecovery(installId, secret, (deviceSecret) async {
+        if (!await _holds(tx)) throw const StaleAdmissionException();
         return _consent.setConsent(
           installId: installId,
           deviceSecret: deviceSecret,
@@ -737,7 +864,7 @@ class CaptureDeviceRegistrationService {
           version: snapshot.version,
           clientGeneration: generation,
         );
-      });
+      }, lifetime: tx.current);
     } catch (_) {
       if (snapshot.cloud) outcome.consentPushFailed = true;
       return;
@@ -745,7 +872,8 @@ class CaptureDeviceRegistrationService {
     // P4: the answer of a set that outlived an account switch / transition has
     // no state effect (no widened mirror, no ack).
     if (!await _holds(tx)) return;
-    await _writeMirror(session.uid, snapshot);
+    await _writeMirror(session.uid, snapshot, lifetime: tx.current);
+    if (!await _holds(tx)) return;
     await _writeAck(session.uid, snapshot);
   }
 
@@ -760,34 +888,47 @@ class CaptureDeviceRegistrationService {
   Future<void> _withSecretRecovery(
     String installId,
     String secret,
-    Future<void> Function(String deviceSecret) call,
-  ) async {
+    Future<void> Function(String deviceSecret) call, {
+    bool Function()? lifetime,
+  }) async {
+    final current = lifetime ?? _captureLifetime();
+    if (!current()) throw const StaleAdmissionException();
     try {
       await call(secret);
     } on CaptureBackendException catch (error) {
       if (!_isUnauthorized(error)) rethrow;
+      if (!current()) throw const StaleAdmissionException();
       final fresh = await _recoverRejectedSecret(
         rejectedSecret: secret,
         installId: installId,
+        current: current,
       );
+      if (!current()) throw const StaleAdmissionException();
       await call(fresh);
     }
   }
 
   /// The mirror never moves to an older version within a process (a slow link
   /// finishing after a newer consent change must not overwrite it).
-  Future<void> _writeMirror(String uid, _ConsentSnapshot snapshot) async {
-    if (ConsentAuthority.egressFrozen) return;
+  Future<void> _writeMirror(String uid, _ConsentSnapshot snapshot,
+      {bool Function()? lifetime}) async {
+    final live = lifetime ?? _captureLifetime();
+    final epoch = _gate.epoch;
+    bool current() => live() && _gate.epoch == epoch &&
+        !ConsentAuthority.egressFrozen;
+    if (!current() || ConsentAuthority.egressFrozen) return;
     final last = _mirrorVersions[uid];
     if (last != null && snapshot.version < last) return;
+    final generation = await _clientGeneration(uid);
+    if (!current()) return;
     await _writeConsentMirror(
       uid: uid,
       cloud: snapshot.cloud,
       ai: snapshot.ai,
       version: snapshot.version,
-      transitionGeneration: await _clientGeneration(uid),
+      transitionGeneration: generation,
     );
-    _mirrorVersions[uid] = snapshot.version;
+    if (current()) _mirrorVersions[uid] = snapshot.version;
   }
 
   Future<_ConsentSnapshot?> _readAck(String uid) async {
@@ -807,7 +948,8 @@ class CaptureDeviceRegistrationService {
     );
   }
 
-  Future<void> _writeAck(String uid, _ConsentSnapshot snapshot) => _storage.write(
+  Future<void> _writeAck(String uid, _ConsentSnapshot snapshot) =>
+      _storage.write(
         key: _ackKey,
         value:
             '$uid|${snapshot.cloud ? 1 : 0}|${snapshot.ai ? 1 : 0}|${snapshot.version}',
@@ -963,7 +1105,8 @@ class CaptureDeviceRegistrationService {
     _gate.advanceEpoch();
     final owner = await _readReplicaOwnerUid() ?? '';
     final settings = await _settingsRepository.getSettings();
-    await _gate.enable(owner: owner, reservedVersion: settings.consentVersion + 1);
+    await _gate.enable(
+        owner: owner, reservedVersion: settings.consentVersion + 1);
     ConsentAuthority.egressFrozen = false;
     await commitLocalOn();
     await _gate.refresh();
@@ -1078,7 +1221,8 @@ class CaptureDeviceRegistrationService {
   /// WP-8 diagnostics (read-only): how the last revoke ended. Status and
   /// generation only; never a uid, secret or content. CONFIRMED means the server
   /// answered `{ok, applied}` for that call, nothing more.
-  Future<({ServerRevocation status, int generation})?> serverRevocation() async {
+  Future<({ServerRevocation status, int generation})?>
+      serverRevocation() async {
     try {
       final raw = await _serverRevocationSlots.read();
       if (raw == null) return null;
@@ -1099,9 +1243,19 @@ class CaptureDeviceRegistrationService {
   /// and reconciles the durable state with the replica, before any other egress
   /// can start (C.5). No revoke, ever. Uncertain state keeps egress frozen.
   Future<void> resolvePendingDisable() async {
-    if (_disableInFlight != null) return;
+    final lifetime = _captureLifetime(initializing: true);
+    if (_initializationEpoch != _gate.epoch) return;
+    var epoch = _initializationEpoch;
+    bool current() => lifetime() && _gate.epoch == epoch;
+    if (!current() || _disableInFlight != null) return;
     if (ConsentAuthority.egressFrozen) ConsentAuthority.egressFrozen = false;
-    await _reconcile();
+    await _reconcile(
+        current: current,
+        didAdvanceEpoch: () {
+          epoch = _gate.epoch;
+          _initializationEpoch = epoch;
+        });
+    if (!current()) return;
     // Astra H2.3: reconciliation (DISABLING crash recovery, the store/native
     // read) has COMPLETED, so admission may start judging the durable record.
     // Until this line the process-level latch denied everything, grants too. A
@@ -1115,7 +1269,9 @@ class CaptureDeviceRegistrationService {
   /// transition running in this process means the process died mid-transition:
   /// local OFF is retried (never the revoke). Another owner's marker is left
   /// alone: it is neither applied to this owner nor discarded.
-  Future<_Gate> _gateState() async {
+  Future<_Gate> _gateState({bool Function()? current}) async {
+    current ??= _captureLifetime();
+    if (!current()) return _Gate.blocked;
     // An explicit enable writes the ON record and THEN the settings: judging
     // the pair in between would read "ON record, settings OFF" (or, with no
     // record yet, "settings ON") as a divergence and align it back down.
@@ -1124,16 +1280,24 @@ class CaptureDeviceRegistrationService {
         _enableInFlight != null) {
       return _Gate.blocked;
     }
-    return _reconcile();
+    return _reconcile(current: current);
   }
 
-  Future<_Gate> _reconcile() async {
+  Future<_Gate> _reconcile({
+    bool Function()? current,
+    void Function()? didAdvanceEpoch,
+  }) async {
+    current ??= _captureLifetime();
+    if (!current()) return _Gate.blocked;
     final String owner;
     final EgressView view;
     try {
       owner = await _readReplicaOwnerUid() ?? '';
+      if (!current()) return _Gate.blocked;
       view = await _gate.view(owner: owner);
+      if (!current()) return _Gate.blocked;
     } catch (e) {
+      if (!current()) return _Gate.blocked;
       ConsentAuthority.egressFrozen = true; // owner/state unknown: fail closed
       return _Gate.blocked;
     }
@@ -1143,10 +1307,14 @@ class CaptureDeviceRegistrationService {
     }
     final rec = view.record;
     if (rec != null && rec.state == EgressState.disabling) {
-      return await _completePendingDisable(rec) ? _Gate.off : _Gate.blocked;
+      return await _completePendingDisable(rec, current, didAdvanceEpoch)
+          ? _Gate.off
+          : _Gate.blocked;
     }
     try {
+      if (!current()) return _Gate.blocked;
       final settings = await _settingsRepository.getSettings();
+      if (!current()) return _Gate.blocked;
       final on = _cloudOn(settings);
       if (rec == null) {
         // Astra H2.2: an ABSENT record is NOT adopted as ON. Cloud only becomes
@@ -1182,17 +1350,23 @@ class CaptureDeviceRegistrationService {
         ));
       }
     } catch (_) {
+      if (!current()) return _Gate.blocked;
       ConsentAuthority.egressFrozen = true;
       return _Gate.blocked;
     }
+    if (!current()) return _Gate.blocked;
     return rec.state == EgressState.off ? _Gate.off : _Gate.open;
   }
 
-  Future<bool> _completePendingDisable(CloudEgressRecord rec) async {
+  Future<bool> _completePendingDisable(CloudEgressRecord rec,
+      bool Function() current, void Function()? didAdvanceEpoch) async {
+    if (!current()) return false;
     ConsentAuthority.egressFrozen = true;
     _gate.advanceEpoch();
+    didAdvanceEpoch?.call();
     try {
       final settings = await _settingsRepository.getSettings();
+      if (!current()) return false;
       if (_cloudOn(settings)) {
         await _settingsRepository.saveSettings(settings.copyWith(
           cloudConsentState: ConsentState.declined,
@@ -1200,22 +1374,28 @@ class CaptureDeviceRegistrationService {
               _isAndroid() ? ConsentState.declined : settings.aiConsentState,
         ));
       }
+      if (!current()) return false;
       await _clearAck();
+      if (!current()) return false;
       final freeze = DisableFreeze(
           owner: rec.ownerUid,
           transitionGeneration: rec.transitionGeneration,
           reservedVersion: rec.reservedVersion);
       // Never a revoke here. A consumed attempt without an outcome is UNCONFIRMED.
       if (await serverRevocation() == null ||
-          (await serverRevocation())!.generation != freeze.transitionGeneration) {
+          (await serverRevocation())!.generation !=
+              freeze.transitionGeneration) {
+        if (!current()) return false;
         final attempted = await _attemptRecorded(freeze);
+        if (!current()) return false;
         await _recordRevocation(
             freeze,
             attempted
                 ? ServerRevocation.unconfirmed
                 : ServerRevocation.notAttempted);
       }
-      if (!await _gate.commitOff(freeze)) return false;
+      if (!current()) return false;
+      if (!await _gate.commitOff(freeze) || !current()) return false;
       ConsentAuthority.egressFrozen = false;
       await _gate.refresh();
       return true;
@@ -1311,11 +1491,15 @@ class CaptureDeviceRegistrationService {
     if (!_isIos() || !_isBackendConfigured()) return;
     if (await _gateState() != _Gate.open) return;
     final tx = await _beginTx();
+    if (!await _holds(tx)) return;
     final settings = await _settingsRepository.getSettings();
+    if (!await _holds(tx)) return;
     if (!settings.cloudProcessingEnabled) return;
     final secret = await _storage.read(key: _secretKey);
+    if (!await _holds(tx)) return;
     if (secret == null || secret.isEmpty) return;
     final installId = await _loadInstallId();
+    if (!await _holds(tx)) return;
     try {
       await _backendClient.registerPushToken(
         installId: installId,
@@ -1332,7 +1516,9 @@ class CaptureDeviceRegistrationService {
       final freshSecret = await _recoverRejectedSecret(
         rejectedSecret: secret,
         installId: installId,
+        current: tx.current,
       );
+      if (!await _holds(tx)) return;
       await _backendClient.registerPushToken(
         installId: installId,
         deviceSecret: freshSecret,
@@ -1359,14 +1545,23 @@ class CaptureDeviceRegistrationService {
   Future<String> _recoverRejectedSecret({
     required String rejectedSecret,
     required String installId,
+    bool Function()? current,
   }) async {
+    final live = current ?? _captureLifetime();
+    if (!live()) throw const StaleAdmissionException();
     // Cloud OFF = zero egress (R6): a 401 never re-registers the device while
     // the user's Cloud consent is OFF (e.g. switched off mid-flight).
-    if (await _gateState() != _Gate.open ||
-        !(await _settingsRepository.getSettings()).cloudProcessingEnabled) {
+    if (await _gateState(current: live) != _Gate.open || !live()) {
       throw const CaptureBackendException('recovery_skipped_cloud_off');
     }
+    final recoverySettings = await _settingsRepository.getSettings();
+    if (!live()) throw const StaleAdmissionException();
+    if (!recoverySettings.cloudProcessingEnabled) {
+      throw const CaptureBackendException('recovery_skipped_cloud_off');
+    }
+    if (!live()) throw const StaleAdmissionException();
     final stored = await _storage.read(key: _secretKey);
+    if (!live()) throw const StaleAdmissionException();
     if (stored != null && stored.isNotEmpty && stored != rejectedSecret) {
       return stored;
     }
@@ -1375,13 +1570,32 @@ class CaptureDeviceRegistrationService {
 
     final recovery = () async {
       final tx = await _beginTx();
+      if (!live() || !await _holds(tx)) {
+        throw const StaleAdmissionException();
+      }
       final fresh = await _backendClient.registerDevice(installId: installId);
+      if (!live() || !await _holds(tx)) {
+        throw const StaleAdmissionException();
+      }
       await _storage.write(key: _secretKey, value: fresh);
+      if (!live() || !await _holds(tx)) {
+        throw const StaleAdmissionException();
+      }
       // A new credential is a new server row: nothing was acknowledged for it.
       await _clearAck();
+      if (!live() || !await _holds(tx)) {
+        throw const StaleAdmissionException();
+      }
       // P4: no widening native config after an account switch / transition.
       if (!await _holds(tx)) return fresh;
       final settings = await _settingsRepository.getSettings();
+      if (!live() || !await _holds(tx)) {
+        throw const StaleAdmissionException();
+      }
+      final generation = await _clientGeneration(tx.owner ?? '');
+      if (!live() || !await _holds(tx)) {
+        throw const StaleAdmissionException();
+      }
       await _writeNativeBackendConfig(
         cloudProcessingEnabled:
             settings.cloudProcessingEnabled && _isBackendConfigured(),
@@ -1392,7 +1606,7 @@ class CaptureDeviceRegistrationService {
         aiConsentGranted:
             settings.cloudProcessingEnabled && settings.aiConsentGranted,
         ownerUid: tx.owner ?? '',
-        transitionGeneration: await _clientGeneration(tx.owner ?? ''),
+        transitionGeneration: generation,
       );
       return fresh;
     }();

@@ -25,6 +25,9 @@ class DriftUserSettingsRepository implements UserSettingsRepository {
       : _outboxQueue = outboxQueue;
 
   final AppDatabase _db;
+
+  /// A retained service may reject work before touching a retired database.
+  bool get isDatabaseOpen => _db.lifecycleState == DatabaseLifecycleState.open;
   final PlanningOutboxQueue? _outboxQueue;
 
   @override

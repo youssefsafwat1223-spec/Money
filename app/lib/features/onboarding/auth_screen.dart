@@ -1,3 +1,4 @@
+import '../../core/session/admission_authority.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -10,7 +11,6 @@ import '../../core/auth/auth_service.dart';
 import '../../core/auth/supabase_auth_service.dart'
     show AuthCancelledException, AuthConfigurationException;
 import '../../core/backend/supabase_config.dart';
-import '../../core/di/app_providers.dart';
 import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
@@ -91,24 +91,23 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     final attempt = AppSession.instance.beginAuthAttempt();
     try {
       final identity = await method();
-      // WP-3b: admitting the uid swaps the account scope, which disposes this
-      // screen and every provider built on the signed-out one. What the rest of
-      // this flow needs is therefore taken now (the device link only uses secure
-      // storage and the auth session, never the database), and navigation goes
-      // through the app router rather than this screen's context.
-      final captureRegistration =
-          ref.read(captureDeviceRegistrationServiceProvider);
+      if (SupabaseConfig.isConfigured && identity.isCurrent == null) {
+        throw const StaleAdmissionException();
+      }
+      // Admission publishes capture ownership through bootstrap's service for
+      // the newly committed account scope. This screen's provider graph is
+      // retired by that swap, so it must not retain a database-bound service.
       await AppSession.instance.setIdentity(
         method: identity.method,
         email: identity.email,
         userId: identity.userId,
         attempt: attempt,
+        sessionCurrent: identity.isCurrent,
       );
       if (SupabaseConfig.isConfigured) {
         await AppSession.instance.reconcileAccountOnboarding(
           supabase.Supabase.instance.client,
         );
-        unawaited(captureRegistration.linkToCurrentUser().catchError((_) {}));
       }
       if (AppSession.instance.hasCompletedOnboarding) {
         appRouter.go('/');

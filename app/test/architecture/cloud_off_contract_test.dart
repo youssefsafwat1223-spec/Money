@@ -316,7 +316,7 @@ void main() {
     });
 
     test('_linkAndPublish: OFF never needs the backend, ON links first', () {
-      final fn = body(registration, 'Future<bool> _linkAndPublish()');
+      final fn = body(registration, 'Future<bool> _linkAndPublish(bool Function() current)');
       final beforeCloudBranch =
           fn.substring(0, fn.indexOf('if (snapshot.cloud &&'));
       expect(beforeCloudBranch, isNot(contains('_isBackendConfigured')));

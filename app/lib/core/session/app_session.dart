@@ -9,10 +9,12 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../data/db/database_key_store.dart';
 import '../backend/supabase_config.dart';
+import '../privacy/cloud_egress_gate.dart';
 import '../tracking/user_activity_service.dart';
 import '../security/secure_storage_options.dart';
 import '../sync/sync_wakeup.dart' show AuthSessionValid;
 import 'account_scope.dart';
+import 'auth_stream_boundary.dart';
 import 'admission_authority.dart';
 import 'remove_data_flow.dart';
 
@@ -59,7 +61,9 @@ enum LocalDataOwnership {
 /// One admission: the uid, its authority, and whether it is an EXPLICIT
 /// authentication attempt (the only kind that may lift a removal revocation).
 class _Admission {
-  _Admission(this.uid, this.authority, {this.explicit = false});
+  _Admission(this.uid, this.authority,
+      {this.explicit = false, this.sessionCurrent});
+  final bool Function()? sessionCurrent;
   final String uid;
 
   /// Replaced (never mutated) when an automatic admission switches the device to
@@ -171,7 +175,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   /// Publishes the admitted uid as the native capture owner (WP-6 gates it on
   /// the consent link). Best effort; never blocks admission.
-  Future<void> Function(String uid)? _publishCaptureOwner;
+  Future<void> Function(String uid, AdmissionAuthority authority)?
+      _publishCaptureOwner;
 
   /// UID whose admission is deferred because another account's native residue
   /// has to be purged first and the purge hook wasn't registered yet (the first
@@ -230,7 +235,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// F2 — captured BEFORE the sign-in provider is awaited. Only an attempt that
   /// is still current when it completes can authorize (re)creating a removed
   /// uid's data.
-  AuthAttempt beginAuthAttempt() => AuthAttempt(_admissionEpoch);
+  AuthAttempt beginAuthAttempt() {
+    // Reauthentication may reuse the same open replica and skip bootstrap.
+    // Retire older request responses before the explicit provider exchange.
+    if (!_admissionClosed && !(_removeData?.isRunning ?? false)) {
+      CloudEgressGate.instance.advanceEpoch();
+    }
+    return AuthAttempt(_admissionEpoch);
+  }
 
   bool _attemptCurrent(AuthAttempt a) =>
       !_admissionClosed && a.epoch == _admissionEpoch;
@@ -239,13 +251,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
     int epoch,
     String uid, {
     required bool canCreate,
+    bool Function()? sessionCurrent,
   }) =>
       AdmissionAuthority(
         uid,
         () =>
             !_admissionClosed &&
             !(_removeData?.isRunning ?? false) &&
-            _admissionEpoch == epoch,
+            _admissionEpoch == epoch &&
+            (sessionCurrent?.call() ?? true),
         canCreate: canCreate,
         epoch: epoch,
       );
@@ -358,7 +372,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   void configureCaptureOwnerPublish(
-      Future<void> Function(String uid)? publish) {
+      Future<void> Function(String uid, AdmissionAuthority authority)? publish) {
     _publishCaptureOwner = publish;
   }
 
@@ -516,6 +530,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     try {
       outcome = await _admissionOp(() => _resolveAdmitted(uid, adm));
     } on StaleAdmissionException {
+      if (adm.explicit && adm.wasRevoked) await _rollbackFreshAdmission(adm);
       return LocalDataOwnership.revoked;
     } catch (_) {
       if (adm.explicit && adm.wasRevoked) await _rollbackFreshAdmission(adm);
@@ -541,7 +556,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> _rollbackFreshAdmission(_Admission adm) async {
     // A removal or a later admission owns a newer epoch. Its state and replica
     // must never be swept by this failed continuation.
-    if (!adm.current) return;
+    // Freshness can revoke admission while this lifecycle still owns its
+    // partial writes. Cleanup needs lifecycle ownership, never fresh login
+    // authority; a newer epoch or accepted removal still prevents this sweep.
+    if (!_authorityAt(adm.authority.epoch, adm.uid, canCreate: false)
+        .isCurrent) {
+      return;
+    }
     final removal = _removeData;
     if (removal == null) return;
     _removalsAccepted++;
@@ -576,6 +597,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       _admissionEpoch,
       adm.uid,
       canCreate: adm.authority.canCreate,
+      sessionCurrent: adm.sessionCurrent,
     );
   }
 
@@ -690,7 +712,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _admittedUid = uid;
     if (!adm.explicit) {
       try {
-        await _publishCaptureOwner?.call(uid);
+        await _publishCaptureOwner?.call(uid, adm.authority);
       } catch (_) {
         // Capture simply stays unbound until the next admission publishes it.
       }
@@ -708,14 +730,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   ) async {
     if (_pendingOwnerConflictUid == null) return;
     if (_captureOwnerClear == null) return;
-    final uid = _pendingOwnerConflictUid!;
-    final ownership = await _ensureLocalDataOwnedBy(uid);
-    if (ownership == LocalDataOwnership.unresolved) {
-      markSessionInvalid();
-      return;
-    }
-    if (ownership != LocalDataOwnership.owned) return;
-    await _reconcileSupabaseSession(client.auth.currentSession);
+    await _reconcileSupabaseSession(client.auth.currentSession, client: client);
   }
 
   bool get isGuest => authMethod == 'guest';
@@ -817,16 +832,23 @@ class AppSession extends ValueNotifier<SessionStatus> {
     String? email,
     String? userId,
     AuthAttempt? attempt,
+    bool Function()? sessionCurrent,
   }) async {
     final auth = attempt ?? beginAuthAttempt();
-    if (!_attemptCurrent(auth)) throw const StaleAdmissionException();
+    if (!_attemptCurrent(auth) || !(sessionCurrent?.call() ?? true)) {
+      throw const StaleAdmissionException();
+    }
+    // Also retire refreshes started while the provider exchange was pending.
+    // This runs only after the successful response and attempt are validated.
+    CloudEgressGate.instance.advanceEpoch();
     final epoch = ++_admissionEpoch;
     _explicitAdmissionEpoch = epoch;
     value = SessionStatus.needsOnboarding;
     bool live() =>
         !_admissionClosed &&
         !(_removeData?.isRunning ?? false) &&
-        _admissionEpoch == epoch;
+        _admissionEpoch == epoch &&
+        (sessionCurrent?.call() ?? true);
     _Admission? adm;
     // Owner gate (MALI-002): interactive sign-in happens long after bootstrap,
     // so the new uid's own replica is unlocked and opened inline here before the
@@ -839,8 +861,10 @@ class AppSession extends ValueNotifier<SessionStatus> {
       if (_unresolvedOwnerUid == userId) _unresolvedOwnerUid = null;
       adm = _Admission(
         userId,
-        _authorityAt(epoch, userId, canCreate: true),
+        _authorityAt(epoch, userId,
+            canCreate: true, sessionCurrent: sessionCurrent),
         explicit: true,
+        sessionCurrent: sessionCurrent,
       );
       try {
         ownership = await _ensureLocalDataOwnedBy(userId, adm);
@@ -888,7 +912,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
               ownership == LocalDataOwnership.owned &&
               adm.current) {
             try {
-              final capture = _publishCaptureOwner?.call(adm.uid);
+              final capture = _publishCaptureOwner?.call(adm.uid, adm.authority);
               if (capture != null) unawaited(capture.catchError((_) {}));
             } catch (_) {
               // Capture publication is best effort and never blocks admission.
@@ -973,14 +997,29 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// re-checked before every write and before the status publication; one
   /// overtaken by Remove data, sign-out or an account switch returns without
   /// touching anything.
-  Future<void> finishOnboarding() async {
+  Future<void> finishOnboarding({supabase.SupabaseClient? client}) async {
     if (_explicitAdmissionEpoch != null) return;
     final epoch = _admissionEpoch;
+    final lossSeq = _authLossSeq;
+    final uid = _admittedUid;
+    final authClient = client ??
+        (SupabaseConfig.isConfigured
+            ? supabase.Supabase.instance.client
+            : null);
+    bool fresh() {
+      if (isGuest || authClient == null) return true;
+      final session = authClient.auth.currentSession;
+      return session != null && !session.isExpired && session.user.id == uid;
+    }
+
     bool live() =>
         _explicitAdmissionEpoch == null &&
         !_admissionClosed &&
         !(_removeData?.isRunning ?? false) &&
-        _admissionEpoch == epoch;
+        _admissionEpoch == epoch &&
+        _authLossSeq == lossSeq &&
+        status != SessionStatus.sessionExpired &&
+        fresh();
     final published = await _admissionOp(() async {
       if (!live()) return false;
       authMethod ??= await _storage.read(key: _kMethod);
@@ -1048,7 +1087,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<bool> reconcileAccountOnboarding(
     supabase.SupabaseClient client,
   ) async {
-    await _reconcileSupabaseSession(client.auth.currentSession);
+    await _reconcileSupabaseSession(client.auth.currentSession, client: client);
     return _onboardingDone;
   }
 
@@ -1380,9 +1419,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   Future<void> bindSupabaseAuth(supabase.SupabaseClient client) async {
-    _supabaseAuthSubscription ??=
-        client.auth.onAuthStateChange.listen(_handleSupabaseAuthChange);
-    await _reconcileSupabaseSession(client.auth.currentSession);
+    const boundary = AuthStreamBoundary('appSession');
+    _supabaseAuthSubscription ??= client.auth.onAuthStateChange.listen(
+      (state) => unawaited(
+          boundary.run(() => _handleSupabaseAuthChange(state, client))),
+      onError: boundary.onError,
+    );
+    await _reconcileSupabaseSession(client.auth.currentSession, client: client);
   }
 
   /// Re-checks the live Supabase session against the current in-memory
@@ -1400,6 +1443,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // `flutter test` run) for no behavioral benefit.
     await _reconcileSupabaseSession(
       client.auth.currentSession,
+      client: client,
       authority: authority,
     );
   }
@@ -1449,11 +1493,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
   @visibleForTesting
   void Function(supabase.AuthChangeEvent event)? debugAuthEventCompleted;
 
-  Future<void> _handleSupabaseAuthChange(supabase.AuthState state) async {
+  Future<void> _handleSupabaseAuthChange(
+    supabase.AuthState state,
+    supabase.SupabaseClient client,
+  ) async {
     try {
       switch (state.event) {
         case supabase.AuthChangeEvent.signedOut:
         case supabase.AuthChangeEvent.userDeleted:
+          // A queued loss event must not invalidate a newer live SDK session.
+          if (client.auth.currentSession?.isExpired == false) return;
           _authLossSeq++;
           // A server-driven auth loss is not an explicit request to destroy the
           // local-first database. It can be emitted during cold-start token
@@ -1469,7 +1518,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
         case supabase.AuthChangeEvent.signedIn:
         case supabase.AuthChangeEvent.tokenRefreshed:
         case supabase.AuthChangeEvent.userUpdated:
-          await _reconcileSupabaseSession(state.session);
+          await _reconcileSupabaseSession(state.session, client: client);
           // A-5: an admitted authenticated session re-arms auth-parked sync rows.
           if (value == SessionStatus.authenticated) AuthSessionValid.notify();
           return;
@@ -1484,9 +1533,30 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   Future<void> _reconcileSupabaseSession(
     supabase.Session? session, {
+    required supabase.SupabaseClient client,
     AdmissionAuthority? authority,
   }) async {
     if (isGuest || authMethod == null) return;
+    final epoch = _admissionEpoch;
+    bool current() {
+      final actual = client.auth.currentSession;
+      return _admissionEpoch == epoch &&
+          _explicitAdmissionEpoch == null &&
+          (session == null
+              ? actual == null
+              : actual?.user.id == session.user.id &&
+                  actual?.accessToken == session.accessToken);
+    }
+
+    if (!current()) return;
+    if (authority != null &&
+        (!authority.isCurrent || authority.uid != session?.user.id)) {
+      return;
+    }
+    if (session != null && session.isExpired) {
+      if (_onboardingDone) markSessionInvalid();
+      return;
+    }
     if (session == null) {
       // A null session here is only ambiguous mid-onboarding (identity set,
       // setup not finished yet) — that's already correctly `needsOnboarding`
@@ -1508,12 +1578,24 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final uid = session.user.id;
     // An automatic reconcile holds an open-existing authority captured NOW (or a
     // rebootstrap's maintenance authority); it never holds explicit authority.
-    final adm = _Admission(
-      uid,
-      authority ?? _authorityAt(_admissionEpoch, uid, canCreate: false),
-    );
+    // Freshness remains part of the capability through every ownership await.
+    // Epoch is checked by the authority (and may renew on an account switch).
+    bool fresh() {
+      final actual = client.auth.currentSession;
+      return !session.isExpired &&
+          actual?.user.id == uid &&
+          actual?.accessToken == session.accessToken &&
+          _explicitAdmissionEpoch == null &&
+          (authority == null || (authority.uid == uid && authority.isCurrent));
+    }
+
+    final base = authority ?? _authorityAt(epoch, uid, canCreate: false);
+    final guarded = AdmissionAuthority(
+        uid, () => base.uid == uid && base.isCurrent && fresh(),
+        canCreate: base.canCreate, epoch: base.epoch);
+    final adm = _Admission(uid, guarded, sessionCurrent: fresh);
     final ownership = await _ensureLocalDataOwnedBy(uid, adm);
-    if (lossSeq != _authLossSeq) return; // the session was lost meanwhile
+    if (lossSeq != _authLossSeq || !adm.current) return; // lost or superseded
     if (ownership == LocalDataOwnership.revoked) return;
     if (ownership == LocalDataOwnership.deferred) return;
     if (ownership == LocalDataOwnership.unresolved) {
