@@ -68,6 +68,7 @@ class RunnerTests: XCTestCase {
       text: "purchase 5.00 SAR", sender: "ACME") else {
       return XCTFail("capture setup failed")
     }
+    let captureQueueBeforeSwitch = try XCTUnwrap(queueFileData())
     SharedCaptureStore.enqueueNotificationLogEvent(notificationLogId: "attempt",
       eventType: "created", channel: "ios_shortcut_local", notificationType: "test",
       relatedEntityType: "payload", relatedEntityId: capture.id)
@@ -83,7 +84,10 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(events.count, 2)
     XCTAssertTrue(events.allSatisfy { $0.ownerUid == ownerA &&
       $0.ownerGeneration == firstOwner.generation && $0.originKind == "native" })
-    XCTAssertNotNil(try SharedCaptureStore.peekPendingPayloadsJSON())
+    XCTAssertNil(try SharedCaptureStore.peekPendingPayloadsJSON(),
+                 "owner B cannot import owner A's capture")
+    XCTAssertEqual(queueFileData(), captureQueueBeforeSwitch,
+                   "owner switch and notification events preserve encrypted capture bytes")
   }
 
   // F2 ownerless snapshot contract: inspection must never manufacture keys or authority.
