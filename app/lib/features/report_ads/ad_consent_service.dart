@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import '../../core/privacy/cloud_egress_gate.dart';
 import '../ads/mobile_ads_initializer.dart';
 import 'report_ads_debug_config.dart';
 
@@ -37,7 +38,11 @@ class UmpAdConsentService implements AdConsentService {
   Future<void> gatherConsent() async {
     // Astra H2.5: the UMP consent-info update and form are network calls to
     // Google. Not while the egress gate does not permit.
-    if (!await MobileAdsInitializer.mayServe()) return;
+    final gate = CloudEgressGate.instance;
+    final epoch = gate.epoch;
+    bool isCurrent() =>
+        identical(CloudEgressGate.instance, gate) && gate.epoch == epoch;
+    if (!await MobileAdsInitializer.mayServe() || !isCurrent()) return;
     try {
       // Debug/profile-only: force EEA geography (+ optional test device) so a
       // human R6 test can exercise the consent form / privacy-options path.
@@ -58,6 +63,8 @@ class UmpAdConsentService implements AdConsentService {
         (error) => updated.complete(), // treat as "no consent gathered"
       );
       await updated.future;
+      // Consent callbacks cannot retain permission across an OFF transition.
+      if (!await MobileAdsInitializer.mayServe() || !isCurrent()) return;
 
       final formDismissed = Completer<void>();
       ConsentForm.loadAndShowConsentFormIfRequired((error) {
