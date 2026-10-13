@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  FLAG_REGISTRY,
   buildPlan,
   editableFields,
   isBulkEligible,
@@ -95,17 +96,38 @@ test("bad country codes are rejected; ISO alpha-2 upper-case accepted", () => {
   assert.ok(one("enable_coupons", { target_countries: ["EG", "SA"] }).ok);
 });
 
-test("server-read flags reject partial rollout, countries, and activation without full rollout", () => {
-  const r = row("ledger_dual_write");
-  const arm = (set) => buildPlan([r], [{ key: "ledger_dual_write", expected_updated_at: T0, set }], { typedConfirmation: "ledger_dual_write" });
-  assert.ok(codes(arm({ rollout_percent: 50 })).includes("server_read_partial_rollout_unsupported"));
-  assert.ok(codes(arm({ target_countries: ["EG"] })).includes("field_not_editable"), "countries are not even an editable field for server-read flags");
-  assert.ok(codes(arm({ is_active: true, value: "true" })).includes("server_read_requires_full_rollout"));
-  assert.ok(arm({ is_active: true, value: "true", rollout_percent: 100 }).ok);
-  assert.ok(!editableFields("ledger_dual_write").includes("target_countries"));
+test("server reader policy still rejects partial rollout and countries", () => {
+  const key = "test_server_reader_policy";
+  FLAG_REGISTRY[key] = {
+    group: "experimental_high_risk", readers: ["server"], status: "server_read",
+    risk: "high", rolloutSemantics: "server_all_or_nothing", notes: "synthetic test reader",
+  };
+  try {
+    const r = row(key);
+    const arm = (set) => buildPlan([r], [{ key, expected_updated_at: T0, set }], { typedConfirmation: key });
+    assert.ok(codes(arm({ rollout_percent: 50 })).includes("server_read_partial_rollout_unsupported"));
+    assert.ok(codes(arm({ target_countries: ["EG"] })).includes("field_not_editable"));
+    assert.ok(codes(arm({ is_active: true, value: "true" })).includes("server_read_requires_full_rollout"));
+    const full = arm({ is_active: true, value: "true", rollout_percent: 100 });
+    assert.ok(full.ok);
+    assert.equal(full.rpcChanges[0].server_read, true);
+  } finally {
+    delete FLAG_REGISTRY[key];
+  }
+});
+
+test("retired server flags cannot arm cloud financial writes", () => {
+  for (const key of ["ledger_dual_write", "capture_direct_supabase_write", "transactions_supabase_primary"]) {
+    const r = row(key);
+    assert.deepEqual(editableFields(key), ["description"]);
+    for (const set of [{ is_active: true, value: "true", rollout_percent: 100 }, { target_countries: ["EG"] }, { rollout_percent: 50 }]) {
+      const plan = buildPlan([r], [{ key, expected_updated_at: T0, set }], { typedConfirmation: key });
+      assert.equal(plan.ok, false, key);
+      assert.ok(codes(plan).includes("not_wired_description_only"), key);
+      assert.deepEqual(plan.rpcChanges, [], key);
+    }
+  }
   assert.ok(editableFields("enable_coupons").includes("target_countries"));
-  // RPC marks server-read keys
-  assert.equal(arm({ is_active: true, value: "true", rollout_percent: 100 }).rpcChanges[0].server_read, true);
 });
 
 test("not_wired: only description is editable; unregistered keys are read-only too", () => {

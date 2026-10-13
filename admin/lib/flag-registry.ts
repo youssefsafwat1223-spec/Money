@@ -3,7 +3,7 @@
  *
  * THE SOURCE OF TRUTH for "who reads this flag, and what does a rollout mean for
  * it". It is deliberately code, not a database table: the readers live in code
- * (app/lib FeatureFlagService, supabase/functions/_shared/ledger.ts) and
+ * (app/lib FeatureFlagService, supabase/functions) and
  * tests/flag-registry.test.mjs RE-DERIVES the reader inventory from those sources
  * on every run, so this file cannot silently drift from reality.
  *
@@ -66,23 +66,6 @@ const appBool = (
   ...extra,
 });
 
-const serverBool = (
-  group: FlagGroup,
-  risk: FlagRisk,
-  notes: string,
-  extra: Partial<FlagMeta> = {},
-): FlagMeta => ({
-  group,
-  readers: ["server"],
-  status: "server_read",
-  risk,
-  rolloutSemantics: "server_all_or_nothing",
-  notes,
-  valueType: "boolean",
-  defaultValue: "false",
-  ...extra,
-});
-
 const notWired = (group: FlagGroup, notes = NO_EFFECT): FlagMeta => ({
   group,
   readers: [],
@@ -93,9 +76,6 @@ const notWired = (group: FlagGroup, notes = NO_EFFECT): FlagMeta => ({
 });
 
 const BANNER_NOTE = "تُقرأ في التطبيق عبر AdPlacement.flagKey. تعمل فقط مع تفعيل enable_banner_ads.";
-const SERVER_NOTE =
-  "يقرأها الخادم (resolveUserBooleanFlag): نسبة الإطلاق الجزئية وتحديد الدول غير مدعومين — الخادم يعتبرها مغلقة إن كانت النسبة أقل من 100 أو وُجدت دول.";
-
 export const FLAG_REGISTRY: Record<string, FlagMeta> = {
   // ── App-read (FeatureFlagService.getBool / getInt) ──────────────────────────
   enable_coupons: appBool("monetization", "low", "يُظهر قسم الكوبونات والعروض في التطبيق."),
@@ -143,26 +123,22 @@ export const FLAG_REGISTRY: Record<string, FlagMeta> = {
     "بديل الذكاء الاصطناعي عند فشل المحلل المحلي في الالتقاط.",
   ),
 
-  // ── Server-read (resolveUserBooleanFlag) ───────────────────────────────────
-  ledger_dual_write: serverBool(
-    "experimental_high_risk",
+  capture_import_v3: appBool(
+    "smart_capture_ai",
     "high",
-    `كتابة مزدوجة للسجل المالي إلى السحابة (مسار الأموال). ${SERVER_NOTE}`,
+    "مسار استيراد الالتقاطات المحلي الجديد على iOS؛ يؤثر على إدخال المعاملات إلى قاعدة بيانات الجهاز.",
   ),
-  capture_direct_supabase_write: serverBool(
-    "experimental_high_risk",
-    "high",
-    `متقاعد لكنه لا يزال مقروءًا في الخادم (مع transactions_supabase_primary) — مسار أموال. ${SERVER_NOTE}`,
-    { status: "retired_but_read" },
-  ),
-  transactions_supabase_primary: serverBool(
-    "experimental_high_risk",
-    "high",
-    `متقاعد لكنه لا يزال مقروءًا في الخادم (مع capture_direct_supabase_write) — مسار أموال. ${SERVER_NOTE}`,
-    { status: "retired_but_read" },
+
+  capture_notify_v2: appBool(
+    "smart_capture_ai",
+    "medium",
+    "مسار إشعارات الالتقاطات الجديد على iOS؛ يغيّر قرارات الإشعار ومحتوى التنبيه المحلي.",
   ),
 
   // ── Not wired: no reader anywhere ──────────────────────────────────────────
+  ledger_dual_write: { ...notWired("experimental_high_risk", `متقاعد. ${NO_EFFECT}`), risk: "high" },
+  capture_direct_supabase_write: { ...notWired("experimental_high_risk", `متقاعد. ${NO_EFFECT}`), risk: "high" },
+  transactions_supabase_primary: { ...notWired("experimental_high_risk", `متقاعد. ${NO_EFFECT}`), risk: "high" },
   enable_goals: notWired("planning"),
   enable_announcements: notWired("not_wired"),
   parser_engine_version: notWired("not_wired"),

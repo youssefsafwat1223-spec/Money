@@ -32,7 +32,19 @@ function deriveAppReads() {
   const keys = new Set();
   const dynamicArgs = new Set();
   for (const file of dartFiles) {
-    const src = stripLineComments(readFileSync(file, "utf8"));
+    let src = stripLineComments(readFileSync(file, "utf8"));
+    // Resolve the diagnostics' bounded literal-key wrapper, rather than hiding
+    // its dynamic getBool argument. A changed body or nonliteral caller still fails.
+    if (file.endsWith("/features/settings/sync_diagnostics_screen.dart")) {
+      const helper = /bool _flag\(String key\) \{\s*try \{\s*return featureFlags\.getBool\(key\);\s*\} catch \(_\) \{\s*return false;\s*\}\s*\}/;
+      assert.match(src, helper, "diagnostics flag wrapper changed — update derivation");
+      src = src.replace(helper, "");
+      for (const call of src.matchAll(/_flag\(([^)]*)\)/g)) {
+        const literal = /^'([a-z0-9_]+)'$/.exec(call[1].trim());
+        assert.ok(literal, "diagnostics flag wrapper accepts only literal callers");
+        keys.add(literal[1]);
+      }
+    }
     for (const m of src.matchAll(/\.\s*(getBool|getInt|getString|getJson)\(\s*([^)]*?)\s*\)/g)) {
       const arg = m[2];
       const lit = /^'([a-z0-9_]+)'$/.exec(arg);
@@ -68,9 +80,8 @@ test("derivation sanity: the scan finds the known readers", () => {
   for (const k of ["enable_coupons", "enable_proof_autocommit", "proof_parser_confidence_min", "enable_banner_dashboard"]) {
     assert.ok(appReads.keys.has(k), `app scan should find ${k}`);
   }
-  for (const k of ["ledger_dual_write", "capture_direct_supabase_write", "transactions_supabase_primary"]) {
-    assert.ok(serverReads.has(k), `server scan should find ${k}`);
-  }
+  assert.equal(serverReads.size, 0, "shipping server flags have been retired");
+  assert.ok(appReads.keys.has("capture_import_v3"));
 });
 
 test("every app-side flag read is a literal key or AdPlacement.flagKey (nothing dynamic is unaccounted for)", () => {
@@ -126,13 +137,13 @@ test("not_wired keys appear in code only as FeatureFlagService._defaults seeds (
   }
 });
 
-test("server-read flags: retired_but_read is high risk and all-or-nothing; the three money-path keys are high", () => {
+test("retired financial flags stay high risk but have no reader; proof constraints survive", () => {
   for (const k of ["ledger_dual_write", "capture_direct_supabase_write", "transactions_supabase_primary", "enable_proof_autocommit"]) {
     assert.equal(FLAG_REGISTRY[k].risk, "high", k);
   }
-  for (const k of ["capture_direct_supabase_write", "transactions_supabase_primary"]) {
-    assert.equal(FLAG_REGISTRY[k].status, "retired_but_read");
-    assert.equal(FLAG_REGISTRY[k].rolloutSemantics, "server_all_or_nothing");
+  for (const k of ["ledger_dual_write", "capture_direct_supabase_write", "transactions_supabase_primary"]) {
+    assert.equal(FLAG_REGISTRY[k].status, "not_wired");
+    assert.equal(FLAG_REGISTRY[k].rolloutSemantics, "none");
   }
   assert.equal(FLAG_REGISTRY.enable_proof_autocommit.unsafeToArm, true);
   assert.match(FLAG_REGISTRY.enable_proof_autocommit.notes, /يُرفع الحظر فقط عند ربط محرك الإثبات/);

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:yaml/yaml.dart';
 import 'package:money_companion/core/config/legal_urls.dart';
 
 /// C-5 — the Privacy/Terms links must be real before release. CLOSED.
@@ -159,13 +160,27 @@ void main() {
       expect(src, contains('const String kLegalBaseUrl'));
     });
 
-    test('CI passes the define in every build workflow', () {
-      // It was absent from all three, so a CI build shipped the placeholder
-      // even after the host went live.
-      final ci = File('../codemagic.yaml').readAsStringSync();
-      expect('--dart-define=LEGAL_BASE_URL'.allMatches(ci).length, 3,
-          reason: 'ios-unsigned-sideload, ios-signed-release and '
-              'android-release must all pass it');
+    test('CI passes the define in each shipping Flutter build step', () {
+      final ci = loadYaml(File('../codemagic.yaml').readAsStringSync()) as YamlMap;
+      final workflows = ci['workflows'] as YamlMap;
+      for (final name in const [
+        'ios-unsigned-sideload',
+        'ios-signed-release',
+        'android-release',
+        'ios-signed',
+      ]) {
+        final workflow = workflows[name] as YamlMap?;
+        expect(workflow, isNotNull, reason: '$name must remain guarded');
+        final scripts = workflow!['scripts'] as YamlList;
+        final builds = scripts.cast<YamlMap>().where((step) =>
+            RegExp(r'flutter build (ios|ipa|appbundle|apk)\b')
+                .hasMatch(step['script'].toString()));
+        expect(builds, isNotEmpty, reason: '$name must have a Flutter build step');
+        for (final build in builds) {
+          expect(build['script'].toString(), contains('--dart-define=LEGAL_BASE_URL'),
+              reason: '$name / ${build['name']} must pass the legal URL define');
+        }
+      }
     });
   });
 

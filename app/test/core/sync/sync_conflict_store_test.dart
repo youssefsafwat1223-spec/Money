@@ -29,7 +29,7 @@ void main() {
           'currency': 'SAR',
           'raw_merchant': ' Cafe ',
           'note': null,
-          'occurred_at': '2026-01-01 10:00:00',
+          'occurred_at': '2026-01-01T12:00:00+02:00',
           'status': 'confirmed',
           'category_key': 'food',
         },
@@ -50,6 +50,15 @@ void main() {
       final note = d.firstWhere((f) => f.key == ConflictFieldKey.note);
       expect(note.mine, isNull);
       expect(note.cloud, 'lunch');
+    });
+
+    test('the same wall-clock time with different offsets is a date conflict', () {
+      final differences = diffConflictFields(
+        ConflictEntities.transaction,
+        {'occurred_at': '2026-01-01T10:00:00+02:00'},
+        {'occurred_at': '2026-01-01T10:00:00.000Z'},
+      );
+      expect(differences.map((field) => field.key), [ConflictFieldKey.date]);
     });
 
     test('a missing snapshot or an entity without a list shows no fields', () {
