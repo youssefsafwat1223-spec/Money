@@ -1,4 +1,5 @@
 import '../../core/session/admission_authority.dart';
+
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -8,8 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/auth/auth_service.dart';
-import '../../core/auth/supabase_auth_service.dart'
-    show AuthCancelledException, AuthConfigurationException;
+import '../../core/auth/supabase_auth_service.dart' show AuthCancelledException;
 import '../../core/backend/supabase_config.dart';
 import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
@@ -67,9 +67,8 @@ class OnboardingAuthScreen extends ConsumerStatefulWidget {
 
 class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
   bool _busyApple = false;
-  bool _busyGoogle = false;
 
-  bool get _busy => _busyApple || _busyGoogle;
+  bool get _busy => _busyApple;
 
   @override
   void didChangeDependencies() {
@@ -78,13 +77,10 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     precacheImage(const AssetImage(AppAssets.authHero), context);
   }
 
-  Future<void> _signIn(
-    Future<AuthIdentity> Function() method, {
-    required bool apple,
-  }) async {
+  Future<void> _signIn(Future<AuthIdentity> Function() method) async {
     if (_busy) return;
     HapticFeedback.lightImpact();
-    setState(() => apple ? _busyApple = true : _busyGoogle = true);
+    setState(() => _busyApple = true);
     // F2: the attempt is captured BEFORE the provider is awaited. If Remove data
     // is accepted while the provider sheet is open, this attempt is stale and
     // cannot authorize (re)creating anything once it completes.
@@ -129,16 +125,6 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         // those; keep the generic retry copy for transient failures.
         if (error is AuthCancelledException) {
           // The user closed the sheet. Nothing failed; say nothing.
-        } else if (error is AuthConfigurationException) {
-          // Permanent for this build — "try again" would be a lie the user
-          // could follow forever.
-          //
-          // There is exactly one of these — Google sign-in not configured — so
-          // the localized string is named directly. The exception's own message
-          // stays Arabic and log-only, which is where the rest of the auth
-          // service's strings live too: `AuthCancelledException` deliberately
-          // shows nothing, and every other failure uses `authSignInError`.
-          AppToast.showError(context, context.l10n.authGoogleUnavailable);
         } else {
           AppToast.showError(context, context.l10n.authSignInError);
         }
@@ -147,7 +133,6 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
       if (mounted) {
         setState(() {
           _busyApple = false;
-          _busyGoogle = false;
         });
       }
     }
@@ -155,7 +140,6 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     final l10n = context.l10n;
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
@@ -241,11 +225,7 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
                           child: Column(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              if (appleSignInSupported) ...[
-                                _appleButton(c),
-                                const SizedBox(height: 16),
-                              ],
-                              _googleButton(c),
+                              if (appleSignInSupported) _appleButton(),
                               const SizedBox(height: 24),
                               Wrap(
                                 alignment: WrapAlignment.center,
@@ -263,8 +243,9 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
                                       const SizedBox(width: 4),
                                       Text(
                                         l10n.authTrustLocalEncryption,
-                                        style:
-                                            AppTypography.micro(Colors.white54),
+                                        style: AppTypography.micro(
+                                          Colors.white54,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -280,8 +261,9 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
                                       const SizedBox(width: 4),
                                       Text(
                                         l10n.authTrustOnDevice,
-                                        style:
-                                            AppTypography.micro(Colors.white54),
+                                        style: AppTypography.micro(
+                                          Colors.white54,
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -310,16 +292,13 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
     );
   }
 
-  Widget _appleButton(AppColors c) {
+  Widget _appleButton() {
     return SizedBox(
       width: double.infinity,
       child: FilledButton.icon(
         onPressed: _busy
             ? null
-            : () => _signIn(
-                  ref.read(authServiceProvider).signInWithApple,
-                  apple: true,
-                ),
+            : () => _signIn(ref.read(authServiceProvider).signInWithApple),
         style: FilledButton.styleFrom(
           backgroundColor: Colors.white,
           foregroundColor: Colors.black,
@@ -339,41 +318,6 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         label: Text(
           context.l10n.authAppleCta,
           style: AppTypography.bodyStrong(Colors.black),
-        ),
-      ),
-    );
-  }
-
-  Widget _googleButton(AppColors c) {
-    return SizedBox(
-      width: double.infinity,
-      child: OutlinedButton.icon(
-        onPressed: _busy
-            ? null
-            : () => _signIn(
-                  ref.read(authServiceProvider).signInWithGoogle,
-                  apple: false,
-                ),
-        style: OutlinedButton.styleFrom(
-          foregroundColor: Colors.white,
-          backgroundColor: Colors.transparent,
-          minimumSize: const Size.fromHeight(54),
-          side: BorderSide(color: Colors.white.withValues(alpha: 0.3)),
-          shape: const StadiumBorder(),
-        ),
-        icon: _busyGoogle
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Color(0xFF151515),
-                ),
-              )
-            : const Icon(Icons.g_mobiledata_rounded, size: 28),
-        label: Text(
-          context.l10n.authGoogleCta,
-          style: AppTypography.bodyStrong(Colors.white),
         ),
       ),
     );

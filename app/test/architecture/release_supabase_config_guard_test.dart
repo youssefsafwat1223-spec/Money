@@ -57,6 +57,7 @@ void main() {
   const shipping = [
     'ios-unsigned-sideload',
     'ios-signed-release',
+    'ios-signed',
     'android-release',
   ];
 
@@ -123,7 +124,7 @@ void main() {
 
       // iOS must NOT gate on it: the iOS client is what signs there, and
       // requiring the web client would block a valid iOS release.
-      for (final w in ['ios-unsigned-sideload', 'ios-signed-release']) {
+      for (final w in ['ios-unsigned-sideload', 'ios-signed-release', 'ios-signed']) {
         final ios = steps(workflows()[w]!)[assertStep]!;
         expect(ios.contains(r'${GOOGLE_SERVER_CLIENT_ID:-}'), isFalse,
             reason: '$w must not require the Android-only web client');
