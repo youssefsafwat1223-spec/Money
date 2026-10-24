@@ -27,6 +27,7 @@ class _Session implements DeletionFlowSession {
   final _Flow flow;
   final confirms = <Completer<DeletionFlowResult>>[];
   final checks = <Completer<DeletionFlowResult>>[];
+  final cleanups = <Completer<DeletionFlowResult>>[];
   int closed = 0;
 
   @override
@@ -46,6 +47,13 @@ class _Session implements DeletionFlowSession {
   }
 
   @override
+  Future<DeletionFlowResult> retryLocalCleanup() {
+    final c = Completer<DeletionFlowResult>();
+    cleanups.add(c);
+    return c.future;
+  }
+
+  @override
   void close() {
     closed++;
     flow.events.add('close');
@@ -60,6 +68,7 @@ class _Flow implements ImmediateDeletionFlow {
   final sessions = <_Session>[];
   int begins = 0;
   int resumes = 0;
+  _Session? cleanupExisting;
 
   @override
   Future<DeletionFlowSession?> begin() async {
@@ -77,6 +86,10 @@ class _Flow implements ImmediateDeletionFlow {
     events.add('resume');
     return existing;
   }
+
+  // Not recorded in [events]: the pre-existing event assertions stay exact.
+  @override
+  Future<DeletionFlowSession?> resumeLocalCleanup() async => cleanupExisting;
 }
 
 final _en = lookupAppL10n(const Locale('en'));
@@ -440,6 +453,52 @@ void main() {
     });
   });
 
+  testWidgets(
+      'a definitive reject says confirmation failed/expired and Try again '
+      'starts a FRESH operation', (tester) async {
+    final flow = _Flow();
+    await _open(tester, flow);
+    await _startAndConfirm(tester);
+    await _settle(tester, flow.sessions.single.confirms.single,
+        const DeletionFlowRejected());
+    expect(find.byKey(const Key('deleteAccountRejected')), findsOneWidget);
+    expect(find.text('Confirmation failed or expired. Try again.'),
+        findsOneWidget);
+    expect(lookupAppL10n(const Locale('ar')).deleteAccountRejected,
+        isNot(_en.deleteAccountRejected));
+    expect(flow.sessions.single.closed, 1, reason: 'failed operation released');
+    await tester.tap(find.byKey(const Key('deleteAccountRetry')));
+    await tester.pumpAndSettle();
+    expect(flow.begins, 2, reason: 'a new capture, not the abandoned session');
+    expect(find.text(_en.deleteAccountConfirmBody), findsOneWidget);
+  });
+
+  testWidgets('local cleanup pending offers Retry, which retries cleanup only',
+      (tester) async {
+    final flow = _Flow();
+    var completed = 0;
+    await _open(tester, flow, onCompleted: () => completed++);
+    await _startAndConfirm(tester);
+    final session = flow.sessions.single;
+    await _settle(tester, session.confirms.single,
+        const DeletionFlowLocalCleanupPending());
+    expect(find.byKey(const Key('deleteAccountLocalCleanupPending')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const Key('deleteAccountRetryCleanup')));
+    await tester.pump();
+    expect(session.cleanups, hasLength(1));
+    expect(session.confirms, hasLength(1), reason: 'no new confirmation');
+    await _settle(tester, session.cleanups.single,
+        const DeletionFlowLocalCleanupPending());
+    expect(find.byKey(const Key('deleteAccountLocalCleanupPending')),
+        findsOneWidget);
+    await tester.tap(find.byKey(const Key('deleteAccountRetryCleanup')));
+    await tester.pump();
+    await _settle(tester, session.cleanups.last, const DeletionFlowCompleted());
+    expect(find.byKey(const Key('deleteAccountSuccess')), findsOneWidget);
+    expect(completed, 1);
+  });
+
   testWidgets('Arabic renders the same states', (tester) async {
     final ar = lookupAppL10n(const Locale('ar'));
     final flow = _Flow();
@@ -463,6 +522,7 @@ void main() {
       (en.deleteAccountUnconfirmedStale, ar.deleteAccountUnconfirmedStale),
       (en.deleteAccountAdminBlocked, ar.deleteAccountAdminBlocked),
       (en.deleteAccountRateLimited, ar.deleteAccountRateLimited),
+      (en.deleteAccountRejected, ar.deleteAccountRejected),
       (en.deleteAccountLocalCleanupPending, ar.deleteAccountLocalCleanupPending),
     ]) {
       expect(pair.$1.trim(), isNotEmpty);

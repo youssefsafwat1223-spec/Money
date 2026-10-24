@@ -52,11 +52,18 @@ class ImmediateDeletionReceiptStore {
   ImmediateDeletionReceiptStore({
     Future<String?> Function(String key)? read,
     Future<void> Function(String key, String value)? write,
+    Future<void> Function(String key)? delete,
     Object? authority,
   })  : _read = read ?? ((key) => SecureStorageOptions.storage.read(key: key)),
         _write = write ??
             ((key, value) =>
                 SecureStorageOptions.storage.write(key: key, value: value)),
+        // Injected read/write without an injected delete never reaches the
+        // platform: abandoning a receipt then fails closed.
+        _delete = delete ??
+            (write == null
+                ? ((key) => SecureStorageOptions.storage.delete(key: key))
+                : ((key) => throw const ImmediateDeletionReceiptStoreException())),
         authority = authority ?? _secureAuthority;
 
   static final Object _secureAuthority = Object();
@@ -64,6 +71,7 @@ class ImmediateDeletionReceiptStore {
   final Object authority;
   final Future<String?> Function(String key) _read;
   final Future<void> Function(String key, String value) _write;
+  final Future<void> Function(String key) _delete;
 
   static String storageKey(String owner) =>
       'qirsh.immediate_deletion.v1.${base64Url.encode(utf8.encode(owner)).replaceAll('=', '')}';
@@ -116,6 +124,20 @@ class ImmediateDeletionReceiptStore {
       await _write(storageKey(receipt.owner), encoded);
       final readback = await load(receipt.owner);
       if (readback?.encode() != encoded) {
+        throw const ImmediateDeletionReceiptStoreException();
+      }
+    } catch (_) {
+      throw const ImmediateDeletionReceiptStoreException();
+    }
+  }
+
+  /// Removes this owner's receipt and proves it is gone. Callers must hold
+  /// [serialized] and have compared the record they are abandoning first.
+  Future<void> deleteVerified(String owner) async {
+    try {
+      if (owner.isEmpty) throw const ImmediateDeletionReceiptStoreException();
+      await _delete(storageKey(owner));
+      if (await load(owner) != null) {
         throw const ImmediateDeletionReceiptStoreException();
       }
     } catch (_) {

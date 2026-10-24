@@ -19,6 +19,7 @@ enum _Phase {
   failed,
   adminBlocked,
   rateLimited,
+  rejected,
   localCleanupPending,
   completed,
 }
@@ -80,17 +81,26 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     final flow = _flow();
     if (flow == null) return false;
     final DeletionFlowSession? existing;
+    DeletionFlowSession? cleanup;
     try {
       existing = await flow.resume();
+      if (existing == null) cleanup = await flow.resumeLocalCleanup();
     } catch (_) {
       return false;
     }
-    if (existing == null || !mounted || _running) {
+    if ((existing == null && cleanup == null) || !mounted || _running) {
       existing?.close();
+      cleanup?.close();
       return false;
     }
-    _session = existing;
-    unawaited(_run(existing.checkStatus));
+    if (existing != null) {
+      _session = existing;
+      unawaited(_run(existing.checkStatus));
+    } else {
+      // Completed remotely earlier; only this device's cleanup is outstanding.
+      _session = cleanup;
+      unawaited(_run(cleanup!.retryLocalCleanup));
+    }
     return true;
   }
 
@@ -158,6 +168,23 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     unawaited(_run(session.confirm));
   }
 
+  Future<void> _retryCleanup() async {
+    var session = _session;
+    if (session == null) {
+      try {
+        session = await _flow()?.resumeLocalCleanup();
+      } catch (_) {
+        session = null;
+      }
+      if (session == null || !mounted) {
+        session?.close();
+        return;
+      }
+      _session = session;
+    }
+    unawaited(_run(session.retryLocalCleanup));
+  }
+
   Future<void> _check() async {
     final session = _session;
     if (session == null) return;
@@ -198,6 +225,12 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
         case DeletionFlowFailed(:final retryable):
           _phase = _Phase.failed;
           _retryable = retryable;
+        case DeletionFlowRejected():
+          // Nothing was deleted and the failed operation was abandoned: the
+          // next attempt is a fresh capture.
+          _phase = _Phase.rejected;
+          _session?.close();
+          _session = null;
         case DeletionFlowAdminBlocked():
           _phase = _Phase.adminBlocked;
         case DeletionFlowRateLimited():
@@ -303,9 +336,25 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
               action('deleteAccountRetry', l10n.deleteAccountRetry, _retry),
             ],
           );
+        case _Phase.rejected:
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              message(l10n.deleteAccountRejected,
+                  color: c.danger, key: 'deleteAccountRejected'),
+              action('deleteAccountRetry', l10n.deleteAccountRetry, _retry),
+            ],
+          );
         case _Phase.localCleanupPending:
-          return message(l10n.deleteAccountLocalCleanupPending,
-              color: c.danger, key: 'deleteAccountLocalCleanupPending');
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              message(l10n.deleteAccountLocalCleanupPending,
+                  color: c.danger, key: 'deleteAccountLocalCleanupPending'),
+              action('deleteAccountRetryCleanup', l10n.deleteAccountRetry,
+                  _retryCleanup),
+            ],
+          );
       }
     }
 

@@ -10771,6 +10771,12 @@ abstract class AppL10n {
   /// **'حاول مجددًا'**
   String get deleteAccountRetry;
 
+  /// No description provided for @deleteAccountRejected.
+  ///
+  /// In ar, this message translates to:
+  /// **'فشل التأكيد أو انتهت صلاحيته. حاول مجددًا.'**
+  String get deleteAccountRejected;
+
   /// No description provided for @deleteAccountDone.
   ///
   /// In ar, this message translates to:

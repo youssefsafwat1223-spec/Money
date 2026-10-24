@@ -3234,6 +3234,7 @@
   "deleteAccountFailedFinal": "We can't delete your account from here right now. Please try again later or contact support.",
   "deleteAccountUnconfirmed": "We couldn't confirm that your account was deleted yet.",
   "deleteAccountRetry": "Try again",
+  "deleteAccountRejected": "Confirmation failed or expired. Try again.",
   "deleteAccountDone": "Done",
   "deleteAccountConfirmBodyScheduled": "Your deletion request will be sent, and the server will then permanently delete your account and all your data. This cannot be undone.",
   "deleteAccountPendingBody": "Your account deletion is in progress. Your account is not deleted yet. Check again in a moment.",

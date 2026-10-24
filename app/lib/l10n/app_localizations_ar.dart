@@ -6375,6 +6375,10 @@ class AppL10nAr extends AppL10n {
   String get deleteAccountRetry => 'حاول مجددًا';
 
   @override
+  String get deleteAccountRejected =>
+      'فشل التأكيد أو انتهت صلاحيته. حاول مجددًا.';
+
+  @override
   String get deleteAccountDone => 'تم';
 
   @override

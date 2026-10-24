@@ -78,6 +78,7 @@ class _World {
     authority: Object(),
     read: (key) async => values[key],
     write: (key, value) async => values[key] = value,
+    delete: (key) async => values.remove(key),
   );
 
   static Future<_World> open() async {
@@ -156,7 +157,7 @@ class _World {
   }
 
   /// A fresh gateway/flow over the SAME persisted receipts = an app restart.
-  GatewayDeletionFlow flow(_FakeApple apple) {
+  GatewayDeletionFlow flow(_FakeApple apple, {bool retain = true}) {
     final gateway = PreparedImmediateDeletionGateway(
         session: session,
         host: fixture.host,
@@ -165,6 +166,7 @@ class _World {
         transport: transport,
         functionUrl: _url,
         gate: egress.gate,
+        retainReceiptUntilLocalRemoval: retain,
         requestTimeout: const Duration(seconds: 2));
     gateways.add(gateway);
     return GatewayDeletionFlow(gateway: gateway, apple: apple);
@@ -367,6 +369,241 @@ void main() {
             expect(h.actions, ['challenge', 'request', 'status', 'status']);
             expect(apple.nonces, isEmpty);
             expect(await h.fixture.artifactsOf(_owner), isEmpty);
+          }));
+
+  // ---------------------------------------------------------------------
+  // Definitive rejects abandon the receipt; everything else stays unconfirmed.
+  // ---------------------------------------------------------------------
+  group('request refused by the server', () {
+    const safe = <(String, int)>[
+      ('unauthenticated', 401),
+      ('invalid_request', 400),
+      ('challenge_invalid', 400),
+      ('challenge_expired', 400),
+      ('apple_subject_mismatch', 403),
+      ('admin_self_delete_blocked', 403),
+    ];
+    for (final c in safe) {
+      test('${c.$1} (pre-commit): receipt abandoned, a fresh flow succeeds',
+          () => _world((h) async {
+                h.answer = (action, _) async => action == 'challenge'
+                    ? _challenge()
+                    : _json({'status': 'error', 'code': c.$1}, c.$2);
+                final session = await begin(h.flow(_granted()));
+                final result = await _bounded(session.confirm());
+                expect(
+                    result,
+                    c.$1 == 'admin_self_delete_blocked'
+                        ? isA<DeletionFlowAdminBlocked>()
+                        : isA<DeletionFlowRejected>());
+                expect(h.actions, ['challenge', 'request']);
+                expect(h.values, isEmpty,
+                    reason: 'this operation\'s receipt was abandoned');
+                expect(await h.fixture.artifactsOf(_owner), isNotEmpty);
+
+                // begin() works again and a brand-new operation succeeds.
+                h.answer = (action, _) async =>
+                    action == 'challenge' ? _challenge() : _status('completed');
+                final fresh = await begin(h.flow(_granted()));
+                expect(await _bounded(fresh.confirm()),
+                    isA<DeletionFlowCompleted>());
+                expect(h.actions,
+                    ['challenge', 'request', 'challenge', 'request']);
+                expect(await h.fixture.artifactsOf(_owner), isEmpty);
+              }));
+    }
+
+    final unsafe = <(String, Future<http.Response> Function())>[
+      ('challenge_replayed', () async => _json({'status': 'error', 'code': 'challenge_replayed'}, 409)),
+      ('idempotency_conflict', () async => _json({'status': 'error', 'code': 'idempotency_conflict'}, 409)),
+      ('acceptance_unknown', () async => _json({'status': 'error', 'code': 'acceptance_unknown', 'recovery': 'lookup_receipt'}, 503)),
+      ('store_unavailable', () async => _json({'status': 'error', 'code': 'store_unavailable'}, 503)),
+      ('authorization_unavailable', () async => _json({'status': 'error', 'code': 'authorization_unavailable'}, 503)),
+      ('bare 500', () async => http.Response('', 500)),
+      ('malformed 200 body', () async => http.Response('not json', 200)),
+      ('network error', () async => throw StateError('socket closed')),
+    ];
+    for (final c in unsafe) {
+      test('${c.$1} may follow an accepted request: unconfirmed, receipt kept',
+          () => _world((h) async {
+                h.answer = (action, _) async =>
+                    action == 'challenge' ? _challenge() : c.$2();
+                final session = await begin(h.flow(_granted()));
+                final result = await _bounded(session.confirm());
+                expect(result, isA<DeletionFlowUnconfirmed>());
+                expect((result as DeletionFlowUnconfirmed).canCheckStatus,
+                    isTrue);
+                expect(h.values, hasLength(1));
+                expect(jsonDecode(h.values.values.single)['phase'],
+                    'mayHaveBeenSent');
+                expect(await _bounded(h.flow(_granted()).begin()), isNull,
+                    reason: 'no second operation while one may be in flight');
+                expect(await h.fixture.artifactsOf(_owner), isNotEmpty);
+              }));
+    }
+
+    test(
+        'challenge_replayed after a lost-reply acceptance recovers by status '
+        'to completed, then removes the original replica',
+        () => _world((h) async {
+              h.answer = (action, _) async => action == 'challenge'
+                  ? _challenge()
+                  : _json({'status': 'error', 'code': 'challenge_replayed'}, 409);
+              final session = await begin(h.flow(_granted()));
+              expect(await _bounded(session.confirm()),
+                  isA<DeletionFlowUnconfirmed>());
+              h.answer = (_, __) async => _status('completed');
+              expect(await _bounded(session.checkStatus()),
+                  isA<DeletionFlowCompleted>());
+              expect(h.actions, ['challenge', 'request', 'status']);
+              expect(await h.fixture.artifactsOf(_owner), isEmpty);
+            }));
+  });
+
+  // ---------------------------------------------------------------------
+  // Local cleanup after remote completion: retained receipt, fresh evidence.
+  // ---------------------------------------------------------------------
+  Future<void> remoteCompletedWithoutLocalRemoval(_World h) async {
+    // The process dies after the server finished but before local removal.
+    h.answer = (_, __) async => _status('completed');
+    h.flow(_granted());
+    final gateway = h.gateways.last;
+    final op = (await _bounded(gateway.prepare()))!;
+    final out = await _bounded(gateway.request(op,
+        challengeId: 'challenge-id-0123456789abcdef',
+        challengeResponse: 'synthetic'));
+    expect(out, isA<PreparedDeletionRemoteCompletion>());
+    expect(await h.fixture.artifactsOf(_owner), isNotEmpty);
+    final stored = jsonDecode(h.values.values.single) as Map;
+    expect(stored['phase'], 'completed');
+    expect(stored['receipt_secret'], isNotNull,
+        reason: 'kept until the original local removal is confirmed');
+  }
+
+  test(
+      'restart with local cleanup pending: the startup hook gets fresh status '
+      'evidence, removes the ORIGINAL replica and retires the receipt',
+      () => _world((h) async {
+            await remoteCompletedWithoutLocalRemoval(h);
+            final apple = _granted();
+            final restarted = h.flow(apple);
+
+            final result =
+                await _bounded(recoverImmediateDeletionAtStart(restarted));
+
+            expect(result, isA<DeletionFlowCompleted>());
+            expect(h.actions, ['request', 'status'],
+                reason: 'status only: no challenge, no new request');
+            expect(h.requests.last.headers.containsKey('Authorization'),
+                isFalse);
+            expect(apple.nonces, isEmpty);
+            expect(await h.fixture.artifactsOf(_owner), isEmpty);
+            final stored = jsonDecode(h.values.values.single) as Map;
+            expect(stored['phase'], 'completed');
+            expect(stored['receipt_secret'], isNull,
+                reason: 'retired only after removal was confirmed');
+          }));
+
+  test(
+      'cleanup Retry: not completed yet -> still pending, receipt kept; then '
+      'completed -> removal confirmed',
+      () => _world((h) async {
+            await remoteCompletedWithoutLocalRemoval(h);
+            final session = (await _bounded(
+                h.flow(_granted()).resumeLocalCleanup()))!;
+            h.answer = (_, __) async => _status('in_progress');
+            expect(await _bounded(session.retryLocalCleanup()),
+                isA<DeletionFlowLocalCleanupPending>());
+            expect(await h.fixture.artifactsOf(_owner), isNotEmpty);
+            expect(jsonDecode(h.values.values.single)['receipt_secret'],
+                isNotNull);
+            h.answer = (_, __) async => _status('completed');
+            expect(await _bounded(session.retryLocalCleanup()),
+                isA<DeletionFlowCompleted>());
+            expect(await h.fixture.artifactsOf(_owner), isEmpty);
+            expect(h.actions, ['request', 'status', 'status']);
+          }));
+
+  test('startup hook is idle once removal is confirmed: no request at all',
+      () => _world((h) async {
+            await remoteCompletedWithoutLocalRemoval(h);
+            expect(
+                await _bounded(recoverImmediateDeletionAtStart(h.flow(_granted()))),
+                isA<DeletionFlowCompleted>());
+            final before = h.requests.length;
+            expect(
+                await _bounded(recoverImmediateDeletionAtStart(h.flow(_granted()))),
+                isNull);
+            expect(h.requests, hasLength(before));
+          }));
+
+  test('startup hook for a different owner has no effect and sends nothing',
+      () => _world((h) async {
+            await remoteCompletedWithoutLocalRemoval(h);
+            final before = h.requests.length;
+            final receiptA = Map<String, String>.from(h.values);
+            await h.switchTo(_other);
+            expect(await h.fixture.artifactsOf(_other), isNotEmpty);
+
+            expect(
+                await _bounded(recoverImmediateDeletionAtStart(h.flow(_granted()))),
+                isNull);
+
+            expect(h.requests, hasLength(before));
+            expect(h.values, receiptA, reason: "A's receipt untouched");
+            expect(await h.fixture.artifactsOf(_other), isNotEmpty);
+          }));
+
+  test(
+      'account switched between remote completion and the retry: the new '
+      "account's replica stays untouched and no status is sent",
+      () => _world((h) async {
+            await remoteCompletedWithoutLocalRemoval(h);
+            // Captured while A is current ...
+            final session = (await _bounded(
+                h.flow(_granted()).resumeLocalCleanup()))!;
+            final before = h.requests.length;
+            // ... but B is current by the time the person presses Retry.
+            await h.switchTo(_other);
+            final result = await _bounded(session.retryLocalCleanup());
+            expect(result, isA<DeletionFlowLocalCleanupPending>());
+            expect(h.requests, hasLength(before));
+            expect(await h.fixture.artifactsOf(_other), isNotEmpty);
+            expect(h.session.captureDatabaseHostAdmission()?.isCurrent, isTrue);
+            expect(jsonDecode(h.values.values.single)['receipt_secret'],
+                isNotNull,
+                reason: "A's receipt is kept; B can never consume it");
+          }));
+
+  test('startup hook is denied by the egress gate: nothing happens',
+      () => _world((h) async {
+            await remoteCompletedWithoutLocalRemoval(h);
+            final before = h.requests.length;
+            final flow = h.flow(_granted());
+            TestEgress().install(); // a different gate: the binding is gone
+            expect(await _bounded(recoverImmediateDeletionAtStart(flow)),
+                isNull);
+            expect(h.requests, hasLength(before));
+            expect(await h.fixture.artifactsOf(_owner), isNotEmpty);
+          }));
+
+  test(
+      'destructive local failure keeps the completed receipt; retry without '
+      "the session's admission sends nothing (the session's own barrier "
+      'resumes at launch)',
+      () => _world((h) async {
+            h.answer = (action, _) async =>
+                action == 'challenge' ? _challenge() : _status('completed');
+            h.fixture.barrier.failFinish = true;
+            final session = await begin(h.flow(_granted()));
+            expect(await _bounded(session.confirm()),
+                isA<DeletionFlowLocalCleanupPending>());
+            expect(jsonDecode(h.values.values.single)['receipt_secret'],
+                isNotNull);
+            final before = h.requests.length;
+            expect(await _bounded(session.retryLocalCleanup()),
+                isA<DeletionFlowLocalCleanupPending>());
+            expect(h.requests, hasLength(before));
           }));
 
   test('resume with no stored operation yields nothing', () => _world((h) async {

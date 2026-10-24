@@ -40,6 +40,13 @@ final class DeletionFlowFailed extends DeletionFlowResult {
   final bool retryable;
 }
 
+/// The server refused the confirmation before anything could commit (invalid
+/// or expired challenge/Apple proof, ...). Nothing was deleted and the failed
+/// operation was abandoned: a fresh attempt is allowed.
+final class DeletionFlowRejected extends DeletionFlowResult {
+  const DeletionFlowRejected();
+}
+
 final class DeletionFlowAdminBlocked extends DeletionFlowResult {
   const DeletionFlowAdminBlocked();
 }
@@ -63,6 +70,12 @@ abstract interface class DeletionFlowSession {
   /// request. Never starts a new deletion.
   Future<DeletionFlowResult> checkStatus();
 
+  /// After remote completion whose original local removal did not confirm:
+  /// re-verifies completion by a read-only status call (fresh evidence; the
+  /// one-use evidence of the first attempt is never reused) and retries the
+  /// ORIGINAL owner's local removal. Never sends a request or challenge.
+  Future<DeletionFlowResult> retryLocalCleanup();
+
   /// Releases a session the person abandoned before confirming.
   void close();
 }
@@ -73,6 +86,25 @@ abstract interface class ImmediateDeletionFlow {
 
   /// Captures the current account's EXISTING pending operation, or null.
   Future<DeletionFlowSession?> resume();
+
+  /// Captures the current account's completed-but-not-locally-removed
+  /// operation (see [DeletionFlowSession.retryLocalCleanup]), or null.
+  Future<DeletionFlowSession?> resumeLocalCleanup();
+}
+
+/// App-start recovery: status-only. Runs only for the CURRENT admitted owner's
+/// own receipt, sends no request or challenge, and returns the outcome of the
+/// status check (and, if completed, of the original local removal), or null
+/// when there is nothing to recover. Any non-completed result is silent.
+Future<DeletionFlowResult?> recoverImmediateDeletionAtStart(
+    ImmediateDeletionFlow flow) async {
+  try {
+    final pending = await flow.resume();
+    if (pending != null) return await pending.checkStatus();
+    final cleanup = await flow.resumeLocalCleanup();
+    if (cleanup != null) return await cleanup.retryLocalCleanup();
+  } catch (_) {}
+  return null;
 }
 
 /// Fail-closed flow for builds/scopes that cannot reach the backend.
@@ -82,6 +114,8 @@ class UnavailableDeletionFlow implements ImmediateDeletionFlow {
   Future<DeletionFlowSession?> begin() async => null;
   @override
   Future<DeletionFlowSession?> resume() async => null;
+  @override
+  Future<DeletionFlowSession?> resumeLocalCleanup() async => null;
 }
 
 class GatewayDeletionFlow implements ImmediateDeletionFlow {
@@ -104,6 +138,12 @@ class GatewayDeletionFlow implements ImmediateDeletionFlow {
     final op = await _gateway.resumePending();
     return op == null ? null : _GatewaySession(_gateway, _apple, op, true);
   }
+
+  @override
+  Future<DeletionFlowSession?> resumeLocalCleanup() async {
+    final op = await _gateway.resumeLocalCleanup();
+    return op == null ? null : _GatewaySession(_gateway, _apple, op, true);
+  }
 }
 
 final class _GatewaySession implements DeletionFlowSession {
@@ -115,6 +155,7 @@ final class _GatewaySession implements DeletionFlowSession {
   /// True once a deletion request was (or may have been) sent, or restored.
   bool _requested;
   bool _busy = false;
+  bool _cleanupUsed = false;
 
   @override
   Future<DeletionFlowResult> confirm() async {
@@ -169,6 +210,29 @@ final class _GatewaySession implements DeletionFlowSession {
   }
 
   @override
+  Future<DeletionFlowResult> retryLocalCleanup() async {
+    if (_busy) return const DeletionFlowLocalCleanupPending();
+    _busy = true;
+    try {
+      var op = _op;
+      if (!op.isLocalCleanup || _cleanupUsed) {
+        // Any earlier operation's evidence is spent; capture the retained
+        // completed receipt of the CURRENT owner as a fresh operation.
+        final fresh = await _gateway.resumeLocalCleanup();
+        if (fresh == null) return const DeletionFlowLocalCleanupPending();
+        op = fresh;
+      }
+      _cleanupUsed = true;
+      final outcome = await _gateway.recover(op);
+      return outcome is PreparedDeletionRemoteCompletion
+          ? await _settle(outcome)
+          : const DeletionFlowLocalCleanupPending();
+    } finally {
+      _busy = false;
+    }
+  }
+
+  @override
   void close() => _gateway.close(_op);
 
   Future<DeletionFlowResult> _settle(PreparedDeletionOutcome outcome) async {
@@ -180,6 +244,10 @@ final class _GatewaySession implements DeletionFlowSession {
         return local == PreparedLocalRemovalOutcome.originalLocalRemovalConfirmed
             ? const DeletionFlowCompleted()
             : const DeletionFlowLocalCleanupPending();
+      case PreparedDeletionRejected(:final code):
+        return code == 'admin_self_delete_blocked'
+            ? const DeletionFlowAdminBlocked()
+            : const DeletionFlowRejected();
       case PreparedDeletionPending():
         return const DeletionFlowPending();
       case PreparedDeletionUnconfirmed(:final reason):

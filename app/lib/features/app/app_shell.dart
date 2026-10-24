@@ -82,6 +82,9 @@ import '../plans/plans_providers.dart';
 import '../reports/reports_providers.dart';
 import '../reports/reports_screen.dart';
 import '../settings/settings_screen.dart';
+import '../settings/delete_account_screen.dart'
+    show deleteAccountAfterCompletionProvider;
+import '../../core/auth/immediate_deletion_flow.dart';
 import '../subscriptions/subscriptions_providers.dart';
 import '../transactions/transactions_providers.dart';
 import '../transactions/transactions_screen.dart';
@@ -154,6 +157,29 @@ class _AppShellState extends ConsumerState<AppShell> {
         mine.epoch == origin.epoch;
   }
 
+  /// Restart recovery for an immediate account deletion that was already sent
+  /// or already completed remotely. Status only, current owner only (the flow
+  /// captures the admitted account; another owner's receipt is unreachable), no
+  /// request and no challenge, and the same egress/local-read gating as the
+  /// Delete Account screen. Silent unless the deletion is confirmed complete.
+  void _recoverImmediateDeletionAtStart() {
+    if (!mounted ||
+        AppSession.instance.status != SessionStatus.authenticated) {
+      return;
+    }
+    final ImmediateDeletionFlow flow;
+    final void Function() afterCompletion;
+    try {
+      flow = ref.read(immediateDeletionFlowProvider);
+      afterCompletion = ref.read(deleteAccountAfterCompletionProvider);
+    } catch (_) {
+      return;
+    }
+    unawaited(recoverImmediateDeletionAtStart(flow).then((result) {
+      if (result is DeletionFlowCompleted) afterCompletion();
+    }));
+  }
+
   bool _claimAutoNavigation(String transactionId) =>
       _autoNavigatedTransactionIds.add(transactionId);
 
@@ -177,6 +203,8 @@ class _AppShellState extends ConsumerState<AppShell> {
       WidgetsBinding.instance
           .addPostFrameCallback((_) => _scheduleConsentReask());
     });
+    WidgetsBinding.instance
+        .addPostFrameCallback((_) => _recoverImmediateDeletionAtStart());
     AppSession.instance.addListener(_handleSessionStatusChange);
     // CAP-7: generic lock-screen text for every capture alert behind the flag.
     LocalNotificationService.instance.captureNotifyV2 = _captureNotifyV2Enabled;

@@ -27,7 +27,9 @@ final class PreparedImmediateDeletionGateway {
     CloudEgressGate? gate,
     Duration requestTimeout = kAccountControlTtl,
     String? apiKey,
-  })  : _session = session,
+    bool retainReceiptUntilLocalRemoval = false,
+  })  : _retain = retainReceiptUntilLocalRemoval,
+        _session = session,
         _host = host,
         _client = client,
         _store = store,
@@ -46,23 +48,39 @@ final class PreparedImmediateDeletionGateway {
   final CloudEgressGate _gate;
   final Duration _requestTimeout;
   final String? _apiKey;
+
+  /// True: a completed receipt keeps its secret until the ORIGINAL local
+  /// removal is confirmed, so a failed removal can be retried (or resumed after
+  /// a restart) with fresh evidence from a status call. False: the legacy
+  /// behaviour, where the secret is erased as soon as completion is persisted.
+  final bool _retain;
   final Set<Future<void>> _pending = {};
   final List<(Object, StackTrace)> _unexpected = [];
 
   /// Capture happens before any await. Missing authority is never recaptured.
   Future<PreparedDeletionOperation?> prepare({bool Function()? restrict}) =>
-      _prepare(resume: false, restrict: restrict);
+      _prepare(mode: _Mode.fresh, restrict: restrict);
 
   /// Explicitly selects the captured admitted owner's existing pending custody.
   /// Signed-out recovery remains the existing Recovery.restore API, unchanged.
   Future<PreparedDeletionOperation?> resumePending(
           {bool Function()? restrict}) =>
-      _prepare(resume: true, restrict: restrict);
+      _prepare(mode: _Mode.resume, restrict: restrict);
+
+  /// Captures the current admitted owner's COMPLETED receipt whose original
+  /// local removal is not yet confirmed. It can only re-verify completion by
+  /// the read-only status call and then feed [removeOriginalLocalReplica]; it
+  /// never authorizes a request. Null for any other owner or when nothing is
+  /// retained.
+  Future<PreparedDeletionOperation?> resumeLocalCleanup(
+          {bool Function()? restrict}) =>
+      _prepare(mode: _Mode.cleanup, restrict: restrict);
 
   Future<PreparedDeletionOperation?> _prepare({
-    required bool resume,
+    required _Mode mode,
     bool Function()? restrict,
   }) {
+    final resume = mode != _Mode.fresh;
     final original = _capture(restrict);
     return _own(() async {
       if (original == null) {
@@ -75,8 +93,17 @@ final class PreparedImmediateDeletionGateway {
           }
           return _store.load(original.binding.owner!);
         });
-        if (!original.current ||
-            record?.phase == ImmediateDeletionPhase.completed ||
+        if (!original.current) {
+          return null;
+        }
+        if (mode == _Mode.cleanup) {
+          if (!_retain ||
+              record == null ||
+              record.phase != ImmediateDeletionPhase.completed ||
+              record.receiptSecret == null) {
+            return null;
+          }
+        } else if (record?.phase == ImmediateDeletionPhase.completed ||
             (resume ? record == null : record != null)) {
           return null;
         }
@@ -86,6 +113,7 @@ final class PreparedImmediateDeletionGateway {
           record?.operationId ?? generateReceiptSecret(),
           record?.receiptSecret,
           resume,
+          cleanup: mode == _Mode.cleanup,
         );
         final observed = _OperationReceiptStore(_store, operation);
         operation._observed = observed;
@@ -96,6 +124,7 @@ final class PreparedImmediateDeletionGateway {
           gate: _gate,
           requestTimeout: _requestTimeout,
           apiKey: _apiKey,
+          retireOnComplete: !_retain,
           captureBinding: () async => original.binding,
           isBindingCurrent: (binding) =>
               identical(binding, original.binding) && original.current,
@@ -166,7 +195,8 @@ final class PreparedImmediateDeletionGateway {
             operation,
             () => operation._recovery.request(
                 challengeId: challengeId,
-                challengeResponse: challengeResponse));
+                challengeResponse: challengeResponse),
+            rejectable: true);
       });
 
   /// Fetches one fresh re-authentication challenge for this exact operation. It
@@ -217,8 +247,11 @@ final class PreparedImmediateDeletionGateway {
               PreparedDeletionUnconfirmedReason.operationClosed);
         }
         return _exchange(operation, () async {
-          final handle = await operation._recovery
-              .restore(owner: operation._original.binding.owner!);
+          final owner = operation._original.binding.owner!;
+          final handle = operation._cleanup
+              ? await operation._recovery
+                  .restoreCompletedAwaitingCleanup(owner: owner)
+              : await operation._recovery.restore(owner: owner);
           if (handle == null) {
             return const ImmediateDeletionFailed('',
                 retryable: false, code: 'operation_closed');
@@ -252,8 +285,23 @@ final class PreparedImmediateDeletionGateway {
     return result;
   }
 
+  /// Server codes returned BEFORE anything can commit: authorization precedes
+  /// acceptance and SQL acceptance refuses before inserting a job. Everything
+  /// else (challenge_replayed, idempotency_conflict, acceptance_unknown,
+  /// store/authorization unavailable, 5xx, timeouts, network, malformed bodies)
+  /// may follow an accepted request and stays unconfirmed.
+  static const Set<String> _definitiveRejections = {
+    'unauthenticated',
+    'invalid_request',
+    'challenge_invalid',
+    'challenge_expired',
+    'apple_subject_mismatch',
+    'admin_self_delete_blocked',
+  };
+
   Future<PreparedDeletionOutcome> _exchange(PreparedDeletionOperation operation,
-      Future<ImmediateDeletionResult> Function() invoke) async {
+      Future<ImmediateDeletionResult> Function() invoke,
+      {bool rejectable = false}) async {
     final observation = _ExchangeObservation();
     operation._observed._active = observation;
     try {
@@ -284,6 +332,12 @@ final class PreparedImmediateDeletionGateway {
         operation._remoteCompletion = evidence;
         return evidence;
       }
+      if (rejectable &&
+          result is ImmediateDeletionFailed &&
+          !result.lookupReceipt &&
+          _definitiveRejections.contains(result.code)) {
+        return await _abandonRejected(operation, result.code);
+      }
       if (result is ImmediateDeletionAccepted) {
         return const PreparedDeletionPending._(
             PreparedDeletionPendingKind.accepted);
@@ -299,6 +353,71 @@ final class PreparedImmediateDeletionGateway {
     } finally {
       operation._observed._active = null;
     }
+  }
+
+  /// Abandons the receipt of an operation the server definitively refused, so a
+  /// new operation may start. Only the exact record this operation wrote, still
+  /// bound to its owner and still current, is removed (under the store lock).
+  Future<PreparedDeletionOutcome> _abandonRejected(
+      PreparedDeletionOperation operation, String code) async {
+    final owner = operation._original.binding.owner!;
+    try {
+      final outcome = await _store.serialized(() async {
+        if (!operation._original.current) {
+          return const PreparedDeletionUnconfirmed._(
+              PreparedDeletionUnconfirmedReason.staleContext);
+        }
+        final record = await _store.load(owner);
+        if (!operation._original.current) {
+          return const PreparedDeletionUnconfirmed._(
+              PreparedDeletionUnconfirmedReason.staleContext);
+        }
+        if (record == null ||
+            record.owner != owner ||
+            record.operationId != operation._operationId ||
+            record.receiptSecret != operation._secret ||
+            record.phase != ImmediateDeletionPhase.mayHaveBeenSent) {
+          return const PreparedDeletionUnconfirmed._(
+              PreparedDeletionUnconfirmedReason.receiptChanged);
+        }
+        await _store.deleteVerified(owner);
+        return PreparedDeletionRejected._(code);
+      });
+      if (outcome is PreparedDeletionRejected) {
+        operation._closed = true;
+      }
+      return outcome;
+    } catch (_) {
+      return const PreparedDeletionUnconfirmed._(
+          PreparedDeletionUnconfirmedReason.receiptStoreUnavailable);
+    }
+  }
+
+  /// Erases the secret of a completed receipt, but only that exact operation's
+  /// and only after its original local removal was confirmed. Best effort: a
+  /// leftover completed receipt is harmless (it only ever allows a read-only
+  /// status call).
+  Future<void> _retire(PreparedDeletionOperation operation) async {
+    if (!_retain) return;
+    final owner = operation._original.binding.owner!;
+    try {
+      await _store.serialized(() async {
+        final record = await _store.load(owner);
+        if (record == null ||
+            record.owner != owner ||
+            record.operationId != operation._operationId ||
+            record.phase != ImmediateDeletionPhase.completed ||
+            record.receiptSecret == null ||
+            record.receiptSecret != operation._secret) {
+          return;
+        }
+        await _store.writeVerified(ImmediateDeletionReceipt(
+            owner: owner,
+            operationId: record.operationId,
+            receiptSecret: null,
+            phase: ImmediateDeletionPhase.completed));
+      });
+    } catch (_) {}
   }
 
   /// Consume exactly this gateway's issued completion for its original scope.
@@ -321,7 +440,12 @@ final class PreparedImmediateDeletionGateway {
         originalOrigin: operation._original.origin);
     return _own(() async {
       try {
-        return switch (await accepted) {
+        final outcome = await accepted;
+        if (outcome ==
+            PreparedOriginalLocalRemovalOutcome.originalLocalRemovalConfirmed) {
+          await _retire(operation);
+        }
+        return switch (outcome) {
           PreparedOriginalLocalRemovalOutcome.staleBeforeAcceptance =>
             PreparedLocalRemovalOutcome.staleBeforeAcceptance,
           PreparedOriginalLocalRemovalOutcome.operationUnavailable =>
@@ -376,14 +500,21 @@ final class PreparedImmediateDeletionGateway {
   }
 }
 
+enum _Mode { fresh, resume, cleanup }
+
 final class PreparedDeletionOperation {
   PreparedDeletionOperation._(this._issuer, this._original, this._operationId,
-      this._secret, this._resumed);
+      this._secret, this._resumed,
+      {bool cleanup = false})
+      : _cleanup = cleanup;
   final PreparedImmediateDeletionGateway _issuer;
   final _OriginalBinding _original;
   final String _operationId;
   String? _secret;
   final bool _resumed;
+
+  /// A re-verification of an already COMPLETED receipt; see resumeLocalCleanup.
+  final bool _cleanup;
   bool _attempted = false;
   bool _closed = false;
   PreparedDeletionRemoteCompletion? _remoteCompletion;
@@ -391,6 +522,7 @@ final class PreparedDeletionOperation {
   Future<void> _tail = Future<void>.value();
   late _OperationReceiptStore _observed;
   late ImmediateAccountDeletionRecovery _recovery;
+  bool get isLocalCleanup => _cleanup;
   @override
   String toString() => 'PreparedDeletionOperation';
 }
@@ -459,6 +591,13 @@ enum PreparedDeletionUnconfirmedReason {
 final class PreparedDeletionUnconfirmed extends PreparedDeletionOutcome {
   const PreparedDeletionUnconfirmed._(this.reason) : super._();
   final PreparedDeletionUnconfirmedReason reason;
+}
+
+/// The server definitively refused the request before anything could commit,
+/// and this operation's receipt was abandoned: a new operation may start.
+final class PreparedDeletionRejected extends PreparedDeletionOutcome {
+  const PreparedDeletionRejected._(this.code) : super._();
+  final String code;
 }
 
 /// Remote protocol evidence for the original operation ONLY. This grants no
@@ -565,7 +704,8 @@ final class _OperationReceiptStore extends ImmediateDeletionReceiptStore {
         _mismatch();
       }
     } else if (!_matches(record) ||
-        record.phase == ImmediateDeletionPhase.completed) {
+        (record.phase == ImmediateDeletionPhase.completed) !=
+            operation._cleanup) {
       _mismatch();
     }
     return record;
@@ -605,7 +745,8 @@ final class _OperationReceiptStore extends ImmediateDeletionReceiptStore {
                   previous.phase == ImmediateDeletionPhase.completed &&
                   (_active?.completedVerified ?? false)
               : _matches(previous) &&
-                  previous.phase != ImmediateDeletionPhase.completed),
+                  (previous.phase == ImmediateDeletionPhase.completed) ==
+                      operation._cleanup),
     };
     if (!valid) {
       _mismatch();

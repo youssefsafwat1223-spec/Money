@@ -388,12 +388,17 @@ class ImmediateDeletionBinding {
 /// operation and this captured lifecycle, through the issuing facade.
 class ImmediateDeletionRecoveryHandle {
   ImmediateDeletionRecoveryHandle._(this._issuer, this._owner, this._operationId,
-      this._binding, this._epoch);
+      this._binding, this._epoch,
+      {this.awaitingLocalCleanup = false});
   final Object _issuer;
   final String _owner;
   final String _operationId;
   final ImmediateDeletionBinding _binding;
   final int _epoch;
+
+  /// True for a handle on a COMPLETED receipt whose secret was retained until
+  /// the original local removal is confirmed. It can only re-verify completion.
+  final bool awaitingLocalCleanup;
   bool _closed = false;
   @override
   String toString() => 'ImmediateDeletionRecoveryHandle';
@@ -413,6 +418,7 @@ class ImmediateAccountDeletionRecovery {
     String Function()? newOperationId,
     Duration requestTimeout = kAccountControlTtl,
     String? apiKey,
+    this.retireOnComplete = true,
   }) : gate = gate ?? CloudEgressGate.instance,
        _newReceipt = newReceipt ?? generateReceiptSecret,
        _newOperationId = newOperationId ?? generateReceiptSecret {
@@ -427,6 +433,12 @@ class ImmediateAccountDeletionRecovery {
   }
 
   final ImmediateDeletionReceiptStore store;
+
+  /// True (default): the receipt secret is erased right after completion is
+  /// persisted. False: the completed receipt keeps its secret so a later status
+  /// call can produce fresh completion evidence; the caller retires it once the
+  /// original local removal is confirmed.
+  final bool retireOnComplete;
   final CloudEgressGate gate;
   final Future<ImmediateDeletionBinding> Function() captureBinding;
   final bool Function(ImmediateDeletionBinding) isBindingCurrent;
@@ -465,6 +477,35 @@ class ImmediateAccountDeletionRecovery {
         return ImmediateDeletionRecoveryHandle._(this, owner, receipt.operationId, binding, epoch);
       });
     } catch (_) { return null; }
+  }
+
+  /// Like [restore], but for a COMPLETED receipt that still holds its secret
+  /// (local removal not yet confirmed). Only [recover] on it may follow, and it
+  /// only ever sends the read-only status call.
+  Future<ImmediateDeletionRecoveryHandle?> restoreCompletedAwaitingCleanup(
+      {required String owner}) async {
+    try {
+      final epoch = gate.epoch;
+      final binding = await captureBinding();
+      if (!_current(binding, epoch) ||
+          (binding.owner != null && binding.owner != owner)) {
+        return null;
+      }
+      return await store.serialized(() async {
+        final receipt = await store.load(owner);
+        if (!_current(binding, epoch) ||
+            receipt == null ||
+            receipt.phase != ImmediateDeletionPhase.completed ||
+            receipt.receiptSecret == null) {
+          return null;
+        }
+        return ImmediateDeletionRecoveryHandle._(
+            this, owner, receipt.operationId, binding, epoch,
+            awaitingLocalCleanup: true);
+      });
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Challenge issuance for the captured, still-current binding. Not a deletion
@@ -576,7 +617,9 @@ class ImmediateAccountDeletionRecovery {
         final record = await store.load(handle._owner);
         if (!_current(handle._binding, handle._epoch)) return _failure('stale_context');
         if (record == null || record.operationId != handle._operationId ||
-            record.phase == ImmediateDeletionPhase.completed) {
+            (record.phase == ImmediateDeletionPhase.completed) !=
+                handle.awaitingLocalCleanup ||
+            record.receiptSecret == null) {
           handle._closed = true;
           return _failure('operation_closed');
         }
@@ -638,10 +681,12 @@ class ImmediateAccountDeletionRecovery {
           receiptSecret: secret, phase: ImmediateDeletionPhase.completed);
       // Publication/retirement only after a confirmed completion write.
       await store.writeVerified(completed);
-      try {
-        await store.writeVerified(ImmediateDeletionReceipt(owner: record.owner,
-            operationId: record.operationId, receiptSecret: null, phase: ImmediateDeletionPhase.completed));
-      } catch (_) { /* Confirmed closed tombstone survives; no active authority. */ }
+      if (retireOnComplete) {
+        try {
+          await store.writeVerified(ImmediateDeletionReceipt(owner: record.owner,
+              operationId: record.operationId, receiptSecret: null, phase: ImmediateDeletionPhase.completed));
+        } catch (_) { /* Confirmed closed tombstone survives; no active authority. */ }
+      }
       if (!_current(binding, epoch)) return _failure('stale_context');
     }
     return result;

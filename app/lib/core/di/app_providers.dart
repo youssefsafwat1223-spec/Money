@@ -481,6 +481,7 @@ final immediateDeletionFlowProvider = writerProvider<ImmediateDeletionFlow>((ref
       transport: transport,
       functionUrl: base.replace(path: '/functions/v1/delete-account-immediate'),
       apiKey: SupabaseConfig.anonKey,
+      retainReceiptUntilLocalRemoval: true,
     ),
     apple: ref.watch(appleDeletionReauthProvider),
   );

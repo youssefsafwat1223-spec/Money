@@ -6371,6 +6371,10 @@ class AppL10nEn extends AppL10n {
   String get deleteAccountRetry => 'Try again';
 
   @override
+  String get deleteAccountRejected =>
+      'Confirmation failed or expired. Try again.';
+
+  @override
   String get deleteAccountDone => 'Done';
 
   @override

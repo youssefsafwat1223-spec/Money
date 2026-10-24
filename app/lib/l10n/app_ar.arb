@@ -3450,6 +3450,7 @@
   "deleteAccountFailedFinal": "لا يمكننا حذف حسابك من هنا الآن. حاول لاحقًا أو تواصل مع الدعم.",
   "deleteAccountUnconfirmed": "لم نتمكن من التأكد من حذف حسابك بعد.",
   "deleteAccountRetry": "حاول مجددًا",
+  "deleteAccountRejected": "فشل التأكيد أو انتهت صلاحيته. حاول مجددًا.",
   "deleteAccountDone": "تم",
   "deleteAccountConfirmBodyScheduled": "سيُرسل طلب الحذف، ثم يحذف الخادم حسابك وكل بياناتك نهائيًا لاحقًا، ولا يمكن التراجع عن ذلك.",
   "deleteAccountPendingBody": "حذف حسابك قيد التنفيذ، وحسابك لم يُحذف بعد. تحقق مرة أخرى بعد قليل.",

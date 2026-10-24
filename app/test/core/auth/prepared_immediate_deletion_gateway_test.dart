@@ -52,6 +52,10 @@ class _Memory {
       lastWrite = record;
       events.add('write:${record.phase.name}');
     },
+    delete: (key) async {
+      values.remove(key);
+      events.add('delete');
+    },
   );
   Future<ImmediateDeletionReceipt?> load([String owner = _owner]) =>
       store.load(owner);
@@ -580,6 +584,82 @@ void main() {
             expect(h.requests, hasLength(3));
             expect(jsonDecode(h.requests.last.body)['receipt_secret'],
                 custody.receiptSecret);
+          }));
+
+  http.Response refusedReply(String code, int status) => http.Response(
+      jsonEncode({'status': 'error', 'code': code}), status,
+      headers: {'content-type': 'application/json'});
+
+  test('definitive reject abandons exactly this operation\'s receipt',
+      () => _world((h) async {
+            final gateway = h.gateway();
+            final operation = (await _bounded(gateway.prepare()))!;
+            h.answer = (_) async => refusedReply('challenge_expired', 400);
+            final result = await _bounded(h.request(gateway, operation));
+            expect(result, isA<PreparedDeletionRejected>());
+            expect((result as PreparedDeletionRejected).code,
+                'challenge_expired');
+            expect(await h.memory.load(), isNull);
+            expect(await _bounded(h.gateway().prepare()), isNotNull,
+                reason: 'a new operation is allowed');
+          }));
+
+  test('reject never abandons a receipt that is no longer exactly this one',
+      () => _world((h) async {
+            final gateway = h.gateway();
+            final operation = (await _bounded(gateway.prepare()))!;
+            final key = ImmediateDeletionReceiptStore.storageKey(_owner);
+            h.answer = (_) async {
+              h.memory.values[key] = ImmediateDeletionReceipt(
+                      owner: _owner,
+                      operationId: 'replacement-operation',
+                      receiptSecret: 'R' * 43,
+                      phase: ImmediateDeletionPhase.mayHaveBeenSent)
+                  .encode();
+              return refusedReply('invalid_request', 400);
+            };
+            final result = await _bounded(h.request(gateway, operation));
+            expect(result, isA<PreparedDeletionUnconfirmed>());
+            expect((await h.memory.load())!.operationId,
+                'replacement-operation');
+          }));
+
+  test('reject after the binding is lost keeps the receipt (stale)',
+      () => _world((h) async {
+            final gateway = h.gateway();
+            final operation = (await _bounded(gateway.prepare()))!;
+            h.answer = (_) async {
+              h.egress.gate.advanceEpoch();
+              return refusedReply('invalid_request', 400);
+            };
+            final result = await _bounded(h.request(gateway, operation));
+            expect(result, isA<PreparedDeletionUnconfirmed>());
+            expect(await h.memory.load(), isNotNull);
+          }));
+
+  test('a failed delete leaves the receipt and stays unconfirmed',
+      () => _world((h) async {
+            final failing = ImmediateDeletionReceiptStore(
+                authority: h.memory.store.authority,
+                read: (k) async => h.memory.values[k],
+                write: (k, v) async => h.memory.values[k] = v,
+                delete: (k) async => throw StateError('delete failed'));
+            final g = PreparedImmediateDeletionGateway(
+                session: h.session,
+                host: h.fixture.host,
+                client: h.sdk,
+                store: failing,
+                transport: h.transport,
+                functionUrl: _url,
+                gate: h.egress.gate,
+                requestTimeout: const Duration(seconds: 2));
+            h.gateways.add(g);
+            final operation = (await _bounded(g.prepare()))!;
+            h.answer = (_) async => refusedReply('invalid_request', 400);
+            final result = await _bounded(h.request(g, operation));
+            expect(result, isA<PreparedDeletionUnconfirmed>());
+            expect((await h.memory.load())!.phase,
+                ImmediateDeletionPhase.mayHaveBeenSent);
           }));
 
   test(

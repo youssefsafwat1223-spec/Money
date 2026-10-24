@@ -72,6 +72,75 @@ class _Custody {
 }
 
 void main() {
+  group('abandoning and deferred retirement', () {
+    test('deleteVerified removes the record and proves it is gone; a store '
+        'without delete fails closed', () async {
+      final values = <String, String>{};
+      final store = ImmediateDeletionReceiptStore(
+        authority: Object(),
+        read: (k) async => values[k],
+        write: (k, v) async => values[k] = v,
+        delete: (k) async => values.remove(k),
+      );
+      await store.writeVerified(const ImmediateDeletionReceipt(
+          owner: 'uid-a',
+          operationId: 'op',
+          receiptSecret: _secret,
+          phase: ImmediateDeletionPhase.mayHaveBeenSent));
+      await store.deleteVerified('uid-a');
+      expect(await store.load('uid-a'), isNull);
+
+      final noDelete = ImmediateDeletionReceiptStore(
+          authority: Object(),
+          read: (k) async => 'x',
+          write: (k, v) async {});
+      expect(() => noDelete.deleteVerified('uid-a'),
+          throwsA(isA<ImmediateDeletionReceiptStoreException>()));
+      final stuck = ImmediateDeletionReceiptStore(
+          authority: Object(),
+          read: (k) async => values[k],
+          write: (k, v) async => values[k] = v,
+          delete: (k) async {});
+      await stuck.writeVerified(const ImmediateDeletionReceipt(
+          owner: 'uid-a',
+          operationId: 'op',
+          receiptSecret: _secret,
+          phase: ImmediateDeletionPhase.mayHaveBeenSent));
+      expect(() => stuck.deleteVerified('uid-a'),
+          throwsA(isA<ImmediateDeletionReceiptStoreException>()),
+          reason: 'a delete that did not take effect is never reported');
+    });
+
+    test('retireOnComplete: false keeps the completed receipt secret; a handle '
+        'on it can re-verify completion with a status call only', () async {
+      final c = _Custody();
+      final retain = ImmediateAccountDeletionRecovery(
+        store: c.store,
+        transport: MockClient((r) async { c.sent.add(r); return c.answer(r); }),
+        functionUrl: _url,
+        retireOnComplete: false,
+        newReceipt: () => _secret,
+        newOperationId: () => 'operation-1',
+        captureBinding: () async => ImmediateDeletionBinding(
+            owner: c.owner, lifecycle: c.life, bearerToken: 'coherent-token'),
+        isBindingCurrent: (b) => b.owner == c.owner && b.lifecycle == c.life,
+      );
+      c.answer = (_) async => _reply('completed');
+      expect(await c.request(retain), isA<ImmediateDeletionCompleted>());
+      final kept = (await c.load())!;
+      expect(kept.phase, ImmediateDeletionPhase.completed);
+      expect(kept.receiptSecret, _secret);
+      expect(await retain.restore(owner: 'uid-a'), isNull,
+          reason: 'the ordinary restore never reopens a completed receipt');
+      final handle =
+          (await retain.restoreCompletedAwaitingCleanup(owner: 'uid-a'))!;
+      c.sent.clear();
+      expect(await retain.recover(handle), isA<ImmediateDeletionCompleted>());
+      expect(jsonDecode(c.sent.single.body),
+          {'action': 'status', 'receipt_secret': _secret});
+    });
+  });
+
   group('durable custody before dispatch', () {
     for (final stage in ['create', 'readback', 'intent']) {
       test('$stage deferred persistence sends zero HTTP until matching readback', () async {
