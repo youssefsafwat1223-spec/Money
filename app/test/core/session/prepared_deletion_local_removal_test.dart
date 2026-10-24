@@ -508,6 +508,42 @@ void main() {
             expect(unlink, 0);
             expect(purge, 0);
             expect(w.unexpectedSdk, isEmpty);
+            // The local sign-out's signedOut event reaches every auth listener;
+            // none may reprocess the removed owner (owner clear, unlink, network).
+            await Future<void>.delayed(const Duration(milliseconds: 100));
+            await _bounded(w.session.drainAdmissions());
+            expect(w.session.status, SessionStatus.needsOnboarding);
+            expect(w.reminderClears, 1);
+            expect(unlink, 0);
+            expect(purge, 0);
+            expect(w.unexpectedSdk, isEmpty);
+          }));
+
+  test(
+      'launch strict cleanup skips the SDK sign-out once a successor took the epoch during the reminder clear',
+      () => _world((w) async {
+            w.fixture.storage.data[RemoveDataFlow.barrierKey] = jsonEncode({
+              'uid': _owner,
+              'uidHash': await w.fixture.hash(_owner),
+              'revoke': true,
+              'localOnly': true,
+            });
+            final held = w.hold();
+            w.session.configureLocalReminderClear(() async {
+              w.reminderClears++;
+              held.reached.complete();
+              await held.release.future;
+            });
+            final launch = w.track(w.session.prepareLaunchAdmission());
+            await _bounded(held.reached.future);
+            final successor = w
+                .track(w.session.setIdentity(method: 'google', userId: _owner));
+            held.release.complete();
+            expect((await _bounded(launch)).blocked, isTrue);
+            await _bounded(successor);
+            expect(w.reminderClears, 1);
+            expect(w.sdk.auth.currentSession?.user.id, _owner,
+                reason: 'the successor keeps its SDK session');
           }));
 
   test(

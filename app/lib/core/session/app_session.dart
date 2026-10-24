@@ -1275,13 +1275,18 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// OS reminders and signs the deleted owner's SDK session out of THIS device.
   /// Local scope; with Cloud OFF the gated client sends nothing, and a denied
   /// logout request is swallowed. A session of another uid is never touched.
-  Future<void> _clearRemovedOwnerDeviceResidue(String target) async {
+  ///
+  /// The reminder clear is device-wide, so it and the sign-out run only while
+  /// [stillCurrent] holds: a successor admitted meanwhile keeps its own.
+  Future<void> _clearRemovedOwnerDeviceResidue(String target,
+      {required bool Function() stillCurrent}) async {
     final clear = _localReminderClear;
-    if (clear != null) {
+    if (clear != null && stillCurrent()) {
       try {
         await clear();
       } catch (_) {}
     }
+    if (!stillCurrent()) return;
     final client = _databaseIssuerClient ?? _clientForConsent();
     if (client == null || client.auth.currentSession?.user.id != target) return;
     try {
@@ -3278,7 +3283,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       }
       await flow.settlePreparedRemoval(reservation,
           localCleanupConfirmed: true);
-      if (owned()) await _clearRemovedOwnerDeviceResidue(target);
+      await _clearRemovedOwnerDeviceResidue(target, stillCurrent: owned);
       _logoutIncomplete = false;
       confirmed = true;
     } catch (_) {
@@ -3625,9 +3630,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
               }
               await _finishPreparedOriginalIdentity(strictTarget,
                   stillCurrent: () => epoch == _admissionEpoch);
-              if (epoch == _admissionEpoch) {
-                await _clearRemovedOwnerDeviceResidue(strictTarget);
-              }
+              await _clearRemovedOwnerDeviceResidue(strictTarget,
+                  stillCurrent: () => epoch == _admissionEpoch);
             });
           } catch (_) {
             return blocked();
