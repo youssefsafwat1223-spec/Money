@@ -1,97 +1,137 @@
-#!/usr/bin/env bash
-# preflight.sh — READ-ONLY safety gate for the account_deletion_fence harness.
-# NOT EXECUTED by its author. Starts nothing, writes nothing, reads no
-# credentials and no .env. Exit 0 only when every check passes.
-#
-# Usage:
-#   preflight.sh --runtime-dir <absolute new dir> [--post-start]
-# Env (post-start only, loopback only): FENCE_DB_URL FENCE_API_URL
+#!/bin/bash
+# Read-only refusal gate. No service executable or target mutation is permitted.
+# The embedded pure checks are planning checks, never execution authority.
 set -euo pipefail
+script_dir="${BASH_SOURCE[0]%/*}"
+repo_root="$(cd -- "$script_dir/../../.." && pwd -P)"
+exec /usr/bin/env -i PATH= /usr/bin/python3 -I - "$repo_root" "$@" <<'PYTHON_ENGINE'
+# PYTHON_ENGINE_BEGIN
+import argparse
+import pathlib
+import re
+import sys
 
-RUNTIME_DIR=""
-POST_START=0
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --runtime-dir) RUNTIME_DIR="${2:-}"; shift 2 ;;
-    --post-start) POST_START=1; shift ;;
-    *) echo "preflight: unknown argument: $1" >&2; exit 2 ;;
-  esac
-done
+PROTECTED = ("qirsh_beta1_sync_rc5800", "qirsh_proof", "frasaaaaa")
+PHASES = ("baseline", "apply", "concurrency", "rollback", "teardown")
 
-fail() { echo "PREFLIGHT REFUSED: $*" >&2; exit 1; }
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
+def require(condition, message):
+    if not condition:
+        raise ValueError(message)
 
-[ -n "$RUNTIME_DIR" ] || fail "--runtime-dir is required"
-case "$RUNTIME_DIR" in /*) ;; *) fail "--runtime-dir must be an absolute path" ;; esac
-case "$RUNTIME_DIR" in
-  "$REPO_ROOT"|"$REPO_ROOT"/*) fail "runtime dir must be outside the repository" ;;
-esac
-case "$RUNTIME_DIR" in
-  *..*) fail "runtime dir must not contain '..'" ;;
-esac
 
-# Loopback-only: accepts 127.0.0.1, localhost, [::1] (with optional port/path); nothing else.
-is_loopback_url() {
-  local url="$1" host
-  host="${url#*://}"; host="${host%%/*}"; host="${host#*@}"
-  case "$host" in
-    127.0.0.1|127.0.0.1:*|localhost|localhost:*|\[::1\]|\[::1\]:*) return 0 ;;
-    *) return 1 ;;
-  esac
-}
+def validate_runtime_path(value, repo, home):
+    path = pathlib.Path(value)
+    require(path.is_absolute() and ".." not in path.parts, "unsafe runtime path")
+    require(str(path) == value, "runtime path must be normalized")
+    for protected in (pathlib.Path("/"), pathlib.Path(repo), pathlib.Path(home)):
+        require(path != protected and path not in protected.parents,
+                "protected runtime path")
+    require(pathlib.Path(repo) not in path.parents and pathlib.Path(home) not in path.parents,
+            "runtime must be outside repository and home")
+    require(re.fullmatch(r"qirsh-fence-[a-z0-9][a-z0-9-]{0,31}", path.name),
+            "invalid runtime token")
+    require(not any(name in value for name in PROTECTED), "protected project")
+    for part in (path,) + tuple(path.parents):
+        require(not part.is_symlink(), "symlink runtime path")
+    if path.exists():
+        require(path.is_dir(), "runtime is not a directory")
+        require(next(path.iterdir(), None) is None, "runtime is not new or empty")
+    return path
 
-if [ "$POST_START" -eq 0 ]; then
-  # Pre-start: the directory must be new (or empty) and there must be no
-  # leftover or linked project state anywhere we might touch.
-  if [ -e "$RUNTIME_DIR" ] && [ -n "$(ls -A "$RUNTIME_DIR" 2>/dev/null || true)" ]; then
-    [ -f "$RUNTIME_DIR/.qirsh-fence-runtime" ] || fail "runtime dir exists, is not empty and has no harness marker (shared/pre-existing resource)"
-    fail "runtime dir already provisioned; choose a NEW directory per run"
-  fi
-  [ ! -e "$REPO_ROOT/supabase/.temp/project-ref" ] || fail "repository supabase/ is linked to a project (.temp/project-ref); refuse"
-  [ ! -e "$RUNTIME_DIR/supabase/.temp/project-ref" ] || fail "runtime dir carries linked-project state"
 
-  for tool in supabase docker deno psql curl; do
-    command -v "$tool" >/dev/null 2>&1 || fail "required tool missing: $tool"
-  done
-  docker info >/dev/null 2>&1 || fail "docker daemon is not reachable (do not substitute a hosted environment)"
+def validate_plan(plan):
+    # These are untrusted synthetic assertions, not runtime observations.
+    require(set(plan) == {"cli_version", "ports", "bindings", "occupied",
+                         "services", "images", "credentials", "environment_refs"},
+            "incomplete or unknown plan fields")
+    require(plan["cli_version"] == "2.117.0", "unreviewed CLI version")
+    require(set(plan["ports"]) == {"db", "api"}, "incomplete exposed port set")
+    ports = list(plan["ports"].values())
+    require(all(type(port) is int and 1024 <= port <= 65535 for port in ports),
+            "invalid port")
+    require(len(set(ports)) == len(ports), "duplicate port")
+    require(plan["bindings"] == {"db": "127.0.0.1", "api": "127.0.0.1"},
+            "non-loopback or incomplete bindings")
+    require(plan["occupied"] == [], "occupied port")
+    services = {"postgres", "auth", "storage", "postgrest"}
+    require(set(plan["services"]) == services and len(plan["services"]) == 4,
+            "unexpected service set")
+    require(set(plan["images"]) == services and all(
+        re.fullmatch(r"sha256:[0-9a-f]{64}", digest)
+        for digest in plan["images"].values()), "unpinned image")
+    require(plan["credentials"] == "fresh-task-generated", "shared credential provenance")
+    require(plan["environment_refs"] == [], "inherited environment reference")
 
-  # No pre-existing/shared containers for this task's project id.
-  token="$(basename "$RUNTIME_DIR")"
-  [ -z "$(docker ps -a --format '{{.Names}}' | grep -E "_qirsh-fence-${token}\$" || true)" ] \
-    || fail "containers for project qirsh-fence-${token} already exist"
-  # The default project id used by the developer stack must not be reused.
-  [ "$token" != "Money" ] && [ "$token" != "supabase" ] || fail "runtime dir name collides with a default project id"
-  echo "preflight (pre-start): OK"
-  exit 0
-fi
 
-# Post-start: prove loopback + marker + real capabilities.
-[ -f "$RUNTIME_DIR/.qirsh-fence-runtime" ] || fail "missing unique project marker file"
-marker_project="$(sed -n 's/^project_id=//p' "$RUNTIME_DIR/.qirsh-fence-runtime")"
-case "$marker_project" in qirsh-fence-*) ;; *) fail "marker has no qirsh-fence-* project id" ;; esac
-grep -qx "project_id = \"${marker_project}\"" "$RUNTIME_DIR/supabase/config.toml" \
-  || fail "runtime config.toml project_id does not match the marker"
+def validate_manifest(expected, observed, partial=False):
+    require(set(expected) == {"runtime", "project", "source_sha", "resources"},
+            "invalid expected manifest")
+    require(set(observed) == set(expected), "incomplete observed manifest")
+    require(re.fullmatch(r"[0-9a-f]{64}", expected["source_sha"]), "invalid source hash")
+    require(re.fullmatch(r"qirsh-fence-[a-z0-9][a-z0-9-]{0,31}", expected["project"]),
+            "invalid project identity")
+    require(not any(name in expected["project"] for name in PROTECTED), "protected project")
+    for key in ("runtime", "project", "source_sha"):
+        require(expected[key] == observed[key], "manifest identity mismatch")
+    def resources(items):
+        result = set()
+        for item in items:
+            require(set(item) == {"kind", "id", "project"}, "invalid resource fields")
+            require(item["kind"] in ("container", "network", "volume"), "invalid resource kind")
+            require(isinstance(item["id"], str) and item["id"] and
+                    not any(name in item["id"] for name in PROTECTED), "protected resource")
+            require(item["project"] == expected["project"], "foreign resource")
+            key = (item["kind"], item["id"])
+            require(key not in result, "duplicate resource")
+            result.add(key)
+        return result
+    owned = resources(expected["resources"])
+    actual = resources(observed["resources"])
+    require(bool(owned) and (actual <= owned if partial else actual == owned),
+            "resource inventory mismatch")
 
-: "${FENCE_DB_URL:?FENCE_DB_URL is required}"
-: "${FENCE_API_URL:?FENCE_API_URL is required}"
-is_loopback_url "$FENCE_DB_URL"  || fail "FENCE_DB_URL is not loopback"
-is_loopback_url "$FENCE_API_URL" || fail "FENCE_API_URL is not loopback"
 
-# Real capability probes (loopback only).
-curl -fsS --max-time 5 "$FENCE_API_URL/auth/v1/health"    >/dev/null || fail "Auth (GoTrue) not reachable"
-curl -fsS --max-time 5 -o /dev/null -w '%{http_code}' "$FENCE_API_URL/rest/v1/" | grep -qE '^(200|401)$' || fail "PostgREST not reachable"
-curl -sS  --max-time 5 -o /dev/null -w '%{http_code}' "$FENCE_API_URL/storage/v1/version" | grep -qE '^(200|401|404)$' || fail "Storage API not reachable"
+def validate_phase(phase, evidence, identity):
+    # State and catalog digests are test inputs; a local marker alone is insufficient.
+    require(phase in PHASES + ("post-rollback",), "unknown phase")
+    require(evidence.get("identity") == identity, "phase identity mismatch")
+    require(set(identity) == {"runtime", "project", "source_sha", "baseline_sha"} and
+            all(re.fullmatch(r"[0-9a-f]{64}", identity[key])
+                for key in ("source_sha", "baseline_sha")), "invalid phase identity")
+    previous, catalog = {
+        "baseline": ("new", identity["baseline_sha"]),
+        "apply": ("baseline", identity["baseline_sha"]),
+        "concurrency": ("applied", identity["source_sha"]),
+        "rollback": ("applied", identity["source_sha"]),
+        "post-rollback": ("rolled-back", identity["baseline_sha"]),
+        "teardown": ("restored", identity["baseline_sha"]),
+    }[phase]
+    require(evidence.get("state") == previous, "out-of-order phase")
+    require(evidence.get("observed_catalog_sha") == catalog, "missing catalog observation")
+    if phase == "teardown":
+        require(evidence.get("inventory_verified") is True, "missing exact inventory check")
 
-psql -X -q -A -t "$FENCE_DB_URL" -v ON_ERROR_STOP=1 -c "select 1 from auth.users limit 0; select 1 from storage.objects limit 0;" >/dev/null \
-  || fail "auth/storage schemas not present (real stack required, no stand-ins)"
-for ext in pgcrypto; do
-  psql -X -q -A -t "$FENCE_DB_URL" -c "select 1 from pg_extension where extname='${ext}'" | grep -q 1 \
-    || fail "extension missing: ${ext}"
-done
-# The local default superuser database must be disposable: refuse a DB that
-# already contains the fence or someone else's schemas.
-psql -X -q -A -t "$FENCE_DB_URL" -c "select count(*) from pg_namespace where nspname in ('account_fence','account_fence_impl')" | grep -qx 0 \
-  || fail "fence schemas already exist in this database"
 
-echo "preflight (post-start): OK"
+def main(argv):
+    parser = argparse.ArgumentParser(description="Disabled disposable harness safety gate")
+    parser.add_argument("--runtime-dir", required=True)
+    parser.add_argument("--phase", choices=PHASES)
+    parser.add_argument("--post-start", action="store_true")
+    args = parser.parse_args(argv[1:])
+    # Deliberately do not inspect caller environment or runtime marker contents.
+    try:
+        validate_runtime_path(args.runtime_dir, argv[0], str(pathlib.Path.home()))
+    except (ValueError, OSError):
+        print("PREFLIGHT REFUSED: unsafe runtime path", file=sys.stderr)
+        return 1
+    print("RUNTIME_BLOCKED: Supabase CLI 2.117.0 has no reviewed pre-launch "
+          "loopback binding, fresh credential and pinned image contract; "
+          "no service command or phase was executed.", file=sys.stderr)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
+# PYTHON_ENGINE_END
+PYTHON_ENGINE
