@@ -520,6 +520,34 @@ void main() {
           }));
 
   test(
+      'a reminder clear that never completes cannot stall the confirmed removal',
+      () => _world((w) async {
+            var unlink = 0;
+            var purge = 0;
+            w.session.configureCaptureDeviceUnlink(() async {
+              unlink++;
+            });
+            w.session.configureCaptureOwnerClear(() async {
+              purge++;
+              return true;
+            });
+            w.session.configureLocalReminderClear(() {
+              w.reminderClears++;
+              return Completer<void>().future;
+            });
+            // The clear is bounded at 4s, so allow more than the usual bound.
+            expect(
+                await w.remove().timeout(const Duration(seconds: 10)),
+                PreparedOriginalLocalRemovalOutcome
+                    .originalLocalRemovalConfirmed);
+            expect(w.reminderClears, 1);
+            expect(w.session.status, SessionStatus.needsOnboarding);
+            expect(w.sdk.auth.currentSession, isNull);
+            expect(unlink, 0);
+            expect(purge, 0);
+          }));
+
+  test(
       'launch strict cleanup skips the SDK sign-out once a successor took the epoch during the reminder clear',
       () => _world((w) async {
             w.fixture.storage.data[RemoveDataFlow.barrierKey] = jsonEncode({

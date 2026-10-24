@@ -1283,7 +1283,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final clear = _localReminderClear;
     if (clear != null && stillCurrent()) {
       try {
-        await clear();
+        await clear().timeout(const Duration(seconds: 4));
       } catch (_) {}
     }
     if (!stillCurrent()) return;
