@@ -44,14 +44,55 @@ sd_funcs=$(for f in "$MIG_DIR"/*.sql; do
   ' "$f"
 done | sort -u)
 
-# Lowercase first — BSD sed can't do case-insensitive substitution, and SQL
-# keywords appear in both cases across the corpus.
-revoked=$(grep -rhoiE "revoke .* on function (public\.)?[a-z_]+" "$MIG_DIR" \
+# REVOKE statements may span lines (multi-function lists) and end at ';', so
+# parse whole statements rather than grepping lines. A function counts as
+# revoked only if the statement revokes EXECUTE or ALL on FUNCTION(s) and its
+# FROM clause names at least `public`. Names are normalized exactly like the
+# definer list: lowercase, `public.` stripped, other schemas kept, no spaces.
+revoked=$(for f in "$MIG_DIR"/*.sql; do
+  awk '
+    { sub(/--.*/, ""); buf = buf " " $0 }
+    END {
+      buf = tolower(buf)
+      n = split(buf, stmts, ";")
+      for (i = 1; i <= n; i++) {
+        s = stmts[i]
+        gsub(/[ \t\r]+/, " ", s)
+        sub(/^ /, "", s)
+        if (s !~ /^revoke /) continue
+        if (!match(s, / on functions? /)) continue
+        privs = substr(s, 1, RSTART)
+        rest = substr(s, RSTART + RLENGTH)
+        if (privs !~ /(^| |,)(all|execute)( |,|$)/) continue
+        # FROM clause = after the last " from " (arg types never contain it).
+        p = 0; q = 0
+        while ((q = index(substr(rest, p + 1), " from ")) > 0) p = p + q
+        if (p == 0) continue
+        roles = substr(rest, p + 6)
+        list = substr(rest, 1, p - 1)
+        if (roles !~ /(^|[ ,])public([ ,]|$)/) continue
+        # Split list on top-level commas, dropping the (argument types).
+        depth = 0; name = ""
+        for (k = 1; k <= length(list) + 1; k++) {
+          c = (k <= length(list)) ? substr(list, k, 1) : ","
+          if (c == "(") { depth++; continue }
+          if (c == ")") { depth--; continue }
+          if (depth > 0) continue
+          if (c == ",") {
+            gsub(/[ \t]/, "", name); sub(/^public\./, "", name)
+            if (name != "") print name
+            name = ""
+          } else name = name c
+        }
+      }
+    }
+  ' "$f"
+done | sort -u || true)
+# Trigger-bound functions: `execute function|procedure [schema.]name`.
+trigger_bound=$(grep -rhoiE "execute (function|procedure) +([a-z0-9_]+\.)?[a-z0-9_]+" "$MIG_DIR" \
   | tr '[:upper:]' '[:lower:]' \
-  | sed -E 's/.*function (public\.)?([a-z_]+).*/\2/' | sort -u)
-trigger_bound=$(grep -rhoiE "execute (function|procedure) (public\.)?[a-z_]+" "$MIG_DIR" \
-  | tr '[:upper:]' '[:lower:]' \
-  | sed -E 's/.*(function|procedure) (public\.)?([a-z_]+).*/\3/' | sort -u)
+  | sed -E 's/.*(function|procedure) +([a-z0-9_]+\.)?([a-z0-9_]+).*/\2\3/' \
+  | sed -E 's/^public\.//' | sort -u || true)
 
 for fn in $sd_funcs; do
   if printf '%s\n' "$revoked" | grep -qx "$fn"; then continue; fi
