@@ -33,6 +33,14 @@ import 'remove_data_flow.dart';
 /// the separate, intentional full-reset path).
 enum SessionStatus { unknown, needsOnboarding, authenticated, sessionExpired }
 
+/// Only the original local operation; never an account-deletion certificate.
+enum PreparedOriginalLocalRemovalOutcome {
+  staleBeforeAcceptance,
+  operationUnavailable,
+  localRemovalIncomplete,
+  originalLocalRemovalConfirmed,
+}
+
 /// O: opaque host-issued writable admission. Metadata cannot construct one.
 /// This deliberately grants no local-read admission: that scope is not wired.
 class DatabaseHostAdmission {
@@ -546,6 +554,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// Removal requests currently accepted and not finished (a counter, so one
   /// finishing never reopens admission under another still running).
   int _removalsAccepted = 0;
+  Object? _preparedRemovalOperation;
 
   /// Logouts accepted and not finished (a counter, like removals). A logout
   /// closes admission SYNCHRONOUSLY, before its first await, and holds the
@@ -1186,6 +1195,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       _inflightLocal.remove(done);
       reservation.complete();
     }
+
     try {
       final inherited = Zone.current[_localAdmissionChain] as List<Future<void>>? ?? const [];
       final run = localOperation
@@ -1206,13 +1216,19 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// nothing, from the moment a restoration begins until its outcome is known
   /// (and for as long as a read scope is published). The database additionally
   /// refuses or awaits maintenance when it is closed ([AppDatabase.close]).
-  Future<void> runMaintenanceParticipant(
-      Future<void> Function() run) async {
-    if (_localReadTransitionFence || _localReadEgressHold || localReadActive) {
+  Future<void> runMaintenanceParticipant(Future<void> Function() run) async {
+    if (_preparedRemovalOperation != null ||
+        _localReadTransitionFence ||
+        _localReadEgressHold ||
+        localReadActive) {
       throw const StaleOwnershipException();
     }
-    return _admissionOp(run, current: () => !_localReadTransitionFence &&
-        !_localReadEgressHold && !localReadActive);
+    return _admissionOp(run,
+        current: () =>
+            _preparedRemovalOperation == null &&
+            !_localReadTransitionFence &&
+            !_localReadEgressHold &&
+            !localReadActive);
   }
 
   /// True from the point a local-read restoration starts draining admitted work
@@ -2410,11 +2426,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
     void check() {
       if (!current()) throw const StaleAdmissionException();
     }
+
     Future<String?> read(String key) async {
       final result = await _storage.read(key: key);
       check();
       return result;
     }
+
     try {
       final legacyOnboardingDone = await read(_kDone) == '1';
       final welcomeSeen = await read(_kWelcomeManifestoSeen);
@@ -3152,6 +3170,157 @@ class AppSession extends ValueNotifier<SessionStatus> {
     value = SessionStatus.needsOnboarding;
   }
 
+  /// Consumes genuine original local authority, not remote-response evidence.
+  Future<PreparedOriginalLocalRemovalOutcome>
+      removePreparedOriginalLocalReplica({
+    required DatabaseHostAdmission originalAdmission,
+    required AdmissionAuthority originalOrigin,
+  }) async {
+    final inherited =
+        Zone.current[_localAdmissionChain] as List<Future<void>>? ?? const [];
+    if (inherited.any(_inflightAdmissions.contains) ||
+        _admissionClosed ||
+        _explicitAdmissionEpoch != null ||
+        _accountSwitchEpoch != null ||
+        _logoutIncomplete ||
+        _localReadTransitionFence ||
+        localReadEgressDenied) {
+      return PreparedOriginalLocalRemovalOutcome.operationUnavailable;
+    }
+    final flow = _removeData;
+    if (flow == null || flow.isRunning) {
+      return PreparedOriginalLocalRemovalOutcome.operationUnavailable;
+    }
+    // Callback currency first; private receipt/state checks last, without an
+    // intervening caller callback, await or notification before reservation.
+    if (!originalOrigin.isCurrent ||
+        originalOrigin.uid != originalAdmission.uid ||
+        originalOrigin.epoch != originalAdmission._epoch ||
+        !identical(originalAdmission._owner, this) ||
+        !_databaseAdmissionCurrent(originalAdmission) ||
+        _admissionClosed ||
+        _accountSwitchEpoch != null ||
+        _logoutIncomplete ||
+        _localReadTransitionFence ||
+        localReadEgressDenied) {
+      return PreparedOriginalLocalRemovalOutcome.staleBeforeAcceptance;
+    }
+    final reservation =
+        flow.reservePreparedRemoval(originalAdmission, originalOrigin);
+    if (reservation == null) {
+      return PreparedOriginalLocalRemovalOutcome.operationUnavailable;
+    }
+    // Reservation itself revoked the proof via isRunning. Never recheck it.
+    final target = originalAdmission.uid;
+    final operation = Object();
+    _preparedRemovalOperation = operation;
+    _removalsAccepted++;
+    _admissionEpoch++;
+    _authLossSeq++;
+    _localReadLifecycle++;
+    _localReadLocked = true;
+    _pendingFirstGrant = null;
+    _localReadProof = null;
+    _accountFenceOwner = null;
+    _revokeDatabasePublication();
+    _revokeConsentProof();
+    authMethod = null;
+    email = null;
+    _currentAccountKey = null;
+    _onboardingDone = false;
+    _unresolvedOwnerUid = null;
+    _pendingOwnerConflictUid = null;
+    _admittedUid = null;
+    _accountSwitchEpoch = null;
+    bool owned() =>
+        identical(_preparedRemovalOperation, operation) &&
+        _removalsAccepted > 0;
+    var confirmed = false;
+    var started = false;
+    try {
+      value = SessionStatus.needsOnboarding;
+      started = true;
+      await flow.runPreparedRemoval(reservation);
+      await _finishPreparedOriginalIdentity(target, stillCurrent: owned);
+      await _denyLocalRead(uid: target, lockScope: false);
+      await nativeLifecycleSettled();
+      if (!owned() || localReadCleanupIncomplete || _fenceIncomplete) {
+        throw const RemoveDataIncompleteException();
+      }
+      await flow.settlePreparedRemoval(reservation,
+          localCleanupConfirmed: true);
+      _logoutIncomplete = false;
+      confirmed = true;
+    } catch (_) {
+      _logoutIncomplete = true;
+      await drainAdmissions();
+      await nativeLifecycleSettled();
+      if (started) {
+        try {
+          await flow.settlePreparedRemoval(reservation,
+              localCleanupConfirmed: false);
+        } catch (_) {}
+      } else {
+        flow.abandonPreparedRemoval(reservation);
+      }
+    } finally {
+      // Even preflight refusal observes old actual work, never this operation.
+      await drainAdmissions();
+      await nativeLifecycleSettled();
+      _admissionEpoch++;
+      _authLossSeq++;
+      _revokeDatabasePublication();
+      if (identical(_preparedRemovalOperation, operation)) {
+        _preparedRemovalOperation = null;
+      }
+      _removalsAccepted--;
+    }
+    return confirmed
+        ? PreparedOriginalLocalRemovalOutcome.originalLocalRemovalConfirmed
+        : PreparedOriginalLocalRemovalOutcome.localRemovalIncomplete;
+  }
+
+  /// Strict cleanup after an actual target-specific native/replica removal.
+  /// The guard only denies stale continuations; it never creates authority.
+  Future<void> _finishPreparedOriginalIdentity(String target,
+      {required bool Function() stillCurrent}) async {
+    void requireCurrent() {
+      if (!stillCurrent()) throw const StaleAdmissionException();
+    }
+
+    requireCurrent();
+    final marker = await _storage.read(key: _kLocalDataOwnerUid);
+    requireCurrent();
+    if (marker != null && marker.isNotEmpty) {
+      throw const RemoveDataIncompleteException();
+    }
+    final generation = await _storage.read(key: _kLocalDataOwnerGeneration);
+    requireCurrent();
+    if (generation != null) throw const RemoveDataIncompleteException();
+    final account = await _storage.read(key: _kCurrentAccount);
+    requireCurrent();
+    if (account != null && account.isNotEmpty && account != 'uid:$target') {
+      throw const RemoveDataIncompleteException();
+    }
+    for (final key in [_kMethod, _kEmail, _kCurrentAccount]) {
+      requireCurrent();
+      await _storage.delete(key: key);
+      requireCurrent();
+      final retained = await _storage.read(key: key);
+      requireCurrent();
+      if (retained != null) throw const RemoveDataIncompleteException();
+    }
+    requireCurrent();
+    UserActivityService.onSignOut();
+    authMethod = null;
+    email = null;
+    _currentAccountKey = null;
+    _onboardingDone = false;
+    _unresolvedOwnerUid = null;
+    _admittedUid = null;
+    value = SessionStatus.needsOnboarding;
+  }
+
   /// "Remove data from this device" for the signed-in uid (manifest §4.4):
   /// deletes that uid's replica, key and native residue, then signs out. Throws
   /// [RemoveDataIncompleteException] when a step could not be confirmed; the
@@ -3303,16 +3472,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// silently miss an item written under another accessibility class, which then
   /// keeps naming the removed uid; the write path repairs such an item, so it is
   /// overwritten and deleted once more. A marker that still reads back throws.
-  Future<void> clearLocalDataOwnerMarker(String uid, {bool Function()? current}) async {
+  Future<void> clearLocalDataOwnerMarker(String uid,
+      {bool Function()? current, bool strictOriginalOwner = false}) async {
     bool live() => current?.call() ?? true;
     if (!live()) return;
     final marker = await _storage.read(key: _kLocalDataOwnerUid);
     if (!live()) return;
-    if (marker != null &&
-        marker.isNotEmpty &&
-        marker != uid &&
-        !marker.startsWith(_kOwnerTransitionPrefix)) {
-      return;
+    if (marker != null && marker.isNotEmpty && marker != uid) {
+      if (strictOriginalOwner) throw const RemoveDataIncompleteException();
+      if (!marker.startsWith(_kOwnerTransitionPrefix)) return;
     }
     if (!live()) return;
     await _invalidateOwnerGeneration();
@@ -3321,6 +3489,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
     if (!live()) return;
     final afterDelete = await _storage.read(key: _kLocalDataOwnerUid);
     if (!live() || afterDelete == null) return;
+    if (strictOriginalOwner && afterDelete.isNotEmpty && afterDelete != uid) {
+      throw const RemoveDataIncompleteException();
+    }
     if (!live()) return;
     await _storage.write(key: _kLocalDataOwnerUid, value: '');
     if (!live()) return;
@@ -3358,6 +3529,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       _ownershipTail = run.then<void>((_) {}, onError: (Object _) {});
       return run;
     }
+
     try {
       final owner = await _storage.read(key: _kLocalDataOwnerUid);
       if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
@@ -3376,7 +3548,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
     if (removal != null) {
       final hadRecord = await removal.hasPending();
       if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
-      if (!await removal.resumePending()) return blocked();
+      final recovered = await removal.resumePendingWithOutcome();
+      if (!recovered.completed) return blocked();
       if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
       try {
         revoked = await removal.revokedUids();
@@ -3398,7 +3571,36 @@ class AppSession extends ValueNotifier<SessionStatus> {
                 _currentAccountKey == 'uid:$uid' ||
                 (markerNow != null && markerNow == uid),
           )) {
-        await mutate(() => _finishSignedOut(current: () => epoch == _admissionEpoch));
+        final recoveredOwner = recovered.uid;
+        String? identityOwner;
+        for (final uid in revoked) {
+          if (_currentAccountKey == 'uid:$uid' || markerNow == uid) {
+            identityOwner = uid;
+            break;
+          }
+        }
+        final strictTarget = recovered.localOnly == false
+            ? null
+            : (recoveredOwner ?? identityOwner);
+        if (strictTarget != null) {
+          try {
+            await mutate(() async {
+              if (markerNow == strictTarget && revoked.contains(strictTarget)) {
+                await clearLocalDataOwnerMarker(strictTarget,
+                    strictOriginalOwner: true,
+                    current: () => epoch == _admissionEpoch);
+              }
+              await _finishPreparedOriginalIdentity(strictTarget,
+                  stillCurrent: () => epoch == _admissionEpoch);
+            });
+          } catch (_) {
+            return blocked();
+          }
+        } else {
+          await mutate(() => _finishSignedOut(
+              remoteEffects: recovered.localOnly == false,
+              current: () => epoch == _admissionEpoch));
+        }
         if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
       }
     }

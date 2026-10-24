@@ -873,4 +873,94 @@ void main() {
               expect(h.requests, isEmpty);
             }));
   }
+
+  test(
+      'exact issued completion consumes original local replica once without remote effects',
+      () => _world((h) async {
+            var unlink = 0;
+            h.session.configureCaptureDeviceUnlink(() async {
+              unlink++;
+            });
+            try {
+              final gateway = h.gateway();
+              final operation = (await _bounded(gateway.prepare()))!;
+              h.answer = (_) async => _reply('completed');
+              final evidence = (await _bounded(h.request(gateway, operation)))
+                  as PreparedDeletionRemoteCompletion;
+              expect(
+                  await _bounded(
+                      h.gateway().removeOriginalLocalReplica(evidence)),
+                  PreparedLocalRemovalOutcome.operationUnavailable);
+              expect(
+                  h.session.captureDatabaseHostAdmission()?.isCurrent, isTrue);
+              final result =
+                  h.track(gateway.removeOriginalLocalReplica(evidence));
+              expect(h.session.captureDatabaseHostAdmission(), isNull);
+              expect(await _bounded(result),
+                  PreparedLocalRemovalOutcome.originalLocalRemovalConfirmed);
+              expect(
+                  await _bounded(gateway.removeOriginalLocalReplica(evidence)),
+                  PreparedLocalRemovalOutcome.operationUnavailable);
+              expect(h.requests, hasLength(1));
+              expect(h.sdk.auth.currentSession?.user.id, _owner);
+              expect(unlink, 0);
+              expect(await h.fixture.artifactsOf(_owner), isEmpty);
+              expect(h.session.removalNoticePending.value, isFalse);
+            } finally {
+              h.session.configureCaptureDeviceUnlink(null);
+            }
+          }));
+
+  for (final successor in [_owner, 'prepared-owner-b']) {
+    test(
+        'actual $successor successor cannot consume old completion or mutate local state',
+        () => _world((h) async {
+              final gateway = h.gateway();
+              final operation = (await _bounded(gateway.prepare()))!;
+              h.answer = (_) async => _reply('completed');
+              final evidence = (await _bounded(h.request(gateway, operation)))
+                  as PreparedDeletionRemoteCompletion;
+              if (successor == _owner) {
+                await h.admit();
+              } else {
+                await h.switchTo(successor);
+              }
+              final current = h.fixture.host.current;
+              final before = List<String>.of(h.fixture.storage.attempts);
+              final native = List<String>.of(h.fixture.order);
+              expect(
+                  await _bounded(gateway.removeOriginalLocalReplica(evidence)),
+                  PreparedLocalRemovalOutcome.staleBeforeAcceptance);
+              expect(h.fixture.storage.attempts, before);
+              expect(h.fixture.order, native);
+              expect(identical(h.fixture.host.current, current), isTrue);
+              expect(
+                  h.session.captureDatabaseHostAdmission()?.isCurrent, isTrue);
+              expect(h.requests, hasLength(1));
+            }));
+  }
+
+  test(
+      'retained restriction reentry burns evidence before caller code',
+      () => _world((h) async {
+            final gateway = h.gateway();
+            PreparedDeletionRemoteCompletion? evidence;
+            Future<PreparedLocalRemovalOutcome>? reentry;
+            final operation = (await _bounded(gateway.prepare(restrict: () {
+              final issued = evidence;
+              if (issued != null && reentry == null) {
+                reentry = gateway.removeOriginalLocalReplica(issued);
+              }
+              return true;
+            })))!;
+            h.answer = (_) async => _reply('completed');
+            evidence = (await _bounded(h.request(gateway, operation)))
+                as PreparedDeletionRemoteCompletion;
+            expect(
+                await _bounded(gateway.removeOriginalLocalReplica(evidence)),
+                PreparedLocalRemovalOutcome.originalLocalRemovalConfirmed);
+            expect(await _bounded(reentry!),
+                PreparedLocalRemovalOutcome.operationUnavailable);
+            expect(h.requests, hasLength(1));
+          }));
 }

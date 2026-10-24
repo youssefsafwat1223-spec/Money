@@ -11,8 +11,8 @@ import 'immediate_account_deletion.dart';
 import 'immediate_deletion_receipt_store.dart';
 
 /// INACTIVE source preparation. This is deliberately not AccountDeletionGateway.
-/// No provider/UI registration, local finalization, sign-out or polling belongs
-/// here. SDK wiring is trusted: the public host proof cannot expose its private
+/// No provider/UI registration, sign-out or polling belongs here. Original
+/// local removal is a separate, one-use evidence consumer. SDK wiring is trusted: the public host proof cannot expose its private
 /// issuer client for an independent object-identity check. Activation must qualify
 /// that wiring separately. Custody remains foreground-isolate scoped, not CAS.
 final class PreparedImmediateDeletionGateway {
@@ -240,7 +240,9 @@ final class PreparedImmediateDeletionGateway {
           result.receiptSecret.isNotEmpty &&
           result.receiptSecret == operation._secret) {
         operation._closed = true;
-        return PreparedDeletionRemoteCompletion._(operation);
+        final evidence = PreparedDeletionRemoteCompletion._(operation);
+        operation._remoteCompletion = evidence;
+        return evidence;
       }
       if (result is ImmediateDeletionAccepted) {
         return const PreparedDeletionPending._(
@@ -257,6 +259,42 @@ final class PreparedImmediateDeletionGateway {
     } finally {
       operation._observed._active = null;
     }
+  }
+
+  /// Consume exactly this gateway's issued completion for its original scope.
+  /// The result says only what this local operation actually confirmed.
+  Future<PreparedLocalRemovalOutcome> removeOriginalLocalReplica(
+      PreparedDeletionRemoteCompletion evidence) {
+    final operation = evidence.operation;
+    if (!identical(operation._issuer, this) ||
+        !identical(operation._remoteCompletion, evidence) ||
+        operation._localConsumed) {
+      return Future.value(PreparedLocalRemovalOutcome.operationUnavailable);
+    }
+    // Burn before the retained restriction predicate can reenter this gateway.
+    operation._localConsumed = true;
+    if (!operation._original.current) {
+      return Future.value(PreparedLocalRemovalOutcome.staleBeforeAcceptance);
+    }
+    final accepted = _session.removePreparedOriginalLocalReplica(
+        originalAdmission: operation._original.admission,
+        originalOrigin: operation._original.origin);
+    return _own(() async {
+      try {
+        return switch (await accepted) {
+          PreparedOriginalLocalRemovalOutcome.staleBeforeAcceptance =>
+            PreparedLocalRemovalOutcome.staleBeforeAcceptance,
+          PreparedOriginalLocalRemovalOutcome.operationUnavailable =>
+            PreparedLocalRemovalOutcome.operationUnavailable,
+          PreparedOriginalLocalRemovalOutcome.localRemovalIncomplete =>
+            PreparedLocalRemovalOutcome.localRemovalIncomplete,
+          PreparedOriginalLocalRemovalOutcome.originalLocalRemovalConfirmed =>
+            PreparedLocalRemovalOutcome.originalLocalRemovalConfirmed,
+        };
+      } catch (_) {
+        return PreparedLocalRemovalOutcome.localRemovalIncomplete;
+      }
+    });
   }
 
   /// Close delivery, not server execution or custody of an already-started call.
@@ -308,11 +346,20 @@ final class PreparedDeletionOperation {
   final bool _resumed;
   bool _attempted = false;
   bool _closed = false;
+  PreparedDeletionRemoteCompletion? _remoteCompletion;
+  bool _localConsumed = false;
   Future<void> _tail = Future<void>.value();
   late _OperationReceiptStore _observed;
   late ImmediateAccountDeletionRecovery _recovery;
   @override
   String toString() => 'PreparedDeletionOperation';
+}
+
+enum PreparedLocalRemovalOutcome {
+  staleBeforeAcceptance,
+  operationUnavailable,
+  localRemovalIncomplete,
+  originalLocalRemovalConfirmed,
 }
 
 sealed class PreparedDeletionOutcome {
@@ -365,8 +412,12 @@ final class _OriginalBinding {
       return false;
     }
     try {
+      // Restrictive caller code can reenter. Concrete binding checks must run
+      // after it, with no further caller callback before session acceptance.
+      final allowed = restrict?.call() ?? true;
       final sdk = client.auth.currentSession;
-      if (!admission.isCurrent ||
+      if (!allowed ||
+          !admission.isCurrent ||
           !origin.isCurrent ||
           !identical(host.current, scope) ||
           !identical(scope.database, admission.database) ||
@@ -378,8 +429,7 @@ final class _OriginalBinding {
           sdk.user.id != binding.owner ||
           sdk.accessToken != binding.bearerToken ||
           !identical(gate, CloudEgressGate.instance) ||
-          gate.epoch != egressEpoch ||
-          !(restrict?.call() ?? true)) {
+          gate.epoch != egressEpoch) {
         _lost = true;
       }
     } catch (_) {

@@ -639,17 +639,27 @@ void main() {
   });
 
   for (final successor in ['uid-a', 'uid-b']) {
-    for (final boundary in ['owner-clear', 'delete']) {
+    for (final boundary in ['strict-owner-read', 'delete']) {
       test('E4 authority old launch cleanup $boundary drains before committed $successor', () async {
         // Explicit removal is a precondition from the existing removal contract,
         // not an account-fence action. It leaves identity cleanup for launch.
         await f.flow.remove('uid-a');
         final reached = Completer<void>(); final release = Completer<void>();
-        if (boundary == 'owner-clear') {
+        final launchZoneKey = Object();
+        var launchGlobalPurges = 0;
+        if (boundary == 'strict-owner-read') {
           f.session.configureCaptureOwnerClear(() async {
-            if (!reached.isCompleted) { reached.complete(); await release.future; }
+            if (Zone.current[launchZoneKey] == true) launchGlobalPurges++;
             return true;
           });
+          var markerReads = 0;
+          f.storage.gate = (op, key) async {
+            // Launch reads its initial marker, then the post-resume marker;
+            // the third read belongs to strict original-owner cleanup.
+            if (op == 'read' && key == kMarkerKey && ++markerReads == 3) {
+              reached.complete(); await release.future;
+            }
+          };
         } else {
           f.storage.gate = (op, key) async {
             if (op == 'delete' && key == 'auth_method' && !reached.isCompleted) {
@@ -657,7 +667,8 @@ void main() {
             }
           };
         }
-        final launch = f.session.prepareLaunchAdmission();
+        final launch = runZoned(f.session.prepareLaunchAdmission,
+            zoneValues: {launchZoneKey: true});
         await reached.future;
         final entering = Completer<void>();
         f.initialize = (db, uid) async {
@@ -673,6 +684,7 @@ void main() {
         expect(f.session.status, SessionStatus.authenticated);
         expect(f.session.captureLocalWorkAuthority()!.isCurrent, isTrue);
         expect(f.storage.data[kMarkerKey], successor);
+        expect(launchGlobalPurges, 0, reason: 'strict launch cleanup invokes no global purge');
       });
     }
   }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -528,6 +529,121 @@ void main() {
       expect(await resume, isTrue);
       expect(order.where((c) => c == 'begin:uid-b'), hasLength(1));
       expect(await f.hasPending(), isFalse);
+    });
+  });
+
+  group('durable restrictive removal mode', () {
+    Future<void> record(Object? mode,
+        {bool present = true, bool revoke = true}) async {
+      await const FlutterSecureStorage().write(
+          key: RemoveDataFlow.barrierKey,
+          value: jsonEncode({
+            'uid': 'uid-b',
+            'uidHash': await store.uidHash('uid-b'),
+            'revoke': revoke,
+            if (present) 'localOnly': mode,
+          }));
+    }
+
+    for (final mode in ['absent', false, true]) {
+      test('decoded $mode mode preserves exact callback behavior', () async {
+        await record(mode, present: mode != 'absent');
+        final result = await flow().resumePendingWithOutcome();
+        expect(result.completed, isTrue);
+        expect(result.uid, 'uid-b');
+        expect(result.localOnly, mode == true);
+        expect(order.where((v) => v == 'serverCleanup').length,
+            mode == true ? 0 : 1);
+      });
+    }
+
+    for (final mode in [null, 'true', 1, <String, Object?>{}, <Object?>[]]) {
+      test('present malformed mode $mode fails before domain effects',
+          () async {
+        await record(mode);
+        final raw = rec.data[RemoveDataFlow.barrierKey];
+        final before = List<String>.of(rec.attempts);
+        expect(await flow().resumePending(), isFalse);
+        expect(order, isEmpty);
+        expect(rec.attempts, before);
+        expect(rec.data[RemoveDataFlow.barrierKey], raw);
+        expect(replicaDir(await store.uidHash('uid-b')).existsSync(), isTrue);
+      });
+    }
+
+    test(
+        'native-only missing mode persists true before native work and suppresses callback',
+        () async {
+      barrier.pending = 'uid-b';
+      Map<String, Object?>? observed;
+      barrier.onCall = (call) async {
+        if (call == 'begin:uid-b') {
+          observed = (jsonDecode(rec.data[RemoveDataFlow.barrierKey]!) as Map)
+              .cast<String, Object?>();
+        }
+      };
+      expect(await flow().resumePending(), isTrue);
+      expect(observed?['localOnly'], isTrue);
+      expect(order, isNot(contains('serverCleanup')));
+    });
+
+    test('actual queued revoke upgrade cannot erase merged true mode',
+        () async {
+      await record(true, revoke: false);
+      final reached = Completer<void>();
+      final release = Completer<void>();
+      barrier.onCall = (call) async {
+        if (call == 'begin:uid-b' && !reached.isCompleted) {
+          reached.complete();
+          await release.future;
+        }
+      };
+      final f = flow();
+      final purge = f.remove('uid-b', revokeAdmission: false);
+      Future<void>? joined;
+      try {
+        await reached.future.timeout(const Duration(seconds: 5));
+        final rewrite = Completer<void>();
+        rec.gate = (operation, key) async {
+          if (operation == 'write' &&
+              key == RemoveDataFlow.barrierKey &&
+              !rewrite.isCompleted) {
+            rewrite.complete();
+          }
+        };
+        joined = f.remove('uid-b');
+        await rewrite.future.timeout(const Duration(seconds: 5));
+      } finally {
+        release.complete();
+        await purge;
+        if (joined != null) await joined;
+      }
+      final records = rec
+          .writesTo(RemoveDataFlow.barrierKey)
+          .map((value) =>
+              jsonDecode(value.substring(value.indexOf('=') + 1)) as Map)
+          .toList();
+      expect(records.length, greaterThanOrEqualTo(3));
+      expect(records.every((value) => value['localOnly'] == true), isTrue);
+      expect(records.last['revoke'], isTrue);
+      expect(order, isNot(contains('serverCleanup')));
+    });
+
+    test(
+        'true mode survives an actual interrupted flow and reconstructed callback',
+        () async {
+      await record(true);
+      expect(await flow(crashAfter: 'afterReplicaRemoved').resumePending(),
+          isFalse);
+      expect(
+          (jsonDecode(rec.data[RemoveDataFlow.barrierKey]!)
+              as Map)['localOnly'],
+          isTrue);
+      order.clear();
+      final result = await flow().resumePendingWithOutcome();
+      expect(result.completed, isTrue);
+      expect(result.localOnly, isTrue);
+      expect(order, isNot(contains('serverCleanup')));
     });
   });
 
