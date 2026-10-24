@@ -58,6 +58,11 @@ revoke all on function
   from public, anon, authenticated, service_role;
 SQL
 
+FAILS="k" PASSES="" run_case grant_option_for_is_not_a_revoke <<'SQL'
+create function k() returns void language sql security definer as $$ select 1 $$;
+revoke grant option for execute on function k() from public, anon, authenticated;
+SQL
+
 FAILS="" PASSES="s.t" run_case qualified_trigger_bound <<'SQL'
 create function s.t() returns trigger language plpgsql security definer as $$ begin return new; end $$;
 create trigger x before insert on y for each row execute function s.t();

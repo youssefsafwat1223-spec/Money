@@ -208,8 +208,8 @@ as $$
 $$;
 
 -- F2: public.account_purge_queue is never erased by this design (it has no owner policy and no DELETE grant). The
--- preflight proves it EMPTY at apply (QD096, table locked EXCLUSIVE) and section 11 unschedules the only job that enqueues
--- into it, so no row can appear afterwards. This fourth shim lets erase_verify ASSERT that no queue row exists for the
+-- preflight proves it EMPTY at apply (QD096, table locked EXCLUSIVE), section 11 unschedules the job that enqueues into it, and
+-- account_fence.legacy_queue_guard refuses EVERY later INSERT (QD003, any caller), so no row can appear afterwards. This fourth shim lets erase_verify ASSERT that no queue row exists for the
 -- subject (the narrow owner has no privilege on the table); it returns one boolean for a caller-supplied uid.
 create function account_fence.legacy_queue_has_uid(p_uid uuid) returns boolean
 language sql volatile security definer
@@ -278,13 +278,15 @@ create table account_fence.rollback_cron_snapshot (
   jobname  text primary key,
   schedule text not null,
   command  text not null,
-  active   boolean not null
+  active   boolean not null,
+  database text not null,
+  username text not null
 );
 do $snap$
 begin
   if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') then
-    insert into account_fence.rollback_cron_snapshot (jobname, schedule, command, active)
-    select j.jobname, j.schedule, j.command, j.active
+    insert into account_fence.rollback_cron_snapshot (jobname, schedule, command, active, database, username)
+    select j.jobname, j.schedule, j.command, j.active, j.database, j.username
       from cron.job j where j.jobname = 'purge-scheduled-deletions-job';
   end if;
 end
@@ -1216,7 +1218,7 @@ declare
   a text; col text; v_strict boolean; o uuid; n uuid; jo jsonb; jn jsonb;
   v_ctx uuid := account_fence.erasure_uid();
   v_kind text; v_icol text; v_oh text; v_nh text; v_excl boolean; v_log_id uuid;
-  v_retry_installs text[] := '{}'::text[]; v_hash text;
+  v_retry_installs text[] := '{}'::text[]; v_hash text; v_ocol uuid; v_has_owner boolean;
 begin
   if tg_op in ('UPDATE', 'DELETE') then jo := pg_catalog.to_jsonb(old); end if;
   if tg_op in ('INSERT', 'UPDATE') then jn := pg_catalog.to_jsonb(new); end if;
@@ -1229,12 +1231,29 @@ begin
   if tg_op in ('INSERT', 'UPDATE')
      and tg_table_name in ('profiles', 'backups', 'notification_logs', 'feature_flag_overrides', 'financial_import_runs')
      and pg_catalog.current_setting('role', true) in ('anon', 'authenticated') then
+    -- (a) strict owner columns must equal the caller; (b) optional ('?') owner columns must equal the caller WHEN non-null;
+    -- (c) a write that sets an install: column must name the caller in some owner column. The client RLS policies for these
+    -- tables (e.g. notification_logs_insert_own: auth.uid() = user_id) never admit a NULL or foreign owner, so refusing here
+    -- changes no legitimate client write: install-only rows with a NULL user_id are service-side only.
+    v_has_owner := false;
     foreach a in array tg_argv loop
-      continue when left(a, 8) = 'install:' or right(a, 1) = '?';
-      if nullif(jn ->> a, '')::uuid is distinct from account_fence.auth_uid() then
+      continue when left(a, 8) = 'install:';
+      v_ocol := nullif(jn ->> rtrim(a, '?'), '')::uuid;
+      if v_ocol is not null and v_ocol is distinct from account_fence.auth_uid() then
         raise exception 'owner_column_mismatch' using errcode = '42501';
       end if;
+      if right(a, 1) <> '?' and v_ocol is distinct from account_fence.auth_uid() then
+        raise exception 'owner_column_mismatch' using errcode = '42501';
+      end if;
+      if v_ocol is not null then v_has_owner := true; end if;
     end loop;
+    if not v_has_owner then
+      foreach a in array tg_argv loop
+        if left(a, 8) = 'install:' and nullif(jn ->> substr(a, 9), '') is not null then
+          raise exception 'owner_column_mismatch' using errcode = '42501';
+        end if;
+      end loop;
+    end if;
   end if;
   -- Retry/log binding protocol (source-only, not a schema equality constraint): every log I/U/D takes
   -- BOTH identity TRY keys before checking children or ordinary/erasure admission. No row-lock wait is
@@ -5373,14 +5392,19 @@ create function public.account_deletion_record_failure(
   p_job_id uuid, p_lease_token uuid, p_generation integer,
   p_stage text, p_code text, p_retryable boolean, p_retry_delay_ms bigint)
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
-declare j account_fence.deletion_job;
+declare
+  j account_fence.deletion_job;
+  -- P2-3: a job may stay retryable for at most this long after acceptance; a retryable failure past it becomes terminal.
+  c_max_retryable_age constant interval := interval '72 hours';
+  v_terminal boolean;
 begin
   j := account_fence.lease_job(p_job_id, p_lease_token, p_generation);
   if j.job_id is null then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'lease_lost'); end if;
+  v_terminal := p_retryable is not true or j.accepted_at < pg_catalog.clock_timestamp() - c_max_retryable_age;
   update account_fence.deletion_job
      set attempts = attempts + 1,
-         state = case when p_retryable then 'retryable' else 'failed' end,
-         failed_at = case when p_retryable then null else pg_catalog.clock_timestamp() end,
+         state = case when v_terminal then 'failed' else 'retryable' end,
+         failed_at = case when v_terminal then pg_catalog.clock_timestamp() else null end,
          last_code = case when p_code ~ '^[a-z][a-z0-9_]{0,39}$' then p_code end,
          current_step = null, lease_token = null, lease_expires_at = null,
          next_attempt_at = pg_catalog.clock_timestamp() + pg_catalog.make_interval(secs => greatest(p_retry_delay_ms, 0) / 1000.0)
@@ -5518,11 +5542,11 @@ $$;
 -- uid and the lease worker never claims 'failed'. These two functions are the ONLY exit and are executable by the migration
 -- principal (postgres) alone: no API role, not even service_role. Neither returns uid, ciphertext or attempt_id.
 create function account_fence.operator_failed_jobs()
-returns table (job_id uuid, last_code text, completed_steps text[], attempts integer, failed_at timestamptz, material_committed boolean)
+returns table (job_id uuid, last_code text, completed_steps text[], attempts integer, accepted_at timestamptz, failed_at timestamptz, material_committed boolean)
 language sql stable security definer
 set search_path = pg_catalog, pg_temp
 as $$
-  select j.job_id, j.last_code, j.completed_steps, j.attempts, j.failed_at,
+  select j.job_id, j.last_code, j.completed_steps, j.attempts, j.accepted_at, j.failed_at,
          exists (select 1 from account_fence.deletion_material m where m.job_id = j.job_id and m.state = 'committed')
     from account_fence.deletion_job j
    where j.state = 'failed'
@@ -5549,6 +5573,33 @@ begin
      set state = 'retryable', next_attempt_at = pg_catalog.clock_timestamp(), failed_at = null,
          lease_token = null, lease_expires_at = null, current_step = null
    where job_id = j.job_id;
+  return pg_catalog.jsonb_build_object('ok', true);
+end;
+$$;
+
+-- P2-4: exit for a failed job that can no longer be requeued (its Apple material was disposed) or that the owner decides to abandon.
+-- Allowed ONLY while no destructive step ran (completed_steps empty). Removes every row that references the job (scope, receipt,
+-- material, workset), the subject's challenges, tombstones the attempt id (the attempt can never be replayed) and deletes the job,
+-- so the uid is no longer pending and the user can start a fresh deletion with a new Apple re-authentication.
+create function account_fence.operator_cancel_failed_job(p_job_id uuid) returns jsonb
+language plpgsql volatile security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  j account_fence.deletion_job;
+begin
+  select * into j from account_fence.deletion_job x where x.job_id = p_job_id for update;
+  if not found or j.state is distinct from 'failed' or pg_catalog.cardinality(j.completed_steps) <> 0 then
+    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'not_cancellable');
+  end if;
+  update account_fence.deletion_material set state = 'disposed', ciphertext = null where job_id = j.job_id;
+  delete from account_fence.deletion_material where job_id = j.job_id;
+  delete from account_fence.deletion_workset where job_id = j.job_id;
+  delete from account_fence.deletion_scope where job_id = j.job_id;
+  delete from account_fence.deletion_receipt where job_id = j.job_id;
+  delete from account_fence.deletion_challenge where uid = j.uid;
+  insert into account_fence.deletion_attempt_tombstone (attempt_id) values (j.attempt_id) on conflict do nothing;
+  delete from account_fence.deletion_job where job_id = j.job_id;
   return pg_catalog.jsonb_build_object('ok', true);
 end;
 $$;
@@ -5955,9 +6006,9 @@ language plpgsql security definer
 set search_path = pg_catalog, pg_temp
 as $$
 begin
-  if account_fence.is_pending(new.user_id) then
-    perform account_fence.deny('pending');
-  end if;
+  -- P2-2: after this migration the legacy 30-day route is closed for EVERY caller (service_role included). An enqueue that was
+  -- blocked on the preflight's EXCLUSIVE lock would otherwise land after commit as a half-processed legacy request.
+  raise exception 'legacy_scheduled_deletion_disabled' using errcode = 'QD003', detail = 'fence:legacy', hint = 'legacy_route_unavailable';
   return new;
 end;
 $$;
@@ -5965,7 +6016,8 @@ $$;
 -- this does not decide disposition of scheduled/partial legacy work (E5 remains pending).
 create trigger a0_account_fence_guard before insert or update or delete on public.account_purge_queue
   for each row execute function account_fence.guard_owner_columns('user_id');
-create trigger a0_account_fence_legacy_queue
+-- Named to sort BEFORE a0_account_fence_guard so a refused enqueue never reaches the admission oracle.
+create trigger a0_account_fence_a_legacy_queue
   before insert on public.account_purge_queue
   for each row execute function account_fence.legacy_queue_guard();
 
@@ -6176,6 +6228,7 @@ revoke all on function account_fence.audit_redaction_ok(jsonb, jsonb) from publi
 revoke all on function account_fence.purge_expired_deletion_records(integer) from public, anon, authenticated, service_role;
 revoke all on function account_fence.operator_failed_jobs() from public, anon, authenticated, service_role;
 revoke all on function account_fence.operator_requeue_failed_job(uuid) from public, anon, authenticated, service_role;
+revoke all on function account_fence.operator_cancel_failed_job(uuid) from public, anon, authenticated, service_role;
 revoke all on function account_fence.profiles_protect_legacy_schedule() from public, anon, authenticated, service_role;
 revoke all on function account_fence.legacy_queue_guard() from public, anon, authenticated, service_role;
 grant execute on function account_fence.is_pending_self() to authenticated;
@@ -6288,6 +6341,7 @@ alter function account_fence.legacy_queue_guard() owner to account_fence_owner;
 alter function account_fence.purge_expired_deletion_records(integer) owner to account_fence_owner;
 alter function account_fence.operator_failed_jobs() owner to account_fence_owner;
 alter function account_fence.operator_requeue_failed_job(uuid) owner to account_fence_owner;
+alter function account_fence.operator_cancel_failed_job(uuid) owner to account_fence_owner;
 alter function public.account_deletion_reserve_material(text, text) owner to account_fence_owner;
 alter function public.account_deletion_dispose_material(text) owner to account_fence_owner;
 alter function public.account_deletion_read_material(text) owner to account_fence_owner;
@@ -6325,6 +6379,7 @@ grant execute on function account_fence.assert_unlink_allowed(text) to postgres;
 grant execute on function account_fence.audit_redaction_ok(jsonb, jsonb) to postgres;
 grant execute on function account_fence.purge_expired_deletion_records(integer) to postgres;   -- pg_cron runs as the migration role
 grant execute on function account_fence.operator_failed_jobs() to postgres;                       -- F4 operator recovery
+grant execute on function account_fence.operator_cancel_failed_job(uuid) to postgres;
 grant execute on function account_fence.operator_requeue_failed_job(uuid) to postgres;           -- (preflight pins current_user = postgres)
 revoke create on schema public from account_fence_owner;
 revoke account_fence_owner from current_user;
@@ -6455,11 +6510,11 @@ begin
     raise exception 'assert: legacy erasure helper still executable by anon/service_role' using errcode = 'QD093';
   end if;
 
-  -- F4 operator recovery functions: owned by the narrow owner, SECURITY DEFINER with a pinned search_path, and EXECUTE for the
+  -- F4 operator recovery functions (failed_jobs, requeue, cancel): owned by the narrow owner, SECURITY DEFINER with a pinned search_path, and EXECUTE for the
   -- migration principal (and the owner) only; never PUBLIC, never an API role (the loop above already rejects API reachability).
   select string_agg(p.oid::regprocedure::text, ', ') into v
     from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
-     and p.proname in ('operator_failed_jobs', 'operator_requeue_failed_job')
+     and p.proname in ('operator_failed_jobs', 'operator_requeue_failed_job', 'operator_cancel_failed_job')
      and (pg_get_userbyid(p.proowner) <> 'account_fence_owner' or not p.prosecdef
           or p.proconfig is distinct from array['search_path=pg_catalog, pg_temp']
           or p.proacl is null
@@ -6468,8 +6523,8 @@ begin
                          or a.grantee not in (p.proowner, 'postgres'::regrole::oid)));
   if v is not null then raise exception 'assert: operator recovery function has unexpected owner/attributes/ACL: %', v using errcode = 'QD093'; end if;
   if (select count(*) from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
-       and p.proname in ('operator_failed_jobs', 'operator_requeue_failed_job')) <> 2 then
-    raise exception 'assert: expected exactly the two operator recovery functions' using errcode = 'QD093';
+       and p.proname in ('operator_failed_jobs', 'operator_requeue_failed_job', 'operator_cancel_failed_job')) <> 3 then
+    raise exception 'assert: expected exactly the three operator recovery functions' using errcode = 'QD093';
   end if;
 
   -- the narrow owner: not superuser/bypass/login; NO membership path to it for any non-superuser (version-
@@ -6560,7 +6615,7 @@ $cron$;
 -- overdue legacy profile and then fail forever on the revoked purge_user_data. Its exact schedule, command and active flag were
 -- recorded in account_fence.rollback_cron_snapshot (section 0); rollback.sql re-schedules it from that record. Profiles that only
 -- have delete_scheduled_at set are NOT touched or accelerated: the user may cancel, or choose immediate deletion with fresh
--- confirmation. The queue was proven empty by the preflight (QD096) and nothing can enqueue once the job is gone.
+-- confirmation. The queue was proven empty by the preflight (QD096) and legacy_queue_guard refuses every later INSERT (QD003).
 do $cron$
 begin
   if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron')

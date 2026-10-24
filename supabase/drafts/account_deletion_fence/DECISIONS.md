@@ -367,3 +367,24 @@ membership during the transaction, use `extensions.gen_random_bytes` grants, and
   14-day disposal arm is not exercised on the DB (no test-only way to age `failed_at` is provided).
 - **Offline checks:** the generator ignores the 0117 migration when reading history (it restates earlier functions) and `--check` asserts
   the migration and rollback copies are identical to the drafts.
+
+## Opus 5.5 re-review of rc2 (2026-10-24)
+
+- **P2-1 (F3 gap):** `guard_owner_columns` now also refuses (42501 `owner_column_mismatch`, before any admission) an anon/authenticated write on
+  the five client tables when an optional (`?`) owner column is non-null and differs from `auth.uid()`, and when an `install:` column is set
+  while no owner column equals the caller. Client RLS (e.g. `notification_logs_insert_own`: `auth.uid() = user_id`) never admitted a NULL
+  or foreign owner, so install-only rows with a NULL user_id are service-side writes only and no legitimate client write changes.
+- **P2-2 (blocking, partial deletion):** a legacy enqueue blocked on the preflight's EXCLUSIVE lock could land after commit. `legacy_queue_guard`
+  now refuses EVERY insert into `public.account_purge_queue` with QD003 `legacy_route_unavailable`, whatever the caller (service_role included);
+  the trigger is renamed `a0_account_fence_a_legacy_queue` so it fires before the admission guard. The QD096 preflight stays.
+- **P2-3 (unbounded retryable):** `account_deletion_record_failure` treats a retryable failure as terminal (state `failed`, `failed_at` set, `last_code`
+  kept) when the job was accepted more than `c_max_retryable_age` = 72 hours ago. `operator_failed_jobs()` also returns `accepted_at` (still no uid).
+- **P2-4 (no exit once material is disposed):** `account_fence.operator_cancel_failed_job(uuid)` (migration principal only, same ownership/search_path/ACL
+  pattern, asserted with the other two operator functions). Allowed only for `state = 'failed'` and no completed step; it deletes material, workset,
+  scope, receipt and the subject's challenges, tombstones the attempt id (no replay) and deletes the job, so the uid is no longer pending and the user can
+  start a fresh deletion with a new Apple re-authentication. Otherwise `{ok:false, reason:'not_cancellable'}`. FKs to `deletion_job` are exactly scope,
+  receipt, material and workset.
+- **P3-2 (cron snapshot):** the snapshot also records `database` and `username`. Rollback compares a temp copy (`rb_cron`) like the other snapshots, refuses
+  (QD099) unless jobname/schedule/command equal the 0065 values (`30 3 * * *`, `select public.run_purge_scheduled_deletions()`), re-schedules with
+  `cron.schedule` when database and user match the current ones, with `cron.schedule_in_database` when available otherwise, and refuses (QD099) when neither applies.
+

@@ -313,6 +313,53 @@ for (const [retryable, expected] of [[true, 'committed:true'], [false, 'committe
   });
 }
 
+/** Claims this test's own job (never someone else's) and returns its lease. */
+async function claimOwn(svc: Session, jobId: string) {
+  const claim = await svc.run(`select public.account_deletion_claim_lease('w1', 60000, '${jobId}');`);
+  const lease = JSON.parse(claim.split('\n').find((l) => l.startsWith('{'))!).lease;
+  assertEquals(lease.job_id, jobId, 'claimed another test\'s job');
+  return lease as { job_id: string; token: string; generation: number };
+}
+
+t('P2-4: operator_cancel_failed_job frees the uid after a terminal apple_revoke failure; a fresh deletion can start', async () => {
+  const u = await createUser();
+  await withSessions(['admin', 'svc', 'writer'], async (s) => {
+    const seed = await seedAcceptance(s.admin, u.id, 'cn1');
+    await s.admin.run(seed.accept('attempt-cn1-1'));
+    const jobId = await s.admin.run(`select job_id from account_fence.deletion_material where ref = '${seed.ref}';`);
+    const l = await claimOwn(s.svc, jobId);
+    const fail = await s.svc.run(`select public.account_deletion_record_failure('${l.job_id}','${l.token}',${l.generation},'apple_revoke','apple_rejected',false,0);`);
+    assert(!fail.includes('ERROR'), fail);
+    // pending: the user's writes are fenced
+    assertStringIncludes(await s.writer.run(`begin; ${asUser(u.id)} update public.user_settings set updated_at = now() where user_id = '${u.id}'; rollback;`), 'QD001');
+    assertStringIncludes(await s.admin.run(`select account_fence.operator_cancel_failed_job('${jobId}');`), '"ok": true');
+    const free = await s.writer.run(`begin; ${asUser(u.id)} update public.user_settings set updated_at = now() where user_id = '${u.id}' returning 1; rollback;`);
+    assert(!free.includes('QD001') && !free.includes('ERROR'), `user still fenced: ${free}`);
+    assertStringIncludes(await s.admin.run(`select account_fence.operator_cancel_failed_job('${jobId}');`), 'not_cancellable');
+    // the old attempt can never be replayed
+    assertStringIncludes(await s.admin.run(`select public.account_deletion_fence_attempt('attempt-cn1-1');`), '"fenced": true');
+    // a fresh deletion for the same uid works
+    const seed2 = await seedAcceptance(s.admin, u.id, 'cn2');
+    assertStringIncludes(await s.admin.run(seed2.accept('attempt-cn2-1')), 'accepted');
+    // leave no failed job behind: drive the fresh job to a retryable state so drain can finish it
+  });
+});
+
+t('P2-4: a job that already completed a destructive step is not cancellable (requeue still works)', async () => {
+  const u = await createUser();
+  await withSessions(['admin', 'svc'], async (s) => {
+    const seed = await seedAcceptance(s.admin, u.id, 'cn3');
+    await s.admin.run(seed.accept('attempt-cn3-1'));
+    const jobId = await s.admin.run(`select job_id from account_fence.deletion_material where ref = '${seed.ref}';`);
+    const l = await claimOwn(s.svc, jobId);
+    await s.svc.run(`select public.account_deletion_begin_step('${l.job_id}','${l.token}',${l.generation},'apple_revoke');`);
+    await s.svc.run(`select public.account_deletion_complete_step('${l.job_id}','${l.token}',${l.generation},'apple_revoke');`);
+    await s.svc.run(`select public.account_deletion_record_failure('${l.job_id}','${l.token}',${l.generation},'storage_sweep','storage_error',false,0);`);
+    assertStringIncludes(await s.admin.run(`select account_fence.operator_cancel_failed_job('${jobId}');`), 'not_cancellable');
+    assertStringIncludes(await s.admin.run(`select account_fence.operator_requeue_failed_job('${jobId}');`), '"ok": true');
+  });
+});
+
 // ── Real Auth / Storage API schedules ────────────────────────────────────────
 
 t('Storage: an authenticated upload after acceptance is refused by the write policy', async () => {

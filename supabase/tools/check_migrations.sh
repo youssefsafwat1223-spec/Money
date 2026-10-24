@@ -60,6 +60,8 @@ revoked=$(for f in "$MIG_DIR"/*.sql; do
         gsub(/[ \t\r]+/, " ", s)
         sub(/^ /, "", s)
         if (s !~ /^revoke /) continue
+        # REVOKE GRANT OPTION FOR only removes the right to re-grant; it does not revoke EXECUTE itself.
+        if (s ~ /^revoke grant option for /) continue
         if (!match(s, / on functions? /)) continue
         privs = substr(s, 1, RSTART)
         rest = substr(s, RSTART + RLENGTH)

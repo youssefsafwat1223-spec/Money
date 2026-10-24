@@ -65,10 +65,11 @@ $assert$;
 create temp table rb_fn   on commit drop as select * from account_fence.rollback_function_snapshot;
 create temp table rb_tbl  on commit drop as select * from account_fence.rollback_table_snapshot;
 create temp table rb_misc on commit drop as select * from account_fence.rollback_misc_snapshot;
-revoke all on pg_temp.rb_fn, pg_temp.rb_tbl, pg_temp.rb_misc from public, anon, authenticated, service_role, account_fence_owner;
+create temp table rb_cron on commit drop as select * from account_fence.rollback_cron_snapshot;
+revoke all on pg_temp.rb_fn, pg_temp.rb_tbl, pg_temp.rb_misc, pg_temp.rb_cron from public, anon, authenticated, service_role, account_fence_owner;
 do $assert$
 begin
-  if exists (select 1 from pg_class c where c.oid = any(array['pg_temp.rb_fn'::regclass, 'pg_temp.rb_tbl'::regclass, 'pg_temp.rb_misc'::regclass])
+  if exists (select 1 from pg_class c where c.oid = any(array['pg_temp.rb_fn'::regclass, 'pg_temp.rb_tbl'::regclass, 'pg_temp.rb_misc'::regclass, 'pg_temp.rb_cron'::regclass])
                and pg_get_userbyid(c.relowner) <> current_user) then
     raise exception 'rollback refused: comparison evidence owner mismatch' using errcode = 'QD099';
   end if;
@@ -77,7 +78,9 @@ begin
      or exists ((select * from rb_tbl except select * from account_fence.rollback_table_snapshot)
                 union all (select * from account_fence.rollback_table_snapshot except select * from rb_tbl))
      or exists ((select * from rb_misc except select * from account_fence.rollback_misc_snapshot)
-                union all (select * from account_fence.rollback_misc_snapshot except select * from rb_misc)) then
+                union all (select * from account_fence.rollback_misc_snapshot except select * from rb_misc))
+     or exists ((select * from rb_cron except select * from account_fence.rollback_cron_snapshot)
+                union all (select * from account_fence.rollback_cron_snapshot except select * from rb_cron)) then
     raise exception 'rollback refused: snapshot copy content differs' using errcode = 'QD099';
   end if;
 end
@@ -128,7 +131,7 @@ drop trigger a0_account_fence_guard on public.admin_users;
 drop trigger a0_account_fence_guard on public.notification_retry_queue;
 drop trigger a0_account_fence_guard on public.capture_fingerprints;
 drop trigger a0_profiles_protect_legacy_schedule on public.profiles;
-drop trigger a0_account_fence_legacy_queue on public.account_purge_queue;
+drop trigger a0_account_fence_a_legacy_queue on public.account_purge_queue;
 
 -- 2. Policies added by the fence (literal).
 drop policy account_fence_discovery on public.notification_logs;
@@ -3382,8 +3385,22 @@ begin
     end if;
     -- F1: restore the legacy 30-day purge job exactly as recorded by fence.sql (schedule, command, active flag).
     -- Absent snapshot row (job did not exist at apply) restores nothing.
-    for r in select c.jobname, c.schedule, c.command, c.active from account_fence.rollback_cron_snapshot c loop
-      perform cron.schedule(r.jobname, r.schedule, r.command);
+    for r in select c.jobname, c.schedule, c.command, c.active, c.database, c.username from rb_cron c loop
+      -- Never execute recorded text that is not exactly what migration 0065 scheduled.
+      if r.jobname is distinct from 'purge-scheduled-deletions-job'
+         or r.schedule is distinct from '30 3 * * *'
+         or r.command is distinct from 'select public.run_purge_scheduled_deletions()' then
+        raise exception 'rollback refused: recorded legacy cron job differs from migration 0065 (schedule/command)' using errcode = 'QD099';
+      end if;
+      if r.database = current_database() and r.username = current_user then
+        perform cron.schedule(r.jobname, r.schedule, r.command);
+      elsif exists (select 1 from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid = p.pronamespace
+                     where n.nspname = 'cron' and p.proname = 'schedule_in_database') then
+        perform cron.schedule_in_database(r.jobname, r.schedule, r.command, r.database, r.username);
+      else
+        raise exception 'rollback refused: legacy cron job was scheduled in database % as % and cannot be restored here', r.database, r.username
+          using errcode = 'QD099';
+      end if;
       if not r.active then
         perform cron.alter_job((select j.jobid from cron.job j where j.jobname = r.jobname), active := false);
       end if;

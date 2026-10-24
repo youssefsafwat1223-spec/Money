@@ -168,7 +168,7 @@ declare
   fn text;
   v_state text;
 begin
-  foreach fn in array array['account_fence.operator_failed_jobs()', 'account_fence.operator_requeue_failed_job(uuid)'] loop
+  foreach fn in array array['account_fence.operator_failed_jobs()', 'account_fence.operator_requeue_failed_job(uuid)', 'account_fence.operator_cancel_failed_job(uuid)'] loop
     if has_function_privilege('anon', fn, 'EXECUTE') or has_function_privilege('authenticated', fn, 'EXECUTE')
        or has_function_privilege('service_role', fn, 'EXECUTE') then
       raise exception 'F4: % is executable by an API role', fn;
@@ -193,6 +193,62 @@ begin
     end;
     reset role;
     if v_state is distinct from '42501' then raise exception 'F4: % calling operator_requeue_failed_job gave %', fn, v_state; end if;
+    v_state := 'no error';
+    begin
+      execute format('set local role %I', fn);
+      perform account_fence.operator_cancel_failed_job(gen_random_uuid());
+    exception when others then
+      v_state := sqlstate;
+    end;
+    reset role;
+    if v_state is distinct from '42501' then raise exception 'F4: % calling operator_cancel_failed_job gave %', fn, v_state; end if;
   end loop;
   raise notice 'acl.sql: F4 operator function ACL checks passed';
+end $$;
+
+-- 14. P2-1: forged owner columns on notification_logs (optional user_id, install column) are refused with 42501 before admission.
+do $$
+declare
+  v_a uuid := gen_random_uuid();
+  v_b uuid := gen_random_uuid();
+  v_state text; v_msg text;
+begin
+  perform set_config('request.jwt.claims', format('{"sub":"%s","role":"authenticated"}', v_a), true);
+  -- victim user_id
+  v_state := 'no error';
+  begin
+    set local role authenticated;
+    insert into public.notification_logs (user_id, install_id, install_id_hash, notification_type) values (v_b, 'x', repeat('a', 32), 'test');
+  exception when others then v_state := sqlstate; v_msg := sqlerrm;
+  end;
+  reset role;
+  if v_state is distinct from '42501' or v_msg is distinct from 'owner_column_mismatch' then
+    raise exception 'P2-1: victim user_id insert gave % (%)', v_state, v_msg;
+  end if;
+  -- install column with no owner (null user_id)
+  v_state := 'no error'; v_msg := null;
+  begin
+    set local role authenticated;
+    insert into public.notification_logs (user_id, install_id, install_id_hash, notification_type) values (null, 'x', repeat('b', 32), 'test');
+  exception when others then v_state := sqlstate; v_msg := sqlerrm;
+  end;
+  reset role;
+  if v_state is distinct from '42501' or v_msg is distinct from 'owner_column_mismatch' then
+    raise exception 'P2-1: ownerless install insert gave % (%)', v_state, v_msg;
+  end if;
+  raise notice 'acl.sql: P2-1 checks passed';
+end $$;
+
+-- 15. P2-2: the legacy queue is closed for every caller, service_role included (QD003, raised before any admission oracle).
+do $$
+declare v_state text;
+begin
+  v_state := 'no error';
+  begin
+    set local role service_role;
+    insert into public.account_purge_queue (user_id) values (gen_random_uuid());
+  exception when others then v_state := sqlstate;
+  end;
+  reset role;
+  if v_state is distinct from 'QD003' then raise exception 'P2-2: service_role queue insert gave %', v_state; end if;
 end $$;
