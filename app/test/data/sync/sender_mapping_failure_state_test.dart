@@ -1,3 +1,4 @@
+import '../../features/capture/ledger_admission_fixture.dart';
 import 'dart:io';
 
 import 'package:drift/native.dart';
@@ -131,7 +132,15 @@ void main() {
   });
 
   group('push retry state', () {
-    test('a transient failure backs off and is not retried before it is due',
+    group('real admitted sender mechanism 4', () {
+      LedgerAdmissionFixture? admission;
+      setUp(() async {
+        await db.close();
+        admission = await LedgerAdmissionFixture.open('user-1');
+        db = admission!.database;
+      });
+      tearDown(() async { await admission?.finish(); });
+      test('a transient failure backs off and is not retried before it is due',
         () async {
       await seed('a', 'pending');
       store.upsertError = const SocketException('offline');
@@ -147,8 +156,17 @@ void main() {
       await service().push('user-1');
       expect(store.upsertCalls, callsBefore, reason: 'backoff not elapsed');
     });
+    });
 
-    test('a due failed row is retried and settles on success', () async {
+    group('real admitted sender mechanism 3', () {
+      LedgerAdmissionFixture? admission;
+      setUp(() async {
+        await db.close();
+        admission = await LedgerAdmissionFixture.open('user-1');
+        db = admission!.database;
+      });
+      tearDown(() async { await admission?.finish(); });
+      test('a due failed row is retried and settles on success', () async {
       await seed('a', 'failed',
           attempts: 2, nextRetry: '2020-01-01T00:00:00Z');
       final pushed = await service().push('user-1');
@@ -158,8 +176,17 @@ void main() {
       expect(r['sync_attempt_count'], 0);
       expect(r['sync_next_retry_at'], isNull);
     });
+    });
 
-    test('reaching the attempt cap makes the failure terminal and observable',
+    group('real admitted sender mechanism 2', () {
+      LedgerAdmissionFixture? admission;
+      setUp(() async {
+        await db.close();
+        admission = await LedgerAdmissionFixture.open('user-1');
+        db = admission!.database;
+      });
+      tearDown(() async { await admission?.finish(); });
+      test('reaching the attempt cap makes the failure terminal and observable',
         () async {
       await seed('a', 'failed',
           attempts: 11, nextRetry: '2020-01-01T00:00:00Z');
@@ -176,8 +203,17 @@ void main() {
       expect(store.upsertCalls, calls, reason: 'terminal rows are not retried');
       expect((await row('a'))['sync_status'], 'failed');
     });
+    });
 
-    test('a permanent error class is terminal on the first failure', () async {
+    group('real admitted sender mechanism 1', () {
+      LedgerAdmissionFixture? admission;
+      setUp(() async {
+        await db.close();
+        admission = await LedgerAdmissionFixture.open('user-1');
+        db = admission!.database;
+      });
+      tearDown(() async { await admission?.finish(); });
+      test('a permanent error class is terminal on the first failure', () async {
       await seed('a', 'pending');
       store.upsertError =
           const PostgrestException(message: 'check', code: '23514');
@@ -185,6 +221,7 @@ void main() {
       final r = await row('a');
       expect(r['sync_permanent'], 1);
       expect(r['sync_failure_class'], 'server_check_violation');
+    });
     });
 
     test('a terminal row is never overwritten by pull', () async {

@@ -7,7 +7,12 @@ import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../../data/db/app_database.dart' show DatabaseLifecycleState;
 import '../../data/db/database_key_store.dart';
+import '../../data/db/app_database.dart';
+import '../../data/db/database_access_broker.dart';
+import '../../data/db/ownership_guard.dart' show StaleOwnershipException;
+import '../../features/capture/services/native_capture_bridge.dart';
 import '../backend/supabase_config.dart';
 import '../privacy/cloud_egress_gate.dart';
 import '../tracking/user_activity_service.dart';
@@ -15,7 +20,10 @@ import '../security/secure_storage_options.dart';
 import '../sync/sync_wakeup.dart' show AuthSessionValid;
 import 'account_scope.dart';
 import 'auth_stream_boundary.dart';
+import 'local_read_authority.dart';
 import 'admission_authority.dart';
+import 'consent_capability.dart';
+import 'account_fence_authority.dart';
 import 'remove_data_flow.dart';
 
 /// [sessionExpired] is distinct from [needsOnboarding]: onboarding metadata
@@ -24,6 +32,25 @@ import 'remove_data_flow.dart';
 /// clear onboarding completion for this case (see `AppSession.signOut` for
 /// the separate, intentional full-reset path).
 enum SessionStatus { unknown, needsOnboarding, authenticated, sessionExpired }
+
+/// O: opaque host-issued writable admission. Metadata cannot construct one.
+/// This deliberately grants no local-read admission: that scope is not wired.
+class DatabaseHostAdmission {
+  DatabaseHostAdmission._(this._owner, this._scope, this._client, this._epoch,
+      this._loss, this._sdkSession);
+  final AppSession _owner;
+  final AccountScope _scope;
+  final supabase.SupabaseClient _client;
+  final int _epoch;
+  final int _loss;
+  final supabase.Session _sdkSession;
+  bool _revoked = false;
+
+  String get uid => _scope.uid!;
+  int get scopeGeneration => _scope.generation;
+  AppDatabase get database => _scope.database;
+  bool get isCurrent => _owner._databaseAdmissionCurrent(this);
+}
 
 /// MALI-054n: thrown when a new identity cannot be admitted because the previous
 /// owner's local data / native capture residue could not be fully cleared. The
@@ -78,6 +105,117 @@ class _Admission {
   bool get current => authority.isCurrent;
 }
 
+/// N2: how a native lifecycle step settled. Only [confirmed] is a verified native
+/// receipt. [incomplete] keeps Dart denied and further publication closed.
+/// [unknown] means there was no verified native proof to act on: it is never
+/// success.
+enum NativeLifecycleOutcome { confirmed, incomplete, unknown }
+
+/// One native authorization lifetime this process is publishing or holds, bound
+/// to the exact admission (uid, epoch, database) it belongs to. [binding] stays
+/// null until a verified restrictive receipt came back; the revocation request
+/// identity inside it is allocated once, so every retry of its fence is the same
+/// request. Nothing here is ever read back from the current owner.
+class _NativeLifetime {
+  _NativeLifetime(this.uid, this.epoch, this.database);
+  final String uid;
+  final int epoch;
+  final Object database;
+  CloudEgressEnableBinding? binding;
+
+  /// Set synchronously by the loss that retired this lifetime.
+  bool lost = false;
+
+  /// Completes, never with an error, when its publication has settled.
+  final Completer<NativeLifecycleOutcome> published =
+      Completer<NativeLifecycleOutcome>();
+}
+
+/// Private evidence of a successful exact identity publication. Never callable
+/// or constructible outside this session library; not a status-derived grant.
+class _DatabaseIdentityPublication {
+  const _DatabaseIdentityPublication(
+      this.scope, this.client, this.sdk, this.epoch, this.loss);
+  final AccountScope scope;
+  final supabase.SupabaseClient client;
+  final supabase.Session sdk;
+  final int epoch;
+  final int loss;
+}
+
+/// Private evidence that a fresh explicit admission was published (never a
+/// caller boolean or a number): the exact scope, issuer client and generations.
+class _GrantProof {
+  _GrantProof(this.uid, this.scope, this.client, this.epoch, this.loss);
+  final String uid;
+  final AccountScope scope;
+  final supabase.SupabaseClient client;
+  final int epoch;
+  final int loss;
+}
+
+/// The host-side proof that the published scope is the verified local-read one.
+/// What [AppSession.signOut] achieved. Signing out always locks the process;
+/// [durableDenyIncomplete] says the on-disk deny could not be established, so a
+/// restart is NOT guaranteed to stay locked.
+enum SignOutOutcome { complete, durableDenyIncomplete }
+
+/// What the DURABLE OFFLINE-ACCESS DENIAL of [AppSession.removeDataFromDevice]
+/// achieved. It says nothing else: it is NOT a statement that data was removed.
+/// Removal is reported separately and only when confirmed: a removal that cannot
+/// be confirmed throws [RemoveDataIncompleteException]; a request with no target
+/// (no admitted or published uid) removes nothing, raises no data-removed notice
+/// and still returns [complete] when its denial step needed nothing.
+/// [durableDenyIncomplete] says the denial could not be established, so a restart
+/// is NOT guaranteed to stay locked and may restore offline access; Retry only
+/// repeats that denial, never the removal.
+enum RemoveDataOutcome { complete, durableDenyIncomplete }
+
+/// Set by `setIdentity` once it has retired a local-read proof, so the wrapper
+/// knows a failure happened after a mode transition began.
+/// D3: what a failed reconnect attempt left behind — the admission epoch and the
+/// scope that was published when it failed. A queued failure recovery holds only
+/// while both are unchanged; a newer admission changes at least the epoch.
+class _FailedAttemptBinding {
+  _FailedAttemptBinding(this.epoch, this.scope);
+  final int epoch;
+  final AccountScope? scope;
+
+  bool holds(int currentEpoch, AccountScope? currentScope) =>
+      currentEpoch == epoch && identical(currentScope, scope);
+}
+
+class _ReconnectProbe {
+  bool began = false;
+
+  /// R10.2: the admission epoch this attempt itself took (`++_admissionEpoch`),
+  /// i.e. the identity of the initiating attempt. Null until the attempt began.
+  int? epoch;
+}
+
+/// O-LC-1a: the identity of ONE startup as far as local-read denial is
+/// concerned. Captured by the runner at the start of its startup
+/// ([AppSession.beginLocalReadStartupBinding]) and handed back with every late
+/// storage classification, so the denial reaches exactly what that startup
+/// derived: the grant it found (by operation id) and the local-read scope it
+/// published (by identity), and never an independently admitted successor.
+class LocalReadStartupBinding {
+  LocalReadStartupBinding._(this._lifecycle, this.operationId, this.uid);
+  final int _lifecycle;
+
+  /// The stored grant operation found at startup (null: none readable).
+  final String? operationId;
+  final String? uid;
+  _LocalReadHostProof? _proof;
+}
+
+class _LocalReadHostProof {
+  _LocalReadHostProof(this.capability, this.scope, this.host);
+  final LocalReadCapability capability;
+  final AccountScope scope;
+  final AccountScopeHost host;
+}
+
 /// What launch found out about removal state, BEFORE anything can be admitted.
 ///
 /// [blocked] is not "signed out": it means the durable removal state could not be
@@ -90,7 +228,8 @@ class LaunchAdmission {
   const LaunchAdmission.blocked()
       : blocked = true,
         uid = null;
-  const LaunchAdmission.open(this.uid) : blocked = false;
+  // Not const: the identity of the admission chosen at launch is meaningful.
+  LaunchAdmission.open(this.uid) : blocked = false;
   final bool blocked;
   final String? uid;
 }
@@ -103,6 +242,172 @@ class AppSession extends ValueNotifier<SessionStatus> {
   AppSession._() : super(SessionStatus.unknown);
 
   static final AppSession instance = AppSession._();
+
+  supabase.SupabaseClient? _databaseIssuerClient;
+  DatabaseHostAdmission? _databaseHostAdmission;
+
+  /// O: the inert coordinator, owned by the bootstrap host. Production startup
+  /// fails closed when it cannot be created or proven (C1), so a null here only
+  /// exists in tests / headless processes; with none there is NO local read.
+  DatabaseAccessBroker? _databaseCoordinator;
+
+  /// The reservation whose REAL handle is the published primary, kept for its
+  /// physical lifetime so committed publication can promote exactly it.
+  DatabaseOpenReservation? _databaseOpenReservation;
+
+  /// How long a local-read restoration waits for the coordinator ledger to drain
+  /// (pending opens and physical handles) before it denies. Test seam.
+  @visibleForTesting
+  Duration debugLocalReadDrainTimeout = const Duration(seconds: 5);
+
+  /// R8: production configuration REQUIRES a coordinator.
+  void configureDatabaseCoordinator(DatabaseAccessBroker coordinator) {
+    _databaseCoordinator = coordinator;
+    _databaseOpenReservation = null;
+  }
+
+  /// R8: forgets the coordinator (a fixture between tests, or a session that
+  /// models a process which never had one). Without a coordinator there is no
+  /// local read. An architecture pin forbids any use of this name under `lib/`.
+  @visibleForTesting
+  void configureUncoordinatedForTesting() {
+    _databaseCoordinator = null;
+    _databaseOpenReservation = null;
+  }
+
+  @visibleForTesting
+  DatabaseOpenReservation? get debugDatabaseOpenReservation =>
+      _databaseOpenReservation;
+
+  int _databaseLossGeneration = 0;
+  bool _databasePublicationDenied = false;
+  _Admission? _databaseOpeningAdmission;
+  _DatabaseIdentityPublication? _databaseIdentityPublication;
+
+  void _revokeDatabasePublication({bool authenticationLoss = true}) {
+    _databaseIdentityPublication = null;
+    _databaseLossGeneration++;
+    if (authenticationLoss) _databasePublicationDenied = true;
+    _databaseHostAdmission?._revoked = true;
+  }
+
+  /// Retrieval only. Authority is minted solely at successful publication.
+  DatabaseHostAdmission? captureDatabaseHostAdmission() {
+    final receipt = _databaseHostAdmission;
+    return receipt != null && receipt.isCurrent ? receipt : null;
+  }
+
+  void _recordDatabaseIdentityPublication(int lossGeneration) {
+    if (_databasePublicationDenied ||
+        lossGeneration != _databaseLossGeneration) {
+      return;
+    }
+    final host = _accountScope;
+    final client = _databaseIssuerClient;
+    if (host is! AccountScopeHost || client == null) return;
+    final scope = host.current;
+    final sdk = client.auth.currentSession;
+    if (scope == null ||
+        sdk == null ||
+        sdk.isExpired ||
+        isGuest ||
+        _admittedUid != scope.uid ||
+        sdk.user.id != scope.uid ||
+        _explicitAdmissionEpoch != null ||
+        _admissionClosed ||
+        scope.database.isReadOnly ||
+        !scope.database.admitsSecondary) {
+      return;
+    }
+    _databaseIdentityPublication = _DatabaseIdentityPublication(
+        scope, client, sdk, _admissionEpoch, lossGeneration);
+  }
+
+  void _commitDatabasePublication(int lossGeneration) {
+    if (_databasePublicationDenied ||
+        lossGeneration != _databaseLossGeneration) {
+      return;
+    }
+    final host = _accountScope;
+    final client = _databaseIssuerClient;
+    if (host is! AccountScopeHost || client == null) return;
+    final scope = host.current;
+    final sdk = client.auth.currentSession;
+    if (scope == null || sdk == null) return;
+    if (_admissionClosed ||
+        (_removeData?.isRunning ?? false) ||
+        _explicitAdmissionEpoch != null ||
+        _admittedUid != scope.uid ||
+        !_onboardingDone ||
+        isGuest ||
+        status != SessionStatus.authenticated ||
+        sdk.isExpired ||
+        sdk.user.id != scope.uid ||
+        scope.database.isReadOnly ||
+        !scope.database.admitsSecondary) {
+      return;
+    }
+    final publication = _databaseIdentityPublication;
+    if (publication == null ||
+        publication.loss != lossGeneration ||
+        publication.epoch != _admissionEpoch ||
+        !identical(publication.scope, scope) ||
+        !identical(publication.client, client) ||
+        publication.sdk.accessToken != sdk.accessToken) {
+      return;
+    }
+    // O: when the published primary was opened under a reservation, committed
+    // publication promotes exactly that tracked handle, or issues nothing. A
+    // primary no reservation tracks (launch open) keeps the existing rule.
+    final reservation = _databaseOpenReservation;
+    if (reservation != null &&
+        reservation.ownsDatabase(scope.database) &&
+        !reservation.promoteCommitted(scope.database, uid: scope.uid!)) {
+      return;
+    }
+    final previous = _databaseHostAdmission;
+    if (previous != null && previous.isCurrent) return;
+    if (previous != null &&
+        previous._revoked &&
+        previous._epoch == _admissionEpoch &&
+        previous._loss == lossGeneration &&
+        identical(previous._scope, scope)) {
+      return;
+    }
+    final receipt = DatabaseHostAdmission._(
+        this, scope, client, _admissionEpoch, lossGeneration, sdk);
+    _databaseHostAdmission = receipt;
+    if (!_databaseAdmissionCurrent(receipt)) _databaseHostAdmission = null;
+  }
+
+  bool _databaseAdmissionCurrent(DatabaseHostAdmission receipt) {
+    if (receipt._revoked) return false;
+    final host = _accountScope;
+    final sdk = receipt._client.auth.currentSession;
+    final current = identical(receipt._owner, this) &&
+        identical(_databaseHostAdmission, receipt) &&
+        identical(_databaseIssuerClient, receipt._client) &&
+        host is AccountScopeHost &&
+        identical(host.current, receipt._scope) &&
+        !_admissionClosed &&
+        !(_removeData?.isRunning ?? false) &&
+        _explicitAdmissionEpoch == null &&
+        _admissionEpoch == receipt._epoch &&
+        _databaseLossGeneration == receipt._loss &&
+        !_databasePublicationDenied &&
+        _admittedUid == receipt._scope.uid &&
+        _onboardingDone &&
+        !isGuest &&
+        status == SessionStatus.authenticated &&
+        sdk != null &&
+        !sdk.isExpired &&
+        sdk.user.id == receipt._scope.uid &&
+        sdk.accessToken == receipt._sdkSession.accessToken &&
+        !receipt.database.isReadOnly &&
+        receipt.database.admitsSecondary;
+    if (!current) receipt._revoked = true;
+    return current;
+  }
 
   static const FlutterSecureStorage _storage = SecureStorageOptions.storage;
   static const String _kDone = 'onboarding_done';
@@ -140,6 +445,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _kCompletedAccounts,
     _kLocalDataOwnerUid,
     _kLocalDataOwnerGeneration,
+    SecureLocalReadStore.storageKey,
   };
 
   String? authMethod;
@@ -173,10 +479,30 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// [_captureOwnerClear] when not registered.
   Future<bool> Function()? _captureOwnerClearAtSignOut;
 
-  /// Publishes the admitted uid as the native capture owner (WP-6 gates it on
-  /// the consent link). Best effort; never blocks admission.
+  /// Publishes the admitted uid as a RESTRICTIVE native capture owner (local only,
+  /// cloud and AI off; no backend link). The typed result is `Future<void>` only
+  /// so hooks that return nothing still compile: a hook that publishes completes
+  /// with its [RestrictiveCaptureOwnerReceipt], and anything else (null, a
+  /// failure, a timeout, a receipt that does not verify) is NOT a publication.
   Future<void> Function(String uid, AdmissionAuthority authority)?
       _publishCaptureOwner;
+
+  /// N2: the native lifetime this process publishes or holds, and the one tail
+  /// that orders every fence and publication. A loss queues the fence of the
+  /// lifetime it retired; a later publication queues behind it.
+  _NativeLifetime? _nativeLifetime;
+  Future<NativeLifecycleOutcome> _nativeTail =
+      Future<NativeLifecycleOutcome>.value(NativeLifecycleOutcome.unknown);
+  int _nativeJobs = 0;
+
+  /// A fence of a verified lifetime that was not confirmed. It keeps Dart denied
+  /// and every later publication closed for this process; there is no automatic
+  /// retry (a later explicit recovery owns clearing it).
+  bool _fenceIncomplete = false;
+
+  /// Longest an admission waits for its publication, and a fence for its receipt.
+  static const Duration _kNativePublishTimeout = Duration(seconds: 2);
+  static const Duration _kNativeFenceTimeout = Duration(seconds: 10);
 
   /// UID whose admission is deferred because another account's native residue
   /// has to be purged first and the purge hook wasn't registered yet (the first
@@ -220,7 +546,42 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// Removal requests currently accepted and not finished (a counter, so one
   /// finishing never reopens admission under another still running).
   int _removalsAccepted = 0;
-  bool get _admissionClosed => _removalsAccepted > 0;
+
+  /// Logouts accepted and not finished (a counter, like removals). A logout
+  /// closes admission SYNCHRONOUSLY, before its first await, and holds the
+  /// closure through the scope lock and all identity/native cleanup, so nothing
+  /// can be admitted, captured or issued in between. Its end bumps the epoch once
+  /// more, so an attempt or authority taken during the closure never becomes
+  /// current afterwards.
+  int _logoutsAccepted = 0;
+  bool get _admissionClosed => _removalsAccepted > 0 || _logoutsAccepted > 0;
+
+  /// Set (to the new epoch) when an AUTOMATIC account switch has accepted and
+  /// invalidated every outgoing authority: capture stays closed while the old
+  /// scope is torn down. Epoch-owned: only the successful, still-current
+  /// publication of that very epoch reopens it, an older finally never does.
+  int? _accountSwitchEpoch;
+
+  /// The consent-only capability of the committed identity publication.
+  ConsentCapability? _consentCapability;
+
+  /// Advances at EVERY loss of consent authority (`markSessionInvalid`, a
+  /// server-driven auth loss, an expired/absent SDK session, logout, removal,
+  /// rollback, reset). An admission captures it BEFORE its first await and may
+  /// issue a capability only while it is unchanged, so an admission overtaken by
+  /// a loss can never restore the authority the loss revoked, whatever its other
+  /// (ordinary F2) admission state still says.
+  int _consentLossSeq = 0;
+
+  /// A logout that FAILED part-way (the scope could not be locked, a cleanup
+  /// threw): the old status and scope may still look authenticated/open, so local
+  /// and consent work stay closed and no automatic admission can restore the old
+  /// authority. Only a later successful logout, Remove data, or an explicit
+  /// successful admission clears it.
+  bool _logoutIncomplete = false;
+
+  /// Test/production seam for the SDK client that provides identity evidence.
+  supabase.SupabaseClient? Function()? _consentSdkClient;
 
   /// The uid whose admission completed in this process; the removal target when
   /// the owner marker is missing.
@@ -229,6 +590,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// Ownership work already dispatched (marker/generation writes, scope
   /// activation). Removal drains it before deleting anything.
   final Set<Future<void>> _inflightAdmissions = {};
+
+  /// Bounded LOCAL operations already dispatched (settings/gate/database work
+  /// under a local-work authority or a consent capability). Tracked apart from
+  /// the admissions so an admission can drain only the local work, never itself;
+  /// Remove data and logout drain both.
+  final Set<Future<void>> _inflightLocal = {};
 
   SessionStatus get status => value;
 
@@ -242,6 +609,84 @@ class AppSession extends ValueNotifier<SessionStatus> {
       CloudEgressGate.instance.advanceEpoch();
     }
     return AuthAttempt(_admissionEpoch);
+  }
+
+  AccountFenceAuthority get _accountFence => AccountFenceAuthority.shared;
+  (String, String, int)? _accountFenceOwner;
+
+  bool get accountFenceCanReplace => _accountScope == null &&
+      _inflightAdmissions.isEmpty && _explicitAdmissionEpoch == null;
+
+  AccountScopeHost? accountFenceHostForDatabase(AppDatabase database) {
+    final host = _accountScope;
+    return host is AccountScopeHost && identical(host.current?.database, database)
+        ? host : null;
+  }
+
+  /// Denial-only reservation. The session verifies its own committed proof;
+  /// callers cannot supply a Boolean in place of the original capability.
+  void Function() reserveAccountFenceParking(AccountScopeHost host,
+      AccountScope scope, AdmissionAuthority capability, String ownerToken,
+      int egressEpoch) {
+    if (CloudEgressGate.instance.epoch != egressEpoch ||
+        accountFenceCapturedLifetimeToken(host, scope, capability) != ownerToken) {
+      throw const StaleAdmissionException();
+    }
+    final reservation = Completer<void>();
+    _inflightAdmissions.add(reservation.future);
+    var settled = false;
+    return () {
+      if (settled) return;
+      settled = true;
+      _inflightAdmissions.remove(reservation.future);
+      reservation.complete();
+    };
+  }
+
+  String? accountFenceOwnerToken(AccountScopeHost host, AccountScope scope,
+      AdmissionAuthority capability) {
+    if (!capability.isCurrent) return null;
+    return accountFenceCapturedLifetimeToken(host, scope, capability);
+  }
+
+  /// Deny-only proof for a handle captured earlier with a real current capability.
+  /// This does not authorize local work when durable readiness is unresolved.
+  String? accountFenceCapturedLifetimeToken(AccountScopeHost host, AccountScope scope,
+      AdmissionAuthority capability) {
+    final owner = _accountFenceOwner;
+    if (!identical(_accountScope, host) || !identical(host.current, scope) ||
+        scope.database.lifecycleState != DatabaseLifecycleState.open ||
+        scope.uid != _admittedUid || capability.uid != scope.uid ||
+        capability.epoch != _admissionEpoch ||
+        status != SessionStatus.authenticated || _explicitAdmissionEpoch != null ||
+        _admissionClosed || (_removeData?.isRunning ?? false) ||
+        owner == null || owner.$1 != scope.uid || owner.$3 != _admissionEpoch) {
+      return null;
+    }
+    return owner.$2;
+  }
+
+  Future<(String?, String?)> readAccountFenceOwnerProof() async => (
+    await _storage.read(key: _kLocalDataOwnerUid),
+    await _storage.read(key: _kLocalDataOwnerGeneration),
+  );
+
+  Future<void> retireAccountFence(AccountScopeHost host, AccountScope scope) {
+    if (!identical(_accountScope, host) || !identical(host.current, scope)) {
+      throw const StaleAdmissionException();
+    }
+    _accountFenceOwner = null;
+    _admissionEpoch++;
+    _explicitAdmissionEpoch = null;
+    _authLossSeq++;
+    _revokeDatabasePublication();
+    _revokeConsentProof();
+    CloudEgressGate.instance.advanceEpoch();
+    return Future.wait(_inflightAdmissions.toList()).then<void>((_) {});
+  }
+
+  void publishAccountFenceRetirement() {
+    value = SessionStatus.sessionExpired;
   }
 
   bool _attemptCurrent(AuthAttempt a) =>
@@ -259,6 +704,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
             !_admissionClosed &&
             !(_removeData?.isRunning ?? false) &&
             _admissionEpoch == epoch &&
+            _accountFence.permits(uid) &&
             (sessionCurrent?.call() ?? true),
         canCreate: canCreate,
         epoch: epoch,
@@ -269,7 +715,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// pending/completed; an explicit Remove data accepted later revokes it.
   Future<AdmissionAuthority> maintenanceAuthority(String uid) async {
     final epoch = _admissionEpoch;
-    if (_admissionClosed) throw const StaleAdmissionException();
+    await _accountFence.guard(uid, current: () =>
+        _admissionEpoch == epoch && !_admissionClosed);
+    if (_admissionClosed || _logoutIncomplete) {
+      throw const StaleAdmissionException();
+    }
     final removal = _removeData;
     if (removal != null) {
       try {
@@ -298,45 +748,497 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _identityTail = Future<void>.value();
     _explicitAdmissionEpoch = null;
     _inflightAdmissions.clear();
+    _inflightLocal.clear();
     _removalsAccepted = 0;
+    _logoutsAccepted = 0;
+    _logoutIncomplete = false;
+    _accountSwitchEpoch = null;
+    // Resets injected state only: it never dispatches physical native work.
+    _consentCapability = null;
+    _consentLossSeq++;
+    _nativeLifetime = null;
+    _nativeTail =
+        Future<NativeLifecycleOutcome>.value(NativeLifecycleOutcome.unknown);
+    _nativeJobs = 0;
+    _fenceIncomplete = false;
+    _consentSdkClient = null;
     _admittedUid = null;
+    _localReadLocked = false;
+    _localReadCleanupIncomplete = false;
+    _outstandingOperationDenials.clear();
+    _localReadStorageContinuity = null;
+    _localReadProof = null;
+    _localReadHandoffProof = null;
+    _localReadEgressHold = false;
+    _pendingFirstGrant = null;
+    _localReadTail = Future<void>.value();
+  }
+
+  /// Drops the consent proof SYNCHRONOUSLY and advances the loss generation, so
+  /// every admission that captured the earlier generation is barred from issuing.
+  void _revokeConsentProof() {
+    _consentCapability = null;
+    _consentLossSeq++;
+    _retireNativeLifetime();
+  }
+
+  /// Runs [job] after every earlier native lifecycle job. A job maps every failure
+  /// to an outcome, so the tail never carries an error and never hangs.
+  Future<NativeLifecycleOutcome> _enqueueNative(
+      Future<NativeLifecycleOutcome> Function() job) {
+    _nativeJobs++;
+    final run = _nativeTail.then((_) => job()).whenComplete(() {
+      if (_nativeJobs > 0) _nativeJobs--;
+    });
+    _nativeTail = run.catchError((Object _) => NativeLifecycleOutcome.incomplete);
+    return run;
+  }
+
+  /// Completes with the outcome of the newest native lifecycle job queued so far.
+  Future<NativeLifecycleOutcome> nativeLifecycleSettled() => _nativeTail;
+
+  /// N-E owner prerequisite: the exact native lifecycle the restrictive
+  /// publication of the committed identity behind [capability] produced.
+  ///
+  /// Waits (bounded) for THAT lifetime's publication to settle, and returns its
+  /// verified binding only while the lifetime is still the one this process holds
+  /// for exactly the capability's uid, epoch and database, was never lost, and
+  /// the capability is still current. Null for anything else: no hook, a receipt
+  /// that did not verify, a fence that is incomplete, a lost or replaced
+  /// lifetime. It publishes nothing, links nothing and grants no authority; it
+  /// reads proof the admission already obtained.
+  Future<CloudEgressEnableBinding?> committedOwnerLifetime(
+      ConsentCapability capability) async {
+    bool matches(_NativeLifetime? l) =>
+        l != null &&
+        !l.lost &&
+        l.uid == capability.uid &&
+        l.epoch == capability.epoch &&
+        (capability.database == null ||
+            identical(l.database, capability.database));
+    final lifetime = _nativeLifetime;
+    if (!matches(lifetime) || !capability.isCurrent || _fenceIncomplete) {
+      return null;
+    }
+    NativeLifecycleOutcome outcome;
+    try {
+      outcome = await lifetime!.published.future
+          .timeout(_kNativePublishTimeout + _kNativeFenceTimeout);
+    } catch (_) {
+      return null;
+    }
+    if (outcome != NativeLifecycleOutcome.confirmed ||
+        !identical(_nativeLifetime, lifetime) ||
+        !matches(lifetime) ||
+        !capability.isCurrent ||
+        _fenceIncomplete) {
+      return null;
+    }
+    return lifetime.binding;
+  }
+
+  /// SYNCHRONOUS, before any await of any loss origin: ends the native lifetime
+  /// this process published (or is publishing), denies Dart egress and queues the
+  /// fence of exactly that captured lifetime. Idempotent: a lifetime is retired
+  /// once, so repeated loss events never mint a second fence operation. A
+  /// publication that already failed has nothing native to fence.
+  void _retireNativeLifetime() {
+    final lifetime = _nativeLifetime;
+    if (lifetime == null) return;
+    _nativeLifetime = null;
+    if (lifetime.published.isCompleted && lifetime.binding == null) return;
+    lifetime.lost = true;
+    final gate = CloudEgressGate.instance;
+    gate.denyForLifecycleLoss();
+    unawaited(_enqueueNative(() => _fenceLifetime(lifetime, gate)));
+  }
+
+  /// Fences the captured [lifetime] natively with its exact outgoing binding.
+  /// Confirmed only by a reply that independently proves the retirement in both
+  /// layers; anything else leaves the lifetime unconfirmed and Dart denied.
+  Future<NativeLifecycleOutcome> _fenceLifetime(
+      _NativeLifetime lifetime, CloudEgressGate gate) async {
+    final binding = lifetime.binding;
+    if (binding == null) {
+      // No verified native proof of the lifetime: nothing exact to revoke.
+      if (!_fenceIncomplete) gate.releaseLifecycleDenial();
+      return NativeLifecycleOutcome.unknown;
+    }
+    var outcome = NativeLifecycleOutcome.incomplete;
+    try {
+      final reply = await NativeCaptureBridge.revokeCaptureAuthorizationLifetime(
+        ownerUid: lifetime.uid,
+        binding: binding,
+      ).timeout(_kNativeFenceTimeout);
+      if (reply != null && reply.confirmsLifetimeRevoked(binding)) {
+        outcome = NativeLifecycleOutcome.confirmed;
+      }
+    } catch (_) {
+      // Failed, timed out or malformed: not a receipt.
+    }
+    if (outcome != NativeLifecycleOutcome.confirmed) _fenceIncomplete = true;
+    if (!_fenceIncomplete) gate.releaseLifecycleDenial();
+    return outcome;
+  }
+
+  /// Publishes a fresh restrictive native lifetime for [adm], ordered behind any
+  /// earlier fence, and waits (bounded) for the verified receipt. Never throws.
+  /// The same uid, epoch and database with a lifetime already published or being
+  /// published is an idempotent reconcile: it publishes nothing again.
+  Future<NativeLifecycleOutcome> _publishNativeLifetime(_Admission adm) {
+    final publish = _publishCaptureOwner;
+    final scope = _accountScope?.activeScope;
+    final authority = adm.authority;
+    if (publish == null ||
+        scope == null ||
+        scope.isLocalRead ||
+        scope.database.isReadOnly ||
+        scope.uid != adm.uid ||
+        !authority.isCurrent) {
+      return Future<NativeLifecycleOutcome>.value(NativeLifecycleOutcome.unknown);
+    }
+    final held = _nativeLifetime;
+    if (held != null &&
+        held.uid == adm.uid &&
+        held.epoch == authority.epoch &&
+        identical(held.database, scope.database) &&
+        (held.binding != null || !held.published.isCompleted)) {
+      return held.published.future;
+    }
+    final lifetime = _NativeLifetime(adm.uid, authority.epoch, scope.database);
+    _nativeLifetime = lifetime;
+    final gate = CloudEgressGate.instance;
+    return _enqueueNative(() async {
+      var outcome = NativeLifecycleOutcome.incomplete;
+      if (_fenceIncomplete) {
+        // An unconfirmed fence keeps every later publication closed.
+      } else if (lifetime.lost || !authority.isCurrent) {
+        outcome = NativeLifecycleOutcome.unknown;
+      } else {
+        try {
+          final Future<Object?> reply = publish(adm.uid, authority);
+          lifetime.binding = _lifetimeBinding(
+              adm.uid, await reply.timeout(_kNativePublishTimeout));
+          if (lifetime.binding != null) outcome = NativeLifecycleOutcome.confirmed;
+        } catch (_) {
+          // Failed or timed out: no receipt, so no native proof is claimed.
+        }
+      }
+      if (outcome == NativeLifecycleOutcome.confirmed &&
+          !lifetime.lost &&
+          !_fenceIncomplete) {
+        gate.releaseLifecycleDenial();
+      }
+      lifetime.published.complete(outcome);
+      return outcome;
+    });
+  }
+
+  /// The exact native lifecycle a verified restrictive [reply] publishes for
+  /// [uid], with a stable 128-bit revocation request identity allocated now.
+  /// Null unless the receipt verifies for that uid and both layers agree; the
+  /// numbers come from the receipt itself, never from a status or a stored uid.
+  CloudEgressEnableBinding? _lifetimeBinding(String uid, Object? reply) {
+    if (reply is! RestrictiveCaptureOwnerReceipt) return null;
+    final phase = reply.phase;
+    if (phase.egress.isEmpty) return null;
+    final generation = phase.egress.first.transitionGeneration;
+    final version = phase.egress.first.reservedVersion;
+    final ownerGeneration = phase.ownerGeneration;
+    final ownerEpoch = phase.ownerEpoch;
+    if (generation == null ||
+        version == null ||
+        ownerGeneration == null ||
+        ownerEpoch == null ||
+        !phase.egress.every((r) => r.transitionGeneration == generation) ||
+        !reply.confirms(uid: uid, expectedEpoch: ownerEpoch, version: version)) {
+      return null;
+    }
+    final random = Random.secure();
+    return CloudEgressEnableBinding(
+      operationId: [
+        for (var i = 0; i < 16; i++)
+          random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      ].join(),
+      transitionGeneration: generation,
+      reservedVersion: version,
+      ownerGeneration: ownerGeneration,
+      ownerEpoch: ownerEpoch,
+    );
+  }
+
+  /// The actual SDK client whose live session is the identity evidence a consent
+  /// capability needs. Production reads the bound `Supabase.instance.client`;
+  /// this typed seam lets a test inject the existing MockClient-backed client.
+  /// It grants nothing by itself: a capability is still issued only from a
+  /// committed publication, and only while this client holds a fresh,
+  /// non-expired session of exactly that uid.
+  void configureConsentSdkClient(supabase.SupabaseClient? Function()? provider) {
+    _consentSdkClient = provider;
+  }
+
+  supabase.SupabaseClient? _clientForConsent() {
+    final provider = _consentSdkClient;
+    if (provider != null) return provider();
+    if (!SupabaseConfig.isConfigured) return null;
+    try {
+      return supabase.Supabase.instance.client;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// True only while the SDK client holds a non-expired session of [uid].
+  bool _sdkSessionFresh(String uid, [supabase.SupabaseClient? client]) {
+    final session = (client ?? _clientForConsent())?.auth.currentSession;
+    return session != null && !session.isExpired && session.user.id == uid;
   }
 
   /// Captures a read-only epoch for a bounded local unit on the admitted scope.
   AdmissionAuthority? captureLocalWorkAuthority() {
     final uid = _accountScope?.activeUid;
+    final scope = _accountScope;
     if (uid == null ||
+        localReadActive ||
+        (scope is AccountScopeHost && (scope.current?.isLocalRead ?? false)) ||
         status != SessionStatus.authenticated ||
-        _explicitAdmissionEpoch != null) {
+        _explicitAdmissionEpoch != null ||
+        _accountSwitchEpoch != null ||
+        _logoutIncomplete ||
+        _admissionClosed) {
       return null;
     }
     return _authorityAt(_admissionEpoch, uid, canCreate: false);
   }
 
+  /// O-LC-2 — the account lifecycle a foreground callback (notification tap or
+  /// quick action) STARTED in. Null when no writable lifecycle is admitted (signed
+  /// out, offline read-only, a pending or running local-read transition, removal,
+  /// an explicit admission in flight): such a callback authorises nothing. The
+  /// returned authority stops being current the moment the lifecycle is replaced
+  /// in any way: writable -> local-read, logout, same-UID readmission, another
+  /// UID, or removal, so a handler paused at an await cannot act for a successor.
+  AdmissionAuthority? captureCallbackOrigin() {
+    final base = captureLocalWorkAuthority();
+    if (base == null || localReadEgressDenied) return null;
+    final host = _accountScope;
+    final scope = host is AccountScopeHost ? host.current : null;
+    return _authorityAt(base.epoch, base.uid,
+        canCreate: false,
+        sessionCurrent: () =>
+            status == SessionStatus.authenticated &&
+            _explicitAdmissionEpoch == null &&
+            !localReadEgressDenied &&
+            (host is! AccountScopeHost || identical(host.current, scope)));
+  }
+
   /// Only local database work belongs here: never await network or removal.
+  static const _localAdmissionChain = #localAdmissionReservationChain;
+
   Future<T> runAdmittedLocalOperation<T>(
       AdmissionAuthority authority, Future<T> Function() action) {
     authority.requireCurrent();
     if (status != SessionStatus.authenticated ||
-        _explicitAdmissionEpoch != null) {
+        _explicitAdmissionEpoch != null ||
+        _accountSwitchEpoch != null ||
+        _logoutIncomplete) {
       throw const StaleAdmissionException();
     }
-    return _admissionOp(action);
+    authority.requireCurrent();
+    return _localOp(action, current: () => authority.isCurrent &&
+        status == SessionStatus.authenticated && _explicitAdmissionEpoch == null &&
+        _accountSwitchEpoch == null && !_logoutIncomplete);
   }
 
-  Future<T> _admissionOp<T>(Future<T> Function() f) {
-    final run = f();
-    final done = run.then<void>((_) {}, onError: (Object _) {});
-    _inflightAdmissions.add(done);
-    done.whenComplete(() => _inflightAdmissions.remove(done));
-    return run;
+  /// The consent-only capability of the CURRENT lifecycle, or null. It is exactly
+  /// the one a committed identity publication issued (an explicit sign-in, or a
+  /// guarded automatic publication of an actually fresh SDK session). Nothing is
+  /// ever derived here from the authenticated status, the local-work authority or
+  /// the active database: those do not prove a fresh matching identity, and a
+  /// revoked proof is never renewed from them. Null during any explicit
+  /// admission, logout (including a failed one), removal or account switch.
+  ConsentCapability? captureConsentCapability() {
+    if (_explicitAdmissionEpoch != null ||
+        _accountSwitchEpoch != null ||
+        _logoutIncomplete ||
+        _admissionClosed) {
+      return null;
+    }
+    final issued = _consentCapability;
+    return issued != null && issued.isCurrent ? issued : null;
   }
+
+  /// Runs ONE bounded local consent operation (the typed repository write and the
+  /// gate/settings reads around it) under [capability]. No network, retry,
+  /// removal or revoke belongs inside: it is drained by logout, an account
+  /// switch, a same-uid readmission and Remove data, which wait for it to settle.
+  /// Unlike [runAdmittedLocalOperation] it is also open to the committed fresh
+  /// identity (needsOnboarding), and ONLY through this typed capability.
+  Future<T> runConsentLocalOperation<T>(
+      ConsentCapability capability, Future<T> Function() action) {
+    // A newer explicit admission advanced the epoch when it was accepted, so a
+    // capability of the lifecycle it replaces is already stale here.
+    capability.requireCurrent();
+    return _localOp(action, current: () => capability.isCurrent);
+  }
+
+  /// Issues the consent-only capability from an actual COMMITTED identity
+  /// publication (an explicit sign-in after its durable revocation clearance, or
+  /// a guarded automatic publication). Every condition is checked synchronously
+  /// at the publication, and the result is bound to this admission epoch, uid,
+  /// auth-loss and consent-loss generations (captured before the admission's
+  /// first await), live scope generation and database, to the actual SDK
+  /// session evidence ([sdkFresh]) and to the caller's own freshness predicate
+  /// when it passed one. A predicate alone never suffices. canCreate is false.
+  /// Anything weaker (guest, no SDK session, deferred/unresolved/pending
+  /// ownership, a failed or unfinished admission, no live scope) issues nothing.
+  /// An existing, still-current capability of the same lifecycle is kept, so a
+  /// token refresh does not revoke an operation in flight.
+  void _issueConsentCapability(
+    _Admission adm, {
+    required String method,
+    required bool Function() sdkFresh,
+    required bool Function()? sessionCurrent,
+    required int authLossSeq,
+    required int consentLossSeq,
+  }) {
+    final scope = _accountScope?.activeScope;
+    final epoch = adm.authority.epoch;
+    final uid = adm.uid;
+    final existing = _consentCapability;
+    if (existing != null &&
+        existing.uid == uid &&
+        existing.epoch == epoch &&
+        existing.isCurrent) {
+      return;
+    }
+    _consentCapability = null;
+    // The generations were captured BEFORE the admission's first await; any loss
+    // since (including one raised by a synchronous publication listener) bars it.
+    if (_authLossSeq != authLossSeq ||
+        _consentLossSeq != consentLossSeq ||
+        status == SessionStatus.sessionExpired ||
+        method == 'guest' ||
+        !sdkFresh() ||
+        (sessionCurrent != null && !sessionCurrent()) ||
+        !adm.current ||
+        _admissionEpoch != epoch ||
+        _admittedUid != uid ||
+        _unresolvedOwnerUid != null ||
+        _pendingOwnerConflictUid != null ||
+        _accountSwitchEpoch != null ||
+        _logoutIncomplete ||
+        scope == null ||
+        scope.isLocalRead ||
+        scope.database.isReadOnly ||
+        scope.uid != uid ||
+        _accountScope?.activeUid != uid ||
+        scope.database.lifecycleState != DatabaseLifecycleState.open) {
+      return;
+    }
+    final database = scope.database;
+    final generation = scope.generation;
+    late final ConsentCapability capability;
+    // Defence in depth only: the primary revocation is SYNCHRONOUS at the real
+    // origin (the proof object is dropped when the loss/transition happens, and
+    // this closure compares identity), so a recovery can never revive it.
+    var revoked = false;
+    capability = ConsentCapability(
+      uid: uid,
+      epoch: epoch,
+      database: database,
+      isCurrent: () {
+        if (revoked) return false;
+        final live = _accountScope?.activeScope;
+        final holds = identical(_consentCapability, capability) &&
+            !_admissionClosed &&
+            !_logoutIncomplete &&
+            !(_removeData?.isRunning ?? false) &&
+            _admissionEpoch == epoch &&
+            _authLossSeq == authLossSeq &&
+            _consentLossSeq == consentLossSeq &&
+            status != SessionStatus.sessionExpired &&
+            _admittedUid == uid &&
+            _accountSwitchEpoch == null &&
+            sdkFresh() &&
+            (sessionCurrent?.call() ?? true) &&
+            live != null &&
+            live.uid == uid &&
+            live.generation == generation &&
+            identical(live.database, database) &&
+            database.lifecycleState == DatabaseLifecycleState.open;
+        if (!holds) revoked = true;
+        return holds;
+      },
+    );
+    _consentCapability = capability;
+  }
+
+  Future<T> _admissionOp<T>(Future<T> Function() f,
+      {required bool Function() current, bool localOperation = false}) {
+    if (!current()) throw const StaleAdmissionException();
+    final reservation = Completer<void>();
+    final done = reservation.future;
+    _inflightAdmissions.add(done);
+    if (localOperation) _inflightLocal.add(done);
+    void settle() {
+      _inflightAdmissions.remove(done);
+      _inflightLocal.remove(done);
+      reservation.complete();
+    }
+    try {
+      final inherited = Zone.current[_localAdmissionChain] as List<Future<void>>? ?? const [];
+      final run = localOperation
+          ? runZoned(f, zoneValues: {_localAdmissionChain: List<Future<void>>.unmodifiable([...inherited, done])})
+          : f();
+      run.then<void>((_) => settle(), onError: (Object _, StackTrace __) => settle());
+      return run;
+    } catch (_) {
+      settle();
+      rethrow;
+    }
+  }
+
+  /// O-BX-1 — every exclusive-maintenance entrance that is not Remove data (the
+  /// backup restore) takes part in the admission drain. The local-read
+  /// restoration drains it ([drainAdmissions]) before it begins its exclusion, and
+  /// a maintenance operation that has not started yet is REFUSED, creating
+  /// nothing, from the moment a restoration begins until its outcome is known
+  /// (and for as long as a read scope is published). The database additionally
+  /// refuses or awaits maintenance when it is closed ([AppDatabase.close]).
+  Future<void> runMaintenanceParticipant(
+      Future<void> Function() run) async {
+    if (_localReadTransitionFence || _localReadEgressHold || localReadActive) {
+      throw const StaleOwnershipException();
+    }
+    return _admissionOp(run, current: () => !_localReadTransitionFence &&
+        !_localReadEgressHold && !localReadActive);
+  }
+
+  /// True from the point a local-read restoration starts draining admitted work
+  /// until its exclusion is owned ([_localReadEgressHold] then takes over).
+  bool _localReadTransitionFence = false;
 
   /// Completes when no admission work is in flight. Called by the removal flow
   /// after admission was closed, so the set can only shrink.
+  /// Local work shares the whole-Future reservation ledger with admissions,
+  /// and also has its own set so an admission never waits on itself.
+  Future<T> _localOp<T>(Future<T> Function() f,
+      {required bool Function() current}) =>
+      _admissionOp(f, current: current, localOperation: true);
+
   Future<void> drainAdmissions() async {
-    while (_inflightAdmissions.isNotEmpty) {
-      await Future.wait(_inflightAdmissions.toList());
+    while (_inflightAdmissions.isNotEmpty || _inflightLocal.isNotEmpty) {
+      await Future.wait([..._inflightAdmissions, ..._inflightLocal]);
+    }
+  }
+
+  /// Drains ONLY the bounded local operations: what an admission calls before it
+  /// closes or reuses a database. Draining the admissions here would wait on the
+  /// admission itself.
+  Future<void> _drainLocalOperations() async {
+    while (_inflightLocal.isNotEmpty) {
+      await Future.wait(_inflightLocal.toList());
     }
   }
 
@@ -347,6 +1249,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// WP-3b: wires the per-uid replica layer. Sign-out then LOCKS the active
   /// replica instead of wiping it, and an admitted uid unlocks and opens its own.
   void configureAccountScope(AccountScopeControl? scope) {
+    if (!identical(_accountScope, scope)) {
+      _revokeDatabasePublication(authenticationLoss: false);
+    }
     _accountScope = scope;
   }
 
@@ -372,7 +1277,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
   }
 
   void configureCaptureOwnerPublish(
-      Future<void> Function(String uid, AdmissionAuthority authority)? publish) {
+      Future<void> Function(String uid, AdmissionAuthority authority)?
+          publish) {
     _publishCaptureOwner = publish;
   }
 
@@ -385,6 +1291,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
         ? (_captureOwnerClearAtSignOut ?? _captureOwnerClear)
         : _captureOwnerClear;
     if (purge == null) return false;
+    // The outgoing lifetime's fence reaches native BEFORE the owner is cleared:
+    // a cleared owner would otherwise turn it into a mismatch.
+    if (_nativeJobs > 0) await _nativeTail;
     try {
       return await purge();
     } catch (_) {
@@ -442,18 +1351,34 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// Writes a fresh cryptographically-random admission generation iff none is
   /// currently stored.
   Future<void> _mintOwnerGenerationIfAbsent([_Admission? adm]) async {
-    final existing = await _storage.read(key: _kLocalDataOwnerGeneration);
-    if (existing != null) return;
-    // Re-checked between the read and the write: Remove data may have been
-    // accepted meanwhile, and no revoked admission mints a generation.
+    _accountFenceOwner = null;
+    var generation = await _storage.read(key: _kLocalDataOwnerGeneration);
     if (adm != null && !adm.current) return;
-    await _storage.write(
-        key: _kLocalDataOwnerGeneration, value: _newOwnerGeneration());
+    if (generation == null) {
+      generation = _newOwnerGeneration();
+      await _storage.write(key: _kLocalDataOwnerGeneration, value: generation);
+      if (adm != null && !adm.current) return;
+      if (await _storage.read(key: _kLocalDataOwnerGeneration) != generation) return;
+    }
+    if (adm != null && adm.current && generation.isNotEmpty) {
+      _accountFenceOwner = (adm.uid, generation, adm.authority.epoch);
+    }
   }
 
-  /// Invalidates the admission generation so any in-flight background job bound to
-  /// it is rejected. Called BEFORE a sign-out purge / wipe / ownership change.
-  Future<void> _invalidateOwnerGeneration() async {
+  Future<void> _invalidateOwnerGeneration({_Admission? incoming}) async {
+    // The actual private explicit turn already retired the outgoing issuer
+    // before its first await. Its own metadata rotation is not another loss of
+    // the incoming lifetime. External/sign-out/removal callers never supply it.
+    // A genuine loss still advances the independent publication generation and
+    // remains denied; nothing here clears that denial or recaptures generation.
+    if (incoming == null ||
+        !identical(incoming, _databaseOpeningAdmission) ||
+        !incoming.explicit ||
+        !incoming.current ||
+        _explicitAdmissionEpoch != incoming.authority.epoch) {
+      _revokeDatabasePublication();
+    }
+    _accountFenceOwner = null;
     await _storage.delete(key: _kLocalDataOwnerGeneration);
   }
 
@@ -504,7 +1429,29 @@ class AppSession extends ValueNotifier<SessionStatus> {
     String uid,
     _Admission adm,
   ) async {
+    // An automatic account switch closed capture when it was accepted
+    // ([_switchAccount]). The ownership result does NOT reopen it: the identity
+    // writes and the status publication that follow are still async, and local
+    // work in a not-yet-published account must stay closed. Only the actual,
+    // current publication of the very same epoch reopens it (see the publication
+    // closures); a failed or older one leaves it closed, and a logout or removal
+    // resets it.
+    return _resolveLocalDataOwnershipInner(uid, adm);
+  }
+
+  Future<LocalDataOwnership> _resolveLocalDataOwnershipInner(
+    String uid,
+    _Admission adm,
+  ) async {
     if (!adm.current || (!adm.explicit && _explicitAdmissionEpoch != null)) {
+      return LocalDataOwnership.revoked;
+    }
+    // After a FAILED logout no automatic path may restore the old authority; only
+    // an explicit, successful admission recovers.
+    if (!adm.explicit && _logoutIncomplete) return LocalDataOwnership.revoked;
+    try {
+      await _accountFence.guard(uid, current: () => adm.current);
+    } on AccountFenceDeniedException {
       return LocalDataOwnership.revoked;
     }
     final removal = _removeData;
@@ -528,7 +1475,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
     final LocalDataOwnership outcome;
     try {
-      outcome = await _admissionOp(() => _resolveAdmitted(uid, adm));
+      outcome = await _admissionOp(() => _resolveAdmitted(uid, adm),
+          current: () => adm.current);
     } on StaleAdmissionException {
       if (adm.explicit && adm.wasRevoked) await _rollbackFreshAdmission(adm);
       return LocalDataOwnership.revoked;
@@ -567,12 +1515,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
     if (removal == null) return;
     _removalsAccepted++;
     _admissionEpoch++;
+    _localReadLifecycle++;
     _authLossSeq++;
     authMethod = null;
     email = null;
     _currentAccountKey = null;
     _onboardingDone = false;
     _admittedUid = null;
+    _revokeConsentProof();
+    _accountSwitchEpoch = null;
     value = SessionStatus.needsOnboarding;
     try {
       try {
@@ -592,13 +1543,25 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// was accepted.)
   void _switchAccount(_Admission adm) {
     if (adm.explicit) return;
+    _revokeDatabasePublication();
     _admissionEpoch++;
+    final previous = _admittedUid;
+    if (previous != null && previous != adm.uid) _localReadLifecycle++;
     adm.authority = _authorityAt(
       _admissionEpoch,
       adm.uid,
       canCreate: adm.authority.canCreate,
       sessionCurrent: adm.sessionCurrent,
     );
+    // Capture closes with the same synchronous step, and the outgoing consent
+    // proof is gone: nothing new may start on the account being left. The loss
+    // generation is NOT advanced: this runs inside the very admission that goes on
+    // to publish the new account, whose captured generation must stay valid. The
+    // epoch move above already fences every other admission.
+    _accountSwitchEpoch = _admissionEpoch;
+    _consentCapability = null;
+    // The outgoing native lifetime is fenced with the same synchronous step.
+    _retireNativeLifetime();
   }
 
   Future<LocalDataOwnership> _resolveAdmitted(
@@ -625,7 +1588,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
       // previous session's jobs — even for the same UID.
       await _mintOwnerGenerationIfAbsent(adm);
       if (!adm.current) return LocalDataOwnership.revoked;
-      return _admitReplica(uid, adm);
+      // An idempotent reconcile of the same account publishes nothing again: it
+      // would re-publish OFF over an already confirmed ON.
+      return _admitReplica(uid, adm, publishOwner: false);
     }
 
     if (existing == null) {
@@ -662,7 +1627,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // MALI-069n §Blocker-1: invalidate the admission generation BEFORE anything
     // changes, so a background job from the previous owner is rejected and the
     // incoming owner mints a fresh generation on claim below.
-    await _invalidateOwnerGeneration();
+    await _invalidateOwnerGeneration(incoming: adm);
     if (!adm.current) return LocalDataOwnership.revoked;
 
     // Purge first. The purge calls a native method channel that, under the
@@ -694,28 +1659,63 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// marker is the whole admission and bootstrap opens the replica it names. A
   /// replica that cannot be opened is a safe stop (fail closed), never an
   /// adoption of someone else's file.
-  Future<LocalDataOwnership> _admitReplica(String uid, _Admission adm) async {
+  Future<LocalDataOwnership> _admitReplica(String uid, _Admission adm,
+      {bool publishOwner = true}) async {
     final scope = _accountScope;
     if (scope == null) {
       _admittedUid = uid;
       return LocalDataOwnership.owned;
     }
     if (!adm.current) return LocalDataOwnership.revoked;
+    // The previous scope's bounded local operations (a consent write holding a
+    // transaction on the database about to be closed or reused) settle FIRST:
+    // only local work is drained, never this admission itself. Their authorities
+    // were invalidated synchronously when this admission was accepted, so the
+    // ones still running roll back at their next guard instead of landing.
+    await _drainLocalOperations();
+    if (!adm.current) return LocalDataOwnership.revoked;
+    // O: the private single-opener reservation is minted HERE, inside this
+    // admission turn, after the attempt / fresh SDK and removal / ownership
+    // policy were validated and before the scope layer can open anything.
+    var authority = adm.authority;
+    DatabaseOpenReservation? reservation;
+    final coordinator = _databaseCoordinator;
+    if (coordinator != null) {
+      final lossAtMint = _databaseLossGeneration;
+      try {
+        // R7: the controlled path out of a quiescing state no transition owns
+        // any more (a timed-out restoration). It acts only when every uncertain
+        // holder has ACTUALLY closed and never opens writable access; otherwise
+        // the reservation below is refused and ownership stays unresolved.
+        coordinator.recoverFromQuiescing();
+        reservation = coordinator.reserveAdmissionOpen(
+          uid: uid,
+          admissionIdentity: adm,
+          lossGeneration: lossAtMint,
+          stillValid: () =>
+              adm.current && _databaseLossGeneration == lossAtMint,
+        );
+      } on DatabaseAccessUnavailable {
+        return _markOwnershipUnresolved(uid);
+      }
+      authority = authority.withOpenReservation(reservation);
+    }
     try {
-      await scope.activate(uid, authority: adm.authority);
+      await scope.activate(uid, authority: authority);
     } on StaleAdmissionException {
       return LocalDataOwnership.revoked;
     } catch (_) {
       return _markOwnershipUnresolved(uid);
     }
+    if (reservation != null && reservation.hasOpened) {
+      _databaseOpenReservation = reservation;
+    }
     if (!adm.current) return LocalDataOwnership.revoked;
     _admittedUid = uid;
-    if (!adm.explicit) {
-      try {
-        await _publishCaptureOwner?.call(uid, adm.authority);
-      } catch (_) {
-        // Capture simply stays unbound until the next admission publishes it.
-      }
+    if (!adm.explicit && publishOwner) {
+      // Awaited and bounded; a publication that did not verify leaves capture
+      // unbound until the next admission, and never fails the admission.
+      await _publishNativeLifetime(adm);
     }
     return LocalDataOwnership.owned;
   }
@@ -733,49 +1733,762 @@ class AppSession extends ValueNotifier<SessionStatus> {
     await _reconcileSupabaseSession(client.auth.currentSession, client: client);
   }
 
+  // ------------------------------------------------------ offline local read
+  //
+  // A second, independent authority: a device-local grant that lets the SAME
+  // existing replica be VIEWED (SQLite read-only) when the SDK session is expired
+  // or absent. It is never an admission: no write, no cloud, no capture.
+
+  LocalReadAuthority? _localRead;
+  LocalReadAuthority? _localReadStorageContinuity;
+
+  /// Set by every restrictive event (logout, removal, known revocation, an
+  /// unknown signedOut/auth_required). Cleared only by a fresh explicit
+  /// admission. While set, no local-read restoration is attempted.
+  bool _localReadLocked = false;
+
+  /// O-LC-1a: advanced by every event that starts an independent lifecycle
+  /// (explicit admission, sign-out, removal, an automatic switch of account).
+  int _localReadLifecycle = 0;
+
+  /// Test-only: whether the process-wide local-read lock is set.
+  @visibleForTesting
+  bool get debugLocalReadLocked => _localReadLocked;
+
+  /// Test-only: models an independent successor lifecycle that has begun but
+  /// not yet replaced the published scope.
+  @visibleForTesting
+  void debugBeginSuccessorLifecycle() => _localReadLifecycle++;
+  bool _localReadCleanupIncomplete = false;
+
+  /// O8-3: operations whose bound denial is not durable yet (operationId ->
+  /// uid). Held by the session so a supported replacement of the authority
+  /// ([configureLocalRead]) does not forget them; retried per operation only.
+  final Map<String, String> _outstandingOperationDenials = {};
+  _LocalReadHostProof? _localReadProof;
+  _LocalReadHostProof? _localReadHandoffProof;
+  _GrantProof? _pendingFirstGrant;
+  Future<void> _localReadTail = Future<void>.value();
+  AccountScopeHost? _localReadHostListening;
+
+  void configureLocalRead(LocalReadAuthority? authority) {
+    final outgoing = _localRead;
+    final proof = _localReadProof;
+    // Share the denial ledger before replacement, including an operation whose
+    // queued durable write has not returned yet. Its eventual completion then
+    // updates the same ledger that the replacement consults.
+    _localRead?.adoptPendingOperationDenials(_outstandingOperationDenials);
+    if (authority != null) {
+      final previous = _localReadStorageContinuity;
+      if (previous != null) authority.takeOverStorageOrdering(previous);
+      authority.adoptPendingOperationDenials(_outstandingOperationDenials);
+      _localReadStorageContinuity = authority;
+    } else {
+      _localRead?.releaseStorageSelection();
+    }
+    _localRead = authority;
+    if (!identical(outgoing, authority) && proof != null &&
+        identical(proof.host.current, proof.scope) &&
+        proof.scope.database.lifecycleState != DatabaseLifecycleState.closed) {
+      // Retiring authority does not withdraw its published physical scope.
+      // Keep its exact identity for same-host re-verification and keep every
+      // ordinary presentation/egress path restrictive until close completes.
+      _localReadHandoffProof = proof;
+      CloudEgressGate.instance.advanceEpoch();
+      notifyListeners();
+    }
+  }
+
+  /// True only while a verified local-read scope is the published one AND its
+  /// grant is the live one AND no admission, logout or removal has begun.
+  bool get localReadActive {
+    final proof = _localReadProof;
+    if (proof == null) return false;
+    final ok = !_localReadLocked &&
+        proof.capability.isCurrent &&
+        identical(proof.host.current, proof.scope) &&
+        proof.scope.database.lifecycleState == DatabaseLifecycleState.open &&
+        _explicitAdmissionEpoch == null &&
+        !_admissionClosed &&
+        !(_removeData?.isRunning ?? false);
+    return ok;
+  }
+
+  /// A durable denial could not be established. UID-wide denials retain the
+  /// process lock; an operation denial refuses only its own grant.
+  bool get localReadCleanupIncomplete =>
+      _localReadCleanupIncomplete || _outstandingOperationDenials.isNotEmpty;
+
+  /// D6: whether the one egress gate must admit only an account-control
+  /// exchange: from the moment a local-read restoration holds its exclusion until
+  /// no verified local-read scope is published any more. A saved Cloud/AI ON
+  /// record changes nothing about this.
+  bool get localReadPresentationRestricted {
+    final host = _accountScope;
+    return _localReadEgressHold ||
+        (_localReadHandoffProof != null &&
+            _localReadHandoffProof!.scope.database.lifecycleState !=
+                DatabaseLifecycleState.closed) ||
+        (host is AccountScopeHost && (host.current?.isLocalRead ?? false)) ||
+        (_localReadHostListening?.current?.isLocalRead ?? false);
+  }
+
+  bool get localReadEgressDenied =>
+      localReadPresentationRestricted || localReadActive;
+  bool _localReadEgressHold = false;
+
+  /// Test-only: detaches the auth-stream subscription and the issuer client, so
+  /// the next [bindSupabaseAuth] listens to ITS client (the singleton otherwise
+  /// keeps the first client of the process).
+  @visibleForTesting
+  Future<void> debugResetAuthBinding() async {
+    await _supabaseAuthSubscription?.cancel();
+    _supabaseAuthSubscription = null;
+    _databaseIssuerClient = null;
+    _databaseHostAdmission = null;
+  }
+
+  /// Completes when no in-process local-read transition is pending (tests).
+  @visibleForTesting
+  Future<void> get debugLocalReadIdle => _localReadTail;
+
+  Future<T> _localReadSerial<T>(Future<T> Function() f) {
+    final run = _localReadTail.then((_) => f());
+    _localReadTail = run.then<void>((_) {}, onError: (Object _) {});
+    return run;
+  }
+
+  void _onLocalReadHostChanged() {
+    if (_localReadHandoffProof?.scope.database.lifecycleState ==
+        DatabaseLifecycleState.closed) {
+      _localReadHandoffProof = null;
+    }
+    if (_localReadProof != null && !localReadActive) {
+      _localReadProof = null;
+      notifyListeners();
+    }
+  }
+
+  void _dropLocalReadProof() {
+    if (_localReadProof == null) return;
+    _localReadProof = null;
+    notifyListeners();
+  }
+
+  /// Restores the account's own replica READ-ONLY from its committed grant.
+  ///
+  /// Phase one validates the grant, the durable deny/removal/registry evidence
+  /// and the existing resources; phase two reserves a read-only candidate open
+  /// with the coordinator, opens it, verifies the decrypted owner/replica/schema
+  /// and the final grant/lifecycle, and only then publishes. Nothing is created,
+  /// repaired, migrated, written or sent; every loser is tracked and closed.
+  ///
+  /// When [host] currently holds a writable scope of the same uid (an in-process
+  /// expiry) that scope is first drained and closed, never flipped. Returns
+  /// whether a local-read scope is now published.
+  ///
+  /// [provenanceIntact] (R10.1) is the startup provenance fence: while it returns
+  /// false (an authentication loss was observed during SDK initialization, or the
+  /// persisted state's provenance is unknown) nothing may be published. It is
+  /// consulted wherever the restoration validates itself, including as part of
+  /// the candidate reservation's own currency and in the very check that
+  /// precedes publication (no await in between), so a loss at any await of the
+  /// restoration ends in zero publication rather than a later correction.
+  Future<bool> restoreLocalReadAccess({
+    AccountScopeHost? host,
+    bool Function()? provenanceIntact,
+    LocalReadStartupBinding? binding,
+  }) =>
+      _localReadSerial(() => _restoreLocalReadAccess(host,
+          provenanceIntact: provenanceIntact, binding: binding));
+
+  /// O-LC-1a: captures the identity of the startup that is beginning (its
+  /// lifecycle, and the grant operation it will act on) BEFORE any SDK
+  /// initialization can classify anything.
+  Future<LocalReadStartupBinding> beginLocalReadStartupBinding() async {
+    final lifecycle = _localReadLifecycle;
+    LocalReadGrantRecord? record;
+    try {
+      record = await _localRead?.peekRecord();
+    } catch (_) {
+      record = null;
+    }
+    // O8-1: a lifecycle that began while the record was being read may have
+    // written the very record that came back; it is then NOT this startup's.
+    // Refuse the target (the binding keeps the old lifecycle, so a late
+    // classification retracts only this startup's own scope).
+    if (_localReadLifecycle != lifecycle) record = null;
+    return LocalReadStartupBinding._(
+        lifecycle, record?.operationId, record?.uid);
+  }
+
+  /// Test-only: awaited at the named awaits of a restoration ('record_read',
+  /// 'exclusion_drained', 'restore_returned'), so a test can deliver an event at
+  /// exactly that point. Grants nothing.
+  @visibleForTesting
+  Future<void> Function(String point)? debugLocalReadAwaitPoint;
+
+  Future<bool> _restoreLocalReadAccess(AccountScopeHost? hostArg,
+      {_FailedAttemptBinding? failedAttempt,
+      bool Function()? provenanceIntact,
+      LocalReadStartupBinding? binding}) async {
+    final afterFailedReconnect = failedAttempt != null;
+    final auth = _localRead;
+    final host = hostArg ?? (_accountScope is AccountScopeHost
+        ? _accountScope as AccountScopeHost
+        : null);
+    if (auth == null || host == null) return false;
+    bool blocked() =>
+        _localReadLocked ||
+        _explicitAdmissionEpoch != null ||
+        _admissionClosed ||
+        (_removeData?.isRunning ?? false);
+    if (blocked()) return false;
+    if (localReadActive) return true;
+    final epoch = _admissionEpoch;
+    String? fencedUid;
+    // R10.1: startup provenance is part of validity everywhere the restoration
+    // validates itself; the candidate reservation carries this same predicate, so
+    // the publication check (no await before the scope is installed) rejects a
+    // loss that arrived at any earlier await.
+    bool stillValid() =>
+        !blocked() &&
+        identical(_localRead, auth) &&
+        _admissionEpoch == epoch &&
+        (fencedUid == null || _accountFence.permits(fencedUid)) &&
+        (provenanceIntact?.call() ?? true);
+    if (!stillValid()) return false;
+
+    // B1/C1: no coordinator, no local read. The exclusion below is the only
+    // source of a candidate reservation.
+    final coordinator = _databaseCoordinator;
+    if (coordinator == null ||
+        !identical(host.localReadCoordinator, coordinator)) {
+      return false;
+    }
+
+    // D3: a recovery queued by a FAILED reconnect is bound to that attempt: it
+    // may act only on exactly the state the failure left (same admission epoch,
+    // same published scope). Anything newer was admitted independently and is
+    // never downgraded; the same uid is not proof of current write authority.
+    bool attemptStillBound() =>
+        failedAttempt == null ||
+        failedAttempt.holds(_admissionEpoch, host.current);
+    if (!attemptStillBound()) return false;
+
+    final LocalReadGrantRecord? record;
+    try {
+      record = await auth.peekRecord();
+    } catch (_) {
+      return false;
+    }
+    if (record == null || record.state != LocalReadGrantState.committed) {
+      return false;
+    }
+    try {
+      await _accountFence.guard(record.uid, current: stillValid);
+    } on AccountFenceDeniedException {
+      return false;
+    } on StaleAdmissionException {
+      return false;
+    }
+    fencedUid = record.uid;
+    // O8-3: a record whose own denial is still outstanding is not a grant; refuse
+    // before the writable scope is touched (the authority refuses it again).
+    if (auth.pendingOperationDenials.containsKey(record.operationId)) {
+      return false;
+    }
+    await debugLocalReadAwaitPoint?.call('record_read');
+    if (!stillValid() || !attemptStillBound()) return false;
+    final current = host.current;
+    if (current != null) {
+      // Only the SAME uid's writable scope is replaced; any other scope (the
+      // signed-out one, another uid's) is none of this restoration's business.
+      // After a failed reconnect the retired local-read scope (same uid) or the
+      // signed-out one the failed switch left behind is replaced too.
+      final staleAfterFailure = afterFailedReconnect &&
+          ((current.isLocalRead && current.uid == record.uid) ||
+              current.uid == null);
+      final handoff = _localReadHandoffProof;
+      final staleAfterHandoff = handoff != null &&
+          identical(handoff.host, host) &&
+          identical(handoff.scope, current) &&
+          current.isLocalRead &&
+          !handoff.capability.isCurrent &&
+          current.uid == record.uid &&
+          handoff.capability.operationId == record.operationId;
+      if (!staleAfterFailure && !staleAfterHandoff &&
+          (current.isLocalRead || current.uid != record.uid)) {
+        return false;
+      }
+      _localReadTransitionFence = true;
+      await drainAdmissions();
+      if (!stillValid() || !attemptStillBound()) {
+        _localReadTransitionFence = false;
+        return false;
+      }
+    } else if (host.swapInProgress) {
+      return false;
+    }
+
+    // B2: ONE atomic quiescing transition. From here every old job, reservation
+    // and opener is stale and every incompatible reservation is refused. The
+    // fence is retained through the drain, the candidate open, the decrypted
+    // verification and publication, and released only afterwards.
+    final DatabaseLocalReadExclusion exclusion;
+    try {
+      exclusion = coordinator.beginLocalReadExclusion();
+    } on DatabaseAccessUnavailable {
+      _localReadTransitionFence = false;
+      return false;
+    }
+    var suspended = false;
+    AccountScope? published;
+    // D6: egress is refused from the moment the writable scope starts to be
+    // suspended; anything admitted before is discarded (epoch) once published.
+    _localReadEgressHold = true;
+    _localReadTransitionFence = false;
+    try {
+      if (current != null) {
+        _revokeConsentProof();
+        await host.suspendForLocalRead();
+        suspended = true;
+        if (identical(_localReadHandoffProof?.scope, current)) {
+          _localReadHandoffProof = null;
+        }
+      }
+      // Pending opens and every physical handle (including secondaries other
+      // isolates registered) must be ACTUALLY closed and acknowledged. A timeout
+      // or failed close denies; nothing is published.
+      await exclusion.awaitDrained(timeout: debugLocalReadDrainTimeout);
+      await debugLocalReadAwaitPoint?.call('exclusion_drained');
+      if (!stillValid()) throw const StaleLocalReadException();
+      final verified = await auth.restore(
+        host.store,
+        reserve: host.localReadReserver(
+            exclusion: exclusion, stillValid: stillValid),
+        verifyExclusion: (location) => exclusion.verifyLegacyHolders(
+            LegacyHolderEvidence.inspect(
+                replicaDirectory: location.directory,
+                leaseDir: location.leaseDir,
+                intentPath: location.maintPath)),
+      );
+      await debugLocalReadAwaitPoint?.call('restore_returned');
+      if (verified.isGranted) {
+        published = await host.restoreLocalRead(verified, stillValid: stillValid);
+      }
+    } on StaleLocalReadException {
+      published = null;
+    } catch (_) {
+      published = null;
+    } finally {
+      exclusion.release(published: published != null);
+    }
+    if (published == null) {
+      _localReadEgressHold = false;
+      if (suspended) await host.ensureScopePublished();
+      return false;
+    }
+    if (!identical(_localReadHostListening, host)) {
+      _localReadHostListening?.removeListener(_onLocalReadHostChanged);
+      host.addListener(_onLocalReadHostChanged);
+      _localReadHostListening = host;
+    }
+    _localReadProof =
+        _LocalReadHostProof(published.localReadCapability!, published, host);
+    binding?._proof = _localReadProof;
+    _localReadEgressHold = false;
+    // D6: whatever was admitted for the writable session is now stale, and the
+    // gate's synchronous mirror (auto-refresh, diagnostics, images) re-reads.
+    CloudEgressGate.instance.advanceEpoch();
+    unawaited(CloudEgressGate.instance.refresh().catchError((Object _) {}));
+    notifyListeners();
+    return true;
+  }
+
+  /// Fires the in-process writable-to-local-read transition for an expired or
+  /// absent SDK. Only when a committed grant of the current uid exists.
+  void _scheduleLocalReadTransition() {
+    if (_localRead == null || _localReadLocked) return;
+    unawaited(_localReadSerial(() => _restoreLocalReadAccess(null))
+        .then<void>((_) {}, onError: (Object _) {}));
+  }
+
+  /// Test-only: models a queued failure recovery that starts LATE (the serial
+  /// lane was busy). Awaited at the start of that lane item; grants nothing.
+  @visibleForTesting
+  Future<void> Function()? debugFailureRecoveryGate;
+
+  /// Test-only: runs inside a failed reconnect's catch BEFORE its failure
+  /// recovery is captured, modelling a successor admission that arrives in the
+  /// gap between the failure and its capture. Grants nothing.
+  @visibleForTesting
+  Future<void> Function()? debugBeforeFailureCapture;
+
+  void _scheduleFreshLocalReadRestore(_ReconnectProbe attempt) {
+    if (_localRead == null || _localReadLocked) return;
+    // R10.2: the recovery belongs to THIS failed attempt. If any successor has
+    // already superseded it (every admission, sign-out and removal advances the
+    // epoch), the state now visible is the successor's, not what this attempt
+    // left behind: decline instead of binding to it. A successor arriving after
+    // this point is caught by the binding's own check when the lane runs.
+    final epoch = attempt.epoch;
+    if (epoch == null || _admissionEpoch != epoch) return;
+    final accountScope = _accountScope;
+    final bound = _FailedAttemptBinding(
+        epoch, accountScope is AccountScopeHost ? accountScope.current : null);
+    unawaited(_localReadSerial(() async {
+      await debugFailureRecoveryGate?.call();
+      return _restoreLocalReadAccess(null, failedAttempt: bound);
+    }).then<void>((_) {}, onError: (Object _) {}));
+  }
+
+  /// Lock + durable deny (logout, removal, known loss, unknown loss). Everything
+  /// in memory happens before the first await: the host proof is dropped, the
+  /// restrictive flag set and issuance cancelled. Then the core queues its
+  /// durable denial; a failed one is reported, never invented.
+  /// D2: a `signedOut`/`userDeleted` was observed while the SDK was
+  /// initializing, before this session bound to its stream. The resulting
+  /// null/expired session is a loss of unknown cause: lock and durably deny
+  /// (never restore). [host] is the launch's account-scope host (not configured
+  /// on this session yet at that point).
+  ///
+  /// O-LC-1a: with a [binding] (late classifications from a startup's SDK
+  /// recovery) the denial is bound to that startup. While no independent
+  /// lifecycle (explicit admission, sign-out, removal, account switch) has begun
+  /// since, it is the full process lock above. Afterwards it retracts only what
+  /// that startup derived (its published local-read scope and its stored grant
+  /// operation) and never selects, locks or revokes whatever is now current.
+  Future<void> denyLocalReadAfterInitializationLoss(AccountScopeHost host,
+          {LocalReadStartupBinding? binding}) =>
+      _denyLocalRead(hostOverride: host, binding: binding);
+
+  /// Records the outcome of one operation-specific denial: a durable one clears
+  /// the operation, an incomplete one is kept (and reported) until a retry lands.
+  void _noteOperationDenial(
+      String operationId, String uid, LocalReadRevocation result) {
+    if (result.isDurable) {
+      _outstandingOperationDenials.remove(operationId);
+    } else {
+      _outstandingOperationDenials[operationId] = uid;
+    }
+  }
+
+  Future<void> _denyOriginatingLocalRead(
+      LocalReadStartupBinding binding, AccountScopeHost? hostOverride) async {
+    final proof = binding._proof;
+    if (proof != null && identical(_localReadProof, proof)) {
+      _dropLocalReadProof();
+    }
+    final auth = _localRead;
+    if (auth == null) return;
+    final host = hostOverride ?? proof?.host;
+    final opId = binding.operationId;
+    final opUid = binding.uid;
+    // O8-2: what the registry fallback may lock is judged when it EXECUTES
+    // (inside the authority's queue), not only when it was requested: any
+    // lifecycle that began meanwhile, or a uid a successor now holds, refuses.
+    final requestedLifecycle = _localReadLifecycle;
+    Future<bool> Function()? fallback(String uid) {
+      if (host == null) return null;
+      bool successorHolds() =>
+          _localReadLifecycle != requestedLifecycle ||
+          (binding._lifecycle != requestedLifecycle &&
+              {_admittedUid, _accountScope?.activeUid, host.activeUid}
+                  .contains(uid));
+      if (successorHolds()) return null;
+      return () async {
+        if (successorHolds()) return false;
+        return host.store.lockVerified(uid,
+            stillValid: () => !successorHolds());
+      };
+    }
+
+    Future<LocalReadRevocation>? revocation;
+    if (opId != null && opUid != null) {
+      revocation = auth.revokeOperation(
+        operationId: opId,
+        uid: opUid,
+        lockRegistry: fallback(opUid),
+      );
+    }
+    try {
+      // O8-2: the lock is queued for exactly the scope this startup published;
+      // it re-checks that scope when its own turn starts.
+      if (proof != null && host != null && identical(host.current, proof.scope)) {
+        await host.lockIfCurrent(proof.scope);
+      }
+    } catch (_) {
+      // Best effort: the scope is not published any more or the lock failed.
+    }
+    if (revocation != null) {
+      LocalReadRevocation result;
+      try {
+        result = await revocation;
+      } catch (_) {
+        result = LocalReadRevocation.incomplete;
+      }
+      // O8-3: an incomplete denial is never ignored: it stays pending in the
+      // authority, is reported through the notice state, and keeps a reachable
+      // operation-specific retry ([retryLocalReadDeny]).
+      _noteOperationDenial(opId!, opUid!, result);
+      if (!result.isDurable) {
+        denyIncompleteNoticePending.value = true;
+        notifyListeners();
+      }
+    }
+  }
+
+  Future<void> _denyLocalRead(
+      {String? uid,
+      bool lockScope = true,
+      AccountScopeHost? hostOverride,
+      LocalReadStartupBinding? binding}) async {
+    if (binding != null) {
+      // The process lock belongs to the still-current startup, but even its
+      // durable mutation is bound to the captured operation. A successor may
+      // begin after this check while the authority's mutation read is pending.
+      if (binding._lifecycle == _localReadLifecycle) {
+        _localReadLocked = true;
+        _pendingFirstGrant = null;
+      }
+      return _denyOriginatingLocalRead(binding, hostOverride);
+    }
+    _localReadLocked = true;
+    _pendingFirstGrant = null;
+    final proof = _localReadProof;
+    final auth = _localRead;
+    _dropLocalReadProof();
+    if (auth == null) return;
+    final host = hostOverride ??
+        (_accountScope is AccountScopeHost
+            ? _accountScope as AccountScopeHost
+            : proof?.host);
+    final uids = <String>{
+      ...[uid, proof?.scope.uid, _admittedUid, _accountScope?.activeUid]
+          .whereType<String>()
+          .where((u) => u.isNotEmpty),
+    };
+    try {
+      if (uids.isEmpty) {
+        final stored = await auth.peekRecord();
+        if (stored != null) uids.add(stored.uid);
+      }
+      final results = [
+        for (final id in uids)
+          auth.revoke(
+            uid: id,
+            lockRegistry: host == null ? null : () => host.store.lockVerified(id),
+          ),
+      ];
+      if (lockScope && host != null && (host.current?.isLocalRead ?? false)) {
+        await host.lock();
+      }
+      var incomplete = false;
+      for (final r in results) {
+        if (!(await r).isDurable) incomplete = true;
+      }
+      _localReadCleanupIncomplete = incomplete;
+    } catch (_) {
+      _localReadCleanupIncomplete = true;
+    }
+  }
+
+  /// Re-runs ONLY the durable deny for every uid whose denial is still pending
+  /// (the secure `blocked` record, falling back to a verified registry lock). It
+  /// deletes no key, wipes no data and touches no scope. Returns true once the
+  /// denial is durable; the process stays locked either way.
+  Future<bool> retryLocalReadDeny() async {
+    final auth = _localRead;
+    if (auth == null) return !localReadCleanupIncomplete;
+    final host =
+        _accountScope is AccountScopeHost ? _accountScope as AccountScopeHost : null;
+    try {
+      final uids = {...auth.pendingDenialUids};
+      // O8-3: the stored-record lookup answers ONLY an unknown-uid uid-wide
+      // denial. An outstanding operation denial is retried per operation below
+      // and must never make the lookup pick whatever record is stored now (a
+      // successor's) for a uid-wide revocation.
+      if (uids.isEmpty && _localReadCleanupIncomplete) {
+        final stored = await auth.peekRecord();
+        if (stored != null) uids.add(stored.uid);
+      }
+      var uidIncomplete = false;
+      for (final uid in uids) {
+        final result = await auth.revoke(
+          uid: uid,
+          lockRegistry: host == null ? null : () => host.store.lockVerified(uid),
+        );
+        if (!result.isDurable) uidIncomplete = true;
+      }
+      _localReadCleanupIncomplete = uidIncomplete;
+    } catch (_) {
+      _localReadCleanupIncomplete = true;
+    }
+    for (final entry in auth.pendingOperationDenials.entries.toList()) {
+      var result = LocalReadRevocation.incomplete;
+      try {
+        result = await auth.revokeOperation(
+          operationId: entry.key,
+          uid: entry.value,
+          lockRegistry: null,
+        );
+      } catch (_) {}
+      _noteOperationDenial(entry.key, entry.value, result);
+    }
+    notifyListeners();
+    return !localReadCleanupIncomplete;
+  }
+
+  bool _grantProofCurrent(_GrantProof p) {
+    final sdk = p.client.auth.currentSession;
+    final host = _accountScope;
+    return !_localReadLocked &&
+        identical(_databaseIssuerClient, p.client) &&
+        host is AccountScopeHost &&
+        identical(host.current, p.scope) &&
+        !p.scope.isLocalRead &&
+        !_admissionClosed &&
+        !(_removeData?.isRunning ?? false) &&
+        _explicitAdmissionEpoch == null &&
+        _admissionEpoch == p.epoch &&
+        _databaseLossGeneration == p.loss &&
+        !_databasePublicationDenied &&
+        _admittedUid == p.uid &&
+        !isGuest &&
+        sdk != null &&
+        !sdk.isExpired &&
+        sdk.user.id == p.uid;
+  }
+
+  /// Persists the committed receipt for a genuine fresh explicit admission whose
+  /// identity publication has returned (and, for a first account, whose
+  /// onboarding finished). A refusal means no offline access, never a sign-in
+  /// failure.
+  Future<void> _issueLocalReadGrant(_GrantProof p) {
+    final auth = _localRead;
+    if (auth == null) return Future<void>.value();
+    bool current() =>
+        _grantProofCurrent(p) &&
+        _onboardingDone &&
+        status == SessionStatus.authenticated;
+    if (!current()) return Future<void>.value();
+    return _admissionOp(() async {
+      if (!current()) return;
+      try {
+        final row = await p.scope.database
+            .customSelect('SELECT replica_id FROM replica_meta;')
+            .get();
+        if (row.length != 1 || !current()) return;
+        final replicaId = row.single.read<String>('replica_id');
+        final issue =
+            await auth.beginIssue(uid: p.uid, replicaId: replicaId);
+        await auth.commit(issue,
+            proof: LocalReadIssueProof(uid: p.uid, isCurrent: current));
+      } catch (_) {
+        // No grant: offline viewing simply is not available until the next
+        // explicit sign-in.
+        if (auth.pendingOperationDenials.isNotEmpty) {
+          // Replacement can make the outgoing commit's cleanup incomplete.
+          // Its shared exact-operation ledger already refuses restoration;
+          // expose the existing truthful notice and its operation-only retry.
+          denyIncompleteNoticePending.value = true;
+          notifyListeners();
+        }
+      }
+    }, current: current);
+  }
+
   bool get isGuest => authMethod == 'guest';
   bool get hasCompletedOnboarding => _onboardingDone;
   bool get hasSeenWelcomeManifesto => _welcomeManifestoSeen;
 
   Future<void> load() async {
-    final done = await _storage.read(key: _kDone);
-    final legacyOnboardingDone = done == '1';
-    final welcomeSeen = await _storage.read(key: _kWelcomeManifestoSeen);
-    _welcomeManifestoSeen = welcomeSeen == '1' || legacyOnboardingDone;
-    final coachMarks = await _storage.read(key: _kCoachMarksSeen);
-    _coachMarksSeen = (coachMarks ?? '')
-        .split(',')
-        .map((id) => id.trim())
-        .where((id) => id.isNotEmpty)
-        .toSet();
-    if (legacyOnboardingDone && welcomeSeen != '1') {
-      await _storage.write(key: _kWelcomeManifestoSeen, value: '1');
+    final epoch = _admissionEpoch;
+    final lossSeq = _authLossSeq;
+    bool current() => epoch == _admissionEpoch && lossSeq == _authLossSeq;
+    void check() {
+      if (!current()) throw const StaleAdmissionException();
     }
-    authMethod = await _storage.read(key: _kMethod);
-    email = await _storage.read(key: _kEmail);
-    _completedAccountKeys
-      ..clear()
-      ..addAll(await _readCompletedAccountKeys());
-    _currentAccountKey = await _storage.read(key: _kCurrentAccount);
-
-    // Existing installs only had one device-wide onboarding flag. Associate it
-    // with the currently stored identity once, then use account-scoped state.
-    if (legacyOnboardingDone && authMethod != null) {
-      _currentAccountKey ??= _identityKey(authMethod!, email);
-      if (_currentAccountKey != null) {
-        _completedAccountKeys.add(_currentAccountKey!);
-        await _persistCompletedAccountKeys();
-        await _storage.write(
-          key: _kCurrentAccount,
-          value: _currentAccountKey,
-        );
+    Future<String?> read(String key) async {
+      final result = await _storage.read(key: key);
+      check();
+      return result;
+    }
+    try {
+      final legacyOnboardingDone = await read(_kDone) == '1';
+      final welcomeSeen = await read(_kWelcomeManifestoSeen);
+      final coachMarks = await read(_kCoachMarksSeen);
+      final method = await read(_kMethod);
+      final storedEmail = await read(_kEmail);
+      final completed = await _readCompletedAccountKeys();
+      check();
+      var accountKey = await read(_kCurrentAccount);
+      final owner = await read(_kLocalDataOwnerUid);
+      var fenceAllows = false;
+      try {
+        if (method != 'guest' && (owner == null || owner.isEmpty ||
+            owner.startsWith(_kOwnerTransitionPrefix))) {
+          fenceAllows = false;
+        } else if (owner == null || owner.isEmpty) {
+          fenceAllows = await _accountFence.initialize();
+        } else {
+          await _accountFence.guard(owner, current: current);
+          fenceAllows = true;
+        }
+      } on StaleAdmissionException {
+        return;
+      } on AccountFenceDeniedException {
+        fenceAllows = false;
       }
+      check();
+      if (fenceAllows && legacyOnboardingDone) {
+        final migration = _ownershipTail.then((_) async {
+          bool live() => current() && (owner == null || owner.isEmpty
+              ? _accountFence.store.ready : _accountFence.permits(owner));
+          if (!live()) throw const StaleAdmissionException();
+          await _admissionOp(() async {
+            if (welcomeSeen != '1') {
+              await _storage.write(key: _kWelcomeManifestoSeen, value: '1');
+              check();
+            }
+            if (method != null) {
+              final storedCurrent = accountKey;
+              accountKey ??= _identityKey(method, storedEmail);
+              if (accountKey != null) {
+                if (completed.add(accountKey!)) {
+                  final sorted = completed.toList()..sort();
+                  if (!live()) throw const StaleAdmissionException();
+                  await _storage.write(key: _kCompletedAccounts, value: jsonEncode(sorted));
+                  check();
+                }
+                if (storedCurrent != accountKey) {
+                  if (!live()) throw const StaleAdmissionException();
+                  await _storage.write(key: _kCurrentAccount, value: accountKey);
+                  check();
+                }
+              }
+            }
+          }, current: live);
+        });
+        _ownershipTail = migration.then<void>((_) {}, onError: (Object _) {});
+        await migration;
+        check();
+      }
+      _welcomeManifestoSeen = welcomeSeen == '1' || legacyOnboardingDone;
+      _coachMarksSeen = (coachMarks ?? '').split(',')
+          .map((id) => id.trim()).where((id) => id.isNotEmpty).toSet();
+      authMethod = method;
+      email = storedEmail;
+      _completedAccountKeys..clear()..addAll(completed);
+      _currentAccountKey = accountKey;
+      _onboardingDone = accountKey != null && completed.contains(accountKey);
+      value = fenceAllows && _onboardingDone && method != null
+          ? SessionStatus.authenticated : SessionStatus.needsOnboarding;
+    } on StaleAdmissionException {
+      // An old read may neither republish nor clear a committed successor.
+      return;
     }
-    _onboardingDone = _currentAccountKey != null &&
-        _completedAccountKeys.contains(_currentAccountKey);
-    value = _onboardingDone && authMethod != null
-        ? SessionStatus.authenticated
-        : SessionStatus.needsOnboarding;
   }
 
   /// Whether a given coach mark has already been shown on this device for the
@@ -834,6 +2547,39 @@ class AppSession extends ValueNotifier<SessionStatus> {
     AuthAttempt? attempt,
     bool Function()? sessionCurrent,
   }) async {
+    final probe = _ReconnectProbe();
+    try {
+      await _setIdentity(
+        method: method,
+        email: email,
+        userId: userId,
+        attempt: attempt,
+        sessionCurrent: sessionCurrent,
+        probe: probe,
+      );
+    } catch (_) {
+      // Strict reconnect: the outgoing local-read proof was retired when the
+      // transition began and is NEVER reinstated. The only way back is a fresh
+      // two-phase restore from the durable grant (new reservation, new proof);
+      // if that fails the signed-out scope is published.
+      await debugBeforeFailureCapture?.call();
+      if (probe.began) _scheduleFreshLocalReadRestore(probe);
+      rethrow;
+    }
+  }
+
+  Future<void> _setIdentity({
+    required String method,
+    String? email,
+    String? userId,
+    AuthAttempt? attempt,
+    bool Function()? sessionCurrent,
+    required _ReconnectProbe probe,
+  }) async {
+    final inherited = Zone.current[_localAdmissionChain] as List<Future<void>>? ?? const [];
+    if (inherited.any(_inflightAdmissions.contains)) {
+      throw StateError('identity_transition_inside_local_operation');
+    }
     final auth = attempt ?? beginAuthAttempt();
     if (!_attemptCurrent(auth) || !(sessionCurrent?.call() ?? true)) {
       throw const StaleAdmissionException();
@@ -842,13 +2588,49 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // This runs only after the successful response and attempt are validated.
     CloudEgressGate.instance.advanceEpoch();
     final epoch = ++_admissionEpoch;
+    _localReadLifecycle++;
+    probe.epoch = epoch;
     _explicitAdmissionEpoch = epoch;
+    // Fixed old reservations only: never wait inside our own admission/host lane.
+    // Capture before publication listeners can start a superseding transition.
+    final priorAdmissions = _inflightAdmissions.toList(growable: false);
+    _databaseHostAdmission?._revoked = true;
+    _databaseIdentityPublication = null;
+    _databasePublicationDenied = false;
+    final databaseLoss = _databaseLossGeneration;
+    // Reauthentication is a mode transition (same UID included): the local-read
+    // proof AND the process capability are retired synchronously, for good.
+    final hadLocalRead = _localReadProof != null;
+    _pendingFirstGrant = null;
+    _dropLocalReadProof();
+    if (hadLocalRead) {
+      _localRead?.retireProcessCapabilities();
+      probe.began = true;
+    }
+    // The previous lifecycle's consent proof ends with this acceptance; a new one
+    // is issued only by this admission's own committed publication. The loss
+    // generations are captured here, before the first await: a loss raised while
+    // this admission is in flight (a held identity write, a publication
+    // listener) bars it from issuing.
+    _revokeConsentProof();
+    final authLossAtAcceptance = _authLossSeq;
+    final consentLossAtAcceptance = _consentLossSeq;
     value = SessionStatus.needsOnboarding;
     bool live() =>
         !_admissionClosed &&
         !(_removeData?.isRunning ?? false) &&
         _admissionEpoch == epoch &&
         (sessionCurrent?.call() ?? true);
+    try {
+      await Future.wait(priorAdmissions);
+      if (!live()) throw const StaleAdmissionException();
+      if (userId != null && userId.isNotEmpty) {
+        await _accountFence.guard(userId, current: live);
+      }
+    } catch (_) {
+      if (_explicitAdmissionEpoch == epoch) _explicitAdmissionEpoch = null;
+      rethrow;
+    }
     _Admission? adm;
     // Owner gate (MALI-002): interactive sign-in happens long after bootstrap,
     // so the new uid's own replica is unlocked and opened inline here before the
@@ -866,6 +2648,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
         explicit: true,
         sessionCurrent: sessionCurrent,
       );
+      _databaseOpeningAdmission = adm;
       try {
         ownership = await _ensureLocalDataOwnedBy(userId, adm);
       } catch (_) {
@@ -911,17 +2694,31 @@ class AppSession extends ValueNotifier<SessionStatus> {
           if (adm != null &&
               ownership == LocalDataOwnership.owned &&
               adm.current) {
-            try {
-              final capture = _publishCaptureOwner?.call(adm.uid, adm.authority);
-              if (capture != null) unawaited(capture.catchError((_) {}));
-            } catch (_) {
-              // Capture publication is best effort and never blocks admission.
-            }
+            // A successful explicit admission is the recovery from an unfinished
+            // logout or a closed switch: it is a new epoch with its own commit.
+            _accountSwitchEpoch = null;
+            _logoutIncomplete = false;
+            // The consent-only capability is issued HERE, from the committed
+            // publication and after the durable revocation clearance above, and
+            // only while every condition still holds, including the ACTUAL SDK
+            // session of exactly this uid (see the method).
+            final uid = adm.uid;
+            _issueConsentCapability(adm,
+                method: method,
+                sdkFresh: () => _sdkSessionFresh(uid),
+                sessionCurrent: sessionCurrent,
+                authLossSeq: authLossAtAcceptance,
+                consentLossSeq: consentLossAtAcceptance);
+            // A genuine (re)admission publishes a fresh restrictive native
+            // lifetime: awaited, ordered behind any earlier fence and bounded. A
+            // publication that does not verify never fails the sign-in; capture
+            // simply stays unbound.
+            await _publishNativeLifetime(adm);
           }
         });
         _identityTail = run.then<void>((_) {}, onError: (Object _) {});
         return run;
-      });
+      }, current: live);
     } catch (_) {
       if (adm != null &&
           adm.wasRevoked &&
@@ -931,6 +2728,31 @@ class AppSession extends ValueNotifier<SessionStatus> {
       rethrow;
     } finally {
       if (_explicitAdmissionEpoch == epoch) _explicitAdmissionEpoch = null;
+      if (identical(_databaseOpeningAdmission, adm)) {
+        _databaseOpeningAdmission = null;
+      }
+    }
+    _recordDatabaseIdentityPublication(databaseLoss);
+    _commitDatabasePublication(databaseLoss);
+    // A genuine fresh explicit admission: lift the restrictive flag and issue
+    // the receipt (a first account waits for finishOnboarding).
+    if (adm != null && ownership == LocalDataOwnership.owned) {
+      final pub = _databaseIdentityPublication;
+      if (pub != null &&
+          pub.loss == databaseLoss &&
+          pub.scope.uid == adm.uid &&
+          !isGuest) {
+        _localReadLocked = false;
+        final proof =
+            _GrantProof(adm.uid, pub.scope, pub.client, pub.epoch, pub.loss);
+        if (_grantProofCurrent(proof)) {
+          if (_onboardingDone && status == SessionStatus.authenticated) {
+            await _issueLocalReadGrant(proof);
+          } else {
+            _pendingFirstGrant = proof;
+          }
+        }
+      }
     }
   }
 
@@ -998,10 +2820,33 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// overtaken by Remove data, sign-out or an account switch returns without
   /// touching anything.
   Future<void> finishOnboarding({supabase.SupabaseClient? client}) async {
+    final databaseLoss = _databaseLossGeneration;
     if (_explicitAdmissionEpoch != null) return;
     final epoch = _admissionEpoch;
     final lossSeq = _authLossSeq;
-    final uid = _admittedUid;
+    final expectedUid = _admittedUid ?? _accountScope?.activeUid;
+    final marker = await _storage.read(key: _kLocalDataOwnerUid);
+    if (epoch != _admissionEpoch || lossSeq != _authLossSeq ||
+        (expectedUid != null && marker != expectedUid)) {
+      return;
+    }
+    final uid = expectedUid ?? marker;
+    if (!isGuest && (uid == null || uid.isEmpty ||
+        uid.startsWith(_kOwnerTransitionPrefix))) {
+      return;
+    }
+    try {
+      if (uid != null && uid.isNotEmpty) {
+        await _accountFence.guard(uid, current: () => epoch == _admissionEpoch &&
+            lossSeq == _authLossSeq);
+      } else if (!await _accountFence.initialize()) {
+        return;
+      }
+    } on AccountFenceDeniedException {
+      return;
+    } on StaleAdmissionException {
+      return;
+    }
     final authClient = client ??
         (SupabaseConfig.isConfigured
             ? supabase.Supabase.instance.client
@@ -1019,7 +2864,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
         _admissionEpoch == epoch &&
         _authLossSeq == lossSeq &&
         status != SessionStatus.sessionExpired &&
+        (uid == null ? _accountFence.store.ready : _accountFence.permits(uid)) &&
         fresh();
+    if (!live()) return;
     final published = await _admissionOp(() async {
       if (!live()) return false;
       authMethod ??= await _storage.read(key: _kMethod);
@@ -1035,15 +2882,23 @@ class AppSession extends ValueNotifier<SessionStatus> {
       await _storage.write(key: _kDone, value: '1');
       if (!live()) return false;
       // The onboarding consent steps just asked on this device.
-      await markConsentPromptSeen();
+      await _markConsentPromptSeen(epoch, uid);
       if (!live()) return false;
       _onboardingDone = true;
       value = authMethod == null
           ? SessionStatus.needsOnboarding
           : SessionStatus.authenticated;
       return true;
-    });
+    }, current: live);
     if (!published || !live()) return;
+    _commitDatabasePublication(databaseLoss);
+    final firstGrant = _pendingFirstGrant;
+    _pendingFirstGrant = null;
+    if (firstGrant != null &&
+        captureDatabaseHostAdmission() != null &&
+        _grantProofCurrent(firstGrant)) {
+      await _issueLocalReadGrant(firstGrant);
+    }
     await syncRemoteOnboardingCompletion();
     unawaited(UserActivityService.onSignIn());
   }
@@ -1059,26 +2914,42 @@ class AppSession extends ValueNotifier<SessionStatus> {
     return await _storage.read(key: '$kConsentAskedKeyPrefix$uid') != null;
   }
 
-  Future<void> markConsentPromptSeen() {
+  Future<void> markConsentPromptSeen() async {
     final epoch = _admissionEpoch;
     final expectedUid = _admittedUid ?? _accountScope?.activeUid;
-    bool live() =>
-        _explicitAdmissionEpoch == null &&
-        !_admissionClosed &&
-        !(_removeData?.isRunning ?? false) &&
-        _admissionEpoch == epoch;
+    final marker = await _storage.read(key: _kLocalDataOwnerUid);
+    if (epoch != _admissionEpoch || marker == null || marker.isEmpty ||
+        (expectedUid != null && marker != expectedUid)) {
+      return;
+    }
+    try {
+      await _accountFence.guard(marker, current: () => epoch == _admissionEpoch);
+    } on AccountFenceDeniedException {
+      return;
+    } on StaleAdmissionException {
+      return;
+    }
+    if (epoch != _admissionEpoch || !_accountFence.permits(marker)) return;
+    await _markConsentPromptSeen(epoch, marker);
+  }
+
+  /// The nested onboarding call is already tracked: it must never wait on its
+  /// own cleanup barrier. Only synchronous permission is used in this unit.
+  Future<void> _markConsentPromptSeen(int epoch, String? expectedUid) {
+    bool live() => expectedUid != null &&
+        _explicitAdmissionEpoch == null && !_admissionClosed &&
+        !(_removeData?.isRunning ?? false) && _admissionEpoch == epoch &&
+        _accountFence.permits(expectedUid);
+    if (!live()) return Future<void>.value();
     return _admissionOp(() async {
       if (!live()) return;
       final uid = await _storage.read(key: _kLocalDataOwnerUid);
-      if (!live() ||
-          uid == null ||
-          uid.isEmpty ||
-          uid.startsWith(_kOwnerTransitionPrefix) ||
-          (expectedUid != null && uid != expectedUid)) {
+      if (!live() || uid != expectedUid || uid == null || uid.isEmpty ||
+          uid.startsWith(_kOwnerTransitionPrefix)) {
         return;
       }
       await _storage.write(key: '$kConsentAskedKeyPrefix$uid', value: '1');
-    });
+    }, current: live);
   }
 
   /// Reconciles the account-scoped server marker after an interactive sign-in.
@@ -1136,8 +3007,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// unsynced inventory before deciding — a timeout/failure here is NEVER
   /// treated as a successful sync (the inventory re-check is the source of
   /// truth). Offline/slow network must not block the flow.
-  Future<void> flushPendingForSignOut() async {
-    final flush = _flushPendingSync;
+  Future<void> flushPendingForSignOut({bool skipRemote = false}) async {
+    final flush = skipRemote ? null : _flushPendingSync;
     if (flush == null) return;
     try {
       await flush().timeout(const Duration(seconds: 6));
@@ -1146,23 +3017,71 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
   }
 
-  Future<void> signOut() async {
+  Future<SignOutOutcome> signOut() async {
+    // D6: a logout from the offline read-only scope has no remote effect: nothing
+    // is pushed (the outbox flush) and no backend call is made (device unlink).
+    // Captured BEFORE the denial below drops the local-read proof.
+    final fromLocalRead = localReadEgressDenied;
+    // Lock + durable deny start NOW (synchronously revoked in memory); the scope
+    // is locked just below, so the denial does not lock it a second time.
+    final denial = _denyLocalRead(lockScope: false);
+    _revokeDatabasePublication();
     // F2: a sign-out invalidates, synchronously, every authority captured before
     // it: a reconcile or rebootstrap still in flight for the outgoing session can
-    // no longer admit, write or open anything.
+    // no longer admit, write or open anything. It also CLOSES admission for as
+    // long as the logout runs (a counter, like removals): no admission, automatic
+    // authority, local capture or consent capability can be issued or become
+    // current meanwhile, and the outgoing consent proof is never restored, even
+    // if the logout fails.
+    _logoutsAccepted++;
     _admissionEpoch++;
-    // MALI-069n §Blocker-1: invalidate the admission generation FIRST, before any
-    // close/purge begins, so an in-flight background job bound to this session is
-    // rejected at its next validation boundary and can neither commit nor
-    // acknowledge under the outgoing (or a subsequent) admission.
-    await _invalidateOwnerGeneration();
-    // Best-effort final push BEFORE the replica is closed: a change made in the
-    // last seconds should reach the cloud now rather than wait for the next
-    // sign-in. Offline sign-out still proceeds; nothing is discarded either way.
-    await flushPendingForSignOut();
-    // Lock + close the active replica and publish the signed-out scope.
-    await _accountScope?.lock();
-    await _finishSignedOut();
+    _localReadLifecycle++;
+    _revokeConsentProof();
+    // ----------------------------------------------------------------
+    var completed = false;
+    try {
+      // Bounded local/admission work already dispatched (a consent write holding
+      // a transaction on the database about to be locked) settles BEFORE the
+      // generation is invalidated and the scope locked: its authority is already
+      // revoked, so it rolls back at its next guard rather than landing. The
+      // network flush below is deliberately NOT part of this drain.
+      await drainAdmissions();
+      // MALI-069n §Blocker-1: invalidate the admission generation before any
+      // close/purge begins, so an in-flight background job bound to this session
+      // is rejected at its next validation boundary and can neither commit nor
+      // acknowledge under the outgoing (or a subsequent) admission.
+      await _invalidateOwnerGeneration();
+      // Best-effort final push BEFORE the replica is closed: a change made in the
+      // last seconds should reach the cloud now rather than wait for the next
+      // sign-in. Offline sign-out still proceeds; nothing is discarded either way.
+      await flushPendingForSignOut(skipRemote: fromLocalRead);
+      // Lock + close the active replica and publish the signed-out scope.
+      await _accountScope?.lock();
+      await _finishSignedOut(remoteEffects: !fromLocalRead);
+      await denial;
+      completed = true;
+    } finally {
+      // Whatever was issued DURING the closure (an auth attempt, an authority)
+      // never becomes current once it ends: the epoch moves again, synchronously,
+      // before the closure is released. Only this counter's own decrement
+      // reopens admission, and only after every concurrent logout finished.
+      _admissionEpoch++;
+      _revokeConsentProof();
+      if (completed) {
+        _accountSwitchEpoch = null;
+        _logoutIncomplete = false;
+      } else {
+        // FAILED part-way: the old status/scope may still look authenticated and
+        // open. The counter is released (never leaked), but local and consent
+        // work stay closed and nothing restores the outgoing authority; the
+        // failure is rethrown to the caller as an incomplete logout.
+        _logoutIncomplete = true;
+      }
+      _logoutsAccepted--;
+    }
+    return localReadCleanupIncomplete
+        ? SignOutOutcome.durableDenyIncomplete
+        : SignOutOutcome.complete;
   }
 
   /// Everything after the replica is locked/removed: native residue purge, owner
@@ -1175,11 +3094,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> _finishSignedOut({
     bool releaseOwner = true,
     String? onlyOwner,
+    bool remoteEffects = true,
+    bool Function()? current,
   }) async {
+    bool live() => current?.call() ?? true;
+    if (!live()) return;
     var release = releaseOwner;
     if (release && onlyOwner != null) {
       try {
         final marker = await _storage.read(key: _kLocalDataOwnerUid);
+        if (!live()) return;
         if (marker != null && marker.isNotEmpty && marker != onlyOwner) {
           release = false;
         }
@@ -1195,12 +3119,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
       // residue. (Same user re-login is unaffected: their own residue is not a
       // cross-user leak.)
       final residuePurged = await _runOwnerClear(signOut: true);
+      if (!live()) return;
       if (residuePurged) {
         await _storage.delete(key: _kLocalDataOwnerUid);
+        if (!live()) return;
       }
     }
+    if (!live()) return;
     UserActivityService.onSignOut();
-    final unlink = _unlinkCaptureDevice;
+    final unlink = remoteEffects ? _unlinkCaptureDevice : null;
     if (unlink != null) {
       unawaited(
         unlink().timeout(const Duration(seconds: 4)).catchError((_) {
@@ -1209,9 +3136,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
         }),
       );
     }
+    if (!live()) return;
     await _storage.delete(key: _kMethod);
+    if (!live()) return;
     await _storage.delete(key: _kEmail);
+    if (!live()) return;
     await _storage.delete(key: _kCurrentAccount);
+    if (!live()) return;
     authMethod = null;
     email = null;
     _currentAccountKey = null;
@@ -1241,14 +3172,17 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> removeDataFromDevice({
     Future<void> Function()? signOutRemote,
   }) async {
+    _revokeDatabasePublication();
     // ---- synchronous revocation: NOTHING above this line may await ----
     // The uid this request authorizes is fixed HERE and is the only uid it may
     // remove: the one admitted in this process, else the one whose scope is
     // published. The owner marker is never consulted to choose it — it may have
     // moved to another account meanwhile. With neither known nothing is removed.
     final target = _admittedUid ?? _accountScope?.activeUid;
+    final denial = _denyLocalRead(uid: target, lockScope: false);
     _removalsAccepted++;
     _admissionEpoch++;
+    _localReadLifecycle++;
     _authLossSeq++;
     authMethod = null;
     email = null;
@@ -1257,8 +3191,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _unresolvedOwnerUid = null;
     _pendingOwnerConflictUid = null;
     _admittedUid = null;
+    _revokeConsentProof();
+    _accountSwitchEpoch = null;
     value = SessionStatus.needsOnboarding;
     // ---------------------------------------------------------------------
+    var denyIncomplete = false;
     try {
       var removed = false;
       if (target != null && target.isNotEmpty) {
@@ -1282,11 +3219,24 @@ class AppSession extends ValueNotifier<SessionStatus> {
         releaseOwner: target != null && target.isNotEmpty,
         onlyOwner: target,
       );
+      _logoutIncomplete = false;
       // §4.4 step 6. Held here, not in a widget: the scope swap disposes the
       // screen that asked, and the root shows it once on the screen that follows.
       if (removed) removalNoticePending.value = true;
     } finally {
       _removalsAccepted--;
+      await denial;
+      // D4: whether the durable offline-access denial landed is reported to the
+      // ROOT (the screen that asked is disposed by the scope swap), on the
+      // returning AND the throwing path, and apart from the data-removed notice.
+      // The notice states only the denial fact (R10.3): this finally block also
+      // runs when the removal threw or when there was no target, so it can never
+      // claim that data was removed or that a restart completes the denial.
+      denyIncomplete = localReadCleanupIncomplete;
+      _lastRemoveDataOutcome = denyIncomplete
+          ? RemoveDataOutcome.durableDenyIncomplete
+          : RemoveDataOutcome.complete;
+      if (denyIncomplete) denyIncompleteNoticePending.value = true;
       if (signOutRemote != null) {
         try {
           await signOutRemote();
@@ -1296,6 +3246,23 @@ class AppSession extends ValueNotifier<SessionStatus> {
         }
       }
     }
+  }
+
+  RemoveDataOutcome _lastRemoveDataOutcome = RemoveDataOutcome.complete;
+
+  /// D4: [removeDataFromDevice] reporting what its durable-denial step achieved.
+  /// The outcome speaks ONLY to the offline-access denial (see
+  /// [RemoveDataOutcome]); whether data was removed is a separate fact: a removal
+  /// that could not be confirmed throws [RemoveDataIncompleteException] and a
+  /// request with no target removes nothing. The root denial notice is raised by
+  /// the call itself, on the returning and the throwing path alike, with neutral
+  /// copy that claims no removal and promises no restart; the data-removed notice
+  /// is raised only by a confirmed removal.
+  Future<RemoveDataOutcome> removeDataFromDeviceWithOutcome({
+    Future<void> Function()? signOutRemote,
+  }) async {
+    await removeDataFromDevice(signOutRemote: signOutRemote);
+    return _lastRemoveDataOutcome;
   }
 
   /// Invalidates the admission generation, but only while the owner marker still
@@ -1321,6 +3288,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// ProviderScope rebuild the removal causes.
   final ValueNotifier<bool> removalNoticePending = ValueNotifier<bool>(false);
 
+  /// Set when a removal / sign-out finished with the durable offline-access
+  /// denial still unestablished. Consumed by the ROOT widget (not by the screen
+  /// that started the removal, which the scope swap disposes).
+  final ValueNotifier<bool> denyIncompleteNoticePending =
+      ValueNotifier<bool>(false);
+
   /// Step 1 of the removal of [uid]: the owner record is cleared (the native
   /// owner record is cleared by the barrier's `begin`) — but only while it still
   /// names [uid]. A marker that moved to another account meanwhile belongs to that
@@ -1330,20 +3303,32 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// silently miss an item written under another accessibility class, which then
   /// keeps naming the removed uid; the write path repairs such an item, so it is
   /// overwritten and deleted once more. A marker that still reads back throws.
-  Future<void> clearLocalDataOwnerMarker(String uid) async {
-    final current = await _storage.read(key: _kLocalDataOwnerUid);
-    if (current != null &&
-        current.isNotEmpty &&
-        current != uid &&
-        !current.startsWith(_kOwnerTransitionPrefix)) {
+  Future<void> clearLocalDataOwnerMarker(String uid, {bool Function()? current}) async {
+    bool live() => current?.call() ?? true;
+    if (!live()) return;
+    final marker = await _storage.read(key: _kLocalDataOwnerUid);
+    if (!live()) return;
+    if (marker != null &&
+        marker.isNotEmpty &&
+        marker != uid &&
+        !marker.startsWith(_kOwnerTransitionPrefix)) {
       return;
     }
+    if (!live()) return;
     await _invalidateOwnerGeneration();
+    if (!live()) return;
     await _storage.delete(key: _kLocalDataOwnerUid);
-    if (await _storage.read(key: _kLocalDataOwnerUid) == null) return;
+    if (!live()) return;
+    final afterDelete = await _storage.read(key: _kLocalDataOwnerUid);
+    if (!live() || afterDelete == null) return;
+    if (!live()) return;
     await _storage.write(key: _kLocalDataOwnerUid, value: '');
+    if (!live()) return;
     await _storage.delete(key: _kLocalDataOwnerUid);
-    if (await _storage.read(key: _kLocalDataOwnerUid) != null) {
+    if (!live()) return;
+    final afterRetry = await _storage.read(key: _kLocalDataOwnerUid);
+    if (!live()) return;
+    if (afterRetry != null) {
       throw const RemoveDataIncompleteException();
     }
   }
@@ -1361,21 +3346,50 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// record is already gone) is finished here: the leftover identity of a removed
   /// uid is cleared and the status forced signed out.
   Future<LaunchAdmission> prepareLaunchAdmission() async {
+    final epoch = _admissionEpoch;
+    String? intendedOwner;
+    LaunchAdmission blocked() => epoch == _admissionEpoch
+        ? _blockedLaunch() : const LaunchAdmission.blocked();
+    Future<void> mutate(Future<void> Function() action) {
+      final run = _ownershipTail.then((_) async {
+        if (epoch != _admissionEpoch) return;
+        await action();
+      });
+      _ownershipTail = run.then<void>((_) {}, onError: (Object _) {});
+      return run;
+    }
+    try {
+      final owner = await _storage.read(key: _kLocalDataOwnerUid);
+      if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
+      intendedOwner = owner;
+      if (owner == null || owner.isEmpty) {
+        if (!await _accountFence.initialize()) return blocked();
+      } else {
+        await _accountFence.guard(owner, current: () => epoch == _admissionEpoch);
+      }
+    } catch (_) {
+      return blocked();
+    }
+    if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
     final removal = _removeData;
     var revoked = <String>{};
     if (removal != null) {
       final hadRecord = await removal.hasPending();
-      if (!await removal.resumePending()) return _blockedLaunch();
+      if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
+      if (!await removal.resumePending()) return blocked();
+      if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
       try {
         revoked = await removal.revokedUids();
+        if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
       } catch (_) {
-        return _blockedLaunch();
+        return blocked();
       }
       final String? markerNow;
       try {
         markerNow = await _storage.read(key: _kLocalDataOwnerUid);
+        if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
       } catch (_) {
-        return _blockedLaunch();
+        return blocked();
       }
       // The identity half of a removal the crashed process never reached.
       if (hadRecord ||
@@ -1384,41 +3398,112 @@ class AppSession extends ValueNotifier<SessionStatus> {
                 _currentAccountKey == 'uid:$uid' ||
                 (markerNow != null && markerNow == uid),
           )) {
-        await _finishSignedOut();
+        await mutate(() => _finishSignedOut(current: () => epoch == _admissionEpoch));
+        if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
       }
     }
     final String? marker;
     try {
       marker = await _storage.read(key: _kLocalDataOwnerUid);
     } catch (_) {
-      return _blockedLaunch();
+      return blocked();
     }
+    if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
+    if (marker != null && marker.isNotEmpty && marker != intendedOwner) return blocked();
     if (marker == null || marker.isEmpty) {
-      return const LaunchAdmission.open(null);
+      return _chosenLaunch(LaunchAdmission.open(null));
     }
     if (revoked.contains(marker)) {
       // A stale marker naming a removed uid is never opened (and is cleared).
       try {
-        await clearLocalDataOwnerMarker(marker);
+        await mutate(() => clearLocalDataOwnerMarker(marker!,
+            current: () => epoch == _admissionEpoch));
+        if (epoch != _admissionEpoch) return const LaunchAdmission.blocked();
       } catch (_) {
-        return _blockedLaunch();
+        return blocked();
       }
-      return const LaunchAdmission.open(null);
+      return _chosenLaunch(LaunchAdmission.open(null));
     }
-    return LaunchAdmission.open(marker);
+    return _chosenLaunch(LaunchAdmission.open(marker));
+  }
+
+  /// The launch admission this session itself chose last (identity only): the
+  /// sole thing a cold-launch reservation may be minted for.
+  LaunchAdmission? _chosenLaunchAdmission;
+  bool _chosenLaunchReserved = false;
+
+  LaunchAdmission _chosenLaunch(LaunchAdmission launch) {
+    _chosenLaunchAdmission = launch;
+    _chosenLaunchReserved = false;
+    return launch;
+  }
+
+  /// The cold-launch reservation minter for [launch], or null when none may be
+  /// minted: no coordinator, a blocked launch, a signed-out launch, a launch this
+  /// session did not choose (a forged or stale one) or one already reserved.
+  ///
+  /// The returned callback is handed to `AccountScopeHost.openAtLaunch`; it mints
+  /// the private reservation BEFORE the opener and remembers it, so committed
+  /// publication can promote exactly that tracked primary (and nothing else).
+  /// Removal, session invalidation and a loss of the launch itself make the
+  /// reservation stale. It never creates, never issues a job and is not
+  /// committed authority.
+  DatabaseOpenReservation? Function(String uid)? coldLaunchReserver(
+      LaunchAdmission launch) {
+    final coordinator = _databaseCoordinator;
+    if (coordinator == null ||
+        launch.blocked ||
+        launch.uid == null ||
+        !identical(_chosenLaunchAdmission, launch) ||
+        _chosenLaunchReserved) {
+      return null;
+    }
+    final lossAtMint = _databaseLossGeneration;
+    final epochAtMint = _admissionEpoch;
+    return (uid) {
+      if (uid != launch.uid ||
+          !identical(_chosenLaunchAdmission, launch) ||
+          _chosenLaunchReserved) {
+        return null;
+      }
+      _chosenLaunchReserved = true;
+      final reservation = coordinator.reserveColdLaunchOpen(
+        uid: uid,
+        launchIdentity: launch,
+        lossGeneration: lossAtMint,
+        stillValid: () =>
+            identical(_chosenLaunchAdmission, launch) &&
+            _databaseLossGeneration == lossAtMint &&
+            !_admissionClosed &&
+            !(_removeData?.isRunning ?? false) &&
+            // A later explicit sign-in/sign-out bumps the epoch past the launch.
+            _admissionEpoch == epochAtMint,
+      );
+      _databaseOpenReservation = reservation;
+      return reservation;
+    };
   }
 
   LaunchAdmission _blockedLaunch() {
+    _revokeDatabasePublication();
     authMethod = null;
     email = null;
     _currentAccountKey = null;
     _onboardingDone = false;
     _admittedUid = null;
+    _revokeConsentProof();
     value = SessionStatus.needsOnboarding;
     return const LaunchAdmission.blocked();
   }
 
   Future<void> bindSupabaseAuth(supabase.SupabaseClient client) async {
+    // A different SDK binding retires every retained broker issuer immediately.
+    if (!identical(_databaseIssuerClient, client)) {
+      _databaseHostAdmission?._revoked = true;
+      _databaseLossGeneration++;
+      _databaseHostAdmission = null;
+      _databaseIssuerClient = client;
+    }
     const boundary = AuthStreamBoundary('appSession');
     _supabaseAuthSubscription ??= client.auth.onAuthStateChange.listen(
       (state) => unawaited(
@@ -1474,6 +3559,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// exactly one status transition and one router redirect, never a storm.
   Future<void> handleAuthRequiredFailure() async {
     if (isGuest || authMethod == null) return;
+    // auth_required with an unknown cause is never read as harmless expiry.
+    await _denyLocalRead();
     if (value == SessionStatus.sessionExpired) return;
     markSessionInvalid();
   }
@@ -1482,6 +3569,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// without touching onboarding completion, the stored identity, or any
   /// unrelated local preference — only the *live* session judgment changes.
   void markSessionInvalid() {
+    _revokeDatabasePublication();
+    // The consent proof is dropped HERE, synchronously, at the origin of the
+    // loss and before any early return, and the loss generation advances with it:
+    // a later recovery of the status (or a call that changes nothing) never
+    // revives it, and an admission already in flight (explicit or automatic)
+    // that captured the earlier generation can never issue a replacement.
+    _revokeConsentProof();
     if (isGuest || authMethod == null) return;
     if (value == SessionStatus.sessionExpired) return;
     value = SessionStatus.sessionExpired;
@@ -1504,6 +3598,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
           // A queued loss event must not invalidate a newer live SDK session.
           if (client.auth.currentSession?.isExpired == false) return;
           _authLossSeq++;
+          _revokeConsentProof();
           // A server-driven auth loss is not an explicit request to destroy the
           // local-first database. It can be emitted during cold-start token
           // recovery, resume, revocation, or account deletion. With the old call
@@ -1513,6 +3608,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
           // access until the user re-authenticates. Explicit UI logout still
           // calls signOut() directly, which LOCKS the replica (never wipes it).
           markSessionInvalid();
+          // Unknown cause (or known revocation/deletion): lock + durable deny.
+          await _denyLocalRead();
           return;
         case supabase.AuthChangeEvent.initialSession:
         case supabase.AuthChangeEvent.signedIn:
@@ -1536,6 +3633,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     required supabase.SupabaseClient client,
     AdmissionAuthority? authority,
   }) async {
+    final databaseLoss = _databaseLossGeneration;
     if (isGuest || authMethod == null) return;
     final epoch = _admissionEpoch;
     bool current() {
@@ -1554,10 +3652,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
       return;
     }
     if (session != null && session.isExpired) {
+      _revokeDatabasePublication();
+      _revokeConsentProof(); // an expired SDK session proves nothing
       if (_onboardingDone) markSessionInvalid();
+      _scheduleLocalReadTransition();
       return;
     }
     if (session == null) {
+      _revokeDatabasePublication();
+      _revokeConsentProof(); // no SDK session: the proof ends here
       // A null session here is only ambiguous mid-onboarding (identity set,
       // setup not finished yet) — that's already correctly `needsOnboarding`
       // and must be left alone. Once onboarding was actually completed once
@@ -1567,6 +3670,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       // access — downgrade to sessionExpired so the router sends the user
       // back to sign-in, without erasing onboarding completion.
       if (_onboardingDone) markSessionInvalid();
+      _scheduleLocalReadTransition();
       return;
     }
     // Owner gate (MALI-002): never admit a UID while the local DB still holds
@@ -1575,6 +3679,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // untouched — the boot loader is showing — and let bootstrap resolve the
     // conflict via resolvePendingLocalDataOwnerConflict, which re-enters here.
     final lossSeq = _authLossSeq;
+    final consentLossSeq = _consentLossSeq;
     final uid = session.user.id;
     // An automatic reconcile holds an open-existing authority captured NOW (or a
     // rebootstrap's maintenance authority); it never holds explicit authority.
@@ -1589,6 +3694,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
           (authority == null || (authority.uid == uid && authority.isCurrent));
     }
 
+    try {
+      await _accountFence.guard(uid, current: current);
+    } on AccountFenceDeniedException {
+      if (current()) value = SessionStatus.sessionExpired;
+      return;
+    } on StaleAdmissionException {
+      return;
+    }
     final base = authority ?? _authorityAt(epoch, uid, canCreate: false);
     final guarded = AdmissionAuthority(
         uid, () => base.uid == uid && base.isCurrent && fresh(),
@@ -1654,16 +3767,43 @@ class AppSession extends ValueNotifier<SessionStatus> {
         if (remoteEmail != null && remoteEmail.trim().isNotEmpty) {
           email = remoteEmail;
         }
+        // The account switch (if this admission was one) stays closed through
+        // every async identity write above; it reopens HERE, in the same
+        // synchronous step as the status publication, and only for the very
+        // epoch that owns it. A failed or older admission never gets here.
+        if (_accountSwitchEpoch != null &&
+            _accountSwitchEpoch == adm.authority.epoch) {
+          _accountSwitchEpoch = null;
+        }
         value = completed
             ? SessionStatus.authenticated
             : SessionStatus.needsOnboarding;
         // ValueNotifier listeners may have revoked authority synchronously.
         if (!live()) return;
         notifyListeners();
+        if (!live()) return;
+        _recordDatabaseIdentityPublication(databaseLoss);
+        // The committed, guarded automatic publication is the other place a
+        // consent proof is issued (a returning, already-authenticated user): the
+        // evidence is the REAL SDK session of this client for exactly this uid.
+        if (adm.current && _explicitAdmissionEpoch == null) {
+          _issueConsentCapability(adm,
+              method: authMethod ?? '',
+              sdkFresh: () => _sdkSessionFresh(uid, client),
+              // No token-identity predicate: a routine token refresh keeps the
+              // same lifecycle and must not revoke an operation in flight. The
+              // evidence is the live SDK session of exactly this uid; a loss is
+              // revoked synchronously at its origin.
+              sessionCurrent: null,
+              authLossSeq: lossSeq,
+              consentLossSeq: consentLossSeq);
+        }
       });
       _identityTail = run.then<void>((_) {}, onError: (Object _) {});
       return run;
-    });
+    }, current: () => lossSeq == _authLossSeq && adm.current &&
+        _explicitAdmissionEpoch == null);
+    _commitDatabasePublication(databaseLoss);
   }
 
   Future<bool> _readRemoteOnboardingCompletion(String userId) async {
@@ -1754,6 +3894,10 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   /// حذف الحساب وكل البيانات المحلية (Privacy → حذف كل بياناتي).
   Future<void> wipeAndReset() async {
+    _revokeDatabasePublication();
+    // The authority loss is synchronous, before the first await below.
+    _revokeConsentProof();
+    _accountFenceOwner = null;
     // MALI-054n/070n: purge native + filesystem capture residue as part of the
     // full reset (account deletion / reset-all), BEFORE the secure-storage wipe
     // drops the owner marker — otherwise leftover native captures could be
@@ -1781,6 +3925,10 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _currentAccountKey = null;
     _completedAccountKeys.clear();
     _unresolvedOwnerUid = null;
+    _revokeConsentProof();
+    // A full local reset leaves the device signed out: nothing remains of an
+    // unfinished logout's old authority to protect.
+    _logoutIncomplete = false;
     value = SessionStatus.needsOnboarding;
     // In-memory state is signed-out first, so a reported failure still leaves
     // the app in a safe state — but the failure IS reported: a wipe that left

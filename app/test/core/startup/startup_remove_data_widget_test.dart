@@ -19,6 +19,7 @@ import 'package:money_companion/data/db/replica_store.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/replica_location.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/core/session/account_fence_authority.dart';
 import 'package:money_companion/core/session/capture_queue.dart';
 import 'package:money_companion/core/startup/bootstrap_runner.dart';
 import 'package:money_companion/features/app/app_shell.dart';
@@ -63,6 +64,33 @@ Future<void> _until(WidgetTester tester, bool Function() ready) async {
   expect(ready(), isTrue);
 }
 
+Future<void> _finishFenceFixture(WidgetTester tester, BootstrapRunner runner,
+    void Function() restore) async {
+  final session = AppSession.instance;
+  var drained = false;
+  unawaited(session.drainAdmissions().then((_) => drained = true));
+  await _until(tester, () => drained);
+  final database = runner.accountScope.current?.database;
+  if (database != null) {
+    var closed = false;
+    unawaited(database.close().then((_) => closed = true));
+    await _until(tester, () => closed);
+    expect(database.lifecycleState, DatabaseLifecycleState.closed);
+  }
+  session.configureAccountScope(null);
+  session.configureRemoveData(null);
+  var settled = false;
+  var ready = false;
+  unawaited(AccountFenceAuthority.shared.initialize().then((value) {
+    ready = value;
+    settled = true;
+  }));
+  await _until(tester, () => settled);
+  expect(ready, isTrue);
+  expect(AccountFenceAuthority.shared.store.ready, isTrue);
+  restore();
+}
+
 void main() {
   setUp(() => rootBundle.clear());
   tearDown(() => AppSession.instance.debugAuthEventCompleted = null);
@@ -81,6 +109,7 @@ void main() {
     session.debugResetAdmissionState();
     session.configureRemoveData(null);
     session.configureAccountScope(null);
+    final restoreFence = AccountFenceAuthority.replacePersistenceForTest();
     final client = await tester.runAsync(() => F2Fixture.liveClient('uid-x'));
     final storageEvents = <String>[];
     final runner = BootstrapRunner(
@@ -205,6 +234,11 @@ void main() {
       unawaited(runner.accountScope.lock().then((_) => locked = true));
     });
     await _until(tester, () => locked);
+    final preRestartSignedOutDatabase = runner.accountScope.current!.database;
+    var preRestartClosed = false;
+    unawaited(preRestartSignedOutDatabase.close().then((_) => preRestartClosed = true));
+    await _until(tester, () => preRestartClosed);
+    expect(preRestartSignedOutDatabase.lifecycleState, DatabaseLifecycleState.closed);
     runner.accountScope.dispose();
     session.debugResetAdmissionState();
     session.configureRemoveData(null);
@@ -257,6 +291,10 @@ void main() {
     session.configureRemoveData(null);
     session.configureAccountScope(null);
     await tester.pump(const Duration(seconds: 2));
+    await tester.runAsync(() => client!.dispose());
+    expect(admitted.database.lifecycleState, DatabaseLifecycleState.closed);
+    expect(signedOut.database.lifecycleState, DatabaseLifecycleState.closed);
+    await _finishFenceFixture(tester, restarted, restoreFence);
     await tester.runAsync(() async => support.deleteSync(recursive: true));
   });
   testWidgets(
@@ -273,6 +311,7 @@ void main() {
     session.debugResetAdmissionState();
     session.configureRemoveData(null);
     session.configureAccountScope(null);
+    final restoreFence = AccountFenceAuthority.replacePersistenceForTest();
     await tester.runAsync(() async {
       final legacy =
           await AppDatabase.open(location: await ReplicaLocation.legacy());
@@ -323,6 +362,8 @@ void main() {
     session.configureRemoveData(null);
     session.configureAccountScope(null);
     await tester.pump(const Duration(seconds: 2));
+    await tester.runAsync(() => client!.dispose());
+    await _finishFenceFixture(tester, runner, restoreFence);
     support.deleteSync(recursive: true);
   });
 
@@ -367,6 +408,7 @@ void main() {
       session.debugResetAdmissionState();
       session.configureRemoveData(null);
       session.configureAccountScope(null);
+      final restoreFence = AccountFenceAuthority.replacePersistenceForTest();
       final client = await tester.runAsync(() => F2Fixture.liveClient('uid-x'));
       final queue = _Queue();
       if (failure == 'native-malformed') {
@@ -408,6 +450,8 @@ void main() {
       session.configureRemoveData(null);
       session.configureAccountScope(null);
       await tester.pump(const Duration(seconds: 2));
+      await tester.runAsync(() => client!.dispose());
+      await _finishFenceFixture(tester, runner, restoreFence);
       support.deleteSync(recursive: true);
     });
   }

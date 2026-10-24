@@ -86,7 +86,7 @@ void main() {
             await release.future;
           }
         });
-    final host = AccountScopeHost(
+    final host = AccountScopeHost.uncoordinatedForTesting(
         store: store, initialize: (db, uid) async => const AccountScopeInit());
     addTearDown(() async {
       await host.lock();

@@ -1,9 +1,8 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
@@ -26,12 +25,6 @@ const _canonical =
     FixedPlanningCutoverCoordinator(PlanningCutoverState.canonical);
 const _verified = ExactTransportCapability.verifiedExact;
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 class _CapturingSink implements PlanningRemoteSink {
   final upserts = <Map<String, dynamic>>[];
@@ -132,13 +125,15 @@ class _CountingChildRemote implements PlanningChildRemote {
   Future<void> tombstonePlanLink(String serverId) async {}
 }
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase db;
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     // The §8 exact-money cases below use `categoryId: 'c1'` as a placeholder.
     // Since F-029 fails CLOSED on an unresolvable category, that category has to
     // actually exist or those tests would be asserting the refusal path instead
@@ -148,7 +143,7 @@ void main() {
       VALUES('c1', 'c1_key', 'فئة', 'tag', '#000', 0, 98);
     ''');
   });
-  tearDown(() async => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   PlanningOutboxQueue canonicalQueue() => PlanningOutboxQueue(
         db: db,

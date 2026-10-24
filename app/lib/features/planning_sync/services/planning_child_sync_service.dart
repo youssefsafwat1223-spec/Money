@@ -1,3 +1,8 @@
+import 'dart:async';
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/app_session.dart';
+import '../../../core/session/admission_authority.dart';
+import '../../../core/sync/account_fence_retry.dart';
 import '../../../core/sync/sync_health.dart';
 import 'dart:convert';
 
@@ -63,17 +68,76 @@ abstract interface class PlanningChildRemote {
   });
 }
 
+final _childRemoteKey=Object();
+enum _ChildMutationKind {addContribution,deleteContribution,recordPayment,deletePayment,insertLink,undeleteLink,tombstoneLink}
+class _ChildMutationRefusal implements Exception {
+  _ChildMutationRefusal(this.context,this.kind,this.raw);
+  final _ChildRemoteContext context;
+  final _ChildMutationKind kind;
+  final PostgrestException raw;
+}
+class _ChildRemoteContext {
+  _ChildRemoteContext(this.invocation,this.intent,this.item);
+  final _ChildInvocation invocation;
+  final AccountFenceChildIntent intent;
+  final PlanningOutboxItem item;
+  void requireKind(_ChildMutationKind kind){
+    final lane=switch(kind){
+      _ChildMutationKind.addContribution||_ChildMutationKind.deleteContribution=>'goal_contribution',
+      _ChildMutationKind.recordPayment||_ChildMutationKind.deletePayment=>'bill_payment',
+      _=>'plan_transaction_link',
+    };
+    final deleting=kind==_ChildMutationKind.deleteContribution||kind==_ChildMutationKind.deletePayment||kind==_ChildMutationKind.tombstoneLink;
+    if(item.entityType!=lane||(item.operation==PlanningSyncOperation.delete)!=deleting){throw const ChildDeliveryStopped(ChildDeliveryStopReason.provenance);}
+    invocation.requireCurrent();
+  }
+}
+Future<T> _childMutation<T>(_ChildMutationKind kind,Future<T> Function() factory)async{
+  final context=Zone.current[_childRemoteKey] as _ChildRemoteContext?;
+  context?.requireKind(kind);
+  // Synchronous client/builder creation is deliberately outside the tag catch.
+  final pending=factory();
+  final T result;
+  try{result=await pending;}
+  on PostgrestException catch(error){
+    if(context!=null&&decodeChildAccountDenial(error)!=null){throw _ChildMutationRefusal(context,kind,error);}
+    rethrow;
+  }
+  context?.invocation.requireCurrent();return result;
+}
+Future<T> _childRead<T>(Future<T> Function() factory)async{
+  final context=Zone.current[_childRemoteKey] as _ChildRemoteContext?;
+  context?.invocation.requireCurrent();
+  try{final value=await factory();context?.invocation.requireCurrent();return value;}
+  on PostgrestException catch(error){
+    if(context!=null&&decodeChildAccountDenial(error)!=null){throw const ChildDeliveryStopped(ChildDeliveryStopReason.nonMutationRefusal);}
+    rethrow;
+  }
+}
+
 class SupabasePlanningChildRemote implements PlanningChildRemote {
   const SupabasePlanningChildRemote();
 
-  SupabaseClient get _client => Supabase.instance.client;
+  SupabaseClient get _client {
+    (Zone.current[_childRemoteKey] as _ChildRemoteContext?)?.invocation.requireCurrent();
+    return Supabase.instance.client;
+  }
 
   @override
   Future<Map<String, dynamic>> callRpc(
     String name,
     Map<String, dynamic> params,
   ) async {
-    final response = await _client.rpc(name, params: params);
+    final kind=switch(name){
+      'add_goal_contribution'=>_ChildMutationKind.addContribution,
+      'sync_tombstone_goal_contribution'=>_ChildMutationKind.deleteContribution,
+      'record_bill_payment'=>_ChildMutationKind.recordPayment,
+      'delete_bill_payment'=>_ChildMutationKind.deletePayment,
+      _=>null,
+    };
+    if(kind==null&&Zone.current[_childRemoteKey]!=null){throw const ChildDeliveryStopped(ChildDeliveryStopReason.provenance);}
+    final response=kind==null?await _client.rpc(name,params:params)
+        :await _childMutation(kind,()=>_client.rpc(name,params:params));
     return Map<String, dynamic>.from(response as Map);
   }
 
@@ -109,13 +173,13 @@ class SupabasePlanningChildRemote implements PlanningChildRemote {
     required String planId,
     required String transactionId,
   }) async {
-    final response = await _client
+    final response = await _childRead(() => _client
         .from('user_plan_transaction_links')
         .select()
         .eq('user_id', userId)
         .eq('plan_id', planId)
         .eq('transaction_id', transactionId)
-        .maybeSingle();
+        .maybeSingle());
     return response == null ? null : Map<String, dynamic>.from(response);
   }
 
@@ -129,20 +193,13 @@ class SupabasePlanningChildRemote implements PlanningChildRemote {
       transactionId: row['transaction_id'] as String,
     );
     if (existing == null) {
-      final response = await _client
-          .from('user_plan_transaction_links')
-          .insert(row)
-          .select()
-          .single();
+      final response = await retryAccountFenceMutation(() => _childMutation(_ChildMutationKind.insertLink,()=>_client
+          .from('user_plan_transaction_links').insert(row).select().single()));
       return Map<String, dynamic>.from(response);
     }
     if (existing['deleted_at'] != null) {
-      final response = await _client
-          .from('user_plan_transaction_links')
-          .update({'deleted_at': null})
-          .eq('id', existing['id'] as String)
-          .select()
-          .single();
+      final response = await retryAccountFenceMutation(() => _childMutation(_ChildMutationKind.undeleteLink,()=>_client
+          .from('user_plan_transaction_links').update({'deleted_at':null}).eq('id',existing['id'] as String).select().single()));
       return Map<String, dynamic>.from(response);
     }
     return existing;
@@ -151,9 +208,10 @@ class SupabasePlanningChildRemote implements PlanningChildRemote {
   @override
   Future<void> tombstonePlanLink(String serverId) async {
     // Idempotent: an already tombstoned link is left exactly as it is.
-    await _client.from('user_plan_transaction_links').update({
-      'deleted_at': DateTime.now().toUtc().toIso8601String(),
-    }).eq('id', serverId).isFilter('deleted_at', null);
+    final deletedAt = DateTime.now().toUtc().toIso8601String();
+    await retryAccountFenceMutation(() => _childMutation(_ChildMutationKind.tombstoneLink,()=>_client.from('user_plan_transaction_links').update({
+      'deleted_at': deletedAt,
+    }).eq('id', serverId).isFilter('deleted_at', null)));
   }
 }
 
@@ -178,6 +236,7 @@ class PlanningChildSyncService {
     ExactTransportCapability Function() pushCapability = _defaultPushCapability,
     ExactTransportCapability Function() pullCapability = _defaultPullCapability,
     SyncHealth? health,
+    AccountFenceRetry? fenceRetry,
     /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
     SeqPullGate? seqGate,
     /// D1: supplies the replica epoch for the goal-contribution delete RPC.
@@ -186,6 +245,7 @@ class PlanningChildSyncService {
   })  : assert(pageSize > 0),
         _seqGate = seqGate,
         _casGate = casGate,
+        _fenceRetry = fenceRetry ?? AccountFenceRetry(),
         _health = health,
         _db = db,
         _queue = queue,
@@ -215,6 +275,7 @@ class PlanningChildSyncService {
   final ExactTransportCapability Function() _pullCapability;
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
+  final AccountFenceRetry _fenceRetry;
 
   static ExactTransportCapability _defaultPushCapability() =>
       ExactTransportCapability.unknown;
@@ -231,42 +292,106 @@ class PlanningChildSyncService {
     }
   }
 
-  Future<void> sync() async {
+  bool _busy=false;
+  _ChildInvocation? _invocation;
+  AccountFenceChildIntent? _intent;
+  PlanningOutboxItem? _item;
+  static final _operationId=RegExp(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+  Future<void> sync()=>syncWithPhase(SyncPhaseBinding());
+  Future<void> syncWithPhase(SyncPhaseBinding phase)async{
+    if(_busy){throw const ChildDeliveryStopped(ChildDeliveryStopReason.overlap);}
+    _busy=true;final inherited=phase.isBound?phase:null;
+    void supplied(){if(inherited!=null&&(!inherited.isCurrent||!identical(inherited.database,_db))){throw const ChildDeliveryStopped(ChildDeliveryStopReason.stale);}}
+    try{
+      supplied();final authority=AccountFenceAuthority.shared;
+      final handle=await authority.captureForDatabase(AppSession.instance,_db);supplied();
+      if(handle==null){throw const ChildDeliveryStopped(ChildDeliveryStopReason.unbound);}
+      final invocation=_ChildInvocation(authority,handle,_db,phase,inherited);_invocation=invocation;
+      if(!phase.isBound)phase.bind(invocation);
+      await _syncBound();_requireCurrent();
+    }on StaleAdmissionException{throw const ChildDeliveryStopped(ChildDeliveryStopReason.stale);}
+    finally{_intent=null;_item=null;_invocation=null;_busy=false;}
+  }
+  void _requireCurrent()=>_invocation!.requireCurrent();
+  Future<T> _local<T>(Future<T> Function() work)async{
+    final invocation=_invocation!;invocation.requireCurrent();
+    try{final result=await invocation.runLocal(work);invocation.requireCurrent();return result;}
+    on StaleAdmissionException{throw const ChildDeliveryStopped(ChildDeliveryStopReason.stale);}
+  }
+  Future<void> _itemLocal(PlanningOutboxItem item,Future<void> Function() work)=>
+      _local(()=>_db.transaction(()async{if(!await _queue.childHolderCurrent(item))return;await work();}));
+  Future<void> _prepare(PlanningOutboxItem item)async{
+    if(item.operationId==null||!_operationId.hasMatch(item.operationId!)){throw const ChildDeliveryStopped(ChildDeliveryStopReason.provenance);}
+    final invocation=_invocation!;
+    _intent=await invocation.authority.captureChildIntent(invocation.handle,_db,rowId:item.id,entityType:item.entityType,entityId:item.entityId,opSeq:item.opSeq,operationId:item.operationId!);
+    _requireCurrent();if(_intent==null){throw const ChildDeliveryStopped(ChildDeliveryStopReason.provenance);}_item=item;
+  }
+  Future<T> _remoteCall<T>(Future<T> Function() work)async{
+    _requireCurrent();final context=_ChildRemoteContext(_invocation!,_intent!,_item!);
+    try{final value=await runZoned(work,zoneValues:{_childRemoteKey:context});_requireCurrent();return value;}
+    on _ChildMutationRefusal{rethrow;}
+    on AccountFenceDeliveryCancellation{rethrow;}
+    catch(error){if(decodeChildAccountDenial(error)!=null){throw const ChildDeliveryStopped(ChildDeliveryStopReason.nonMutationRefusal);}_requireCurrent();rethrow;}
+  }
+  Future<bool> _retryCurrent(PlanningOutboxItem item,String uid)async{
+    _requireCurrent();if(!_isPushEnabled(item.entityType))return false;
+    final current=await _getAuthUserId();_requireCurrent();if(current!=uid)return false;
+    final allowed=await _mayEgress();_requireCurrent();if(!allowed)return false;
+    final held=await _local(()=>_queue.accountFenceCurrent(item));_requireCurrent();return held;
+  }
+  Future<Never> _deny(_ChildMutationRefusal refusal)async{
+    final invocation=_invocation!;final context=refusal.context;
+    if(!identical(context.invocation,invocation)||!identical(context.intent,_intent)||!identical(context.item,_item)){
+      throw const ChildDeliveryStopped(ChildDeliveryStopReason.provenance);
+    }
+    final state=decodeChildAccountDenial(refusal.raw)!;
+    final result=await invocation.authority.acceptChildDenial(invocation.handle,_db,context.intent,state,
+        park:(ticket)=>_queue.parkChildDenial(context.item,state,ticket));
+    throw ChildDeliveryStopped(ChildDeliveryStopReason.denial,accepted:result.accepted,parked:result.parked,complete:result.complete);
+  }
+
+  Future<void> _syncBound() async {
     final userId = await _getAuthUserId();
+    _requireCurrent();
     if (userId == null) return;
+    if(userId!=_invocation!.authority.ownerUid(_invocation!.handle)){throw const ChildDeliveryStopped(ChildDeliveryStopReason.stale);}
     // C-3 / G13 — child rows carry money; with consent off nothing is pushed or
     // pulled, and the outbox rows (including parked ones) are left untouched.
-    if (!await _mayEgress()) {
-      _health?.noteConsentBlocked(SyncDomain.children);
+    final allowed=await _mayEgress();_requireCurrent();
+    if (!allowed) {
+      _invocation!.phase.noteConsentBlocked(_health);
       return;
     }
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
-      await _queue.reArmParked();
+      await _local(()=>_queue.reArmParked());
     }
     // D-7: cold-start auth re-arm (the AuthSessionValid broadcast has no replay).
     if (outboxHasValidSession()) {
-      await _queue.reArmAuthParked(entityTypes: const [
+      await _local(()=>_queue.reArmAuthParked(entityTypes: const [
         PlanningOutboxQueue.goalContributionsEntityType,
         PlanningOutboxQueue.billPaymentsEntityType,
         PlanningOutboxQueue.planLinksEntityType,
-      ]);
+      ]));
     }
     // A-2 (G18): only rows recorded for THIS identity may be sent.
-    await _queue.reconcileOwnership(userId);
+    final verified=await _queue.ownershipVerified(userId);_requireCurrent();
+    await _local(()=>_queue.reconcileVerifiedOwnership(userId,verified));
     if (kDebugMode) debugPrint('[PlanningChildSync] start');
-    await _push(userId);
+    if (!await _push(userId)) return;
+    _requireCurrent();
     await _pull();
+    _requireCurrent();
     if (kDebugMode) debugPrint('[PlanningChildSync] done');
   }
 
-  Future<void> _push(String userId) async {
+  Future<bool> _push(String userId) async {
     for (final type in const [
       PlanningOutboxQueue.goalContributionsEntityType,
       PlanningOutboxQueue.billPaymentsEntityType,
       PlanningOutboxQueue.planLinksEntityType,
     ]) {
       if (!_isPushEnabled(type)) continue;
-      final items = await _queue.pendingItems(entityType: type);
+      final items = await _local(()=>_queue.pendingItems(entityType:type));
       for (final item in items) {
         try {
           if (item.entityType == PlanningOutboxQueue.billPaymentsEntityType &&
@@ -275,41 +400,59 @@ class PlanningChildSyncService {
                 cutoverState: _coordinator.state(),
                 pushCapability: _pushCapability(),
               )) {
-            final parkedNow = await _queue.park(
-              item.id,
-              exactMoneyTransportUnverifiedReason,
-              ifOpSeq: item.opSeq,
-            );
-            if (parkedNow) _health?.noteCapabilityParked(SyncDomain.children);
+            final parkedNow=await _local(()=>_db.transaction(()async{
+              if(!await _queue.childHolderCurrent(item))return false;
+              return _queue.park(item.id,exactMoneyTransportUnverifiedReason,ifOpSeq:item.opSeq);
+            }));
+            if(parkedNow)_invocation!.phase.noteCapabilityParked(_health);
             continue;
           }
           // B11: each pusher ACKs inside ITS OWN local transaction (op_seq-
           // guarded) together with the entity's synced mark — never a separate
           // markSuccess after the push.
-          await _pushItem(userId, item);
+          await _prepare(item);
+          await _fenceRetry.runItem(
+              isCurrent:()=>_retryCurrent(item,userId),
+              body: () => _pushItem(userId, item));
         } on CasEpochMismatch {
           // Stale epoch: nothing was written; stop the cycle (WP-7 rebootstraps).
-          await _queue.releaseInFlight(item.id);
-          return;
-        } catch (error) {
-          _health?.noteFailure(SyncDomain.children, error);
+          await _itemLocal(item,()=>_queue.releaseInFlight(item.id));
+          return true;
+        } on AccountFenceRetryStopped {
+          return false;
+        } on _ChildMutationRefusal catch(refusal){
+          await _deny(refusal);
+        } on AccountFenceDeliveryCancellation{rethrow;}
+        catch (error) {
+          if(decodeChildAccountDenial(error)!=null){throw const ChildDeliveryStopped(ChildDeliveryStopReason.nonMutationRefusal);}
+          _requireCurrent();
+          final fence = classifyOutboxError(error);
+          if (fence == OutboxFailureClass.accountFenceContention ||
+              fence == OutboxFailureClass.accountDeletionPending) {
+            await _itemLocal(item,()async{await _queue.recordAccountFenceFailure(item,fence,_fenceRetry.clock().add(_fenceRetry.cooldown));});
+            _invocation!.phase.noteFailure(_health,error);
+            if (fence == OutboxFailureClass.accountDeletionPending) return false;
+            continue;
+          }
+          _invocation!.phase.noteFailure(_health,error);
           // G12: an operation the server has no endpoint for is PERMANENT — it
           // dead-letters at once (observable) instead of being retried 12 times
           // as a transient failure.
           final unsupported = error is UnsupportedError;
-          await _queue.markFailed(
+          await _itemLocal(item,()=>_queue.markFailed(
             item.id,
             unsupported ? 'unsupported_operation: $error' : error.toString(),
             unsupported
                 ? OutboxFailureClass.permanentValidation
                 : classifyOutboxError(error),
-          );
+          ));
           if (kDebugMode) {
             debugPrint('[PlanningChildSync] push ${item.entityType}: $error');
           }
         }
       }
     }
+    return true;
   }
 
   Future<void> _pushItem(String userId, PlanningOutboxItem item) async {
@@ -336,17 +479,17 @@ class PlanningChildSyncService {
     final goalId =
         await _serverId('goals', payload['local_goal_id'] as String?);
     if (goalId == null) throw StateError('goal_parent_not_synced');
-    final result = await _remote.callRpc('add_goal_contribution', {
+    final result = await retryAccountFenceMutation(() => _remoteCall(() => _remote.callRpc('add_goal_contribution', {
       'p_goal_id': goalId,
       'p_client_request_id': item.entityId,
       'p_local_id': item.entityId,
       'p_amount': payload['amount'],
       'p_created_at': payload['created_at'],
       'p_note': payload['note'],
-    });
+    })));
     final row = Map<String, dynamic>.from(result['contribution'] as Map);
     final goal = Map<String, dynamic>.from(result['goal'] as Map);
-    await _db.transaction(() async {
+    await _itemLocal(item,() async {
       final consumed = await _queue.acknowledge(item);
       await _markChildSynced('goal_contributions', item.entityId, row,
           consumed: consumed);
@@ -365,7 +508,7 @@ class PlanningChildSyncService {
     final serverId = await _serverId('goal_contributions', item.entityId);
     if (serverId == null) {
       // Never reached the server: nothing to tombstone, the delete converged.
-      await _db.transaction(() async {
+      await _itemLocal(item,() async {
         final consumed = await _queue.acknowledge(item);
         if (consumed) {
           await _db.customStatement(
@@ -381,8 +524,8 @@ class PlanningChildSyncService {
     }
     final Map<String, dynamic> raw;
     try {
-      raw = await _remote.callRpc('sync_tombstone_goal_contribution',
-          {'p_expected_epoch': epoch, 'p_id': serverId});
+      raw = await retryAccountFenceMutation(() => _remoteCall(() => _remote.callRpc('sync_tombstone_goal_contribution',
+          {'p_expected_epoch': epoch, 'p_id': serverId})));
     } on PostgrestException catch (e) {
       // PGRST202 / 42883: the function is not deployed on this server.
       if (e.code == 'PGRST202' || e.code == '42883') {
@@ -401,7 +544,7 @@ class PlanningChildSyncService {
     }
     final row = result.row;
     final goal = raw['goal'];
-    await _db.transaction(() async {
+    await _itemLocal(item,() async {
       final consumed = await _queue.acknowledge(item);
       if (row != null) {
         await _markChildSynced('goal_contributions', item.entityId, row,
@@ -425,10 +568,8 @@ class PlanningChildSyncService {
   Future<String?> _deleteEpoch(String userId) async {
     final gate = _casGate;
     if (gate == null) return null;
-    final plan = await gate.plan(userId);
-    if (plan.mode == CasMode.cas) return plan.epoch;
-    if (plan.mode == CasMode.stopped) throw const CasEpochMismatch();
-    return gate.epochOrNull(userId);
+    return gate.deleteEpochForChildren(userId,authority:_invocation!.authority,
+        handle:_invocation!.handle,database:_db,phase:_invocation!.phase);
   }
 
   Future<void> _applyContributionGoal(
@@ -473,16 +614,16 @@ class PlanningChildSyncService {
     if (item.operation == PlanningSyncOperation.delete) {
       final serverId = await _serverId('bill_payments', item.entityId);
       if (serverId == null) throw StateError('payment_not_synced');
-      final result = await _remote.callRpc(
+      final result = await retryAccountFenceMutation(() => _remoteCall(() => _remote.callRpc(
         'delete_bill_payment',
         {'p_payment_id': serverId},
-      );
+      )));
       // B10: delete_bill_payment is idempotent on the server — a payment that
       // is already deleted or absent comes back with null payment/subscription.
       // That is a converged delete: ACK, nothing to apply.
       final payment = result['payment'];
       final subscription = result['subscription'];
-      await _db.transaction(() async {
+      await _itemLocal(item,() async {
         final consumed = await _queue.acknowledge(item);
         if (payment is Map) {
           await _markChildSynced('bill_payments', item.entityId,
@@ -509,7 +650,7 @@ class PlanningChildSyncService {
     if (localTransactionId != null && transactionId == null) {
       throw StateError('transaction_parent_not_synced');
     }
-    final result = await _remote.callRpc('record_bill_payment', {
+    final result = await retryAccountFenceMutation(() => _remoteCall(() => _remote.callRpc('record_bill_payment', {
       'p_subscription_id': subscriptionId,
       'p_transaction_id': transactionId,
       'p_client_request_id': item.entityId,
@@ -521,11 +662,11 @@ class PlanningChildSyncService {
       'p_paid_at': payload['paid_at'],
       'p_installment_index': payload['installment_index'],
       'p_note': payload['note'],
-    });
+    })));
     final payment = Map<String, dynamic>.from(result['payment'] as Map);
     final subscription =
         Map<String, dynamic>.from(result['subscription'] as Map);
-    await _db.transaction(() async {
+    await _itemLocal(item,() async {
       final consumed = await _queue.acknowledge(item);
       await _markChildSynced('bill_payments', item.entityId, payment,
           consumed: consumed);
@@ -546,15 +687,15 @@ class PlanningChildSyncService {
       throw StateError('plan_link_parent_not_synced');
     }
     if (item.operation == PlanningSyncOperation.delete) {
-      final existing = await _remote.findPlanLink(
+      final existing = await _remoteCall(() => _remote.findPlanLink(
         userId: userId,
         planId: planId,
         transactionId: transactionId,
-      );
+      ));
       if (existing != null) {
-        await _remote.tombstonePlanLink(existing['id'] as String);
+        await _remoteCall(()=>_remote.tombstonePlanLink(existing['id'] as String));
       }
-      await _db.transaction(() async {
+      await _itemLocal(item,() async {
         final consumed = await _queue.acknowledge(item);
         await _markPlanLinkSynced(
           localPlanId,
@@ -565,14 +706,14 @@ class PlanningChildSyncService {
       });
       return;
     }
-    final row = await _remote.upsertPlanLink({
+    final row = await _remoteCall(()=>_remote.upsertPlanLink({
       'user_id': userId,
       'plan_id': planId,
       'transaction_id': transactionId,
       'client_request_id': item.entityId,
       'created_at': payload['created_at'],
-    });
-    await _db.transaction(() async {
+    }));
+    await _itemLocal(item,() async {
       final consumed = await _queue.acknowledge(item);
       await _markPlanLinkSynced(
         localPlanId,
@@ -597,13 +738,13 @@ class PlanningChildSyncService {
         debugPrint(
             '[PlanningChildSync] pull parked: exact transport unverified');
       }
-      _health?.noteCapabilityParked(SyncDomain.children);
+      _invocation!.phase.noteCapabilityParked(_health);
       return;
     }
     if (!_isPullEnabled(PlanningOutboxQueue.goalContributionsEntityType)) {
       // Blocked by the planning-currency capability (exact pull is verified
       // here): an observable STATE, not a silent skip.
-      _health?.noteCapabilityParked(SyncDomain.children);
+      _invocation!.phase.noteCapabilityParked(_health);
     }
     // WP-4: one protocol decision (and one head read) for all child tables.
     final seqUserId = _seqGate == null ? null : await _getAuthUserId();
@@ -719,8 +860,9 @@ class PlanningChildSyncService {
       if (useSeq && reachedEof) {
         await _seqGate!.markCaughtUp(userId, cursorKey, seqCursor, plan);
       }
-    } catch (error) {
-      _health?.noteFailure(SyncDomain.children, error);
+    } on AccountFenceDeliveryCancellation{rethrow;}
+    catch (error) {
+      _invocation!.phase.noteFailure(_health,error);
       if (kDebugMode) debugPrint('[PlanningChildSync] pull $table: $error');
     }
   }
@@ -740,7 +882,7 @@ class PlanningChildSyncService {
           "WHERE table_name = ${sqlString(localTable)} "
           "AND reason != 'terminal' ORDER BY first_seen_at LIMIT 500;",
         ).get();
-      } catch (error) {
+      } on AccountFenceDeliveryCancellation { rethrow; } catch (error) {
         if (kDebugMode) debugPrint('[PlanningChildSync] drain read: $error');
         return null;
       }
@@ -757,7 +899,7 @@ class PlanningChildSyncService {
       try {
         final row = jsonDecode(p.read<String>('row_json')) as Map<String, dynamic>;
         decoded.add((serverId: serverId, attempts: attempts, row: row));
-      } catch (_) {
+      } on AccountFenceDeliveryCancellation { rethrow; } catch (_) {
         await _markParkedTerminal(localTable, serverId); // corrupt → terminal
       }
     }
@@ -777,7 +919,7 @@ class PlanningChildSyncService {
             await _unparkChild(localTable, d.serverId);
           }
         });
-      } catch (error) {
+      } on AccountFenceDeliveryCancellation { rethrow; } catch (error) {
         if (kDebugMode) debugPrint('[PlanningChildSync] drain apply: $error');
       }
     }
@@ -970,11 +1112,8 @@ class PlanningChildSyncService {
 
   Future<String?> _serverId(String table, String? localId) async {
     if (localId == null) return null;
-    final row = await _db
-        .customSelect(
-          'SELECT server_id FROM $table WHERE id = ${sqlString(localId)} LIMIT 1;',
-        )
-        .getSingleOrNull();
+    final row = await _local(()=>_db.customSelect(
+          'SELECT server_id FROM $table WHERE id = ${sqlString(localId)} LIMIT 1;').getSingleOrNull());
     return row?.readNullable<String>('server_id');
   }
 
@@ -1264,4 +1403,19 @@ class _ChildIndex {
     _idByServer[serverId] = localId;
     _statusById[localId] = 'synced';
   }
+}
+
+class _ChildInvocation implements SyncPhaseLifecycle {
+  _ChildInvocation(this.authority,this.handle,this.database,this.phase,this.inherited);
+  final AccountFenceAuthority authority;
+  final AccountFenceHandle handle;
+  @override
+  final AppDatabase database;
+  final SyncPhaseBinding phase;
+  final SyncPhaseBinding? inherited;
+  @override
+  bool get isCurrent=>authority.isCurrentForDatabase(handle,database)&&(inherited==null||inherited!.isCurrent);
+  void requireCurrent(){if(!isCurrent){throw const ChildDeliveryStopped(ChildDeliveryStopReason.stale);}}
+  @override
+  Future<T> runLocal<T>(Future<T> Function() action)=>authority.runCurrentLocal(handle,database,action);
 }

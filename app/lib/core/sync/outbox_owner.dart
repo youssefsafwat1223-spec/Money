@@ -15,7 +15,8 @@ import 'outbox_failure.dart';
 /// layer (never in flight, so edits may safely fold into it).
 const String kOutboxCoalescibleSql =
     "(status = 'pending' OR (status = 'parked' AND "
-    "COALESCE(failure_class, '') IN $kOutboxSelfHealingParkReasonsSql))";
+    "(COALESCE(failure_class, '') IN $kOutboxSelfHealingParkReasonsSql "
+    "OR failure_class = '$kParkAccountDeletionPending')))";
 
 /// D-9: SQL predicate restricting a coalesce target to rows recorded for the
 /// SAME owner. An edit never folds into a row owned by a different uid (that

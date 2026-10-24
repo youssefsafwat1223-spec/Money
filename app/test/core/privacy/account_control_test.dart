@@ -80,6 +80,7 @@ class _Spy {
 }
 
 void main() {
+  _immediateDeletionTests();
   late TestEgress egress; // OFF: no record at all
   late _Spy spy;
   late SupabaseClient client;
@@ -464,3 +465,393 @@ void main() {
 
 Future<T> gateRun<T>(AccountControlOp op, Future<T> Function() body) =>
     CloudEgressGate.instance.runAccountControl(op, body);
+
+class _DeferredAdmissionSlot implements DurableSlot {
+  final arrived = Completer<void>();
+  final release = Completer<void>();
+  @override
+  Future<SlotRead> read() async {
+    if (!arrived.isCompleted) arrived.complete();
+    await release.future;
+    return const SlotRead(SlotStatus.absent);
+  }
+  @override
+  Future<void> write(String value) async {}
+  @override
+  Future<void> delete() async {}
+}
+
+class _SynchronousThrowClient extends http.BaseClient {
+  int calls = 0;
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) {
+    calls++;
+    throw StateError('synchronous transport failure');
+  }
+  @override
+  void close() {}
+}
+
+class _ControlledTimer implements Timer {
+  _ControlledTimer(this.callback);
+  final void Function() callback;
+  bool _active = true;
+  @override
+  bool get isActive => _active;
+  @override
+  int get tick => _active ? 0 : 1;
+  @override
+  void cancel() => _active = false;
+  void fire() { if (_active) { _active = false; callback(); } }
+}
+
+void _immediateDeletionTests() {
+  group('E6 exact immediate-deletion exchange grants', () {
+    const secret = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA';
+    final endpoint = Uri.parse('$_url/functions/v1/delete-account-immediate');
+    final statusBody = jsonEncode({'action': 'status', 'receipt_secret': secret});
+    late TestEgress egress;
+    late List<http.Request> sent;
+    late GatedHttpClient transport;
+    setUp(() {
+      egress = TestEgress().install();
+      sent = [];
+      transport = GatedHttpClient(MockClient((r) async { sent.add(r); return http.Response('{}', 200); }));
+    });
+    Future<T> grant<T>(Future<T> Function() exchange, {
+      String? expectedBody, Uri? url, ImmediateDeletionAction action = ImmediateDeletionAction.status,
+      String? token, int? epoch, bool Function()? current,
+    }) => egress.gate.runImmediateDeletion(action: action, owner: 'uid-a', activeOwner: 'uid-a',
+        epoch: epoch ?? egress.gate.epoch, isCurrent: current ?? () => true,
+        functionUrl: url ?? endpoint, serializedBody: expectedBody ?? statusBody,
+        bearerToken: token, exchange: exchange);
+    Future<http.Response> send({String? body, Uri? url, String method = 'POST', Map<String, String>? headers}) async {
+      final request = http.Request(method, url ?? endpoint)
+        ..headers.addAll(headers ?? {'content-type': 'application/json'})
+        ..body = body ?? statusBody;
+      return http.Response.fromStream(await transport.send(request));
+    }
+
+    test('Cloud OFF exact status passes once; no consent/store widening or redirects', () async {
+      await grant(() => send());
+      expect(sent.length, 1);
+      expect(sent.single.followRedirects, isFalse);
+      expect(egress.secure.writes + egress.file.writes, 0);
+      expect(await egress.gate.permits(), isFalse);
+      expect(egress.gate.permitsNetworkSync, isFalse);
+    });
+
+    for (final changed in ['action', 'receipt', 'body', 'whitespace', 'path', 'query', 'host', 'method', 'refresh', 'authorization', 'content-type']) {
+      test('$changed cannot borrow a status grant and is denied before transport', () async {
+        var body = statusBody;
+        var url = endpoint;
+        var method = 'POST';
+        var headers = <String, String>{'content-type': 'application/json'};
+        switch (changed) {
+          case 'action': body = jsonEncode({'action': 'request', 'receipt_secret': secret});
+          case 'receipt': body = jsonEncode({'action': 'status', 'receipt_secret': 'B' * 43});
+          case 'body': body = jsonEncode({'action': 'status', 'receipt_secret': secret, 'extra': true});
+          case 'whitespace': body = '$statusBody ';
+          case 'path': url = endpoint.replace(path: '/functions/v1/other');
+          case 'query': url = endpoint.replace(query: 'x=1');
+          case 'host': url = endpoint.replace(host: 'other.invalid');
+          case 'method': method = 'GET';
+          case 'refresh': url = Uri.parse('$_url/auth/v1/token?grant_type=refresh_token');
+          case 'authorization': headers = {...headers, 'authorization': 'Bearer forbidden'};
+          case 'content-type': headers = {'content-type': 'text/plain'};
+        }
+        await expectLater(grant(() => send(body: body, url: url, method: method, headers: headers)),
+            throwsA(isA<EgressDeniedException>()));
+        expect(sent, isEmpty);
+      });
+    }
+
+    test('submission binds coherent bearer and cannot be replaced with status or another token', () async {
+      final body = jsonEncode({'challenge_id': 'challenge', 'challenge_response': 'proof', 'receipt_secret': secret});
+      await grant(() => send(body: body, headers: {'content-type': 'application/json', 'authorization': 'Bearer captured'}),
+          action: ImmediateDeletionAction.request, expectedBody: body, token: 'captured');
+      expect(sent.length, 1);
+      await expectLater(grant(() => send(body: body, headers: {'content-type': 'application/json', 'authorization': 'Bearer replaced'}),
+          action: ImmediateDeletionAction.request, expectedBody: body, token: 'captured'), throwsA(isA<EgressDeniedException>()));
+      expect(sent.length, 1);
+    });
+
+    test('concurrent same-grant dispatches admit only one; grant ends after completion', () async {
+      late Zone zone;
+      final results = await grant(() async {
+        zone = Zone.current;
+        Future<String> attempt() async {
+          try { await send(); return 'sent'; } on EgressDeniedException { return 'denied'; }
+        }
+        return Future.wait([attempt(), attempt()]);
+      });
+      expect(results.where((r) => r == 'sent').length, 1);
+      expect(results.where((r) => r == 'denied').length, 1);
+      expect(sent.length, 1);
+      await expectLater(zone.run(() => send()), throwsA(isA<EgressDeniedException>()));
+      expect(sent.length, 1);
+    });
+
+    test('unsupported streamed/multipart payloads never reach transport', () async {
+      for (final request in <http.BaseRequest>[
+        http.StreamedRequest('POST', endpoint), http.MultipartRequest('POST', endpoint),
+      ]) {
+        await expectLater(grant(() => transport.send(request)), throwsA(isA<EgressDeniedException>()));
+      }
+      expect(sent, isEmpty);
+    });
+
+    test('controlled monotonic expiry and lifecycle epoch deny before transport', () async {
+      var now = Duration.zero;
+      egress = TestEgress(monotonic: () => now).install();
+      await expectLater(grant(() { now += kAccountControlTtl; return send(); }), throwsA(isA<EgressDeniedException>()));
+      await expectLater(grant(() { egress.gate.advanceEpoch(); return send(); }), throwsA(isA<EgressDeniedException>()));
+      expect(sent, isEmpty);
+    });
+
+    test('mutable request body/header during admission cannot change fingerprinted outgoing snapshot', () async {
+      final blocked = _DeferredAdmissionSlot();
+      final gate = CloudEgressGate(store: CloudEgressStore(secure: blocked, file: MemorySlot(),
+          pendingSecure: MemorySlot(), pendingFile: MemorySlot()),
+          activeOwner: () async => 'uid-a', resolved: true, supabaseUrl: () => _url);
+      CloudEgressGate.instance = gate;
+      final request = http.Request('POST', endpoint)
+        ..headers['content-type'] = 'application/json'
+        ..body = statusBody;
+      final future = gate.runImmediateDeletion(action: ImmediateDeletionAction.status,
+          owner: 'uid-a', activeOwner: 'uid-a', epoch: gate.epoch, isCurrent: () => true,
+          functionUrl: endpoint, serializedBody: statusBody,
+          exchange: () async => http.Response.fromStream(await transport.send(request)));
+      await blocked.arrived.future;
+      request.body = jsonEncode({'action': 'status', 'receipt_secret': 'B' * 43});
+      request.headers['authorization'] = 'Bearer injected';
+      blocked.release.complete();
+      await future;
+      expect(sent.single.body, statusBody);
+      expect(sent.single.headers.containsKey('authorization'), isFalse);
+    });
+
+    test('finalizing original during admission preserves private snapshot and releases ticket', () async {
+      final blocked = _DeferredAdmissionSlot();
+      final gate = CloudEgressGate(store: CloudEgressStore(secure: blocked, file: MemorySlot(),
+          pendingSecure: MemorySlot(), pendingFile: MemorySlot()),
+          activeOwner: () async => 'uid-a', resolved: true, supabaseUrl: () => _url);
+      CloudEgressGate.instance = gate;
+      final original = http.Request('POST', endpoint)
+        ..headers['content-type'] = 'application/json'
+        ..body = statusBody;
+      final future = gate.runImmediateDeletion(action: ImmediateDeletionAction.status,
+          owner: 'uid-a', activeOwner: 'uid-a', epoch: gate.epoch, isCurrent: () => true,
+          functionUrl: endpoint, serializedBody: statusBody,
+          exchange: () async => http.Response.fromStream(await transport.send(original)));
+      await blocked.arrived.future;
+      original.finalize();
+      blocked.release.complete();
+      await future;
+      expect(sent.single.body, statusBody);
+      expect(sent.single.followRedirects, isFalse);
+      expect(gate.inFlightCount, 0);
+    });
+
+    test('epoch change while durable admission read is paused sends zero HTTP', () async {
+      final blocked = _DeferredAdmissionSlot();
+      final gate = CloudEgressGate(store: CloudEgressStore(secure: blocked, file: MemorySlot(),
+          pendingSecure: MemorySlot(), pendingFile: MemorySlot()),
+          activeOwner: () async => 'uid-a', resolved: true, supabaseUrl: () => _url);
+      CloudEgressGate.instance = gate;
+      final future = gate.runImmediateDeletion(action: ImmediateDeletionAction.status,
+          owner: 'uid-a', activeOwner: 'uid-a', epoch: gate.epoch, isCurrent: () => true,
+          functionUrl: endpoint, serializedBody: statusBody, exchange: () => send());
+      final caught = expectLater(future, throwsA(isA<EgressDeniedException>()));
+      await blocked.arrived.future;
+      gate.advanceEpoch();
+      blocked.release.complete();
+      await caught;
+      expect(sent, isEmpty);
+    });
+
+    test('controlled expiry during response cancels publication and closes late zone authority', () async {
+      var now = Duration.zero;
+      egress = TestEgress(monotonic: () => now).install();
+      final arrived = Completer<void>(); final release = Completer<http.Response>();
+      transport = GatedHttpClient(MockClient((r) { sent.add(r); arrived.complete(); return release.future; }));
+      late Zone zone;
+      final future = grant(() { zone = Zone.current; return send(); });
+      final caught = expectLater(future, throwsA(isA<EgressDeniedException>()));
+      await arrived.future;
+      now += kAccountControlTtl;
+      release.complete(http.Response('{}', 200));
+      await caught;
+      expect(egress.gate.inFlightCount, 0);
+      await expectLater(zone.run(() => send()), throwsA(isA<EgressDeniedException>()));
+      expect(sent.length, 1);
+    });
+
+    test('ended-on-throw grant cannot authorize a captured zone', () async {
+      late Zone zone;
+      await expectLater(grant(() async { zone = Zone.current; throw StateError('failed'); }), throwsStateError);
+      await expectLater(zone.run(() => send()), throwsA(isA<EgressDeniedException>()));
+      expect(sent, isEmpty);
+    });
+
+    for (final invalid in ['status-with-challenge', 'status-token', 'request-no-token', 'request-with-status', 'configured-query', 'fragment']) {
+      test('invalid grant configuration $invalid refuses before transport', () async {
+        var body = statusBody;
+        var url = endpoint;
+        var action = ImmediateDeletionAction.status;
+        String? token;
+        if (invalid == 'status-with-challenge') body = jsonEncode({'action': 'status', 'receipt_secret': secret, 'challenge_id': 'x'});
+        if (invalid == 'status-token') token = 'forbidden';
+        if (invalid == 'request-no-token' || invalid == 'request-with-status') action = ImmediateDeletionAction.request;
+        if (invalid == 'request-no-token') body = jsonEncode({'challenge_id': 'x', 'challenge_response': 'y', 'receipt_secret': secret});
+        if (invalid == 'request-with-status') token = 'captured';
+        if (invalid == 'configured-query') url = endpoint.replace(query: 'x=1');
+        if (invalid == 'fragment') url = endpoint.replace(fragment: 'extra');
+        await expectLater(grant(() => send(body: body, url: url), expectedBody: body, url: url,
+            action: action, token: token), throwsA(isA<EgressDeniedException>()));
+        expect(sent, isEmpty);
+      });
+    }
+
+    test('freeze becoming restrictive during durable admission denies before transport', () async {
+      final blocked = _DeferredAdmissionSlot();
+      final gate = CloudEgressGate(store: CloudEgressStore(secure: blocked, file: MemorySlot(),
+          pendingSecure: MemorySlot(), pendingFile: MemorySlot()),
+          activeOwner: () async => 'uid-a', resolved: true, supabaseUrl: () => _url);
+      CloudEgressGate.instance = gate;
+      final future = gate.runImmediateDeletion(action: ImmediateDeletionAction.status,
+          owner: 'uid-a', activeOwner: 'uid-a', epoch: gate.epoch, isCurrent: () => true,
+          functionUrl: endpoint, serializedBody: statusBody, exchange: () => send());
+      final caught = expectLater(future, throwsA(isA<EgressDeniedException>()));
+      await blocked.arrived.future;
+      ConsentAuthority.egressFrozen = true;
+      blocked.release.complete();
+      await caught;
+      expect(sent, isEmpty);
+      expect(gate.inFlightCount, 0);
+    });
+
+    test('timeout ends captured grant and cancels in-flight ticket at controlled deadline', () async {
+      final arrived = Completer<void>(); final response = Completer<http.Response>();
+      transport = GatedHttpClient(MockClient((r) { sent.add(r); arrived.complete(); return response.future; }));
+      late Zone zone;
+      late _ControlledTimer deadline;
+      final future = runZoned(() => grant(() { zone = Zone.current; return send(); }),
+          zoneSpecification: ZoneSpecification(createTimer: (self, parent, z, duration, callback) {
+        if (duration == kAccountControlTtl) return deadline = _ControlledTimer(callback);
+        return parent.createTimer(z, duration, callback);
+      }));
+      final caught = expectLater(future, throwsA(isA<TimeoutException>()));
+      await arrived.future;
+      expect(sent.length, 1);
+      deadline.fire();
+      await caught;
+      expect(egress.gate.inFlightCount, 0);
+      await expectLater(zone.run(() => send()), throwsA(isA<EgressDeniedException>()));
+      expect(sent.length, 1);
+      response.complete(http.Response('{}', 200));
+    });
+
+    test('controlled drain cancellation ends exchange authority and denies captured zone', () async {
+      const duration = Duration(seconds: 1);
+      egress = TestEgress(drain: duration).install();
+      final arrived = Completer<void>(); final response = Completer<http.Response>();
+      transport = GatedHttpClient(MockClient((r) { sent.add(r); arrived.complete(); return response.future; }));
+      late Zone zone;
+      final future = grant(() { zone = Zone.current; return send(); });
+      final caught = expectLater(future, throwsA(isA<EgressDeniedException>()));
+      await arrived.future;
+      late _ControlledTimer deadline;
+      final draining = runZoned(() => egress.gate.drain(),
+          zoneSpecification: ZoneSpecification(createTimer: (self, parent, z, timeout, callback) {
+        if (timeout == duration) return deadline = _ControlledTimer(callback);
+        return parent.createTimer(z, timeout, callback);
+      }));
+      deadline.fire();
+      await draining;
+      await caught;
+      expect(egress.gate.inFlightCount, 0);
+      await expectLater(zone.run(() => send()), throwsA(isA<EgressDeniedException>()));
+      expect(sent.length, 1);
+      response.complete(http.Response('{}', 200));
+    });
+
+    for (final resolution in ['throws', 'signed-out', 'foreign']) {
+      test('new receipt grant owner resolver $resolution is distinguished before dispatch', () async {
+        final gate = CloudEgressGate(store: CloudEgressStore(secure: MemorySlot(), file: MemorySlot(),
+            pendingSecure: MemorySlot(), pendingFile: MemorySlot()),
+            activeOwner: () async {
+              if (resolution == 'throws') throw StateError('owner unavailable');
+              return resolution == 'signed-out' ? null : 'uid-b';
+            }, resolved: true, supabaseUrl: () => _url);
+        CloudEgressGate.instance = gate;
+        final future = gate.runImmediateDeletion(action: ImmediateDeletionAction.status,
+            owner: 'uid-a', activeOwner: null, epoch: gate.epoch, isCurrent: () => true,
+            functionUrl: endpoint, serializedBody: statusBody, exchange: () => send());
+        if (resolution == 'signed-out') {
+          await future;
+          expect(sent.length, 1);
+          expect(sent.single.headers.containsKey('Authorization'), isFalse);
+        } else {
+          await expectLater(future, throwsA(isA<EgressDeniedException>()));
+          expect(sent, isEmpty);
+        }
+        expect(gate.inFlightCount, 0);
+      });
+    }
+
+    test('new grant synchronous inner send failure settles once without ticket leak or uncaught asynchronous error', () async {
+      final inner = _SynchronousThrowClient();
+      transport = GatedHttpClient(inner);
+      final parentZone = Zone.current;
+      final recorder = <Object>[];
+      var recorderOpen = true;
+      var settlements = 0;
+      Object? observed;
+      late Zone captured;
+      final producerDone = Completer<void>();
+      runZonedGuarded(() async {
+        try {
+          await grant(() { captured = Zone.current; return send(); });
+        } catch (error) {
+          observed = error;
+        } finally {
+          settlements++;
+          producerDone.complete();
+        }
+      }, (error, stack) {
+        if (recorderOpen) {
+          recorder.add(error);
+        } else {
+          // The recorder is closed at known producer completion. Any later
+          // error is forwarded to the test zone, never silently swallowed.
+          parentZone.handleUncaughtError(error, stack);
+        }
+      });
+      await producerDone.future;
+      recorderOpen = false;
+      expect(observed, isA<StateError>());
+      expect(settlements, 1);
+      expect(inner.calls, 1);
+      expect(egress.gate.inFlightCount, 0);
+      expect(recorder, isEmpty);
+      final lateProducerDone = Completer<Object?>();
+      captured.run(() async {
+        try {
+          await send();
+          lateProducerDone.complete(null);
+        } catch (error) {
+          lateProducerDone.complete(error);
+        }
+      });
+      expect(await lateProducerDone.future, isA<EgressDeniedException>());
+      expect(inner.calls, 1);
+    });
+
+    test('a legacy delete-account grant cannot authorize immediate receipt status', () async {
+      await expectLater(egress.gate.runAccountControl(AccountControlOp.deleteAccount, () => send()),
+          throwsA(isA<EgressDeniedException>()));
+      expect(sent, isEmpty);
+    });
+  });
+}

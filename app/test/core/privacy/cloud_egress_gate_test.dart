@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -383,4 +384,38 @@ void main() {
       expect(gate.permitsNetworkSync, isFalse);
     });
   });
+
+  group('E6 immediate status never bypasses restrictive state', () {
+    final endpoint = Uri.parse('https://example.supabase.co/functions/v1/delete-account-immediate');
+    final body = jsonEncode({'action': 'status', 'receipt_secret': 'A' * 43});
+    for (final state in ['unresolved', 'frozen', 'uncertain', 'unreadable', 'owner-mismatch', 'disabling', 'native-unavailable', 'native-disabling']) {
+      test('$state wins over an exact status grant before transport', () async {
+        NativeEgressSlot? native;
+        if (state.startsWith('native-')) {
+          native = NativeEgressSlot(read: (_) async {
+            if (state == 'native-unavailable') throw StateError('bridge unavailable');
+            return const CloudEgressRecord(state: EgressState.disabling, ownerUid: 'uid-a',
+                transitionGeneration: 3, reservedVersion: 3);
+          }, write: (_) async {});
+        }
+        final h = TestEgress(resolved: state != 'unresolved', native: native).install();
+        if (state == 'frozen') ConsentAuthority.egressFrozen = true;
+        if (state == 'uncertain') h.file.value = '{broken';
+        if (state == 'unreadable') h.file.failReads = true;
+        if (state == 'owner-mismatch') h.owner = 'uid-b';
+        if (state == 'disabling') await h.gate.beginDisabling(owner: 'uid-a', reservedVersion: 2);
+        var sent = 0;
+        final client = GatedHttpClient(MockClient((_) async { sent++; return http.Response('{}', 200); }));
+        await expectLater(h.gate.runImmediateDeletion(action: ImmediateDeletionAction.status,
+            owner: 'uid-a', activeOwner: 'uid-a', epoch: h.gate.epoch, isCurrent: () => true,
+            functionUrl: endpoint, serializedBody: body,
+            exchange: () => client.post(endpoint, headers: {'content-type': 'application/json'}, body: body)),
+            throwsA(isA<EgressDeniedException>()));
+        expect(sent, 0);
+        expect(h.gate.inFlightCount, 0);
+        expect(h.gate.permitsNetworkSync, isFalse);
+      });
+    }
+  });
+
 }

@@ -27,7 +27,8 @@ void main() {
         readOwnerMarker: () async => marker,
       );
 
-  AccountScopeHost newHost(ReplicaStore store) => AccountScopeHost(
+  AccountScopeHost newHost(ReplicaStore store) =>
+      AccountScopeHost.uncoordinatedForTesting(
         store: store,
         initialize: (db, uid) async {
           initialized.add(uid);
@@ -216,7 +217,7 @@ void main() {
         if (step == 'afterCopy') throw const FileSystemException('boom');
       },
     );
-    final host = AccountScopeHost(
+    final host = AccountScopeHost.uncoordinatedForTesting(
       store: failing,
       initialize: (db, uid) async => const AccountScopeInit(),
     );
@@ -342,7 +343,7 @@ void main() {
       final reached = Completer<void>();
       final proceed = Completer<void>();
       final s = strict();
-      final host = AccountScopeHost(
+      final host = AccountScopeHost.uncoordinatedForTesting(
         store: s,
         initialize: (db, uid) async {
           if (uid == null) return const AccountScopeInit();
@@ -371,7 +372,7 @@ void main() {
       final proceed = Completer<void>();
       final s = strict();
       var first = true;
-      final host = AccountScopeHost(
+      final host = AccountScopeHost.uncoordinatedForTesting(
         store: s,
         initialize: (db, uid) async {
           if (first) {

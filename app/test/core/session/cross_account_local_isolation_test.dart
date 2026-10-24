@@ -32,7 +32,7 @@ void main() {
     support = Directory.systemTemp.createTempSync('cross_account_');
     FlutterSecureStorage.setMockInitialValues({});
     store = ReplicaStore(requireCreationAuthority: false, appSupportDirectory: support.path);
-    host = AccountScopeHost(
+    host = AccountScopeHost.uncoordinatedForTesting(
       store: store,
       initialize: (db, uid) async => const AccountScopeInit(),
     );

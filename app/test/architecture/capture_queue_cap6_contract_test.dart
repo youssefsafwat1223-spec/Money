@@ -80,18 +80,34 @@ void main() {
       }
     });
 
-    test('the owner record is written only inside publishActiveOwner', () {
-      expect(
-        RegExp(r'writeKeychain\([^)]*forKey: activeOwnerKC\)')
-            .allMatches(store)
-            .length,
-        1,
-      );
+    test(
+        'the owner record is written only inside publishActiveOwner and the '
+        'restrictive publication', () {
+      final writes = RegExp(r'writeKeychain\([^)]*forKey: activeOwnerKC\)');
+      expect(writes.allMatches(store).length, 2);
       final publish = body(store, 'static func publishActiveOwner(');
+      final restrictive =
+          body(store, 'static func publishRestrictiveCaptureOwner(');
+      expect(writes.allMatches(publish).length, 1);
+      expect(writes.allMatches(restrictive).length, 1);
+      expect(
+          writes.allMatches(publish).length +
+              writes.allMatches(restrictive).length,
+          writes.allMatches(store).length,
+          reason: 'no other function may write the owner record');
       expect(publish, contains('forKey: activeOwnerKC'));
       expect(publish, contains('forKey: lastAdmittedHashKC'));
       expect(publish, contains('QueueError.barrierActive'),
           reason: 'no owner may be published while a removal runs');
+      expect(restrictive, contains('withQueueLock'));
+      expect(restrictive, contains('QueueError.barrierActive'));
+      expect(restrictive.indexOf('guard let mirror = consentMirror(forHash: hash)'),
+          greaterThan(-1));
+      expect(
+          restrictive.indexOf('forKey: activeOwnerKC'),
+          greaterThan(restrictive
+              .indexOf('guard let mirror = consentMirror(forHash: hash)')),
+          reason: 'the owner record is written after the mirror read-back');
     });
 
     test('intent critical section: barrier, owner read, stamp, quota, save',

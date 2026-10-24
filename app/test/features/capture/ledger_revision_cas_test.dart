@@ -1,7 +1,6 @@
-import 'package:drift/native.dart';
+import 'ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -15,25 +14,19 @@ import '../../harness/fake_cas_server.dart';
 // CAS on the edit's base revision, lost-ACK receipt, durable conflicts,
 // insert-if-absent, tombstone-first. Production capability is false until G4.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
-
 const _table = 'user_transactions';
 
 void main() {
   late AppDatabase db;
+  late LedgerAdmissionFixture admission;
   late FakeCasServer srv;
 
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    admission = await LedgerAdmissionFixture.open();
+    db = admission.database;
     srv = FakeCasServer();
   });
-  tearDown(() => db.close());
+  tearDown(() => admission.finish());
 
   LedgerOutboxQueue queueOf(AppDatabase d) => LedgerOutboxQueue(
         db: d,
@@ -242,9 +235,9 @@ void main() {
       await edit(db, 'tx1', note: 'mine');
       expect((await pushOf(db, srv).push()).pushed, 1);
 
-      final db2 = await AppDatabase.open(
-          executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
-      addTearDown(db2.close);
+      await admission.finish();
+      admission = await LedgerAdmissionFixture.open();
+      final db2 = admission.database;
       final srv2 = FakeCasServer();
       srv2.seed(_table, {'client_request_id': 'tx1'}, id: 'srv-tx1', revision: 5);
       await insertTx(db2, 'tx1', serverId: 'srv-tx1', token: '2026-07-01T00:00:00.000Z');
@@ -294,10 +287,9 @@ void main() {
     test('same identity, foreign op, equal fields: adopted; different fields: '
         'conflict (never overwritten)', () async {
       Future<AppDatabase> device() async {
-        final d = await AppDatabase.open(
-            executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
-        addTearDown(d.close);
-        return d;
+        await admission.finish();
+        admission = await LedgerAdmissionFixture.open();
+        return admission.database;
       }
 
       final a = await device();

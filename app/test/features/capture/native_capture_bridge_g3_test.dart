@@ -29,6 +29,50 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
   });
 
+  group('N-R8 acknowledged backend config', () {
+    Future<void> ack() => NativeCaptureBridge.setBackendConfigAcknowledged(
+        cloudProcessingEnabled: false,
+        installId: 'i',
+        backendUrl: 'https://x.invalid',
+        anonKey: 'k',
+        ownerUid: 'u-a',
+        transitionGeneration: 4);
+
+    test('a missing native method PROPAGATES (it is not an acknowledgment)',
+        () async {
+      fake((_) async => throw MissingPluginException());
+      await expectLater(ack(), throwsA(isA<MissingPluginException>()));
+    });
+
+    test('a native refusal propagates; stale_generation is typed', () async {
+      fake((_) async => throw PlatformException(code: 'storage_write_failed'));
+      await expectLater(ack(), throwsA(isA<PlatformException>()));
+      fake((_) async => throw PlatformException(code: 'stale_generation'));
+      await expectLater(
+          ack(),
+          throwsA(isA<CaptureQueueException>()
+              .having((e) => e.code, 'code', 'stale_generation')));
+    });
+
+    test('a native return is the acknowledgment and carries the arguments',
+        () async {
+      fake((_) async => null);
+      await ack();
+      expect(calls.single.method, 'setCaptureBackendConfig');
+      expect((calls.single.arguments as Map)['cloudProcessingEnabled'], false);
+      expect((calls.single.arguments as Map)['ownerUid'], 'u-a');
+      expect((calls.single.arguments as Map)['transitionGeneration'], 4);
+    });
+
+    test('a platform without the native queue is not an acknowledgment',
+        () async {
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      fake((_) async => null);
+      await expectLater(ack(), throwsA(isA<CaptureQueueException>()));
+      expect(calls, isEmpty);
+    });
+  });
+
   group('cloud egress state', () {
     test('set sends all four fields on the setCloudEgressState method',
         () async {

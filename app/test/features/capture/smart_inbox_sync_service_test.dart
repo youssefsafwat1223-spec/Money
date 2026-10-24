@@ -1,4 +1,6 @@
 import 'dart:convert';
+import 'ledger_admission_fixture.dart';
+import 'package:money_companion/core/sync/outbox_failure.dart';
 
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -305,6 +307,64 @@ void main() {
 
   // ── S3 gap#1: dismiss/resolve push (server-authored, specialized) ──────────
 
+  test('direct status push without real host binding refuses before auth or consent',()async {
+    var auth=0;var consent=0;
+    final sync=SmartInboxSyncService(db:db,isPullEnabled:()=>true,
+        getAuthUserId:()async{auth++;return 'user-123';},
+        mayEgress:()async{consent++;return true;});
+    await expectLater(sync.push(),throwsA(isA<SmartInboxDeliveryStopped>()
+        .having((e)=>e.reason,'reason',SmartInboxDeliveryStopReason.unbound)));
+    expect(auth,0);expect(consent,0);
+  });
+
+  test('supported status writers advance a future token through repeat and ABA', () async {
+    await _svc(db, activeRows: [_serverRow(id: 'token')]).pull();
+    await db.customStatement("UPDATE smart_inbox_items SET updated_at='2550-01-01T00:00:00Z';");
+    final repo = DriftSmartInboxRepository(db);
+    final stamps = <String>['2550-01-01T00:00:00Z'];
+    for (final write in [repo.resolve, repo.resolve, repo.dismiss, repo.resolve]) {
+      await write('token');
+      stamps.add((await _allLocalRows(db)).single['updated_at'] as String);
+    }
+    await _svc(db, activeRows: [_serverRow(id: 'token', status: 'open',
+        updatedAt: '2026-08-01T00:00:00Z')]).pull();
+    stamps.add((await _allLocalRows(db)).single['updated_at'] as String);
+    await _svc(db, tombstoneRows: [{..._serverRow(id: 'token',
+        updatedAt: '2026-09-01T00:00:00Z'), 'deleted_at': '2026-09-01T00:00:00Z'}]).pull();
+    stamps.add((await _allLocalRows(db)).single['updated_at'] as String);
+    expect((await _allLocalRows(db)).single['status'], 'dismissed');
+    for (var i=1;i<stamps.length;i++) {
+      expect(RegExp(r'\.\d{6}Z$').hasMatch(stamps[i]), isTrue);
+      expect(DriftSmartInboxRepository.parseEditStamp(stamps[i]).isAfter(
+          DriftSmartInboxRepository.parseEditStamp(stamps[i-1])), isTrue);
+    }
+  });
+
+  test('legacy stamps validate exactly and malformed or overflow edits roll back', () async {
+    for (final stamp in ['2026-01-01T00:00:00Z', '2026-01-01T00:00:00.000Z',
+        '2026-01-01T00:00:00.000001Z']) {
+      expect(DriftSmartInboxRepository.nextEditStamp(stamp,
+          now: DateTime.utc(2000)), '2026-01-01T00:00:00.00000${stamp.endsWith('000001Z') ? '2' : '1'}Z');
+    }
+    await _svc(db, activeRows: [_serverRow(id: 'bad-token')]).pull();
+    for (final stamp in ['2026-02-30T00:00:00Z', '2026-01-01T00:00:00+00:00',
+        '2026-01-01T00:00:00.0000001Z', '9999-12-31T23:59:59.999999Z']) {
+      await db.customStatement("UPDATE smart_inbox_items SET updated_at='$stamp';");
+      final before=await _allLocalRows(db);
+      await expectLater(DriftSmartInboxRepository(db).resolve('bad-token'), throwsFormatException);
+      expect(await _allLocalRows(db), before);
+    }
+  });
+
+  group('admitted status push', () {
+    late LedgerAdmissionFixture admission;
+    setUp(() async {
+      await db.close();
+      admission = await LedgerAdmissionFixture.open('user-123');
+      db = admission.database;
+    });
+    tearDown(() async => admission.finish());
+
   test('offline dismiss queues pending_sync then pushes and clears the flag',
       () async {
     final fake = _FakeRemoteSource(activeRows: [_serverRow(id: 'srv-1')]);
@@ -374,5 +434,6 @@ void main() {
     expect(pushed, 0);
     final rows = await _allLocalRows(db);
     expect(rows.single['pending_sync'], 1); // preserved for the next cycle
+  });
   });
 }

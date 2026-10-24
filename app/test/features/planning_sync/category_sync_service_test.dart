@@ -1,3 +1,4 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -139,6 +140,8 @@ PlanningPullService _pull(AppDatabase db, _FakeRemote r) => PlanningPullService(
     mayEgress: () async => true,
   );
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -148,12 +151,13 @@ void main() {
   late DriftCategoryRepository categories;
 
   setUp(() async {
-    db = await _openDb();
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     remote = _FakeRemote();
     queue = _queue(db);
     categories = DriftCategoryRepository(db, outboxQueue: queue);
   });
-  tearDown(() async => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   test('custom category create + edit + delete push to user_categories',
       () async {

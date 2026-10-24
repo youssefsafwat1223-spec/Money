@@ -108,6 +108,7 @@ void main() {
     await AppSession.instance.completeOnboarding(
       method: 'email',
       email: 'user@example.com',
+      userId: 'returning-user-fixture',
     );
 
     expect(AppSession.instance.status, SessionStatus.authenticated);
@@ -123,6 +124,7 @@ void main() {
     await AppSession.instance.setIdentity(
       method: 'email',
       email: 'user@example.com',
+      userId: 'returning-user-fixture',
     );
     expect(AppSession.instance.status, SessionStatus.authenticated);
     expect(AppSession.instance.hasCompletedOnboarding, isTrue);
@@ -132,12 +134,14 @@ void main() {
     await AppSession.instance.completeOnboarding(
       method: 'email',
       email: 'user@example.com',
+      userId: 'returning-user-fixture',
     );
     await AppSession.instance.signOut();
 
     await AppSession.instance.setIdentity(
       method: 'email',
       email: 'user@example.com',
+      userId: 'returning-user-fixture',
     );
 
     expect(AppSession.instance.status, SessionStatus.authenticated);

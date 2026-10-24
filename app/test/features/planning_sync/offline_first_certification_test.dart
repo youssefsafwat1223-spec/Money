@@ -1,21 +1,14 @@
+import '../capture/ledger_admission_fixture.dart';
 // S4 certification: cross-cutting offline-first guarantees exercised through the
 // shared outbox + planning push, using budgets as a representative entity.
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 class _FakeRemote implements PlanningRemoteSink {
   final rows = <String, Map<String, Map<String, dynamic>>>{};
@@ -103,8 +96,6 @@ class _FakeRemote implements PlanningRemoteSink {
       throw UnimplementedError('CAS is exercised by the dedicated CAS test');
 }
 
-Future<AppDatabase> _openDb() => AppDatabase.open(
-    executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
 
 PlanningOutboxQueue _queue(
   AppDatabase db, {
@@ -145,6 +136,8 @@ Future<int> _outboxCount(AppDatabase db) async => (await db
         .getSingle())
     .read<int>('c');
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -154,12 +147,13 @@ void main() {
   late DriftBudgetRepository budgets;
 
   setUp(() async {
-    db = await _openDb();
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     remote = _FakeRemote();
     queue = _queue(db);
     budgets = DriftBudgetRepository(db, outboxQueue: queue);
   });
-  tearDown(() async => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   test('offline write persists locally and queues (no network needed)',
       () async {

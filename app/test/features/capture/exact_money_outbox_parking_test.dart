@@ -1,11 +1,10 @@
+import 'ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
@@ -20,12 +19,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // durable row replays with the EXACT decimal-string payload. Legacy (v29) is
 // unchanged: it never parks and sends the JSON-number shape.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 const _canonical =
     FixedPlanningCutoverCoordinator(PlanningCutoverState.canonical);
@@ -49,12 +42,13 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   late AppDatabase db;
+  late LedgerAdmissionFixture admission;
 
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    admission = await LedgerAdmissionFixture.open('user-123');
+    db = admission.database;
   });
-  tearDown(() async => db.close());
+  tearDown(() async => admission.finish());
 
   LedgerOutboxQueue queue(PlanningCutoverCoordinator c) => LedgerOutboxQueue(
         db: db,
@@ -78,7 +72,7 @@ void main() {
   SupabaseClient client(void Function(Map<String, dynamic>) onSend,
       {bool failIfCalled = false}) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    return SupabaseClient(
+    return LedgerAdmissionFixture.trackClient(SupabaseClient(
       'https://example.supabase.co',
       'anon',
       accessToken: () async => 'tok',
@@ -99,7 +93,7 @@ void main() {
           request: request,
         );
       }),
-    );
+    ));
   }
 
   test('§10 legacy enqueue keeps the JSON-number wire shape', () async {

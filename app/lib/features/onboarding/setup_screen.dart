@@ -31,8 +31,7 @@ const _setupAccent = AppBrandBlue.pale;
 ///
 /// Steps, in order:
 ///   0. Country / currency   → saves the base currency (no account is created)
-///   1. Cloud Sync consent   → explicit "Enable" or "Not now"
-///   2. Smart Analysis (AI) consent → explicit; requires Cloud Sync
+///   1. Cloud Sync and Smart Analysis → one explicit disclosed choice
 ///   3. Readiness            → live registration status (never blocks)
 ///   4. Account Setup        → the user creates their first account (local,
 ///                             works offline); there is no default account
@@ -87,8 +86,8 @@ List<_CountryChoice> _countriesIn(BuildContext context) => <_CountryChoice>[
     ];
 
 class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
-  static const _stepCount = 7;
-  static const _accountStep = 4;
+  static const _stepCount = 6;
+  static const _accountStep = 3;
 
   final _done = List<bool>.filled(_stepCount, false);
   // The CODE is state; the label is not. Storing a `_CountryChoice` meant
@@ -332,20 +331,15 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
           onDone: (_) => _markDone(1),
         );
       case 2:
-        return OnboardingConsentStep(
-          kind: OnboardingConsentKind.smartAnalysis,
-          onDone: (_) => _markDone(2),
-        );
-      case 3:
-        return OnboardingReadinessStep(onDone: () => _markDone(3));
+        return OnboardingReadinessStep(onDone: () => _markDone(2));
       case _accountStep:
         return OnboardingAccountStep(
           currency: _selectedCountry(context).currency,
           onDone: () => _markDone(_accountStep),
         );
-      case 5:
+      case 4:
         return _actionStep(
-          step: 5,
+          step: 4,
           icon: AppLucideIcons.bellRing,
           title: l10n.setupNotificationsTitle,
           body: l10n.setupNotificationsBody,
@@ -522,7 +516,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
   }
 
   Widget _shortcutStep(AppL10n l10n) {
-    const step = 6;
+    const step = _stepCount - 1;
     final steps = <(String, String)>[
       (l10n.setupShortcutStep1Title, l10n.setupShortcutStep1Body),
       (l10n.setupShortcutStep2Title, l10n.setupShortcutStep2Body),

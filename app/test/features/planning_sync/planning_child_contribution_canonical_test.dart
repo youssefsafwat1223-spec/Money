@@ -1,13 +1,12 @@
+import '../capture/ledger_admission_fixture.dart';
 // MALI-026 (Phase-9B) — exercises the REAL canonical goal-contribution PUSH branch
 // of PlanningChildSyncService against the migration-0078 response shape:
 //   * canonical mode reads goal.saved_amount_text (exact decimal String) and writes
 //     the exact `saved_amount_minor` authority via Money — NEVER the raw JSON number;
 //   * a missing saved_amount_text in canonical mode fails CLOSED (no numeric
 //     fallback, the local money authority is left untouched).
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
@@ -15,13 +14,6 @@ import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
-
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 /// Fake remote whose add_goal_contribution returns the 0078 (post-fix) goal shape.
 /// [includeSavedAmountText] toggles the fail-closed case (server omits the field).
@@ -84,10 +76,11 @@ class _CanonicalFakeRemote implements PlanningChildRemote {
       throw UnsupportedError('upsertPlanLink');
 }
 
-Future<AppDatabase> _openDb() => AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+Future<AppDatabase> _openDb() async {
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    addTearDown(admission.finish);
+    return admission.database;
+  }
 
 bool _onlyContributions(String type) =>
     type == PlanningOutboxQueue.goalContributionsEntityType;

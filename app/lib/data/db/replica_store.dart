@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -12,6 +13,8 @@ import '../../core/security/secure_storage_options.dart';
 import '../../core/session/admission_authority.dart';
 import 'app_database.dart';
 import 'creation_policy.dart';
+import 'database_access_broker.dart'
+    show DatabaseOpenHandle, DatabaseOpenReservation;
 import 'database_key_store.dart';
 import 'database_lease.dart';
 import 'replica_location.dart';
@@ -226,6 +229,50 @@ class ReplicaMissingException implements Exception {
       'creation is not authorized.';
 }
 
+/// Offline local read — why [ReplicaStore.openReadOnlyReplica] refused. This
+/// path attempts no application writes, key creation or registry repair.
+enum LocalReadDenial {
+  identity,
+  salt,
+  ownerMarker,
+  removal,
+  registry,
+  replicaState,
+  files,
+  key,
+  schema,
+  ownership,
+  unavailable,
+}
+
+/// The read-only open of an existing replica was refused. Carries no uid, path
+/// or key.
+class LocalReadUnavailableException implements Exception {
+  const LocalReadUnavailableException(this.reason);
+  final LocalReadDenial reason;
+  @override
+  String toString() => 'LocalReadUnavailableException(${reason.name})';
+}
+
+/// A verified, read-only handle on an existing replica: the file's own
+/// `replica_meta` named exactly [uid] and [replicaId].
+class LocalReadReplica {
+  const LocalReadReplica({
+    required this.uid,
+    required this.replicaId,
+    required this.database,
+    this.reservation,
+  });
+  final String uid;
+  final String replicaId;
+  final AppDatabase database;
+
+  /// The coordinator reservation this read-only handle was opened under (R8).
+  /// Null only for a fixture opened through the explicit testing API; such a
+  /// replica can never be published as a local-read scope.
+  final DatabaseOpenReservation? reservation;
+}
+
 /// Result of [ReplicaStore.adoptLegacyIfPresent].
 enum AdoptionOutcome {
   /// No legacy file, nothing to do.
@@ -270,6 +317,12 @@ const List<String> kSwapSteps = [
   'swap:afterFreshKey',
 ];
 
+/// Opens one existing replica file read-only ([AppDatabase.openReadOnlyExisting]).
+typedef ReadOnlyOpener = Future<AppDatabase> Function({
+  required ReplicaLocation location,
+  required Future<String?> Function() readKey,
+});
+
 typedef ReplicaOpener = Future<AppDatabase> Function({
   ReplicaLocation? location,
   bool runMigrations,
@@ -284,6 +337,9 @@ class ReplicaStore {
     ReplicaOpener? opener,
     Future<String?> Function()? readOwnerMarker,
     Future<void> Function(String step)? debugAfterAdoptionStep,
+    @visibleForTesting ReadOnlyOpener? readOnlyOpener,
+    @visibleForTesting
+    Future<void> Function(AppDatabase db)? debugBeforeReadOnlyClose,
     this.requireCreationAuthority = true,
     this.removalDrainTimeout = const Duration(seconds: 10),
   })  : _storage = storage ?? SecureStorageOptions.storage,
@@ -291,12 +347,19 @@ class ReplicaStore {
         _now = now ?? DateTime.now,
         _opener = opener ?? AppDatabase.open,
         _readOwnerMarker = readOwnerMarker,
-        _debugStep = debugAfterAdoptionStep;
+        _debugStep = debugAfterAdoptionStep,
+        _readOnlyOpener = readOnlyOpener ?? AppDatabase.openReadOnlyExisting,
+        _debugBeforeReadOnlyClose = debugBeforeReadOnlyClose;
 
   static const String registryKey = 'qirsh.replicas.v1';
   static const String saltKey = 'qirsh.device_salt';
   static const String keyNamePrefix = 'qirsh.db_key.';
   static const String dbFileName = 'qirsh.sqlite';
+
+  /// `RemoveDataFlow.barrierKey` / `.revokedKey`, repeated here because
+  /// remove_data_flow.dart imports this file. Pinned by a test.
+  static const String removalBarrierKey = 'qirsh.removal_barrier.v1';
+  static const String removalRevokedKey = 'qirsh.removal_revoked.v1';
 
   /// The AppSession owner marker (`core/session/app_session.dart`). Read-only here.
   static const String ownerMarkerKey = 'local_data_owner_uid';
@@ -330,9 +393,31 @@ class ReplicaStore {
   final ReplicaOpener _opener;
   final Future<String?> Function()? _readOwnerMarker;
   final Future<void> Function(String step)? _debugStep;
+  final ReadOnlyOpener _readOnlyOpener;
+  final Future<void> Function(AppDatabase db)? _debugBeforeReadOnlyClose;
 
   final Map<String, AppDatabase> _open = {};
   final Map<String, AppDatabase> _staging = {};
+
+  /// Offline local read. [_readOnly] is the published handle per uid hash;
+  /// [_readOnlyLive] is EVERY read-only handle opened and not yet fully closed
+  /// (published, being replaced, or just opened), so no live handle is ever
+  /// untracked. A handle leaves the set only when its close has succeeded.
+  final Map<String, AppDatabase> _readOnly = {};
+  final Map<String, Set<AppDatabase>> _readOnlyLive = {};
+
+  /// The coordinator-tracked handle of a read-only database opened under a
+  /// reservation. It leaves the map only when its physical close was confirmed.
+  final Map<AppDatabase, DatabaseOpenHandle> _readOnlyHandles = Map.identity();
+
+  /// Per-hash serialization of read-only opens, and the invalidation generations
+  /// (per hash, and store-wide for lifecycle/registry mutations) that an open
+  /// captures and re-checks
+  /// after every await. Per-store: this is NOT cross-isolate or cross-process
+  /// exclusion.
+  final Map<String, Future<void>> _readOnlyTail = {};
+  final Map<String, int> _readOnlyGeneration = {};
+  int _readOnlyStoreGeneration = 0;
 
   /// F2 — opens already dispatched per uid hash. [remove] drains them before the
   /// destructive step, so an open that passed its last authority check cannot
@@ -383,8 +468,11 @@ class ReplicaStore {
       }();
 
   /// `hex(HMAC-SHA256(deviceSalt, uid))`, truncated to 128 bits.
-  Future<String> uidHash(String uid) async {
-    final mac = Hmac(sha256, utf8.encode(await _deviceSalt()));
+  Future<String> uidHash(String uid) async =>
+      _hashWithSalt(await _deviceSalt(), uid);
+
+  static String _hashWithSalt(String salt, String uid) {
+    final mac = Hmac(sha256, utf8.encode(salt));
     return mac.convert(utf8.encode(uid)).toString().substring(0, 32);
   }
 
@@ -416,6 +504,9 @@ class ReplicaStore {
   Future<void> _mutate(
       String hash, ReplicaEntry? Function(ReplicaEntry? current) f,
       {void Function()? guard}) {
+    // Registry mutations can change offline eligibility or replace ownership.
+    _readOnlyStoreGeneration++;
+    _invalidateReadOnly(hash);
     final run = _tail.then((_) async {
       final reg = await _readRegistry();
       guard?.call();
@@ -427,6 +518,7 @@ class ReplicaStore {
       }
       guard?.call();
       await _writeRegistry(reg);
+      _invalidateReadOnly(hash);
     });
     _tail = run.then<void>((_) {}, onError: (Object _) {});
     return run;
@@ -441,6 +533,7 @@ class ReplicaStore {
   Future<bool> setState(String uid, ReplicaState state,
       {AdmissionAuthority? authority}) async {
     authority?.requireFor(uid);
+    _readOnlyStoreGeneration++;
     final hash = await uidHash(uid);
     void guard() {
       authority?.requireFor(uid);
@@ -658,17 +751,24 @@ class ReplicaStore {
   /// Closes every open handle (replicas and fresh staging replicas) without
   /// deleting anything. Idempotent.
   Future<void> closeAll() async {
+    _readOnlyStoreGeneration++;
     for (final db in [..._open.values, ..._staging.values]) {
       await db.close();
     }
     _open.clear();
     _staging.clear();
+    for (final hash in _readOnlyLive.keys.toList()) {
+      await _closeAllReadOnly(hash);
+    }
   }
 
   /// Closes the open replica of [uid], if any. Idempotent.
   Future<void> closeReplica(String uid) async {
-    final db = _open.remove(await uidHash(uid));
-    await db?.close();
+    _readOnlyStoreGeneration++;
+    final hash = await uidHash(uid);
+    _invalidateReadOnly(hash);
+    await _open.remove(hash)?.close();
+    await _closeAllReadOnly(hash);
   }
 
   static Future<String?> _readMeta(AppDatabase db) async {
@@ -693,6 +793,402 @@ class ReplicaStore {
       (await db.customSelect('PRAGMA user_version;').getSingle())
           .read<int>('user_version');
 
+  // ------------------------------------------------ offline local read (core)
+
+  /// The device salt as it EXISTS. Unlike [_deviceSalt] this never mints one:
+  /// without the original salt the uid hash (and so the replica) cannot be found.
+  Future<String> _existingSalt() async {
+    final String? salt;
+    try {
+      salt = await _storage.read(key: saltKey);
+    } catch (_) {
+      throw const LocalReadUnavailableException(LocalReadDenial.salt);
+    }
+    if (salt == null || salt.isEmpty) {
+      throw const LocalReadUnavailableException(LocalReadDenial.salt);
+    }
+    return salt;
+  }
+
+  /// A flag that, when present, must really be a bool. [ReplicaEntry.fromJson]
+  /// reads `== true`, so a string or number would silently read as "not set".
+  static void _requireBoolIfPresent(Map<String, Object?> m, String key) {
+    if (m.containsKey(key) && m[key] is! bool) {
+      throw FormatException('registry flag $key');
+    }
+  }
+
+  /// The registry as stored. Unlike [_readRegistry] an unreadable or malformed
+  /// registry THROWS instead of reading as empty, and so does a restricting flag
+  /// of the wrong type (`adoptPending`, `rebootstrap.swapping`) or an unknown
+  /// rebootstrap phase. Omitted optional fields are legitimate and stay absent.
+  Future<Map<String, ReplicaEntry>> _readRegistryStrict() async {
+    final raw = await _storage.read(key: registryKey);
+    if (raw == null || raw.isEmpty) return {};
+    final json = jsonDecode(raw) as Map<String, Object?>;
+    final result = <String, ReplicaEntry>{};
+    for (final e in json.entries) {
+      final entry = (e.value! as Map).cast<String, Object?>();
+      _requireBoolIfPresent(entry, 'adoptPending');
+      final marker = entry['rebootstrap'];
+      if (marker != null) {
+        _requireBoolIfPresent(
+            (marker as Map).cast<String, Object?>(), 'swapping');
+      }
+      result[e.key] = ReplicaEntry.fromJson(e.key, entry);
+    }
+    return result;
+  }
+
+  /// Restrictive evidence wins: throws [LocalReadUnavailableException] unless
+  /// every durable record agrees that [uid]'s replica [hash] is the signed-in
+  /// owner's, active and not being removed. Reads only; any read that fails, and
+  /// any restricting record that parses as JSON but is malformed, is a refusal.
+  Future<void> _requireLocalReadable(String uid, String hash) async {
+    LocalReadUnavailableException deny(LocalReadDenial r) =>
+        LocalReadUnavailableException(r);
+    if (_removing.contains(hash)) throw deny(LocalReadDenial.removal);
+    try {
+      final marker = await _marker();
+      if (marker != uid) throw deny(LocalReadDenial.ownerMarker);
+
+      final barrier = await _storage.read(key: removalBarrierKey);
+      if (barrier != null && barrier.isNotEmpty) {
+        throw deny(LocalReadDenial.removal);
+      }
+      final revoked = await _storage.read(key: removalRevokedKey);
+      if (revoked != null && revoked.isNotEmpty) {
+        final decoded = jsonDecode(revoked);
+        // A list of uid strings and nothing else: an element that is not a
+        // non-empty string cannot be read as "not this uid".
+        if (decoded is! List ||
+            decoded.any((u) => u is! String || u.isEmpty) ||
+            decoded.contains(uid)) {
+          throw deny(LocalReadDenial.removal);
+        }
+      }
+      final root = Directory(await _replicasRoot());
+      if (await root.exists()) {
+        await for (final e in root.list()) {
+          final name = p.basename(e.path);
+          if (name.startsWith('_removing.$hash')) {
+            throw deny(LocalReadDenial.removal);
+          }
+        }
+      }
+
+      final raw = await _storage.read(key: registryKey);
+      if (raw == null || raw.isEmpty) throw deny(LocalReadDenial.registry);
+      final entry = (await _readRegistryStrict())[hash];
+      if (entry == null) throw deny(LocalReadDenial.registry);
+      final rb = entry.rebootstrap;
+      if (entry.state != ReplicaState.active ||
+          entry.adoptPending ||
+          (rb != null &&
+              (rb.swapping ||
+                  rb.phase.index < RebootstrapPhase.swapped.index))) {
+        throw deny(LocalReadDenial.replicaState);
+      }
+    } on LocalReadUnavailableException {
+      rethrow;
+    } catch (_) {
+      // An unreadable record is not evidence of absence.
+      throw deny(LocalReadDenial.unavailable);
+    }
+    if (_removing.contains(hash)) throw deny(LocalReadDenial.removal);
+  }
+
+  // Read-only handle lifecycle. Every handle is in [_readOnlyLive] from the
+  // moment it exists until its close has FINISHED, so at every await a handle is
+  // either tracked or closed, never live and untracked.
+
+  void _invalidateReadOnly(String hash) =>
+      _readOnlyGeneration[hash] = (_readOnlyGeneration[hash] ?? 0) + 1;
+
+  Future<void> _closeReadOnly(String hash, AppDatabase db) async {
+    await _debugBeforeReadOnlyClose?.call(db);
+    await db.close();
+    // A failed close has an unknown outcome and must remain tracked. In
+    // particular, AppDatabase caches its close future: failure is not proof
+    // that retrying it can release the underlying connection.
+    _readOnlyLive[hash]?.remove(db);
+    if (identical(_readOnly[hash], db)) _readOnly.remove(hash);
+    // The coordinator's holder is released only by a close that completed.
+    final handle = _readOnlyHandles[db];
+    if (handle != null) {
+      await handle.close();
+      _readOnlyHandles.remove(db);
+    }
+  }
+
+  /// Best-effort cleanup for an already failing open. A failed close remains
+  /// tracked; explicit draining must report that failure before any deletion.
+  Future<void> _discardReadOnly(String hash, AppDatabase db) async {
+    try {
+      await _closeReadOnly(hash, db);
+    } catch (_) {
+      // Retained for a later explicit drain; no successful close is claimed.
+    }
+  }
+
+  Future<void> _closeAllReadOnly(String hash) async {
+    for (final db in List.of(_readOnlyLive[hash] ?? const <AppDatabase>{})) {
+      await _closeReadOnly(hash, db);
+    }
+  }
+
+  /// Runs [f] after every earlier read-only open of [hash] has finished.
+  Future<T> _serializeReadOnly<T>(String hash, Future<T> Function() f) {
+    final run = (_readOnlyTail[hash] ?? Future<void>.value()).then((_) => f());
+    final tail = run.then<void>((_) {}, onError: (Object _) {});
+    _readOnlyTail[hash] = tail;
+    tail.whenComplete(() {
+      if (identical(_readOnlyTail[hash], tail)) _readOnlyTail.remove(hash);
+    });
+    return run;
+  }
+
+  /// Every read-only handle that is open or still closing (tests).
+  @visibleForTesting
+  Iterable<AppDatabase> get debugReadOnlyLive =>
+      [for (final set in _readOnlyLive.values) ...set];
+
+  /// Opens [uid]'s EXISTING replica for reading only, after verifying every
+  /// piece of durable evidence; the offline local-read counterpart of
+  /// [openReplica]. It is not [openReplica]: it holds no [AdmissionAuthority],
+  /// cannot create, adopt, repair, unlock, migrate or register anything, and
+  /// writes to neither secure storage nor the registry nor the database.
+  ///
+  /// Required, all read-only: the device salt, the owner marker naming [uid], no
+  /// removal barrier / revoked entry / tombstone, an `active` registry entry for
+  /// the uid hash (no adoption, swap or rebootstrap in progress), the database
+  /// file, its stored key, an exactly current schema, and a `replica_meta` row
+  /// whose `owner_uid` is [uid] and `replica_id` is [replicaId]. The evidence is
+  /// checked again after the open, immediately before the handle is published.
+  /// Refusal throws [LocalReadUnavailableException] and closes the handle or
+  /// retains it for incomplete cleanup. It attempts no application writes, key
+  /// creation or registry repair; destructive work waits for confirmed closure.
+  ///
+  /// Opens of one replica are serialized in this store; the newest published
+  /// handle replaces (and closes) the previous one. Locking ([lockVerified]),
+  /// [closeReplica], [closeAll] and removal invalidate opens already in flight:
+  /// they re-check after every await and close what they opened instead of
+  /// publishing it. This is a per-store fence, not cross-isolate exclusion.
+  ///
+  /// [reserve] (offline restoration, phase two): called once the evidence above
+  /// validated and BEFORE the connection is touched, it returns the coordinator
+  /// reservation this candidate open runs under. The real handle is registered
+  /// with it the instant the opener returns it (a failed verification's handle
+  /// stays registered until its close is confirmed); an outcome known to precede
+  /// any connection releases it, an unknown one keeps it pending.
+  ///
+  /// [verifyExclusion] (B2) receives the replica's location after the evidence
+  /// above validated and BEFORE [reserve]: the owner checks non-creating
+  /// legacy/unregistered-holder evidence there and throws to deny. Any throw is
+  /// an unavailable replica; nothing was opened.
+  Future<LocalReadReplica> openReadOnlyReplica(
+    String uid, {
+    required String replicaId,
+    required DatabaseOpenReservation Function(String uid) reserve,
+    required void Function(ReplicaLocation location) verifyExclusion,
+  }) =>
+      _openReadOnlyReplica(uid,
+          replicaId: replicaId,
+          reserve: reserve,
+          verifyExclusion: verifyExclusion);
+
+  /// R8: the ONLY way to open a read-only replica without the coordinator
+  /// reservation and exclusion evidence. A fixture seam: the result carries no
+  /// reservation, so [AccountScopeHost.restoreLocalRead] refuses to publish it,
+  /// and an architecture pin forbids any use of this name under `lib/`.
+  @visibleForTesting
+  Future<LocalReadReplica> openReadOnlyReplicaUncoordinatedForTesting(
+    String uid, {
+    required String replicaId,
+  }) =>
+      _openReadOnlyReplica(uid, replicaId: replicaId);
+
+  Future<LocalReadReplica> _openReadOnlyReplica(
+    String uid, {
+    required String replicaId,
+    DatabaseOpenReservation Function(String uid)? reserve,
+    void Function(ReplicaLocation location)? verifyExclusion,
+  }) async {
+    if (uid.isEmpty || replicaId.isEmpty || uid.startsWith(_transitionPrefix)) {
+      throw const LocalReadUnavailableException(LocalReadDenial.identity);
+    }
+    final storeGeneration = _readOnlyStoreGeneration;
+    final hash = _hashWithSalt(await _existingSalt(), uid);
+    final generation = _readOnlyGeneration[hash] ?? 0;
+    void requireCurrent() {
+      if (storeGeneration != _readOnlyStoreGeneration ||
+          generation != (_readOnlyGeneration[hash] ?? 0)) {
+        throw const LocalReadUnavailableException(LocalReadDenial.unavailable);
+      }
+    }
+
+    return _track(
+        hash,
+        () => _serializeReadOnly(hash, () async {
+              requireCurrent();
+              await _requireLocalReadable(uid, hash);
+              requireCurrent();
+              final loc = await _location(hash);
+              requireCurrent();
+              if (verifyExclusion != null) {
+                try {
+                  verifyExclusion(loc);
+                } catch (_) {
+                  throw const LocalReadUnavailableException(
+                      LocalReadDenial.unavailable);
+                }
+              }
+              DatabaseOpenReservation? reservation;
+              if (reserve != null) {
+                try {
+                  reservation = reserve(uid);
+                  reservation.requireCurrent();
+                } on LocalReadUnavailableException {
+                  reservation?.releaseUnopened();
+                  rethrow;
+                } catch (_) {
+                  // Nothing was opened; a refused or stale reservation denies.
+                  reservation?.releaseUnopened();
+                  throw const LocalReadUnavailableException(
+                      LocalReadDenial.unavailable);
+                }
+              }
+              final AppDatabase opened;
+              try {
+                opened = await _readOnlyOpener(
+                  location: loc,
+                  readKey: () => _storage.read(key: loc.keyName),
+                );
+              } on ReadOnlyCleanupIncompleteException catch (error) {
+                // The opener created this handle but could not close it after
+                // verification failed. Register it before the tracked open
+                // settles, so removal must drain its real close before deletion.
+                (_readOnlyLive[hash] ??= {}).add(error.database);
+                if (reservation != null) {
+                  _readOnlyHandles[error.database] = reservation
+                      .registerOpened(error.database, close: error.database.close);
+                }
+                throw const LocalReadUnavailableException(
+                    LocalReadDenial.unavailable);
+              } on LocalDatabaseKeyUnavailableException {
+                reservation?.releaseUnopened(); // refused before any connection
+                throw const LocalReadUnavailableException(LocalReadDenial.key);
+              } on ReadOnlySchemaUnsupportedException {
+                reservation?.releaseUnopened(); // its handle was closed first
+                throw const LocalReadUnavailableException(
+                    LocalReadDenial.schema);
+              } on FileSystemException {
+                reservation?.releaseUnopened(); // no file: nothing to open
+                throw const LocalReadUnavailableException(
+                    LocalReadDenial.files);
+              } catch (_) {
+                // Unknown: a connection may exist, so the reservation stays.
+                throw const LocalReadUnavailableException(
+                    LocalReadDenial.unavailable);
+              }
+              // Tracked at once: nothing is awaited between the open and this line.
+              (_readOnlyLive[hash] ??= {}).add(opened);
+              if (reservation != null) {
+                _readOnlyHandles[opened] =
+                    reservation.registerOpened(opened, close: opened.close);
+              }
+              try {
+                requireCurrent();
+                final rows = await opened
+                    .customSelect(
+                        'SELECT owner_uid, replica_id FROM replica_meta;')
+                    .get();
+                requireCurrent();
+                if (rows.length != 1 ||
+                    rows.single.read<String>('owner_uid') != uid ||
+                    rows.single.read<String>('replica_id') != replicaId) {
+                  throw const LocalReadUnavailableException(
+                      LocalReadDenial.ownership);
+                }
+                await _requireLocalReadable(uid, hash);
+                requireCurrent();
+                // Publish. The pointer moves with no await after the last check; the
+                // previous handle is then closed, and a failed or overtaken close fails
+                // this open and closes the new handle too.
+                final previous = _readOnly[hash];
+                _readOnly[hash] = opened;
+                if (previous != null) await _closeReadOnly(hash, previous);
+                requireCurrent();
+              } on LocalReadUnavailableException {
+                await _discardReadOnly(hash, opened);
+                rethrow;
+              } catch (_) {
+                await _discardReadOnly(hash, opened);
+                throw const LocalReadUnavailableException(
+                    LocalReadDenial.unavailable);
+              }
+              return LocalReadReplica(
+                  uid: uid,
+                  replicaId: replicaId,
+                  database: opened,
+                  reservation: reservation);
+            }));
+  }
+
+  /// Marks [uid]'s EXISTING registry entry `locked` and reports whether the
+  /// registry, read back inside the same serialized turn, really says `locked`.
+  /// False (nothing claimed) when there is no salt, no entry, an unreadable
+  /// registry, or the write or its readback failed. Never creates an entry or a
+  /// salt, and never replaces a registry it could not parse.
+  ///
+  /// It invalidates read-only opens in flight (before the write and again once it
+  /// is read back) so none publishes after the lock. It does NOT close a handle
+  /// that was already published: draining the host's users of it is the caller's
+  /// job (not solved here).
+  Future<bool> lockVerified(String uid, {bool Function()? stillValid}) async {
+    if (!(stillValid?.call() ?? true)) return false;
+    final String hash;
+    try {
+      hash = _hashWithSalt(await _existingSalt(), uid);
+    } on LocalReadUnavailableException {
+      return false;
+    }
+    if (!(stillValid?.call() ?? true)) return false;
+    final run = _tail.then((_) async {
+      var dispatched = false;
+      try {
+        if (!(stillValid?.call() ?? true)) return false;
+        final reg = await _readRegistryStrict();
+        // The caller's expected lifecycle is checked after the queued read,
+        // immediately before dispatching the registry mutation.
+        if (!(stillValid?.call() ?? true)) return false;
+        final entry = reg[hash];
+        if (entry == null) return false;
+        // Only an eligible restrictive turn may invalidate its target's opens.
+        // A refused turn and another uid's candidate have no shared effect.
+        _invalidateReadOnly(hash);
+        dispatched = true;
+        if (entry.state != ReplicaState.locked) {
+          reg[hash] = entry.copyWith(state: ReplicaState.locked);
+          await _writeRegistry(reg);
+        }
+        return (await _readRegistryStrict())[hash]?.state ==
+            ReplicaState.locked;
+      } finally {
+        // A dispatched write must drain even when its caller becomes stale.
+        // Its target stays invalid until completion; a stale pre-dispatch no-op
+        // must not invalidate a successor that began in the meantime.
+        if (dispatched) _invalidateReadOnly(hash);
+      }
+    });
+    _tail = run.then<void>((_) {}, onError: (Object _) {});
+    try {
+      return await run;
+    } catch (_) {
+      return false;
+    }
+  }
+
   // ------------------------------------------------- WP-7 rebootstrap (§4.10)
 
   /// The rebootstrap marker of [uid]'s replica, or null when none is in progress.
@@ -709,6 +1205,7 @@ class ReplicaStore {
   /// the original reason survives a resume). False when the uid has no registry
   /// entry.
   Future<bool> beginRebootstrap(String uid, String reason) async {
+    _readOnlyStoreGeneration++;
     final hash = await uidHash(uid);
     var found = false;
     await _mutate(hash, (c) {
@@ -729,6 +1226,7 @@ class ReplicaStore {
   /// Durably advances the marker. Never moves it backwards; reaching
   /// `capture_resumed` ends the rebootstrap (the marker is removed).
   Future<void> advanceRebootstrap(String uid, RebootstrapPhase phase) async {
+    _readOnlyStoreGeneration++;
     final hash = await uidHash(uid);
     await _mutate(hash, (c) {
       final m = c?.rebootstrap;
@@ -826,6 +1324,7 @@ class ReplicaStore {
     AdmissionAuthority? authority,
   }) async {
     authority?.requireFor(uid);
+    _readOnlyStoreGeneration++;
     final hash = await uidHash(uid);
     _requireNotRemoving(hash);
     authority?.requireFor(uid);
@@ -958,7 +1457,10 @@ class ReplicaStore {
   /// tombstone, then the key, the registry entry and the tombstone are removed;
   /// a crash after the rename is finished by [recoverPendingRemovals] (or by
   /// calling remove again). Open handles are closed first.
-  Future<void> remove(String uid) async => _removeHash(await uidHash(uid));
+  Future<void> remove(String uid) async {
+    _readOnlyStoreGeneration++;
+    await _removeHash(await uidHash(uid));
+  }
 
   /// F2: removal is exclusive, in this order:
   ///   1. REVOKE: from this synchronous instant every open, staging creation and
@@ -979,10 +1481,12 @@ class ReplicaStore {
   /// whose bookkeeping an interrupted swap may never have completed.
   Future<void> _removeHash(String hash) async {
     _removing.add(hash);
+    _invalidateReadOnly(hash);
     try {
       await _drainOpens(hash);
       await _open.remove(hash)?.close();
       await _staging.remove(hash)?.close();
+      await _closeAllReadOnly(hash);
       final root = await _replicasRoot();
       const suffixes = ['', stagingSuffix, retiredSuffix];
 

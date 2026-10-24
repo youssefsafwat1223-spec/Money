@@ -202,10 +202,20 @@ void main() {
       final retained = session.revalidateSupabaseSessionOnResume(client);
       await hold.reached.future;
 
-      await session.signOut();
+      // The sign-out waits for the admission work already dispatched (the held
+      // reconcile), so it is STARTED, its synchronous closure is asserted, and
+      // only then is the hold released and everything awaited. Awaiting it first
+      // would deadlock by construction.
+      var signedOut = false;
+      final logout = session.signOut().whenComplete(() => signedOut = true);
+      expect(session.captureLocalWorkAuthority(), isNull);
+      await pumpEventQueue(times: 40);
+      expect(signedOut, isFalse,
+          reason: 'the logout waits for the in-flight reconcile to settle');
       final from = f.storage.attempts.length;
       hold.release.complete();
       await retained;
+      await logout;
       await session.drainAdmissions();
 
       expect(admissionWritesSince(from), isEmpty);

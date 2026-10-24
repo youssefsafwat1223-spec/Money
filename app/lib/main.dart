@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'core/backend/sentry_config.dart';
 import 'core/di/app_providers.dart';
+import 'core/di/local_read_providers.dart';
 import 'core/observability/diagnostics.dart';
 import 'core/observability/sentry_lifecycle.dart';
 import 'core/session/account_scope.dart';
@@ -47,7 +48,11 @@ Future<void> main() async {
 /// Nothing here is a fixed/minimum-duration splash; the loading screen is
 /// removed the instant bootstrap actually finishes.
 class StartupApp extends StatefulWidget {
-  const StartupApp({super.key, this.runner, this.externalOverrides = const []});
+  const StartupApp(
+      {super.key,
+      this.runner,
+      this.externalOverrides = const [],
+      this.externalObservers = const []});
 
   /// Injectable for lifecycle tests. Production always uses a fresh runner.
   final BootstrapRunner? runner;
@@ -55,6 +60,10 @@ class StartupApp extends StatefulWidget {
   /// External service overrides for real startup lifecycle tests.
   @visibleForTesting
   final List<Override> externalOverrides;
+
+  /// Test-only observers (e.g. to record which providers a scope ever builds).
+  @visibleForTesting
+  final List<ProviderObserver> externalObservers;
 
   @override
   State<StartupApp> createState() => _StartupAppState();
@@ -130,8 +139,10 @@ class _StartupAppState extends State<StartupApp> {
         // A new generation is a new database and therefore a new provider
         // graph: nothing built for the previous account survives the switch.
         key: ValueKey(scope.generation),
+        observers: widget.externalObservers,
         overrides: [
           ...widget.externalOverrides,
+          if (scope.isLocalRead) ...localReadProviderOverrides(scope),
           appDatabaseProvider.overrideWithValue(database),
           startupHasLocalDataProvider.overrideWithValue(scope.hasLocalData),
           // MALI-026 (B8-3 §1/§12) — seed the coordinator with the REAL state
@@ -178,7 +189,11 @@ class _StartupAppState extends State<StartupApp> {
       // simply the slowest step, e.g. first-run key generation) without the
       // database itself being corrupt — only route to the destructive
       // reset flow for a real database_open failure, never for a timeout.
-      home: _error != null &&
+      home: _error is BootstrapCoordinatorUnavailable
+          // C1: fail closed. No database is involved in this screen and nothing
+          // behind it can open; Retry re-runs bootstrap from the start.
+          ? _CoordinatorUnavailableView(onRetry: _attempt)
+          : _error != null &&
               _error is! BootstrapTimeoutException &&
               _runner.lastStep == 'database_open'
           ? _DatabaseRecoveryView(onReset: _resetDatabaseAndRetry)
@@ -188,6 +203,59 @@ class _StartupAppState extends State<StartupApp> {
               lastStep: _runner.lastStep,
               onRetry: _attempt,
             ),
+    );
+  }
+}
+
+/// C1: the database-access coordinator could not be created or proven. Shown
+/// before any persistent replica is opened; offers only Retry (never a reset,
+/// never an offline fallback).
+class _CoordinatorUnavailableView extends StatelessWidget {
+  const _CoordinatorUnavailableView({required this.onRetry});
+
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      key: const ValueKey('startup-coordinator-unavailable'),
+      backgroundColor: Colors.black,
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(AppLucideIcons.alertCircle,
+                  color: Colors.white70, size: 64),
+              const SizedBox(height: 16),
+              Text(
+                context.l10n.startupCoordinatorTitle,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                context.l10n.startupCoordinatorBody,
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white70, height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  key: const ValueKey('startup-coordinator-retry'),
+                  onPressed: onRetry,
+                  child: Text(context.l10n.startupCoordinatorRetry),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

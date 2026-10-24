@@ -1,4 +1,5 @@
 import 'package:money_companion/core/session/admission_authority.dart';
+import 'package:money_companion/core/session/consent_capability.dart';
 import 'package:flutter/foundation.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -53,14 +54,42 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
   Future<void> resolvePendingDisable() async {}
 
   @override
-  Future<void> enableCloud({
+  Future<void> enableCloud({required ConsentWrite write}) async {}
+
+  @override
+  Future<void> enableCloudForTest({
     required Future<void> Function() commitLocalOn,
+    AdmissionAuthority? authority,
   }) =>
       commitLocalOn();
 
   @override
   bool isEnablingCloud(UserSettingsEntity before, UserSettingsEntity after) =>
       false;
+
+  @override
+  Future<ExplicitEnableRoute> explicitEnableRoute(
+          UserSettingsEntity current, UserSettingsEntity updated,
+          {required String ownerUid}) async =>
+      ExplicitEnableRoute.plainSave;
+
+  @override
+  Future<PendingEnableState> pendingEnableState(UserSettingsEntity stored,
+          {required String ownerUid}) async =>
+      PendingEnableState.none;
+
+  @override
+  Future<bool> pendingProvenanceUnresolved({required String ownerUid}) async =>
+      false;
+
+  @override
+  Future<void> withdrawPendingEnable({
+    required ConsentCapability capability,
+    required Future<void> Function() commitLocalOff,
+  }) async {}
+
+  @override
+  Future<bool> liveOnVerified({String? owner}) async => false;
 
   @override
   Future<({ServerRevocation status, int generation})?> serverRevocation() async =>

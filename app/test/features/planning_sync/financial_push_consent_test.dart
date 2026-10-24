@@ -1,3 +1,4 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -34,6 +35,18 @@ void main() {
   tearDown(() async => db.close());
 
   group('accounts push', () {
+    late LedgerAdmissionFixture accountAdmission;
+    late AppDatabase standaloneDatabase;
+    setUp(() async {
+      standaloneDatabase = db;
+      accountAdmission = await LedgerAdmissionFixture.open();
+      db = accountAdmission.database;
+    });
+    tearDown(() async {
+      try { await accountAdmission.finish(); }
+      finally { db = standaloneDatabase; }
+    });
+
     test('consent OFF: push is refused before it can reach auth or the outbox',
         () async {
       var authLookups = 0;
@@ -73,11 +86,18 @@ void main() {
   });
 
   group('ledger push', () {
+    late LedgerAdmissionFixture admission;
+    late AppDatabase admittedDatabase;
+    setUp(() async {
+      admission = await LedgerAdmissionFixture.open();
+      admittedDatabase = admission.database;
+    });
+    tearDown(() => admission.finish());
     test('consent OFF: push is refused before auth', () async {
       var authLookups = 0;
       final service = LedgerPushService(
-        db: db,
-        queue: buildLedgerOutboxQueue(db),
+        db: admittedDatabase,
+        queue: buildLedgerOutboxQueue(admittedDatabase),
         isPushEnabled: () => true,
         getAuthUserId: () async {
           authLookups++;
@@ -95,8 +115,8 @@ void main() {
     test('a caller that omits the gate gets NO network', () async {
       var authLookups = 0;
       final service = LedgerPushService(
-        db: db,
-        queue: buildLedgerOutboxQueue(db),
+        db: admittedDatabase,
+        queue: buildLedgerOutboxQueue(admittedDatabase),
         isPushEnabled: () => true,
         getAuthUserId: () async {
           authLookups++;
@@ -108,6 +128,18 @@ void main() {
     });
   });
 
+  group('accounts positive consent controls', () {
+    late LedgerAdmissionFixture accountAdmission;
+    late AppDatabase standaloneDatabase;
+    setUp(() async {
+      standaloneDatabase = db;
+      accountAdmission = await LedgerAdmissionFixture.open();
+      db = accountAdmission.database;
+    });
+    tearDown(() async {
+      try { await accountAdmission.finish(); }
+      finally { db = standaloneDatabase; }
+    });
   test('consent ON: the gate does not break the feature', () async {
     var authLookups = 0;
     final service = AccountsPushService(
@@ -147,5 +179,6 @@ void main() {
     await service.push();
     expect(authLookups, afterGranted,
         reason: 'a queued drain must observe revocation at egress time');
+  });
   });
 }

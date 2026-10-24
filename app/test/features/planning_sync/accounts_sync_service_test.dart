@@ -1,10 +1,9 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
@@ -15,13 +14,7 @@ import 'package:money_companion/features/planning_sync/services/accounts_push_se
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import '../../harness/seed_test_account.dart';
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
 
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
   final rowsByLocalId = <String, Map<String, dynamic>>{};
@@ -212,12 +205,6 @@ Map<String, dynamic> _remoteAccountRow(
   };
 }
 
-Future<AppDatabase> _openDb() {
-  return seededDb(AppDatabase.open(
-    executor: NativeDatabase.memory(),
-    keyStore: _MemoryKeyStore(),
-  ));
-}
 
 AccountEntity _account(String id) {
   final now = DateTime.utc(2026, 7, 4, 12);
@@ -269,14 +256,17 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('accounts planning sync', () {
+    late LedgerAdmissionFixture admission;
     late AppDatabase db;
 
     setUp(() async {
-      db = await _openDb();
+      admission = await LedgerAdmissionFixture.open();
+      db = admission.database;
+      await seedTestAccount(db);
     });
 
     tearDown(() async {
-      await db.close();
+      await admission.finish();
     });
 
     test('account pull request shape and exact nullable money decoding', () {
@@ -903,14 +893,17 @@ void main() {
     // that does not exist in what actually ships.
   });
   group('accounts planning sync', () {
+    late LedgerAdmissionFixture admission;
     late AppDatabase db;
 
     setUp(() async {
-      db = await _openDb();
+      admission = await LedgerAdmissionFixture.open();
+      db = admission.database;
+      await seedTestAccount(db);
     });
 
     tearDown(() async {
-      await db.close();
+      await admission.finish();
     });
 
     test('account pull request shape and exact nullable money decoding', () {

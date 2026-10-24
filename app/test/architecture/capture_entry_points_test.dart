@@ -247,7 +247,7 @@ void main() {
     // Two reviewers found the first version of this test presence-only: a
     // single `!mounted` anywhere in the body satisfied it, which is exactly how
     // four unguarded sites slipped past. It now walks each method and requires
-    // that EVERY `ref` use following an `await` has a `!mounted` check between
+    // that EVERY `ref` use following an `await` has a disposal check between
     // that await and the use — unless the whole body sits under an
     // `on StateError` catch, which is the drain's chosen discipline.
     final shell = File('lib/features/app/app_shell.dart').readAsStringSync();
@@ -294,14 +294,36 @@ void main() {
       }
       fail('$signature: unbalanced braces');
     }
+    final engagementBody = bodyIn(shell,
+        'Future<bool> _syncEngagementBody(AdmittedLocalWork work, bool Function() current, SyncPhaseBinding phase) async {');
+    final engagementWrapper = bodyIn(shell,
+        'Future<bool> _syncEngagement({AdmittedLocalWork? originalWork}) async {');
+    String compact(String source) => source.replaceAll(RegExp(r'\s+'), ' ');
+    final wrapper = compact(engagementWrapper);
+    // Only these paired regions may use current() as a disposal guard. Pin
+    // its original work/generation, mounted state, bound phase and exact DB
+    // before allowing that spelling in the per-await scan below.
+    expect(wrapper, contains(
+        'if (_syncEngagementInFlight || !mounted) return false; '
+        'final work = originalWork ?? AdmittedLocalWork.capture(ref); '
+        'if (work == null || !work.current) return false; '
+        'final generation = _syncGate.generation; '
+        'final phase = SyncPhaseBinding(); '
+        'bool rawCurrent() => mounted && _syncGate.admits(generation) && work.current; '
+        'phase.bind(_NotificationCallerLifecycle(work, rawCurrent)); '
+        'bool current() => rawCurrent() && phase.isCurrent && identical(phase.database, work.database);'));
+    expect(wrapper, contains(
+        'return await _syncEngagementBody(work, current, phase) && current();'));
+    expect(wrapper, contains(
+        '} on StateError { if (current()) rethrow; return false; } catch (_) { '
+        'if (!current()) return false; rethrow; } finally {'));
     final targets = <String, String>{
       // initState's cold-start closure is the same hazard: a long await chain
       // that can outlive the shell. It threw from `initState.<anonymous
       // closure>` on device while every named method was already guarded.
       'initState': bodyIn(shell, 'void initState() {'),
       '_onResume': body('_onResume'),
-      '_syncEngagementBody': body('_syncEngagementBody') +
-          bodyIn(shell, 'Future<void> _syncEngagement()'),
+      '_syncEngagementBody': engagementBody + engagementWrapper,
       '_consumeSharedInput': body('_consumeSharedInput'),
       // Paired with its caller: the discipline may live in either, and for
       // these two it lives in the caller's try, covering the whole body.
@@ -326,7 +348,9 @@ void main() {
         final l = lines[i].trim();
         if (l.startsWith('//')) continue;
         if (l.contains('if (!mounted) return;') ||
-            l.contains('if (!ref.context.mounted) return;')) {
+            l.contains('if (!ref.context.mounted) return;') ||
+            (method == '_syncEngagementBody' &&
+                l == 'if (!current()) return false;')) {
           awaited = false;
         }
         // A try block with a broad catch already handles the disposal

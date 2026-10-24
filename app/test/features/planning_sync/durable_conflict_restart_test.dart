@@ -1,17 +1,15 @@
+import '../capture/ledger_admission_fixture.dart';
 // MALI-026 (Phase-9M §12/§13/§14/§16) — restore the premise that failed LIVE in
 // 9L (WP-5: now through the sync_* RPCs): a real CAS conflict must become a DURABLE sync_status='conflict'
 // (outbox CONSUMED, NOT dead-lettered), survive a file-backed restart, and be
 // resolvable by keep-mine (rebase → success) / keep-theirs. The conflict
 // ORIGINATES from the actual zero-row result (a shared-server fake returns null
 // on a revision mismatch), never a hand-set status.
-import 'dart:io';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/sync/conflict_policy.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
@@ -20,12 +18,6 @@ import 'package:money_companion/features/planning_sync/services/planning_push_se
 
 import '../../harness/fake_cas_server.dart';
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 /// The single shared cloud row A and B race on: goal g1 at revision 5.
 class _Server extends FakeCasServer {
@@ -131,13 +123,11 @@ void main() {
       'survives file-backed restart, then keep-mine rebases → success',
       () async {
     final server = _Server(); // revision 5
-    final dir = Directory.systemTemp.createTempSync('9m_dur');
-    final path = '${dir.path}/b.db';
+    final admission=await LedgerAdmissionFixture.open('user-1');
     try {
       server.deviceAEdits(); // revision 6
 
-      var db = await AppDatabase.open(
-          executor: NativeDatabase(File(path)), keyStore: _MemoryKeyStore());
+      var db = admission.database;
       var q = queueOf(db);
       await seed(db, q, PlanningSyncOperation.update,
           saved: 40000); // B's local edit
@@ -150,12 +140,9 @@ void main() {
       expect(await deadN(db), 0, reason: 'NEVER dead-lettered');
       expect(await outboxN(db), 0,
           reason: 'the conflict consumed the outbox row');
-      await db.close();
-
       // Restart: reopen the SAME file — the conflict + local edit persist, and
       // nothing auto-re-pushes.
-      db = await AppDatabase.open(
-          executor: NativeDatabase(File(path)), keyStore: _MemoryKeyStore());
+      db = await admission.restart();
       q = queueOf(db);
       expect(await statusOf(db), 'conflict', reason: 'durable across restart');
       expect(await _openRecords(db), 1, reason: 'the record survives too');
@@ -175,18 +162,17 @@ void main() {
       expect(server.revision, 7);
       expect(await statusOf(db), 'synced');
       expect(await _openRecords(db), 0, reason: 'resolved');
-      await db.close();
     } finally {
-      dir.deleteSync(recursive: true);
+      await admission.finish();
     }
   });
 
   test('zero-row CAS update conflict → keep-theirs adopts remote, no push',
       () async {
     final server = _Server()..deviceAEdits();
-    final db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
-    addTearDown(db.close);
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    final db=admission.database;
+    addTearDown(admission.finish);
     final q = queueOf(db);
     await seed(db, q, PlanningSyncOperation.update, saved: 40000);
     await push(db, q, server).push(); // conflict
@@ -202,9 +188,9 @@ void main() {
       'DELETE conflict from a real zero-row tombstone → durable conflict; '
       'keep-mine re-enqueues a rebased delete that succeeds', () async {
     final server = _Server()..deviceAEdits(); // device A already updated
-    final db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
-    addTearDown(db.close);
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    final db=admission.database;
+    addTearDown(admission.finish);
     final q = queueOf(db);
     await seed(db, q, PlanningSyncOperation.delete); // B stale delete at base 5
     final r = await push(db, q, server).push();

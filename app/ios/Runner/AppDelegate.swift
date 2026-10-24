@@ -287,6 +287,32 @@ enum ApnsEnvironment {
     func ownerMap(_ record: SharedCaptureStore.OwnerRecord?) -> [String: Any]? {
       record.map { ["uid": $0.uid, "uidHash": $0.uidHash, "generation": $0.generation] }
     }
+    // Consent-security amendment: the structured per-layer reply of every pending-
+    // enable phase. Only `status == "done"` is success; no uid/key/content in it.
+    func transitionMap(_ r: SharedCaptureStore.EnableTransitionResult) -> [String: Any] {
+      func layers(_ reports: [SharedCaptureStore.LayerReport]) -> [[String: Any]] {
+        reports.map { report in
+          var map: [String: Any] = ["layer": report.layer, "outcome": report.outcome.rawValue]
+          if let state = report.state { map["state"] = state }
+          if let generation = report.transitionGeneration { map["transitionGeneration"] = generation }
+          if let version = report.reservedVersion { map["reservedVersion"] = version }
+          if let id = report.operationId { map["operationId"] = id }
+          if let generation = report.ownerGeneration { map["ownerGeneration"] = generation }
+          if let epoch = report.ownerEpoch { map["ownerEpoch"] = epoch }
+          return map
+        }
+      }
+      var map: [String: Any] = [
+        "contractVersion": 1, "operation": r.operation, "status": r.status.rawValue,
+        "barrier": layers(r.barrier), "egress": layers(r.egress),
+      ]
+      if let id = r.operationId { map["operationId"] = id }
+      if let generation = r.transitionGeneration { map["transitionGeneration"] = generation }
+      if let version = r.reservedVersion { map["reservedVersion"] = version }
+      if let generation = r.ownerGeneration { map["ownerGeneration"] = generation }
+      if let epoch = r.ownerEpoch { map["ownerEpoch"] = epoch }
+      return map
+    }
     func barrierMap(_ barrier: SharedCaptureStore.RemovalBarrier?) -> [String: Any]? {
       barrier.map { ["nonce": $0.nonce, "uidHash": $0.uidHash, "startedAt": $0.startedAt] }
     }
@@ -464,6 +490,30 @@ enum ApnsEnvironment {
             expectedEpoch: expectedEpoch,
             transitionGeneration: args["transitionGeneration"] as? Int))
         }
+      case "publishRestrictiveCaptureOwner":
+        guard let args = call.arguments as? [String: Any],
+              let uid = args["uid"] as? String, !uid.isEmpty,
+              let version = args["version"] as? Int,
+              let expectedEpoch = args["expectedEpoch"] as? Int else {
+          result(FlutterError(code: "bad_args", message: "Expected restrictive owner fields.", details: nil))
+          return
+        }
+        queueResult(result) {
+          let receipt = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+            uid: uid, version: version, expectedEpoch: expectedEpoch)
+          var map = transitionMap(SharedCaptureStore.EnableTransitionResult(
+            operation: "publishRestrictive", status: receipt.status, operationId: nil,
+            transitionGeneration: nil, reservedVersion: nil,
+            ownerGeneration: receipt.owner?.generation, ownerEpoch: receipt.ownerEpoch,
+            barrier: [
+              SharedCaptureStore.LayerReport(layer: "file", outcome: .absent, state: nil,
+                transitionGeneration: nil, reservedVersion: nil, operationId: nil, ownerGeneration: nil, ownerEpoch: nil),
+              SharedCaptureStore.LayerReport(layer: "keychain", outcome: .absent, state: nil,
+                transitionGeneration: nil, reservedVersion: nil, operationId: nil, ownerGeneration: nil, ownerEpoch: nil)
+            ], egress: receipt.egress))
+          if let owner = ownerMap(receipt.owner) { map["owner"] = owner }
+          return map
+        }
       case "captureOwnerEpoch":
         queueResult(result) { try SharedCaptureStore.ownerEpoch() }
       case "authorizeCaptureUpload":
@@ -581,6 +631,75 @@ enum ApnsEnvironment {
               "reservedVersion": record.reservedVersion,
             ]
           }
+        }
+      // ── Pending explicit-enable barrier (phases: begin, writeOn, restrict, finish)
+      case "beginCloudEgressEnable":
+        guard let args = call.arguments as? [String: Any],
+              let ownerUid = args["ownerUid"] as? String,
+              let generation = args["transitionGeneration"] as? Int,
+              let reservedVersion = args["reservedVersion"] as? Int else {
+          result(FlutterError(code: "bad_args", message: "Expected enable begin fields.", details: nil))
+          return
+        }
+        // A fresh begin never adopts an existing operation. A resume names BOTH the
+        // original operation id and the original owner epoch, or neither.
+        let resumeId = args["resumeOperationId"] as? String
+        let resumeEpoch = args["resumeOwnerEpoch"] as? Int
+        guard (resumeId == nil) == (resumeEpoch == nil) else {
+          result(FlutterError(code: "bad_args", message: "Expected both resume fields or none.", details: nil))
+          return
+        }
+        queueResult(result) {
+          transitionMap(try SharedCaptureStore.beginCloudEgressEnable(
+            ownerUid: ownerUid, transitionGeneration: generation, reservedVersion: reservedVersion,
+            resumeOperationId: resumeId, resumeOwnerEpoch: resumeEpoch))
+        }
+      case "writeCloudEgressEnableOn", "restrictCloudEgressEnable", "finishCloudEgressEnable", "revokeCaptureAuthorizationLifetime":
+        guard let args = call.arguments as? [String: Any],
+              let ownerUid = args["ownerUid"] as? String,
+              let operationId = args["operationId"] as? String,
+              let generation = args["transitionGeneration"] as? Int,
+              let reservedVersion = args["reservedVersion"] as? Int,
+              let ownerGeneration = args["ownerGeneration"] as? Int,
+              let ownerEpoch = args["ownerEpoch"] as? Int else {
+          result(FlutterError(code: "bad_args", message: "Expected enable phase fields.", details: nil))
+          return
+        }
+        let phase = call.method
+        let abandon = args["abandon"] as? Bool ?? false
+        queueResult(result) {
+          switch phase {
+          case "writeCloudEgressEnableOn":
+            return transitionMap(try SharedCaptureStore.writeCloudEgressEnableOn(
+              ownerUid: ownerUid, operationId: operationId,
+              transitionGeneration: generation, reservedVersion: reservedVersion,
+              ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch))
+          case "revokeCaptureAuthorizationLifetime":
+            return transitionMap(try SharedCaptureStore.revokeCaptureAuthorizationLifetime(
+              ownerUid: ownerUid, operationId: operationId,
+              transitionGeneration: generation, reservedVersion: reservedVersion,
+              ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch))
+          case "restrictCloudEgressEnable":
+            return transitionMap(try SharedCaptureStore.restrictCloudEgressEnable(
+              ownerUid: ownerUid, operationId: operationId,
+              transitionGeneration: generation, reservedVersion: reservedVersion,
+              ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch))
+          default:
+            return transitionMap(try SharedCaptureStore.finishCloudEgressEnable(
+              ownerUid: ownerUid, operationId: operationId,
+              transitionGeneration: generation, reservedVersion: reservedVersion,
+              ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch,
+              abandon: abandon))
+          }
+        }
+      case "getCloudEgressPending":
+        guard let ownerUid = (call.arguments as? [String: Any])?["ownerUid"] as? String,
+              !ownerUid.isEmpty else {
+          result(FlutterError(code: "bad_args", message: "Expected ownerUid.", details: nil))
+          return
+        }
+        queueResult(result) {
+          transitionMap(try SharedCaptureStore.cloudEgressPending(forUid: ownerUid))
         }
       case "unboundCaptureSummary":
         guard let uid = (call.arguments as? [String: Any])?["uid"] as? String else {

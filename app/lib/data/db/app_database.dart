@@ -111,6 +111,10 @@ enum DatabaseLifecycleFailure {
   closed,
   recoveryRequired,
   maintenanceTimeout,
+
+  /// A read-only (offline local-read) owner can never authorize a writable
+  /// secondary connection.
+  readOnlyOwner,
 }
 
 class DatabaseLifecycleException implements Exception {
@@ -153,15 +157,64 @@ DatabaseBusyException? mapDatabaseBusy(Object error) {
   return null;
 }
 
+/// Verification failed and the real read-only handle could not be closed.
+/// The receiver must retain [database] until its actual close succeeds.
+class ReadOnlyCleanupIncompleteException implements Exception {
+  const ReadOnlyCleanupIncompleteException(this.database);
+
+  final AppDatabase database;
+
+  @override
+  String toString() => 'ReadOnlyCleanupIncompleteException: cleanup incomplete.';
+}
+
+/// Offline local read — the existing database's schema is not exactly the one
+/// this build runs (`user_version` older or newer). A read-only connection never
+/// migrates, so the replica is unavailable for reading until a normal open
+/// upgrades it. Carries only version numbers.
+class ReadOnlySchemaUnsupportedException implements Exception {
+  const ReadOnlySchemaUnsupportedException({
+    required this.databaseVersion,
+    required this.supportedVersion,
+  });
+
+  final int databaseVersion;
+  final int supportedVersion;
+
+  @override
+  String toString() =>
+      'ReadOnlySchemaUnsupportedException: database schema v$databaseVersion '
+      'cannot be read by this build (v$supportedVersion).';
+}
+
+/// Offline local read — the key source of a read-only open. It can only READ the
+/// stored key; minting is structurally impossible.
+class _ReadOnlyKeyStore implements DatabaseKeyStore {
+  const _ReadOnlyKeyStore(this._read);
+  final Future<String?> Function() _read;
+
+  @override
+  Future<String> readOrCreateKey() =>
+      Future.error(const DatabaseCreationNotAuthorizedException());
+
+  @override
+  Future<String?> readStoredKey() => _read();
+}
+
 class AppDatabase extends GeneratedDatabase {
   AppDatabase._(
     DatabaseConnection connection, {
     required this.keyStore,
     required this.isEncrypted,
+    this.isReadOnly = false,
   }) : super.connect(connection);
 
   final DatabaseKeyStore keyStore;
   final bool isEncrypted;
+
+  /// True for the offline local-read connection ([openReadOnlyExisting]): SQLite
+  /// itself opened the file read-only, and [initialize] refuses to run.
+  final bool isReadOnly;
   final _manualRevisionController = StreamController<int>.broadcast();
   // MALI-029 — table-scoped write signal: emits the TARGET table of every data
   // write (raw-SQL and Drift-API alike) so providers can subscribe to only the
@@ -298,6 +351,10 @@ class AppDatabase extends GeneratedDatabase {
     OwnershipGuard? ownershipGuard,
     AdmissionToken? admissionToken,
   }) async {
+    if (owner != null && owner.isReadOnly) {
+      throw const DatabaseLifecycleException(
+          DatabaseLifecycleFailure.readOnlyOwner);
+    }
     if (owner != null && !owner.admitsSecondary) {
       throw const DatabaseLifecycleException(DatabaseLifecycleFailure.closed);
     }
@@ -338,6 +395,70 @@ class AppDatabase extends GeneratedDatabase {
       if (lease != null) await lease.release();
       rethrow;
     }
+  }
+
+  /// Offline local read — open the EXISTING encrypted database of [location]
+  /// through a genuine SQLite read-only connection (`SQLITE_OPEN_READONLY`, plus
+  /// `PRAGMA query_only` as defence in depth).
+  ///
+  /// It can create nothing: a missing file fails, a missing/empty key fails with
+  /// [LocalDatabaseKeyUnavailableException] (the key is only READ via [readKey],
+  /// never minted), and no directory is made. The migration pipeline never runs:
+  /// `user_version` must equal this build's schema exactly, else the handle is
+  /// closed and [ReadOnlySchemaUnsupportedException] is thrown. The encrypted
+  /// cipher activation, key install and key proof are the same as every other
+  /// production connection; there is no plaintext fallback. A verification
+  /// failure awaits closure. If closure fails, [ReadOnlyCleanupIncompleteException]
+  /// retains the uncertain handle for lifecycle draining; it is never exposed
+  /// as a usable read replica. This path performs no initialization or repair.
+  static Future<AppDatabase> openReadOnlyExisting({
+    required ReplicaLocation location,
+    required Future<String?> Function() readKey,
+    @visibleForTesting Future<void> Function(AppDatabase db)? debugBeforeClose,
+  }) async {
+    if (!await File(location.dbPath).exists()) {
+      throw const FileSystemException('database does not exist');
+    }
+    final key = await readKey();
+    if (key == null || key.isEmpty) {
+      throw const LocalDatabaseKeyUnavailableException();
+    }
+    final connection = await _openEncryptedConnection(
+      key,
+      location,
+      createFile: false,
+      readOnly: true,
+    );
+    final db = AppDatabase._(
+      connection,
+      keyStore: _ReadOnlyKeyStore(readKey),
+      isEncrypted: true,
+      isReadOnly: true,
+    ).._debugBeforeReadOnlyClose = debugBeforeClose;
+    try {
+      final version = await db
+          .customSelect('PRAGMA user_version;')
+          .getSingle()
+          .then((r) => r.read<int>('user_version'));
+      if (version != _targetSchemaVersion) {
+        throw ReadOnlySchemaUnsupportedException(
+          databaseVersion: version,
+          supportedVersion: _targetSchemaVersion,
+        );
+      }
+    } catch (_) {
+      db._lifecycle = DatabaseLifecycleState.failed;
+      try {
+        await db.close();
+      } catch (_) {
+        // Failed teardown is unknown, not proof of closure. Transfer the exact
+        // handle to the receiver so lifecycle draining cannot lose it.
+        throw ReadOnlyCleanupIncompleteException(db);
+      }
+      rethrow;
+    }
+    db._lifecycle = DatabaseLifecycleState.open;
+    return db;
   }
 
   /// MALI-069n §Blocker-1 — the production cross-isolate lease manager, using
@@ -495,7 +616,9 @@ class AppDatabase extends GeneratedDatabase {
   /// memo on error so an explicit later [initialize] in the same process can
   /// retry (e.g. after a transient failure clears). There is no automatic retry
   /// loop — one attempt per call.
-  Future<void> initialize() => _initFuture ??= _runGuardedInitialize();
+  Future<void> initialize() => isReadOnly
+      ? Future.error(StateError('a read-only database is never initialized'))
+      : _initFuture ??= _runGuardedInitialize();
 
   Future<void> _runGuardedInitialize() async {
     try {
@@ -1168,13 +1291,47 @@ class AppDatabase extends GeneratedDatabase {
   /// never tear down mid-migration), then closes the stream + the executor
   /// (which stops the background isolate). Safe to call after a failed open.
   @override
-  Future<void> close() => _closeFuture ??= _close();
+  Future<void> close() {
+    if (_debugBeforeReadOnlyClose != null) return _closeReadOnlyWithHook();
+    return _closeFuture ??= _close();
+  }
+
+  Future<void> Function(AppDatabase db)? _debugBeforeReadOnlyClose;
+
+  Future<void> _closeReadOnlyWithHook() async {
+    // Test-only fault before actual teardown; does not cache a simulated failure
+    // as the database's real close result.
+    await _debugBeforeReadOnlyClose!(this);
+    await (_closeFuture ??= _close());
+  }
 
   /// A cross-isolate SHARED lease held for a secondary connection's lifetime
   /// (MALI-069n §Blocker-1); released on close.
   DatabaseFileLease? _lease;
 
+  /// O-BX-1 — set synchronously by the first [close]. From then on no maintenance
+  /// caller may start, leave the queue, finish its drain or begin its action: the
+  /// exclusive-maintenance entrances are DRAINED (the one already past its intent
+  /// is awaited to completion, never interrupted) or DENIED (one still queued or
+  /// draining is refused before it creates an intent).
+  bool _closeRequested = false;
+
   Future<void> _close() async {
+    _closeRequested = true;
+    // A maintenance caller still in its drain step has published nothing: refuse
+    // it now instead of waiting for borrows that may never end.
+    final draining = _drain;
+    if (draining != null && !draining.isCompleted) {
+      draining.completeError(
+          const DatabaseLifecycleException(DatabaseLifecycleFailure.closed));
+    }
+    // A running maintenance (it holds the gate and may hold an intent) is awaited
+    // to completion; queued callers wake, see the request and are refused. Only
+    // when none remains does teardown proceed, so no intent can be created after
+    // a caller observed this database closed.
+    while (_maintenanceLock != null && !_maintenanceLock!.isCompleted) {
+      await _maintenanceLock!.future;
+    }
     if (_lifecycle != DatabaseLifecycleState.failed) {
       _lifecycle = DatabaseLifecycleState.closing;
     }
@@ -1224,11 +1381,22 @@ class AppDatabase extends GeneratedDatabase {
   int get activeBorrows => _activeBorrows;
 
   /// Whether a NEW secondary connection may be admitted right now (§Blocker-2):
-  /// only when the owner is fully open and not quiescing for maintenance.
+  /// only when the owner is writable, fully open and not quiescing for maintenance.
+  /// A read-only owner cannot authorize a writable secondary connection.
   bool get admitsSecondary =>
-      _lifecycle == DatabaseLifecycleState.open && !_maintenanceRequested;
+      !isReadOnly &&
+      _lifecycle == DatabaseLifecycleState.open &&
+      !_closeRequested &&
+      !_maintenanceRequested;
+
+  void _requireNotClosing() {
+    if (_closeRequested) {
+      throw const DatabaseLifecycleException(DatabaseLifecycleFailure.closed);
+    }
+  }
 
   void _throwIfUnusable() {
+    _requireNotClosing();
     switch (_lifecycle) {
       case DatabaseLifecycleState.closing:
       case DatabaseLifecycleState.closed:
@@ -1288,8 +1456,12 @@ class AppDatabase extends GeneratedDatabase {
     if (mode == MaintenanceMode.fileExclusive && leaseManager == null) {
       throw ArgumentError('fileExclusive maintenance requires a leaseManager');
     }
+    _requireNotClosing();
     while (_maintenanceLock != null && !_maintenanceLock!.isCompleted) {
       await _maintenanceLock!.future;
+      // O-BX-1: a caller queued behind earlier maintenance never starts once
+      // close was requested (it has created no intent).
+      _requireNotClosing();
     }
     final lock = Completer<void>();
     _maintenanceLock = lock;
@@ -1300,6 +1472,7 @@ class AppDatabase extends GeneratedDatabase {
     try {
       // 1. Drain in-memory (main-isolate) borrows.
       await _drainBorrows(drainTimeout);
+      _requireNotClosing(); // refused BEFORE any intent is published
       // 2. For file-level exclusivity, acquire the CROSS-ISOLATE exclusive lease
       //    — this publishes maintenance intent (refusing new secondaries) and
       //    waits (bounded) for every secondary lease to close.
@@ -1307,6 +1480,7 @@ class AppDatabase extends GeneratedDatabase {
         exclusive =
             await leaseManager!.acquireExclusive(timeout: exclusiveTimeout);
       }
+      _requireNotClosing(); // the finally releases an acquired lease
       final result = await action();
       _lifecycle = DatabaseLifecycleState.open;
       return result;
@@ -1511,6 +1685,7 @@ class AppDatabase extends GeneratedDatabase {
     String key,
     ReplicaLocation location, {
     required bool createFile,
+    bool readOnly = false,
   }) async {
     final file = File(location.dbPath);
     // F2: only a creating open makes the directory. An existing-only open uses a
@@ -1521,7 +1696,11 @@ class AppDatabase extends GeneratedDatabase {
     if (createFile) await file.parent.create(recursive: true);
     return NativeDatabase.createBackgroundConnection(
       file,
-      sqlite3: databaseResolver(file.absolute.path, createFile: createFile),
+      sqlite3: databaseResolver(
+        file.absolute.path,
+        createFile: createFile,
+        readOnly: readOnly,
+      ),
       // MALI-046n: the migration pipeline (_runInitialize) is the SOLE owner of
       // `PRAGMA user_version`. With Drift migrations enabled, Drift's version
       // delegate stamps `user_version = schemaVersion` at open — BEFORE the
@@ -1553,6 +1732,8 @@ class AppDatabase extends GeneratedDatabase {
         // one), instead of failing immediately with SQLITE_BUSY. Bounded so it
         // can never hang; a genuinely stuck lock surfaces as a typed busy error.
         database.execute('PRAGMA busy_timeout = $_busyTimeoutMs;');
+        // Offline local read: defence in depth behind OpenMode.readOnly.
+        if (readOnly) database.execute('PRAGMA query_only = ON;');
       },
     );
   }

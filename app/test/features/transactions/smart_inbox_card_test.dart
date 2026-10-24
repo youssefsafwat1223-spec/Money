@@ -35,8 +35,10 @@ Future<void> _pump(
   WidgetTester tester,
   SmartInboxItemEntity item, {
   required bool consentOn,
+  FakeSettingsRepository? settingsRepository,
+  FakeRegistrationService? registrationService,
 }) async {
-  final repo = FakeSettingsRepository();
+  final repo = settingsRepository ?? FakeSettingsRepository();
   if (consentOn) {
     repo.settings = repo.settings.copyWith(
       cloudConsentState: ConsentState.accepted,
@@ -45,7 +47,8 @@ Future<void> _pump(
   }
   await tester.pumpWidget(consentApp(
     overrides: [
-      ...consentOverrides(repo, FakeRegistrationService()),
+      ...consentOverrides(
+          repo, registrationService ?? FakeRegistrationService()),
       smartInboxRepositoryProvider.overrideWithValue(_FakeInbox()),
     ],
     home: Scaffold(body: SmartInboxCard(item: item)),
@@ -75,10 +78,50 @@ void main() {
     expect(find.text('Review transaction'), findsOneWidget);
   });
 
-  testWidgets('Enable opens the consent sheet', (tester) async {
-    await _pump(tester, _item(), consentOn: false);
+  testWidgets(
+      'Enable opens disclosed choices without granting consent, '
+      'and dismissal changes nothing', (tester) async {
+    final repo = FakeSettingsRepository();
+    final service = FakeRegistrationService();
+    final before = repo.settings;
+    void expectNoGrant() {
+      expect(repo.saveCalls, 0);
+      expect(repo.lastChoices, isNull);
+      expect(repo.settings, same(before));
+      expect(repo.settings.cloudConsentState, ConsentState.unset);
+      expect(repo.settings.aiConsentState, ConsentState.unset);
+      expect(repo.settings.cloudProcessingEnabled, isFalse);
+      expect(repo.settings.aiConsentGranted, isFalse);
+      expect(service.enableCalls, 0);
+      expect(service.disableCalls, 0);
+      expect(service.syncCalls, 0);
+      expect(service.retryCalls, 0);
+    }
+
+    await _pump(tester, _item(),
+        consentOn: false,
+        settingsRepository: repo,
+        registrationService: service);
+    expectNoGrant();
     await tester.tap(find.text('Enable Smart Analysis & Cloud Sync'));
     await tester.pumpAndSettle();
-    expect(find.text('Not now'), findsOneWidget);
+    expect(find.text('Accept cloud sync and smart analysis'), findsOneWidget);
+    expect(find.text('Continue locally'), findsOneWidget);
+    expect(
+        find.textContaining('sent to Qirsh servers after card, account and '
+            'phone numbers and codes are removed'),
+        findsOneWidget);
+    expect(find.textContaining('Google Gemini may process this text'),
+        findsOneWidget);
+    expectNoGrant();
+
+    // Dismiss the modal without choosing either disclosed action.
+    final context = tester.element(find.text('Continue locally'));
+    Navigator.of(context).pop();
+    await tester.pumpAndSettle();
+    expect(find.text('Continue locally'), findsNothing);
+    expect(find.text('Accept cloud sync and smart analysis'), findsNothing);
+    expect(find.text('Enable Smart Analysis & Cloud Sync'), findsOneWidget);
+    expectNoGrant();
   });
 }

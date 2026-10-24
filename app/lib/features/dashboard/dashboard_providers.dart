@@ -416,29 +416,33 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       currency: displayCurrency,
       accountId: accountId);
   final (
-    thisMonthExpenses,
-    thisMonthIncome,
-    prevMonthExpenses,
-    weekSpend,
-    todaySpend,
-    todayIncome,
-    weekIncome,
-    previousWeekSpend,
+    (
+      thisMonthExpenses,
+      thisMonthIncome,
+      prevMonthExpenses,
+      weekSpend,
+      todaySpend,
+      todayIncome,
+      weekIncome,
+      previousWeekSpend,
+    ),
+    (rangeExpense, rangeIncome, rawBalance),
   ) = await (
-    thisMonthExpensesFuture,
-    thisMonthIncomeFuture,
-    prevMonthExpensesFuture,
-    weekSpendFuture,
-    todaySpendFuture,
-    todayIncomeFuture,
-    weekIncomeFuture,
-    previousWeekSpendFuture,
+    (
+      thisMonthExpensesFuture,
+      thisMonthIncomeFuture,
+      prevMonthExpensesFuture,
+      weekSpendFuture,
+      todaySpendFuture,
+      todayIncomeFuture,
+      weekIncomeFuture,
+      previousWeekSpendFuture,
+    ).wait,
+    (rangeExpenseFuture, rangeIncomeFuture, balanceFuture).wait,
   ).wait;
-  // Dart's tuple `.wait` extension tops out at 8 elements, so the remaining
-  // totals are awaited separately (still concurrently — their futures were
-  // started above alongside everything else).
-  final (rangeExpense, rangeIncome, rawBalance) =
-      await (rangeExpenseFuture, rangeIncomeFuture, balanceFuture).wait;
+  // Both groups have error consumers before either can fail. Waiting for the
+  // groups together also drains every started read when this provider fails or
+  // its scope is disposed.
   final balance =
       rawBalance?.currency == displayCurrency.toUpperCase() ? rawBalance : null;
   // B2-C — the 3 most-recent pending rows via a bounded SQL query (was a
@@ -500,29 +504,32 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
   final goalsFuture = goalRepo.getAll();
 
   final (
-    allBudgets,
-    breakdown,
-    dailySpendRows,
-    lastSevenDayRows,
-    topMerchants,
-    recentRows,
-    streak,
-    subscriptionRows,
-    goals,
+    (
+      allBudgets,
+      breakdown,
+      dailySpendRows,
+      lastSevenDayRows,
+      topMerchants,
+      recentRows,
+      streak,
+      subscriptionRows,
+      goals,
+    ),
+    previousBreakdown,
   ) = await (
-    allBudgetsFuture,
-    breakdownFuture,
-    dailySpendTrendFuture,
-    lastSevenDaysFuture,
-    topMerchantsFuture,
-    recentFuture,
-    streakFuture,
-    subscriptionsFuture,
-    goalsFuture,
+    (
+      allBudgetsFuture,
+      breakdownFuture,
+      dailySpendTrendFuture,
+      lastSevenDaysFuture,
+      topMerchantsFuture,
+      recentFuture,
+      streakFuture,
+      subscriptionsFuture,
+      goalsFuture,
+    ).wait,
+    previousBreakdownFuture,
   ).wait;
-  // Awaited separately — the tuple `.wait` extension tops out at 9 elements.
-  // The future was started above, so this adds no serial wait.
-  final previousBreakdown = await previousBreakdownFuture;
   final activeBudgets = allBudgets.where((budget) {
     if (!budget.isActive) return false;
     if (budget.currency.toUpperCase() != displayCurrency.toUpperCase()) {

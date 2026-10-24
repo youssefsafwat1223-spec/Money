@@ -1,13 +1,12 @@
+import '../capture/ledger_admission_fixture.dart';
 // MALI-026 (Phase-9F-2 §12/§19) — the parent-authority graph heals: a server goal
 // with currency=NULL quarantines (parent) and its contribution parks (child, no
 // canonical parent, no base fallback). After the owner explicitly repairs the goal
 // to KWD, an authoritative canonical re-pull applies the goal, the parent quarantine
 // clears, the parked contribution replays with the parent's persisted KWD, decodes
 // to EXACT minorUnits, clears its park, and applies exactly once.
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
@@ -16,13 +15,6 @@ import 'package:money_companion/features/planning_sync/services/planning_pull_se
 import 'package:money_companion/features/planning_sync/services/planning_server_currency_repair.dart';
 
 const _goal = PlanningOutboxQueue.goalsEntityType;
-
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 class _GoalPageRemote implements PlanningRemoteSource {
   _GoalPageRemote(this.rows);
@@ -113,8 +105,11 @@ Map<String, dynamic> _contribRow(String id, String goalServerId) => {
       'deleted_at': null,
     };
 
-Future<AppDatabase> _openDb() =>
-    AppDatabase.open(executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+Future<AppDatabase> _openDb() async {
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    addTearDown(admission.finish);
+    return admission.database;
+  }
 
 PlanningPullService _pull(AppDatabase db, PlanningRemoteSource r) =>
     PlanningPullService(

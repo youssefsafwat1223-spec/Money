@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../../core/backend/supabase_config.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/planning_cutover.dart';
+import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/sync_health.dart';
 import '../../../data/sync/exact_transport_capability.dart';
 import '../../../data/sync/planning_currency_capability_probe.dart';
@@ -145,10 +146,16 @@ class StartupSyncReconcileService {
   /// between rows, so the run stops cleanly before a caller's hard timeout). Work
   /// left over is reported as [ReconcileOutcome.partial] and stays visible to the
   /// unsynced inventory; the next cycle continues.
-  Future<ReconcileOutcome> run({Duration? timeBudget}) async {
+  ///
+  /// [phase] is an optional caller restriction; it must already be bound and
+  /// current on this database. The ORIGINAL account lifetime is captured here,
+  /// before any other wait, and handed down unchanged.
+  Future<ReconcileOutcome> run({Duration? timeBudget, SyncPhaseBinding? phase}) async {
     final deadline =
         timeBudget == null ? null : DateTime.now().add(timeBudget);
     if (!SupabaseConfig.isConfigured) return ReconcileOutcome.skippedGuest;
+    final scope =
+        await DefaultAccountBackfillScope.capture(_db, callerPhase: phase);
     final uid = await _getAuthUserId();
     if (uid == null) return ReconcileOutcome.skippedGuest;
 
@@ -192,12 +199,16 @@ class StartupSyncReconcileService {
       // ones assert local-data ownership (no cross-account upload).
       // Audit H-1: these reports are the ONLY evidence of what actually
       // persisted. Discarding them is what converted uncertainty into success.
-      final accounts =
-          await AccountsBackfillService(db: _db, coordinator: _coordinator)
-              .run();
+      scope.requireNotLost();
+      final accounts = await AccountsBackfillService(
+              db: _db, coordinator: _coordinator, mayEgress: _mayEgress)
+          .run(scope: scope);
+      // The transactions chain must not start on a lost original lifetime.
+      scope.requireNotLost();
       final transactions =
           await TransactionsBackfillService(db: _db, coordinator: _coordinator)
               .run(deadline: deadline);
+      scope.requireNotLost();
       // Planning entities too — otherwise budgets/goals/subscriptions/plans
       // created before sync (or with no session) stay local-only and are
       // permanently destroyed by the next sign-out wipe. Rows already queued
@@ -223,6 +234,7 @@ class StartupSyncReconcileService {
       final planning = await PlanningPrimaryBackfillService(
               db: _db, coordinator: _coordinator)
           .run(onlyEntities: onlyEntities);
+      scope.requireNotLost();
 
       // Any unresolved item ⇒ NOT proven. The affected rows keep their
       // local-only / conflict state, so `hasUnsyncedLocalData()` still sees
@@ -247,6 +259,9 @@ class StartupSyncReconcileService {
 
       if (kDebugMode) debugPrint('[Reconcile] backfill complete');
       return ReconcileOutcome.ran;
+    } on AccountFenceDeliveryCancellation {
+      // A typed stop is never a failed/partial return: it ends the chain.
+      rethrow;
     } catch (error) {
       // Offline / transient failure — leave rows unsynced so the guard trips
       // again on the next sync cycle and retries.

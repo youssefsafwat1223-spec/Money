@@ -1,3 +1,4 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:convert';
 
@@ -220,6 +221,8 @@ Map<String, dynamic> _remoteSettingsRow({
       'deleted_at': null,
     };
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   // A settings pull mirrors the pulled language into the keychain for the
   // unlock prompt (core/security/lock_prompt_language.dart); this suite has no
@@ -234,12 +237,13 @@ void main() {
   late DriftUserSettingsRepository settings;
 
   setUp(() async {
-    db = await _openDb();
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     remote = _FakeRemote();
     queue = _queue(db);
     settings = DriftUserSettingsRepository(db, outboxQueue: queue);
   });
-  tearDown(() async => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   /// Binds the local singleton to the server row — production state after the
   /// first pull. Ordinary updates only queue once bound; explicit pre-bind

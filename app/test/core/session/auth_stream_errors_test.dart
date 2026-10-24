@@ -123,7 +123,25 @@ void main() {
     expect(appSession, contains('onError: boundary.onError'));
     expect(appSession, contains('boundary.run(() => _handleSupabaseAuthChange(state, client))'));
     expect(startup, contains('onError: boundary.onError'));
-    expect(RegExp(r'boundary.run\(service.sync\)').allMatches(startup), hasLength(2));
+    final receiverStart = startup.indexOf('  void _receiveSenderBankMapping(');
+    final receiverEnd = startup.indexOf('  Future<void> waitPendingSenderBankMappingSync()', receiverStart);
+    expect(receiverStart, greaterThanOrEqualTo(0));
+    expect(receiverEnd, greaterThan(receiverStart));
+    final receiver = startup.substring(receiverStart, receiverEnd);
+    expect(RegExp(r'_senderJobs\.add\(completion\.future\);[\s\S]*?'
+        r'unawaited\(Future<void>\.microtask').hasMatch(receiver), isTrue,
+        reason: 'the owned completion must be registered before starting the deferred receiver');
+    expect(receiver, contains('await service.syncWithPhase(SyncPhaseBinding(), originalAuthority: original);'));
+    expect(RegExp(r'on AccountFenceDeliveryCancellation\s*\{[\s\S]*?'
+        r'on StaleAdmissionException\s*\{[\s\S]*?'
+        r'catch \(error, stack\)\s*\{\s*'
+        r'_senderUnexpected\.add\(\(error, stack\)\);\s*'
+        r"const AuthStreamBoundary\('senderBankMapping'\)\.onError\(error, stack\);\s*"
+        r'\} finally \{\s*'
+        r'_senderReceiving\.remove\(key\);\s*'
+        r'_senderJobs\.remove\(completion\.future\);\s*'
+        r'completion\.complete\(\);').hasMatch(receiver), isTrue,
+        reason: 'expected cancellation stays separate; ordinary errors remain reported and owned work always settles');
   });
 
 }

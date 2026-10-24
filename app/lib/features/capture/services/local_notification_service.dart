@@ -8,7 +8,9 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../../../core/platform/device_timezone.dart';
+import '../../../core/session/app_session.dart';
 import '../../../data/db/app_database.dart';
+import '../../../data/db/database_access_broker.dart';
 import '../../../data/db/ownership_guard.dart';
 import '../../../data/db/replica_store.dart';
 import '../../../data/db/planning_cutover.dart';
@@ -1166,27 +1168,45 @@ class LocalNotificationService {
     String? payload, {
     String? actionId,
   }) async {
+    // R15: this callback was registered by an EARLIER writable scope and is
+    // retained by the plugin. While an offline read-only scope is (or is being)
+    // published nothing it does is authorised: no opened-event log, no
+    // confirm / dismiss quick action, no confirmation sheet, no navigation.
+    if (AppSession.instance.localReadEgressDenied) return;
+    // O-LC-2: the callback belongs to the account lifecycle it STARTED in. It is
+    // checked before the first effect and again after every await; any
+    // replacement of that lifecycle (local-read, logout, readmission of the same
+    // or another uid, removal) ends the handler without effect. The dispatched
+    // events carry the origin so a consumer re-checks it against its own.
+    final origin = AppSession.instance.captureCallbackOrigin();
+    // No admitted lifecycle at entry (signed out): the opened-event is an
+    // account-scoped write and is refused BEFORE it, and nothing is dispatched.
+    if (origin == null) return;
     await _recordOpenedFromPayload(payload);
+    if (!origin.isCurrent || AppSession.instance.localReadEgressDenied) {
+      return;
+    }
     final transactionId = _extractTransactionId(payload);
     if (transactionId != null) {
       if (actionId == _actionConfirm) {
         // التطبيق شغال — تأكيد مباشر عبر الـ usecase (يسجّل الـ engagement
         // ويحدّث الواجهة) بدلاً من فتح شاشة التأكيد.
-        CaptureRuntime.instance
-            .requestQuickAction(transactionId, confirm: true);
+        CaptureRuntime.instance.requestQuickAction(transactionId,
+            confirm: true, origin: origin);
       } else if (actionId == _actionDismiss) {
         // تجاهل — حذف عبر الـ repository المفتوح بدلاً من فتح اتصال DB ثانٍ.
-        CaptureRuntime.instance
-            .requestQuickAction(transactionId, confirm: false);
+        CaptureRuntime.instance.requestQuickAction(transactionId,
+            confirm: false, origin: origin);
       } else {
         // ضغطة عادية على الـ notification → افتح الـ confirm sheet.
-        CaptureRuntime.instance.requestConfirmation(transactionId);
+        CaptureRuntime.instance
+            .requestConfirmation(transactionId, origin: origin);
       }
       return;
     }
     final route = _extractRoute(payload);
     if (route != null) {
-      CaptureRuntime.instance.requestNavigation(route);
+      CaptureRuntime.instance.requestNavigation(route, origin: origin);
     }
   }
 
@@ -1275,23 +1295,44 @@ class LocalNotificationService {
     };
   }
 
-  /// Test seam for the background confirm/dismiss path — the real entry point
-  /// is the notification plugin's background isolate callback below.
+  /// Test seam for the DEFAULT-DENY gate the real plugin callback runs through.
+  /// Returns whether the action was allowed to proceed at all.
   @visibleForTesting
-  static Future<void> debugRunBackgroundAction(
+  static Future<bool> debugRunBackgroundEntry(
     String transactionId, {
     required bool confirm,
+    DatabaseBrokerClient? job,
   }) =>
-      _runBackgroundAction(transactionId, confirm: confirm);
+      _backgroundEntry(transactionId, confirm: confirm, job: job);
 
   @pragma('vm:entry-point')
   static void _backgroundTapHandler(NotificationResponse response) {
+    // This isolate can discover the coordinator, never create one.
+    DatabaseAccessBroker.markBackgroundEntrypoint();
     final actionId = response.actionId;
     if (actionId != _actionConfirm && actionId != _actionDismiss) return;
     final transactionId =
         CaptureNotificationPayload.tryDecode(response.payload)?.transactionId;
     if (transactionId == null) return;
-    _runBackgroundAction(transactionId, confirm: actionId == _actionConfirm);
+    // The plugin supplies action / payload strings and NO host-issued job, so
+    // the supplied job is absent and the entry defers (see [_backgroundEntry]).
+    unawaited(_backgroundEntry(transactionId,
+        confirm: actionId == _actionConfirm));
+  }
+
+  /// O: headless entrants default-deny. Without a genuine host-issued job this
+  /// defers BEFORE `PendingNotificationActions.record`, any location / key /
+  /// lease access, secondary open, notification or acknowledgement. Nothing is
+  /// minted from discovery, no job is serialised into a payload, and an old
+  /// event is never attributed to whoever is signed in now.
+  static Future<bool> _backgroundEntry(
+    String transactionId, {
+    required bool confirm,
+    DatabaseBrokerClient? job,
+  }) async {
+    if (job == null || !job.isHostIssued) return false;
+    await _runBackgroundAction(transactionId, confirm: confirm, job: job);
+    return true;
   }
 
   /// G6: applies a background confirm/dismiss through the SAME repository calls
@@ -1325,7 +1366,7 @@ class LocalNotificationService {
   }
 
   static Future<void> _runBackgroundAction(String transactionId,
-      {required bool confirm}) async {
+      {required bool confirm, DatabaseBrokerClient? job}) async {
     WidgetsFlutterBinding.ensureInitialized();
     // يُسجَّل الإجراء دائمًا ليُعاد تطبيقه عند أول فتح للتطبيق: هذا الـ isolate
     // الخلفي لا يملك حالة التطبيق الأمامي كاملة (الـ overrides الشخصية والملكية
@@ -1338,6 +1379,7 @@ class LocalNotificationService {
     // previous session's transaction must never be applied to a new owner's DB.
     final ownershipGuard = OwnershipGuard();
     final AppDatabase db;
+    DatabaseBrokerHandle<AppDatabase>? jobHandle;
     final AdmissionToken admissionToken;
     try {
       // Capturing the admission token and opening the SECONDARY connection are in
@@ -1353,12 +1395,22 @@ class LocalNotificationService {
       // WP-3b — the account's own replica; none (signed out/locked) defers.
       final location = await ReplicaStore().activeLocation();
       if (location == null) throw const StaleOwnershipException();
-      db = await AppDatabase.openSecondary(
-        location: location,
-        leaseManager: await AppDatabase.appSupportLeaseManager(location: location),
-        ownershipGuard: ownershipGuard,
-        admissionToken: admissionToken,
-      );
+      final leaseManager =
+          await AppDatabase.appSupportLeaseManager(location: location);
+      Future<AppDatabase> openSecondary() => AppDatabase.openSecondary(
+            location: location,
+            leaseManager: leaseManager,
+            ownershipGuard: ownershipGuard,
+            admissionToken: admissionToken,
+          );
+      if (job != null) {
+        // Reserved with the coordinator BEFORE the opener runs.
+        jobHandle = await job.open<AppDatabase>(
+            open: openSecondary, close: (opened) => opened.close());
+        db = jobHandle.value;
+      } else {
+        db = await openSecondary();
+      }
     } catch (_) {
       // الجهاز غالباً مقفول ومفتاح التشفير غير متاح من الـ Keychain — أو تغيّرت
       // الملكية (StaleOwnershipException). الإجراء مسجَّل أعلاه ويُطبَّق (مع فحص
@@ -1384,7 +1436,11 @@ class LocalNotificationService {
     } catch (_) {
       // الإجراء مسجَّل بالفعل لإعادة التطبيق — لا شيء يُفقد هنا.
     } finally {
-      await db.close();
+      if (jobHandle != null) {
+        await jobHandle.close();
+      } else {
+        await db.close();
+      }
     }
   }
 }

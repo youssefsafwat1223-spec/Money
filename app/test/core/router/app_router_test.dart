@@ -29,12 +29,75 @@ void main() {
     await AppSession.instance.completeOnboarding(
       method: 'email',
       email: 'user@example.com',
+      userId: 'returning-router-fixture',
     );
+    expect(AppSession.instance.status, SessionStatus.authenticated);
     await AppSession.instance.signOut();
 
     expect(
       onboardingEntryPathForSession(AppSession.instance),
       '/onboarding/auth',
     );
+  });
+
+  // O-H2 — while a verified local-read scope is published only the read-only shell
+  // and the reconnect (sign-in) route are reachable; every action, editing and
+  // account-control route, however it is reached, is redirected back to the shell.
+  group('local-read route allowlist', () {
+    test('the shell and reconnect are allowed, with or without a query', () {
+      expect(localReadRedirect('/'), isNull);
+      expect(localReadRedirect('/?from=notification'), isNull);
+      expect(localReadRedirect('/onboarding/auth'), isNull);
+    });
+
+    test('every other route is redirected to the shell', () {
+      const denied = [
+        '/transaction/tx-1',
+        '/transaction/tx-1?edit=1',
+        '/paste',
+        '/budgets',
+        '/budgets/new',
+        '/budgets/b1/edit',
+        '/goals',
+        '/goals/new',
+        '/goals/g1',
+        '/accounts',
+        '/account/a1',
+        '/cards',
+        '/card/1234',
+        '/subscriptions',
+        '/reports',
+        '/settings',
+        '/profile',
+        '/settings/planning-currency-repair',
+        '/data-transfer',
+        '/backup',
+        '/backup/restore',
+        '/capture/sms-permission',
+        '/coupons',
+        '/coupons/merchant/m1',
+        '/savings',
+        '/referrals',
+        '/privacy',
+        '/help',
+        '/announcements',
+        '/achievements',
+        '/welcome',
+        '/onboarding/setup',
+        '/onboarding/brand',
+        '/onboarding/privacy',
+        '/design',
+        '/unknown/deep/link',
+      ];
+      for (final location in denied) {
+        expect(localReadRedirect(location), '/', reason: location);
+      }
+    });
+
+    test('look-alike paths do not slip through the prefix', () {
+      expect(localReadRedirect('//onboarding/auth'), '/');
+      expect(localReadRedirect('/onboarding/auth/../setup'), '/');
+      expect(localReadRedirect('/onboarding/authx'), '/');
+    });
   });
 }

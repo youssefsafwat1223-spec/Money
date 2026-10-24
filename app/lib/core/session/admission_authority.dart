@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../../data/db/database_access_broker.dart' show DatabaseOpenReservation;
+
 /// F2 — the authority to admit one uid, handed down the whole admission chain
 /// (explicit auth attempt -> ownership resolution -> owner marker/generation
 /// writes -> replica admission -> scope activation -> replica open/create -> key
@@ -26,13 +28,15 @@ class AdmissionAuthority {
     this._isCurrent, {
     this.canCreate = false,
     this.epoch = 0,
+    this.openReservation,
   });
 
   /// An always-current authority for tests that exercise storage in isolation.
   @visibleForTesting
   const AdmissionAuthority.forTest(this.uid, {this.canCreate = true})
       : _isCurrent = _always,
-        epoch = 0;
+        epoch = 0,
+        openReservation = null;
 
   static bool _always() => true;
 
@@ -42,6 +46,16 @@ class AdmissionAuthority {
   /// The admission epoch this authority was issued at.
   final int epoch;
   final bool Function() _isCurrent;
+
+  /// O: the private single-opener reservation minted for exactly this
+  /// admission's open (null when no coordinator is configured). It is
+  /// bookkeeping only: it adds no authority this authority did not carry.
+  final DatabaseOpenReservation? openReservation;
+
+  /// This same authority (same uid, epoch, currency) carrying [reservation].
+  AdmissionAuthority withOpenReservation(DatabaseOpenReservation reservation) =>
+      AdmissionAuthority(uid, _isCurrent,
+          canCreate: canCreate, epoch: epoch, openReservation: reservation);
 
   bool get isCurrent => _isCurrent();
 

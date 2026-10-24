@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -50,7 +52,43 @@ class UserActivityService {
 
   /// Call on cold start and on every app resume.
   /// Fire-and-forget — never awaited on the UI path.
-  static Future<void> ping() async {
+  static final Set<Future<void>> _pendingWork = {};
+  static final List<(Object, StackTrace)> _unexpectedWork = [];
+
+  static Future<void> _runObserved(Future<void> Function() start) {
+    final terminal = Completer<void>();
+    _pendingWork.add(terminal.future);
+    void settled() {
+      _pendingWork.remove(terminal.future);
+      terminal.complete();
+    }
+    try {
+      final actual = start();
+      unawaited(actual.then<void>((_) => settled(), onError: (Object error, StackTrace stack) {
+        _unexpectedWork.add((error, stack));
+        settled();
+      }));
+      return actual;
+    } catch (_) {
+      settled();
+      rethrow;
+    }
+  }
+
+  /// Waits for actual activity invocations; callers first stop their producers.
+  /// Does not send, cancel, reset throttle, or track its own Future.
+  static Future<void> waitPendingActivityWork() async {
+    while (_pendingWork.isNotEmpty) {
+      await Future.wait(_pendingWork.toList());
+    }
+    if (_unexpectedWork.isNotEmpty) {
+      Error.throwWithStackTrace(_unexpectedWork.first.$1, _unexpectedWork.first.$2);
+    }
+  }
+
+  static Future<void> ping() => _runObserved(_ping);
+
+  static Future<void> _ping() async {
     if (!SupabaseConfig.isConfigured) {
       return;
     }
@@ -90,9 +128,9 @@ class UserActivityService {
   }
 
   /// Call after a successful sign-in to immediately mark the user as active.
-  static Future<void> onSignIn() async {
+  static Future<void> onSignIn() {
     _lastPingedAt = null; // Force write regardless of throttle.
-    await ping();
+    return _runObserved(_ping);
   }
 
   /// Resets state on sign-out so the next sign-in writes fresh.

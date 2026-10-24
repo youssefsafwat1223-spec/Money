@@ -1,7 +1,6 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
@@ -15,12 +14,7 @@ import 'package:money_companion/features/planning_sync/services/planning_outbox_
 // atomic set_default_account RPC. A stale device switching default must never
 // roll back unrelated account fields.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
+
 
 /// A fake that models the server: account rows keyed by server id, with an
 /// atomic (last-write-wins) default and full field-update semantics.
@@ -119,6 +113,7 @@ AccountEntity _account(String id, {bool isDefault = false}) => AccountEntity(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  late LedgerAdmissionFixture admission;
   late AppDatabase db;
   late PlanningOutboxQueue queue;
   late DriftAccountRepository repo;
@@ -126,10 +121,8 @@ void main() {
 
   setUp(() async {
     cas = null;
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    admission = await LedgerAdmissionFixture.open('user-1');
+    db = admission.database;
     queue = PlanningOutboxQueue(
       db: db,
       isSyncEnabled: (_) => true,
@@ -137,7 +130,7 @@ void main() {
     );
     repo = DriftAccountRepository(db, outboxQueue: queue);
   });
-  tearDown(() => db.close());
+  tearDown(() => admission.finish());
 
   AccountsPushService pushSvc(_ServerSink sink, {bool casEnabled = false}) =>
       AccountsPushService(

@@ -1,10 +1,9 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_repository_support.dart';
 import 'package:money_companion/domain/entities/card_entity.dart';
 import 'package:money_companion/engine/parser/card_network.dart';
@@ -15,12 +14,6 @@ import 'package:money_companion/features/planning_sync/services/planning_push_se
 /// D-2 consent-only create is never replaced by an automatic settings write,
 /// D-6 a lost-ack card create is converted (not dropped) by a delete, D-7 auth
 /// re-arm at cycle start, D-9 owner-scoped coalescing.
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 class _Sink implements PlanningRemoteSink {
   int calls = 0;
@@ -121,16 +114,18 @@ Future<void> _insertCard(AppDatabase db) => db.customStatement('''
   VALUES ('card-1', NULL, '4242', 'visa', 'manual', '2026-07-01T00:00:00Z', '2026-07-01T00:00:00Z');
 ''');
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   late AppDatabase db;
 
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
   });
   tearDown(() async {
     outboxHasValidSession = () => false;
-    await db.close();
+    await _parentAdmission.finish();
   });
 
   group('D-1 conflict with an in-flight edit', () {
@@ -296,6 +291,9 @@ void main() {
   group('D-9 owner-scoped coalescing', () {
     test('user B edits the settings singleton: separate row, A untouched',
         () async {
+      await _parentAdmission.finish();
+      _parentAdmission=await LedgerAdmissionFixture.open('user-B');
+      db=_parentAdmission.database;
       final qa = _queue(db, auth: 'user-A');
       final srow =
           await db.customSelect('SELECT * FROM user_settings LIMIT 1;').getSingle();

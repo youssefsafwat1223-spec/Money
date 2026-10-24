@@ -1,3 +1,4 @@
+import '../../features/capture/ledger_admission_fixture.dart';
 import 'dart:async';
 import 'dart:io';
 
@@ -304,9 +305,22 @@ void main() {
       );
     }
 
+    group('admitted planning engine', () {
+
+    late LedgerAdmissionFixture accountAdmission;
+    late AppDatabase standaloneDatabase;
+    setUp(() async {
+      standaloneDatabase = db;
+      accountAdmission = await LedgerAdmissionFixture.open('u');
+      db = accountAdmission.database;
+    });
+    tearDown(() async {
+      try { await accountAdmission.finish(); }
+      finally { db = standaloneDatabase; }
+    });
     test('planning engine, consent OFF: every domain is consentBlocked',
         () async {
-      final h = SyncHealth();
+      final h = SyncHealth(db: db);
       await engine(h, () async => false).sync();
       for (final d in [
         SyncDomain.accounts,
@@ -323,7 +337,7 @@ void main() {
 
     test('planning engine, consent ON: a swallowed pull failure is recorded '
         'as a failure class, never as text', () async {
-      final h = SyncHealth();
+      final h = SyncHealth(db: db);
       await engine(h, () async => true, throwing: true).sync();
       expect(h.of(SyncDomain.accounts).lastPushSuccessAt, isNotNull);
       expect(h.of(SyncDomain.accounts).lastPullSuccessAt, isNull);
@@ -331,6 +345,7 @@ void main() {
       expect(h.of(SyncDomain.planning).lastErrorClass, SyncErrorClass.offline);
       expect(h.all.values.map((v) => v.toJson()).toString(),
           isNot(contains('SENTINEL')));
+    });
     });
   });
 }

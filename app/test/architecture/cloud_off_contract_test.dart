@@ -97,10 +97,20 @@ void main() {
       expect(fn, contains('QueueError.barrierActive'));
     });
 
-    test('the consent mirror is written in exactly two places, under the flock',
-        () {
-      expect(RegExp(r'writeConsentMirrorEntry\(').allMatches(store).length, 3,
-          reason: 'the definition, publishActiveOwner and setConsentMirror');
+    test(
+        'the consent mirror is written in exactly four places, all under the '
+        'flock', () {
+      expect(RegExp(r'writeConsentMirrorEntry\(').allMatches(store).length, 4,
+          reason: 'the definition, publishActiveOwner, setConsentMirror and '
+              'publishRestrictiveCaptureOwner');
+      final restrictive =
+          body(store, 'static func publishRestrictiveCaptureOwner(');
+      expect(restrictive, contains('withQueueLock'));
+      expect(
+          RegExp(r'writeConsentMirrorEntry\(').allMatches(restrictive).length,
+          1);
+      expect(restrictive,
+          contains('mirror: ConsentMirrorValue(cloud: false, ai: false'));
     });
   });
 
@@ -462,18 +472,36 @@ void main() {
 
     test('the revoke has exactly one trigger; the UI routes OFF through it',
         () {
+      // N-CR-3: exactly two triggers, each in its own transition body: the
+      // ordinary ON->OFF disable and the verified withdrawal of an effective
+      // permission (same one-shot, ack-bound helper; never anywhere else).
       expect(
           RegExp(r'_revokeOnce\(freeze, inputs\)')
               .allMatches(registration)
               .length,
-          1,
-          reason: 'the single call in _disableCloud');
+          2,
+          reason: '_disableCloud and _withdrawPendingEnable only');
+      expect(
+          RegExp(r'_revokeOnce\(freeze, inputs\)')
+              .allMatches(body(registration, 'Future<void> _disableCloud('))
+              .length,
+          1);
+      expect(
+          RegExp(r'_revokeOnce\(freeze, inputs\)')
+              .allMatches(
+                  body(registration, 'Future<void> _withdrawPendingEnable('))
+              .length,
+          1);
       final screen =
           File('lib/features/settings/privacy_screen.dart').readAsStringSync();
       expect(
           screen, contains('registration.isDisablingCloud(before, updated)'));
       expect(screen, contains('registration.disableCloud('));
-      expect(screen, contains('registration.enableCloud('));
+      // Enabling is not on this screen: the disclosure's typed service route.
+      expect(screen, isNot(contains('enableCloud(')));
+      final sheet = File('lib/features/consent/smart_analysis_consent_sheet.dart')
+          .readAsStringSync();
+      expect(sheet, contains('service.enableCloud('));
     });
   });
 

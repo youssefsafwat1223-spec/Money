@@ -57,7 +57,7 @@ void main() {
     order = [];
     barrier = FakeRemoveBarrier(order);
     store = ReplicaStore(requireCreationAuthority: false, appSupportDirectory: support.path);
-    host = AccountScopeHost(
+    host = AccountScopeHost.uncoordinatedForTesting(
       store: store,
       initialize: (db, uid) async => const AccountScopeInit(),
     );
@@ -322,7 +322,7 @@ void main() {
         host.dispose();
 
         final store2 = ReplicaStore(appSupportDirectory: support.path);
-        final host2 = AccountScopeHost(
+        final host2 = AccountScopeHost.uncoordinatedForTesting(
             store: store2,
             initialize: (db, uid) async => const AccountScopeInit());
         final relaunch = RemoveDataFlow(
@@ -370,7 +370,7 @@ void main() {
         host.dispose();
 
         final store2 = ReplicaStore(appSupportDirectory: support.path);
-        final host2 = AccountScopeHost(
+        final host2 = AccountScopeHost.uncoordinatedForTesting(
             store: store2,
             initialize: (db, uid) async => const AccountScopeInit());
         final again = RemoveDataFlow(
@@ -575,6 +575,9 @@ class _Recording implements AccountScopeControl {
 
   @override
   String? get activeUid => _host.activeUid;
+
+  @override
+  AccountScope? get activeScope => _host.activeScope;
 
   @override
   Future<void> activate(String uid, {AdmissionAuthority? authority}) =>

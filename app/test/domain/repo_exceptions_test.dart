@@ -4,6 +4,17 @@ import 'package:postgrest/postgrest.dart';
 
 void main() {
   group('mapSupabaseError', () {
+    test('legacy QD003 remains generic outside the request-specific boundary', () {
+      expect(mapSupabaseError(const PostgrestException(
+          message:'legacy_scheduled_deletion_disabled',code:'QD003')),
+          isA<ServerRepoException>());
+      expect(mapSupabaseError(const PostgrestException(
+          message:'QD003 legacy_scheduled_deletion_disabled',code:'XX000')),
+          isA<ServerRepoException>());
+      expect(mapSupabaseError({'code':'QD003','message':'legacy unavailable'}),
+          isA<UnknownRepoException>());
+    });
+
     test('maps 23505 unique_violation to DuplicateRepoException', () {
       final e = mapSupabaseError(
         const PostgrestException(message: 'duplicate key', code: '23505'),

@@ -13,6 +13,7 @@ import '../../../data/capture/proof_shadow_dao.dart';
 import '../../../domain/capture/proof_commit_gate.dart';
 import '../../../core/di/app_providers.dart' show featureFlags;
 import '../../../data/db/app_database.dart';
+import '../../../data/db/database_access_broker.dart';
 import '../../../data/db/ownership_guard.dart';
 import '../../../data/db/replica_store.dart';
 import '../../../data/repositories/drift_budget_repository.dart';
@@ -79,6 +80,7 @@ class CapturedMessageProcessor {
     CapturedMessageSource source = CapturedMessageSource.unknown,
     bool showNotifications = true,
     AppDatabase? database,
+    DatabaseBrokerClient? job,
   }) async {
     return processCapturedMessage(
       CapturedMessage(
@@ -89,6 +91,7 @@ class CapturedMessageProcessor {
       ),
       showNotifications: showNotifications,
       database: database,
+      job: job,
     );
   }
 
@@ -96,7 +99,14 @@ class CapturedMessageProcessor {
     CapturedMessage message, {
     bool showNotifications = true,
     AppDatabase? database,
+    DatabaseBrokerClient? job,
   }) async {
+    // O: an ownerless entry (no shared database supplied) is default-deny. It
+    // needs a genuine host-issued job, and is refused BEFORE it captures the
+    // stored ownership, resolves a location, touches a key or lease, or opens.
+    if (database == null && (job == null || !job.isHostIssued)) {
+      throw const DatabaseAccessUnavailable('host_job_required');
+    }
     // MALI-069n §6/§Blocker-1 — when no shared database is supplied this is a
     // bounded SECONDARY connection to the same encrypted file: same key + PRAGMA
     // contract, no concurrent migrations, and it holds a CROSS-ISOLATE shared
@@ -112,6 +122,7 @@ class CapturedMessageProcessor {
     final admissionToken =
         ownershipGuard != null ? await ownershipGuard.capture() : null;
     final AppDatabase db;
+    DatabaseBrokerHandle<AppDatabase>? jobHandle;
     if (database != null) {
       db = database;
     } else {
@@ -120,12 +131,18 @@ class CapturedMessageProcessor {
       // refusal: the capture stays queued for its owner.
       final location = await ReplicaStore().activeLocation();
       if (location == null) throw const StaleOwnershipException();
-      db = await AppDatabase.openSecondary(
-        location: location,
-        leaseManager: await AppDatabase.appSupportLeaseManager(location: location),
-        ownershipGuard: ownershipGuard,
-        admissionToken: admissionToken,
-      );
+      final leaseManager =
+          await AppDatabase.appSupportLeaseManager(location: location);
+      Future<AppDatabase> openSecondary() => AppDatabase.openSecondary(
+            location: location,
+            leaseManager: leaseManager,
+            ownershipGuard: ownershipGuard,
+            admissionToken: admissionToken,
+          );
+      // Reserved with the coordinator BEFORE the opener runs.
+      jobHandle = await job!.open<AppDatabase>(
+          open: openSecondary, close: (opened) => opened.close());
+      db = jobHandle.value;
     }
     try {
       final settingsRepository = DriftUserSettingsRepository(db);
@@ -373,7 +390,7 @@ class CapturedMessageProcessor {
       return result;
     } finally {
       if (shouldCloseDatabase) {
-        await db.close();
+        await (jobHandle?.close() ?? db.close());
       }
     }
   }

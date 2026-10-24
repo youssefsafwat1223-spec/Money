@@ -9,6 +9,10 @@ class FakeAccountScope implements AccountScopeControl {
   /// The uid whose scope is "published" (null = signed-out).
   @override
   String? activeUid;
+
+  /// This double publishes no database: capabilities that need one are refused.
+  @override
+  AccountScope? get activeScope => null;
   Object? lockError;
   Object? activateError;
 

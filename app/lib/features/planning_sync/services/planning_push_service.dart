@@ -1,3 +1,9 @@
+import 'dart:async';
+
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/admission_authority.dart';
+import '../../../core/session/app_session.dart';
+import '../../../core/sync/account_fence_retry.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -102,7 +108,10 @@ abstract class PlanningRemoteSink {
 class SupabasePlanningRemoteSink implements PlanningRemoteSink {
   const SupabasePlanningRemoteSink();
 
-  SupabaseClient get _client => Supabase.instance.client;
+  SupabaseClient get _client {
+    (Zone.current[_parentInvocationKey] as _ParentInvocation?)?.requireCurrent();
+    return Supabase.instance.client;
+  }
 
   @override
   Future<Map<String, dynamic>?> findByLocalId(
@@ -127,20 +136,25 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
     // Never id-only: guard on the last-known updated_at, or (when unknown) on
     // the row not already being tombstoned. Each branch is a single chained
     // statement so the guard predicate always travels with the deleted_at write.
-    final deletedAt = DateTime.now().toUtc().toIso8601String();
+    final deletedAt = (Zone.current[_parentCallKey] as _ParentCall?)
+            ?.command
+            ?.tombstoneStamp(table, serverId, expectedUpdatedAt) ??
+        DateTime.now().toUtc().toIso8601String();
+    _SinkMutation stamp() => _SinkMutation('guardedTombstone', table, serverId,
+        expectedUpdatedAt, <String, dynamic>{'deleted_at': deletedAt});
     final rows = expectedUpdatedAt != null
-        ? await _client
+        ? await retryAccountFenceMutation(() => _tagMutation(stamp(), (body) => _client
             .from(table)
-            .update({'deleted_at': deletedAt})
+            .update(body)
             .eq('id', serverId)
             .eq('updated_at', expectedUpdatedAt)
-            .select('id, updated_at')
-        : await _client
+            .select('id, updated_at')))
+        : await retryAccountFenceMutation(() => _tagMutation(stamp(), (body) => _client
             .from(table)
-            .update({'deleted_at': deletedAt})
+            .update(body)
             .eq('id', serverId)
             .isFilter('deleted_at', null)
-            .select('id, updated_at');
+            .select('id, updated_at')));
     return guardedAck(rows, 'planning.guardedTombstone[$table]');
   }
 
@@ -167,13 +181,15 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
     // used instead; a replay of the same create surfaces as 23505, which the
     // push service resolves by fetching the existing row.
     if (kPartialLocalIdIndexTables.contains(table)) {
-      return await _client.from(table).insert(row).select(_ackCols).single();
+      return await _tagMutation(_SinkMutation('upsert', table, null, null, row),
+          (row) => _client.from(table).insert(row).select(_ackCols).single());
     }
-    return await _client
-        .from(table)
-        .upsert(row, onConflict: 'user_id,local_id')
-        .select(_ackCols)
-        .single();
+    return await _tagMutation(_SinkMutation('upsert', table, null, null, row),
+        (row) => _client
+            .from(table)
+            .upsert(row, onConflict: 'user_id,local_id')
+            .select(_ackCols)
+            .single());
   }
 
   @override
@@ -195,11 +211,9 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
     // MALI-026 (Phase-9M): the guarded OFF update runs after the base-token
     // compare; a 0-row result (the row vanished in the race window) is a
     // conflict, decoded from the LIST — never a single-cardinality throw.
-    final rows = await _client
-        .from(table)
-        .update(row)
-        .eq('id', serverId)
-        .select(_ackCols);
+    final rows = await retryAccountFenceMutation(() => _tagMutation(
+        _SinkMutation('updateByServerId', table, serverId, null, row),
+        (row) => _client.from(table).update(row).eq('id', serverId).select(_ackCols)));
     return guardedAck(rows, 'planning.guardedUpdate[$table]');
   }
 
@@ -211,12 +225,10 @@ class SupabasePlanningRemoteSink implements PlanningRemoteSink {
     Map<String, dynamic> row,
   ) async {
     // C-6: the predicate travels WITH the write, so the database enforces it.
-    final rows = await _client
-        .from(table)
-        .update(row)
-        .eq('id', serverId)
-        .eq('updated_at', expectedUpdatedAt)
-        .select(_ackCols);
+    final rows = await retryAccountFenceMutation(() => _tagMutation(
+        _SinkMutation('guardedUpdate', table, serverId, expectedUpdatedAt, row),
+        (row) => _client.from(table).update(row).eq('id', serverId)
+            .eq('updated_at', expectedUpdatedAt).select(_ackCols)));
     return guardedAck(rows, 'planning.atomicGuardedUpdate[$table]');
   }
 }
@@ -249,9 +261,11 @@ class PlanningPushService {
     /// back to [mayEgress] (and therefore to DENY) when omitted.
     Future<bool> Function()? mayEgressProfile,
     SyncHealth? health,
+    AccountFenceRetry? fenceRetry,
   })  : _mayEgress = mayEgress ?? _denyEgressByDefault,
         _mayEgressProfile =
             mayEgressProfile ?? mayEgress ?? _denyEgressByDefault,
+        _fenceRetry = fenceRetry ?? AccountFenceRetry(),
         _health = health,
         _db = db,
         _queue = queue,
@@ -259,7 +273,7 @@ class PlanningPushService {
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _remoteSink = remoteSink ?? const SupabasePlanningRemoteSink(),
         _casGate = casGate,
-        _cas = RevisionCasEngine(casRemote ?? const SupabaseCasRemote()),
+        _casRemote = casRemote ?? const SupabaseCasRemote(),
         _conflicts = SyncConflictStore(db),
         _coordinator = coordinator,
         _pushCapability = pushCapability,
@@ -273,6 +287,7 @@ class PlanningPushService {
   final Future<bool> Function() _mayEgress;
   final Future<bool> Function() _mayEgressProfile;
   final SyncHealth? _health;
+  final AccountFenceRetry _fenceRetry;
 
   /// Outbox ids whose consent revocation was already delivered while consent is
   /// off — the row stays pending (its full payload must not egress) so this
@@ -291,7 +306,9 @@ class PlanningPushService {
   final PlanningRemoteSink _remoteSink;
 
   final RevisionCasGate? _casGate;
-  final RevisionCasEngine _cas;
+  final CasRemote _casRemote;
+  RevisionCasEngine get _cas =>
+      RevisionCasEngine(_ParentCasRemote(_casRemote, _invocation!, _intent));
   final SyncConflictStore _conflicts;
   CasPlan _plan = const CasPlan(CasMode.legacy);
 
@@ -340,12 +357,141 @@ class PlanningPushService {
     }
   }
 
-  Future<PlanningPushResult> push() async {
+  bool _busy = false;
+  _ParentInvocation? _invocation;
+  AccountFenceParentIntent? _intent;
+  AccountFenceHandle? _revocationHandle;
+  static final _operationId = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+
+  Future<PlanningPushResult> push() => pushWithPhase(SyncPhaseBinding());
+
+  Future<PlanningPushResult> pushWithPhase(SyncPhaseBinding phase) async {
+    if (_busy) throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.overlap);
+    _busy = true;
+    final inherited = phase.isBound ? phase : null;
+    void supplied() {
+      if (inherited != null && (!inherited.isCurrent || !identical(inherited.database, _db))) {
+        throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.stale);
+      }
+    }
+    try {
+      supplied();
+      final authority = AccountFenceAuthority.shared;
+      final handle = await authority.captureForDatabase(AppSession.instance, _db);
+      supplied();
+      if (handle == null) throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.unbound);
+      final invocation = _ParentInvocation(authority, handle, _db, phase, inherited);
+      _invocation = invocation;
+      if (!phase.isBound) phase.bind(invocation);
+      if (_revocationHandle == null || !authority.isCurrentForDatabase(_revocationHandle!, _db)) {
+        _revocationDelivered.clear();
+      }
+      _revocationHandle = handle;
+      final result = await _pushBound();
+      _requireCurrent();
+      return result;
+    } on StaleAdmissionException {
+      throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.stale);
+    } finally {
+      _intent = null; _invocation = null; _busy = false;
+    }
+  }
+
+  void _requireCurrent() => _invocation!.requireCurrent();
+  Future<T> _local<T>(Future<T> Function() action) async {
+    _requireCurrent();
+    try { return await _invocation!.runLocal(action); }
+    on StaleAdmissionException { throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.stale); }
+  }
+
+  Future<void> _itemLocal(PlanningOutboxItem item, Future<void> Function() action) =>
+      _local(() => _db.transaction(() async {
+        if (!await _queue.parentHolderCurrent(item)) return;
+        await action();
+      }));
+
+  Future<T> _remote<T>(Future<T> Function() action, {_ParentCommand? command}) async {
+    _requireCurrent();
+    // Fresh per call: a prior call's dispatch can never arm a later one. Without
+    // a command (a read) nothing can be minted or dispatched as a mutation.
+    final call = _ParentCall(_invocation!, _intent, command);
+    try {
+      final result = await runZoned(action,
+          zoneValues: {_parentInvocationKey: _invocation!, _parentCallKey: call});
+      _requireCurrent(); return result;
+    } catch (error) {
+      // A genuine awaited refusal stays eligible for negative acceptance.
+      if (error is _ParentMutationRefusal && identical(error, call.minted)) rethrow;
+      if (error is AccountFenceDeliveryCancellation) rethrow;
+      if (error is _ParentMutationRefusal) {
+        throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.provenance);
+      }
+      _requireCurrent(); rethrow;
+    } finally {
+      call.active = false;
+    }
+  }
+
+  Future<void> _prepare(PlanningOutboxItem item, {required bool off}) async {
+    if (item.operationId == null || !_operationId.hasMatch(item.operationId!)) {
+      throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.provenance);
+    }
+    final current = _invocation!;
+    _intent = off ? await current.authority.captureParentSettingsOffIntent(current.handle, _db,
+        rowId: item.id, entityId: item.entityId, opSeq: item.opSeq, operationId: item.operationId!)
+        : await current.authority.captureParentIntent(current.handle, _db,
+        rowId: item.id, entityType: item.entityType, entityId: item.entityId,
+        opSeq: item.opSeq, operationId: item.operationId!);
+    _requireCurrent();
+    if (_intent == null) throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.provenance);
+  }
+
+  Future<bool> _retryCurrent(PlanningOutboxItem item, String uid, {required bool off}) async {
+    _requireCurrent();
+    if (!_isEnabled(item.entityType)) return false;
+    final liveUid = await _getAuthUserId(); _requireCurrent();
+    if (liveUid != uid) return false;
+    if (!off) {
+      final allowed = item.entityType == PlanningOutboxQueue.settingsEntityType
+          ? await _mayEgressProfile() : await _mayEgress();
+      _requireCurrent();
+      if (!allowed) return false;
+    }
+    final current = await _local(() => _queue.accountFenceCurrent(item));
+    _requireCurrent(); return current;
+  }
+
+  /// Accepts ONLY a refusal minted at an awaited concrete mutation, using the
+  /// invocation and intent captured when that mutation was dispatched.
+  Future<Never> _deny(PlanningOutboxItem item, _ParentMutationRefusal refusal) async {
+    final current = _invocation;
+    final intent = refusal.intent;
+    final state = decodeParentAccountDenial(refusal.raw);
+    if (refusal.used || current == null || !identical(refusal.invocation, current) ||
+        intent == null || !identical(intent, _intent) || state == null) {
+      throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.provenance);
+    }
+    refusal.used = true;
+    final result = await current.authority.acceptParentDenial(current.handle, _db,
+        intent, state,
+        park: (ticket) => _queue.parkParentDenial(item, state, ticket));
+    throw PlanningDeliveryStopped(PlanningDeliveryStopReason.denial,
+        accepted: result.accepted, parked: result.parked, complete: result.complete);
+  }
+
+  Future<PlanningPushResult> _pushBound() async {
     final userId = await _getAuthUserId();
+    _requireCurrent();
     if (userId == null) return const PlanningPushResult();
+    if (userId != _invocation!.authority.ownerUid(_invocation!.handle)) {
+      throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.stale);
+    }
 
     // WP-5: legacy push or revision CAS; unprovable capability = nothing sent.
-    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.plan(userId);
+    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.planForPlanningParent(userId, authority: _invocation!.authority,
+        handle: _invocation!.handle, database: _db);
+    _requireCurrent();
     if (_plan.mode == CasMode.stopped) return const PlanningPushResult();
     var epochStale = false;
 
@@ -353,26 +499,29 @@ class PlanningPushService {
     // it. A valid authenticated session at the start of a cycle re-arms rows
     // parked `auth_required` (cheap UPDATE; no attempt was ever consumed).
     if (outboxHasValidSession()) {
-      await _queue.reArmAuthParked(entityTypes: _entityTable.keys);
+      await _local(() => _queue.reArmAuthParked(entityTypes: _entityTable.keys));
     }
 
     // MALI-026 (B8-2.10 §9): a verified exact transport re-arms the SAME
     // durable rows before this drain starts.
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
-      await _queue.reArmParked();
+      await _local(() => _queue.reArmParked());
     }
     var pushed = 0;
     var conflicts = 0;
     var failed = 0;
     var abandoned = 0;
     var parked = 0;
+    var fenceStopped = false;
 
     // Consent is read fresh, per egress class, before any row is touched. A
     // denied class leaves its rows pending: no network, no attempt consumed.
     final financialAllowed = await _mayEgress();
+    _requireCurrent();
     final profileAllowed = await _mayEgressProfile();
+    _requireCurrent();
     if (!financialAllowed || !profileAllowed) {
-      _health?.noteConsentBlocked(SyncDomain.planning);
+      _invocation!.phase.noteConsentBlocked(_health);
     }
 
     // A-2: unpark rows whose dependency resolved (settings bound / budget
@@ -381,31 +530,44 @@ class PlanningPushService {
     // Skipped entirely while BOTH egress classes are denied: with consent off
     // the outbox is left exactly as it is.
     if (financialAllowed || profileAllowed) {
-      await _queue.resolveDependencies();
-      await _queue.reconcileOwnership(userId);
+      await _queue.resolveParentDependencies(_invocation!.authority, _invocation!.handle, _invocation!.phase);
+      _requireCurrent();
+      final verified = await _queue.ownershipVerified(userId);
+      _requireCurrent();
+      await _local(() => _queue.reconcileVerifiedOwnership(userId, verified));
     }
 
     for (final entityType in _entityTable.keys) {
-      if (epochStale) break;
+      if (epochStale || fenceStopped) break;
       if (!_isEnabled(entityType)) continue;
       final isSettings = entityType == PlanningOutboxQueue.settingsEntityType;
       final allowed = isSettings ? profileAllowed : financialAllowed;
       if (!allowed && !isSettings) continue;
-      final items = await _queue.pendingItems(entityType: entityType);
+      final items = await _local(() => _queue.pendingItems(entityType: entityType));
       for (final item in items) {
         try {
           if (!allowed) {
             // The ONE deliberate exception: a consent REVOCATION must still
             // reach the server (user_settings is its consent authority).
             if (_consentOffPatch(item) == null) continue;
+            if (item.payloadJson['consent_only'] != true &&
+                await _serverIdForLocal('user_settings', item.entityId) == null) {
+              continue; // Existing unbound full intent remains deferred.
+            }
+            await _prepare(item, off: true);
             if (item.payloadJson['consent_only'] != true) {
-              await _deliverRevocationOnly(item);
+              await _fenceRetry.runItem(
+                  isCurrent: () => _retryCurrent(item, userId, off: true),
+                  body: () => _deliverRevocationOnly(item));
               continue;
             }
             // A pre-bind consent-only create carries no other column: send it
             // exactly as before.
           }
-          final outcome = await _process(item, userId);
+          if (allowed) await _prepare(item, off: false);
+          final outcome = await _fenceRetry.runItem(
+              isCurrent: () => _retryCurrent(item, userId, off: !allowed),
+              body: () => _process(item, userId));
           switch (outcome) {
             case _PlanningPushOutcome.pushed:
               pushed++;
@@ -419,18 +581,44 @@ class PlanningPushService {
             case _PlanningPushOutcome.parked:
               // Held durably; not sent, synced, failed, or retried.
               parked++;
-              _health?.noteCapabilityParked(SyncDomain.planning);
+              _invocation!.phase.noteCapabilityParked(_health);
           }
         } on CasEpochMismatch {
           // Stale epoch: nothing was written; stop the cycle (WP-7 rebootstraps).
-          await _queue.releaseInFlight(item.id);
+          await _itemLocal(item, () => _queue.releaseInFlight(item.id));
           epochStale = true;
           break;
+        } on AccountFenceRetryStopped {
+          fenceStopped = true;
+          break;
+        } on AccountFenceDeliveryCancellation {
+          rethrow;
+        } on _ParentMutationRefusal catch (refusal) {
+          await _deny(item, refusal);
         } catch (e) {
+          // A raw QD (or a stray CAS proof) that was not minted at an awaited
+          // concrete mutation is not mutation proof: stop, no hold/ACK/attempt.
+          if (decodeParentAccountDenial(e) != null ||
+              e is CasMutationAwaitDenial ||
+              e is CasMutationObservationRejected) {
+            throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.provenance);
+          }
+          _requireCurrent();
+          final fence = classifyOutboxError(e);
+          if (fence == OutboxFailureClass.accountFenceContention ||
+              fence == OutboxFailureClass.accountDeletionPending) {
+            final held = await _local(() => _queue.recordAccountFenceFailure(item, fence,
+                _fenceRetry.clock().add(_fenceRetry.cooldown)));
+            _invocation!.phase.noteFailure(_health, e);
+            if (fence == OutboxFailureClass.accountDeletionPending) {
+              if (held) parked++; fenceStopped = true; break;
+            }
+            continue;
+          }
           failed++;
-          _health?.noteFailure(SyncDomain.planning, e);
-          await _queue.markFailed(
-              item.id, e.toString(), classifyOutboxError(e));
+          _invocation!.phase.noteFailure(_health, e);
+          await _itemLocal(item, () => _queue.markFailed(
+              item.id, e.toString(), classifyOutboxError(e)));
           if (kDebugMode) debugPrint('[PlanningPush] item error: $e');
         }
       }
@@ -457,16 +645,15 @@ class PlanningPushService {
   /// returns. Needs a bound server row — an unbound singleton is covered by the
   /// separate consent-only create.
   Future<void> _deliverRevocationOnly(PlanningOutboxItem item) async {
-    if (_revocationDelivered.contains(item.id)) return;
-    final localTable = _localTable[item.entityType]!;
-    final serverId = await _serverIdForLocal(localTable, item.entityId);
-    if (serverId == null) return;
-    final response = await _remoteSink.updateByServerId(
-        _entityTable[item.entityType]!, serverId, _consentOffPatch(item)!);
-    if (response == null) {
-      throw StateError('settings_consent_revocation_not_synced');
-    }
-    _revocationDelivered.add(item.id);
+    final intent = _intent!;
+    if (!intent.isBoundOff) return;
+    final key = '${item.id}:${item.opSeq}:${item.operationId}';
+    if (_revocationDelivered.contains(key)) return;
+    final response = await retryAccountFenceMutation(() => _remote(() =>
+        _remoteSink.updateByServerId('user_settings', intent.offTarget!, intent.offPayload!),
+        command: _ParentCommand.update('user_settings', intent.offTarget!, intent.offPayload!)));
+    if (response == null) throw StateError('settings_consent_revocation_not_synced');
+    _requireCurrent(); _revocationDelivered.add(key);
   }
 
   Future<_PlanningPushOutcome> _process(
@@ -488,9 +675,11 @@ class PlanningPushService {
           cutoverState: _coordinator.state(),
           pushCapability: capability,
         )) {
-      final parkedNow = await _queue.park(
-          item.id, exactMoneyTransportUnverifiedReason,
-          ifOpSeq: item.opSeq);
+      final parkedNow = await _local(() => _db.transaction(() async {
+        if (!await _queue.parentHolderCurrent(item)) return false;
+        return _queue.park(item.id, exactMoneyTransportUnverifiedReason,
+            ifOpSeq: item.opSeq);
+      }));
       return parkedNow
           ? _PlanningPushOutcome.parked
           : _PlanningPushOutcome.deferred;
@@ -499,7 +688,7 @@ class PlanningPushService {
     final remoteTable = _entityTable[item.entityType];
     final localTable = _localTable[item.entityType];
     if (remoteTable == null || localTable == null) {
-      await _queue.markSuccess(item);
+      await _itemLocal(item, () => _queue.markSuccess(item));
       return _PlanningPushOutcome.abandoned;
     }
 
@@ -529,8 +718,12 @@ class PlanningPushService {
     String remoteTable,
     String localTable,
   ) async {
-    final row = _toServerRow(item.entityType, item.payloadJson, userId);
+    final row = _intent!.isPrebindOff ? _intent!.offPayload!
+        : _toServerRow(item.entityType, item.payloadJson, userId);
     var serverId = await _serverIdForLocal(localTable, item.entityId);
+    if (_intent!.isPrebindOff && serverId != null) {
+      throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.provenance);
+    }
     // Tokens of the row we are about to update. Normally the locally stored
     // base; after an idempotent create REPLAY they are the freshly fetched ones.
     int? expectedRevision = item.payloadJson['server_revision'] as int?;
@@ -540,7 +733,8 @@ class PlanningPushService {
       if (serverId == null) {
         Map<String, dynamic> response;
         try {
-          response = await _remoteSink.upsert(remoteTable, row);
+          response = await retryAccountFenceMutation(() => _remote(() => _remoteSink.upsert(remoteTable, row),
+              command: _ParentCommand.upsert(remoteTable, row)));
         } on PostgrestException catch (e) {
           // A-3 (G7/G16): 23505 on a partial-index table is a REPLAY of a create
           // that already landed (the ack was lost) only if the row for this
@@ -550,8 +744,8 @@ class PlanningPushService {
               !kPartialLocalIdIndexTables.contains(remoteTable)) {
             rethrow;
           }
-          final existing = await _remoteSink.findByLocalId(
-              remoteTable, userId, item.entityId);
+          final existing = await _remote(() => _remoteSink.findByLocalId(
+              remoteTable, userId, item.entityId));
           if (existing == null) rethrow;
           // Replay: the create landed. Continue as an UPDATE of that row, guarded
           // by the token we just fetched, so a newer local payload (edits folded
@@ -571,7 +765,7 @@ class PlanningPushService {
         // The row stays unbound; the genuine pull binds it and (for a local
         // revocation) preserves the OFF consent, re-queuing the merged update.
         if (item.payloadJson['consent_only'] == true) {
-          await _queue.markSuccess(item);
+          await _itemLocal(item, () => _queue.markSuccess(item));
           return _PlanningPushOutcome.pushed;
         }
         await _attachServerId(localTable, item.entityId,
@@ -610,14 +804,16 @@ class PlanningPushService {
     int? expectedRevision,
     String? base,
   ) async {
-    base ??= await _remoteSink.fetchServerUpdatedAt(remoteTable, serverId);
+    base ??= await _remote(() => _remoteSink.fetchServerUpdatedAt(remoteTable, serverId));
     if (base == null) {
       // The server row is gone: nothing to guard against → conflict.
       return await _resolveUpsertConflict(
           item, serverId, remoteTable, localTable);
     }
-    final response = await _remoteSink.guardedUpdateByServerId(
-        remoteTable, serverId, base, row);
+    final expectedBase = base;
+    final response = await retryAccountFenceMutation(() => _remote(() => _remoteSink.guardedUpdateByServerId(
+        remoteTable, serverId, expectedBase, row),
+        command: _ParentCommand.guardedUpdate(remoteTable, serverId, expectedBase, row)));
     if (response == null) {
       return await _resolveUpsertConflict(
           item, serverId, remoteTable, localTable);
@@ -643,7 +839,8 @@ class PlanningPushService {
     final consentOff = _consentOffPatch(item);
     if (consentOff != null && serverId != null) {
       final response =
-          await _remoteSink.updateByServerId(remoteTable, serverId, consentOff);
+          await retryAccountFenceMutation(() => _remote(() => _remoteSink.updateByServerId(remoteTable, serverId, consentOff),
+              command: _ParentCommand.update(remoteTable, serverId, consentOff)));
       if (response == null) {
         throw StateError('settings_consent_revocation_not_synced');
       }
@@ -658,8 +855,7 @@ class PlanningPushService {
       return _PlanningPushOutcome.pushed;
     }
 
-    await _markConflict(localTable, item.entityId);
-    await _queue.markSuccess(item);
+    await _conflictAndAck(localTable, item);
     return _PlanningPushOutcome.conflict;
   }
 
@@ -682,11 +878,11 @@ class PlanningPushService {
     String localTable,
   ) async {
     var serverId = await _serverIdForLocal(localTable, item.entityId);
-    serverId ??= (await _remoteSink.findByLocalId(
+    serverId ??= (await _remote(() => _remoteSink.findByLocalId(
       remoteTable,
       userId,
       item.entityId,
-    ))?['id'] as String?;
+    )))?['id'] as String?;
     if (serverId == null) {
       // Never reached the server — nothing to tombstone.
       await _markSynced(localTable, item.entityId, null, item: item);
@@ -700,8 +896,10 @@ class PlanningPushService {
       // classified (already-deleted / advanced / absent) — a stale delete can
       // never clobber a newer accepted update.
       final base = item.payloadJson['server_updated_at'] as String?;
+      final target = serverId;
       final ack =
-          await _remoteSink.guardedTombstone(remoteTable, serverId, base);
+          await _remote(() => _remoteSink.guardedTombstone(remoteTable, target, base),
+              command: _ParentCommand.tombstone(remoteTable, target, base));
       if (ack != null) {
         await _markSynced(localTable, item.entityId, serverId, item: item);
         return _PlanningPushOutcome.pushed;
@@ -709,8 +907,7 @@ class PlanningPushService {
       return await _resolveDeleteConflict(remoteTable, serverId, localTable, item);
     } catch (e) {
       if (isTransportConflict(e)) {
-        await _markConflict(localTable, item.entityId);
-        await _queue.markSuccess(item);
+        await _conflictAndAck(localTable, item);
         return _PlanningPushOutcome.conflict;
       }
       rethrow;
@@ -778,11 +975,11 @@ class PlanningPushService {
     String localTable,
   ) async {
     var serverId = await _serverIdForLocal(localTable, item.entityId);
-    serverId ??= (await _remoteSink.findByLocalId(
+    serverId ??= (await _remote(() => _remoteSink.findByLocalId(
       remoteTable,
       userId,
       item.entityId,
-    ))?['id'] as String?;
+    )))?['id'] as String?;
     if (serverId == null) {
       await _markSynced(localTable, item.entityId, null, item: item);
       return _PlanningPushOutcome.pushed;
@@ -810,7 +1007,7 @@ class PlanningPushService {
     CasDecision d,
     SyncConflictKind kind,
   ) async {
-    await _db.transaction(() async {
+    await _itemLocal(item, () async {
       await _conflicts.flag(
         entityType: item.entityType,
         localId: item.entityId,
@@ -861,7 +1058,8 @@ class PlanningPushService {
       await _markSynced(localTable, item.entityId, serverId, item: item);
       return _PlanningPushOutcome.pushed;
     }
-    final response = await _remoteSink.updateByServerId(remoteTable, serverId, patch);
+    final response = await retryAccountFenceMutation(() => _remote(() => _remoteSink.updateByServerId(remoteTable, serverId, patch),
+        command: _ParentCommand.update(remoteTable, serverId, patch)));
     if (response == null) throw StateError('settings_row_missing');
     await _attachServerId(localTable, item.entityId, serverId,
         response['updated_at'] as String?,
@@ -881,22 +1079,21 @@ class PlanningPushService {
     String localTable,
     PlanningOutboxItem item,
   ) async {
-    final state = await _remoteSink.fetchRowState(remoteTable, serverId);
+    final state = await _remote(() => _remoteSink.fetchRowState(remoteTable, serverId));
     if (state != null && state['deleted_at'] != null) {
       await _markSynced(localTable, item.entityId, serverId, item: item); // A
       return _PlanningPushOutcome.pushed;
     }
-    await _markConflict(localTable, item.entityId); // B (live) or C (absent)
-    await _queue.markSuccess(item);
+    await _conflictAndAck(localTable, item); // B (live) or C (absent)
     return _PlanningPushOutcome.conflict;
   }
 
   Future<String?> _serverIdForLocal(String table, String localId) async {
-    final row = await _db
+    final row = await _local(() => _db
         .customSelect(
           'SELECT server_id FROM $table WHERE id = ${sqlString(localId)} LIMIT 1;',
         )
-        .getSingleOrNull();
+        .getSingleOrNull());
     return row?.readNullable<String>('server_id');
   }
 
@@ -914,7 +1111,7 @@ class PlanningPushService {
     required PlanningOutboxItem item,
   }) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    return _db.transaction(() async {
+    return _itemLocal(item, () async {
       await _queue.acknowledge(
         item,
         serverUpdatedAt: serverUpdatedAt,
@@ -950,7 +1147,7 @@ class PlanningPushService {
     required PlanningOutboxItem item,
   }) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    return _db.transaction(() async {
+    return _itemLocal(item, () async {
       await _queue.acknowledge(item);
       await _db.customStatement('''
         UPDATE $table
@@ -964,6 +1161,11 @@ class PlanningPushService {
       ''');
     });
   }
+
+  Future<void> _conflictAndAck(String table, PlanningOutboxItem item) => _itemLocal(item, () async {
+    await _markConflict(table, item.entityId);
+    await _queue.markSuccess(item);
+  });
 
   Future<void> _markConflict(String table, String localId) async {
     await _db.customStatement('''
@@ -1122,3 +1324,272 @@ class PlanningPushService {
 }
 
 enum _PlanningPushOutcome { pushed, conflict, abandoned, parked, deferred }
+
+final Object _parentInvocationKey = Object();
+final Object _parentCallKey = Object();
+
+/// The one mutation a `_remote` call is allowed to perform: immutable, built by
+/// the parent itself (a custom delegate can never select or rewrite it). A read
+/// carries none, so a real mutation reached from a read is rejected.
+class _ParentCommand {
+  _ParentCommand._(this.method, this.table, this.target, this.guard,
+      Map<String, dynamic> body, this.deletedAt)
+      : body = _freezeWire(body) as Map<String, Object?>;
+  factory _ParentCommand.upsert(String table, Map<String, dynamic> row) =>
+      _ParentCommand._('upsert', table, null, null, row, null);
+  factory _ParentCommand.update(
+          String table, String serverId, Map<String, dynamic> row) =>
+      _ParentCommand._('updateByServerId', table, serverId, null, row, null);
+  factory _ParentCommand.guardedUpdate(String table, String serverId,
+          String expectedUpdatedAt, Map<String, dynamic> row) =>
+      _ParentCommand._(
+          'guardedUpdate', table, serverId, expectedUpdatedAt, row, null);
+  factory _ParentCommand.tombstone(
+      String table, String serverId, String? expectedUpdatedAt) {
+    final deletedAt = DateTime.now().toUtc().toIso8601String();
+    return _ParentCommand._('guardedTombstone', table, serverId,
+        expectedUpdatedAt, <String, dynamic>{'deleted_at': deletedAt}, deletedAt);
+  }
+  final String method;
+  final String table;
+  final String? target;
+  final String? guard;
+  final Map<String, Object?> body;
+  final String? deletedAt;
+
+  /// The tombstone stamp captured once with the command, released only to the
+  /// exact matching method/table/target/guard.
+  String? tombstoneStamp(String table, String target, String? guard) =>
+      method == 'guardedTombstone' &&
+              table == this.table &&
+              target == this.target &&
+              guard == this.guard
+          ? deletedAt
+          : null;
+}
+
+/// What the concrete sink is about to dispatch, compared with the command.
+class _SinkMutation {
+  const _SinkMutation(this.method, this.table, this.target, this.guard, this.body);
+  final String method;
+  final String table;
+  final String? target;
+  final String? guard;
+  final Map<String, dynamic> body;
+}
+
+/// One `_remote` call: read/non-minting unless it carries a [command]. Created
+/// fresh per call and deactivated when the call ends. It permits one dispatch at
+/// a time; the next dispatch is allowed only after an awaited 55P03.
+class _ParentCall {
+  _ParentCall(this.invocation, this.intent, this.command);
+  final _ParentInvocation invocation;
+  final AccountFenceParentIntent? intent;
+  final _ParentCommand? command;
+  bool active = true;
+  bool open = false;
+  _ParentMutationRefusal? minted;
+
+  Map<String, dynamic> begin(_SinkMutation actual) {
+    const stop = PlanningDeliveryStopped(PlanningDeliveryStopReason.provenance);
+    final expected = command;
+    if (!active || open || expected == null) throw stop;
+    open = true;
+    final Map<String, Object?> frozen;
+    try {
+      frozen = _freezeWire(actual.body) as Map<String, Object?>;
+    } on ArgumentError {
+      throw stop;
+    }
+    if (actual.method != expected.method ||
+        actual.table != expected.table ||
+        actual.target != expected.target ||
+        actual.guard != expected.guard ||
+        !_wireEquals(expected.body, frozen)) {
+      throw stop;
+    }
+    invocation.requireCurrent();
+    return frozen;
+  }
+}
+
+Object? _freezeWire(Object? value, [List<Object> path = const []]) {
+  if (value == null || value is bool || value is String || value is int) {
+    return value;
+  }
+  if (value is double) {
+    if (!value.isFinite) throw ArgumentError('non-finite number');
+    return value;
+  }
+  if (value is Map || value is List) {
+    if (path.any((ancestor) => identical(ancestor, value))) {
+      throw ArgumentError('cyclic value');
+    }
+    final next = <Object>[...path, value];
+    if (value is Map) {
+      final out = <String, Object?>{};
+      for (final entry in value.entries) {
+        final key = entry.key;
+        if (key is! String) throw ArgumentError('non-string key');
+        out[key] = _freezeWire(entry.value, next);
+      }
+      return Map<String, Object?>.unmodifiable(out);
+    }
+    return List<Object?>.unmodifiable(
+        [for (final item in value as List) _freezeWire(item, next)]);
+  }
+  throw ArgumentError('unsupported value');
+}
+
+bool _wireEquals(Object? a, Object? b) {
+  if (a == null || b == null) return a == null && b == null;
+  if (a is bool || a is String) return b.runtimeType == a.runtimeType && a == b;
+  if (a is int) return b is int && a == b;
+  if (a is double) return b is double && a == b;
+  if (a is Map) {
+    if (b is! Map || a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || !_wireEquals(a[key], b[key])) return false;
+    }
+    return true;
+  }
+  if (a is List) {
+    if (b is! List || a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (!_wireEquals(a[i], b[i])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+/// A structured QD refusal observed by awaiting a concrete SDK mutation future,
+/// with the invocation and intent captured when that mutation was dispatched.
+class _ParentMutationRefusal implements Exception {
+  _ParentMutationRefusal(this.invocation, this.intent, this.raw);
+  final _ParentInvocation invocation;
+  final AccountFenceParentIntent? intent;
+  final PostgrestException raw;
+  bool used = false;
+}
+
+/// The SDK future is built by a synchronous factory OUTSIDE the tagging catch,
+/// only after the dispatch matched the call's command; only awaiting that exact
+/// future can mint a refusal or release the attempt (on 55P03). With no call
+/// context (a plain sink use) the original behavior is unchanged.
+Future<T> _tagMutation<T>(_SinkMutation actual,
+    Future<T> Function(Map<String, dynamic> body) factory) async {
+  final call = Zone.current[_parentCallKey] as _ParentCall?;
+  final body = call == null ? actual.body : call.begin(actual);
+  final Future<T> sdk = factory(body);
+  try {
+    return await sdk;
+  } on PostgrestException catch (error) {
+    if (call != null) {
+      if (call.active && decodeParentAccountDenial(error) != null) {
+        throw call.minted = _ParentMutationRefusal(call.invocation, call.intent, error);
+      }
+      if (error.code == '55P03') call.open = false;
+    }
+    rethrow;
+  }
+}
+
+class _ParentInvocation implements SyncPhaseLifecycle {
+  _ParentInvocation(this.authority, this.handle, this.database, this.phase, this.inherited);
+  final AccountFenceAuthority authority;
+  final AccountFenceHandle handle;
+  @override
+  final AppDatabase database;
+  final SyncPhaseBinding phase;
+  final SyncPhaseBinding? inherited;
+  void requireCurrent() {
+    if (!isCurrent) throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.stale);
+  }
+  String get ownerUid => authority.ownerUid(handle);
+  @override
+  bool get isCurrent => authority.isCurrentForDatabase(handle, database) &&
+      (inherited == null || inherited!.isCurrent);
+  @override
+  Future<T> runLocal<T>(Future<T> Function() action) =>
+      authority.runCurrentLocal(handle, database, action);
+}
+
+
+/// Guard the actual underlying method after the retry predicate's final await.
+/// Each semantic mutation gets a fresh observation; only a proof that escapes
+/// that observation's own run becomes a refusal for the captured invocation and
+/// intent. A raw QD from a custom delegate or a read is never mutation proof.
+class _ParentCasRemote implements CasRemote {
+  _ParentCasRemote(this.delegate, this.invocation, this.intent);
+  final CasRemote delegate;
+  final _ParentInvocation invocation;
+  final AccountFenceParentIntent? intent;
+
+  void _check() {
+    if (!invocation.isCurrent) {
+      throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.stale);
+    }
+  }
+
+  Future<T> _send<T>(Future<T> Function() send) async {
+    _check();
+    try {
+      final result = await send();
+      _check();
+      return result;
+    } catch (_) {
+      _check();
+      rethrow;
+    }
+  }
+
+  Future<CasResult> _mutate(CasMutationObservation observation,
+      Future<CasResult> Function() send) async {
+    _check();
+    try {
+      final result = await observation.run(send, requireCurrent: invocation.requireCurrent);
+      _check();
+      return result;
+    } catch (error) {
+      final raw = observation.takeDenial(error);
+      if (raw != null) throw _ParentMutationRefusal(invocation, intent, raw);
+      if (error is AccountFenceDeliveryCancellation) rethrow;
+      _check();
+      if (error is CasMutationAwaitDenial ||
+          error is CasMutationObservationRejected ||
+          decodeParentAccountDenial(error) != null) {
+        throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.provenance);
+      }
+      rethrow;
+    }
+  }
+
+  @override
+  Future<CasResult> insertIfAbsent({required String table, required String epoch,
+      required String opId, required Map<String, dynamic> row}) async =>
+      _mutate(CasMutationObservation.insertIfAbsent(table: table, epoch: epoch, opId: opId, row: row),
+          () => delegate.insertIfAbsent(table: table, epoch: epoch, opId: opId, row: row));
+
+  @override
+  Future<CasResult> casUpdate({required String table, required String epoch,
+      required String opId, required String serverId, required int expectedRevision,
+      required Map<String, dynamic> patch}) async => _mutate(
+      CasMutationObservation.update(table: table, epoch: epoch, opId: opId,
+          serverId: serverId, expectedRevision: expectedRevision, patch: patch),
+      () => delegate.casUpdate(
+          table: table, epoch: epoch, opId: opId, serverId: serverId,
+          expectedRevision: expectedRevision, patch: patch));
+
+  @override
+  Future<CasResult> casTombstone({required String table, required String epoch,
+      required String opId, required String serverId, required int expectedRevision}) async =>
+      _mutate(CasMutationObservation.tombstone(table: table, epoch: epoch, opId: opId,
+          serverId: serverId, expectedRevision: expectedRevision),
+          () => delegate.casTombstone(table: table, epoch: epoch, opId: opId,
+              serverId: serverId, expectedRevision: expectedRevision));
+
+  @override
+  Future<Map<String, dynamic>?> fetchRow(String table, String serverId) =>
+      _send(() => delegate.fetchRow(table, serverId));
+}

@@ -7,6 +7,7 @@ import 'core/router/app_router.dart';
 import 'core/session/app_session.dart';
 import 'core/security/app_lock_gate.dart';
 import 'features/app/app_boot_loader.dart';
+import 'features/app/local_read_cleanup_notice.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_controller.dart';
 import 'core/i18n/locale_provider.dart';
@@ -62,6 +63,7 @@ class MoneyApp extends ConsumerWidget {
             children: [
               AppLockGate(child: child!),
               const RemovalNoticeHost(),
+              const DenyIncompleteNoticeHost(),
               ValueListenableBuilder<bool>(
                 valueListenable: appDataRestoring,
                 builder: (context, restoring, _) => restoring

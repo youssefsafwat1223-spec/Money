@@ -15,13 +15,15 @@ import '../../core/session/fake_remove_barrier.dart';
 import 'dart:io';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/settings/privacy_screen.dart';
+import 'package:money_companion/features/settings/delete_account_screen.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
 
 class _FakeAccountDeletionService implements AccountDeletionService {
-  _FakeAccountDeletionService({this.scheduledAt, this.throwOnRequest = false});
+  _FakeAccountDeletionService({this.scheduledAt, this.throwOnRequest = false, this.requestError});
 
   DateTime? scheduledAt;
   bool throwOnRequest;
+  final Object? requestError;
   var requestCalls = 0;
   var cancelCalls = 0;
 
@@ -33,6 +35,7 @@ class _FakeAccountDeletionService implements AccountDeletionService {
   @override
   Future<DateTime?> requestDeletion() async {
     requestCalls += 1;
+    if (requestError != null) throw requestError!;
     if (throwOnRequest) throw Exception('boom');
     scheduledAt = DateTime.now().toUtc().add(const Duration(days: 30));
     return scheduledAt;
@@ -77,7 +80,8 @@ List<String> _wireRemoval() {
   return calls;
 }
 
-Widget _app(_FakeAccountDeletionService service, _NoopDataWipeService wipe) {
+Widget _app(_FakeAccountDeletionService service, _NoopDataWipeService wipe,
+    {bool realDeletionRoute = false}) {
   return ProviderScope(
     overrides: [
       accountDeletionServiceProvider.overrideWithValue(service),
@@ -100,6 +104,11 @@ Widget _app(_FakeAccountDeletionService service, _NoopDataWipeService wipe) {
       routerConfig: GoRouter(routes: [
         GoRoute(path: '/', builder: (_, __) => const PrivacyScreen()),
         GoRoute(path: '/welcome', builder: (_, __) => const SizedBox()),
+        GoRoute(
+            path: '/delete-account',
+            builder: (_, __) => realDeletionRoute
+                ? const DeleteAccountScreen()
+                : const Text('delete-account-screen')),
       ]),
     ),
   );
@@ -156,8 +165,9 @@ void main() {
     expect(find.textContaining('حسابك مجدول للحذف'), findsNothing);
   });
 
-  testWidgets('confirming account deletion calls requestDeletion exactly once',
-      (tester) async {
+  testWidgets(
+      'the delete-account entry opens the dedicated screen and does not '
+      'request deletion or touch local data itself', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     final service = _FakeAccountDeletionService();
     final wipe = _NoopDataWipeService();
@@ -167,19 +177,10 @@ void main() {
 
     await _tapEnsuringVisible(tester, find.text('حذف الحساب وكل بياناتي'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('حذف الحساب'));
-    // The dialog continuation belongs to the fake zone; pump its microtasks
-    // between real IO waits, and observe actual terminal completion.
-    for (var i = 0; i < 500 && !removal.contains('finish:uid-x'); i++) {
-      await tester.pump();
-      await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)));
-    }
-    await tester.pump();
 
-    expect(service.requestCalls, 1);
-    // WP-3b: account deletion runs the §4.4 Remove-data flow (not an in-place wipe).
-    expect(removal, contains('finish:uid-x'));
+    expect(find.text('delete-account-screen'), findsOneWidget);
+    expect(service.requestCalls, 0);
+    expect(removal, isEmpty);
     expect(wipe.wipeCalls, 0);
     AppSession.instance.configureRemoveData(null);
     AppSession.instance.configureAccountScope(null);
@@ -192,23 +193,53 @@ void main() {
     final service = _FakeAccountDeletionService(throwOnRequest: true);
     final wipe = _NoopDataWipeService();
     final removal = _wireRemoval();
-    await tester.pumpWidget(_app(service, wipe));
+    await tester.pumpWidget(_app(service, wipe, realDeletionRoute: true));
     await tester.pumpAndSettle();
 
     await _tapEnsuringVisible(tester, find.text('حذف الحساب وكل بياناتي'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('حذف الحساب'));
+    await tester.tap(find.byKey(const Key('deleteAccountAction')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('deleteAccountConfirm')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
     expect(service.requestCalls, 1);
     expect(removal, isEmpty, reason: 'no local removal after a failed request');
+    expect(wipe.wipeCalls, 0);
+    expect(find.byKey(const Key('deleteAccountSuccess')), findsNothing);
     AppSession.instance.configureRemoveData(null);
     AppSession.instance.configureAccountScope(null);
-    expect(find.text('تعذّر جدولة الحذف الآن. حاول مجدداً.'), findsOneWidget);
+    expect(find.text(lookupAppL10n(const Locale('ar')).deleteAccountFailed), findsOneWidget);
 
-    // AppToast schedules a static 3-second auto-dismiss Timer (app_toast.dart)
-    // that outlives this test's widget tree unless drained here.
     await tester.pump(const Duration(seconds: 3));
   });
+  testWidgets('legacy unavailable reports failure without reset or welcome navigation', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800,1400));
+    final service=_FakeAccountDeletionService(requestError:const LegacyDeletionUnavailable());
+    final wipe=_NoopDataWipeService();final removal=_wireRemoval();
+    try{
+      final statusBefore=AppSession.instance.status;
+      await tester.pumpWidget(_app(service,wipe, realDeletionRoute: true));await tester.pumpAndSettle();
+      await _tapEnsuringVisible(tester,find.text('حذف الحساب وكل بياناتي'));
+      await tester.pumpAndSettle();await tester.tap(find.byKey(const Key('deleteAccountAction')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('deleteAccountConfirm')));
+      await tester.pump();await tester.pump(const Duration(milliseconds:300));
+      expect(service.requestCalls,1);expect(service.scheduledAt,isNull);
+      expect(removal,isEmpty);expect(wipe.wipeCalls,0);
+      expect(await tester.runAsync(()=>AppSession.instance.readLocalDataOwnerUid()),'uid-x');
+      expect(AppSession.instance.status,statusBefore);
+      expect(find.byType(DeleteAccountScreen),findsOneWidget);
+      expect(GoRouterState.of(tester.element(find.byType(DeleteAccountScreen))).uri.path,'/delete-account');
+      expect(find.text(lookupAppL10n(const Locale('ar')).deleteAccountFailed),findsOneWidget);
+      expect(find.textContaining('حسابك مجدول للحذف'),findsNothing);
+    }finally{
+      await tester.pump(const Duration(seconds:3));
+      await tester.pumpWidget(const SizedBox());await tester.pump();
+      AppSession.instance.configureRemoveData(null);AppSession.instance.configureAccountScope(null);
+      await tester.binding.setSurfaceSize(null);
+    }
+  });
+
 }

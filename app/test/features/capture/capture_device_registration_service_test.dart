@@ -1,10 +1,14 @@
 import 'dart:async';
 
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+
 import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
+import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
@@ -15,6 +19,9 @@ import 'package:money_companion/features/capture/services/capture_device_registr
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
 
 import '../../harness/egress_test_support.dart';
+import '../../harness/paused_egress_support.dart';
+import '../../harness/consent_session_support.dart';
+import '../../core/session/f2_fixture.dart';
 
 class _MemoryKeyStore implements DatabaseKeyStore {
   @override
@@ -111,6 +118,33 @@ class _RateLimitedCaptureClient extends _RotatingCaptureClient {
   }
 }
 
+Map<String, Object?> _restrictiveReply(Map<Object?, Object?> args,
+    {String? uid, int epochShift = 0, int versionShift = 0}) {
+  final epoch = (args['expectedEpoch'] as int) + epochShift;
+  final version = (args['version'] as int) + versionShift;
+  return {
+    'contractVersion': 1, 'operation': 'publishRestrictive', 'status': 'done',
+    'owner': {'uid': uid ?? args['uid'], 'uidHash': List.filled(64, 'a').join(), 'generation': 7},
+    'ownerGeneration': 7, 'ownerEpoch': epoch,
+    'barrier': [for (final layer in ['file', 'keychain']) {'layer': layer, 'outcome': 'absent'}],
+    'egress': [for (final layer in ['file', 'keychain']) {
+      'layer': layer, 'outcome': 'verified', 'state': 'OFF',
+      'transitionGeneration': 0, 'reservedVersion': version,
+      'ownerGeneration': 7, 'ownerEpoch': epoch,
+    }],
+  };
+}
+
+Map<String, Object?> _revokedReply(Map<Object?, Object?> args) => {
+  'contractVersion': 1, 'operation': 'revoke', 'status': 'done',
+  for (final key in ['operationId', 'transitionGeneration', 'reservedVersion', 'ownerGeneration', 'ownerEpoch']) key: args[key],
+  'barrier': [for (final layer in ['file', 'keychain']) {'layer': layer, 'outcome': 'absent'}],
+  'egress': [for (final layer in ['file', 'keychain']) {
+    'layer': layer, 'outcome': 'verified', 'state': 'OFF',
+    for (final key in ['operationId', 'transitionGeneration', 'reservedVersion', 'ownerGeneration', 'ownerEpoch']) key: args[key],
+  }],
+};
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -135,6 +169,121 @@ void main() {
   });
 
   tearDown(() async => db.close());
+
+  group('N2 restrictive owner publication', () {
+    const channel = MethodChannel('money_companion/native_capture');
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    late F2Fixture f;
+    late CloudEgressGate previousGate;
+    late EgressRig rig;
+    late List<MethodCall> calls;
+    late CaptureBackendClient client;
+    late Map<String, Object?> Function(Map<Object?, Object?>) reply;
+    var backendCalls = 0;
+    AdmissionAuthority? committed;
+
+    setUp(() async {
+      f = await F2Fixture.create();
+      previousGate = CloudEgressGate.instance;
+      rig = EgressRig();
+      CloudEgressGate.instance = rig.gate;
+      NativeCaptureBridge.debugTreatHostAsNative = true;
+      calls = [];
+      backendCalls = 0;
+      committed = null;
+      reply = (args) => _restrictiveReply(args);
+      client = CaptureBackendClient(supabaseUrl: 'https://example.test', anonKey: 'test',
+        httpClient: MockClient((_) async {
+          backendCalls++;
+          return http.Response('{}', 500);
+        }));
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        calls.add(call);
+        if (call.method == 'captureOwnerEpoch') return 2;
+        final args = Map<Object?, Object?>.from(call.arguments as Map);
+        if (call.method == 'publishCaptureOwner') {
+          return {'uid': args['uid'], 'uidHash': List.filled(64, 'a').join(), 'generation': 7};
+        }
+        if (call.method == 'publishRestrictiveCaptureOwner') return reply(args);
+        if (call.method == 'revokeCaptureAuthorizationLifetime') return _revokedReply(args);
+        throw StateError('unexpected native operation ${call.method}');
+      });
+    });
+
+    tearDown(() async {
+      f.session.configureCaptureOwnerPublish(null);
+      await f.dispose();
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      messenger.setMockMethodCallHandler(channel, null);
+      CloudEgressGate.instance = previousGate;
+    });
+
+    // The real service for the exact DB of the committed callback, forwarding
+    // its authority rather than capturing ordinary onboarding work.
+    CaptureDeviceRegistrationService serviceFor(String uid) {
+      final database = f.host.current!.database;
+      return CaptureDeviceRegistrationService(
+        settingsRepository: DriftUserSettingsRepository(database), client: client, gate: rig.gate,
+        isIos: () => true, isBackendConfigured: () => true,
+        readSession: () => (uid: uid, jwt: 'test-jwt'),
+        captureWorkAuthority: f.session.captureLocalWorkAuthority,
+        readReplicaOwnerUid: f.session.readLocalDataOwnerUid,
+        isCurrentScope: () => identical(f.host.current?.database, database),
+      );
+    }
+
+    Future<RestrictiveCaptureOwnerReceipt?> hook(String uid, AdmissionAuthority authority) {
+      committed = authority;
+      return serviceFor(uid).publishRestrictiveOwner(admissionAuthority: authority);
+    }
+
+    List<MethodCall> published() => calls.where((c) => c.method == 'publishRestrictiveCaptureOwner').toList();
+
+    test('committed onboarding OFF publishes a verified restrictive owner with zero backend calls', () async {
+      f.session.configureCaptureOwnerPublish(hook);
+      await freshSignIn(f, 'uid-x');
+      expect(backendCalls, 0);
+      expect(published(), hasLength(1));
+      expect(calls.where((c) => c.method == 'publishCaptureOwner'), isEmpty);
+      expect(f.session.captureLocalWorkAuthority(), isNull);
+      expect(f.session.captureConsentCapability(), isNotNull);
+      // The service returns the strictly confirmed receipt, not a Boolean.
+      final receipt = await serviceFor('uid-x').publishRestrictiveOwner(admissionAuthority: committed!);
+      expect(receipt, isNotNull);
+      expect(receipt!.confirms(uid: 'uid-x', expectedEpoch: 2, version: receipt.phase.egress.first.reservedVersion!), isTrue);
+      expect(backendCalls, 0);
+    });
+
+    for (final (name, tamper) in <(String, Map<String, Object?> Function(Map<Object?, Object?>))>[
+      ('another epoch', (args) => _restrictiveReply(args, epochShift: 1)),
+      ('another version', (args) => _restrictiveReply(args, versionShift: 1)),
+      ('another uid', (args) => _restrictiveReply(args, uid: 'uid-other')),
+    ]) {
+      test('a reply for $name is not a receipt and nothing is fenced', () async {
+        reply = tamper;
+        f.session.configureCaptureOwnerPublish(hook);
+        await freshSignIn(f, 'uid-x');
+        expect(committed, isNotNull);
+        expect(await serviceFor('uid-x').publishRestrictiveOwner(admissionAuthority: committed!), isNull);
+        f.session.markSessionInvalid();
+        await f.session.nativeLifecycleSettled();
+        expect(calls.where((c) => c.method == 'revokeCaptureAuthorizationLifetime'), isEmpty);
+        expect(backendCalls, 0);
+      });
+    }
+
+    test('a service holding an old authority publishes nothing after sign-out', () async {
+      f.session.configureCaptureOwnerPublish(hook);
+      await freshSignIn(f, 'uid-x');
+      final old = committed!;
+      final service = serviceFor('uid-x');
+      await f.session.signOut();
+      calls.clear();
+      expect(await service.publishRestrictiveOwner(admissionAuthority: old), isNull);
+      expect(published(), isEmpty);
+      expect(backendCalls, 0);
+    });
+  });
 
   test('401 rotates a stale device secret once across concurrent APNs syncs',
       () async {
@@ -435,6 +584,9 @@ void main() {
       isAndroid: () => false,
       isBackendConfigured: () => true,
       loadInstallId: () async => 'install-id',
+      // An explicit enable needs an admitted scope. This fixture declares its
+      // own session (no AppSession admission concept), like its siblings.
+      readSession: () => (uid: 'uid-h22', jwt: 'jwt'),
       writeNativeBackendConfig: ({
         required cloudProcessingEnabled,
         required installId,
@@ -462,7 +614,7 @@ void main() {
     await service.syncBackendState();
     expect((await egress.gate.view(owner: '')).record, isNull);
 
-    await service.enableCloud(commitLocalOn: () async {
+    await service.enableCloudForTest(commitLocalOn: () async {
       final cur = await settingsRepository.getSettings();
       await settingsRepository.saveSettings(
           cur.copyWith(cloudConsentState: ConsentState.accepted));

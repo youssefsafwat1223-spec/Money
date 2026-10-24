@@ -1,4 +1,8 @@
 import '../session/admission_authority.dart';
+import 'account_access_mode.dart';
+import '../session/account_scope.dart' show AccountAccessMode;
+import '../session/consent_capability.dart';
+import '../session/merchant_preference_writer.dart';
 import '../sync/pending_sync_reconciler.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
@@ -6,6 +10,7 @@ import 'dart:io' show Platform;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../auth/account_deletion_gateway.dart';
 import '../auth/account_deletion_service.dart';
 import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
@@ -317,15 +322,15 @@ final financialRevisionProvider = StreamProvider<int>((ref) {
   ).stream;
 });
 
-final metricsClientProvider = Provider<MetricsClient>((ref) {
+final metricsClientProvider = writerProvider<MetricsClient>((ref) {
   return MetricsClient();
 });
 
-final rulesClientProvider = Provider<RulesClient>((ref) {
+final rulesClientProvider = writerProvider<RulesClient>((ref) {
   return RulesClient(database: ref.watch(appDatabaseProvider));
 });
 
-final announcementServiceProvider = Provider<AnnouncementService>((ref) {
+final announcementServiceProvider = writerProvider<AnnouncementService>((ref) {
   return AnnouncementService(
     dao: RemoteAnnouncementsDao(ref.watch(appDatabaseProvider)),
   );
@@ -336,7 +341,7 @@ final activeAnnouncementsProvider =
   return ref.watch(announcementServiceProvider).getActiveAnnouncements();
 });
 
-final growthCampaignServiceProvider = Provider<GrowthCampaignService>((ref) {
+final growthCampaignServiceProvider = writerProvider<GrowthCampaignService>((ref) {
   return GrowthCampaignService(
     database: ref.watch(appDatabaseProvider),
     dao: RemoteGrowthCampaignsDao(ref.watch(appDatabaseProvider)),
@@ -424,8 +429,15 @@ FeatureFlagService get featureFlags {
 // service class survives only for the credential-gated contract tests. Do NOT
 // re-wire it for reads without canonicalizing the RPCs first.
 
-final accountDeletionServiceProvider = Provider<AccountDeletionService>((ref) {
+final accountDeletionServiceProvider = writerProvider<AccountDeletionService>((ref) {
   return AccountDeletionService();
+});
+
+/// The deletion backend the Delete account screen talks to. Here: the existing
+/// scheduled service, reported truthfully (never as completed).
+final accountDeletionGatewayProvider = writerProvider<AccountDeletionGateway>((ref) {
+  return ScheduledAccountDeletionGateway(
+      ref.watch(accountDeletionServiceProvider));
 });
 
 final accountDeletionStatusProvider =
@@ -433,7 +445,7 @@ final accountDeletionStatusProvider =
   return ref.watch(accountDeletionServiceProvider).getStatus();
 });
 
-final catalogSyncServiceProvider = Provider<CatalogSyncService>((ref) {
+final catalogSyncServiceProvider = writerProvider<CatalogSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return CatalogSyncService(
     database: db,
@@ -570,7 +582,7 @@ final supportedCountriesProvider = FutureProvider<List<RemoteCountry>>((ref) {
       .getSupportedCountries();
 });
 
-final ledgerOutboxQueueProvider = Provider<LedgerOutboxQueue>((ref) {
+final ledgerOutboxQueueProvider = writerProvider<LedgerOutboxQueue>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return LedgerOutboxQueue(
     db: db,
@@ -618,7 +630,7 @@ Future<String?> _currentSupabaseUserId() async {
   }
 }
 
-final planningOutboxQueueProvider = Provider<PlanningOutboxQueue>((ref) {
+final planningOutboxQueueProvider = writerProvider<PlanningOutboxQueue>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return PlanningOutboxQueue(
     db: db,
@@ -638,7 +650,7 @@ Future<bool> Function() _consentGate(Ref ref, EgressClass egressClass) =>
               .getSettings(),
         ).allows(egressClass);
 
-final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
+final accountsPushServiceProvider = writerProvider<AccountsPushService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return AccountsPushService(
     db: db,
@@ -664,7 +676,7 @@ final accountsPushServiceProvider = Provider<AccountsPushService>((ref) {
 /// could not disable it: every row would throw and wedge the cursor instead of
 /// the pull simply not running. `exactPullAllowed` requires the same positive
 /// proof as push; `unknown` and `unsupported` both block.
-final accountsPullServiceProvider = Provider<AccountsPullService>((ref) {
+final accountsPullServiceProvider = writerProvider<AccountsPullService>((ref) {
   final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return AccountsPullService(
     db: ref.watch(appDatabaseProvider),
@@ -676,7 +688,7 @@ final accountsPullServiceProvider = Provider<AccountsPullService>((ref) {
   );
 });
 
-final planningPushServiceProvider = Provider<PlanningPushService>((ref) {
+final planningPushServiceProvider = writerProvider<PlanningPushService>((ref) {
   return PlanningPushService(
     db: ref.watch(appDatabaseProvider),
     queue: ref.watch(planningOutboxQueueProvider),
@@ -722,7 +734,7 @@ bool _planningEntitySyncEnabledWithCurrency(
   );
 }
 
-final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
+final planningPullServiceProvider = writerProvider<PlanningPullService>((ref) {
   final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return PlanningPullService(
     db: ref.watch(appDatabaseProvider),
@@ -748,7 +760,7 @@ final planningPullServiceProvider = Provider<PlanningPullService>((ref) {
 });
 
 final planningChildSyncServiceProvider =
-    Provider<PlanningChildSyncService>((ref) {
+    writerProvider<PlanningChildSyncService>((ref) {
   final pushCap = ref.watch(exactPushTransportCapabilityProvider);
   final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   // Planning currency is a runtime probe result: read at call time below.
@@ -780,7 +792,7 @@ final planningChildSyncServiceProvider =
 });
 
 final planningStartupRegistrationServiceProvider =
-    Provider<PlanningStartupRegistrationService>((ref) {
+    writerProvider<PlanningStartupRegistrationService>((ref) {
   return PlanningStartupRegistrationService(
     db: ref.watch(appDatabaseProvider),
     queue: ref.watch(planningOutboxQueueProvider),
@@ -792,7 +804,7 @@ final planningStartupRegistrationServiceProvider =
 /// Publishes its result to [planningServerCurrencyCapabilityProvider] and to
 /// [SyncHealth]; consent-gated (financialSync, fresh per probe) and signed-in only.
 final planningCurrencyCapabilityProbeProvider =
-    Provider<PlanningCurrencyCapabilityProbe>((ref) {
+    writerProvider<PlanningCurrencyCapabilityProbe>((ref) {
   return PlanningCurrencyCapabilityProbe(
     getAuthUserId: () async {
       try {
@@ -810,7 +822,7 @@ final planningCurrencyCapabilityProbeProvider =
   );
 });
 
-final planningSyncEngineProvider = Provider<PlanningSyncEngine>((ref) {
+final planningSyncEngineProvider = writerProvider<PlanningSyncEngine>((ref) {
   return PlanningSyncEngine(
     ensureCapabilities: () =>
         ref.read(planningCurrencyCapabilityProbeProvider).ensure(),
@@ -828,7 +840,7 @@ final planningSyncEngineProvider = Provider<PlanningSyncEngine>((ref) {
 
 /// A-6: server capability probe (awaiting-FX transactions), consent-gated.
 final serverCapabilitiesServiceProvider =
-    Provider<ServerCapabilitiesService>((ref) {
+    writerProvider<ServerCapabilitiesService>((ref) {
   return ServerCapabilitiesService(
     getAuthUserId: () async {
       if (!SupabaseConfig.isConfigured) return null;
@@ -847,7 +859,7 @@ final serverCapabilitiesServiceProvider =
 /// WP-4: one gate for every pull service (single capability answer, single head
 /// read per sync cycle). The `sync_seq` capability is false in production, so
 /// every service keeps its legacy timestamp pull.
-final seqPullGateProvider = Provider<SeqPullGate>((ref) {
+final seqPullGateProvider = writerProvider<SeqPullGate>((ref) {
   return SeqPullGate(
     db: ref.watch(appDatabaseProvider),
     capability: () => ref.read(serverCapabilitiesServiceProvider).syncSeq(),
@@ -857,14 +869,14 @@ final seqPullGateProvider = Provider<SeqPullGate>((ref) {
 /// WP-5: one decision per push cycle for every push service. While
 /// `revision_cas` is false (production until G4) the plan is `legacy` and every
 /// push service runs its legacy guarded path unchanged.
-final revisionCasGateProvider = Provider<RevisionCasGate>((ref) {
+final revisionCasGateProvider = writerProvider<RevisionCasGate>((ref) {
   return RevisionCasGate(
     db: ref.watch(appDatabaseProvider),
     capability: () => ref.read(serverCapabilitiesServiceProvider).revisionCas(),
   );
 });
 
-final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
+final ledgerPushServiceProvider = writerProvider<LedgerPushService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return LedgerPushService(
     db: db,
@@ -885,7 +897,7 @@ final ledgerPushServiceProvider = Provider<LedgerPushService>((ref) {
 });
 
 /// الواجهة تقرأ/تكتب من Drift دائمًا؛ المزامنة خلفية عبر outbox/push/pull.
-final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
+final transactionRepositoryProvider = writerProvider<TransactionRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return DriftTransactionRepository(
     db,
@@ -894,7 +906,7 @@ final transactionRepositoryProvider = Provider<TransactionRepository>((ref) {
 });
 
 final suspectedDuplicateRepositoryProvider =
-    Provider<SuspectedDuplicateRepository>((ref) {
+    writerProvider<SuspectedDuplicateRepository>((ref) {
   return DriftSuspectedDuplicateRepository(ref.watch(appDatabaseProvider));
 });
 
@@ -904,7 +916,7 @@ final suspectedDuplicatesProvider =
   return ref.watch(suspectedDuplicateRepositoryProvider).getAll();
 });
 
-final smartInboxRepositoryProvider = Provider<SmartInboxRepository>((ref) {
+final smartInboxRepositoryProvider = writerProvider<SmartInboxRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return DriftSmartInboxRepository(db);
 });
@@ -917,7 +929,7 @@ final smartInboxItemsProvider =
 });
 
 /// S5: الواجهة تقرأ/تكتب من Drift دائمًا؛ المزامنة خلفية عبر outbox/push/pull.
-final accountRepositoryProvider = Provider<AccountRepository>((ref) {
+final accountRepositoryProvider = writerProvider<AccountRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return DriftAccountRepository(
     db,
@@ -927,7 +939,7 @@ final accountRepositoryProvider = Provider<AccountRepository>((ref) {
 });
 
 /// مستودع البطاقات الحقيقية (محلي في A1؛ مزامنة Supabase تُضاف في A1b).
-final cardRepositoryProvider = Provider<CardRepository>((ref) {
+final cardRepositoryProvider = writerProvider<CardRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return DriftCardRepository(
     db,
@@ -937,7 +949,7 @@ final cardRepositoryProvider = Provider<CardRepository>((ref) {
 
 /// MALI-053n/011: pre-sign-out inventory of locally-pending user artifacts.
 final unsyncedInventoryServiceProvider =
-    Provider<UnsyncedInventoryService>((ref) {
+    writerProvider<UnsyncedInventoryService>((ref) {
   return UnsyncedInventoryService(
     ref.watch(appDatabaseProvider),
     localOnlyCardCount:
@@ -1006,7 +1018,7 @@ final merchantLogosProvider = FutureProvider<Map<String, String>>((ref) async {
   };
 });
 
-final billRepositoryProvider = Provider<BillRepository>((ref) {
+final billRepositoryProvider = writerProvider<BillRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return DriftBillRepository(
     db,
@@ -1014,7 +1026,7 @@ final billRepositoryProvider = Provider<BillRepository>((ref) {
   );
 });
 
-final planRepositoryProvider = Provider<PlanRepository>((ref) {
+final planRepositoryProvider = writerProvider<PlanRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return DriftPlanRepository(
     db,
@@ -1023,11 +1035,11 @@ final planRepositoryProvider = Provider<PlanRepository>((ref) {
 });
 
 final merchantCategoryRepositoryProvider =
-    Provider<MerchantCategoryRepository>((ref) {
+    writerProvider<MerchantCategoryRepository>((ref) {
   return DriftMerchantCategoryRepository(ref.watch(appDatabaseProvider));
 });
 
-final budgetRepositoryProvider = Provider<BudgetRepository>((ref) {
+final budgetRepositoryProvider = writerProvider<BudgetRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return DriftBudgetRepository(
     db,
@@ -1036,7 +1048,7 @@ final budgetRepositoryProvider = Provider<BudgetRepository>((ref) {
   );
 });
 
-final goalRepositoryProvider = Provider<GoalRepository>((ref) {
+final goalRepositoryProvider = writerProvider<GoalRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return DriftGoalRepository(
     db,
@@ -1049,7 +1061,7 @@ final goalRepositoryProvider = Provider<GoalRepository>((ref) {
 /// (replaces the planning-only resolver). Covers all twelve synced entities;
 /// the keep-local re-enqueue is wired per interactive entity via its typed
 /// repository + outbox queue, so resolving carries the current local state.
-final conflictResolverProvider = Provider<UniversalConflictResolver>((ref) {
+final conflictResolverProvider = writerProvider<UniversalConflictResolver>((ref) {
   final ledgerQueue = ref.watch(ledgerOutboxQueueProvider);
   final planningQueue = ref.watch(planningOutboxQueueProvider);
   final transactions = ref.watch(transactionRepositoryProvider);
@@ -1208,7 +1220,7 @@ final conflictsProvider = FutureProvider<List<SyncConflict>>((ref) {
 /// (detach transactions; archive cards/budgets; reassign-or-archive goals &
 /// subscriptions with currency checks; atomic; structured result).
 final financialAccountDeletionServiceProvider =
-    Provider<FinancialAccountDeletionService>((ref) {
+    writerProvider<FinancialAccountDeletionService>((ref) {
   return FinancialAccountDeletionService(
     db: ref.watch(appDatabaseProvider),
     accounts: ref.watch(accountRepositoryProvider),
@@ -1229,18 +1241,35 @@ final accountHasTransactionsProvider =
       .hasTransactions(accountId);
 });
 
-final gamificationRepositoryProvider = Provider<GamificationRepository>((ref) {
+final gamificationRepositoryProvider = writerProvider<GamificationRepository>((ref) {
   return DriftGamificationRepository(ref.watch(appDatabaseProvider));
 });
 
-final userSettingsRepositoryProvider = Provider<UserSettingsRepository>((ref) {
+final userSettingsRepositoryProvider = writerProvider<UserSettingsRepository>((ref) {
   return DriftUserSettingsRepository(
     ref.watch(appDatabaseProvider),
     outboxQueue: ref.watch(planningOutboxQueueProvider),
   );
 });
 
-final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
+/// The typed consent writer of the live scope's database (same database and the
+/// same atomic local outbox as [userSettingsRepositoryProvider]). Every consent
+/// decision goes through it; the generic settings save stays for the settings
+/// that are not consent.
+final consentSettingsWriterProvider = writerProvider<ConsentSettingsWriter>((ref) {
+  return DriftUserSettingsRepository(
+    ref.watch(appDatabaseProvider),
+    outboxQueue: ref.watch(planningOutboxQueueProvider),
+  );
+});
+
+/// Local-only, field-scoped writer: deliberately has no settings outbox.
+final merchantPreferenceWriterProvider =
+    writerProvider<MerchantPreferenceWriter>((ref) {
+  return DriftUserSettingsRepository(ref.watch(appDatabaseProvider));
+});
+
+final categoryRepositoryProvider = writerProvider<CategoryRepository>((ref) {
   final db = ref.watch(appDatabaseProvider);
   // S0: القراءة من Drift دائمًا. S3: الكتابات تُدرَج في الـ outbox وتُزامَن خلفيًا.
   return DriftCategoryRepository(
@@ -1250,7 +1279,7 @@ final categoryRepositoryProvider = Provider<CategoryRepository>((ref) {
   );
 });
 
-final dataPortabilityServiceProvider = Provider<DataPortabilityService>((ref) {
+final dataPortabilityServiceProvider = writerProvider<DataPortabilityService>((ref) {
   return AppDataPortabilityService(
     db: ref.watch(appDatabaseProvider),
     accounts: ref.watch(accountRepositoryProvider),
@@ -1266,7 +1295,7 @@ final dataPortabilityServiceProvider = Provider<DataPortabilityService>((ref) {
 });
 
 final recordEngagementUseCaseProvider =
-    Provider<RecordEngagementUseCase>((ref) {
+    writerProvider<RecordEngagementUseCase>((ref) {
   return RecordEngagementUseCase(
     gamificationRepository: ref.watch(gamificationRepositoryProvider),
     transactionRepository: ref.watch(transactionRepositoryProvider),
@@ -1277,18 +1306,18 @@ final recordEngagementUseCaseProvider =
 });
 
 final senderBankMappingRepositoryProvider =
-    Provider<SenderBankMappingRepository>((ref) {
+    writerProvider<SenderBankMappingRepository>((ref) {
   return DriftSenderBankMappingRepository(ref.watch(appDatabaseProvider));
 });
 
 final resolveBankForSenderUseCaseProvider =
-    Provider<ResolveBankForSenderUseCase>((ref) {
+    writerProvider<ResolveBankForSenderUseCase>((ref) {
   return ResolveBankForSenderUseCase(
     mappingRepository: ref.watch(senderBankMappingRepositoryProvider),
   );
 });
 
-final bankDiscoveryClientProvider = Provider<BankDiscoveryClient?>((ref) {
+final bankDiscoveryClientProvider = writerProvider<BankDiscoveryClient?>((ref) {
   if (!SupabaseConfig.isConfigured) return null;
   return GeminiBankDiscoveryClient(
     edgeFunctionUrl: '${SupabaseConfig.url}/functions/v1/bank-discovery',
@@ -1300,7 +1329,7 @@ final bankDiscoveryClientProvider = Provider<BankDiscoveryClient?>((ref) {
   );
 });
 
-final bankDiscoveryServiceProvider = Provider<BankDiscoveryService?>((ref) {
+final bankDiscoveryServiceProvider = writerProvider<BankDiscoveryService?>((ref) {
   final client = ref.watch(bankDiscoveryClientProvider);
   if (client == null) return null;
   return BankDiscoveryService(
@@ -1324,7 +1353,7 @@ final bankDiscoveryServiceProvider = Provider<BankDiscoveryService?>((ref) {
 });
 
 final senderBankMappingSyncServiceProvider =
-    Provider<SenderBankMappingSyncService?>((ref) {
+    writerProvider<SenderBankMappingSyncService?>((ref) {
   if (!SupabaseConfig.isConfigured) return null;
   return SenderBankMappingSyncService(
     db: ref.watch(appDatabaseProvider),
@@ -1343,9 +1372,16 @@ final senderBankMappingSyncServiceProvider =
   );
 });
 
-final installIdProvider = FutureProvider<String>((ref) => InstallId.get());
+/// D6: `InstallId.get()` CREATES and persists an id when none exists (a
+/// secure-storage write), so it is never built under a local-read scope.
+final installIdProvider = FutureProvider<String>((ref) {
+  if (ref.watch(accountAccessModeProvider) == AccountAccessMode.localRead) {
+    throw const LocalReadWriterDenied();
+  }
+  return InstallId.get();
+});
 
-final captureBackendClientProvider = Provider<CaptureBackendClient?>((ref) {
+final captureBackendClientProvider = writerProvider<CaptureBackendClient?>((ref) {
   if (!SupabaseConfig.isConfigured) return null;
   return CaptureBackendClient(
     supabaseUrl: SupabaseConfig.url,
@@ -1354,7 +1390,7 @@ final captureBackendClientProvider = Provider<CaptureBackendClient?>((ref) {
 });
 
 final captureDeviceRegistrationServiceProvider =
-    Provider<CaptureDeviceRegistrationService>((ref) {
+    writerProvider<CaptureDeviceRegistrationService>((ref) {
   final database = ref.watch(appDatabaseProvider);
   var disposed = false;
   final service = CaptureDeviceRegistrationService(
@@ -1388,25 +1424,28 @@ class _CaptureRegistrationStatusNotifier
 }
 
 /// Phase 1 notification tracking (docs/NOTIFICATION_PIPELINE_AUDIT.md).
-final notificationLogServiceProvider = Provider<NotificationLogService>((ref) {
+final notificationLogServiceProvider = writerProvider<NotificationLogService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   var disposed = false;
   ref.onDispose(() => disposed = true);
   return NotificationLogService(db,
-    isCurrentScope: () => !disposed && identical(ref.read(appDatabaseProvider), db),
-    readOrigin: () => readNotificationLogOrigin(
-    db, isCurrentScope: () => !disposed && identical(ref.read(appDatabaseProvider), db)));
+      isCurrentScope: () =>
+          !disposed && identical(ref.read(appDatabaseProvider), db),
+      readOrigin: () => readNotificationLogOrigin(db,
+          isCurrentScope: () =>
+              !disposed && identical(ref.read(appDatabaseProvider), db)));
 });
 
 final notificationLogSyncServiceProvider =
-    Provider<NotificationLogSyncService>((ref) {
+    writerProvider<NotificationLogSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   var disposed = false;
   ref.onDispose(() => disposed = true);
   return NotificationLogSyncService(
     db: db,
     readOrigin: () => readNotificationLogOrigin(db,
-      isCurrentScope: () => !disposed && identical(ref.read(appDatabaseProvider), db)),
+        isCurrentScope: () =>
+            !disposed && identical(ref.read(appDatabaseProvider), db)),
     // C-3 — telemetry about the user's notifications.
     mayEgress: () => ConsentAuthority(
       () => DriftUserSettingsRepository(ref.read(appDatabaseProvider))
@@ -1415,7 +1454,7 @@ final notificationLogSyncServiceProvider =
   );
 });
 
-final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
+final captureSyncServiceProvider = writerProvider<CaptureSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   final ingest = ref.watch(ingestCapturedMessageUseCaseProvider);
   return CaptureSyncService(
@@ -1455,7 +1494,7 @@ final captureSyncServiceProvider = Provider<CaptureSyncService>((ref) {
 /// CAP-5: the iOS capture import, bound to the account scope. Built per scope
 /// (the root `ProviderScope` is keyed by the scope generation), so it can only
 /// ever touch the active replica. Used only behind `capture_import_v3`.
-final captureImportServiceProvider = Provider<CaptureImportService>((ref) {
+final captureImportServiceProvider = writerProvider<CaptureImportService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   final sync = ref.watch(captureSyncServiceProvider);
   return CaptureImportService(
@@ -1472,7 +1511,7 @@ final captureImportServiceProvider = Provider<CaptureImportService>((ref) {
   );
 });
 
-final captureServerPortProvider = Provider<CaptureServerPort>((ref) {
+final captureServerPortProvider = writerProvider<CaptureServerPort>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return BackendCaptureServerPort(
     settingsRepository: DriftUserSettingsRepository(db),
@@ -1489,7 +1528,7 @@ final captureServerPortProvider = Provider<CaptureServerPort>((ref) {
 
 /// BL-2: the "bank messages received while you were signed out" prompt logic.
 final unboundCapturePromptServiceProvider =
-    Provider<UnboundCapturePromptService>((ref) {
+    writerProvider<UnboundCapturePromptService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return UnboundCapturePromptService(
     queue: const NativeCaptureImportQueue(),
@@ -1500,7 +1539,7 @@ final unboundCapturePromptServiceProvider =
 });
 
 /// §4.7: removes legacy v2 queue items the adopted replica proves consumed.
-final legacyCaptureResolverProvider = Provider<LegacyCaptureResolver>((ref) {
+final legacyCaptureResolverProvider = writerProvider<LegacyCaptureResolver>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return LegacyCaptureResolver(
     queue: const NativeCaptureImportQueue(),
@@ -1523,7 +1562,7 @@ final legacyCaptureResolverProvider = Provider<LegacyCaptureResolver>((ref) {
 /// `balance_after::text`, `foreign_amount::text`) and must consult the exact
 /// PULL transport capability — `isPullEnabled: () => true` gave it no way to be
 /// switched off. `exactPullAllowed` requires positive transport proof.
-final ledgerSyncServiceProvider = Provider<LedgerSyncService>((ref) {
+final ledgerSyncServiceProvider = writerProvider<LedgerSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   final pullCap = ref.watch(exactPullTransportCapabilityProvider);
   return LedgerSyncService(
@@ -1544,7 +1583,7 @@ final syncQueueCountsProvider = FutureProvider.autoDispose<SyncQueueCounts>(
 
 /// A-5: Retry / auth-recovery for stuck sync work. The capability re-probe is
 /// forced (bypasses the per-session cache); it is consent-gated inside.
-final syncRecoveryServiceProvider = Provider<SyncRecoveryService>((ref) {
+final syncRecoveryServiceProvider = writerProvider<SyncRecoveryService>((ref) {
   return SyncRecoveryService(
     db: ref.watch(appDatabaseProvider),
     ledgerQueue: ref.watch(ledgerOutboxQueueProvider),
@@ -1561,7 +1600,7 @@ final syncRecoveryServiceProvider = Provider<SyncRecoveryService>((ref) {
   );
 });
 
-final ledgerSyncEngineProvider = Provider<LedgerSyncEngine>((ref) {
+final ledgerSyncEngineProvider = writerProvider<LedgerSyncEngine>((ref) {
   return LedgerSyncEngine(
     pushService: ref.watch(ledgerPushServiceProvider),
     pullService: ref.watch(ledgerSyncServiceProvider),
@@ -1569,7 +1608,7 @@ final ledgerSyncEngineProvider = Provider<LedgerSyncEngine>((ref) {
   );
 });
 
-final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
+final smartInboxSyncServiceProvider = writerProvider<SmartInboxSyncService>((ref) {
   final db = ref.watch(appDatabaseProvider);
   return SmartInboxSyncService(
     db: db,
@@ -1591,7 +1630,7 @@ final smartInboxSyncServiceProvider = Provider<SmartInboxSyncService>((ref) {
 /// [StartupSyncReconcileService].
 /// A-4b: records sync intent for server-backed rows a raw-SQL bypass writer left
 /// `pending` with no outbox row. Run at the start of each sync cycle.
-final pendingSyncReconcilerProvider = Provider<PendingSyncReconciler>((ref) {
+final pendingSyncReconcilerProvider = writerProvider<PendingSyncReconciler>((ref) {
   return PendingSyncReconciler(
     db: ref.watch(appDatabaseProvider),
     ledgerQueue: ref.watch(ledgerOutboxQueueProvider),
@@ -1607,7 +1646,7 @@ final pendingSyncReconcilerProvider = Provider<PendingSyncReconciler>((ref) {
 });
 
 final startupSyncReconcileServiceProvider =
-    Provider<StartupSyncReconcileService>((ref) {
+    writerProvider<StartupSyncReconcileService>((ref) {
   return StartupSyncReconcileService(
     db: ref.watch(appDatabaseProvider),
     planningCurrencyFor: (table) =>
@@ -1637,7 +1676,7 @@ final startupSyncReconcileServiceProvider =
 ///
 /// It is seeded lazily from the user's persisted merchant confirmations, so the
 /// learned map stays the single source of truth and no second store exists.
-final merchantIntelligenceProvider = Provider<MerchantIntelligenceStore>((ref) {
+final merchantIntelligenceProvider = writerProvider<MerchantIntelligenceStore>((ref) {
   final store = MerchantIntelligenceStore();
   // Fire-and-forget rehydrate: the model is an optional suggestion source, so
   // capture must never wait on it. Until it resolves the model simply behaves
@@ -1650,7 +1689,7 @@ final merchantIntelligenceProvider = Provider<MerchantIntelligenceStore>((ref) {
   return store;
 });
 
-final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
+final addTransactionUseCaseProvider = writerProvider<AddTransactionUseCase>((ref) {
   // Capture the DB once at build time. The async callbacks below run later
   // (during a slow AI call); reading `ref` inside them would throw if this
   // provider rebuilt in the meantime (e.g. installId resolving).
@@ -1778,7 +1817,7 @@ final addTransactionUseCaseProvider = Provider<AddTransactionUseCase>((ref) {
 });
 
 final saveManualTransactionUseCaseProvider =
-    Provider<SaveManualTransactionUseCase>((ref) {
+    writerProvider<SaveManualTransactionUseCase>((ref) {
   return SaveManualTransactionUseCase(
     transactionRepository: ref.watch(transactionRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
@@ -1790,21 +1829,21 @@ final saveManualTransactionUseCaseProvider =
 });
 
 final ingestCapturedMessageUseCaseProvider =
-    Provider<IngestCapturedMessageUseCase>((ref) {
+    writerProvider<IngestCapturedMessageUseCase>((ref) {
   return IngestCapturedMessageUseCase(
     ref.watch(addTransactionUseCaseProvider),
   );
 });
 
 final confirmTransactionUseCaseProvider =
-    Provider<ConfirmTransactionUseCase>((ref) {
+    writerProvider<ConfirmTransactionUseCase>((ref) {
   return ConfirmTransactionUseCase(
     ref.watch(transactionRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
   );
 });
 
-final correctCategoryUseCaseProvider = Provider<CorrectCategoryUseCase>((ref) {
+final correctCategoryUseCaseProvider = writerProvider<CorrectCategoryUseCase>((ref) {
   return CorrectCategoryUseCase(
     transactionRepository: ref.watch(transactionRepositoryProvider),
     merchantCategoryRepository: ref.watch(merchantCategoryRepositoryProvider),
@@ -1813,30 +1852,30 @@ final correctCategoryUseCaseProvider = Provider<CorrectCategoryUseCase>((ref) {
   );
 });
 
-final saveBudgetUseCaseProvider = Provider<SaveBudgetUseCase>((ref) {
+final saveBudgetUseCaseProvider = writerProvider<SaveBudgetUseCase>((ref) {
   return SaveBudgetUseCase(
     ref.watch(budgetRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
   );
 });
 
-final deleteBudgetUseCaseProvider = Provider<DeleteBudgetUseCase>((ref) {
+final deleteBudgetUseCaseProvider = writerProvider<DeleteBudgetUseCase>((ref) {
   return DeleteBudgetUseCase(ref.watch(budgetRepositoryProvider));
 });
 
-final saveGoalUseCaseProvider = Provider<SaveGoalUseCase>((ref) {
+final saveGoalUseCaseProvider = writerProvider<SaveGoalUseCase>((ref) {
   return SaveGoalUseCase(
     ref.watch(goalRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
   );
 });
 
-final deleteGoalUseCaseProvider = Provider<DeleteGoalUseCase>((ref) {
+final deleteGoalUseCaseProvider = writerProvider<DeleteGoalUseCase>((ref) {
   return DeleteGoalUseCase(ref.watch(goalRepositoryProvider));
 });
 
 final addGoalContributionUseCaseProvider =
-    Provider<AddGoalContributionUseCase>((ref) {
+    writerProvider<AddGoalContributionUseCase>((ref) {
   return AddGoalContributionUseCase(
     ref.watch(goalRepositoryProvider),
     recordEngagementUseCase: ref.watch(recordEngagementUseCaseProvider),
@@ -1868,7 +1907,7 @@ final addGoalContributionUseCaseProvider =
   );
 });
 
-final budgetProgressUseCaseProvider = Provider<BudgetProgressUseCase>((ref) {
+final budgetProgressUseCaseProvider = writerProvider<BudgetProgressUseCase>((ref) {
   // MALI-063n: the dormant Supabase budget-summary batch-fetch (pre-canonical
   // semantics) is retired — budget consumption is always the canonical Drift
   // path.
@@ -1879,26 +1918,26 @@ final budgetProgressUseCaseProvider = Provider<BudgetProgressUseCase>((ref) {
   );
 });
 
-final goalDetailsUseCaseProvider = Provider<GoalDetailsUseCase>((ref) {
+final goalDetailsUseCaseProvider = writerProvider<GoalDetailsUseCase>((ref) {
   return GoalDetailsUseCase(ref.watch(goalRepositoryProvider));
 });
 
 final loadNotificationPreferencesUseCaseProvider =
-    Provider<LoadNotificationPreferencesUseCase>((ref) {
+    writerProvider<LoadNotificationPreferencesUseCase>((ref) {
   return LoadNotificationPreferencesUseCase(
     ref.watch(userSettingsRepositoryProvider),
   );
 });
 
 final saveNotificationPreferencesUseCaseProvider =
-    Provider<SaveNotificationPreferencesUseCase>((ref) {
+    writerProvider<SaveNotificationPreferencesUseCase>((ref) {
   return SaveNotificationPreferencesUseCase(
     ref.watch(userSettingsRepositoryProvider),
   );
 });
 
 final notificationJourneyServiceProvider =
-    Provider<NotificationJourneyService>((ref) {
+    writerProvider<NotificationJourneyService>((ref) {
   return NotificationJourneyService(
     database: ref.watch(appDatabaseProvider),
     loadPreferences: ref.watch(loadNotificationPreferencesUseCaseProvider),
@@ -1908,12 +1947,12 @@ final notificationJourneyServiceProvider =
 });
 
 final loadUserSettingsUseCaseProvider =
-    Provider<LoadUserSettingsUseCase>((ref) {
+    writerProvider<LoadUserSettingsUseCase>((ref) {
   return LoadUserSettingsUseCase(ref.watch(userSettingsRepositoryProvider));
 });
 
 final saveCountryCurrencyUseCaseProvider =
-    Provider<SaveCountryCurrencyUseCase>((ref) {
+    writerProvider<SaveCountryCurrencyUseCase>((ref) {
   return SaveCountryCurrencyUseCase(
     ref.watch(userSettingsRepositoryProvider),
     ref.watch(accountRepositoryProvider),
@@ -1921,6 +1960,6 @@ final saveCountryCurrencyUseCaseProvider =
   );
 });
 
-final saveLanguageUseCaseProvider = Provider<SaveLanguageUseCase>((ref) {
+final saveLanguageUseCaseProvider = writerProvider<SaveLanguageUseCase>((ref) {
   return SaveLanguageUseCase(ref.watch(userSettingsRepositoryProvider));
 });

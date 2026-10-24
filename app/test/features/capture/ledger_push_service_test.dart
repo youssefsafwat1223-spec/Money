@@ -1,12 +1,11 @@
+import 'ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -15,12 +14,6 @@ import 'package:money_companion/features/capture/services/ledger_outbox_queue.da
 import 'package:money_companion/features/capture/services/ledger_push_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 Future<void> _insertTx(AppDatabase db, {String id = 'tx-001'}) async {
   final now = dateTimeToSql(DateTime.now().toUtc());
@@ -53,15 +46,14 @@ LedgerOutboxQueue _queue(
 
 void main() {
   late AppDatabase db;
+  late LedgerAdmissionFixture admission;
 
   setUp(() async {
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    admission = await LedgerAdmissionFixture.open('user-123');
+    db = admission.database;
   });
 
-  tearDown(() async => db.close());
+  tearDown(() async => admission.finish());
 
   // ── enqueue guards ────────────────────────────────────────────────────────
 
@@ -135,7 +127,7 @@ void main() {
     await queue.enqueue(OutboxOperation.create, tx);
 
     Map<String, dynamic>? sent;
-    final client = SupabaseClient(
+    final client = LedgerAdmissionFixture.trackClient(SupabaseClient(
       'https://example.supabase.co',
       'public-anon-key',
       accessToken: () async => 'qa-access-token',
@@ -154,7 +146,7 @@ void main() {
           request: request,
         );
       }),
-    );
+    ));
     final result = await LedgerPushService(
       db: db,
       queue: queue,
@@ -207,7 +199,7 @@ void main() {
     await queue.enqueue(OutboxOperation.create, tx);
 
     Map<String, dynamic>? sent;
-    final client = SupabaseClient(
+    final client = LedgerAdmissionFixture.trackClient(SupabaseClient(
       'https://example.supabase.co',
       'public-anon-key',
       accessToken: () async => 'qa-access-token',
@@ -223,7 +215,7 @@ void main() {
           request: request,
         );
       }),
-    );
+    ));
     await LedgerPushService(
       db: db,
       queue: queue,

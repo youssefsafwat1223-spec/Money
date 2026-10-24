@@ -11,6 +11,44 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
   const DriftSmartInboxRepository(this._db);
   final AppDatabase _db;
 
+  /// Supported inbox writers share this persisted, strictly increasing token.
+  /// Preserve the original stored spelling when comparing an in-flight edit.
+  static DateTime parseEditStamp(String value) {
+    if (!RegExp(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$').hasMatch(value)) {
+      throw const FormatException('invalid_inbox_edit_stamp');
+    }
+    final parsed = DateTime.tryParse(value);
+    final fraction = value.contains('.')
+        ? value.substring(value.indexOf('.') + 1, value.length - 1) : '';
+    final expected = '${value.substring(0, 19)}.${fraction.padRight(6, '0')}Z';
+    if (parsed == null || parsed.year < 1 || parsed.year > 9999 ||
+        _canonicalStamp(parsed) != expected) {
+      throw const FormatException('invalid_inbox_edit_stamp');
+    }
+    return parsed;
+  }
+
+  static String _canonicalStamp(DateTime value) {
+    final utc = value.toUtc();
+    if (utc.year < 1 || utc.year > 9999) {
+      throw const FormatException('invalid_inbox_edit_stamp');
+    }
+    final iso = utc.toIso8601String();
+    return '${iso.substring(0, 19)}.${(utc.millisecond * 1000 + utc.microsecond).toString().padLeft(6, '0')}Z';
+  }
+
+  static String nextEditStamp(String? previous, {DateTime? now}) {
+    var next = (now ?? DateTime.now()).toUtc();
+    _canonicalStamp(next);
+    if (previous != null) {
+      final old = parseEditStamp(previous);
+      final incremented = old.add(const Duration(microseconds: 1));
+      _canonicalStamp(incremented);
+      if (!next.isAfter(old)) next = incremented;
+    }
+    return _canonicalStamp(next);
+  }
+
   /// Persists a native capture that looked financial but could not be parsed.
   ///
   /// The payload id is the durable business key: a crash/re-delivery executes
@@ -64,7 +102,7 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
         Variable.withString(dateTimeToSql(effectiveReceivedAt)),
         Variable.withString(dateTimeToSql(now)),
         Variable.withString(dateTimeToSql(now)),
-        Variable.withString(dateTimeToSql(now)),
+        Variable.withString(nextEditStamp(null, now: now)),
       ],
     );
     return itemId;
@@ -110,19 +148,22 @@ class DriftSmartInboxRepository implements SmartInboxRepository {
     // pending_sync = 1: تغيير محلي (offline-first) ينتظر الدفع للخادم. العناصر
     // المحلية فقط (`local_capture:`) ليس لها صف على الخادم فلا شيء ينتظر الدفع
     // (G11) — وإلا بقيت pending_sync=1 للأبد.
-    await _db.customUpdate(
-      'UPDATE smart_inbox_items SET status = ?, dismissed_locally = ?, '
-      "pending_sync = CASE WHEN server_id LIKE 'local_capture:%' THEN 0 ELSE 1 END, "
-      'push_attempt_count = 0, push_next_retry_at = NULL, '
-      'updated_at = ? WHERE id = ? OR server_id = ?;',
-      variables: [
-        Variable.withString(status),
-        Variable.withInt(boolToSql(dismissed)),
-        Variable.withString(dateTimeToSql(DateTime.now().toUtc())),
-        Variable.withString(id),
-        Variable.withString(id),
-      ],
-    );
+    await _db.transaction(() async {
+      final rows = await _db.customSelect(
+        'SELECT id, updated_at FROM smart_inbox_items WHERE id = ? OR server_id = ?;',
+        variables: [Variable.withString(id), Variable.withString(id)],
+      ).get();
+      for (final row in rows) {
+        final stamp = nextEditStamp(row.read<String>('updated_at'));
+        await _db.customUpdate(
+          'UPDATE smart_inbox_items SET status = ?, dismissed_locally = ?, '
+          "pending_sync = CASE WHEN server_id LIKE 'local_capture:%' THEN 0 ELSE 1 END, "
+          'push_attempt_count = 0, push_next_retry_at = NULL, updated_at = ? WHERE id = ?;',
+          variables: [Variable.withString(status), Variable.withInt(boolToSql(dismissed)),
+            Variable.withString(stamp), Variable.withString(row.read<String>('id'))],
+        );
+      }
+    });
   }
 
   SmartInboxItemEntity _fromRow(QueryRow row) => SmartInboxItemEntity(

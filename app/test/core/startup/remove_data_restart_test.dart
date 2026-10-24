@@ -136,13 +136,35 @@ void main() {
         'launch forces signed-out status even though no active record exists',
         () async {
       await f.signIn('uid-x');
+      final identityKeys = ['auth_method', 'onboarding_current_account_v1',
+        'onboarding_completed_accounts_v1'];
+      final staleIdentity = {
+        for (final key in identityKeys) key: f.storage.data[key],
+      };
+      expect(staleIdentity['auth_method'], 'google');
+      expect(staleIdentity['onboarding_current_account_v1'], 'uid:uid-x');
+      expect(staleIdentity['onboarding_completed_accounts_v1'], contains('uid:uid-x'));
       // The process dies right after the removal deleted its durable record,
       // before the session cleared the persisted identity: only the flow ran.
       await f.flow.remove('uid-x');
       expect(await f.flow.hasPending(), isFalse);
+      expect(await f.flow.revokedUids(), contains('uid-x'));
+      expect(f.storage.data.containsKey(kMarkerKey), isFalse);
+      for (final entry in staleIdentity.entries) {
+        expect(f.storage.data[entry.key], entry.value);
+      }
       await f.restart();
-      expect(session.status, SessionStatus.authenticated,
-          reason: 'precondition: the leftover identity routes authenticated');
+      for (final entry in staleIdentity.entries) {
+        expect(f.storage.data[entry.key], entry.value);
+      }
+      expect(await f.flow.hasPending(), isFalse);
+      expect(await f.flow.revokedUids(), contains('uid-x'));
+      expect(f.storage.data.containsKey(kMarkerKey), isFalse);
+      expect(session.authMethod, 'google');
+      expect(session.hasCompletedOnboarding, isTrue);
+      expect(session.status, SessionStatus.needsOnboarding,
+          reason: 'retained completion metadata cannot authenticate an absent owner');
+      expect(session.captureLocalWorkAuthority(), isNull);
 
       await session.prepareLaunchAdmission();
 

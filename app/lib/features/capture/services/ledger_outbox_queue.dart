@@ -1,5 +1,8 @@
 import 'dart:convert';
 
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/account_fence_store.dart';
+
 import '../../../core/sync/outbox_failure.dart';
 import '../../../core/sync/outbox_owner.dart';
 import '../../../core/utils/id_generator.dart';
@@ -125,14 +128,17 @@ class LedgerOutboxQueue {
       // flight). Every coalesce bumps op_seq (A-2 G3).
       final existing = await _db
           .customSelect(
-            "SELECT id, operation, status, in_flight_seq, operation_id, payload_json FROM ledger_sync_outbox "
-            "WHERE transaction_id = ${sqlString(tx.id)} AND $kOutboxCoalescibleSql "
+            "SELECT id, operation, status, failure_class, in_flight_seq, operation_id, payload_json FROM ledger_sync_outbox "
+            "WHERE transaction_id = ${sqlString(tx.id)} AND ($kOutboxCoalescibleSql OR (status = 'parked' AND failure_class = '$kParkAccountDeletionGone')) "
             "AND ${outboxOwnerMatchSql(ownerUid)} "
             "ORDER BY created_at ASC LIMIT 1;",
           )
           .getSingleOrNull();
       if (existing != null) {
         final existingId = existing.read<String>('id');
+        final deletionHeld = existing.read<String>('status') == 'parked' &&
+            const {kParkAccountDeletionPending, kParkAccountDeletionGone}
+                .contains(existing.readNullable<String>('failure_class'));
         final coalesced = coalesceOutboxOperation(
             existing.read<String>('operation'), op.name);
         // WP-5: the edited row gets a NEW operation id; the previous one is
@@ -143,7 +149,7 @@ class LedgerOutboxQueue {
           previousOpId: existing.readNullable<String>('operation_id'),
           possiblySent: existing.readNullable<int>('in_flight_seq') != null,
         );
-        if (coalesced == null &&
+        if (!deletionHeld && coalesced == null &&
             existing.readNullable<int>('in_flight_seq') == null) {
           // Never on the wire (never handed to a push — the durable
           // in_flight_seq marker is NULL; D-6: a PARKED row keeps the marker, so
@@ -160,7 +166,9 @@ class LedgerOutboxQueue {
             UPDATE ledger_sync_outbox
             SET operation = ${sqlString(coalesced ?? 'delete')},
                 payload_json = ${sqlString(jsonEncode(payload))},
-                attempt_count = 0, status = 'pending', failure_class = NULL,
+                attempt_count = ${deletionHeld ? 'attempt_count' : '0'},
+                status = ${sqlString(deletionHeld ? 'parked' : 'pending')},
+                failure_class = ${sqlNullableString(deletionHeld ? existing.readNullable<String>('failure_class') : null)},
                 last_error = NULL, next_retry_at = NULL,
                 op_seq = op_seq + 1,
                 operation_id = ${sqlString(IdGenerator.uuidV4())},
@@ -324,12 +332,73 @@ class LedgerOutboxQueue {
   /// and re-arm the ones whose owner is the current identity again. Runs at the
   /// start of every push cycle, so nothing is ever sent under a different uid.
   Future<void> reconcileOwnership(String currentUid) async {
+    final verified = await ownershipVerified(currentUid);
+    await reconcileVerifiedOwnership(currentUid, verified);
+  }
+
+  Future<bool> ownershipVerified(String currentUid) =>
+      isOutboxOwnerVerified(_getOwnerUid, currentUid);
+
+  Future<void> reconcileVerifiedOwnership(String currentUid, bool verified) async {
     await reconcileOutboxOwnership(
       db: _db,
       table: 'ledger_sync_outbox',
       currentUid: currentUid,
-      ownershipVerified: await isOutboxOwnerVerified(_getOwnerUid, currentUid),
+      ownershipVerified: verified,
     );
+  }
+
+  /// The same queued snapshot must still own the mutation before every retry.
+  Future<bool> accountFenceCurrent(OutboxItem item) async {
+    final row = await _db.customSelect(
+      "SELECT 1 FROM ledger_sync_outbox WHERE id = ${sqlString(item.id)} "
+      "AND status = 'pending' AND op_seq = ${item.opSeq} "
+      "AND in_flight_seq = ${item.opSeq} "
+      "AND operation_id = ${sqlNullableString(item.operationId)} "
+      "AND owner_uid IS ${sqlNullableString(item.ownerUid)};").getSingleOrNull();
+    return row != null;
+  }
+
+  /// A refusal is not an ACK or business attempt. Preserve payload, operation
+  /// identity and ALL possibly-sent history. A stale outcome cannot overwrite
+  /// a newer in-flight holder. A queued edit may inherit QD001's same-row hold.
+  Future<bool> recordAccountFenceFailure(OutboxItem item,
+      OutboxFailureClass failure, DateTime retryAt) async {
+    final pending = failure == OutboxFailureClass.accountDeletionPending;
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    final changed = await _db.customUpdate("""
+      UPDATE ledger_sync_outbox
+      SET status = '${pending ? 'parked' : 'pending'}',
+          failure_class = ${sqlString(failure.reason)}, last_error = NULL,
+          next_retry_at = ${pending ? 'NULL' : sqlString(dateTimeToSql(retryAt.toUtc()))},
+          updated_at = ${sqlString(now)}
+      WHERE id = ${sqlString(item.id)} AND status = 'pending'
+        AND owner_uid IS ${sqlNullableString(item.ownerUid)}
+        AND ${pending
+          ? 'in_flight_seq = ${item.opSeq}'
+          : 'op_seq = ${item.opSeq} AND in_flight_seq = ${item.opSeq} AND operation_id = ${sqlNullableString(item.operationId)}'};
+    """);
+    return changed > 0;
+  }
+
+  /// Only an authority-issued one-use ticket can finalize after retirement.
+  Future<bool> parkAccountDenial(OutboxItem item, AccountFenceState state,
+      AccountFenceParking ticket) async {
+    ticket.requireExact(_db, rowId: item.id, transactionId: item.transactionId,
+        ownerUid: item.ownerUid, opSeq: item.opSeq,
+        operationId: item.operationId, state: state);
+    final reason = state == AccountFenceState.gone
+        ? kParkAccountDeletionGone : kParkAccountDeletionPending;
+    final changed = await _db.customUpdate("""
+      UPDATE ledger_sync_outbox
+      SET status = 'parked', failure_class = ${sqlString(reason)},
+          last_error = NULL, next_retry_at = NULL,
+          updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
+      WHERE id = ${sqlString(item.id)} AND transaction_id = ${sqlString(item.transactionId)}
+        AND status = 'pending' AND owner_uid IS ${sqlNullableString(item.ownerUid)}
+        AND in_flight_seq = ${item.opSeq};
+    """);
+    return changed > 0;
   }
 
   /// MALI-023: typed failure handling. Permanent failures dead-letter
@@ -447,7 +516,8 @@ class LedgerOutboxQueue {
   /// A-5: Retry-now — drop the backoff wait of pending rows (no attempt reset).
   Future<int> clearRetryBackoff() => _db.customUpdate(
         "UPDATE ledger_sync_outbox SET next_retry_at = NULL "
-        "WHERE status = 'pending' AND next_retry_at IS NOT NULL;",
+        "WHERE status = 'pending' AND next_retry_at IS NOT NULL "
+        "AND COALESCE(failure_class, '') != '$kFailAccountFenceContention';",
       );
 
   /// MALI-026 (B8-2.10 §8): park a canonical money row whose exact push transport
@@ -566,7 +636,8 @@ class LedgerOutboxQueue {
       SET status = 'pending', failure_class = NULL, next_retry_at = NULL,
           updated_at = ${sqlString(now)}
       WHERE status = 'parked'
-        AND COALESCE(failure_class, '') NOT IN $kOutboxSelfHealingParkReasonsSql;
+        AND COALESCE(failure_class, '') NOT IN $kOutboxSelfHealingParkReasonsSql
+        AND COALESCE(failure_class, '') NOT IN ('$kParkAccountDeletionPending', '$kParkAccountDeletionGone');
     ''');
   }
 

@@ -1,3 +1,7 @@
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/admission_authority.dart';
+import '../../../core/session/app_session.dart';
+import '../../../core/sync/account_fence_retry.dart';
 import '../../../core/sync/sync_health.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -59,18 +63,20 @@ class LedgerPushService implements LedgerPushAdapter {
     /// C-3 — consulted at the moment of egress; defaults to DENY.
     Future<bool> Function()? mayEgress,
     SyncHealth? health,
+    AccountFenceRetry? fenceRetry,
     // A-6: server capability probe. Null = never verified, so awaiting-FX rows
     // stay parked (fail-safe).
     ServerCapabilitiesService? capabilities,
   })  : _db = db,
         _capabilities = capabilities,
+        _fenceRetry = fenceRetry ?? AccountFenceRetry(),
         _health = health,
         _queue = queue,
         _isPushEnabled = isPushEnabled,
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _getClient = getClient ?? _defaultGetClient,
         _casGate = casGate,
-        _cas = RevisionCasEngine(casRemote ?? const SupabaseCasRemote()),
+        _casRemote = casRemote ?? const SupabaseCasRemote(),
         _conflicts = SyncConflictStore(db),
         _coordinator = coordinator,
         _pushCapability = pushCapability,
@@ -94,13 +100,16 @@ class LedgerPushService implements LedgerPushAdapter {
   final LedgerOutboxQueue _queue;
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
+  final AccountFenceRetry _fenceRetry;
   final ServerCapabilitiesService? _capabilities;
   final bool Function() _isPushEnabled;
   final Future<String?> Function() _getAuthUserId;
   final SupabaseClient Function() _getClient;
 
   final RevisionCasGate? _casGate;
-  final RevisionCasEngine _cas;
+  final CasRemote _casRemote;
+  RevisionCasEngine get _cas =>
+      RevisionCasEngine(_LedgerCasRemote(_casRemote, _invocation!));
   final SyncConflictStore _conflicts;
   CasPlan _plan = const CasPlan(CasMode.legacy);
 
@@ -109,49 +118,120 @@ class LedgerPushService implements LedgerPushAdapter {
 
   static Future<bool> _denyEgressByDefault() async => false;
 
+  bool _busy = false;
+  _LedgerInvocation? _invocation;
+
   @override
-  Future<LedgerPushResult> push() async {
+  Future<LedgerPushResult> push() => pushWithPhase(SyncPhaseBinding());
+
+  Future<LedgerPushResult> pushWithPhase(SyncPhaseBinding phase) async {
+    if (_busy) throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.overlap);
+    _busy = true;
+    try {
+      final authority = AccountFenceAuthority.shared;
+      final handle = await authority.captureForDatabase(AppSession.instance, _db);
+      if (handle == null) {
+        throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.unbound);
+      }
+      final invocation = _LedgerInvocation(authority, handle, _db, phase);
+      _invocation = invocation;
+      phase.bind(invocation);
+      final result = await _pushBound();
+      _requireCurrent();
+      return result;
+    } on StaleAdmissionException {
+      throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.stale);
+    } finally {
+      _invocation = null;
+      _busy = false;
+    }
+  }
+
+  void _requireCurrent() {
+    if (_invocation?.isCurrent != true) {
+      throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.stale);
+    }
+  }
+
+  Future<T> _local<T>(Future<T> Function() action) async {
+    _requireCurrent();
+    try {
+      return await _invocation!.runLocal(action);
+    } on StaleAdmissionException {
+      throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.stale);
+    }
+  }
+
+  SupabaseClient _client() {
+    _requireCurrent();
+    return _getClient();
+  }
+
+  Future<T> _remote<T>(Future<T> Function() send) async {
+    _requireCurrent();
+    try {
+      final result = await send();
+      _requireCurrent();
+      return result;
+    } catch (error) {
+      // Decode genuine negative authority before ordinary readiness checks.
+      if (decodeLedgerAccountDenial(error) != null) rethrow;
+      _requireCurrent();
+      rethrow;
+    }
+  }
+
+  Future<LedgerPushResult> _pushBound() async {
     // C-3 — transactions are money. Without cloud consent they stay on device.
     if (!await _mayEgress()) {
-      _health?.noteConsentBlocked(SyncDomain.ledger);
+      _invocation!.phase.noteConsentBlocked(_health);
       return const LedgerPushResult();
     }
+    _requireCurrent();
     if (!_isPushEnabled()) return const LedgerPushResult();
 
     final userId = await _getAuthUserId();
+    _requireCurrent();
     if (userId == null) return const LedgerPushResult();
+    if (userId != _invocation!.ownerUid) {
+      throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.stale);
+    }
 
     // WP-5: legacy push, or revision CAS with the replica's epoch. When the
     // capability cannot be proven this cycle nothing is sent or consumed.
-    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.plan(userId);
+    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.planForLedger(userId,
+        authority: _invocation!.authority, handle: _invocation!.handle, database: _db);
+    _requireCurrent();
     if (_plan.mode == CasMode.stopped) return const LedgerPushResult();
 
     // D-7: the AuthSessionValid broadcast has no replay, so a cold start can miss
     // it. A valid authenticated session at the start of a cycle re-arms rows
     // parked `auth_required` (cheap UPDATE; no attempt was ever consumed).
-    if (outboxHasValidSession()) await _queue.reArmAuthParked();
+    if (outboxHasValidSession()) await _local(() => _queue.reArmAuthParked());
 
     // MALI-026 (B8-2.10 §9): once exact push transport is verified, re-arm any
     // rows parked while it was unverified — the SAME durable rows drain now. A
     // no-op today (nothing is ever parked while the capability is unknown/legacy).
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
-      await _queue.reArmParked();
+      await _local(() => _queue.reArmParked());
     }
 
     // A-6: dead letters caused by the pre-A-6 CHECK rejection of awaiting-FX
     // rows are recovered to a visible park (idempotent, nothing else touched);
     // parked awaiting-FX rows drain once the server is verified to accept them.
-    await _queue.recoverAwaitingFxDeadLetters();
-    if (await _queue.hasAwaitingFxParked() &&
+    await _local(() => _db.transaction(() => _queue.recoverAwaitingFxDeadLetters()));
+    if (await _local(() => _queue.hasAwaitingFxParked()) &&
         await _awaitingFxState(userId) == ServerCapabilityState.verified) {
-      await _queue.reArmAwaitingFxParked();
+      await _local(() => _queue.reArmAwaitingFxParked());
     }
 
     // A-2 (G18): only rows recorded for THIS identity may be sent; foreign and
     // unverified legacy rows are parked (observable, never deleted, never sent).
-    await _queue.reconcileOwnership(userId);
+    final ownershipVerified = await _queue.ownershipVerified(userId);
+    _requireCurrent();
+    await _local(() => _queue.reconcileVerifiedOwnership(userId, ownershipVerified));
 
-    final items = await _queue.pendingItems();
+    final items = await _local(() => _queue.pendingItems());
     if (items.isEmpty) return const LedgerPushResult();
 
     int pushed = 0;
@@ -162,7 +242,21 @@ class LedgerPushService implements LedgerPushAdapter {
 
     for (final item in items) {
       try {
-        final outcome = await _processItem(item, userId);
+        _requireCurrent();
+        if (item.operationId == null || !_ledgerOperationId.hasMatch(item.operationId!)) {
+          throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.provenance);
+        }
+        final outcome = await _fenceRetry.runItem(
+            isCurrent: () async {
+              _requireCurrent();
+              final currentUid = await _getAuthUserId();
+              _requireCurrent();
+              final consent = await _mayEgress();
+              _requireCurrent();
+              return _isPushEnabled() && currentUid == userId && consent &&
+                  await _local(() => _queue.accountFenceCurrent(item));
+            },
+            body: () => _processItem(item, userId));
         switch (outcome) {
           case _PushOutcome.pushed:
             pushed++;
@@ -176,17 +270,43 @@ class LedgerPushService implements LedgerPushAdapter {
           case _PushOutcome.parked:
             // Held durably; not sent, not synced, not a failure/retry.
             parked++;
-            _health?.noteCapabilityParked(SyncDomain.ledger);
+            _invocation!.phase.noteCapabilityParked(_health);
         }
       } on CasEpochMismatch {
         // The replica's epoch is stale: nothing was written. Leave the op
         // queued (WP-7 owns the rebootstrap) and stop this cycle.
-        await _queue.releaseInFlight(item.id);
+        await _local(() => _queue.releaseInFlight(item.id));
+        break;
+      } on LedgerDeliveryStopped {
+        rethrow;
+      } on AccountFenceRetryStopped {
+        _requireCurrent();
         break;
       } catch (e) {
+        final denial = decodeLedgerAccountDenial(e);
+        if (denial != null) {
+          final current = _invocation!;
+          final result = await current.authority.acceptLedgerDenial(current.handle,
+              _db, denial, rowId: item.id, transactionId: item.transactionId,
+              ownerUid: item.ownerUid, opSeq: item.opSeq,
+              operationId: item.operationId!,
+              park: (ticket) => _queue.parkAccountDenial(item, denial, ticket));
+          throw LedgerDeliveryStopped(LedgerDeliveryStopReason.denial,
+              accepted: result.accepted, parked: result.parked, complete: result.complete);
+        }
+        _requireCurrent();
+        final fence = classifyOutboxError(e);
+        if (fence == OutboxFailureClass.accountFenceContention ||
+            fence == OutboxFailureClass.accountDeletionPending) {
+          final held = await _local(() => _queue.recordAccountFenceFailure(item, fence,
+              _fenceRetry.clock().add(_fenceRetry.cooldown)));
+          _invocation!.phase.noteFailure(_health, e);
+          if (fence == OutboxFailureClass.accountDeletionPending) { if (held) parked++; break; }
+          continue;
+        }
         failed++;
-        _health?.noteFailure(SyncDomain.ledger, e);
-        await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
+        _invocation!.phase.noteFailure(_health, e);
+        await _local(() => _db.transaction(() => _queue.markFailed(item.id, e.toString(), classifyOutboxError(e))));
         if (kDebugMode) debugPrint('[LedgerPush] item error: $e');
       }
     }
@@ -214,11 +334,11 @@ class LedgerPushService implements LedgerPushAdapter {
     // schema so a later compatible upgrade can re-arm and apply it correctly.
     final version = (payload['payload_version'] as num?)?.toInt() ?? 1;
     if (version > kLedgerPayloadVersion) {
-      await _queue.markFailed(
+      await _local(() => _db.transaction(() => _queue.markFailed(
         item.id,
         'unsupported ledger payload version $version',
         OutboxFailureClass.unsupportedSchema,
-      );
+      )));
       return _PushOutcome.abandoned;
     }
 
@@ -231,9 +351,9 @@ class LedgerPushService implements LedgerPushAdapter {
           pushCapability: _pushCapability(),
         )) {
       // Only while the row was not edited meanwhile (op_seq unchanged).
-      final parkedNow = await _queue.park(
+      final parkedNow = await _local(() => _queue.park(
           item.id, exactMoneyTransportUnverifiedReason,
-          ifOpSeq: item.opSeq);
+          ifOpSeq: item.opSeq));
       return parkedNow ? _PushOutcome.parked : _PushOutcome.deferred;
     }
 
@@ -247,8 +367,8 @@ class LedgerPushService implements LedgerPushAdapter {
       // D-3: only while the row was not edited meanwhile — the capability RPC
       // above can take a while, and a priced edit folded in during it must stay
       // pending (it is no longer an awaiting-FX body).
-      final parkedNow = await _queue.park(item.id, kParkAwaitingServerFxSupport,
-          ifOpSeq: item.opSeq);
+      final parkedNow = await _local(() => _queue.park(item.id, kParkAwaitingServerFxSupport,
+          ifOpSeq: item.opSeq));
       return parkedNow ? _PushOutcome.parked : _PushOutcome.deferred;
     }
 
@@ -277,8 +397,8 @@ class LedgerPushService implements LedgerPushAdapter {
       // not edited in flight (an edit may have priced it).
       if (awaitingFx && e.code == '23514') {
         _capabilities?.noteUnsupported(userId);
-        final parkedNow = await _queue.park(item.id, kParkAwaitingServerFxSupport,
-            ifOpSeq: item.opSeq);
+        final parkedNow = await _local(() => _queue.park(item.id, kParkAwaitingServerFxSupport,
+            ifOpSeq: item.opSeq));
         return parkedNow ? _PushOutcome.parked : _PushOutcome.deferred;
       }
       rethrow;
@@ -298,14 +418,14 @@ class LedgerPushService implements LedgerPushAdapter {
     final serverRow = await _toServerRow(payload, userId);
 
     try {
-      final response = await _getClient()
+      final response = await _remote(() => retryAccountFenceMutation(() => _client()
           .from('user_transactions')
           .upsert(
             {...serverRow, 'client_request_id': localId},
             onConflict: 'user_id,client_request_id',
           )
           .select(_ackCols)
-          .single();
+          .single()));
 
       final serverId = response['id'] as String;
       await _ackAndAttach(
@@ -318,8 +438,7 @@ class LedgerPushService implements LedgerPushAdapter {
     } catch (e) {
       // Conflict detected by server (e.g. row already exists with newer updated_at).
       if (isTransportConflict(e)) {
-        await _markConflict(item.transactionId);
-        await _queue.markSuccess(item);
+        await _recordConflict(item);
         return _PushOutcome.conflict;
       }
       rethrow;
@@ -342,6 +461,7 @@ class LedgerPushService implements LedgerPushAdapter {
       return _pushCreate(item, payload, userId);
     }
 
+    final targetServerId = serverId;
     final serverRow = await _toServerRow(payload, userId);
     // Never overwrite source on existing server rows — the server already has
     // the authoritative source (e.g. 'ios_shortcut' from the relay dual-write).
@@ -369,19 +489,18 @@ class LedgerPushService implements LedgerPushAdapter {
           await _fetchServerUpdatedAt(serverId);
       final rows = base == null
           ? const <dynamic>[]
-          : await _getClient()
+          : await _remote(() => retryAccountFenceMutation(() => _client()
               .from('user_transactions')
               .update(serverRow)
-              .eq('id', serverId)
+              .eq('id', targetServerId)
               .eq('updated_at', base)
-              .select('updated_at');
+              .select('updated_at')));
       final updated = guardedAck(rows, 'ledger.atomicGuardedUpdate');
       if (updated == null) {
         // 0 rows → either the row vanished or another writer moved it past our
         // base. Both are conflicts; the guard no longer needs to distinguish
         // them with a second read.
-        await _markConflict(item.transactionId);
-        await _queue.markSuccess(item);
+        await _recordConflict(item);
         return _PushOutcome.conflict;
       }
       await _ackAndAttach(
@@ -394,8 +513,7 @@ class LedgerPushService implements LedgerPushAdapter {
       return _PushOutcome.pushed;
     } catch (e) {
       if (isTransportConflict(e)) {
-        await _markConflict(item.transactionId);
-        await _queue.markSuccess(item);
+        await _recordConflict(item);
         return _PushOutcome.conflict;
       }
       rethrow;
@@ -419,6 +537,7 @@ class LedgerPushService implements LedgerPushAdapter {
       return _PushOutcome.pushed;
     }
 
+    final targetServerId = serverId;
     final deletedAt = DateTime.now().toUtc().toIso8601String();
     try {
       // Never id-only: guard on the last-known updated_at, or (when unknown) on
@@ -426,18 +545,18 @@ class LedgerPushService implements LedgerPushAdapter {
       // statement so the guard predicate always travels with the deleted_at write.
       final base = payload['server_updated_at'] as String?;
       final rows = base != null
-          ? await _getClient()
+          ? await _remote(() => retryAccountFenceMutation(() => _client()
               .from('user_transactions')
               .update({'deleted_at': deletedAt})
-              .eq('id', serverId)
+              .eq('id', targetServerId)
               .eq('updated_at', base)
-              .select('id, updated_at')
-          : await _getClient()
+              .select('id, updated_at')))
+          : await _remote(() => retryAccountFenceMutation(() => _client()
               .from('user_transactions')
               .update({'deleted_at': deletedAt})
-              .eq('id', serverId)
+              .eq('id', targetServerId)
               .isFilter('deleted_at', null)
-              .select('id, updated_at');
+              .select('id, updated_at')));
       final ack = guardedAck(rows, 'ledger.guardedTombstone');
       if (ack != null) {
         await _ackTombstone(item);
@@ -446,8 +565,7 @@ class LedgerPushService implements LedgerPushAdapter {
       return await _resolveDeleteConflict(item, serverId);
     } catch (e) {
       if (isTransportConflict(e)) {
-        await _markConflict(item.transactionId);
-        await _queue.markSuccess(item);
+        await _recordConflict(item);
         return _PushOutcome.conflict;
       }
       rethrow;
@@ -466,11 +584,11 @@ class LedgerPushService implements LedgerPushAdapter {
       ...await _toServerRow(payload, userId),
       'client_request_id': localId,
     };
-    final d = await _cas.create(
+    final d = await _remote(() => _cas.create(
         table: 'user_transactions',
         epoch: _plan.epoch!,
         opId: item.operationId!,
-        row: row);
+        row: row));
     if (d.kind == CasDecisionKind.acked) {
       await _casAck(item, d.row!);
       return _PushOutcome.pushed;
@@ -491,7 +609,7 @@ class LedgerPushService implements LedgerPushAdapter {
     final patch = await _toServerRow(payload, userId)
       ..remove('source')
       ..remove('user_id');
-    final d = await _cas.update(
+    final d = await _remote(() => _cas.update(
       table: 'user_transactions',
       epoch: _plan.epoch!,
       opId: item.operationId!,
@@ -500,7 +618,7 @@ class LedgerPushService implements LedgerPushAdapter {
       baseRevision: item.baseRevision ?? (payload['server_revision'] as int?),
       baseUpdatedAt: payload['server_updated_at'] as String?,
       patch: patch,
-    );
+    ));
     switch (d.kind) {
       case CasDecisionKind.acked:
         await _casAck(item, d.row!);
@@ -527,7 +645,7 @@ class LedgerPushService implements LedgerPushAdapter {
       await _ackTombstone(item);
       return _PushOutcome.pushed;
     }
-    final d = await _cas.tombstone(
+    final d = await _remote(() => _cas.tombstone(
       table: 'user_transactions',
       epoch: _plan.epoch!,
       opId: item.operationId!,
@@ -535,7 +653,7 @@ class LedgerPushService implements LedgerPushAdapter {
       serverId: serverId,
       baseRevision: item.baseRevision ?? (payload['server_revision'] as int?),
       baseUpdatedAt: payload['server_updated_at'] as String?,
-    );
+    ));
     if (d.kind == CasDecisionKind.acked || d.kind == CasDecisionKind.gone) {
       await _ackTombstone(item);
       return _PushOutcome.pushed;
@@ -558,7 +676,7 @@ class LedgerPushService implements LedgerPushAdapter {
     CasDecision d,
     SyncConflictKind kind,
   ) async {
-    await _db.transaction(() async {
+    await _local(() => _db.transaction(() async {
       await _conflicts.flag(
         entityType: ConflictEntities.transaction,
         localId: item.transactionId,
@@ -569,7 +687,7 @@ class LedgerPushService implements LedgerPushAdapter {
         operationId: item.operationId,
       );
       await _queue.markSuccess(item);
-    });
+    }));
     return _PushOutcome.conflict;
   }
 
@@ -585,17 +703,16 @@ class LedgerPushService implements LedgerPushAdapter {
     OutboxItem item,
     String serverId,
   ) async {
-    final state = await _getClient()
+    final state = await _remote(() => _client()
         .from('user_transactions')
         .select('deleted_at')
         .eq('id', serverId)
-        .maybeSingle();
+        .maybeSingle());
     if (state != null && state['deleted_at'] != null) {
       await _ackTombstone(item); // A
       return _PushOutcome.pushed;
     }
-    await _markConflict(item.transactionId); // B (live) or C (absent)
-    await _queue.markSuccess(item);
+    await _recordConflict(item); // B (live) or C (absent)
     return _PushOutcome.conflict;
   }
 
@@ -604,21 +721,21 @@ class LedgerPushService implements LedgerPushAdapter {
   /// swallowing it made a delete look "never reached the server" and ACK the
   /// row, silently losing the remote delete on a flaky connection.
   Future<String?> _findServerId(String localId, String userId) async {
-    final row = await _getClient()
+    final row = await _remote(() => _client()
         .from('user_transactions')
         .select('id')
         .eq('user_id', userId)
         .eq('client_request_id', localId)
-        .maybeSingle();
+        .maybeSingle());
     return row?['id'] as String?;
   }
 
   Future<String?> _fetchServerUpdatedAt(String serverId) async {
-    final row = await _getClient()
+    final row = await _remote(() => _client()
         .from('user_transactions')
         .select('updated_at')
         .eq('id', serverId)
-        .maybeSingle();
+        .maybeSingle());
     return row?['updated_at'] as String?;
   }
 
@@ -630,7 +747,7 @@ class LedgerPushService implements LedgerPushAdapter {
     String? serverUpdatedAt,
     int? serverRevision,
   }) {
-    return _db.transaction(() async {
+    return _local(() => _db.transaction(() async {
       await _queue.acknowledge(
         item,
         serverId: serverId,
@@ -643,16 +760,16 @@ class LedgerPushService implements LedgerPushAdapter {
         serverUpdatedAt: serverUpdatedAt,
         serverRevision: serverRevision,
       );
-    });
+    }));
   }
 
   /// A-2 (G15): a tombstone ACK settles the entity too (it used to stay
   /// 'pending' forever) — unless another edit is still queued for it.
   Future<void> _ackTombstone(OutboxItem item) {
-    return _db.transaction(() async {
+    return _local(() => _db.transaction(() async {
       await _queue.acknowledge(item);
       await _markSyncedIfClear(item.transactionId);
-    });
+    }));
   }
 
   Future<void> _markSyncedIfClear(String transactionId) async {
@@ -692,6 +809,12 @@ class LedgerPushService implements LedgerPushAdapter {
       WHERE id = ${sqlString(transactionId)};
     ''');
   }
+
+  Future<void> _recordConflict(OutboxItem item) => _local(() =>
+      _db.transaction(() async {
+        await _markConflict(item.transactionId);
+        await _queue.markSuccess(item);
+      }));
 
   Future<void> _markConflict(String transactionId) async {
     await _db.customStatement('''
@@ -756,12 +879,12 @@ class LedgerPushService implements LedgerPushAdapter {
     final localAccountId = payload['account_id'] as String?;
     if (localAccountId != null) {
       row['local_account_id'] = localAccountId;
-      final account = await _db
+      final account = await _local(() => _db
           .customSelect(
             'SELECT server_id FROM accounts '
             'WHERE id = ${sqlString(localAccountId)} LIMIT 1;',
           )
-          .getSingleOrNull();
+          .getSingleOrNull());
       final serverAccountId = account?.readNullable<String>('server_id');
       if (serverAccountId != null) {
         row['server_account_id'] = serverAccountId;
@@ -773,12 +896,12 @@ class LedgerPushService implements LedgerPushAdapter {
     // Category: the server stores the stable category KEY, not the local UUID.
     final localCategoryId = payload['category_id'] as String?;
     if (localCategoryId != null) {
-      final cat = await _db
+      final cat = await _local(() => _db
           .customSelect(
             'SELECT key FROM categories '
             'WHERE id = ${sqlString(localCategoryId)} LIMIT 1;',
           )
-          .getSingleOrNull();
+          .getSingleOrNull());
       final key = cat?.readNullable<String>('key');
       if (key != null) row['category_id'] = key;
     }
@@ -817,3 +940,70 @@ class LedgerPushService implements LedgerPushAdapter {
 }
 
 enum _PushOutcome { pushed, conflict, abandoned, parked, deferred }
+
+
+final _ledgerOperationId = RegExp(
+    r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+
+class _LedgerInvocation implements SyncPhaseLifecycle {
+  _LedgerInvocation(this.authority, this.handle, this.database, this.phase);
+  final AccountFenceAuthority authority;
+  final AccountFenceHandle handle;
+  @override
+  final AppDatabase database;
+  final SyncPhaseBinding phase;
+  String get ownerUid => authority.ownerUid(handle);
+  @override
+  bool get isCurrent => authority.isCurrentForDatabase(handle, database);
+  @override
+  Future<T> runLocal<T>(Future<T> Function() action) =>
+      authority.runCurrentLocal(handle, database, action);
+}
+
+
+/// Guard the actual underlying method after the retry predicate's final await.
+class _LedgerCasRemote implements CasRemote {
+  _LedgerCasRemote(this.delegate, this.invocation);
+  final CasRemote delegate;
+  final _LedgerInvocation invocation;
+
+  Future<T> _send<T>(Future<T> Function() send) async {
+    void check() {
+      if (!invocation.isCurrent) {
+        throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.stale);
+      }
+    }
+    check();
+    try {
+      final result = await send();
+      check();
+      return result;
+    } catch (error) {
+      if (decodeLedgerAccountDenial(error) != null) rethrow;
+      check();
+      rethrow;
+    }
+  }
+
+  @override
+  Future<CasResult> insertIfAbsent({required String table, required String epoch,
+      required String opId, required Map<String, dynamic> row}) => _send(() =>
+      delegate.insertIfAbsent(table: table, epoch: epoch, opId: opId, row: row));
+
+  @override
+  Future<CasResult> casUpdate({required String table, required String epoch,
+      required String opId, required String serverId, required int expectedRevision,
+      required Map<String, dynamic> patch}) => _send(() => delegate.casUpdate(
+      table: table, epoch: epoch, opId: opId, serverId: serverId,
+      expectedRevision: expectedRevision, patch: patch));
+
+  @override
+  Future<CasResult> casTombstone({required String table, required String epoch,
+      required String opId, required String serverId, required int expectedRevision}) =>
+      _send(() => delegate.casTombstone(table: table, epoch: epoch, opId: opId,
+          serverId: serverId, expectedRevision: expectedRevision));
+
+  @override
+  Future<Map<String, dynamic>?> fetchRow(String table, String serverId) =>
+      _send(() => delegate.fetchRow(table, serverId));
+}

@@ -10,7 +10,7 @@ import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 
-import 'perf_harness.dart';
+import '../features/capture/ledger_admission_fixture.dart';
 
 class _GoalContribSource implements PlanningChildRemote {
   _GoalContribSource(this.rows);
@@ -77,6 +77,7 @@ List<Map<String, dynamic>> _contribs(int count, {required int goals}) {
         'local_id': 'loc-gc-${i.toString().padLeft(5, '0')}',
         'goal_id': 'server-goal-${i % goals}', // high parent-key repetition
         'amount': 5.0 + i,
+        'amount_text': (5+i).toStringAsFixed(2),
         'created_at': base.toIso8601String(),
         'note': null,
         'updated_at': base.add(Duration(seconds: i)).toIso8601String(),
@@ -86,16 +87,19 @@ List<Map<String, dynamic>> _contribs(int count, {required int goals}) {
 }
 
 Future<int> _syncSelects(int count) async {
-  final counting = await openCountingDb();
+  final probe=LedgerDatabaseProbe();var selects=0;
+  probe.before=(sql)async{if(sql.trimLeft().toUpperCase().startsWith('SELECT'))selects++;};
+  final admission=await LedgerAdmissionFixture.open('user-1',probe);
+  final db=admission.database;
   try {
-    await _seedGoals(counting.db, 4);
+    await _seedGoals(db, 4);
     final queue = PlanningOutboxQueue(
-      db: counting.db,
+      db: db,
       isSyncEnabled: (_) => true,
       getAuthUserId: () async => 'user-1',
     );
     final service = PlanningChildSyncService(
-      db: counting.db,
+      db: db,
       queue: queue,
       isEnabled: (entity) =>
           entity == PlanningOutboxQueue.goalContributionsEntityType,
@@ -110,11 +114,13 @@ Future<int> _syncSelects(int count) async {
       // financial_pull_consent_test.dart.
       mayEgress: () async => true,
     );
-    counting.counter.reset();
+    selects=0;
     await service.sync();
-    return counting.counter.selects;
+    final measured=selects;
+    expect((await db.customSelect('SELECT COUNT(*) AS n FROM goal_contributions;').getSingle()).read<int>('n'),count);
+    return measured;
   } finally {
-    await counting.close();
+    await admission.finish();
   }
 }
 

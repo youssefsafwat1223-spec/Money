@@ -1,13 +1,11 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:drift/drift.dart' show QueryExecutor;
-import 'package:drift/native.dart';
+import 'ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
@@ -19,16 +17,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// Sync-plan T10 (offline delete -> reconnect -> tombstone pushed exactly once)
 /// and T13 (app killed with pending ops, including one mid-push -> every op
 /// survives and the in-flight one resumes idempotently).
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
-
-Future<AppDatabase> _open(QueryExecutor executor) =>
-    AppDatabase.open(executor: executor, keyStore: _MemoryKeyStore());
-
 Future<void> _insertTx(AppDatabase db, String id, {String? serverId}) async {
   final now = dateTimeToSql(DateTime.now().toUtc());
   final occurred = dateTimeToSql(DateTime.utc(2026, 6, 1, 10));
@@ -66,12 +54,12 @@ LedgerPushService _push(
     );
 
 SupabaseClient _client(Future<http.Response> Function(http.Request) handler) =>
-    SupabaseClient(
+    LedgerAdmissionFixture.trackClient(SupabaseClient(
       'https://example.supabase.co',
       'public-anon-key',
       accessToken: () async => 'qa-access-token',
       httpClient: MockClient(handler),
-    );
+    ));
 
 http.Response _json(Object body, http.Request request) => http.Response(
       jsonEncode(body),
@@ -91,8 +79,9 @@ void main() {
   test(
       'T10: a delete made offline is pushed as exactly ONE tombstone after '
       'reconnect, and never again', () async {
-    final db = await _open(NativeDatabase.memory());
-    addTearDown(db.close);
+    final admission = await LedgerAdmissionFixture.open();
+    addTearDown(admission.finish);
+    final db = admission.database;
     await _insertTx(db, 'tx-1', serverId: 'srv-1');
     final queue = _queue(db);
     final repo = DriftTransactionRepository(db);
@@ -141,12 +130,11 @@ void main() {
       'T13: killed with pending ops incl. one mid-push -> all ops survive a '
       'restart; the in-flight create resumes idempotently (no duplicate server row)',
       () async {
-    final dir = Directory.systemTemp.createTempSync('qirsh_t13_');
-    addTearDown(() => dir.deleteSync(recursive: true));
-    final file = File('${dir.path}/app.db');
+    final admission = await LedgerAdmissionFixture.open();
+    addTearDown(admission.finish);
 
     // --- process 1: two creates queued, one handed to a push, then "kill".
-    var db = await _open(NativeDatabase(file));
+    var db = admission.database;
     await _insertTx(db, 'tx-a');
     await _insertTx(db, 'tx-b');
     var queue = _queue(db);
@@ -173,11 +161,8 @@ void main() {
     serverRows.putIfAbsent(handedOver.transactionId, () => 'srv-${handedOver.transactionId}');
     expect((await _outbox(db)).where((r) => r['in_flight_seq'] != null), hasLength(1),
         reason: 'one op is durably marked in flight');
-    await db.close(); // process killed: no ACK, no markFailed
-
-    // --- process 2: reopen the same file.
-    db = await _open(NativeDatabase(file));
-    addTearDown(db.close);
+    // No ACK or markFailed: real host closes/drains before reopening its exact replica/key.
+    db = await admission.restart();
     final survivors = await _outbox(db);
     expect(survivors.map((r) => r['transaction_id']), ['tx-a', 'tx-b'],
         reason: 'no pending op is lost across the kill');

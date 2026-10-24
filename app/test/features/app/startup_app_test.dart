@@ -49,7 +49,7 @@ void main() {
 // root shows "Updating your data…", never the signed-out routes.
 class _SwapHost extends AccountScopeHost {
   _SwapHost()
-      : super(
+      : super.uncoordinatedForTesting(
           store: ReplicaStore(
               appSupportDirectory: Directory.systemTemp.path),
           initialize: (db, uid) async => const AccountScopeInit(),

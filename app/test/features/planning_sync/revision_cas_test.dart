@@ -1,7 +1,6 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/data/repositories/drift_bill_repository.dart';
@@ -26,12 +25,6 @@ import '../../harness/fake_cas_server.dart';
 // not_found / epoch_mismatch / tombstone), durable conflicts and the accounts
 // blind-overwrite fix.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 /// A planning sink with real revision semantics + call counters.
 class _CasSink implements PlanningRemoteSink {
@@ -105,6 +98,8 @@ GoalEntity _goal() => GoalEntity(
       createdAt: DateTime.utc(2026, 7, 1),
     );
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -112,17 +107,15 @@ void main() {
   late PlanningOutboxQueue queue;
 
   setUp(() async {
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     queue = PlanningOutboxQueue(
       db: db,
       isSyncEnabled: (_) => true,
       getAuthUserId: () async => 'user-1',
     );
   });
-  tearDown(() => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   // Seeds a synced goal at [revision] (null = old row, revision unknown) and
   // enqueues an update, so the outbox payload carries the base revision.
@@ -366,6 +359,20 @@ void main() {
   });
 
   group('accounts fail-safe (blind-overwrite fix)', () {
+    late LedgerAdmissionFixture accountAdmission;
+    late AppDatabase standaloneDatabase;
+    setUp(() async {
+      standaloneDatabase = db;
+      accountAdmission = _parentAdmission;
+      db = accountAdmission.database;
+      queue = PlanningOutboxQueue(db: db, isSyncEnabled: (_) => true,
+          getAuthUserId: () async => 'user-1');
+    });
+    tearDown(() async {
+      try { await accountAdmission.finish(); }
+      finally { db = standaloneDatabase; }
+    });
+
     test(
         'OFF update of a synced account guards on updated_at instead of '
         'blindly upserting', () async {

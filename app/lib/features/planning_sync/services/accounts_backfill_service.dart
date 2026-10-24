@@ -2,8 +2,13 @@ import 'package:drift/drift.dart' show Variable;
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
+import '../../../core/privacy/consent_authority.dart';
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/admission_authority.dart';
 import '../../../core/session/app_session.dart';
+import '../../../core/sync/account_fence_retry.dart';
 import '../../../core/sync/outbox_failure.dart';
+import '../../../core/sync/sync_health.dart';
 import '../../../data/db/app_database.dart';
 import '../../../data/db/money_codec.dart';
 import '../../../data/db/planning_cutover.dart';
@@ -45,6 +50,110 @@ class AccountBackfillReport {
       defaultWarning == null;
 }
 
+/// The ORIGINAL account lifetime a default-account backfill runs under, captured
+/// once before any other wait and passed down as one opaque object. A null
+/// [handle] is a permanently unbound marker: it is never recaptured and never
+/// becomes authority later. A supplied [callerPhase] must already be bound,
+/// current and on the same database; otherwise the marker is unbound and
+/// [validCallerAtEntry] is false.
+class DefaultAccountBackfillScope {
+  DefaultAccountBackfillScope._(this.authority, this.database, this.handle,
+      this.callerPhase, this.validCallerAtEntry);
+  final AccountFenceAuthority authority;
+  final AppDatabase database;
+  final AccountFenceHandle? handle;
+  final SyncPhaseBinding? callerPhase;
+  final bool validCallerAtEntry;
+
+  static bool _phaseHolds(SyncPhaseBinding? phase, AppDatabase db) =>
+      phase == null ||
+      (phase.isBound && phase.isCurrent && identical(phase.database, db));
+
+  static Future<DefaultAccountBackfillScope> capture(AppDatabase db,
+      {SyncPhaseBinding? callerPhase}) async {
+    final authority = AccountFenceAuthority.shared;
+    if (!_phaseHolds(callerPhase, db)) {
+      return DefaultAccountBackfillScope._(authority, db, null, null, false);
+    }
+    // The real capture starts synchronously here, before any other wait.
+    final handle = await authority.captureForDatabase(AppSession.instance, db);
+    if (!_phaseHolds(callerPhase, db)) {
+      return DefaultAccountBackfillScope._(authority, db, null, null, false);
+    }
+    return DefaultAccountBackfillScope._(authority, db, handle, callerPhase, true);
+  }
+
+  /// True once a lifetime that was valid at entry (caller phase and/or the real
+  /// original handle) no longer is. An unbound marker with a valid caller is not
+  /// "lost": ordinary non-default account paths keep their old contract.
+  bool get lost =>
+      !validCallerAtEntry ||
+      (callerPhase != null && !_phaseHolds(callerPhase, database)) ||
+      (handle != null && !authority.isCurrentForDatabase(handle!, database));
+
+  bool get isCurrent => handle != null && !lost;
+  String? get uid => handle == null ? null : authority.ownerUid(handle!);
+
+  void requireNotLost() {
+    if (lost) throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+  }
+
+  void requireCurrent() {
+    if (handle == null) {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.unbound);
+    }
+    requireNotLost();
+  }
+
+  Future<T> runLocal<T>(Future<T> Function() action) {
+    requireCurrent();
+    return authority.runCurrentLocal(handle!, database, () {
+      requireCurrent();
+      return action();
+    });
+  }
+}
+
+/// Proven contention on the immutable default RPC outlasted its bounded budget.
+/// Not a durable account denial, queued parking, provenance failure or success.
+class DefaultAccountBackfillContentionExhausted
+    implements AccountFenceDeliveryCancellation {
+  const DefaultAccountBackfillContentionExhausted();
+  @override
+  String toString() => 'DefaultAccountBackfillContentionExhausted';
+}
+
+/// Synchronous builder/preflight/local failure: never proof of a remote request.
+class _DefaultUnprovenFailure implements Exception {
+  const _DefaultUnprovenFailure(this.error, this.stack);
+  final Object error;
+  final StackTrace stack;
+}
+
+class _DefaultRemoteFailure implements Exception {
+  const _DefaultRemoteFailure(this.error);
+  final Object error;
+}
+
+/// Built ONLY around the awaited actual SDK RPC future.
+class _DefaultMutationRefusal implements Exception {
+  const _DefaultMutationRefusal(this.scope, this.intent, this.target, this.raw);
+  final DefaultAccountBackfillScope scope;
+  final AccountFenceDefaultAccountIntent intent;
+  final String target;
+  final PostgrestException raw;
+}
+
+/// Built ONLY around the awaited actual SDK RPC future; the shared retry helper
+/// sees a 55P03 code on nothing else.
+class _DefaultMutationContention extends PostgrestException {
+  _DefaultMutationContention(this.scope, this.intent, this.target, PostgrestException raw)
+      : super(message: raw.message, code: raw.code, details: raw.details, hint: raw.hint);
+  final DefaultAccountBackfillScope scope;
+  final AccountFenceDefaultAccountIntent intent;
+  final String target;
+}
+
 /// يُرحِّل كل الحسابات المحلية (Drift) إلى user_accounts — بلا ثقة بعمود
 /// sync_status (قد يكون قديمًا/غير متسق)، ويشمل الحسابات المحذوفة محليًا
 /// (tombstones) حتى لا تُعاد كحسابات نشطة لاحقًا بالخطأ. يجب أن يكتمل
@@ -60,18 +169,26 @@ class AccountsBackfillService {
     // STRING, matching the primary account outbox push (planning_outbox_queue).
     PlanningCutoverCoordinator coordinator =
         const SchemaV29PlanningCutoverCoordinator(),
+    // Consulted before every default-account RPC attempt only. Defaults to DENY
+    // so a caller that forgets it sends no default-account mutation.
+    Future<bool> Function()? mayEgress,
   })  : _db = db,
         _getClient = getClient ?? (() => Supabase.instance.client),
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _getLocalDataOwnerUid =
             getLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid,
-        _coordinator = coordinator;
+        _coordinator = coordinator,
+        _mayEgress = mayEgress ?? _denyEgressByDefault;
 
   final AppDatabase _db;
   final SupabaseClient Function() _getClient;
   final Future<String?> Function() _getAuthUserId;
   final Future<String?> Function() _getLocalDataOwnerUid;
   final PlanningCutoverCoordinator _coordinator;
+  final Future<bool> Function() _mayEgress;
+  final AccountFenceRetry _retry = AccountFenceRetry();
+
+  static Future<bool> _denyEgressByDefault() async => false;
 
   bool get _canonical => _coordinator.state() == PlanningCutoverState.canonical;
 
@@ -104,7 +221,11 @@ class AccountsBackfillService {
     }
   }
 
-  Future<AccountBackfillReport> run() async {
+  /// [scope] is the ORIGINAL lifetime captured by the caller before its own
+  /// waits; only when it is absent is it captured here, at this first entry.
+  /// A supplied scope whose handle is null is never recaptured.
+  Future<AccountBackfillReport> run({DefaultAccountBackfillScope? scope}) async {
+    final original = scope ?? await DefaultAccountBackfillScope.capture(_db);
     final uid = await _getAuthUserId();
     if (uid == null) throw const AuthRepoException();
     await _assertLocalDataOwnership(uid);
@@ -224,7 +345,7 @@ class AccountsBackfillService {
       }
     }
 
-    final resolution = await _resolveDefault(uid);
+    final resolution = await _resolveDefault(uid, original);
 
     return AccountBackfillReport(
       total: localRows.length,
@@ -242,7 +363,8 @@ class AccountsBackfillService {
   /// (حساب افتراضي نشط واحد لكل مستخدم) إن كانت البيانات المحلية غير متسقة.
   /// يعيد رسالة تحذير نصية إن لم يوجد حساب افتراضي محلي واحد بوضوح، ولا
   /// يخمّن أيًا كان.
-  Future<String?> _resolveDefault(String uid) async {
+  Future<String?> _resolveDefault(
+      String uid, DefaultAccountBackfillScope scope) async {
     final defaults = await _db
         .customSelect(
           "SELECT id FROM accounts WHERE is_default = 1 AND deleted_at IS NULL;",
@@ -261,24 +383,196 @@ class AccountsBackfillService {
     if (serverId == null) {
       return 'Default local account $localId has no server_id after backfill — skipped.';
     }
+    // A real default command from here on: it runs only under the ORIGINAL
+    // bound lifetime. An unbound marker typed-stops with no RPC.
+    final handle = scope.handle;
+    if (handle == null || !identical(scope.database, _db)) {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.unbound);
+    }
     try {
-      final response = await _getClient()
-          .rpc('set_default_account', params: {'p_account_id': serverId});
-      final row = response as Map<String, dynamic>;
-      await _db.customStatement(
-        "UPDATE accounts SET is_default = 1 WHERE id = ?;",
-        [localId],
-      );
-      await _db.customStatement(
-        "UPDATE accounts SET is_default = 0 WHERE id != ? AND deleted_at IS NULL;",
-        [localId],
-      );
-      return row['id'] == serverId
-          ? null
-          : 'set_default_account returned an unexpected row.';
+      scope.requireCurrent();
+      if (scope.uid != uid) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.provenance);
+      }
+      final intent = await scope.authority.captureDefaultAccountIntent(
+          handle, _db, localId: localId, serverId: serverId);
+      scope.requireCurrent();
+      // The selection moved between the plain read above and the tracked
+      // capture: the command is gone, never refreshed or retargeted.
+      if (intent == null) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+      }
+      final response = await _dispatchDefault(scope, handle, intent, uid);
+      return await _finalizeDefault(scope, handle, intent, uid, response);
+    } on AccountFenceDeliveryCancellation {
+      rethrow;
+    } on StaleAdmissionException {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
     } catch (e) {
+      // A raw QD from a preflight/local path is not mutation proof.
+      if (decodeAccountsAccountDenial(e) != null) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.provenance);
+      }
       return 'set_default_account failed during backfill: $e';
     }
+  }
+
+  bool _identityHolds(DefaultAccountBackfillScope scope, String uid,
+      {SupabaseClient? client}) {
+    if (!scope.isCurrent || scope.uid != uid) return false;
+    try {
+      return (client ?? _getClient()).auth.currentUser?.id == uid;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// One bounded retry budget wraps ONLY the immutable default RPC (never the
+  /// earlier matching/stamping or reads). Returns the positive response.
+  Future<Object?> _dispatchDefault(
+    DefaultAccountBackfillScope scope,
+    AccountFenceHandle handle,
+    AccountFenceDefaultAccountIntent intent,
+    String uid,
+  ) async {
+    Future<bool> isCurrent() async {
+      if (!_identityHolds(scope, uid)) return false;
+      if (!await _mayEgress()) return false;
+      if (!_identityHolds(scope, uid) || ConsentAuthority.egressFrozen) {
+        return false;
+      }
+      final same = await scope.runLocal(() => _db.transaction(
+          () => scope.authority.defaultAccountIntentMatches(handle, _db, intent)));
+      return same && _identityHolds(scope, uid);
+    }
+
+    try {
+      return await _retry.runItem<Object?>(
+        isCurrent: isCurrent,
+        body: () => retryAccountFenceMutation(
+            () => _sendDefault(scope, intent, uid)),
+      );
+    } on _DefaultMutationRefusal catch (refusal) {
+      if (!identical(refusal.scope, scope) ||
+          !identical(refusal.intent, intent) ||
+          refusal.target != intent.serverId) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.provenance);
+      }
+      // Negative lifetime is independent of any temporary positive readiness;
+      // no local reservation is held here and cleanup is awaited by the authority.
+      final result = await scope.authority.acceptDefaultAccountDenial(
+          handle, _db, intent, decodeAccountsAccountDenial(refusal.raw)!);
+      throw AccountsDeliveryStopped(AccountsDeliveryStopReason.denial,
+          accepted: result.accepted, complete: result.complete);
+    } on _DefaultMutationContention catch (contention) {
+      if (!identical(contention.scope, scope) ||
+          !identical(contention.intent, intent) ||
+          contention.target != intent.serverId) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.provenance);
+      }
+      throw const DefaultAccountBackfillContentionExhausted();
+    } on AccountFenceRetryStopped {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+    } on _DefaultUnprovenFailure catch (failure) {
+      // A raw QD from a factory/preflight/local path is not mutation proof.
+      if (decodeAccountsAccountDenial(failure.error) != null) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.provenance);
+      }
+      Error.throwWithStackTrace(failure.error, failure.stack);
+    } on _DefaultRemoteFailure catch (failure) {
+      throw failure.error;
+    }
+  }
+
+  Future<Object?> _sendDefault(
+    DefaultAccountBackfillScope scope,
+    AccountFenceDefaultAccountIntent intent,
+    String uid,
+  ) async {
+    final PostgrestFilterBuilder<dynamic> call;
+    try {
+      // ONE client for this attempt: the instance whose user is validated is the
+      // instance that builds the RPC.
+      final client = _getClient();
+      if (!_identityHolds(scope, uid, client: client) ||
+          ConsentAuthority.egressFrozen) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+      }
+      // Only awaiting the actual SDK future below establishes remote origin.
+      call = client
+          .rpc('set_default_account', params: {'p_account_id': intent.serverId});
+    } on AccountFenceDeliveryCancellation {
+      rethrow;
+    } catch (error, stack) {
+      throw _DefaultUnprovenFailure(error, stack);
+    }
+    try {
+      return await call;
+    } on PostgrestException catch (error) {
+      if (decodeAccountsAccountDenial(error) != null) {
+        throw _DefaultMutationRefusal(scope, intent, intent.serverId, error);
+      }
+      if (error.code == '55P03') {
+        throw _DefaultMutationContention(scope, intent, intent.serverId, error);
+      }
+      throw _DefaultRemoteFailure(error);
+    } on AccountFenceDeliveryCancellation {
+      rethrow;
+    } catch (error) {
+      throw _DefaultRemoteFailure(error);
+    }
+  }
+
+  /// A positive response must name the captured target BEFORE any local write.
+  /// Both local default updates share ONE tracked transaction on the original
+  /// database; the exact command and lifetime are rechecked across every
+  /// awaited SQL boundary, and a failed recheck rolls the transaction back.
+  Future<String?> _finalizeDefault(
+    DefaultAccountBackfillScope scope,
+    AccountFenceHandle handle,
+    AccountFenceDefaultAccountIntent intent,
+    String uid,
+    Object? response,
+  ) async {
+    if (response is! Map || response['id'] != intent.serverId) {
+      return 'set_default_account returned an unexpected row.';
+    }
+    // Consent is rechecked AFTER the matching positive response and OUTSIDE any
+    // local reservation; a genuine negative was already accepted before this.
+    if (!_identityHolds(scope, uid) ||
+        ConsentAuthority.egressFrozen ||
+        !await _mayEgress() ||
+        !_identityHolds(scope, uid) ||
+        ConsentAuthority.egressFrozen) {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+    }
+    Future<void> exact() async {
+      if (!_identityHolds(scope, uid) ||
+          ConsentAuthority.egressFrozen ||
+          !await scope.authority.defaultAccountIntentMatches(handle, _db, intent) ||
+          !_identityHolds(scope, uid) ||
+          ConsentAuthority.egressFrozen) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+      }
+    }
+
+    await scope.runLocal(() => _db.transaction(() async {
+          await exact();
+          await _db.customStatement(
+            "UPDATE accounts SET is_default = 1 WHERE id = ?;",
+            [intent.localId],
+          );
+          await exact();
+          await _db.customStatement(
+            "UPDATE accounts SET is_default = 0 WHERE id != ? AND deleted_at IS NULL;",
+            [intent.localId],
+          );
+          await exact();
+        }));
+    if (!_identityHolds(scope, uid)) {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+    }
+    return null;
   }
 }
 

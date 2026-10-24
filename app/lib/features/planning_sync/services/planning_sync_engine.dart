@@ -1,5 +1,8 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/session/admission_authority.dart';
+import '../../../core/sync/outbox_failure.dart';
+import '../../../data/db/financial_cache_health.dart';
 import '../../../core/sync/conflict_resolver.dart';
 import '../../../core/sync/sync_health.dart';
 import '../../../data/db/legacy_financial_cache_reconciler.dart';
@@ -68,24 +71,41 @@ class PlanningSyncEngine {
     SyncDomain domain,
     SyncDirection direction,
     Future<void> Function() body,
-    String label,
+    String label, {SyncPhaseBinding? binding}
   ) async {
     final health = _health;
     try {
       if (health == null) {
         await body();
       } else {
-        await health.runPhase(domain, direction, body, rethrowErrors: true);
+        await health.runPhase(domain, direction, body, rethrowErrors: true, binding: binding);
       }
+    } on AccountFenceDeliveryCancellation {
+      rethrow;
     } catch (e) {
       if (kDebugMode) debugPrint('[PlanningSync] $label error: $e');
     }
   }
 
   Future<void> sync({LegacyFinancialCacheReconciler? reconciler}) async {
-    final parents = await syncParents(reconciler: reconciler);
-    if (parents.cancelled) return;
-    await syncChildren();
+    final result = await _syncParents(reconciler: reconciler);
+    if (result.outcome.cancelled || result.original?.isCurrent != true) return;
+    final binding = result.original!;
+    try {
+      _check(binding);
+      final childPhase=binding.forNextPhase();
+      await _phase(SyncDomain.children, SyncDirection.push,
+          () => _planningChildren.syncWithPhase(childPhase), 'children', binding: childPhase);
+      _check(binding);
+    } on AccountFenceDeliveryCancellation {
+      return;
+    }
+  }
+
+  void _check(SyncPhaseBinding binding) {
+    if (!binding.isCurrent) {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+    }
   }
 
   /// Accounts and planning parents must sync before ledger rows so foreign
@@ -97,38 +117,69 @@ class PlanningSyncEngine {
   /// registration runs under a stale generation.
   Future<SyncParentsOutcome> syncParents({
     LegacyFinancialCacheReconciler? reconciler,
+  }) async => (await _syncParents(reconciler: reconciler)).outcome;
+
+  Future<({SyncParentsOutcome outcome, SyncPhaseBinding? original})> _syncParents({
+    LegacyFinancialCacheReconciler? reconciler,
   }) async {
+    final original = SyncPhaseBinding();
+    const cancelled = SyncParentsOutcome(accounts: ReconcileDomainResult.cancelled,
+        planning: ReconcileDomainResult.noDirtyState);
+    try {
+      return (outcome: await _parentsBound(original, reconciler), original: original);
+    } on AccountFenceDeliveryCancellation {
+      return (outcome: cancelled, original: original);
+    } on StaleAdmissionException {
+      return (outcome: cancelled, original: original);
+    }
+  }
+
+  Future<SyncParentsOutcome> _parentsBound(SyncPhaseBinding original,
+      LegacyFinancialCacheReconciler? supplied) async {
     try {
       await _ensureCapabilities?.call();
     } catch (e) {
       if (kDebugMode) debugPrint('[PlanningSync] capability probe error: $e');
     }
     await _phase(SyncDomain.accounts, SyncDirection.push,
-        () => _accountsPush.push(), 'accounts push');
+        () => _accountsPush.pushWithPhase(original), 'accounts push', binding: original);
+    _check(original);
+    final reconciler = supplied == null ? null : _AccountsBoundReconciler(original, supplied);
     final accounts = await reconcileOrPull(
       reconciler: reconciler,
-      domain: accountsReconcileDomain(_accountsPull),
-      normalPull: (admitted) async {
+      domain: _boundDomain(accountsReconcileDomain(_accountsPull), original),
+      normalPull: (sourceAdmitted) async {
+        _check(original);
+        bool admitted() => original.isCurrent && sourceAdmitted();
         await _phase(SyncDomain.accounts, SyncDirection.pull,
-            () => _accountsPull.pull(isAdmitted: admitted), 'accounts pull');
+            () => _accountsPull.pull(isAdmitted: admitted), 'accounts pull', binding: original.forNextPhase());
+        _check(original);
       },
     );
+    _check(original);
     if (accounts == ReconcileDomainResult.cancelled) {
       return const SyncParentsOutcome(
         accounts: ReconcileDomainResult.cancelled,
         planning: ReconcileDomainResult.noDirtyState,
       );
     }
+    final planningPhase = original.forNextPhase();
     await _phase(SyncDomain.planning, SyncDirection.push,
-        () => _planningPush.push(), 'planning push');
+        () => _planningPush.pushWithPhase(planningPhase), 'planning push', binding: planningPhase);
+    _check(original);
     // Auto-resolve low-stakes config conflicts (cards/categories/settings) in
     // favour of the server BEFORE the pull, so the pull overwrites the local
     // copy within this same pass — they never sit stuck in `conflict` awaiting a
     // prompt that never comes (MALI-057n). Financial entities are left for the
     // user to resolve.
     try {
+      _check(original);
       await _conflictResolver.autoResolveDeterministic();
+      _check(original);
+    } on AccountFenceDeliveryCancellation {
+      rethrow;
     } catch (e) {
+      _check(original);
       if (kDebugMode) debugPrint('[PlanningSync] auto-resolve error: $e');
     }
     // Audit NEW-H-4 — the settings-registration authority. Registration may
@@ -144,15 +195,19 @@ class PlanningSyncEngine {
     var settingsPullCompleted = false;
     final planning = await reconcileOrPull(
       reconciler: reconciler,
-      domain: planningReconcileDomain(_planningPull),
-      normalPull: (admitted) async {
+      domain: _boundDomain(planningReconcileDomain(_planningPull), original),
+      normalPull: (sourceAdmitted) async {
+        _check(original);
+        bool admitted() => original.isCurrent && sourceAdmitted();
         await _phase(SyncDomain.planning, SyncDirection.pull, () async {
           final result = await _planningPull.pull(isAdmitted: admitted);
           settingsPullCompleted = result.completedEntities
               .contains(PlanningOutboxQueue.settingsEntityType);
-        }, 'planning pull');
+        }, 'planning pull', binding: original.forNextPhase());
+        _check(original);
       },
     );
+    _check(original);
     if (planning == ReconcileDomainResult.cancelled) {
       return SyncParentsOutcome(
           accounts: accounts, planning: ReconcileDomainResult.cancelled);
@@ -160,18 +215,83 @@ class PlanningSyncEngine {
     // Pull first so an existing remote singleton wins over freshly seeded
     // defaults. Only genuinely missing settings/custom categories are queued —
     // and the settings singleton only under the positive authority above.
+    final registrationPhase = original.forNextPhase();
     await _phase(SyncDomain.planning, SyncDirection.push, () async {
-      await _startupRegistration.registerMissingRows(
-          settingsPullCompleted: settingsPullCompleted);
-      await _planningPush.push();
-    }, 'registration');
+      _check(original);
+      await _startupRegistration.registerMissingRowsWithPhase(
+          settingsPullCompleted: settingsPullCompleted, phase: registrationPhase);
+      _check(original);
+      await _planningPush.pushWithPhase(registrationPhase);
+      _check(original);
+    }, 'registration', binding: registrationPhase);
+    _check(original);
     return SyncParentsOutcome(accounts: accounts, planning: planning);
   }
+
+  ReconcileDomain _boundDomain(ReconcileDomain domain, SyncPhaseBinding original) =>
+      ReconcileDomain(name: domain.name, entities: domain.entities,
+          isEnabled: domain.isEnabled,
+          runFromEpoch: ({required dirtyEntities, required isAdmitted}) async {
+            _check(original);
+            final completed = await domain.runFromEpoch(dirtyEntities: dirtyEntities,
+                isAdmitted: () => original.isCurrent && isAdmitted());
+            _check(original);
+            return completed;
+          });
 
   /// Called after ledger sync so bill-payment transaction references and plan
   /// links can resolve both sides on their first pass.
   Future<void> syncChildren() async {
+    final phase=SyncPhaseBinding();
     await _phase(SyncDomain.children, SyncDirection.push,
-        () => _planningChildren.sync(), 'children');
+        () => _planningChildren.syncWithPhase(phase), 'children',binding:phase);
+  }
+}
+
+class _AccountsBoundReconciler extends LegacyFinancialCacheReconciler {
+  _AccountsBoundReconciler(this.binding, this.supplied)
+      : super(db: binding.database!, generation: 0,
+            isAdmitted: (_) => binding.isCurrent && supplied.isAdmitted());
+  final SyncPhaseBinding binding;
+  final LegacyFinancialCacheReconciler supplied;
+  bool get current => binding.isCurrent && supplied.isAdmitted();
+
+  Future<T> local<T>(Future<T> Function() action) {
+    if (!current) throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+    return binding.runLocal(action);
+  }
+
+  @override
+  Future<ReconcileDomainResult> reconcileDomain(ReconcileDomain domain) async {
+    try {
+      final dirty = <String>{};
+      for (final entity in domain.entities) {
+        if (await local(() => isFinancialCacheDirty(binding.database!, entity))) {
+          dirty.add(entity);
+        }
+      }
+      if (!current) return ReconcileDomainResult.cancelled;
+      if (dirty.isEmpty) return ReconcileDomainResult.noDirtyState;
+      if (!domain.isEnabled()) return ReconcileDomainResult.deferred;
+      final completed = await domain.runFromEpoch(dirtyEntities: dirty,
+          isAdmitted: () => current);
+      if (!current) return ReconcileDomainResult.cancelled;
+      var allCleared = true;
+      for (final entity in dirty) {
+        if (completed.contains(entity)) {
+          final cleared = await local(() => clearFinancialCacheDirtyIfAdmitted(
+              binding.database!, entity, () => current));
+          if (!cleared) allCleared = false;
+        } else {
+          allCleared = false;
+        }
+      }
+      if (!current) return ReconcileDomainResult.cancelled;
+      return allCleared ? ReconcileDomainResult.completed : ReconcileDomainResult.failed;
+    } on AccountsDeliveryStopped {
+      return ReconcileDomainResult.cancelled;
+    } on StaleAdmissionException {
+      return ReconcileDomainResult.cancelled;
+    }
   }
 }

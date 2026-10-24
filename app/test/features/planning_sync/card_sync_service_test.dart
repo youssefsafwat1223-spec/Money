@@ -1,3 +1,4 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -176,6 +177,8 @@ CardEntity _card(String acc, String last4,
       updatedAt: DateTime.utc(2026, 7, 1),
     );
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -185,12 +188,13 @@ void main() {
   late DriftCardRepository cards;
 
   setUp(() async {
-    db = await _openDb();
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     remote = _FakeRemote();
     queue = _queue(db);
     cards = DriftCardRepository(db, outboxQueue: queue);
   });
-  tearDown(() async => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   test('manual + auto cards push to user_cards with correct source', () async {
     await cards.create(_card('acc-a', '1111', nickname: 'راتب'));

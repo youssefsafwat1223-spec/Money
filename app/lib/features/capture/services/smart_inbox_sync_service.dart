@@ -1,5 +1,13 @@
 import '../../../core/sync/sync_health.dart';
 import 'dart:convert';
+import 'dart:async';
+
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/admission_authority.dart';
+import '../../../core/session/app_session.dart';
+import '../../../core/sync/account_fence_retry.dart';
+import '../../../core/sync/outbox_failure.dart';
+import '../../../data/repositories/drift_smart_inbox_repository.dart';
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -43,12 +51,25 @@ class SupabaseSmartInboxRemoteSource implements SmartInboxRemoteSource {
 
   @override
   Future<int> pushStatus(String serverId, String status) async {
-    final rows = await Supabase.instance.client
-        .from('user_smart_inbox')
-        .update({'status': status})
-        .eq('id', serverId)
-        .select('id');
-    return (rows as List).length;
+    final context = Zone.current[_inboxRemoteKey] as _InboxRemoteContext?;
+    context?.invocation.requireCurrent();
+    if (context != null && (context.intent.serverId != serverId ||
+        context.intent.status != status)) {
+      throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.provenance);
+    }
+    // Construct synchronously outside the tagged await. Parsing is also outside.
+    final response = Supabase.instance.client.from('user_smart_inbox')
+        .update({'status': status}).eq('id', serverId).select('id');
+    final List<Map<String, dynamic>> rows;
+    try {
+      rows = await response;
+    } on PostgrestException catch (error) {
+      if (context != null && decodeSmartInboxAccountDenial(error) != null) {
+        throw _InboxMutationRefusal(context, error);
+      }
+      rethrow;
+    }
+    return rows.length;
   }
 
   @override
@@ -105,11 +126,13 @@ class SmartInboxSyncService {
     Future<bool> Function()? mayEgress,
     int pageSize = 200,
     SyncHealth? health,
+    AccountFenceRetry? fenceRetry,
     /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
     SeqPullGate? seqGate,
   })  : assert(pageSize > 0),
         _seqGate = seqGate,
         _health = health,
+        _fenceRetry = fenceRetry ?? AccountFenceRetry(),
         _db = db,
         _isPullEnabled = isPullEnabled,
         _remoteSource = remoteSource ?? const SupabaseSmartInboxRemoteSource(),
@@ -132,6 +155,7 @@ class SmartInboxSyncService {
   final bool Function() _isPullEnabled;
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
+  final AccountFenceRetry _fenceRetry;
   final SmartInboxRemoteSource _remoteSource;
   final Future<String?> Function() _getAuthUserId;
   final int _pageSize;
@@ -142,67 +166,142 @@ class SmartInboxSyncService {
   /// S3 gap#1: يدفع تغييرات الحالة المحلية (رفض/معالجة) إلى الخادم.
   /// specialized لصندوق الوارد (server-authored): لا outbox عام ولا محرك ثانٍ —
   /// يستنزف العلم pending_sync ويمسحه بعد النجاح. offline يبقيه للمحاولة التالية.
-  Future<int> push() async {
-    // C-3 — Smart Inbox items are user data. `isPullEnabled` is a FEATURE gate
-    // (and was wired to a hardcoded `() => true`); consent is a separate
-    // question, asked fresh at egress.
-    if (!await _mayEgress()) {
-      _health?.noteConsentBlocked(SyncDomain.smartInbox);
-      return 0;
-    }
-    if (!_isPullEnabled()) return 0;
-    final userId = await _getAuthUserId();
-    if (userId == null) return 0;
+  bool _busy = false;
+  Future<int> push() => pushWithPhase(SyncPhaseBinding());
 
-    final nowSql = dateTimeToSql(DateTime.now().toUtc());
-    final pending = await _db
-        .customSelect(
-          'SELECT server_id, status, push_attempt_count FROM smart_inbox_items '
-          'WHERE pending_sync = 1 AND (push_next_retry_at IS NULL '
-          'OR push_next_retry_at <= ${sqlString(nowSql)});',
-        )
-        .get();
-    var pushed = 0;
-    for (final row in pending) {
-      final serverId = row.read<String>('server_id');
-      final status = row.read<String>('status');
-      if (isLocalOnlySmartInboxId(serverId)) {
-        // No server row exists: the local status IS the truth. Settle it
-        // locally without ever calling the server.
-        await _settle(serverId);
-        continue;
-      }
-      try {
-        final matched = await _remoteSource.pushStatus(serverId, status);
-        if (matched < 1) throw SmartInboxPushNoRowException(serverId);
-        await _settle(serverId);
-        pushed++;
-      } catch (e) {
-        // offline / خطأ مؤقت / لا صف مطابق — يبقى pending_sync=1 مع backoff
-        // (G11) بدل إعادة المحاولة في كل دورة، ويُسجَّل في SyncHealth.
-        _health?.noteFailure(SyncDomain.smartInbox, e);
-        final attempts = row.read<int>('push_attempt_count') + 1;
-        final nextRetry = dateTimeToSql(DateTime.now()
-            .toUtc()
-            .add(Duration(seconds: 30 * (1 << (attempts - 1).clamp(0, 7)))));
-        await _db.customStatement(
-          'UPDATE smart_inbox_items SET push_attempt_count = $attempts, '
-          'push_next_retry_at = ${sqlString(nextRetry)} '
-          'WHERE server_id = ${sqlString(serverId)};',
-        );
-        if (kDebugMode) debugPrint('[SmartInboxSync] push item skipped: $e');
+  Future<int> pushWithPhase(SyncPhaseBinding phase) async {
+    if (_busy) throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.overlap);
+    _busy = true;
+    final inherited = phase.isBound ? phase : null;
+    void supplied() {
+      if (inherited != null && (!inherited.isCurrent || !identical(inherited.database, _db))) {
+        throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
       }
     }
-    if (kDebugMode) debugPrint('[SmartInboxSync] push done: pushed=$pushed');
-    return pushed;
+    try {
+      supplied();
+      final authority = AccountFenceAuthority.shared;
+      final handle = await authority.captureForDatabase(AppSession.instance, _db);
+      supplied();
+      if (handle == null) throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.unbound);
+      final invocation = _InboxInvocation(authority, handle, _db, inherited);
+      if (!phase.isBound) phase.bind(invocation);
+      invocation.requireCurrent();
+      final uid = await _getAuthUserId();
+      invocation.requireCurrent();
+      if (uid != authority.ownerUid(handle)) {
+        throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
+      }
+      final allowed = await _mayEgress();
+      invocation.requireCurrent();
+      if (!allowed) { phase.noteConsentBlocked(_health); return 0; }
+      if (!_isPullEnabled()) return 0;
+      final now = dateTimeToSql(_fenceRetry.clock().toUtc());
+      final pending = await invocation.runLocal(() => _db.transaction(() => _db.customSelect(
+        'SELECT * FROM smart_inbox_items WHERE pending_sync=1 '
+        'AND (push_next_retry_at IS NULL OR push_next_retry_at<=${sqlString(now)});',
+      ).get()));
+      invocation.requireCurrent();
+      var pushed = 0;
+      for (final row in pending) {
+        invocation.requireCurrent();
+        final edit = _InboxEdit(row.read<String>('id'), row.read<String>('server_id'),
+            row.read<String>('status'), row.read<String>('updated_at'));
+        DriftSmartInboxRepository.parseEditStamp(edit.stamp);
+        if (!const {'open', 'dismissed', 'resolved'}.contains(edit.status)) {
+          throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.provenance);
+        }
+        if (isLocalOnlySmartInboxId(edit.serverId)) {
+          await _finishEdit(invocation, edit);
+          continue;
+        }
+        final intent = await authority.captureSmartInboxIntent(handle, _db,
+            localId: edit.id, serverId: edit.serverId, status: edit.status, editStamp: edit.stamp);
+        invocation.requireCurrent();
+        if (intent == null) continue;
+        final context = _InboxRemoteContext(invocation, intent);
+        try {
+          final matched = await _fenceRetry.runItem(
+            isCurrent: () => _retryCurrent(invocation, edit, uid!),
+            body: () => retryAccountFenceMutation(() async {
+              invocation.requireCurrent();
+              final result = await runZoned(() => _remoteSource.pushStatus(edit.serverId, edit.status),
+                  zoneValues: {_inboxRemoteKey: context});
+              invocation.requireCurrent();
+              return result;
+            }),
+          );
+          invocation.requireCurrent();
+          if (matched < 1) throw SmartInboxPushNoRowException(edit.serverId);
+          if (await _finishEdit(invocation, edit)) pushed++;
+        } on _InboxMutationRefusal catch (refusal) {
+          if (!identical(refusal.context, context)) {
+            throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.provenance);
+          }
+          final result = await authority.acceptSmartInboxDenial(handle, _db, intent,
+              decodeSmartInboxAccountDenial(refusal.raw)!);
+          throw SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.denial,
+              accepted: result.accepted, complete: result.complete);
+        } on AccountFenceDeliveryCancellation { rethrow; }
+        on AccountFenceRetryStopped {
+          throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
+        } catch (error) {
+          if (decodeSmartInboxAccountDenial(error) != null) {
+            throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.nonMutationRefusal);
+          }
+          invocation.requireCurrent();
+          final contention = error is PostgrestException && error.code == '55P03';
+          final matched = await _finishEdit(invocation, edit, error: error, contention: contention);
+          if (matched) phase.noteFailure(_health, error);
+          if (kDebugMode) debugPrint('[SmartInboxSync] push item skipped: $error');
+        }
+      }
+      invocation.requireCurrent();
+      return pushed;
+    } on StaleAdmissionException {
+      throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
+    } finally { _busy = false; }
   }
 
-  Future<void> _settle(String serverId) => _db.customStatement(
-        'UPDATE smart_inbox_items SET pending_sync = 0, '
-        'push_attempt_count = 0, push_next_retry_at = NULL, synced_at = '
-        "${sqlString(dateTimeToSql(DateTime.now().toUtc()))} "
-        'WHERE server_id = ${sqlString(serverId)};',
-      );
+  Future<bool> _retryCurrent(_InboxInvocation invocation, _InboxEdit edit, String uid) async {
+    invocation.requireCurrent();
+    final current = await _getAuthUserId();
+    invocation.requireCurrent();
+    if (current != uid || !_isPullEnabled()) return false;
+    final allowed = await _mayEgress();
+    invocation.requireCurrent();
+    if (!allowed) return false;
+    final held = await invocation.runLocal(() => _db.transaction(() async =>
+        await _db.customSelect('SELECT 1 FROM smart_inbox_items WHERE ${edit.predicate};')
+            .getSingleOrNull() != null));
+    invocation.requireCurrent();
+    return held;
+  }
+
+  Future<bool> _finishEdit(_InboxInvocation invocation, _InboxEdit edit,
+      {Object? error, bool contention = false}) async {
+    invocation.requireCurrent();
+    final changed = await invocation.runLocal(() => _db.transaction(() async {
+      final row = await _db.customSelect('SELECT push_attempt_count FROM smart_inbox_items '
+          'WHERE ${edit.predicate};').getSingleOrNull();
+      if (row == null) return false;
+      if (error == null) {
+        await _db.customStatement('UPDATE smart_inbox_items SET pending_sync=0, '
+            'push_attempt_count=0,push_next_retry_at=NULL,synced_at='
+            '${sqlString(dateTimeToSql(_fenceRetry.clock().toUtc()))} WHERE ${edit.predicate};');
+      } else {
+        final attempts = row.read<int>('push_attempt_count') + (contention ? 0 : 1);
+        final delay = contention ? _fenceRetry.cooldown :
+            Duration(seconds: 30 * (1 << (attempts - 1).clamp(0, 7)));
+        final next = dateTimeToSql(_fenceRetry.clock().toUtc().add(delay));
+        await _db.customStatement('UPDATE smart_inbox_items SET push_attempt_count=$attempts,'
+            'push_next_retry_at=${sqlString(next)} WHERE ${edit.predicate};');
+      }
+      return true;
+    }));
+    invocation.requireCurrent();
+    return changed;
+  }
 
   Future<SmartInboxSyncResult> pull({
     SyncCursor? from,
@@ -304,7 +403,7 @@ class SmartInboxSyncService {
     } on ReconcilePullCancelled {
       // Lifecycle/ownership cancellation, not a transport failure.
       if (kDebugMode) debugPrint('[SmartInboxSync] reconciliation cancelled');
-    } catch (e) {
+    } on AccountFenceDeliveryCancellation { rethrow; } catch (e) {
       _health?.noteFailure(SyncDomain.smartInbox, e);
       if (kDebugMode) debugPrint('[SmartInboxSync] pull error: $e');
     }
@@ -340,7 +439,7 @@ class SmartInboxSyncService {
 
     final existing = await _db
         .customSelect(
-          'SELECT id, server_updated_at, dismissed_locally '
+          'SELECT id, server_updated_at, dismissed_locally, updated_at '
           'FROM smart_inbox_items '
           'WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
         )
@@ -364,6 +463,7 @@ class SmartInboxSyncService {
         return _RowOutcome.skipped;
       }
 
+      final stamp = DriftSmartInboxRepository.nextEditStamp(existing.read<String>('updated_at'));
       await _db.customStatement('''
         UPDATE smart_inbox_items
         SET title = ${sqlString(title)},
@@ -373,7 +473,7 @@ class SmartInboxSyncService {
             metadata_json = ${sqlString(jsonEncode(row['metadata'] ?? {}))},
             server_updated_at = ${sqlNullableString(serverUpdatedAt)},
             synced_at = ${sqlString(now)},
-            updated_at = ${sqlString(now)}
+            updated_at = ${sqlString(stamp)}
         WHERE server_id = ${sqlString(serverId)};
       ''');
       return _RowOutcome.updated;
@@ -381,6 +481,7 @@ class SmartInboxSyncService {
 
     // New row — insert.
     final id = IdGenerator.next();
+    final stamp = DriftSmartInboxRepository.nextEditStamp(null);
     final serverCreatedAt = row['created_at'] as String? ?? now;
 
     await _db.customStatement('''
@@ -405,7 +506,7 @@ class SmartInboxSyncService {
         ${sqlString(now)},
         0,
         ${sqlString(now)},
-        ${sqlString(now)}
+        ${sqlString(stamp)}
       );
     ''');
     return _RowOutcome.imported;
@@ -415,10 +516,9 @@ class SmartInboxSyncService {
     final serverId = row['id'] as String?;
     if (serverId == null) return false;
 
-    final now = dateTimeToSql(DateTime.now().toUtc());
     final existing = await _db
         .customSelect(
-          'SELECT id, status FROM smart_inbox_items '
+          'SELECT id, status, updated_at FROM smart_inbox_items '
           'WHERE server_id = ${sqlString(serverId)} LIMIT 1;',
         )
         .getSingleOrNull();
@@ -426,10 +526,11 @@ class SmartInboxSyncService {
 
     if (existing.readNullable<String>('status') == 'dismissed') return false;
 
+    final stamp = DriftSmartInboxRepository.nextEditStamp(existing.read<String>('updated_at'));
     await _db.customStatement('''
       UPDATE smart_inbox_items
       SET status = 'dismissed',
-          updated_at = ${sqlString(now)}
+          updated_at = ${sqlString(stamp)}
       WHERE server_id = ${sqlString(serverId)};
     ''');
     return true;
@@ -437,3 +538,40 @@ class SmartInboxSyncService {
 }
 
 enum _RowOutcome { imported, updated, skipped }
+
+class _InboxEdit {
+  const _InboxEdit(this.id, this.serverId, this.status, this.stamp);
+  final String id, serverId, status, stamp;
+  String get predicate => 'id=${sqlString(id)} AND server_id=${sqlString(serverId)} '
+      'AND status=${sqlString(status)} AND pending_sync=1 AND updated_at=${sqlString(stamp)}';
+}
+class _InboxInvocation implements SyncPhaseLifecycle {
+  _InboxInvocation(this.authority, this.handle, this.database, this.inherited);
+  final AccountFenceAuthority authority;
+  final AccountFenceHandle handle;
+  @override
+  final AppDatabase database;
+  final SyncPhaseBinding? inherited;
+  @override
+  bool get isCurrent => authority.isCurrentForDatabase(handle, database) &&
+      (inherited == null || inherited!.isCurrent);
+  void requireCurrent() {
+    if (!isCurrent) throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
+  }
+  @override
+  Future<T> runLocal<T>(Future<T> Function() action) {
+    requireCurrent();
+    return authority.runCurrentLocal(handle, database, action);
+  }
+}
+const _inboxRemoteKey = #smartInboxMutation;
+class _InboxRemoteContext {
+  const _InboxRemoteContext(this.invocation, this.intent);
+  final _InboxInvocation invocation;
+  final AccountFenceSmartInboxIntent intent;
+}
+class _InboxMutationRefusal implements Exception {
+  const _InboxMutationRefusal(this.context, this.raw);
+  final _InboxRemoteContext context;
+  final PostgrestException raw;
+}

@@ -880,7 +880,7 @@ void main() {
       await s.disableCloud(commitLocalOff: commitOff);
       final off = (await egress.gate.view(owner: 'uid-a')).record!;
       calls.clear();
-      await s.enableCloud(
+      await s.enableCloudForTest(
           commitLocalOn: () => save(cloud: ConsentState.accepted));
       final on = (await egress.gate.view(owner: 'uid-a')).record!;
       expect(on.state, EgressState.on);

@@ -1,0 +1,125 @@
+import 'dart:async';
+import 'dart:convert';
+
+import '../security/secure_storage_options.dart';
+
+/// Foreground Dart-isolate custody only. This is not a cross-process CAS.
+enum ImmediateDeletionPhase { created, mayHaveBeenSent, completed }
+
+class ImmediateDeletionReceipt {
+  const ImmediateDeletionReceipt({
+    required this.owner,
+    required this.operationId,
+    required this.receiptSecret,
+    required this.phase,
+  });
+
+  final String owner;
+  final String operationId;
+  final String? receiptSecret;
+  final ImmediateDeletionPhase phase;
+
+  String encode() => jsonEncode({
+        'v': 1,
+        'owner': owner,
+        'operation_id': operationId,
+        'receipt_secret': receiptSecret,
+        'phase': phase.name,
+      });
+
+  @override
+  String toString() => 'ImmediateDeletionReceipt(phase: ${phase.name})';
+}
+
+class ImmediateDeletionReceiptStoreException implements Exception {
+  const ImmediateDeletionReceiptStoreException();
+  @override
+  String toString() => 'ImmediateDeletionReceiptStoreException';
+}
+
+class _ReceiptLock {
+  Future<void> _tail = Future.value();
+  Future<T> run<T>(Future<T> Function() body) {
+    final result = _tail.then((_) => body());
+    _tail = result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
+}
+
+/// A dedicated versioned qirsh. namespace survives the existing session wipe.
+/// The existing storage options and preserve rule are not changed.
+class ImmediateDeletionReceiptStore {
+  ImmediateDeletionReceiptStore({
+    Future<String?> Function(String key)? read,
+    Future<void> Function(String key, String value)? write,
+    Object? authority,
+  })  : _read = read ?? ((key) => SecureStorageOptions.storage.read(key: key)),
+        _write = write ??
+            ((key, value) =>
+                SecureStorageOptions.storage.write(key: key, value: value)),
+        authority = authority ?? _secureAuthority;
+
+  static final Object _secureAuthority = Object();
+  static final Expando<_ReceiptLock> _locks = Expando<_ReceiptLock>();
+  final Object authority;
+  final Future<String?> Function(String key) _read;
+  final Future<void> Function(String key, String value) _write;
+
+  static String storageKey(String owner) =>
+      'qirsh.immediate_deletion.v1.${base64Url.encode(utf8.encode(owner)).replaceAll('=', '')}';
+
+  /// Facades sharing a storage backend must share this authority. The platform
+  /// default shares one authority across all instances in this Dart isolate.
+  Future<T> serialized<T>(Future<T> Function() body) =>
+      (_locks[authority] ??= _ReceiptLock()).run(body);
+
+  Future<ImmediateDeletionReceipt?> load(String owner) async {
+    try {
+      if (owner.isEmpty) throw const ImmediateDeletionReceiptStoreException();
+      final raw = await _read(storageKey(owner));
+      if (raw == null) return null;
+      final value = jsonDecode(raw);
+      if (value is! Map<String, dynamic> ||
+          value.length != 5 ||
+          !value.keys.every(const {'v', 'owner', 'operation_id', 'receipt_secret', 'phase'}.contains) ||
+          value['v'] is! int ||
+          value['v'] != 1 ||
+          value['owner'] != owner ||
+          value['operation_id'] is! String ||
+          !(value['operation_id'] as String).contains(RegExp(r'^[A-Za-z0-9_-]{1,128}$'))) {
+        throw const ImmediateDeletionReceiptStoreException();
+      }
+      final phase = ImmediateDeletionPhase.values
+          .where((p) => p.name == value['phase']).firstOrNull;
+      final secret = value['receipt_secret'];
+      if (phase == null ||
+          (secret != null &&
+              (secret is! String ||
+                  !RegExp(r'^[A-Za-z0-9_-]{43,128}$').hasMatch(secret))) ||
+          (phase != ImmediateDeletionPhase.completed && secret == null)) {
+        throw const ImmediateDeletionReceiptStoreException();
+      }
+      return ImmediateDeletionReceipt(
+        owner: owner,
+        operationId: value['operation_id'] as String,
+        receiptSecret: secret as String?,
+        phase: phase,
+      );
+    } catch (_) {
+      throw const ImmediateDeletionReceiptStoreException();
+    }
+  }
+
+  Future<void> writeVerified(ImmediateDeletionReceipt receipt) async {
+    try {
+      final encoded = receipt.encode();
+      await _write(storageKey(receipt.owner), encoded);
+      final readback = await load(receipt.owner);
+      if (readback?.encode() != encoded) {
+        throw const ImmediateDeletionReceiptStoreException();
+      }
+    } catch (_) {
+      throw const ImmediateDeletionReceiptStoreException();
+    }
+  }
+}

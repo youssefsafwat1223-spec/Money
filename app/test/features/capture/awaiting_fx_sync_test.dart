@@ -1,13 +1,12 @@
+import 'ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/core/sync/sync_health.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -21,17 +20,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // A-6 (app half) — awaiting-FX transactions (amount 0 + foreign amount/currency)
 // are held durably and visibly until the server is verified to accept them.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 enum _Rpc { verified, missing, absentKey, offline }
 
 void main() {
   late AppDatabase db;
+  late LedgerAdmissionFixture admission;
   late LedgerOutboxQueue q;
   late List<String> calls; // "METHOD path"
   late List<Map<String, dynamic>> inserted;
@@ -41,8 +35,8 @@ void main() {
   late SyncHealth health;
 
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    admission = await LedgerAdmissionFixture.open('u1');
+    db = admission.database;
     q = LedgerOutboxQueue(
         db: db, isPushEnabled: () => true, getAuthUserId: () async => 'u1');
     calls = [];
@@ -52,7 +46,7 @@ void main() {
     consent = true;
     health = SyncHealth();
   });
-  tearDown(() async => db.close());
+  tearDown(() async => admission.finish());
 
   Future<void> insertTx(String id,
       {double amount = 0, bool foreign = true}) async {
@@ -78,7 +72,7 @@ void main() {
 
   SupabaseClient client() {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    return SupabaseClient(
+    return LedgerAdmissionFixture.trackClient(SupabaseClient(
       'https://example.supabase.co',
       'anon',
       accessToken: () async => 'tok',
@@ -114,7 +108,7 @@ void main() {
             decoded is List ? decoded.single as Map : decoded as Map));
         return json(200, {'id': 'srv-1', 'updated_at': now});
       }),
-    );
+    ));
   }
 
   ServerCapabilitiesService caps({DateTime Function()? clock}) =>

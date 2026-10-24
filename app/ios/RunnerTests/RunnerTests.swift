@@ -94,13 +94,14 @@ class RunnerTests: XCTestCase {
   private func resetSnapshotState() {
     SharedCaptureStore.purgeUserOwnedState()
     for key in ["active_capture_owner_v1", "last_admitted_uid_hash_v1",
-                "capture_uid_hmac_key_v1", "cloud_egress_state_v1"] {
+                "capture_uid_hmac_key_v1", "cloud_egress_state_v1",
+                "cloud_egress_pending_v1"] {
       SnapshotTestKeychain.remove(forKey: key)
     }
     for key in ["capture_owner_epoch_v1", "capture_owner_generation_v1",
                 "capture_consent_mirror_v1"] { appGroupDefaults.removeObject(forKey: key) }
     for file in ["cloud_egress_state_v1.json", "capture_destructive_barrier_v1.json",
-                 "native_inflight_uploads_v1.json"] {
+                 "native_inflight_uploads_v1.json", "cloud_egress_pending_v1.json"] {
       try? FileManager.default.removeItem(at: container.appendingPathComponent(file))
     }
     SharedCaptureStore.ownerRecordReadOverride = nil
@@ -424,6 +425,7 @@ class RunnerTests: XCTestCase {
     SharedCaptureStore.lockUnavailableOverride = false
     SharedCaptureStore.ownerRecordReadOverride = nil
     SharedCaptureStore.stampingHook = nil
+    SharedCaptureStore.beforeLifetimeFinishLock = nil
     SharedCaptureStore.clockOverride = nil
     SharedCaptureStore.egressKeychainReadOverride = nil
     SharedCaptureStore.debugResetCloudEgressState()
@@ -1537,6 +1539,1791 @@ class RunnerTests: XCTestCase {
     try SharedCaptureStore.setCloudEgressState(
       state: "ON", ownerUid: ownerA, transitionGeneration: 3, reservedVersion: 4)
     XCTAssertEqual(try egressState(ownerA), .record(rec("ON", 3)))
+  }
+
+  // MARK: - Pending enable barrier (consent-security amendment, native subunit)
+  //
+  // The real SharedCaptureStore over its real App Group container and Keychain.
+  // A layer is the Keychain item or the App Group file; the DEBUG seams
+  // (pendingKeychainReadOverride, egressKeychainReadOverride, stateLayerWriteFault)
+  // inject unreadable layers and failed / silently dropped writes per layer.
+
+  private typealias Phase = SharedCaptureStore.EnableTransitionResult
+  private typealias Outcome = SharedCaptureStore.LayerOutcome
+  private let foreignOperationId = String(repeating: "ab", count: 16)
+  private let egressKC = "cloud_egress_state_v1"
+  private let pendingKC = "cloud_egress_pending_v1"
+
+  private var pendingFileURL: URL { container.appendingPathComponent("cloud_egress_pending_v1.json") }
+
+  private func layerOutcomes(_ reports: [SharedCaptureStore.LayerReport]) -> [String: Outcome] {
+    Dictionary(uniqueKeysWithValues: reports.map { ($0.layer, $0.outcome) })
+  }
+
+  /// Makes [uid] the COMMITTED native active owner (the existing F2 publication,
+  /// restrictive mirror so it also works while egress is unreadable). The barrier
+  /// APIs under test never do this themselves.
+  private func ensureOwner(_ uid: String) throws {
+    if try SharedCaptureStore.activeOwner()?.uid != uid { try publish(uid, cloud: false, ai: false) }
+  }
+
+  /// A FRESH begin for the committed owner (never adopts), or an explicit resume.
+  private func begin(
+    _ uid: String, _ generation: Int = 3, _ version: Int = 4, resume: Phase? = nil
+  ) throws -> Phase {
+    try ensureOwner(uid)
+    return try SharedCaptureStore.beginCloudEgressEnable(
+      ownerUid: uid, transitionGeneration: generation, reservedVersion: version,
+      resumeOperationId: resume?.operationId, resumeOwnerEpoch: resume?.ownerEpoch)
+  }
+
+  private typealias Binding = (id: String, generation: Int, version: Int, ownerGeneration: Int, ownerEpoch: Int)
+
+  private func bound(_ op: Phase) throws -> Binding {
+    (try XCTUnwrap(op.operationId), try XCTUnwrap(op.transitionGeneration),
+     try XCTUnwrap(op.reservedVersion), try XCTUnwrap(op.ownerGeneration),
+     try XCTUnwrap(op.ownerEpoch))
+  }
+
+  private func writeOn(_ uid: String, _ op: Phase) throws -> Phase {
+    let b = try bound(op)
+    return try SharedCaptureStore.writeCloudEgressEnableOn(
+      ownerUid: uid, operationId: b.id, transitionGeneration: b.generation,
+      reservedVersion: b.version, ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch)
+  }
+
+  private func restrict(_ uid: String, _ op: Phase) throws -> Phase {
+    let b = try bound(op)
+    return try SharedCaptureStore.restrictCloudEgressEnable(
+      ownerUid: uid, operationId: b.id, transitionGeneration: b.generation,
+      reservedVersion: b.version, ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch)
+  }
+
+  private func finish(_ uid: String, _ op: Phase, abandon: Bool = false) throws -> Phase {
+    let b = try bound(op)
+    return try SharedCaptureStore.finishCloudEgressEnable(
+      ownerUid: uid, operationId: b.id, transitionGeneration: b.generation,
+      reservedVersion: b.version, ownerGeneration: b.ownerGeneration,
+      ownerEpoch: b.ownerEpoch, abandon: abandon)
+  }
+
+  private func revokeLifetime(_ uid: String, _ op: Phase) throws -> Phase {
+    let b = try bound(op)
+    return try SharedCaptureStore.revokeCaptureAuthorizationLifetime(
+      ownerUid: uid, operationId: b.id, transitionGeneration: b.generation,
+      reservedVersion: b.version, ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch)
+  }
+
+  func testLifetimeFenceAfterCompletionAndBeforeCompletion() throws {
+    for completeFirst in [true, false] {
+      resetCapSeams()
+      let (id, _) = try stampedAllowedItem()
+      let op = try begin(ownerA, 3, 4)
+      XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+      if completeFirst { XCTAssertEqual(try finish(ownerA, op).status, .done) }
+      let revoked = try revokeLifetime(ownerA, op)
+      XCTAssertEqual(revoked.status, .done)
+      XCTAssertEqual(layerOutcomes(revoked.egress), ["file": .verified, "keychain": .verified])
+      XCTAssertEqual(try egressRecord(file: ownerA)?.retirement?.operationId, op.operationId)
+      XCTAssertEqual(try egressRecord(keychain: ownerA)?.retirement?.ownerEpoch, op.ownerEpoch)
+      XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+      XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+      XCTAssertEqual(try egressRecord(file: ownerA)?.state, "OFF")
+      if !completeFirst {
+        XCTAssertEqual(try finish(ownerA, op).status, .ownerMismatch)
+        XCTAssertEqual(try inspect(ownerA).status, .pending)
+      }
+      XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done, "exact retry")
+    }
+    resetCapSeams()
+  }
+
+  func testLifetimeFenceRevokesWhileFinishWaitsBeforeSharedLock() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    let entered = DispatchSemaphore(value: 0)
+    let release = DispatchSemaphore(value: 0)
+    let finished = expectation(description: "queued finish settles")
+    SharedCaptureStore.beforeLifetimeFinishLock = {
+      entered.signal()
+      _ = release.wait(timeout: .now() + 5)
+    }
+    DispatchQueue.global().async {
+      defer { finished.fulfill() }
+      do {
+        XCTAssertEqual(try self.finish(self.ownerA, op).status, .ownerMismatch)
+      } catch { XCTFail("queued finish failed: \(error)") }
+    }
+    XCTAssertEqual(entered.wait(timeout: .now() + 5), .success)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+    release.signal()
+    wait(for: [finished], timeout: 5)
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+  }
+
+  func testLifetimeFenceKeepsAlreadyAdmittedRequestButRefusesNext() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    guard case .allowed = SharedCaptureStore.admitUpload(payloadID: id) else {
+      return XCTFail("pre-fence admission")
+    }
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 1)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 1)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+    SharedCaptureStore.removeInflightUpload(payloadID: id)
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0)
+  }
+
+  func testLifetimeFencePartialWriteAndUnreadableNeverConfirmOrRepair() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    fault("egress", "keychain", .silentDrop)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .incomplete)
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+    SharedCaptureStore.stateLayerWriteFault = nil
+    let bytes = Data([0xff, 0x00])
+    try bytes.write(to: egressFileURL)
+    let kcBefore = SnapshotTestKeychain.read(forKey: egressKC).data
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .uncertain)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), bytes)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, kcBefore)
+  }
+
+  func testLifetimeFenceCannotTouchNewOwnerOrBeDiscardedByLegacyWriter() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+    XCTAssertThrowsError(try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 99, reservedVersion: 99))
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 4, reservedVersion: 4)
+    XCTAssertEqual(try egressRecord(file: ownerA)?.retirement?.operationId, op.operationId)
+    XCTAssertThrowsError(try publish(ownerA, cloud: true, ai: false))
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    let newer = try publish(ownerB, cloud: false, ai: false)
+    let fileBefore = try Data(contentsOf: egressFileURL)
+    let kcBefore = SnapshotTestKeychain.read(forKey: egressKC).data
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .ownerMismatch)
+    XCTAssertEqual(try SharedCaptureStore.activeOwner(), newer)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), fileBefore)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, kcBefore)
+  }
+
+  func testLifetimeFenceFreshRestrictivePublicationHasNewGeneration() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+    let published = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 4, expectedEpoch: try SharedCaptureStore.ownerEpoch())
+    XCTAssertEqual(published.status, .done)
+    let owner = try XCTUnwrap(published.owner)
+    XCTAssertGreaterThan(owner.generation, try XCTUnwrap(op.ownerGeneration))
+    XCTAssertEqual(published.egress.count, 2)
+    XCTAssertTrue(published.egress.allSatisfy { $0.outcome == .verified && $0.state == "OFF" })
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .ownerMismatch)
+    XCTAssertEqual(try finish(ownerA, op).status, .noBarrier)
+  }
+
+  // MARK: - Lifetime retirement covers every enable transition (Astra A1, section 2b)
+  // Written for the approved isolated native harness; NOT executed by the authoring team.
+
+  func testLifetimeRetirementCoversNewerEnableGenerationOfSameLifecycle() throws {
+    for finishFirst in [true, false] {
+      resetCapSeams()
+      let (id, _) = try stampedAllowedItem()
+      let published = try begin(ownerA, 3, 4)          // publication binding gen g
+      XCTAssertEqual(try writeOn(ownerA, published).status, .done)
+      XCTAssertEqual(try finish(ownerA, published).status, .done)
+      let enable = try begin(ownerA, 4, 5)             // enable gen g+1, same lifecycle
+      XCTAssertEqual(try writeOn(ownerA, enable).status, .done)
+      if finishFirst { XCTAssertEqual(try finish(ownerA, enable).status, .done) }
+      let revoked = try revokeLifetime(ownerA, published)
+      XCTAssertEqual(revoked.status, .done)
+      XCTAssertEqual(layerOutcomes(revoked.egress), ["file": .verified, "keychain": .verified])
+      XCTAssertEqual(try egressRecord(file: ownerA)?.state, "OFF")
+      XCTAssertEqual(try egressRecord(keychain: ownerA)?.retirement?.operationId, published.operationId)
+      XCTAssertGreaterThanOrEqual(try XCTUnwrap(egressRecord(file: ownerA)?.transitionGeneration), 4)
+      XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+      XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+      if !finishFirst {
+        XCTAssertNotEqual(try finish(ownerA, enable).status, .done, "retirement-first prevents completion")
+      }
+    }
+    resetCapSeams()
+  }
+
+  func testLifetimeRetirementWithPendingAlreadyAbsentAndAdmissionOrdering() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    guard case .allowed = SharedCaptureStore.admitUpload(payloadID: id) else {
+      return XCTFail("admission immediately before retirement")
+    }
+    SharedCaptureStore.removeInflightUpload(payloadID: id)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly, "immediately after")
+  }
+
+  func testStaleRetirementPreservesNewerLifecycleAndDifferentOwner() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+    let republished = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 4, expectedEpoch: try SharedCaptureStore.ownerEpoch())
+    XCTAssertEqual(republished.status, .done)
+    let next = try begin(ownerA, 5, 6)
+    XCTAssertEqual(try writeOn(ownerA, next).status, .done)
+    XCTAssertEqual(try finish(ownerA, next).status, .done)
+    let fileBefore = try Data(contentsOf: egressFileURL)
+    let kcBefore = SnapshotTestKeychain.read(forKey: egressKC).data
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .ownerMismatch)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), fileBefore)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, kcBefore)
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    _ = try publish(ownerB, cloud: false, ai: false)
+    let fileB = try Data(contentsOf: egressFileURL)
+    XCTAssertEqual(try revokeLifetime(ownerA, next).status, .ownerMismatch)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), fileB)
+  }
+
+  func testBoundRecordAdmissionRequiresSameUidHashAndGenerationThroughEveryEntrance() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    guard case .allowed = SharedCaptureStore.admitUpload(payloadID: id) else {
+      return XCTFail("bound ON of the active owner admits")
+    }
+    SharedCaptureStore.removeInflightUpload(payloadID: id)
+    XCTAssertTrue(SharedCaptureStore.egressAdmitsHostRequest())
+    // Another account becomes active while A's bound ON (same numeric generation
+    // and epoch) is still stored: A's evidence must not admit through any entrance.
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    _ = try publish(ownerB, cloud: false, ai: false)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly, "upload")
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "host request")
+    XCTAssertThrowsError(try publish(ownerA, cloud: true, ai: false), "mirror/config widening")
+  }
+
+  // N-RT / N-R8 (Astra R7 Q14): the owner UID and the owner HASH broken
+  // INDEPENDENTLY, with every other binding value unchanged. Unlike the
+  // clear-and-republish `activeUidReplaced` pattern, the stored bound ON (both
+  // layers), the egress map key, the owner generation counter and the epoch
+  // counter are all left exactly as the completed enable wrote them; only the
+  // active-owner record read by admission differs. Written for the approved
+  // isolated native harness; NOT executed by the authoring team.
+  private func assertBoundOnRefusedThroughEveryEntrance(
+    _ label: String,
+    breaking: (SharedCaptureStore.OwnerRecord) throws -> SharedCaptureStore.OwnerRecord,
+    hostRequestUsesBrokenSubject: Bool
+  ) throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, active) = try stampedAllowedItem()
+    let broken = try breaking(active)
+    let op = try completedBoundOn(ownerA)
+    let good = try boundOn(op)
+    func widen() -> Bool {
+      SharedCaptureStore.setBackendConfig(
+        cloudProcessingEnabled: true, installID: "i", deviceSecret: "s",
+        backendURL: "https://example.test", anonKey: "k", aiConsentGranted: false,
+        ownerUid: ownerA, transitionGeneration: good.transitionGeneration)
+    }
+    // Control: the unbroken binding admits every entrance.
+    XCTAssertTrue(widen(), "control config \(label)")
+    guard case .allowed = SharedCaptureStore.admitUpload(payloadID: id) else {
+      return XCTFail("control upload \(label)")
+    }
+    SharedCaptureStore.removeInflightUpload(payloadID: id)
+    XCTAssertTrue(SharedCaptureStore.egressAdmitsHostRequest(), "control host \(label)")
+
+    let fileBefore = try Data(contentsOf: egressFileURL)
+    let kcBefore = SnapshotTestKeychain.read(forKey: egressKC).data
+    let generationCounter = appGroupDefaults.object(forKey: "capture_owner_generation_v1") as? Int
+    let epochCounter = appGroupDefaults.object(forKey: "capture_owner_epoch_v1") as? Int
+    // Only the active-owner record differs; its generation is the stored counter.
+    XCTAssertEqual(broken.generation, active.generation, "generation unchanged \(label)")
+    XCTAssertEqual(generationCounter, active.generation, "counter unchanged \(label)")
+    SharedCaptureStore.ownerRecordReadOverride = {
+      (errSecSuccess, try? JSONEncoder().encode(broken))
+    }
+
+    XCTAssertFalse(widen(), "backend-config widening must refuse: \(label)")
+    if case .allowed = SharedCaptureStore.admitUpload(payloadID: id) {
+      XCTFail("upload must not be allowed: \(label)")
+    }
+    if hostRequestUsesBrokenSubject {
+      // The subject of a host request is the active owner's uid: here A's bound
+      // ON is judged against a mismatched active hash.
+      XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "host request: \(label)")
+    }
+    XCTAssertThrowsError(try publish(ownerA, cloud: true, ai: false), "mirror widening: \(label)")
+    // A restrictive config write is never refused for denial.
+    XCTAssertTrue(
+      SharedCaptureStore.setBackendConfig(
+        cloudProcessingEnabled: false, installID: "i", deviceSecret: "s",
+        backendURL: "https://example.test", anonKey: "k", aiConsentGranted: false,
+        ownerUid: ownerA, transitionGeneration: good.transitionGeneration),
+      "restrictive config: \(label)")
+
+    // The refusals changed none of the stored binding evidence.
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), fileBefore, "egress file: \(label)")
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, kcBefore, "egress keychain: \(label)")
+    XCTAssertEqual(appGroupDefaults.object(forKey: "capture_owner_generation_v1") as? Int, generationCounter)
+    XCTAssertEqual(appGroupDefaults.object(forKey: "capture_owner_epoch_v1") as? Int, epochCounter)
+  }
+
+  func testBoundOnRefusedWhenOnlyTheActiveUidIsWrongAndHashGenerationEpochAreValid() throws {
+    try assertBoundOnRefusedThroughEveryEntrance("wrong uid only", breaking: { a in
+      // Wrong UID, valid hash of the ORIGINAL owner, same generation, same epoch.
+      SharedCaptureStore.OwnerRecord(uid: self.ownerB, uidHash: a.uidHash, generation: a.generation)
+    }, hostRequestUsesBrokenSubject: false)
+  }
+
+  func testBoundOnRefusedWhenOnlyTheActiveHashIsWrongAndUidGenerationEpochAreValid() throws {
+    try assertBoundOnRefusedThroughEveryEntrance("wrong hash only", breaking: { a in
+      // Wrong hash (a well-formed hash of ANOTHER uid), same uid, generation, epoch.
+      SharedCaptureStore.OwnerRecord(
+        uid: a.uid, uidHash: try SharedCaptureStore.debugOwnerHash(self.ownerB), generation: a.generation)
+    }, hostRequestUsesBrokenSubject: true)
+  }
+
+  // N-RT (Astra R6 unit 6 / R45 R3): the backend-config ENTRANCE itself, with each
+  // binding component broken independently. Written for the approved isolated
+  // native harness; NOT executed by the authoring team.
+  func testBackendConfigEntranceRejectsEachIndependentBindingMismatch() throws {
+    enum Break: String, CaseIterable {
+      case lifetimeGenerationBothLayers, lifetimeEpochBothLayers, onlyOneLayerGeneration,
+           onlyOneLayerEpoch, storedGenerationCounter, liveEpochCounter, activeUidReplaced
+    }
+    func widen(_ generation: Int) -> Bool {
+      SharedCaptureStore.setBackendConfig(
+        cloudProcessingEnabled: true, installID: "i", deviceSecret: "s",
+        backendURL: "https://example.test", anonKey: "k", aiConsentGranted: false,
+        ownerUid: ownerA, transitionGeneration: generation)
+    }
+    func restrict(_ generation: Int) -> Bool {
+      SharedCaptureStore.setBackendConfig(
+        cloudProcessingEnabled: false, installID: "i", deviceSecret: "s",
+        backendURL: "https://example.test", anonKey: "k", aiConsentGranted: false,
+        ownerUid: ownerA, transitionGeneration: generation)
+    }
+    for kind in Break.allCases {
+      resetCapSeams()
+      let (id, _) = try stampedAllowedItem()
+      let op = try completedBoundOn(ownerA)
+      let good = try boundOn(op)
+      // Control: the unbroken bound ON admits the direct config entrance.
+      XCTAssertTrue(widen(good.transitionGeneration), "control before \(kind)")
+      let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+      func broken(generation: Int? = nil, epoch: Int? = nil) -> Rec {
+        Rec(state: "ON", transitionGeneration: good.transitionGeneration,
+            reservedVersion: good.reservedVersion,
+            lifetimeOwnerGeneration: generation ?? good.lifetimeOwnerGeneration,
+            lifetimeOwnerEpoch: epoch ?? good.lifetimeOwnerEpoch)
+      }
+      let genOff = (good.lifetimeOwnerGeneration ?? 0) + 1
+      let epochOff = (good.lifetimeOwnerEpoch ?? 0) + 1
+      switch kind {
+      case .lifetimeGenerationBothLayers:
+        try putEgress(file: [hash: broken(generation: genOff)], keychain: [hash: broken(generation: genOff)])
+      case .lifetimeEpochBothLayers:
+        try putEgress(file: [hash: broken(epoch: epochOff)], keychain: [hash: broken(epoch: epochOff)])
+      case .onlyOneLayerGeneration:
+        try putEgress(file: [hash: good], keychain: [hash: broken(generation: genOff)])
+      case .onlyOneLayerEpoch:
+        try putEgress(file: [hash: broken(epoch: epochOff)], keychain: [hash: good])
+      case .storedGenerationCounter:
+        appGroupDefaults.set(genOff, forKey: "capture_owner_generation_v1")
+      case .liveEpochCounter:
+        appGroupDefaults.set(epochOff, forKey: "capture_owner_epoch_v1")
+      case .activeUidReplaced:
+        try SharedCaptureStore.clearActiveOwner(clearHint: false)
+        _ = try publish(ownerB, cloud: false, ai: false)
+      }
+      XCTAssertFalse(widen(good.transitionGeneration), "config entrance must refuse: \(kind)")
+      XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly, "upload: \(kind)")
+      XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "host request: \(kind)")
+      // A restrictive config write is never refused for denial.
+      XCTAssertTrue(restrict(good.transitionGeneration), "restrictive config: \(kind)")
+    }
+    resetCapSeams()
+  }
+
+  func testRestrictPublishedLifetimePreservesMetadataAndOwnLayerProof() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let publication = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 4, expectedEpoch: try SharedCaptureStore.ownerEpoch())
+    XCTAssertEqual(publication.status, .done)
+    let op = try begin(ownerA, 4, 5)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    let before = try XCTUnwrap(egressRecord(file: ownerA))
+    // A barrier in the other layer cannot authorize compensation here.
+    let pendingBytes = try XCTUnwrap(rawPending(file: true))
+    try FileManager.default.removeItem(at: pendingFileURL)
+    let refused = try restrict(ownerA, op)
+    XCTAssertEqual(refused.status, .incomplete)
+    XCTAssertEqual(layerOutcomes(refused.egress)["file"], .notOurs)
+    XCTAssertEqual(try egressRecord(file: ownerA), before)
+    try pendingBytes.write(to: pendingFileURL)
+    let restricted = try restrict(ownerA, op)
+    XCTAssertEqual(restricted.status, .done)
+    for entry in [try egressRecord(file: ownerA), try egressRecord(keychain: ownerA)] {
+      XCTAssertEqual(entry?.state, "OFF")
+      XCTAssertEqual(entry?.lifetimeOwnerGeneration, op.ownerGeneration)
+      XCTAssertEqual(entry?.lifetimeOwnerEpoch, op.ownerEpoch)
+      XCTAssertNil(entry?.retirement)
+    }
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+  }
+
+  func testAbandonExactRetiredLifetimeClearsOnlyPendingAndKeepsDenial() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+    let fileBefore = try Data(contentsOf: egressFileURL)
+    let kcBefore = SnapshotTestKeychain.read(forKey: egressKC).data
+    let abandoned = try finish(ownerA, op, abandon: true)
+    XCTAssertEqual(abandoned.operation, "abandon")
+    XCTAssertEqual(abandoned.status, .done)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), fileBefore)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, kcBefore)
+    XCTAssertNil(rawPending(file: true))
+    XCTAssertNil(rawPending(file: false))
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+  }
+
+  func testRestrictAndAbandonLeaveDifferentLifetimeEvidenceUntouched() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    let b = try bound(op)
+    let foreign = SharedCaptureStore.PendingEnable(operationId: foreignOperationId,
+      transitionGeneration: b.generation, reservedVersion: b.version,
+      ownerGeneration: b.ownerGeneration + 1, ownerEpoch: b.ownerEpoch)
+    let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    let record = SharedCaptureStore.CloudEgressRecord(state: "OFF",
+      transitionGeneration: b.generation, reservedVersion: b.version,
+      lifetimeOwnerGeneration: foreign.ownerGeneration, lifetimeOwnerEpoch: foreign.ownerEpoch,
+      retirement: foreign)
+    let data = try JSONEncoder().encode(SharedCaptureStore.CloudEgressMap(owners: [hash: record]))
+    try data.write(to: egressFileURL)
+    XCTAssertEqual(SnapshotTestKeychain.writeData(data, forKey: egressKC), errSecSuccess)
+    let pendingBefore = rawPending(file: true)
+    XCTAssertEqual(try restrict(ownerA, op).status, .incomplete)
+    let abandoned = try finish(ownerA, op, abandon: true)
+    XCTAssertEqual(abandoned.operation, "abandon")
+    XCTAssertEqual(abandoned.status, .ownerMismatch)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), data)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, data)
+    XCTAssertEqual(rawPending(file: true), pendingBefore)
+  }
+
+  // MARK: - N-R1 / N-R2 explicit bound ON (written test-first; NOT EXECUTED here:
+  // the harness uses the shipping App Group and Keychain service, so it must only
+  // run against an isolated storage namespace)
+
+  /// The exact bound ON a phase-authorized writeOn must produce for [op].
+  private func boundOn(_ op: Phase) throws -> Rec {
+    let b = try bound(op)
+    return Rec(state: "ON", transitionGeneration: b.generation, reservedVersion: b.version,
+               lifetimeOwnerGeneration: b.ownerGeneration, lifetimeOwnerEpoch: b.ownerEpoch)
+  }
+
+  /// A record in either orientation of the lifecycle: legacy (no fields) or bound.
+  private func offRec(_ generation: Int, _ version: Int, ownerGeneration: Int? = nil,
+                      ownerEpoch: Int? = nil) -> Rec {
+    Rec(state: "OFF", transitionGeneration: generation, reservedVersion: version,
+        lifetimeOwnerGeneration: ownerGeneration, lifetimeOwnerEpoch: ownerEpoch)
+  }
+
+  /// Writes a raw per-layer egress map (nil removes that layer entirely).
+  private func putEgress(file: [String: Rec]?, keychain: [String: Rec]?) throws {
+    if let file {
+      try JSONEncoder().encode(SharedCaptureStore.CloudEgressMap(owners: file)).write(to: egressFileURL)
+    } else {
+      try? FileManager.default.removeItem(at: egressFileURL)
+    }
+    if let keychain {
+      XCTAssertEqual(SnapshotTestKeychain.writeData(
+        try JSONEncoder().encode(SharedCaptureStore.CloudEgressMap(owners: keychain)),
+        forKey: egressKC), errSecSuccess)
+    } else {
+      SnapshotTestKeychain.remove(forKey: egressKC)
+    }
+  }
+
+  /// Every raw byte the snapshot/admission reads must leave untouched.
+  private struct RawState: Equatable {
+    let egressFile: Data?
+    let egressKeychain: Data?
+    let pendingFile: Data?
+    let pendingKeychain: Data?
+    let owner: SharedCaptureStore.OwnerRecord?
+    let epoch: Int
+    let generationCounter: Int
+  }
+
+  private func rawState() throws -> RawState {
+    RawState(
+      egressFile: try? Data(contentsOf: egressFileURL),
+      egressKeychain: SnapshotTestKeychain.read(forKey: egressKC).data,
+      pendingFile: rawPending(file: true), pendingKeychain: rawPending(file: false),
+      owner: try SharedCaptureStore.activeOwner(), epoch: try SharedCaptureStore.ownerEpoch(),
+      generationCounter: appGroupDefaults.integer(forKey: "capture_owner_generation_v1"))
+  }
+
+  /// Snapshot uncertain + native admission denied, with every raw store unchanged.
+  private func assertSnapshotDenied(_ uid: String, _ message: String = "",
+                                    file: StaticString = #filePath, line: UInt = #line) throws {
+    let before = try rawState()
+    XCTAssertEqual(try egressState(uid), .uncertain, message, file: file, line: line)
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), message, file: file, line: line)
+    XCTAssertEqual(try rawState(), before, "reads never mutate: \(message)", file: file, line: line)
+  }
+
+  /// begin -> writeOn -> complete under the committed owner, bound ON in both layers.
+  private func completedBoundOn(_ uid: String, _ generation: Int = 3, _ version: Int = 4) throws -> Phase {
+    let op = try begin(uid, generation, version)
+    XCTAssertEqual(try writeOn(uid, op).status, .done)
+    XCTAssertEqual(try finish(uid, op).status, .done)
+    return op
+  }
+
+  // N-R tests 1: matching restrictive publication -> begin -> NEW explicit bound
+  // ON -> complete. Exact lifecycle in both layers; snapshot ON; admission allowed.
+  func testBoundOnAfterRestrictivePublicationIsExactAndSnapshotOn() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let publication = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 4, expectedEpoch: try SharedCaptureStore.ownerEpoch())
+    XCTAssertEqual(publication.status, .done)
+    let op = try begin(ownerA, 4, 5)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    let expected = try boundOn(op)
+    XCTAssertEqual(try egressRecord(file: ownerA), expected)
+    XCTAssertEqual(try egressRecord(keychain: ownerA), expected)
+    XCTAssertEqual(expected.lifetimeOwnerGeneration, publication.owner?.generation)
+    XCTAssertEqual(expected.lifetimeOwnerEpoch, try SharedCaptureStore.ownerEpoch())
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "pending barrier denies")
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    XCTAssertEqual(try egressState(ownerA), .record(expected))
+    XCTAssertTrue(SharedCaptureStore.egressAdmitsHostRequest())
+    XCTAssertEqual(try egressRecord(file: ownerA), expected, "complete rewrites nothing")
+    XCTAssertEqual(try egressRecord(keychain: ownerA), expected)
+  }
+
+  // N-R tests 2: completed bound ON, then clearActiveOwner: snapshot uncertain and
+  // admission denied; the epoch advanced; reads leave every byte alone.
+  func testBoundOnSnapshotIsUncertainAfterOwnerClear() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try completedBoundOn(ownerA)
+    XCTAssertEqual(try egressState(ownerA), .record(try boundOn(op)))
+    guard case .allowed = SharedCaptureStore.authorizeUpload(payloadID: id) else {
+      return XCTFail("valid bound ON admits")
+    }
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    XCTAssertGreaterThan(try SharedCaptureStore.ownerEpoch(), epoch)
+    try assertSnapshotDenied(ownerA, "owner cleared")
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+  }
+
+  // N-R tests 3: same UID new generation, and another current UID, separately.
+  func testBoundOnSnapshotIsUncertainForNewGenerationAndOtherCurrentOwner() throws {
+    for other in [false, true] {
+      resetCapSeams()
+      defer { resetCapSeams() }
+      let (id, _) = try stampedAllowedItem()
+      let op = try completedBoundOn(ownerA)
+      try SharedCaptureStore.clearActiveOwner(clearHint: false)
+      let successor = try publish(other ? ownerB : ownerA, cloud: false, ai: false)
+      XCTAssertNotEqual(successor.generation, op.ownerGeneration)
+      let bytes = try rawState()
+      try assertSnapshotDenied(ownerA, other ? "other current owner" : "same uid, new generation")
+      XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+      if other {
+        XCTAssertEqual(try egressState(ownerB), .unset, "the requested uid is judged by its own entry")
+      }
+      XCTAssertEqual(try rawState().egressFile, bytes.egressFile)
+      XCTAssertEqual(try rawState().egressKeychain, bytes.egressKeychain)
+    }
+  }
+
+  // N-R tests 4: one bound layer missing (each orientation): uncertain/denied, and
+  // the absent layer stays absent (reads never repair).
+  func testBoundOnSnapshotNeedsBothLayers() throws {
+    for removeFile in [true, false] {
+      resetCapSeams()
+      defer { resetCapSeams() }
+      _ = try stampedAllowedItem()
+      _ = try completedBoundOn(ownerA)
+      if removeFile {
+        try FileManager.default.removeItem(at: egressFileURL)
+      } else {
+        SnapshotTestKeychain.remove(forKey: egressKC)
+      }
+      try assertSnapshotDenied(ownerA, removeFile ? "file layer missing" : "keychain layer missing")
+      if removeFile {
+        XCTAssertFalse(FileManager.default.fileExists(atPath: egressFileURL.path))
+      } else {
+        XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).status, errSecItemNotFound)
+      }
+    }
+  }
+
+  // N-R tests 5: mismatched epoch / generation, corrupt owner evidence and corrupt
+  // egress layers (both orientations) are uncertain/denied with raw bytes
+  // unchanged; a valid OFF stays visible after clear / unreadable ownership.
+  func testBoundOnSnapshotRejectsMismatchedOrCorruptEvidence() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try completedBoundOn(ownerA)
+    let b = try bound(op)
+    let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    let valid = try boundOn(op)
+    XCTAssertEqual(try egressState(ownerA), .record(valid))
+    // Mismatched lifetime fields in BOTH layers (generation, then epoch).
+    for (generation, epoch) in [(b.ownerGeneration + 1, b.ownerEpoch), (b.ownerGeneration, b.ownerEpoch + 1)] {
+      let moved = Rec(state: "ON", transitionGeneration: b.generation, reservedVersion: b.version,
+                      lifetimeOwnerGeneration: generation, lifetimeOwnerEpoch: epoch)
+      try putEgress(file: [hash: moved], keychain: [hash: moved])
+      try assertSnapshotDenied(ownerA, "stored lifetime \(generation)/\(epoch)")
+    }
+    // One layer carries the wrong lifetime, the other the right one.
+    let wrong = Rec(state: "ON", transitionGeneration: b.generation, reservedVersion: b.version,
+                    lifetimeOwnerGeneration: b.ownerGeneration, lifetimeOwnerEpoch: b.ownerEpoch + 1)
+    try putEgress(file: [hash: wrong], keychain: [hash: valid])
+    try assertSnapshotDenied(ownerA, "layers disagree")
+    // A half-bound record (epoch only) is never a bound ON.
+    let half = Rec(state: "ON", transitionGeneration: b.generation, reservedVersion: b.version,
+                   lifetimeOwnerGeneration: nil, lifetimeOwnerEpoch: b.ownerEpoch)
+    try putEgress(file: [hash: half], keychain: [hash: half])
+    try assertSnapshotDenied(ownerA, "half-bound")
+    try putEgress(file: [hash: valid], keychain: [hash: valid])
+    XCTAssertEqual(try egressState(ownerA), .record(valid))
+    // Actual counters: owner generation counter and epoch counter move.
+    appGroupDefaults.set(b.ownerGeneration + 1, forKey: "capture_owner_generation_v1")
+    try assertSnapshotDenied(ownerA, "generation counter")
+    appGroupDefaults.set(b.ownerGeneration, forKey: "capture_owner_generation_v1")
+    appGroupDefaults.set(b.ownerEpoch + 1, forKey: "capture_owner_epoch_v1")
+    try assertSnapshotDenied(ownerA, "epoch counter")
+    appGroupDefaults.set(b.ownerEpoch, forKey: "capture_owner_epoch_v1")
+    XCTAssertEqual(try egressState(ownerA), .record(valid))
+    // Corrupt owner evidence.
+    let corruptOwner = SharedCaptureStore.OwnerRecord(
+      uid: ownerA, uidHash: String(repeating: "0", count: 64), generation: b.ownerGeneration)
+    SharedCaptureStore.ownerRecordReadOverride = { (errSecSuccess, try? JSONEncoder().encode(corruptOwner)) }
+    XCTAssertEqual(try egressState(ownerA), .uncertain, "corrupt owner evidence")
+    SharedCaptureStore.ownerRecordReadOverride = nil
+    XCTAssertEqual(try egressState(ownerA), .record(valid))
+    // Corrupt/unreadable egress layers, both orientations; raw bytes unchanged.
+    let garbage = Data([0x00, 0xFF, 0x7B])
+    try garbage.write(to: egressFileURL)
+    try assertSnapshotDenied(ownerA, "corrupt file layer")
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), garbage)
+    try putEgress(file: [hash: valid], keychain: [hash: valid])
+    XCTAssertEqual(SnapshotTestKeychain.writeData(garbage, forKey: egressKC), errSecSuccess)
+    try assertSnapshotDenied(ownerA, "corrupt keychain layer")
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, garbage)
+    try putEgress(file: [hash: valid], keychain: [hash: valid])
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecInteractionNotAllowed, nil) }
+    XCTAssertEqual(try egressState(ownerA), .uncertain, "unreadable keychain layer")
+    SharedCaptureStore.egressKeychainReadOverride = nil
+    guard case .allowed = SharedCaptureStore.authorizeUpload(payloadID: id) else {
+      return XCTFail("valid bound ON in both readable layers admits")
+    }
+    // A valid OFF is still reported after the owner is cleared or unreadable.
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 9, reservedVersion: 9)
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    for _ in 0..<2 {
+      guard case let .record(restrictive) = try egressState(ownerA) else {
+        return XCTFail("restrictive OFF must stay visible")
+      }
+      XCTAssertEqual(restrictive.state, "OFF")
+      SharedCaptureStore.ownerRecordReadOverride = { (errSecSuccess, try? JSONEncoder().encode(corruptOwner)) }
+    }
+    SharedCaptureStore.ownerRecordReadOverride = nil
+    try garbage.write(to: egressFileURL)
+    guard case let .record(offWithBadLayer) = try egressState(ownerA) else {
+      return XCTFail("restrictive OFF in the readable layer stays visible")
+    }
+    XCTAssertEqual(offWithBadLayer.state, "OFF")
+  }
+
+  /// Runs begin -> mixed-input writeOn -> complete and checks the bound result.
+  /// [file] / [keychain] build that layer's record for the requested owner from the
+  /// lifecycle `begin` captured (nil = the layer holds NO entry for the owner).
+  /// Unrelated owner B keeps a DIFFERENT complete record in each layer.
+  private func assertPromotesToBoundOn(
+    file: (Int, Int) -> Rec?, keychain: (Int, Int) -> Rec?,
+    _ message: String, fileID: StaticString = #filePath, line: UInt = #line
+  ) throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    let b = try bound(op)
+    let hashA = try SharedCaptureStore.debugOwnerHash(ownerA)
+    let hashB = try SharedCaptureStore.debugOwnerHash(ownerB)
+    let bFile = Rec(state: "ON", transitionGeneration: 1, reservedVersion: 2)
+    let bKeychain = Rec(state: "OFF", transitionGeneration: 6, reservedVersion: 7,
+                        lifetimeOwnerGeneration: 99, lifetimeOwnerEpoch: 98)
+    var fileMap: [String: Rec] = [hashB: bFile]
+    var keychainMap: [String: Rec] = [hashB: bKeychain]
+    fileMap[hashA] = file(b.ownerGeneration, b.ownerEpoch)
+    keychainMap[hashA] = keychain(b.ownerGeneration, b.ownerEpoch)
+    try putEgress(file: fileMap, keychain: keychainMap)
+    let on = try writeOn(ownerA, op)
+    XCTAssertEqual(on.status, .done, message, file: fileID, line: line)
+    let expected = try boundOn(op)
+    XCTAssertEqual(try egressRecord(file: ownerA), expected, message, file: fileID, line: line)
+    XCTAssertEqual(try egressRecord(keychain: ownerA), expected, message, file: fileID, line: line)
+    XCTAssertEqual(try egressRecord(file: ownerB), bFile, "B preserved in file: \(message)", file: fileID, line: line)
+    XCTAssertEqual(try egressRecord(keychain: ownerB), bKeychain, "B preserved in keychain: \(message)", file: fileID, line: line)
+    XCTAssertEqual(try finish(ownerA, op).status, .done, message, file: fileID, line: line)
+    XCTAssertEqual(try egressState(ownerA), .record(expected), message, file: fileID, line: line)
+    guard case .allowed = SharedCaptureStore.authorizeUpload(payloadID: id) else {
+      return XCTFail("admitted: \(message)", file: fileID, line: line)
+    }
+    // N-R tests 10: afterwards, epoch/generation loss => uncertain/denied.
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    try assertSnapshotDenied(ownerA, "after owner loss: \(message)", file: fileID, line: line)
+  }
+
+  // N-R tests 6: legacy OFF + current-bound OFF, both orientations, with a higher
+  // transition and exact pending/live proof => BOTH layers hold the explicit bound
+  // ON (uniformly promoted, never stripped); unrelated owner B is preserved per layer.
+  func testMixedLegacyAndBoundOffAreUniformlyPromotedToExplicitBoundOn() throws {
+    let legacy: (Int, Int) -> Rec? = { [self] _, _ in offRec(2, 3) }
+    let boundOff: (Int, Int) -> Rec? = { [self] generation, epoch in
+      offRec(2, 3, ownerGeneration: generation, ownerEpoch: epoch)
+    }
+    try assertPromotesToBoundOn(file: legacy, keychain: boundOff, "legacy file / bound keychain")
+    try assertPromotesToBoundOn(file: boundOff, keychain: legacy, "bound file / legacy keychain")
+  }
+
+  // N-R tests 7: absent owner entry vs current-bound OFF (both orientations) and an
+  // all-legacy pair: exact proof establishes an explicitly bound ON, never a legacy grant.
+  func testAbsentAndAllLegacyInputsBecomeExplicitBoundOnNeverLegacy() throws {
+    let absent: (Int, Int) -> Rec? = { _, _ in nil }
+    let legacy: (Int, Int) -> Rec? = { [self] _, _ in offRec(2, 3) }
+    let boundOff: (Int, Int) -> Rec? = { [self] generation, epoch in
+      offRec(2, 3, ownerGeneration: generation, ownerEpoch: epoch)
+    }
+    try assertPromotesToBoundOn(file: absent, keychain: boundOff, "absent file entry / bound keychain")
+    try assertPromotesToBoundOn(file: boundOff, keychain: absent, "bound file / absent keychain entry")
+    try assertPromotesToBoundOn(file: legacy, keychain: legacy, "all-legacy pair")
+    try assertPromotesToBoundOn(file: absent, keychain: absent, "no entries")
+  }
+
+  // N-R tests 8: wrong/stale lifecycle, retirement, same-generation conflicting target
+  // and newer transition input are refused BEFORE any write.
+  func testWriteOnRefusesBadLifecycleInputBeforeAnyWrite() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    let b = try bound(op)
+    let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    let hashB = try SharedCaptureStore.debugOwnerHash(ownerB)
+    let retired = SharedCaptureStore.PendingEnable(operationId: op.operationId!,
+      transitionGeneration: b.generation, reservedVersion: b.version,
+      ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch)
+    let foreignB = Rec(state: "ON", transitionGeneration: 8, reservedVersion: 8)
+    let cases: [(String, Rec, SharedCaptureStore.TransitionStatus)] = [
+      ("other generation", offRec(2, 3, ownerGeneration: b.ownerGeneration + 1, ownerEpoch: b.ownerEpoch), .ownerMismatch),
+      ("other epoch", offRec(2, 3, ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch + 1), .ownerMismatch),
+      ("half bound generation", offRec(2, 3, ownerGeneration: b.ownerGeneration, ownerEpoch: nil), .ownerMismatch),
+      ("half bound epoch", offRec(2, 3, ownerGeneration: nil, ownerEpoch: b.ownerEpoch), .ownerMismatch),
+      ("retired lifetime", Rec(state: "OFF", transitionGeneration: 2, reservedVersion: 3,
+         lifetimeOwnerGeneration: b.ownerGeneration, lifetimeOwnerEpoch: b.ownerEpoch,
+         retirement: retired), .ownerMismatch),
+      ("same generation conflicting target", offRec(b.generation, b.version), .stale),
+      ("same generation stripped ON", Rec(state: "ON", transitionGeneration: b.generation,
+         reservedVersion: b.version), .stale),
+      ("newer transition", offRec(b.generation + 1, b.version + 1), .stale),
+    ]
+    for (name, record, status) in cases {
+      for orientation in [true, false] {
+        try putEgress(file: [hash: orientation ? record : offRec(1, 2), hashB: foreignB],
+                      keychain: [hash: orientation ? offRec(1, 2) : record, hashB: foreignB])
+        let before = try rawState()
+        XCTAssertEqual(try writeOn(ownerA, op).status, status, "\(name) \(orientation)")
+        XCTAssertEqual(try rawState(), before, "refused before any write: \(name) \(orientation)")
+        XCTAssertEqual(try inspect(ownerA).status, .pending, "pending retained: \(name)")
+      }
+    }
+  }
+
+  // N-R tests 9: an exactly matching bound ON re-write is idempotent and completes;
+  // a forged STRIPPED ON is refused by writeOn and by complete, with pending retained.
+  func testIdempotentBoundOnCompletesAndForgedStrippedOnIsRefused() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    let bytes = try rawState()
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done, "idempotent exact bound ON")
+    XCTAssertEqual(try rawState(), bytes)
+    // Stripped ON forged in both layers before complete.
+    let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    let stripped = Rec(state: "ON", transitionGeneration: 3, reservedVersion: 4)
+    try putEgress(file: [hash: stripped], keychain: [hash: stripped])
+    let forged = try rawState()
+    XCTAssertEqual(try writeOn(ownerA, op).status, .stale, "stripped target is not the bound target")
+    XCTAssertEqual(try finish(ownerA, op).status, .incomplete)
+    XCTAssertEqual(try rawState(), forged, "nothing was written or cleared")
+    XCTAssertEqual(try inspect(ownerA).status, .pending, "pending retained")
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    // The intended bound target still succeeds once restored.
+    let expected = try boundOn(op)
+    try putEgress(file: [hash: expected], keychain: [hash: expected])
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    XCTAssertEqual(try egressState(ownerA), .record(expected))
+  }
+
+  private func rawPending(file: Bool) -> Data? {
+    if file { return try? Data(contentsOf: pendingFileURL) }
+    return SnapshotTestKeychain.read(forKey: pendingKC).data
+  }
+
+  private func pendingMap(file: Bool) throws -> SharedCaptureStore.PendingEnableMap? {
+    try rawPending(file: file).map {
+      try JSONDecoder().decode(SharedCaptureStore.PendingEnableMap.self, from: $0)
+    }
+  }
+
+  private func inspect(_ uid: String) throws -> Phase {
+    try SharedCaptureStore.cloudEgressPending(forUid: uid)
+  }
+
+  private func egressRecord(file uid: String) throws -> Rec? {
+    guard let data = try? Data(contentsOf: egressFileURL) else { return nil }
+    return try JSONDecoder().decode(SharedCaptureStore.CloudEgressMap.self, from: data)
+      .owners[try SharedCaptureStore.debugOwnerHash(uid)]
+  }
+
+  private func egressRecord(keychain uid: String) throws -> Rec? {
+    guard let data = SnapshotTestKeychain.read(forKey: egressKC).data else { return nil }
+    return try JSONDecoder().decode(SharedCaptureStore.CloudEgressMap.self, from: data)
+      .owners[try SharedCaptureStore.debugOwnerHash(uid)]
+  }
+
+  private func setEgress(file entries: [(String, String, Int)]) throws {
+    try egressJSON(entries).write(to: egressFileURL)
+  }
+
+  private func setEgress(keychain entries: [(String, String, Int)]) throws {
+    XCTAssertEqual(SnapshotTestKeychain.writeData(try egressJSON(entries), forKey: egressKC), errSecSuccess)
+  }
+
+  /// (uid, operationId, generation, version, ownerGeneration, ownerEpoch)
+  private func pendingJSON(_ entries: [(String, String, Int, Int, Int, Int)]) throws -> Data {
+    var owners: [String: SharedCaptureStore.PendingEnable] = [:]
+    for (uid, id, generation, version, ownerGeneration, ownerEpoch) in entries {
+      owners[try SharedCaptureStore.debugOwnerHash(uid)] = SharedCaptureStore.PendingEnable(
+        operationId: id, transitionGeneration: generation, reservedVersion: version,
+        ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
+    }
+    return try JSONEncoder().encode(SharedCaptureStore.PendingEnableMap(owners: owners))
+  }
+
+  private func fault(_ store: String, _ layer: String, _ kind: SharedCaptureStore.LayerWriteFault) {
+    SharedCaptureStore.stateLayerWriteFault = { s, l in s == store && l == layer ? kind : .none }
+  }
+
+  private func assertEgressDenied(_ error: Error, file: StaticString = #filePath, line: UInt = #line) {
+    guard case SharedCaptureStore.QueueError.egressDenied = error else {
+      return XCTFail("expected egressDenied, got \(error)", file: file, line: line)
+    }
+  }
+
+  // 1: begin persists the denial in BOTH layers, read back, before any ON.
+  func testBeginPersistsDenialInBothLayersBeforeAnyOn() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, a) = try stampedAllowedItem()
+    XCTAssertFalse(FileManager.default.fileExists(atPath: pendingFileURL.path),
+                   "a healthy install has no barrier store")
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    let op = try begin(ownerA, 1, 2)
+    XCTAssertEqual(op.status, .done)
+    XCTAssertEqual(layerOutcomes(op.barrier), ["file": .verified, "keychain": .verified])
+    XCTAssertEqual(op.operationId?.count, 32)
+    XCTAssertEqual(op.ownerGeneration, a.generation, "bound to the committed owner record")
+    XCTAssertEqual(op.ownerEpoch, epoch, "bound to the committed owner epoch")
+    XCTAssertEqual(try SharedCaptureStore.activeOwner(), a, "begin never changes the owner")
+    XCTAssertEqual(try SharedCaptureStore.ownerEpoch(), epoch, "begin never bumps the epoch")
+    XCTAssertNil(try egressRecord(file: ownerA), "no ON was written by begin")
+    XCTAssertNil(try egressRecord(keychain: ownerA))
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+    XCTAssertEqual(try SharedCaptureStore.inflightUploads(forUid: ownerA).count, 0)
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "no APNs registration")
+    XCTAssertEqual(try egressState(ownerA), .uncertain)
+    let text = String(data: try Data(contentsOf: pendingFileURL), encoding: .utf8) ?? ""
+    XCTAssertFalse(text.contains(ownerA), "keyed by the HMAC uidHash, never a raw uid")
+    XCTAssertTrue(text.contains(try SharedCaptureStore.debugOwnerHash(ownerA)))
+    XCTAssertNoThrow(try SharedCaptureStore.setConsentMirror(
+      uid: ownerB, cloud: true, ai: false, version: 1), "another owner is unaffected")
+  }
+
+  // 2: no legacy writer, mirror, publish or backend config can bypass the barrier.
+  func testLegacyAndMirrorWritesCannotBypassPending() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    _ = try begin(ownerA, 1, 2)
+    XCTAssertThrowsError(try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2)) { assertEgressDenied($0) }
+    XCTAssertNil(try egressRecord(file: ownerA))
+    XCTAssertNil(try egressRecord(keychain: ownerA))
+    XCTAssertThrowsError(try SharedCaptureStore.setConsentMirror(
+      uid: ownerA, cloud: true, ai: true, version: 9)) { assertEgressDenied($0) }
+    XCTAssertThrowsError(try publish(ownerA, cloud: true, ai: false)) { assertEgressDenied($0) }
+    XCTAssertFalse(SharedCaptureStore.setBackendConfig(
+      cloudProcessingEnabled: true, installID: "i", deviceSecret: "s",
+      backendURL: "https://example.test", anonKey: "k", aiConsentGranted: false,
+      ownerUid: ownerA, transitionGeneration: 1))
+    // Restrictive writes still pass and never lift the barrier.
+    XCTAssertNoThrow(try SharedCaptureStore.setConsentMirror(
+      uid: ownerA, cloud: false, ai: false, version: 9))
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2)
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+  }
+
+  // 3: a fresh begin NEVER adopts an existing operation, even with identical
+  // parameters; only an explicit resume of the exact operation touches it.
+  func testFreshBeginNeverAdoptsAndOnlyExplicitResumeRepairs() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let first = try begin(ownerA, 1, 2)
+    XCTAssertEqual(first.status, .done)
+    let before = (rawPending(file: true), rawPending(file: false))
+    for (generation, version) in [(1, 2), (1, 3), (2, 3)] {
+      let other = try begin(ownerA, generation, version)
+      XCTAssertEqual(other.status, .conflict, "fresh begin \(generation)/\(version)")
+      XCTAssertEqual(other.operationId, first.operationId, "the pending operation is reported, not adopted")
+    }
+    XCTAssertEqual(rawPending(file: true), before.0)
+    XCTAssertEqual(rawPending(file: false), before.1, "a conflicting begin writes nothing")
+    let epoch = try XCTUnwrap(first.ownerEpoch)
+    // Wrong id, wrong epoch, wrong binding: still conflicts and writes nothing.
+    for (id, resumeEpoch, generation) in [
+      (foreignOperationId, epoch, 1), (try XCTUnwrap(first.operationId), epoch + 1, 1),
+      (try XCTUnwrap(first.operationId), epoch, 2),
+    ] {
+      XCTAssertEqual(try SharedCaptureStore.beginCloudEgressEnable(
+        ownerUid: ownerA, transitionGeneration: generation, reservedVersion: 2,
+        resumeOperationId: id, resumeOwnerEpoch: resumeEpoch).status, .conflict)
+    }
+    XCTAssertEqual(rawPending(file: true), before.0)
+    let resumed = try begin(ownerA, 1, 2, resume: first)
+    XCTAssertEqual(resumed.status, .done)
+    XCTAssertEqual(resumed.operationId, first.operationId)
+    // B is independent and does not disturb A's barrier.
+    let b = try begin(ownerB, 1, 2)
+    XCTAssertEqual(b.status, .done)
+    XCTAssertNotEqual(b.operationId, first.operationId)
+    XCTAssertEqual(try inspect(ownerA).operationId, first.operationId)
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+    // Resuming something that does not exist creates nothing.
+    XCTAssertEqual(try finish(ownerA, first, abandon: true).status, .done)
+    XCTAssertEqual(try inspect(ownerA).status, .noBarrier)
+    try ensureOwner(ownerA)
+    XCTAssertEqual(try begin(ownerA, 1, 2, resume: first).status, .noBarrier)
+    XCTAssertEqual(try inspect(ownerA).status, .noBarrier)
+  }
+
+  // 4: a generation that is not strictly newer is stale; an unreadable egress
+  // state judges nothing and writes nothing.
+  func testBeginRefusesStaleGenerationAndUncertainEgress() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 5, reservedVersion: 6)
+    XCTAssertEqual(try begin(ownerA, 5, 6).status, .stale)
+    XCTAssertEqual(try begin(ownerA, 4, 5).status, .stale)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: pendingFileURL.path))
+    XCTAssertEqual(try begin(ownerA, 6, 7).status, .done)
+    let garbage = Data([0x00, 0xFF, 0x7B])
+    try garbage.write(to: egressFileURL)
+    let uncertain = try begin(ownerB, 1, 2)
+    XCTAssertEqual(uncertain.status, .uncertain)
+    XCTAssertEqual(layerOutcomes(uncertain.egress)["file"], .unreadable)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), garbage, "an unreadable layer is never overwritten")
+    XCTAssertEqual(try inspect(ownerB).status, .noBarrier)
+  }
+
+  // 5: every pending layer failing independently (fail or silent drop) leaves a
+  // partial barrier that still denies; a retry repairs it under the same operation.
+  func testBeginPartialWriteFailsClosedAndRetryRepairs() throws {
+    for layer in ["file", "keychain"] {
+      for kind in [SharedCaptureStore.LayerWriteFault.fail, .silentDrop] {
+        resetCapSeams()
+        defer { resetCapSeams() }
+        let (id, _) = try stampedAllowedItem()
+        fault("pending", layer, kind)
+        let partial = try begin(ownerA, 1, 2)
+        XCTAssertEqual(partial.status, .incomplete, "\(layer) \(kind)")
+        let outcomes = layerOutcomes(partial.barrier)
+        XCTAssertEqual(outcomes[layer], kind == .fail ? .writeFailed : .mismatch)
+        XCTAssertEqual(outcomes[layer == "file" ? "keychain" : "file"], .verified)
+        XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly,
+                       "the layer that did persist still denies")
+        XCTAssertEqual(try writeOn(ownerA, partial).status, .incomplete,
+                       "no ON is written under a partial barrier")
+        XCTAssertNil(try egressRecord(file: ownerA))
+        XCTAssertNil(try egressRecord(keychain: ownerA))
+        SharedCaptureStore.stateLayerWriteFault = nil
+        XCTAssertEqual(try begin(ownerA, 1, 2).status, .conflict,
+                       "a fresh begin does not adopt the partial operation")
+        let repaired = try begin(ownerA, 1, 2, resume: partial)
+        XCTAssertEqual(repaired.status, .done)
+        XCTAssertEqual(repaired.operationId, partial.operationId)
+        XCTAssertEqual(layerOutcomes(repaired.barrier), ["file": .verified, "keychain": .verified])
+      }
+    }
+  }
+
+  // 6: unreadable / corrupt barrier layers fail closed for every owner.
+  func testUnreadableOrCorruptBarrierLayerFailsClosed() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    try Data([0x00, 0xFF, 0x7B]).write(to: pendingFileURL)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+    XCTAssertEqual(try egressState(ownerA), .uncertain)
+    XCTAssertEqual(try egressState(ownerB), .uncertain, "an unreadable store denies every owner")
+    XCTAssertThrowsError(try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerB, transitionGeneration: 1, reservedVersion: 2)) { assertEgressDenied($0) }
+    // ANY unreadable layer: nothing is judged, reconstructed or written, whether
+    // the other layer is healthy-absent or unreadable too.
+    let garbage = Data([0x00, 0xFF, 0x7B])
+    let none = try begin(ownerA, 1, 2)
+    XCTAssertEqual(none.status, .uncertain)
+    XCTAssertEqual(try Data(contentsOf: pendingFileURL), garbage, "the unreadable layer is not overwritten")
+    XCTAssertNil(rawPending(file: false), "the healthy layer is not written either")
+    SharedCaptureStore.pendingKeychainReadOverride = { (errSecInteractionNotAllowed, nil) }
+    XCTAssertEqual(try begin(ownerA, 1, 2).status, .uncertain)
+    XCTAssertEqual(try Data(contentsOf: pendingFileURL), garbage)
+    SharedCaptureStore.pendingKeychainReadOverride = nil
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly, "still denied")
+  }
+
+  // 7: writeOn needs the exact barrier in both layers and reads each layer back.
+  func testWriteOnNeedsBothBarrierLayersAndVerifiesBothEgressLayers() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 1, 2)
+    let on = try writeOn(ownerA, op)
+    XCTAssertEqual(on.status, .done)
+    XCTAssertEqual(layerOutcomes(on.egress), ["file": .verified, "keychain": .verified])
+    // N-R2: the new ON is explicitly bound to the verified operation's lifecycle.
+    let exactOn = try boundOn(op)
+    XCTAssertEqual(try egressRecord(file: ownerA), exactOn)
+    XCTAssertEqual(try egressRecord(keychain: ownerA), exactOn)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly,
+                   "ON in the egress state does not open anything while the barrier stands")
+    // A wrong operation id, wrong generation or wrong version is not this operation.
+    let b = try bound(op)
+    let wrong = try SharedCaptureStore.writeCloudEgressEnableOn(
+      ownerUid: ownerA, operationId: foreignOperationId, transitionGeneration: 1, reservedVersion: 2,
+      ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch)
+    XCTAssertEqual(wrong.status, .conflict)
+    XCTAssertEqual(try SharedCaptureStore.writeCloudEgressEnableOn(
+      ownerUid: ownerA, operationId: b.id, transitionGeneration: 9, reservedVersion: 2,
+      ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch).status, .conflict)
+    XCTAssertEqual(try SharedCaptureStore.writeCloudEgressEnableOn(
+      ownerUid: ownerA, operationId: b.id, transitionGeneration: 1, reservedVersion: 2,
+      ownerGeneration: b.ownerGeneration + 1, ownerEpoch: b.ownerEpoch).status, .conflict,
+      "the owner binding is part of the operation's identity")
+    // Barrier gone from one layer: no ON is written (partial), gone from both: none.
+    try? FileManager.default.removeItem(at: pendingFileURL)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .incomplete)
+    SnapshotTestKeychain.remove(forKey: pendingKC)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .noBarrier)
+  }
+
+  // 8: each egress layer failing independently during writeOn is reported.
+  func testWriteOnLayerFailuresAreReportedPerLayer() throws {
+    for layer in ["file", "keychain"] {
+      for kind in [SharedCaptureStore.LayerWriteFault.fail, .silentDrop] {
+        resetCapSeams()
+        defer { resetCapSeams() }
+        let (id, _) = try stampedAllowedItem()
+        let op = try begin(ownerA, 1, 2)
+        fault("egress", layer, kind)
+        let on = try writeOn(ownerA, op)
+        XCTAssertEqual(on.status, .incomplete, "\(layer) \(kind)")
+        let outcomes = layerOutcomes(on.egress)
+        XCTAssertEqual(outcomes[layer], kind == .fail ? .writeFailed : .mismatch)
+        XCTAssertEqual(outcomes[layer == "file" ? "keychain" : "file"], .verified)
+        XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+      }
+    }
+  }
+
+  // 9: writeOn refuses a newer generation or a same-generation OFF, and an
+  // unreadable layer is never overwritten.
+  func testWriteOnRefusesNewerGenerationAndNeverOverwritesUnreadable() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let op = try begin(ownerA, 2, 3)
+    try setEgress(file: [(ownerA, "OFF", 2)])
+    XCTAssertEqual(try writeOn(ownerA, op).status, .stale, "same generation OFF")
+    XCTAssertNil(try egressRecord(keychain: ownerA), "nothing was written to the other layer")
+    try setEgress(file: [(ownerA, "ON", 7)])
+    XCTAssertEqual(try writeOn(ownerA, op).status, .stale, "newer generation")
+    let garbage = Data([0x00, 0xFF, 0x7B])
+    try garbage.write(to: egressFileURL)
+    let unreadable = try writeOn(ownerA, op)
+    XCTAssertEqual(unreadable.status, .uncertain)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), garbage)
+    XCTAssertNil(try egressRecord(keychain: ownerA))
+  }
+
+  // 10: mixed old OFF in one layer + the operation's ON in the other: only the
+  // layer that holds the operation's ON is rewritten.
+  func testRestrictOnlyRewritesTheOperationsOnPerLayer() throws {
+    for onInFile in [true, false] {
+      resetCapSeams()
+      defer { resetCapSeams() }
+      let op = try begin(ownerA, 3, 4)
+      if onInFile {
+        try setEgress(file: [(ownerA, "ON", 3)])
+        try setEgress(keychain: [(ownerA, "OFF", 2)])
+      } else {
+        try setEgress(file: [(ownerA, "OFF", 2)])
+        try setEgress(keychain: [(ownerA, "ON", 3)])
+      }
+      let oldOffBefore = onInFile
+        ? SnapshotTestKeychain.read(forKey: egressKC).data : try? Data(contentsOf: egressFileURL)
+      let result = try restrict(ownerA, op)
+      XCTAssertEqual(result.status, .done)
+      let outcomes = layerOutcomes(result.egress)
+      XCTAssertEqual(outcomes[onInFile ? "file" : "keychain"], .restricted)
+      XCTAssertEqual(outcomes[onInFile ? "keychain" : "file"], .alreadyRestrictive)
+      XCTAssertEqual(try egressRecord(file: ownerA)?.state, "OFF")
+      XCTAssertEqual(try egressRecord(file: ownerA)?.transitionGeneration, onInFile ? 3 : 2)
+      XCTAssertEqual(try egressRecord(keychain: ownerA)?.transitionGeneration, onInFile ? 2 : 3)
+      let oldOffAfter = onInFile
+        ? SnapshotTestKeychain.read(forKey: egressKC).data : try? Data(contentsOf: egressFileURL)
+      XCTAssertEqual(oldOffAfter, oldOffBefore, "the already-restrictive layer was not rewritten")
+      XCTAssertEqual(try inspect(ownerA).status, .pending, "compensation never lifts the barrier")
+    }
+  }
+
+  // 11: a newer generation and an unreadable layer are never touched; a foreign
+  // ON is reported, never claimed.
+  func testRestrictNeverDowngradesNewerOrTouchesUnreadableOrForeign() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let op = try begin(ownerA, 3, 4)
+    // Newer generation in the file layer, the operation's ON in the keychain.
+    try setEgress(file: [(ownerA, "ON", 5)])
+    try setEgress(keychain: [(ownerA, "ON", 3)])
+    let newerBytes = try Data(contentsOf: egressFileURL)
+    var result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .done)
+    XCTAssertEqual(layerOutcomes(result.egress), ["file": .superseded, "keychain": .restricted])
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), newerBytes)
+
+    // Unreadable file layer beside the operation's ON: reported, never overwritten.
+    try setEgress(keychain: [(ownerA, "ON", 3)])
+    let garbage = Data([0x00, 0xFF, 0x7B])
+    try garbage.write(to: egressFileURL)
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .incomplete)
+    XCTAssertEqual(layerOutcomes(result.egress), ["file": .unreadable, "keychain": .restricted])
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), garbage)
+    XCTAssertEqual(try inspect(ownerA).barrier.count, 2)
+
+    // Unreadable Keychain layer: the ON in the file is restricted, the Keychain is not written.
+    try setEgress(file: [(ownerA, "ON", 3)])
+    let keychainBefore = try XCTUnwrap(SnapshotTestKeychain.read(forKey: egressKC).data)
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecInteractionNotAllowed, nil) }
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(layerOutcomes(result.egress), ["file": .restricted, "keychain": .unreadable])
+    XCTAssertEqual(result.status, .incomplete)
+    SharedCaptureStore.egressKeychainReadOverride = nil
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, keychainBefore)
+
+    // A same-generation ON with another version is not this operation's.
+    let foreign = SharedCaptureStore.CloudEgressRecord(state: "ON", transitionGeneration: 3, reservedVersion: 9)
+    let foreignMap = SharedCaptureStore.CloudEgressMap(
+      owners: [try SharedCaptureStore.debugOwnerHash(ownerA): foreign])
+    try JSONEncoder().encode(foreignMap).write(to: egressFileURL)
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(layerOutcomes(result.egress)["file"], .notOurs)
+    XCTAssertEqual(result.status, .incomplete)
+  }
+
+  // 12: failed / silently dropped compensation writes are reported per layer.
+  func testRestrictWriteFailureIsReportedAndBarrierRetained() throws {
+    for kind in [SharedCaptureStore.LayerWriteFault.fail, .silentDrop] {
+      resetCapSeams()
+      defer { resetCapSeams() }
+      let (id, _) = try stampedAllowedItem()
+      let op = try begin(ownerA, 1, 2)
+      XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+      fault("egress", "keychain", kind)
+      let result = try restrict(ownerA, op)
+      XCTAssertEqual(result.status, .incomplete)
+      XCTAssertEqual(layerOutcomes(result.egress),
+                     ["file": .restricted, "keychain": kind == .fail ? .writeFailed : .mismatch])
+      XCTAssertEqual(try inspect(ownerA).status, .pending)
+      XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    }
+  }
+
+  // 13: an old operation can neither compensate, write nor complete a newer one.
+  func testOldOperationCannotTouchNewerOperation() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let old = try begin(ownerA, 1, 2)
+    XCTAssertEqual(try finish(ownerA, old, abandon: true).status, .done)
+    let newer = try begin(ownerA, 2, 3)
+    XCTAssertEqual(newer.status, .done)
+    XCTAssertNotEqual(newer.operationId, old.operationId)
+    XCTAssertEqual(try restrict(ownerA, old).status, .conflict)
+    XCTAssertEqual(try writeOn(ownerA, old).status, .conflict)
+    XCTAssertEqual(try finish(ownerA, old).status, .conflict)
+    XCTAssertEqual(try finish(ownerA, old, abandon: true).status, .conflict)
+    let b = try bound(newer)
+    XCTAssertEqual(try SharedCaptureStore.finishCloudEgressEnable(
+      ownerUid: ownerA, operationId: b.id, transitionGeneration: 9, reservedVersion: 3,
+      ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch,
+      abandon: true).status, .conflict, "right id, wrong binding")
+    XCTAssertEqual(try inspect(ownerA).operationId, newer.operationId)
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+  }
+
+  // 14: complete needs verified ON in BOTH layers and lifts only that barrier.
+  func testCompleteNeedsVerifiedOnAndLiftsOnlyItsOwnBarrier() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    // B's barrier first (B must be the committed owner to begin), then A, the
+    // committed owner that stays live for the rest of the test.
+    let b = try begin(ownerB, 1, 2)
+    let (id, _) = try stampedAllowedItem()
+    let a = try begin(ownerA, 1, 2)
+    XCTAssertEqual(try finish(ownerA, a).status, .incomplete, "no ON written yet")
+    XCTAssertEqual(try writeOn(ownerA, a).status, .done)
+    try setEgress(keychain: []) // ON in one layer only
+    XCTAssertEqual(try finish(ownerA, a).status, .incomplete)
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    // A forged STRIPPED (legacy, unbound) ON in both layers is not the operation's
+    // exact bound ON (N-R2): completion refuses and the barrier stays.
+    try setEgress(file: [(ownerA, "ON", 1)])
+    try setEgress(keychain: [(ownerA, "ON", 1)])
+    XCTAssertEqual(try finish(ownerA, a).status, .incomplete)
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    // Restore the exact bound ON in both layers, then complete.
+    try putEgress(file: [try SharedCaptureStore.debugOwnerHash(ownerA): try boundOn(a)],
+                  keychain: [try SharedCaptureStore.debugOwnerHash(ownerA): try boundOn(a)])
+    let done = try finish(ownerA, a)
+    XCTAssertEqual(done.status, .done)
+    XCTAssertEqual(layerOutcomes(done.barrier), ["file": .cleared, "keychain": .cleared])
+    XCTAssertEqual(try inspect(ownerA).status, .noBarrier)
+    XCTAssertEqual(try inspect(ownerB).status, .pending, "B's barrier is untouched")
+    XCTAssertEqual(try inspect(ownerB).operationId, b.operationId)
+    if case .allowed = SharedCaptureStore.authorizeUpload(payloadID: id) {} else {
+      XCTFail("A is admitted once its own operation completed; B's pending denies only B")
+    }
+    XCTAssertEqual(try finish(ownerB, b, abandon: true).status, .done)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: pendingFileURL.path))
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: pendingKC).status, errSecItemNotFound)
+    // A second complete is not success: the barrier is gone.
+    XCTAssertEqual(try finish(ownerA, a).status, .noBarrier)
+  }
+
+  // 15: a partial clear is reported, keeps denying, and a retry finishes it.
+  func testPartialClearIsReportedKeepsDenialAndRetryFinishes() throws {
+    for kind in [SharedCaptureStore.LayerWriteFault.fail, .silentDrop] {
+      resetCapSeams()
+      defer { resetCapSeams() }
+      let (id, _) = try stampedAllowedItem()
+      let op = try begin(ownerA, 1, 2)
+      XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+      fault("pending", "file", kind)
+      let partial = try finish(ownerA, op)
+      XCTAssertEqual(partial.status, .incomplete)
+      XCTAssertEqual(layerOutcomes(partial.barrier),
+                     ["file": kind == .fail ? .writeFailed : .mismatch, "keychain": .cleared])
+      XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly,
+                     "the layer that could not be cleared keeps denying")
+      XCTAssertEqual(try inspect(ownerA).status, .incomplete)
+      SharedCaptureStore.stateLayerWriteFault = nil
+      let retry = try finish(ownerA, op)
+      XCTAssertEqual(retry.status, .done)
+      XCTAssertEqual(layerOutcomes(retry.barrier), ["file": .cleared, "keychain": .absent])
+      if case .allowed = SharedCaptureStore.authorizeUpload(payloadID: id) {} else {
+        XCTFail("admitted after the retry cleared the last layer")
+      }
+    }
+  }
+
+  // 16: a crash after any phase keeps denying on restart (all state is durable).
+  func testCrashAtEveryPhaseKeepsDenyingAfterRestart() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 1, 2)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly, "after begin")
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly, "after writeOn")
+    fault("egress", "keychain", .fail)
+    XCTAssertEqual(try restrict(ownerA, op).status, .incomplete)
+    SharedCaptureStore.stateLayerWriteFault = nil
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly, "after compensation")
+    // "Restart": nothing is held in memory, the durable state alone is read.
+    let found = try inspect(ownerA)
+    XCTAssertEqual(found.status, .pending)
+    XCTAssertEqual(found.operationId, op.operationId)
+    XCTAssertEqual(layerOutcomes(found.barrier), ["file": .verified, "keychain": .verified])
+  }
+
+  // 17: a Remove-data barrier refuses begin / writeOn / complete but never
+  // compensation or abandon (they only restrict).
+  func testRemovalBarrierRefusesWideningPhasesOnly() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let op = try begin(ownerA, 1, 2)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    _ = try SharedCaptureStore.beginRemoval(uid: ownerB)
+    func assertBarrierActive(_ body: () throws -> Phase, _ what: String) {
+      XCTAssertThrowsError(try body(), what) { error in
+        guard case SharedCaptureStore.QueueError.barrierActive = error else {
+          return XCTFail("\(what): expected barrierActive, got \(error)")
+        }
+      }
+    }
+    assertBarrierActive({ try self.begin(self.ownerA, 2, 3) }, "begin")
+    assertBarrierActive({ try self.writeOn(self.ownerA, op) }, "writeOn")
+    assertBarrierActive({ try self.finish(self.ownerA, op) }, "complete")
+    XCTAssertEqual(try inspect(ownerA).status, .pending, "inspection stays available")
+    XCTAssertEqual(try restrict(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op, abandon: true).status, .done)
+  }
+
+  // 18: a healthy legacy install is unaffected and inspection creates nothing.
+  func testHealthyLegacyInstallIsUnaffectedAndInspectionIsReadOnly() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, a) = try stampedAllowedItem()
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id),
+                   .allowed(ownerUid: ownerA, ownerGeneration: a.generation, allowAi: true))
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2)
+    XCTAssertEqual(try egressState(ownerA), .record(rec("ON", 1)))
+    let inspected = try inspect(ownerA)
+    XCTAssertEqual(inspected.status, .noBarrier)
+    XCTAssertEqual(layerOutcomes(inspected.barrier), ["file": .absent, "keychain": .absent])
+    XCTAssertFalse(FileManager.default.fileExists(atPath: pendingFileURL.path))
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: pendingKC).status, errSecItemNotFound)
+  }
+
+  // 19: layers that disagree about the owner's operation deny and conflict.
+  func testDisagreeingLayersConflictAndDeny() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let (id, _) = try stampedAllowedItem()
+    let op = try begin(ownerA, 1, 2)
+    let b = try bound(op)
+    let other = try pendingJSON([(ownerA, foreignOperationId, 1, 2, b.ownerGeneration, b.ownerEpoch)])
+    XCTAssertEqual(SnapshotTestKeychain.writeData(other, forKey: pendingKC), errSecSuccess)
+    XCTAssertEqual(try inspect(ownerA).status, .conflict)
+    XCTAssertEqual(try begin(ownerA, 1, 2).status, .conflict)
+    XCTAssertEqual(try begin(ownerA, 1, 2, resume: op).status, .conflict)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .conflict)
+    XCTAssertEqual(try finish(ownerA, op).status, .conflict)
+    XCTAssertEqual(try restrict(ownerA, op).status, .conflict)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+  }
+
+  // 20: each layer keeps ITS OWN other-owner entries exactly. They are never
+  // merged or copied across layers, and conflicting maps stay conflicting.
+  func testOtherOwnersEntriesArePreservedExactlyPerLayer() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let bHash = try SharedCaptureStore.debugOwnerHash(ownerB)
+    let aHash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    let idB1 = String(repeating: "b1", count: 16)
+    let idB2 = String(repeating: "b2", count: 16)
+    try ensureOwner(ownerA)
+    let a = try XCTUnwrap(try SharedCaptureStore.activeOwner())
+    let epoch = try SharedCaptureStore.ownerEpoch()
+
+    // B only in the file layer; the keychain layer has no entry at all.
+    try pendingJSON([(ownerB, idB1, 1, 2, 7, 0)]).write(to: pendingFileURL)
+    let first = try begin(ownerA, 1, 2)
+    XCTAssertEqual(first.status, .done)
+    XCTAssertEqual(try pendingMap(file: true)?.owners.keys.sorted(), [aHash, bHash].sorted())
+    XCTAssertEqual(try pendingMap(file: false)?.owners.keys.sorted(), [aHash],
+                   "B's file-only entry was NOT copied into the keychain layer")
+    XCTAssertEqual(try pendingMap(file: true)?.owners[bHash]?.operationId, idB1)
+    XCTAssertEqual(first.ownerGeneration, a.generation)
+    XCTAssertEqual(first.ownerEpoch, epoch)
+    XCTAssertEqual(try finish(ownerA, first, abandon: true).status, .done)
+
+    // Conflicting B entries in the two layers: each stays exactly as it was.
+    try pendingJSON([(ownerB, idB1, 1, 2, 7, 0)]).write(to: pendingFileURL)
+    XCTAssertEqual(SnapshotTestKeychain.writeData(
+      try pendingJSON([(ownerB, idB2, 5, 6, 9, 3)]), forKey: pendingKC), errSecSuccess)
+    let second = try begin(ownerA, 1, 2)
+    XCTAssertEqual(second.status, .done)
+    XCTAssertEqual(try pendingMap(file: true)?.owners[bHash]?.operationId, idB1)
+    XCTAssertEqual(try pendingMap(file: false)?.owners[bHash]?.operationId, idB2)
+    XCTAssertEqual(try pendingMap(file: true)?.owners[bHash]?.transitionGeneration, 1)
+    XCTAssertEqual(try pendingMap(file: false)?.owners[bHash]?.transitionGeneration, 5)
+    // Clearing A removes only A from each layer and leaves B exactly as found.
+    XCTAssertEqual(try finish(ownerA, second, abandon: true).status, .done)
+    XCTAssertEqual(try pendingMap(file: true)?.owners.keys.sorted(), [bHash])
+    XCTAssertEqual(try pendingMap(file: false)?.owners.keys.sorted(), [bHash])
+    XCTAssertEqual(try pendingMap(file: true)?.owners[bHash]?.operationId, idB1)
+    XCTAssertEqual(try pendingMap(file: false)?.owners[bHash]?.operationId, idB2)
+  }
+
+  // 21: ONE unreadable pending layer can hide another owner's barrier or a newer
+  // operation, so nothing is written to EITHER layer (no reconstruction).
+  func testSingleUnreadablePendingLayerHidesOwnerAndBlocksEveryWrite() throws {
+    for unreadableFile in [true, false] {
+      resetCapSeams()
+      defer { resetCapSeams() }
+      // B's barrier lives in both layers; A then tries to begin.
+      let b = try begin(ownerB, 1, 2)
+      XCTAssertEqual(b.status, .done)
+      try ensureOwner(ownerA)
+      let garbage = Data([0x00, 0xFF, 0x7B])
+      let hiddenFile = rawPending(file: true)
+      let hiddenKeychain = rawPending(file: false)
+      if unreadableFile {
+        try garbage.write(to: pendingFileURL)
+      } else {
+        SharedCaptureStore.pendingKeychainReadOverride = { (errSecInteractionNotAllowed, nil) }
+      }
+      let blocked = try begin(ownerA, 1, 2)
+      XCTAssertEqual(blocked.status, .uncertain, "unreadableFile=\(unreadableFile)")
+      XCTAssertNil(blocked.operationId, "no operation was created")
+      if unreadableFile {
+        XCTAssertEqual(rawPending(file: true), garbage)
+        XCTAssertEqual(rawPending(file: false), hiddenKeychain)
+      } else {
+        XCTAssertEqual(rawPending(file: true), hiddenFile)
+        SharedCaptureStore.pendingKeychainReadOverride = nil
+        XCTAssertEqual(rawPending(file: false), hiddenKeychain)
+      }
+      // An explicit resume of a real operation cannot repair through an unreadable layer.
+      let epoch = try XCTUnwrap(b.ownerEpoch)
+      if unreadableFile { try garbage.write(to: pendingFileURL) }
+      else { SharedCaptureStore.pendingKeychainReadOverride = { (errSecInteractionNotAllowed, nil) } }
+      try ensureOwner(ownerB)
+      let resumed = try SharedCaptureStore.beginCloudEgressEnable(
+        ownerUid: ownerB, transitionGeneration: 1, reservedVersion: 2,
+        resumeOperationId: b.operationId, resumeOwnerEpoch: epoch)
+      XCTAssertEqual(resumed.status, .uncertain)
+      SharedCaptureStore.pendingKeychainReadOverride = nil
+      XCTAssertEqual(rawPending(file: false), hiddenKeychain)
+      XCTAssertEqual(rawPending(file: true), unreadableFile ? garbage : hiddenFile)
+    }
+  }
+
+  // 22: compensation modifies egress only for an operation the barrier PROVES.
+  func testRestrictWritesNothingWithoutAProvenOperation() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try ensureOwner(ownerA)
+    let a = try XCTUnwrap(try SharedCaptureStore.activeOwner())
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    let op = Phase(
+      operation: "begin", status: .done, operationId: foreignOperationId,
+      transitionGeneration: 3, reservedVersion: 4, ownerGeneration: a.generation,
+      ownerEpoch: epoch, barrier: [], egress: [])
+    func putOn() throws {
+      try setEgress(file: [(ownerA, "ON", 3)])
+      try setEgress(keychain: [(ownerA, "ON", 3)])
+    }
+    func egressBytes() -> (Data?, Data?) {
+      (try? Data(contentsOf: egressFileURL), SnapshotTestKeychain.read(forKey: egressKC).data)
+    }
+    try putOn()
+    let on = egressBytes()
+    // 1) No barrier at all: ON with the matching generation/version is NOT permission.
+    var result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .noBarrier)
+    XCTAssertEqual(egressBytes().0, on.0)
+    XCTAssertEqual(egressBytes().1, on.1)
+    XCTAssertEqual(layerOutcomes(result.egress), ["file": .verified, "keychain": .verified],
+                   "reported, not restricted")
+    // 2) An unreadable barrier layer beside a layer that holds the operation.
+    let entry = try pendingJSON([(ownerA, foreignOperationId, 3, 4, a.generation, epoch)])
+    XCTAssertEqual(SnapshotTestKeychain.writeData(entry, forKey: pendingKC), errSecSuccess)
+    try Data([0x00, 0xFF, 0x7B]).write(to: pendingFileURL)
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .uncertain)
+    XCTAssertEqual(egressBytes().0, on.0)
+    XCTAssertEqual(egressBytes().1, on.1)
+    // 3) A different operation for the owner.
+    try entry.write(to: pendingFileURL)
+    let other = try pendingJSON([(ownerA, String(repeating: "cd", count: 16), 3, 4, a.generation, epoch)])
+    XCTAssertEqual(SnapshotTestKeychain.writeData(other, forKey: pendingKC), errSecSuccess)
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .conflict)
+    XCTAssertEqual(egressBytes().0, on.0)
+    XCTAssertEqual(egressBytes().1, on.1)
+    // 4) Same id but another owner binding is not this operation either.
+    let rebound = try pendingJSON([(ownerA, foreignOperationId, 3, 4, a.generation + 1, epoch)])
+    try rebound.write(to: pendingFileURL)
+    XCTAssertEqual(SnapshotTestKeychain.writeData(rebound, forKey: pendingKC), errSecSuccess)
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .conflict)
+    XCTAssertEqual(egressBytes().0, on.0)
+    XCTAssertEqual(egressBytes().1, on.1)
+    // 5) PER-LAYER proof, file only: the operation is exactly in the FILE barrier
+    // layer and healthy-absent from the Keychain one. Only the egress FILE layer
+    // may be restricted; the Keychain egress ON has no proof of its own, so it is
+    // left byte-for-byte untouched, reported unresolved, and the status is
+    // incomplete (the denial stays).
+    try putOn()
+    let onAgain = egressBytes()
+    try entry.write(to: pendingFileURL)
+    SnapshotTestKeychain.remove(forKey: pendingKC)
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .incomplete)
+    XCTAssertEqual(layerOutcomes(result.egress), ["file": .restricted, "keychain": .notOurs])
+    XCTAssertNotEqual(egressBytes().0, onAgain.0, "the proven file layer was restricted")
+    XCTAssertEqual(try egressRecord(file: ownerA), SharedCaptureStore.CloudEgressRecord(
+      state: "OFF", transitionGeneration: 3, reservedVersion: 4))
+    XCTAssertEqual(egressBytes().1, onAgain.1, "the unproven Keychain layer is byte-identical")
+    XCTAssertEqual(try egressRecord(keychain: ownerA), rec("ON", 3))
+    XCTAssertEqual(rawPending(file: true), entry, "the barrier is never removed or changed")
+    XCTAssertNil(rawPending(file: false), "no barrier was written to the other layer")
+    // 5b) The mirror: the operation only in the KEYCHAIN barrier layer.
+    try putOn()
+    let onMirror = egressBytes()
+    try? FileManager.default.removeItem(at: pendingFileURL)
+    XCTAssertEqual(SnapshotTestKeychain.writeData(entry, forKey: pendingKC), errSecSuccess)
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .incomplete)
+    XCTAssertEqual(layerOutcomes(result.egress), ["file": .notOurs, "keychain": .restricted])
+    XCTAssertEqual(egressBytes().0, onMirror.0, "the unproven file layer is byte-identical")
+    XCTAssertEqual(try egressRecord(file: ownerA), rec("ON", 3))
+    XCTAssertNotEqual(egressBytes().1, onMirror.1, "the proven Keychain layer was restricted")
+    XCTAssertEqual(try egressRecord(keychain: ownerA), SharedCaptureStore.CloudEgressRecord(
+      state: "OFF", transitionGeneration: 3, reservedVersion: 4))
+    XCTAssertEqual(rawPending(file: false), entry)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: pendingFileURL.path))
+    // 5c) Proven in BOTH barrier layers: both egress layers restrict, and a repeat
+    // is a no-write alreadyRestrictive on both.
+    try putOn()
+    try entry.write(to: pendingFileURL)
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .done)
+    XCTAssertEqual(layerOutcomes(result.egress), ["file": .restricted, "keychain": .restricted])
+    let restrictedBytes = egressBytes()
+    result = try restrict(ownerA, op)
+    XCTAssertEqual(result.status, .done)
+    XCTAssertEqual(layerOutcomes(result.egress),
+                   ["file": .alreadyRestrictive, "keychain": .alreadyRestrictive])
+    XCTAssertEqual(egressBytes().0, restrictedBytes.0)
+    XCTAssertEqual(egressBytes().1, restrictedBytes.1)
+    XCTAssertEqual(rawPending(file: true), entry, "the barrier is never removed by compensation")
+    XCTAssertEqual(rawPending(file: false), entry)
+  }
+
+  // 23: a queued complete (or writeOn / resume) from an older owner lifecycle can
+  // neither widen nor clear after a same-UID logout and readmission.
+  func testQueuedCompleteAfterSameUidReadmissionClearsNothing() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let old = try begin(ownerA, 1, 2)
+    XCTAssertEqual(try writeOn(ownerA, old).status, .done)
+    let oldEpoch = try XCTUnwrap(old.ownerEpoch)
+    // Logout, then the same uid is admitted again: a new epoch and generation.
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    try publish(ownerA, cloud: false, ai: false)
+    let live = try XCTUnwrap(try SharedCaptureStore.activeOwner())
+    XCTAssertGreaterThan(try SharedCaptureStore.ownerEpoch(), oldEpoch)
+    XCTAssertNotEqual(live.generation, old.ownerGeneration)
+    let barrierBefore = (rawPending(file: true), rawPending(file: false))
+    let egressBefore = (try? Data(contentsOf: egressFileURL), SnapshotTestKeychain.read(forKey: egressKC).data)
+
+    XCTAssertEqual(try finish(ownerA, old).status, .ownerMismatch, "queued complete")
+    XCTAssertEqual(try writeOn(ownerA, old).status, .ownerMismatch, "queued writeOn")
+    let resumed = try begin(ownerA, 1, 2, resume: old)
+    XCTAssertEqual(resumed.status, .ownerMismatch, "resume of an older lifecycle")
+    let fresh = try begin(ownerA, 2, 3)
+    XCTAssertEqual(fresh.status, .conflict, "a fresh begin does not adopt the old operation")
+    XCTAssertEqual(fresh.operationId, old.operationId)
+    XCTAssertEqual(rawPending(file: true), barrierBefore.0)
+    XCTAssertEqual(rawPending(file: false), barrierBefore.1, "no barrier was touched")
+    XCTAssertEqual(try? Data(contentsOf: egressFileURL), egressBefore.0)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, egressBefore.1)
+    XCTAssertEqual(try egressState(ownerA), .uncertain, "the owner stays denied")
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+
+    // The old operation may only be restricted and abandoned, then a new lifecycle begins.
+    XCTAssertEqual(try restrict(ownerA, old).status, .done)
+    XCTAssertEqual(try finish(ownerA, old, abandon: true).status, .done)
+    let newer = try begin(ownerA, 2, 3)
+    XCTAssertEqual(newer.status, .done)
+    XCTAssertNotEqual(newer.operationId, old.operationId, "operation ids never collide or carry over")
+    XCTAssertEqual(newer.ownerGeneration, live.generation)
+    let newBarrier = (rawPending(file: true), rawPending(file: false))
+    XCTAssertEqual(try finish(ownerA, old).status, .conflict, "old complete vs the new barrier")
+    XCTAssertEqual(try finish(ownerA, old, abandon: true).status, .conflict)
+    XCTAssertEqual(try restrict(ownerA, old).status, .conflict)
+    XCTAssertEqual(try writeOn(ownerA, old).status, .conflict)
+    XCTAssertEqual(rawPending(file: true), newBarrier.0)
+    XCTAssertEqual(rawPending(file: false), newBarrier.1, "the new lifecycle's barrier is intact")
+  }
+
+  // 24: ownerless, deferred (another owner), refused (removal) and a changed
+  // owner generation. The APIs never mint an owner, generation or epoch.
+  func testBeginNeedsTheCommittedOwnerAndNeverMintsOne() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    // Ownerless: no committed owner at all.
+    XCTAssertNil(try SharedCaptureStore.activeOwner())
+    let ownerless = try SharedCaptureStore.beginCloudEgressEnable(
+      ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2)
+    XCTAssertEqual(ownerless.status, .ownerMismatch)
+    XCTAssertNil(ownerless.operationId)
+    XCTAssertNil(try SharedCaptureStore.activeOwner(), "no owner was minted")
+    XCTAssertEqual(try SharedCaptureStore.ownerEpoch(), epoch, "no epoch was bumped")
+    XCTAssertFalse(FileManager.default.fileExists(atPath: pendingFileURL.path))
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: pendingKC).status, errSecItemNotFound)
+
+    // Deferred: another owner is the committed one.
+    try publish(ownerB, cloud: false, ai: false)
+    XCTAssertEqual(try SharedCaptureStore.beginCloudEgressEnable(
+      ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2).status, .ownerMismatch)
+    XCTAssertEqual(try SharedCaptureStore.activeOwner()?.uid, ownerB)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: pendingFileURL.path))
+
+    // A changed owner generation (A -> B -> A, no epoch change) invalidates a
+    // bound operation for widening phases.
+    let op = try begin(ownerA, 1, 2)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    try publish(ownerB, cloud: false, ai: false)
+    try publish(ownerA, cloud: false, ai: false)
+    XCTAssertEqual(try SharedCaptureStore.ownerEpoch(), op.ownerEpoch)
+    XCTAssertNotEqual(try SharedCaptureStore.activeOwner()?.generation, op.ownerGeneration)
+    XCTAssertEqual(try finish(ownerA, op).status, .ownerMismatch, "stale owner generation")
+    XCTAssertEqual(try writeOn(ownerA, op).status, .ownerMismatch)
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+
+    // Refused: a Remove-data barrier throws before anything else.
+    _ = try SharedCaptureStore.beginRemoval(uid: ownerB)
+    XCTAssertThrowsError(try SharedCaptureStore.beginCloudEgressEnable(
+      ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 3)) { error in
+      guard case SharedCaptureStore.QueueError.barrierActive = error else {
+        return XCTFail("expected barrierActive, got \(error)")
+      }
+    }
+  }
+
+  // 25: a prior ON does not justify abandoning after a revoked / failed enable.
+  func testAbandonWithAnOlderOnAfterRevocationKeepsTheDenial() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    // A prior legitimate ON (generation 1) in both layers.
+    try SharedCaptureStore.setCloudEgressState(
+      state: "ON", ownerUid: ownerA, transitionGeneration: 1, reservedVersion: 2)
+    let op = try begin(ownerA, 2, 3)
+    XCTAssertEqual(op.status, .done)
+    // The new ON lands in only one layer (the file write fails), then the
+    // lifecycle is revoked and the same uid is admitted again.
+    fault("egress", "file", .fail)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .incomplete)
+    SharedCaptureStore.stateLayerWriteFault = nil
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    try publish(ownerA, cloud: false, ai: false)
+    XCTAssertEqual(try finish(ownerA, op).status, .ownerMismatch, "no false completion")
+
+    // Abandon is refused while ANY ON survives, the older one included.
+    var abandoned = try finish(ownerA, op, abandon: true)
+    XCTAssertEqual(abandoned.status, .incomplete)
+    XCTAssertEqual(try inspect(ownerA).status, .pending, "the barrier keeps denying")
+    XCTAssertEqual(try egressState(ownerA), .uncertain)
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+
+    // Compensation restricts only the operation's own ON; the older ON is not its.
+    let restricted = try restrict(ownerA, op)
+    XCTAssertEqual(restricted.status, .incomplete)
+    XCTAssertEqual(layerOutcomes(restricted.egress), ["file": .notOurs, "keychain": .restricted])
+    abandoned = try finish(ownerA, op, abandon: true)
+    XCTAssertEqual(abandoned.status, .incomplete, "the older ON still stands in the file layer")
+    XCTAssertEqual(try inspect(ownerA).status, .pending)
+
+    // Only once the older grant is itself restricted can the barrier be lifted.
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 3)
+    abandoned = try finish(ownerA, op, abandon: true)
+    XCTAssertEqual(abandoned.status, .done)
+    XCTAssertEqual(try inspect(ownerA).status, .noBarrier)
+  }
+
+  // The ownerless snapshot is not provably clean while a barrier stands.
+  func testOwnerlessSnapshotIsUncertainWhileAnyBarrierStands() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try begin(ownerA, 1, 2)
+    XCTAssertEqual(try SharedCaptureStore.cloudEgressState(forUid: ""), .uncertain)
   }
 
   // C.4: the durable in-flight registry. Admission registers

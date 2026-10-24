@@ -1,7 +1,6 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_account_repository.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
@@ -18,12 +17,6 @@ import '../../harness/fake_cas_server.dart';
 // row a newer update advanced past our base must NOT tombstone it. The
 // CAS path runs through the sync_* RPCs (capability `revision_cas`, WP-5).
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 /// A sink modelling the server's revision + deleted_at + updated_at semantics
 /// for a single row, with call counters. bump_revision fires once per applied
@@ -169,6 +162,8 @@ GoalEntity _goal() => GoalEntity(
       createdAt: DateTime.utc(2026, 7, 1),
     );
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -176,17 +171,15 @@ void main() {
   late PlanningOutboxQueue queue;
 
   setUp(() async {
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     queue = PlanningOutboxQueue(
       db: db,
       isSyncEnabled: (_) => true,
       getAuthUserId: () async => 'user-1',
     );
   });
-  tearDown(() => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   // A synced goal at [revision] with a known base, then deleted (delete
   // enqueued; the payload captures both base tokens).
@@ -335,6 +328,20 @@ void main() {
   });
 
   group('accounts guarded tombstone', () {
+    late LedgerAdmissionFixture accountAdmission;
+    late AppDatabase standaloneDatabase;
+    setUp(() async {
+      standaloneDatabase = db;
+      accountAdmission = _parentAdmission;
+      db = accountAdmission.database;
+      queue = PlanningOutboxQueue(db: db, isSyncEnabled: (_) => true,
+          getAuthUserId: () async => 'user-1');
+    });
+    tearDown(() async {
+      try { await accountAdmission.finish(); }
+      finally { db = standaloneDatabase; }
+    });
+
     Future<void> seedAccountDelete({int? revision = 5}) async {
       final repo = DriftAccountRepository(db, outboxQueue: queue);
       final now = DateTime.utc(2026, 7, 4, 12);

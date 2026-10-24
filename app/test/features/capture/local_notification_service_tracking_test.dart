@@ -128,8 +128,9 @@ void main() {
   });
 
   test(
-      'tapping a notification records opened exactly once even if the '
-      'handler runs twice for the same payload', () async {
+      'a signed-out / no-origin tap writes NO account opened event, even if '
+      'the handler runs twice for the same payload (O-LC-2 / Astra Q5)',
+      () async {
     final logService = NotificationLogService(db);
     final logId = await logService.recordCreated(
       channel: NotificationLogChannel.localIos,
@@ -150,7 +151,9 @@ void main() {
         .debugHandleNotificationTap(payload, actionId: null);
 
     final events = await _eventTypesFor(db, logId: logId);
-    expect(events.where((e) => e == 'opened'), hasLength(1));
+    expect(events.where((e) => e == 'opened'), isEmpty,
+        reason: 'no admitted lifecycle: the account-scoped write is refused');
+    expect(events, ['created']);
   });
 
   test(

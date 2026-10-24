@@ -1,9 +1,8 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
@@ -18,13 +17,7 @@ import 'package:money_companion/features/planning_sync/services/planning_outbox_
 // durable row replays with its exact decimal-string payload. Schema-v29 legacy
 // mode remains the JSON-number wire shape and never parks.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
 
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 class _FakeAccountsSink implements AccountsRemoteSink {
   _FakeAccountsSink({this.failIfCalled = false});
@@ -132,16 +125,15 @@ const _legacy = FixedPlanningCutoverCoordinator(PlanningCutoverState.legacy);
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  late LedgerAdmissionFixture admission;
   late AppDatabase db;
 
   setUp(() async {
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    admission = await LedgerAdmissionFixture.open('user-123');
+    db = admission.database;
   });
 
-  tearDown(() async => db.close());
+  tearDown(() => admission.finish());
 
   PlanningOutboxQueue queue(PlanningCutoverCoordinator coordinator) =>
       PlanningOutboxQueue(

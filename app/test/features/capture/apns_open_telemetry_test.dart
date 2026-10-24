@@ -1,3 +1,5 @@
+import 'ledger_admission_fixture.dart';
+import '../../core/session/f2_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 
@@ -29,12 +31,18 @@ class _MemoryKeyStore implements DatabaseKeyStore {
   Future<String?> readStoredKey() async => 'test-key';
 }
 
-SupabaseClient _client(MockClient http) => SupabaseClient(
-      'https://example.supabase.co',
-      'public-anon-key',
-      httpClient: http,
-      accessToken: () async => 'qa-access-token',
-    );
+SupabaseClient? _admittedClient;
+MockClient? _forwardTo;
+SupabaseClient _client(MockClient client) {
+  _forwardTo = client;
+  expect(_admittedClient!.auth.currentUser?.id, 'qa-user');
+  return _admittedClient!;
+}
+Future<http.Response> _forward(http.Request request) async {
+  final copy = http.Request(request.method, request.url)
+    ..headers.addAll(request.headers)..bodyBytes = request.bodyBytes;
+  return http.Response.fromStream(await _forwardTo!.send(copy));
+}
 
 http.Response _json(Object body, http.BaseRequest request) => http.Response(
       jsonEncode(body),
@@ -81,6 +89,24 @@ void main() {
   const serverLogId = 'ab415ae1-b258-485b-9521-86acb1b38bcf';
 
   group('an APNs tap without trusted local provenance', () {
+    late LedgerAdmissionFixture admission;
+    setUp(() async {
+      await db.close();
+      admission = await LedgerAdmissionFixture.open('qa-user');
+      db = admission.database;
+      logService = NotificationLogService(db, readOrigin: () async =>
+          NotificationLogOrigin('qa-user', 'generation-1', isCurrent: () => true));
+      _admittedClient = admission.ownClient(SupabaseClient('https://example.supabase.co', 'anon',
+          authOptions: const AuthClientOptions(autoRefreshToken: false), httpClient: MockClient(_forward)));
+      await F2Fixture.recoverSession_(_admittedClient!, 'qa-user');
+      expect(_admittedClient!.auth.currentUser?.id, 'qa-user');
+      expect(admission.fixture.session.captureLocalWorkAuthority()!.isCurrent, isTrue);
+    });
+    tearDown(() async {
+      try { await admission.finish(); }
+      finally { _admittedClient = null; _forwardTo = null; }
+    });
+
     test('foreground tap never creates or uploads a current-owner row', () async {
       await logService.recordOpened(logId: serverLogId,
         channel: NotificationLogChannel.apns, notificationType: 'new_transaction',

@@ -52,6 +52,12 @@ enum SharedCaptureStore {
   // purge and is only ever written under the queue flock).
   private static let egressStateKC = "cloud_egress_state_v1"
   private static let egressStateFileName = "cloud_egress_state_v1.json"
+  // Consent-security amendment: the durable pending-enable barrier (see "Pending
+  // enable barrier" below). Same two native layers and the same isolation rules
+  // as the egress state: Keychain item + App Group file, only ever written under
+  // the queue flock, deliberately NOT cleared by a sign-out purge.
+  private static let pendingStateKC = "cloud_egress_pending_v1"
+  private static let pendingStateFileName = "cloud_egress_pending_v1.json"
   private static let inflightFileName = "native_inflight_uploads_v1.json"
 
   // MALI-031 — secret material lives in the shared Keychain, never UserDefaults.
@@ -136,6 +142,13 @@ enum SharedCaptureStore {
   static var stampingHook: (() -> Void)?
   static var clockOverride: (() -> Date)?
   static var egressKeychainReadOverride: (() -> (status: OSStatus, data: Data?))?
+  /// The Keychain read of the pending-enable barrier, and a per-layer write fault
+  /// for the egress and pending stores (`store` is "egress" or "pending", `layer`
+  /// is "file" or "keychain"). `.silentDrop` reports success without persisting,
+  /// which only a read-back can catch.
+  static var pendingKeychainReadOverride: (() -> (status: OSStatus, data: Data?))?
+  static var stateLayerWriteFault: ((_ store: String, _ layer: String) -> LayerWriteFault)?
+  static var beforeLifetimeFinishLock: (() -> Void)?
   #else
   static let queueKeyReadOverride: (() -> (status: OSStatus, data: Data?))? = nil
   static let lockUnavailableOverride = false
@@ -143,7 +156,13 @@ enum SharedCaptureStore {
   static let stampingHook: (() -> Void)? = nil
   static let clockOverride: (() -> Date)? = nil
   static let egressKeychainReadOverride: (() -> (status: OSStatus, data: Data?))? = nil
+  static let pendingKeychainReadOverride: (() -> (status: OSStatus, data: Data?))? = nil
+  static let stateLayerWriteFault: ((_ store: String, _ layer: String) -> LayerWriteFault)? = nil
+  static let beforeLifetimeFinishLock: (() -> Void)? = nil
   #endif
+
+  /// What a DEBUG test seam makes one layer write do. Always `.none` in release.
+  enum LayerWriteFault { case none, fail, silentDrop }
 
   struct BackendConfig {
     let cloudProcessingEnabled: Bool
@@ -1248,6 +1267,10 @@ enum SharedCaptureStore {
       try guardMirrorWrite(owner: normalized, mirror: mirror, transitionGeneration: transitionGeneration)
       let hash = try uidHash(normalized)
       let current = try readActiveOwner()
+      let lifecycleView = egressView()
+      if lifecycleView.maps.contains(where: { $0.owners[hash]?.retirement != nil }) {
+        throw QueueError.egressDenied
+      }
       writeConsentMirrorEntry(hash: hash, mirror: mirror)
       if let current, current.uid == normalized { return current }
       let generation = (defaults?.integer(forKey: ownerGenerationKey) ?? 0) + 1
@@ -1392,6 +1415,21 @@ enum SharedCaptureStore {
     let state: String
     let transitionGeneration: Int
     let reservedVersion: Int
+    // N: durable lifecycle evidence in the existing two stores, never a new path.
+    let lifetimeOwnerGeneration: Int?
+    let lifetimeOwnerEpoch: Int?
+    let retirement: PendingEnable?
+
+    init(state: String, transitionGeneration: Int, reservedVersion: Int,
+         lifetimeOwnerGeneration: Int? = nil, lifetimeOwnerEpoch: Int? = nil,
+         retirement: PendingEnable? = nil) {
+      self.state = state
+      self.transitionGeneration = transitionGeneration
+      self.reservedVersion = reservedVersion
+      self.lifetimeOwnerGeneration = lifetimeOwnerGeneration
+      self.lifetimeOwnerEpoch = lifetimeOwnerEpoch
+      self.retirement = retirement
+    }
   }
 
   /// `cloud_egress_state` as stored (identically) in the Keychain item and the
@@ -1438,8 +1476,16 @@ enum SharedCaptureStore {
     guard let map = try? JSONDecoder().decode(CloudEgressMap.self, from: data) else { return nil }
     for (hash, record) in map.owners {
       guard !hash.isEmpty, egressRank(record.state) != nil,
-            record.transitionGeneration >= 0, record.reservedVersion >= 0 else {
+            record.transitionGeneration >= 0, record.reservedVersion >= 0,
+            (record.lifetimeOwnerGeneration == nil) == (record.lifetimeOwnerEpoch == nil),
+            record.lifetimeOwnerGeneration.map({ $0 > 0 }) ?? true,
+            record.lifetimeOwnerEpoch.map({ $0 >= 0 }) ?? true else {
         return nil
+      }
+      if let retired = record.retirement {
+        guard validOperationId(retired.operationId), retired.ownerGeneration > 0,
+              retired.ownerEpoch >= 0, retired.transitionGeneration >= 0,
+              retired.reservedVersion >= 0, record.state != "ON" else { return nil }
       }
     }
     return map
@@ -1490,10 +1536,34 @@ enum SharedCaptureStore {
   private static func egressDenied(forOwner owner: String?) -> Bool {
     let view = egressView()
     if view.uncertain { return true }
+    // A pending-enable barrier store that cannot be read denies every owner, like
+    // an unreadable egress store (fail closed, never "treated as absent").
+    let pending = pendingView()
+    if pending.anyUnreadable { return true }
     guard let owner else { return false }
     guard let hash = try? uidHash(owner) else { return true }
+    // A pending explicit enable denies its owner in EVERY path that asks here
+    // (upload admission, widening mirror/config writes, host requests) until
+    // that exact operation completes with verified ON in both native layers.
+    if pending.holds(hash) { return true }
     let mine = view.maps.compactMap { $0.owners[hash] }
-    if mine.contains(where: { $0.state != "ON" }) { return true }
+    if mine.contains(where: { $0.state != "ON" || $0.retirement != nil }) { return true }
+    if mine.contains(where: { $0.lifetimeOwnerGeneration != nil || $0.lifetimeOwnerEpoch != nil }) {
+      // §2b: the SAME evidence the snapshot requires. The requested owner must be
+      // the actual active owner (normalized uid and independently computed hash),
+      // with a positive generation that matches the stored counter, and both layers
+      // must carry exactly that generation and the live epoch. No caller is trusted
+      // to have validated the owner already.
+      guard let active = try? readActiveOwner(), let defaults,
+            active.uid == normalizedUID(owner), active.uidHash == hash,
+            active.generation > 0,
+            snapshotCounter(ownerGenerationKey, in: defaults) == active.generation,
+            let epoch = snapshotCounter(ownerEpochKey, in: defaults),
+            mine.count == 2, mine.allSatisfy({
+              ($0.lifetimeOwnerGeneration ?? 0) > 0
+                && $0.lifetimeOwnerGeneration == active.generation && $0.lifetimeOwnerEpoch == epoch
+            }) else { return true }
+    }
     return mine.count == 2 && mine[0] != mine[1]
   }
 
@@ -1520,7 +1590,8 @@ enum SharedCaptureStore {
       if let generation, let uid = owner?.uid,
          egressGenerationIsStale(generation, owner: uid) { return false }
       return owner != nil
-        || !egressView().maps.contains { $0.owners.values.contains { $0.state != "ON" } }
+        || (!egressView().maps.contains { $0.owners.values.contains { $0.state != "ON" } }
+          && !pendingView().holdsAny)
     }) ?? false
   }
 
@@ -1566,6 +1637,10 @@ enum SharedCaptureStore {
     let key = try existingUidHmacKey()
     let view = egressView()
     guard !view.uncertain else { return .uncertain }
+    // An unresolved or unreadable pending-enable barrier is an unresolved native
+    // transition: the ownerless installation is not provably clean.
+    let pendingBarrier = pendingView()
+    guard !pendingBarrier.anyUnreadable, !pendingBarrier.holdsAny else { return .uncertain }
     var records: [String: CloudEgressRecord] = [:]
     for map in view.maps {
       for (hash, record) in map.owners {
@@ -1631,12 +1706,19 @@ enum SharedCaptureStore {
         return .record(top)
       }
       if view.uncertain { return .uncertain }
+      // A pending explicit enable is not a usable ON/unset: Dart sees the same
+      // restrictive `uncertain` it already fails closed on. (A restrictive record
+      // above is still reported as such.) Inspect the barrier with
+      // [cloudEgressPending(forUid:)].
+      let pendingBarrier = pendingView()
+      if pendingBarrier.anyUnreadable || pendingBarrier.holds(hash) { return .uncertain }
       // Restrictive records above remain usable for the existing removal revoke.
       // ON/unset is trustworthy only with readable ownership and generation.
       guard try readBarrier() == nil, let store = defaults,
-            snapshotCounter(ownerEpochKey, in: store) != nil,
+            let epoch = snapshotCounter(ownerEpochKey, in: store),
             let generation = snapshotCounter(ownerGenerationKey, in: store) else { return .uncertain }
-      if let owner = try readActiveOwner() {
+      let activeOwner = try readActiveOwner()
+      if let owner = activeOwner {
         let ownerUid = normalizedUID(owner.uid)
         let ownerMac = HMAC<SHA256>.authenticationCode(for: Data(ownerUid.utf8), using: key)
         let ownerHash = Data(ownerMac).map { String(format: "%02x", $0) }.joined()
@@ -1646,6 +1728,26 @@ enum SharedCaptureStore {
       }
       if mine.isEmpty { return .unset }
       if mine.count == 2 && mine[0] != mine[1] { return .uncertain }
+      // N-R1 bound-ON eligibility (read-only; mirrors the lifetime check of
+      // [egressDenied]). A record carrying ANY lifecycle field is reported as ON
+      // only when the REQUESTED uid is the actual active owner (its normalized uid
+      // and independently computed hash match the requested ones) and BOTH
+      // independently read layers hold the exact ON for the active generation and
+      // the live owner epoch. Anything else (cleared owner, new generation or
+      // epoch, another owner, a missing/half-bound layer) is uncertain. Records
+      // with no lifecycle field at all are the explicit legacy boundary: they keep
+      // the pre-N reporting and can never be produced by a new phase-authorized ON.
+      if mine.contains(where: {
+        $0.lifetimeOwnerGeneration != nil || $0.lifetimeOwnerEpoch != nil || $0.retirement != nil
+      }) {
+        guard let owner = activeOwner, owner.uid == normalized, owner.uidHash == hash,
+              mine.count == 2, mine.allSatisfy({
+                $0.state == "ON" && $0.retirement == nil
+                  && ($0.lifetimeOwnerGeneration ?? 0) > 0
+                  && $0.lifetimeOwnerGeneration == owner.generation
+                  && $0.lifetimeOwnerEpoch == epoch
+              }) else { return .uncertain }
+      }
       return .record(mine[0])
     }
   }
@@ -1668,7 +1770,42 @@ enum SharedCaptureStore {
     let restrictive = rank > 0
     try withQueueLock {
       let hash = try uidHash(owner)
+      // The legacy writer can never open a pending explicit enable: only
+      // [writeCloudEgressEnableOn] under the exact operation writes that ON, and
+      // only [finishCloudEgressEnable] lifts the barrier. Restrictive writes pass.
+      if !restrictive {
+        let pending = pendingView()
+        if pending.anyUnreadable || pending.holds(hash) { throw QueueError.egressDenied }
+      }
       let view = egressView()
+      if view.maps.contains(where: { $0.owners.values.contains(where: { $0.retirement != nil || $0.lifetimeOwnerGeneration != nil }) }) {
+        guard !view.uncertain else { throw QueueError.egressDenied }
+        if !restrictive && view.maps.contains(where: {
+          $0.owners[hash]?.retirement != nil || $0.owners[hash]?.lifetimeOwnerGeneration != nil
+        }) {
+          throw QueueError.egressDenied
+        }
+        for layer in StateLayer.allCases {
+          let read = egressLayerRead(layer)
+          guard !read.isUnreadable else { throw QueueError.egressDenied }
+          var map = CloudEgressMap()
+          if case let .value(value) = read { map = value }
+          let old = map.owners[hash]
+          if let old, transitionGeneration < old.transitionGeneration
+              || (transitionGeneration == old.transitionGeneration && rank < (egressRank(old.state) ?? 0)) {
+            throw QueueError.staleGeneration
+          }
+          map.owners[hash] = CloudEgressRecord(state: state,
+            transitionGeneration: transitionGeneration, reservedVersion: reservedVersion,
+            lifetimeOwnerGeneration: old?.lifetimeOwnerGeneration,
+            lifetimeOwnerEpoch: old?.lifetimeOwnerEpoch, retirement: old?.retirement)
+          guard let data = try? JSONEncoder().encode(map), writeStateLayer(.egress, layer, data),
+                case let .value(back) = egressLayerRead(layer), back == map else {
+            throw QueueError.storageWriteFailed
+          }
+        }
+        return
+      }
       for map in view.maps {
         if let stored = map.owners[hash] {
           let storedRank = egressRank(stored.state) ?? 0
@@ -1708,6 +1845,1047 @@ enum SharedCaptureStore {
       guard restrictive ? (fileOK || keychainOK) : (fileOK && keychainOK) else {
         throw QueueError.storageWriteFailed
       }
+    }
+  }
+
+  // MARK: Pending enable barrier (consent-security amendment)
+  //
+  // WHY. `setCloudEgressState` reports one bool for "at least one / both layers
+  // took it" and `getCloudEgressState` is a MERGED restrictive snapshot, so Dart
+  // can neither attest what each native layer holds nor compensate a late ON
+  // safely. An explicit Cloud enable is therefore a four-phase native
+  // transaction, every phase under the queue flock, every reply a structured
+  // per-layer report. The two native layers are the Keychain item and the App
+  // Group file ("keychain", "file"); each is read back and judged INDEPENDENTLY
+  // (an attempted-write count or a merged winner proves nothing).
+  //
+  // STATE. `cloud_egress_pending_v1` (Keychain item + App Group file):
+  // `{"owners": {<uidHash>: {operationId, transitionGeneration, reservedVersion,
+  // ownerGeneration, ownerEpoch}}}`. The key is the HMAC uidHash, never a raw
+  // uid. The operationId is a nonsecret 128-bit random hex string created HERE
+  // (never supplied by a caller). ownerGeneration and ownerEpoch are the EXISTING
+  // F2 evidence of the active owner (the owner record's generation and the owner
+  // epoch) read under the flock when the operation began: they bind the
+  // operation to one admission lifecycle. These APIs only READ that evidence;
+  // they never mint or change an owner, a generation or an epoch.
+  // An entry means "a pending explicit enable exists for this owner": every
+  // native admission path denies that owner (see [egressDenied]). Absent in both
+  // layers is the healthy legacy state and denies nothing. An entry in only one
+  // layer, an entry that differs between layers, and an unreadable or corrupt
+  // layer all deny (unreadable denies every owner, like an unreadable egress
+  // store). The store survives sign-out and is not swept by Remove data (egress
+  // state does not either).
+  //
+  // EACH LAYER IS ITS OWN STORE. A write rebuilds a layer only from THAT layer's
+  // readable content: another owner's entries are preserved per layer exactly and
+  // are never merged or copied across layers. An unreadable layer is never
+  // reconstructed or overwritten, and it can hide another owner's barrier or a
+  // newer operation, so ANY unreadable layer makes a phase `uncertain` without a
+  // write.
+  //
+  // PHASES (state = owner's pending barrier B and egress record E):
+  //  1. begin     needs a committed native active owner equal to the requested
+  //               owner (otherwise `ownerMismatch`: nothing is written, nothing
+  //               is minted). A fresh begin NEVER adopts an existing operation,
+  //               even with identical parameters: it is a `conflict`. Only an
+  //               explicit resume (the original operationId AND the original
+  //               ownerEpoch, still matching the live owner) repairs a layer that
+  //               is healthy-absent. B := op in BOTH layers, verified by
+  //               read-back, BEFORE any ON is written; a generation not strictly
+  //               greater than E is stale. Refused (barrierActive) during a
+  //               Remove-data barrier. Never touches E.
+  //  2. writeOn   needs the live owner/epoch to still equal the operation's
+  //               binding, B == op in BOTH layers and E readable in both; refuses
+  //               a layer holding a newer generation or a same-generation OFF/
+  //               DISABLING; writes ON(generation, version) into each layer's
+  //               own map and reads each back. The barrier stays.
+  //  3. restrict  compensation. Needs the operation PROVEN by the barrier (exact
+  //               entry in at least one readable layer, none unreadable, none
+  //               different); no barrier, an unreadable barrier or another
+  //               operation writes nothing. Per egress layer: unreadable is left
+  //               alone; a newer generation is `superseded`; an already
+  //               restrictive entry is reported without a write; only exactly the
+  //               operation's ON(generation, version) becomes OFF, read back, and
+  //               only in a layer whose OWN barrier entry is that exact operation
+  //               (a layer without its own proof is `notOurs`: untouched,
+  //               reported, status `incomplete`).
+  //               Never removes the barrier. Needs no live owner (it only
+  //               restricts).
+  //  4. finish    the ONLY way the barrier is lifted, and only by the exact
+  //               operation (its full binding). `complete` re-reads the
+  //               Remove-data barrier and the live owner/epoch under the flock
+  //               (an old queued complete after a logout/readmission is an
+  //               `ownerMismatch` and clears nothing) and requires
+  //               E == ON(generation, version) in BOTH layers. `abandon`
+  //               requires E readable in both layers with NO ON for the owner at
+  //               all (a prior ON is not exempt: without proof it is still
+  //               authorized for this lifecycle the denial stays). The entry is
+  //               then removed from each layer and each is read back: a layer
+  //               that could not be cleared keeps denying (`incomplete`).
+  //
+  // A crash anywhere keeps the barrier (it is written first and removed last), so
+  // a restart denies the owner until the exact operation is finished. A status of
+  // `done` is the ONLY success; everything else is a refusal or an uncertain
+  // outcome the caller must fail closed on.
+
+  /// One owner's pending explicit-enable operation (see above).
+  struct PendingEnable: Codable, Equatable {
+    let operationId: String
+    let transitionGeneration: Int
+    let reservedVersion: Int
+    /// The active owner record's generation when the operation began (F2).
+    let ownerGeneration: Int
+    /// The owner epoch when the operation began (F2).
+    let ownerEpoch: Int
+  }
+
+  /// `cloud_egress_pending` as stored (identically) in the Keychain item and the
+  /// App Group file: one entry per owner.
+  struct PendingEnableMap: Codable, Equatable {
+    var owners: [String: PendingEnable] = [:]
+  }
+
+  /// The outcome of a phase. Only [done] is success.
+  enum TransitionStatus: String, Equatable {
+    /// The phase is fully achieved and verified in BOTH layers.
+    case done
+    /// Some layer did not reach the target; the barrier is retained.
+    case incomplete
+    /// Another operation is pending for the owner, or the layers disagree.
+    case conflict
+    /// A newer generation (or a same-generation restrictive record) exists.
+    case stale
+    /// The expected barrier is missing from every layer.
+    case noBarrier
+    /// A layer is unreadable or corrupt: nothing was judged or written.
+    case uncertain
+    /// Inspection only: a consistent pending operation exists in both layers.
+    case pending
+    /// The native active owner is absent, is another owner, or is no longer the
+    /// owner lifecycle (generation / epoch) the operation was bound to. Nothing
+    /// was written; the barrier, if any, is untouched and keeps denying.
+    case ownerMismatch
+  }
+
+  /// What one layer holds / what a phase did to it.
+  enum LayerOutcome: String, Equatable {
+    /// Read back and holds exactly the expected entry (or, for inspection, an entry).
+    case verified
+    /// Compensation replaced the operation's ON with OFF, read back.
+    case restricted
+    /// Already OFF/DISABLING; nothing to restrict.
+    case alreadyRestrictive
+    /// Holds a newer generation than the operation; left untouched.
+    case superseded
+    /// No entry for the owner in this layer.
+    case absent
+    /// The barrier entry was removed, read back.
+    case cleared
+    /// Holds an ON that is not this operation's; left untouched.
+    case notOurs
+    /// Exists but cannot be read or decoded; left untouched.
+    case unreadable
+    /// The write failed and the read-back does not show the target.
+    case writeFailed
+    /// The write reported success but the read-back differs from the target.
+    case mismatch
+  }
+
+  struct LayerReport: Equatable {
+    let layer: String
+    let outcome: LayerOutcome
+    let state: String?
+    let transitionGeneration: Int?
+    let reservedVersion: Int?
+    let operationId: String?
+    let ownerGeneration: Int?
+    let ownerEpoch: Int?
+  }
+
+  /// The structured reply of every phase. [barrier] and [egress] always list the
+  /// layers in the order "file", "keychain" (egress may be empty for `begin`
+  /// conflicts that never read it). No uid, key or content ever appears here.
+  struct EnableTransitionResult: Equatable {
+    let operation: String
+    let status: TransitionStatus
+    let operationId: String?
+    let transitionGeneration: Int?
+    let reservedVersion: Int?
+    let ownerGeneration: Int?
+    let ownerEpoch: Int?
+    let barrier: [LayerReport]
+    let egress: [LayerReport]
+  }
+
+  private enum StateStore: String { case egress, pending }
+  private enum StateLayer: String, CaseIterable { case file, keychain }
+
+  private enum LayerRead<Map> {
+    case absent
+    case value(Map)
+    case unreadable
+
+    var isUnreadable: Bool {
+      if case .unreadable = self { return true }
+      return false
+    }
+  }
+
+  private static func validOperationId(_ id: String) -> Bool {
+    id.utf8.count == 32 && id.utf8.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+  }
+
+  private static func decodePendingMap(_ data: Data) -> PendingEnableMap? {
+    guard let map = try? JSONDecoder().decode(PendingEnableMap.self, from: data) else { return nil }
+    for (hash, entry) in map.owners {
+      guard validSnapshotHash(hash), validOperationId(entry.operationId),
+            entry.transitionGeneration >= 0, entry.reservedVersion >= 0,
+            entry.ownerGeneration > 0, entry.ownerEpoch >= 0 else { return nil }
+    }
+    return map
+  }
+
+  private static func pendingFileURL() throws -> URL {
+    try appGroupContainerURL().appendingPathComponent(pendingStateFileName)
+  }
+
+  private static func stateFileURL(_ store: StateStore) throws -> URL {
+    store == .egress ? try egressFileURL() : try pendingFileURL()
+  }
+
+  private static func readStateLayer<Map>(
+    _ store: StateStore, _ layer: StateLayer, decode: (Data) -> Map?
+  ) -> LayerRead<Map> {
+    switch layer {
+    case .keychain:
+      let read: (status: OSStatus, data: Data?)
+      if store == .egress {
+        read = egressKeychainReadOverride?() ?? SharedKeychain.read(forKey: egressStateKC)
+      } else {
+        read = pendingKeychainReadOverride?() ?? SharedKeychain.read(forKey: pendingStateKC)
+      }
+      switch read.status {
+      case errSecSuccess:
+        if let data = read.data, let map = decode(data) { return .value(map) }
+        return .unreadable
+      case errSecItemNotFound:
+        return .absent
+      default:
+        return .unreadable
+      }
+    case .file:
+      guard let url = try? stateFileURL(store) else { return .unreadable }
+      guard FileManager.default.fileExists(atPath: url.path) else { return .absent }
+      guard let data = try? Data(contentsOf: url), let map = decode(data) else { return .unreadable }
+      return .value(map)
+    }
+  }
+
+  private static func layerWriteFault(_ store: StateStore, _ layer: StateLayer) -> LayerWriteFault {
+    stateLayerWriteFault?(store.rawValue, layer.rawValue) ?? .none
+  }
+
+  /// True when the write CALL reported success. Never proof: read the layer back.
+  private static func writeStateLayer(_ store: StateStore, _ layer: StateLayer, _ data: Data) -> Bool {
+    switch layerWriteFault(store, layer) {
+    case .fail: return false
+    case .silentDrop: return true
+    case .none: break
+    }
+    switch layer {
+    case .file:
+      guard let url = try? stateFileURL(store) else { return false }
+      return (try? data.write(
+        to: url, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])) != nil
+    case .keychain:
+      return SharedKeychain.writeData(
+        data, forKey: store == .egress ? egressStateKC : pendingStateKC) == errSecSuccess
+    }
+  }
+
+  private static func removeStateLayer(_ store: StateStore, _ layer: StateLayer) -> Bool {
+    switch layerWriteFault(store, layer) {
+    case .fail: return false
+    case .silentDrop: return true
+    case .none: break
+    }
+    switch layer {
+    case .file:
+      guard let url = try? stateFileURL(store) else { return false }
+      guard FileManager.default.fileExists(atPath: url.path) else { return true }
+      return (try? FileManager.default.removeItem(at: url)) != nil
+    case .keychain:
+      let status = SharedKeychain.remove(forKey: store == .egress ? egressStateKC : pendingStateKC)
+      return status == errSecSuccess || status == errSecItemNotFound
+    }
+  }
+
+  private static func egressLayerRead(_ layer: StateLayer) -> LayerRead<CloudEgressMap> {
+    readStateLayer(.egress, layer, decode: decodeEgressMap)
+  }
+
+  private static func pendingLayerRead(_ layer: StateLayer) -> LayerRead<PendingEnableMap> {
+    readStateLayer(.pending, layer, decode: decodePendingMap)
+  }
+
+  /// Both pending layers, read. Callers hold the flock.
+  private struct PendingView {
+    let file: LayerRead<PendingEnableMap>
+    let keychain: LayerRead<PendingEnableMap>
+
+    func layer(_ layer: StateLayer) -> LayerRead<PendingEnableMap> {
+      layer == .file ? file : keychain
+    }
+
+    var anyUnreadable: Bool {
+      StateLayer.allCases.contains { layer($0).isUnreadable }
+    }
+
+    func entry(_ hash: String, in layer: StateLayer) -> PendingEnable? {
+      if case let .value(map) = self.layer(layer) { return map.owners[hash] }
+      return nil
+    }
+
+    /// Any layer holds an entry for [hash] (one is enough to deny).
+    func holds(_ hash: String) -> Bool {
+      StateLayer.allCases.contains { entry(hash, in: $0) != nil }
+    }
+
+    var holdsAny: Bool {
+      StateLayer.allCases.contains {
+        if case let .value(map) = layer($0) { return !map.owners.isEmpty }
+        return false
+      }
+    }
+  }
+
+  private static func pendingView() -> PendingView {
+    PendingView(file: pendingLayerRead(.file), keychain: pendingLayerRead(.keychain))
+  }
+
+  private static func newOperationId() throws -> String {
+    var bytes = [UInt8](repeating: 0, count: 16)
+    guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
+      throw QueueError.keyUnavailable(errSecAllocate)
+    }
+    return bytes.map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// Validates the full binding every phase after `begin` carries: owner,
+  /// operation, generation, version, and the F2 owner generation / epoch the
+  /// operation was created under. A malformed binding is a caller bug, not a state.
+  private static func boundOperation(
+    ownerUid: String, operationId: String, generation: Int, version: Int,
+    ownerGeneration: Int, ownerEpoch: Int
+  ) throws -> (owner: String, operation: PendingEnable) {
+    let owner = normalizedUID(ownerUid)
+    guard !owner.isEmpty, validOperationId(operationId), generation > 0, version >= 0,
+          ownerGeneration > 0, ownerEpoch >= 0 else {
+      throw QueueError.encodingFailed
+    }
+    return (owner, PendingEnable(
+      operationId: operationId, transitionGeneration: generation, reservedVersion: version,
+      ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch))
+  }
+
+  /// The owner's uidHash WITHOUT creating the HMAC key (these phases never mint
+  /// anything): nil when no key exists, i.e. nothing can be bound to a hash yet.
+  private static func keyedOwnerHash(_ owner: String) throws -> String? {
+    guard let key = try existingUidHmacKey() else { return nil }
+    let mac = HMAC<SHA256>.authenticationCode(for: Data(normalizedUID(owner).utf8), using: key)
+    return Data(mac).map { String(format: "%02x", $0) }.joined()
+  }
+
+  /// The EXISTING F2 evidence, read under the flock: the committed active owner's
+  /// generation and the owner epoch, when that owner is [owner]. nil when no owner
+  /// is committed or it is another one. Throws (fail closed) when the epoch or the
+  /// owner record cannot be read. Never writes.
+  private static func liveOwner(matching owner: String) throws -> (generation: Int, epoch: Int)? {
+    guard let store = defaults, let epoch = snapshotCounter(ownerEpochKey, in: store) else {
+      throw QueueError.unreadable
+    }
+    guard let record = try readActiveOwner(), record.uid == normalizedUID(owner) else { return nil }
+    let view = egressView()
+    guard let hash = try keyedOwnerHash(owner),
+          !view.maps.contains(where: { $0.owners[hash]?.retirement != nil }) else { return nil }
+    return (record.generation, epoch)
+  }
+
+  private static func pendingReport(
+    _ layer: StateLayer, _ outcome: LayerOutcome, _ entry: PendingEnable?
+  ) -> LayerReport {
+    LayerReport(
+      layer: layer.rawValue, outcome: outcome, state: nil,
+      transitionGeneration: entry?.transitionGeneration,
+      reservedVersion: entry?.reservedVersion, operationId: entry?.operationId,
+      ownerGeneration: entry?.ownerGeneration, ownerEpoch: entry?.ownerEpoch)
+  }
+
+  private static func egressReport(
+    _ layer: StateLayer, _ outcome: LayerOutcome, _ entry: CloudEgressRecord?
+  ) -> LayerReport {
+    LayerReport(
+      layer: layer.rawValue, outcome: outcome, state: entry?.state,
+      transitionGeneration: entry?.retirement?.transitionGeneration ?? entry?.transitionGeneration,
+      reservedVersion: entry?.retirement?.reservedVersion ?? entry?.reservedVersion, operationId: entry?.retirement?.operationId,
+      ownerGeneration: entry?.retirement?.ownerGeneration ?? entry?.lifetimeOwnerGeneration,
+      ownerEpoch: entry?.retirement?.ownerEpoch ?? entry?.lifetimeOwnerEpoch)
+  }
+
+  /// What each pending layer holds for [hash], for inspection replies.
+  private static func inspectBarrier(_ view: PendingView, _ hash: String) -> [LayerReport] {
+    StateLayer.allCases.map { layer in
+      switch view.layer(layer) {
+      case .unreadable: return pendingReport(layer, .unreadable, nil)
+      case .absent: return pendingReport(layer, .absent, nil)
+      case let .value(map):
+        guard let entry = map.owners[hash] else { return pendingReport(layer, .absent, nil) }
+        return pendingReport(layer, .verified, entry)
+      }
+    }
+  }
+
+  /// What each egress layer holds for [hash], for inspection replies.
+  private static func inspectEgress(_ hash: String) -> [LayerReport] {
+    StateLayer.allCases.map { layer in
+      switch egressLayerRead(layer) {
+      case .unreadable: return egressReport(layer, .unreadable, nil)
+      case .absent: return egressReport(layer, .absent, nil)
+      case let .value(map):
+        guard let entry = map.owners[hash] else { return egressReport(layer, .absent, nil) }
+        return egressReport(layer, .verified, entry)
+      }
+    }
+  }
+
+  private static func transition(
+    _ operation: String, _ status: TransitionStatus, op: PendingEnable?,
+    barrier: [LayerReport], egress: [LayerReport] = []
+  ) -> EnableTransitionResult {
+    EnableTransitionResult(
+      operation: operation, status: status, operationId: op?.operationId,
+      transitionGeneration: op?.transitionGeneration, reservedVersion: op?.reservedVersion,
+      ownerGeneration: op?.ownerGeneration, ownerEpoch: op?.ownerEpoch,
+      barrier: barrier, egress: egress)
+  }
+
+  /// The two empty barrier reports for a phase that could not even compute an
+  /// owner hash (no HMAC key exists, so nothing can be bound to an owner yet).
+  private static func absentBarrier() -> [LayerReport] {
+    StateLayer.allCases.map { pendingReport($0, .absent, nil) }
+  }
+
+  private enum BarrierCheck { case bothMatch, partial, noBarrier, conflict, uncertain }
+
+  /// Judges the owner's barrier against the operation a caller claims.
+  private static func checkBarrier(_ view: PendingView, _ hash: String, _ expected: PendingEnable) -> BarrierCheck {
+    let entries = StateLayer.allCases.map { view.entry(hash, in: $0) }
+    if entries.contains(where: { $0 != nil && $0 != expected }) { return .conflict }
+    if view.anyUnreadable { return .uncertain }
+    switch entries.filter({ $0 == expected }).count {
+    case 2: return .bothMatch
+    case 0: return .noBarrier
+    default: return .partial
+    }
+  }
+
+  /// Phase 1. See "PHASES" above. Writes ONLY the pending barrier, each layer from
+  /// its own content. A fresh begin never adopts an existing operation; [resume…]
+  /// names the original operation (its id AND its original owner epoch) to repair.
+  static func beginCloudEgressEnable(
+    ownerUid: String, transitionGeneration: Int, reservedVersion: Int,
+    resumeOperationId: String? = nil, resumeOwnerEpoch: Int? = nil
+  ) throws -> EnableTransitionResult {
+    let owner = normalizedUID(ownerUid)
+    guard !owner.isEmpty, transitionGeneration > 0, reservedVersion >= 0,
+          (resumeOperationId == nil) == (resumeOwnerEpoch == nil),
+          resumeOperationId.map(validOperationId) ?? true,
+          (resumeOwnerEpoch ?? 0) >= 0 else {
+      throw QueueError.encodingFailed
+    }
+    return try withQueueLock {
+      guard try readBarrier() == nil else { throw QueueError.barrierActive }
+      guard let hash = try keyedOwnerHash(owner) else {
+        return transition("begin", .ownerMismatch, op: nil, barrier: absentBarrier())
+      }
+      let view = pendingView()
+      let barrier = inspectBarrier(view, hash)
+      // The operation is bound to the COMMITTED native owner. Not committed (an
+      // ownerless or deferred publication), or another owner: refuse honestly,
+      // never mint the owner here.
+      guard let live = try liveOwner(matching: owner) else {
+        return transition("begin", .ownerMismatch, op: nil, barrier: barrier)
+      }
+      // An unreadable layer can hide another owner's barrier or a newer
+      // operation, and is never reconstructed: nothing is judged or written.
+      if view.anyUnreadable {
+        return transition("begin", .uncertain, op: nil, barrier: barrier, egress: inspectEgress(hash))
+      }
+      let egress = inspectEgress(hash)
+      let existing = StateLayer.allCases.compactMap { view.entry(hash, in: $0) }
+      let op: PendingEnable
+      if let first = existing.first {
+        // Only an explicit resume of exactly this operation may touch it.
+        guard let resumeId = resumeOperationId, let resumeEpoch = resumeOwnerEpoch,
+              existing.allSatisfy({ $0 == first }), first.operationId == resumeId,
+              first.transitionGeneration == transitionGeneration,
+              first.reservedVersion == reservedVersion, first.ownerEpoch == resumeEpoch else {
+          return transition("begin", .conflict, op: first, barrier: barrier, egress: egress)
+        }
+        guard first.ownerGeneration == live.generation, first.ownerEpoch == live.epoch else {
+          return transition("begin", .ownerMismatch, op: first, barrier: barrier, egress: egress)
+        }
+        op = first
+      } else {
+        // Resuming something that is not there creates nothing.
+        guard resumeOperationId == nil else {
+          return transition("begin", .noBarrier, op: nil, barrier: barrier, egress: egress)
+        }
+        // A new operation needs a readable egress state strictly older than it.
+        let stored = StateLayer.allCases.map { egressLayerRead($0) }
+        if stored.contains(where: { $0.isUnreadable }) {
+          return transition("begin", .uncertain, op: nil, barrier: barrier, egress: egress)
+        }
+        let newest = stored.compactMap { read -> Int? in
+          if case let .value(map) = read { return map.owners[hash]?.transitionGeneration }
+          return nil
+        }.max()
+        if let newest, newest >= transitionGeneration {
+          return transition("begin", .stale, op: nil, barrier: barrier, egress: egress)
+        }
+        op = PendingEnable(
+          operationId: try newOperationId(), transitionGeneration: transitionGeneration,
+          reservedVersion: reservedVersion, ownerGeneration: live.generation,
+          ownerEpoch: live.epoch)
+      }
+      // Each layer is rebuilt from ITS OWN readable content only (other owners'
+      // entries stay exactly as that layer holds them); a layer that already holds
+      // exactly the operation is not rewritten.
+      var targets: [StateLayer: PendingEnableMap] = [:]
+      var wrote: [StateLayer: Bool] = [:]
+      for layer in StateLayer.allCases {
+        var target = PendingEnableMap()
+        if case let .value(map) = view.layer(layer) { target = map }
+        let unchanged = target.owners[hash] == op
+        target.owners[hash] = op
+        targets[layer] = target
+        if unchanged {
+          wrote[layer] = true
+          continue
+        }
+        guard let data = try? JSONEncoder().encode(target) else { throw QueueError.encodingFailed }
+        wrote[layer] = writeStateLayer(.pending, layer, data)
+      }
+      let after = pendingView()
+      let reports = StateLayer.allCases.map { layer -> LayerReport in
+        switch after.layer(layer) {
+        case let .value(map) where map == targets[layer]: return pendingReport(layer, .verified, op)
+        case let .value(map): return pendingReport(layer, wrote[layer] == true ? .mismatch : .writeFailed, map.owners[hash])
+        case .absent: return pendingReport(layer, wrote[layer] == true ? .mismatch : .writeFailed, nil)
+        case .unreadable: return pendingReport(layer, wrote[layer] == true ? .unreadable : .writeFailed, nil)
+        }
+      }
+      let verified = reports.allSatisfy { $0.outcome == .verified }
+      return transition("begin", verified ? .done : .incomplete, op: op, barrier: reports, egress: inspectEgress(hash))
+    }
+  }
+
+  /// Phase 2. Writes ON(generation, version) into each egress layer under the
+  /// exact pending operation while its owner lifecycle is still the live one,
+  /// then reads each layer back. The barrier stays.
+  static func writeCloudEgressEnableOn(
+    ownerUid: String, operationId: String, transitionGeneration: Int, reservedVersion: Int,
+    ownerGeneration: Int, ownerEpoch: Int
+  ) throws -> EnableTransitionResult {
+    let (owner, expected) = try boundOperation(
+      ownerUid: ownerUid, operationId: operationId,
+      generation: transitionGeneration, version: reservedVersion,
+      ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
+    return try withQueueLock {
+      guard try readBarrier() == nil else { throw QueueError.barrierActive }
+      guard let hash = try keyedOwnerHash(owner) else {
+        return transition("writeOn", .noBarrier, op: expected, barrier: absentBarrier())
+      }
+      let view = pendingView()
+      let barrier = inspectBarrier(view, hash)
+      switch checkBarrier(view, hash, expected) {
+      case .bothMatch: break
+      case .partial: return transition("writeOn", .incomplete, op: expected, barrier: barrier)
+      case .noBarrier: return transition("writeOn", .noBarrier, op: expected, barrier: barrier)
+      case .conflict: return transition("writeOn", .conflict, op: expected, barrier: barrier)
+      case .uncertain: return transition("writeOn", .uncertain, op: expected, barrier: barrier)
+      }
+      guard let live = try liveOwner(matching: owner),
+            live.generation == expected.ownerGeneration, live.epoch == expected.ownerEpoch else {
+        return transition("writeOn", .ownerMismatch, op: expected, barrier: barrier)
+      }
+      let stored = StateLayer.allCases.map { egressLayerRead($0) }
+      let before = inspectEgress(hash)
+      if stored.contains(where: { $0.isUnreadable }) {
+        return transition("writeOn", .uncertain, op: expected, barrier: barrier, egress: before)
+      }
+      let lifecycleEntries = stored.compactMap { read -> CloudEgressRecord? in
+        if case let .value(map) = read { return map.owners[hash] }
+        return nil
+      }
+      // N-R2: a retired, half-bound or differently bound entry in EITHER layer
+      // refuses before any write. Entries with no lifecycle field (legacy/absent)
+      // are never a source of metadata: they are promoted below.
+      if lifecycleEntries.contains(where: {
+        $0.retirement != nil ||
+        (($0.lifetimeOwnerGeneration != nil || $0.lifetimeOwnerEpoch != nil) &&
+          ($0.lifetimeOwnerGeneration != ownerGeneration || $0.lifetimeOwnerEpoch != ownerEpoch))
+      }) {
+        return transition("writeOn", .ownerMismatch, op: expected, barrier: barrier, egress: before)
+      }
+      // Every new ON is explicitly bound to the verified operation's owner
+      // generation/epoch (proven live above), regardless of layer order or of
+      // whether the old entries were legacy, bound, or absent. Mixed legacy/bound
+      // OFF inputs are uniformly PROMOTED to this exact bound ON in both layers
+      // (never stripped, same result in both orientations).
+      let target = CloudEgressRecord(
+        state: "ON", transitionGeneration: transitionGeneration, reservedVersion: reservedVersion,
+        lifetimeOwnerGeneration: expected.ownerGeneration,
+        lifetimeOwnerEpoch: expected.ownerEpoch)
+      for read in stored {
+        guard case let .value(map) = read, let entry = map.owners[hash] else { continue }
+        // Older entries are replaced; a newer generation or a same-generation
+        // record other than this exact ON blocks the write.
+        if entry.transitionGeneration > transitionGeneration
+          || (entry.transitionGeneration == transitionGeneration && entry != target) {
+          return transition("writeOn", .stale, op: expected, barrier: barrier, egress: before)
+        }
+      }
+      // Each layer keeps its own other owners' entries exactly; none is copied
+      // from one layer into the other.
+      var targets: [StateLayer: CloudEgressMap] = [:]
+      var wrote: [StateLayer: Bool] = [:]
+      for (layer, read) in zip(StateLayer.allCases, stored) {
+        var next = CloudEgressMap()
+        if case let .value(map) = read { next = map }
+        next.owners[hash] = target
+        targets[layer] = next
+        guard let data = try? JSONEncoder().encode(next) else { throw QueueError.encodingFailed }
+        wrote[layer] = writeStateLayer(.egress, layer, data)
+      }
+      let reports = StateLayer.allCases.map { layer -> LayerReport in
+        switch egressLayerRead(layer) {
+        case let .value(map) where map == targets[layer]: return egressReport(layer, .verified, target)
+        case let .value(map): return egressReport(layer, wrote[layer] == true ? .mismatch : .writeFailed, map.owners[hash])
+        case .absent: return egressReport(layer, wrote[layer] == true ? .mismatch : .writeFailed, nil)
+        case .unreadable: return egressReport(layer, wrote[layer] == true ? .unreadable : .writeFailed, nil)
+        }
+      }
+      let verified = reports.allSatisfy { $0.outcome == .verified }
+      return transition("writeOn", verified ? .done : .incomplete, op: expected, barrier: barrier, egress: reports)
+    }
+  }
+
+  /// N: retires an outgoing lifetime even AFTER pending completion cleared.
+  /// Ordered against finish/admission by the same flock; no transport is awaited.
+  static func revokeCaptureAuthorizationLifetime(
+    ownerUid: String, operationId: String, transitionGeneration: Int, reservedVersion: Int,
+    ownerGeneration: Int, ownerEpoch: Int
+  ) throws -> EnableTransitionResult {
+    let (owner, expected) = try boundOperation(ownerUid: ownerUid, operationId: operationId,
+      generation: transitionGeneration, version: reservedVersion,
+      ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
+    return try withQueueLock {
+      guard let hash = try keyedOwnerHash(owner) else {
+        return transition("revoke", .ownerMismatch, op: expected, barrier: absentBarrier())
+      }
+      let pending = pendingView()
+      let barrier = inspectBarrier(pending, hash)
+      let before = inspectEgress(hash)
+      // No stale retry may mutate a newly published account/lifetime.
+      guard let active = try readActiveOwner(), active.uid == owner,
+            active.generation == ownerGeneration,
+            let defaults, snapshotCounter(ownerEpochKey, in: defaults) == ownerEpoch else {
+        return transition("revoke", .ownerMismatch, op: expected, barrier: barrier, egress: before)
+      }
+      let reads = StateLayer.allCases.map { egressLayerRead($0) }
+      if pending.anyUnreadable || reads.contains(where: { $0.isUnreadable }) {
+        return transition("revoke", .uncertain, op: expected, barrier: barrier, egress: before)
+      }
+      for read in reads {
+        if case let .value(map) = read, let entry = map.owners[hash] {
+          if let retirement = entry.retirement, retirement != expected {
+            return transition("revoke", .conflict, op: expected, barrier: barrier, egress: before)
+          }
+          // A1: retirement covers EVERY enable transition (any transition generation,
+          // including a completed ON with no pending barrier) of the lifecycle named
+          // by the captured uid/hash + owner generation + owner epoch, which the
+          // guard above proved is still the live one. Only an entry bound to a
+          // DIFFERENT owner generation/epoch is a newer lifecycle and is never
+          // modified by this stale retirement.
+          if entry.retirement == nil
+              && (entry.lifetimeOwnerGeneration.map({ $0 != ownerGeneration }) == true
+              || entry.lifetimeOwnerEpoch.map({ $0 != ownerEpoch }) == true) {
+            return transition("revoke", .stale, op: expected, barrier: barrier, egress: before)
+          }
+        }
+      }
+      var targets: [StateLayer: CloudEgressMap] = [:]
+      var writes: [StateLayer: Bool] = [:]
+      for (layer, read) in zip(StateLayer.allCases, reads) {
+        var map = CloudEgressMap()
+        if case let .value(existing) = read { map = existing }
+        let old = map.owners[hash]
+        map.owners[hash] = CloudEgressRecord(state: "OFF",
+          transitionGeneration: max(old?.transitionGeneration ?? 0, transitionGeneration),
+          reservedVersion: max(old?.reservedVersion ?? 0, reservedVersion),
+          lifetimeOwnerGeneration: ownerGeneration, lifetimeOwnerEpoch: ownerEpoch,
+          retirement: expected)
+        targets[layer] = map
+        guard let data = try? JSONEncoder().encode(map) else { throw QueueError.encodingFailed }
+        writes[layer] = writeStateLayer(.egress, layer, data)
+      }
+      let reports = StateLayer.allCases.map { layer -> LayerReport in
+        switch egressLayerRead(layer) {
+        case let .value(map) where map == targets[layer]:
+          return egressReport(layer, .verified, map.owners[hash])
+        case let .value(map):
+          return egressReport(layer, writes[layer] == true ? .mismatch : .writeFailed, map.owners[hash])
+        case .absent: return egressReport(layer, .writeFailed, nil)
+        case .unreadable: return egressReport(layer, .unreadable, nil)
+        }
+      }
+      return transition("revoke", reports.allSatisfy { $0.outcome == .verified } ? .done : .incomplete,
+        op: expected, barrier: barrier, egress: reports)
+    }
+  }
+
+  struct RestrictiveOwnerPublication {
+    let status: TransitionStatus
+    let owner: OwnerRecord?
+    let ownerEpoch: Int
+    let egress: [LayerReport]
+  }
+
+  /// Explicit fresh restrictive publication; never clears a pending operation.
+  /// A retired active same-UID owner obtains a NEW generation only after both
+  /// existing egress layers verify restrictive lifetime evidence.
+  static func publishRestrictiveCaptureOwner(
+    uid: String, version: Int, expectedEpoch: Int
+  ) throws -> RestrictiveOwnerPublication {
+    let owner = normalizedUID(uid)
+    guard !owner.isEmpty, version >= 0, expectedEpoch >= 0 else { throw QueueError.encodingFailed }
+    return try withQueueLock {
+      guard try readBarrier() == nil else { throw QueueError.barrierActive }
+      guard let defaults, snapshotCounter(ownerEpochKey, in: defaults) == expectedEpoch,
+            let lastGeneration = snapshotCounter(ownerGenerationKey, in: defaults) else {
+        throw QueueError.ownerChanged
+      }
+      let active = try readActiveOwner()
+      // A different current owner is not an explicit readmission invitation.
+      guard active == nil || active?.uid == owner else { throw QueueError.ownerChanged }
+      let hash = try uidHash(owner)
+      let pending = pendingView()
+      let reads = StateLayer.allCases.map { egressLayerRead($0) }
+      if pending.anyUnreadable || reads.contains(where: { $0.isUnreadable }) {
+        return RestrictiveOwnerPublication(status: .uncertain, owner: nil,
+          ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
+      }
+      if pending.holds(hash) {
+        return RestrictiveOwnerPublication(status: .conflict, owner: nil,
+          ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
+      }
+      let entries = reads.map { read -> CloudEgressRecord? in
+        if case let .value(map) = read { return map.owners[hash] }
+        return nil
+      }
+      if entries.contains(where: { ($0?.reservedVersion ?? 0) > version }) {
+        return RestrictiveOwnerPublication(status: .stale, owner: nil,
+          ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
+      }
+      let retired = entries.contains { $0?.retirement != nil }
+      // Current live publication retries preserve generation. Retirement requires
+      // a new lifetime; old pending completion is never acknowledged here.
+      let unfinishedGeneration = entries.compactMap { $0?.lifetimeOwnerGeneration }.max() ?? 0
+      let generation = (active != nil && !retired && unfinishedGeneration <= active!.generation)
+        ? active!.generation : max(lastGeneration + 1, unfinishedGeneration)
+      let transitionGeneration = entries.compactMap { $0?.transitionGeneration }.max() ?? 0
+      let target = CloudEgressRecord(state: "OFF", transitionGeneration: transitionGeneration,
+        reservedVersion: version, lifetimeOwnerGeneration: generation, lifetimeOwnerEpoch: expectedEpoch)
+      var targets: [StateLayer: CloudEgressMap] = [:]
+      var writes: [StateLayer: Bool] = [:]
+      for (layer, read) in zip(StateLayer.allCases, reads) {
+        var map = CloudEgressMap()
+        if case let .value(existing) = read { map = existing }
+        map.owners[hash] = target
+        targets[layer] = map
+        guard let data = try? JSONEncoder().encode(map) else { throw QueueError.encodingFailed }
+        writes[layer] = writeStateLayer(.egress, layer, data)
+      }
+      let reports = StateLayer.allCases.map { layer -> LayerReport in
+        switch egressLayerRead(layer) {
+        case let .value(map) where map == targets[layer]: return egressReport(layer, .verified, target)
+        case let .value(map): return egressReport(layer, writes[layer] == true ? .mismatch : .writeFailed, map.owners[hash])
+        case .absent: return egressReport(layer, .writeFailed, nil)
+        case .unreadable: return egressReport(layer, .unreadable, nil)
+        }
+      }
+      guard reports.allSatisfy({ $0.outcome == .verified }) else {
+        return RestrictiveOwnerPublication(status: .incomplete, owner: nil,
+          ownerEpoch: expectedEpoch, egress: reports)
+      }
+      writeConsentMirrorEntry(hash: hash, mirror: ConsentMirrorValue(cloud: false, ai: false, version: version))
+      guard let mirror = consentMirror(forHash: hash), !mirror.cloud, !mirror.ai else {
+        return RestrictiveOwnerPublication(status: .incomplete, owner: nil,
+          ownerEpoch: expectedEpoch, egress: reports)
+      }
+      let record = OwnerRecord(uid: owner, uidHash: hash, generation: generation)
+      guard let data = try? JSONEncoder().encode(record) else { throw QueueError.encodingFailed }
+      try writeKeychain(data, forKey: activeOwnerKC)
+      try writeKeychain(Data(hash.utf8), forKey: lastAdmittedHashKC)
+      defaults.set(generation, forKey: ownerGenerationKey)
+      defaults.synchronize()
+      guard try readActiveOwner() == record,
+            snapshotCounter(ownerEpochKey, in: defaults) == expectedEpoch else {
+        return RestrictiveOwnerPublication(status: .incomplete, owner: nil,
+          ownerEpoch: expectedEpoch, egress: reports)
+      }
+      return RestrictiveOwnerPublication(status: .done, owner: record,
+        ownerEpoch: expectedEpoch, egress: reports)
+    }
+  }
+
+  /// Phase 3. Conditional, per-layer compensation of an operation the barrier
+  /// PROVES. Missing, unreadable or conflicting barrier evidence is never
+  /// permission to write, and the proof is per layer: an egress layer is rewritten
+  /// only if the same layer's barrier entry is exactly the expected operation.
+  /// Without its own proof a layer holding the operation's ON is reported
+  /// `notOurs` (unresolved, status `incomplete`, denial kept). Allowed during a
+  /// Remove-data barrier and needs no live owner (it only restricts). Never
+  /// removes the pending barrier.
+  static func restrictCloudEgressEnable(
+    ownerUid: String, operationId: String, transitionGeneration: Int, reservedVersion: Int,
+    ownerGeneration: Int, ownerEpoch: Int
+  ) throws -> EnableTransitionResult {
+    let (owner, expected) = try boundOperation(
+      ownerUid: ownerUid, operationId: operationId,
+      generation: transitionGeneration, version: reservedVersion,
+      ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
+    return try withQueueLock {
+      guard let hash = try keyedOwnerHash(owner) else {
+        return transition("restrict", .noBarrier, op: expected, barrier: absentBarrier())
+      }
+      let view = pendingView()
+      let barrier = inspectBarrier(view, hash)
+      switch checkBarrier(view, hash, expected) {
+      case .bothMatch, .partial: break
+      case .noBarrier:
+        return transition("restrict", .noBarrier, op: expected, barrier: barrier, egress: inspectEgress(hash))
+      case .conflict:
+        return transition("restrict", .conflict, op: expected, barrier: barrier, egress: inspectEgress(hash))
+      case .uncertain:
+        return transition("restrict", .uncertain, op: expected, barrier: barrier, egress: inspectEgress(hash))
+      }
+      var clean = true
+      let reports = StateLayer.allCases.map { layer -> LayerReport in
+        switch egressLayerRead(layer) {
+        case .unreadable:
+          clean = false
+          return egressReport(layer, .unreadable, nil)
+        case .absent:
+          return egressReport(layer, .absent, nil)
+        case let .value(map):
+          guard let entry = map.owners[hash] else { return egressReport(layer, .absent, nil) }
+          if entry.lifetimeOwnerGeneration.map({ $0 != ownerGeneration }) == true
+              || entry.lifetimeOwnerEpoch.map({ $0 != ownerEpoch }) == true
+              || entry.retirement.map({ $0 != expected }) == true {
+            clean = false
+            return egressReport(layer, .notOurs, entry)
+          }
+          if entry.transitionGeneration > transitionGeneration {
+            return egressReport(layer, .superseded, entry)
+          }
+          if entry.state == "ON", entry.transitionGeneration == transitionGeneration,
+             entry.reservedVersion == reservedVersion, entry.retirement == nil {
+            // PER-LAYER PROOF: this egress layer may be rewritten only when the
+            // SAME layer's pending barrier holds exactly the expected operation
+            // (owner, operation, generation, version, owner generation, epoch).
+            // Evidence in the other layer authorizes nothing here: the ON is left
+            // byte-for-byte untouched and reported unresolved.
+            guard view.entry(hash, in: layer) == expected else {
+              clean = false
+              return egressReport(layer, .notOurs, entry)
+            }
+            let off = CloudEgressRecord(state: "OFF", transitionGeneration: transitionGeneration,
+              reservedVersion: reservedVersion,
+              lifetimeOwnerGeneration: entry.lifetimeOwnerGeneration,
+              lifetimeOwnerEpoch: entry.lifetimeOwnerEpoch, retirement: entry.retirement)
+            var restricted = map
+            restricted.owners[hash] = off
+            guard let data = try? JSONEncoder().encode(restricted) else {
+              clean = false
+              return egressReport(layer, .writeFailed, entry)
+            }
+            let wrote = writeStateLayer(.egress, layer, data)
+            switch egressLayerRead(layer) {
+            case let .value(readBack) where readBack == restricted:
+              return egressReport(layer, .restricted, off)
+            case let .value(readBack):
+              clean = false
+              return egressReport(layer, wrote ? .mismatch : .writeFailed, readBack.owners[hash])
+            case .absent:
+              clean = false
+              return egressReport(layer, wrote ? .mismatch : .writeFailed, nil)
+            case .unreadable:
+              clean = false
+              return egressReport(layer, wrote ? .unreadable : .writeFailed, nil)
+            }
+          }
+          if entry.state != "ON" { return egressReport(layer, .alreadyRestrictive, entry) }
+          clean = false
+          return egressReport(layer, .notOurs, entry)
+        }
+      }
+      return transition("restrict", clean ? .done : .incomplete, op: expected, barrier: barrier, egress: reports)
+    }
+  }
+
+  /// Phase 4. `complete` (needs verified ON in both layers and the operation's
+  /// owner lifecycle still live) or `abandon` (needs NO ON for the owner in
+  /// either layer): the only ways the barrier is lifted, and only by the
+  /// operation's full binding.
+  static func finishCloudEgressEnable(
+    ownerUid: String, operationId: String, transitionGeneration: Int, reservedVersion: Int,
+    ownerGeneration: Int, ownerEpoch: Int, abandon: Bool
+  ) throws -> EnableTransitionResult {
+    let (owner, expected) = try boundOperation(
+      ownerUid: ownerUid, operationId: operationId,
+      generation: transitionGeneration, version: reservedVersion,
+      ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
+    let name = abandon ? "abandon" : "complete"
+    beforeLifetimeFinishLock?()
+    return try withQueueLock {
+      // Re-read under the flock: a Remove-data barrier and the live owner.
+      if !abandon { guard try readBarrier() == nil else { throw QueueError.barrierActive } }
+      guard let hash = try keyedOwnerHash(owner) else {
+        return transition(name, .noBarrier, op: expected, barrier: absentBarrier())
+      }
+      let view = pendingView()
+      let barrier = inspectBarrier(view, hash)
+      let stored = StateLayer.allCases.map { egressLayerRead($0) }
+      let egress = inspectEgress(hash)
+      switch checkBarrier(view, hash, expected) {
+      case .bothMatch, .partial: break
+      case .noBarrier: return transition(name, .noBarrier, op: expected, barrier: barrier, egress: egress)
+      case .conflict: return transition(name, .conflict, op: expected, barrier: barrier, egress: egress)
+      case .uncertain: return transition(name, .uncertain, op: expected, barrier: barrier, egress: egress)
+      }
+      if !abandon {
+        // A queued complete from an older lifecycle (logout, readmission, another
+        // owner in between) is refused and clears nothing.
+        guard let live = try liveOwner(matching: owner),
+              live.generation == expected.ownerGeneration, live.epoch == expected.ownerEpoch else {
+          return transition(name, .ownerMismatch, op: expected, barrier: barrier, egress: egress)
+        }
+      }
+      if stored.contains(where: { $0.isUnreadable }) {
+        return transition(name, .uncertain, op: expected, barrier: barrier, egress: egress)
+      }
+      let entries = stored.map { read -> CloudEgressRecord? in
+        if case let .value(map) = read { return map.owners[hash] }
+        return nil
+      }
+      let lifecycleEntries = stored.compactMap { read -> CloudEgressRecord? in
+        if case let .value(map) = read { return map.owners[hash] }
+        return nil
+      }
+      if lifecycleEntries.contains(where: {
+        ($0.retirement != nil && (!abandon || $0.retirement != expected)) ||
+        (($0.lifetimeOwnerGeneration != nil || $0.lifetimeOwnerEpoch != nil) &&
+          ($0.lifetimeOwnerGeneration != ownerGeneration || $0.lifetimeOwnerEpoch != ownerEpoch))
+      }) {
+        return transition(name, .ownerMismatch, op: expected, barrier: barrier, egress: egress)
+      }
+      // N-R2: the only ON that completes is the exact bound one writeOn produced,
+      // built from the verified operation, never inferred from old entry order.
+      let target = CloudEgressRecord(
+        state: "ON", transitionGeneration: transitionGeneration, reservedVersion: reservedVersion,
+        lifetimeOwnerGeneration: expected.ownerGeneration,
+        lifetimeOwnerEpoch: expected.ownerEpoch)
+      if abandon {
+        // No ON of ANY generation may remain: a prior grant is not proven still
+        // authorized for this lifecycle, so the denial stays until it is restricted.
+        if entries.contains(where: { $0?.state == "ON" }) {
+          return transition(name, .incomplete, op: expected, barrier: barrier, egress: egress)
+        }
+      } else {
+        if entries.contains(where: { ($0?.transitionGeneration ?? 0) > transitionGeneration }) {
+          return transition(name, .stale, op: expected, barrier: barrier, egress: egress)
+        }
+        guard entries.allSatisfy({ $0 == target }) else {
+          return transition(name, .incomplete, op: expected, barrier: barrier, egress: egress)
+        }
+      }
+      var cleared = true
+      let reports = StateLayer.allCases.map { layer -> LayerReport in
+        guard case let .value(map) = view.layer(layer), map.owners[hash] != nil else {
+          return pendingReport(layer, .absent, nil)
+        }
+        var remaining = map
+        remaining.owners.removeValue(forKey: hash)
+        let wrote: Bool
+        if remaining.owners.isEmpty {
+          wrote = removeStateLayer(.pending, layer)
+        } else if let data = try? JSONEncoder().encode(remaining) {
+          wrote = writeStateLayer(.pending, layer, data)
+        } else {
+          wrote = false
+        }
+        switch pendingLayerRead(layer) {
+        case .absent where remaining.owners.isEmpty:
+          return pendingReport(layer, .cleared, nil)
+        case let .value(readBack) where readBack == remaining && !remaining.owners.isEmpty:
+          return pendingReport(layer, .cleared, nil)
+        case let .value(readBack):
+          cleared = false
+          return pendingReport(layer, wrote ? .mismatch : .writeFailed, readBack.owners[hash])
+        case .absent:
+          cleared = false
+          return pendingReport(layer, wrote ? .mismatch : .writeFailed, nil)
+        case .unreadable:
+          cleared = false
+          return pendingReport(layer, wrote ? .unreadable : .writeFailed, nil)
+        }
+      }
+      return transition(name, cleared ? .done : .incomplete, op: expected, barrier: reports, egress: egress)
+    }
+  }
+
+  /// Read-only: the owner's pending barrier and egress entry per layer, so a
+  /// restart can find the operation it must resume, restrict or abandon. Allowed
+  /// during a Remove-data barrier. Writes nothing and never creates the HMAC key.
+  static func cloudEgressPending(forUid uid: String) throws -> EnableTransitionResult {
+    let owner = normalizedUID(uid)
+    guard !owner.isEmpty else { throw QueueError.encodingFailed }
+    return try withQueueLock {
+      guard let hash = try keyedOwnerHash(owner) else {
+        // No hash key yet: nothing can have been written under an owner hash.
+        let view = pendingView()
+        let status: TransitionStatus = view.anyUnreadable ? .uncertain : (view.holdsAny ? .conflict : .noBarrier)
+        return transition("inspect", status, op: nil, barrier: StateLayer.allCases.map {
+          pendingReport($0, view.layer($0).isUnreadable ? .unreadable : .absent, nil)
+        })
+      }
+      let view = pendingView()
+      let barrier = inspectBarrier(view, hash)
+      let egress = inspectEgress(hash)
+      let entries = StateLayer.allCases.compactMap { view.entry(hash, in: $0) }
+      let status: TransitionStatus
+      if view.anyUnreadable {
+        status = .uncertain
+      } else if entries.isEmpty {
+        status = .noBarrier
+      } else if let first = entries.first, entries.allSatisfy({ $0 == first }) {
+        status = entries.count == 2 ? .pending : .incomplete
+      } else {
+        status = .conflict
+      }
+      return transition("inspect", status, op: entries.first, barrier: barrier, egress: egress)
     }
   }
 
@@ -1801,6 +2979,9 @@ enum SharedCaptureStore {
   ///   background identifier, so nothing is retried or resumed by the OS after
   ///   the process ends.
   /// - The in-flight registry entry is removed on every exit.
+  /// - Admission before a lifecycle fence is already in flight, even if transport
+  ///   starts later. Revocation cannot recall that request; network waits never
+  ///   run under the queue flock. Native denial is confirmed at the fence receipt.
   /// - It reads ONLY the durable egress state through [admitUpload]. The Dart
   ///   account-control grant is in-process Dart state; it is never written to
   ///   the Keychain, the App Group file or any channel, so it cannot admit
@@ -1844,7 +3025,11 @@ enum SharedCaptureStore {
   /// `purgeUserOwnedState`, because the persistent OFF gate outlives sign-out.
   static func debugResetCloudEgressState() {
     SharedKeychain.remove(forKey: egressStateKC)
+    SharedKeychain.remove(forKey: pendingStateKC)
+    pendingKeychainReadOverride = nil
+    stateLayerWriteFault = nil
     if let url = try? egressFileURL() { try? FileManager.default.removeItem(at: url) }
+    if let url = try? pendingFileURL() { try? FileManager.default.removeItem(at: url) }
     if let url = try? inflightFileURL() { try? FileManager.default.removeItem(at: url) }
   }
 

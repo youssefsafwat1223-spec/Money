@@ -1,11 +1,10 @@
+import 'ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -21,12 +20,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // ON where noted (WP-5: revision CAS runs through the sync_* RPCs, capability
 // `revision_cas`, false in production until G4).
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 // A single-object body (used for the GET row-state reads, which keep maybeSingle).
 http.Response _object(Map<String, dynamic> m, http.BaseRequest req) =>
@@ -46,14 +39,13 @@ http.Response _zeroRow(http.BaseRequest req) => _arr(const [], req);
 
 void main() {
   late AppDatabase db;
+  late LedgerAdmissionFixture admission;
 
   setUp(() async {
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    admission = await LedgerAdmissionFixture.open('user-1');
+    db = admission.database;
   });
-  tearDown(() => db.close());
+  tearDown(() => admission.finish());
 
   // A transaction already synced at [revision] with a known server_updated_at
   // base, then deleted locally (delete enqueued, carrying both base tokens).
@@ -98,7 +90,7 @@ void main() {
     required http.Response Function(http.BaseRequest) onPatch,
     http.Response Function(http.BaseRequest)? onGet,
   }) =>
-      SupabaseClient(
+      LedgerAdmissionFixture.trackClient(SupabaseClient(
         'https://example.supabase.co',
         'anon',
         accessToken: () async => 'token',
@@ -107,7 +99,7 @@ void main() {
           if (req.method == 'PATCH') return onPatch(req);
           return (onGet ?? (r) => _zeroRow(r))(req);
         }),
-      );
+      ));
 
   Future<LedgerPushResult> push(SupabaseClient c, {FakeCasServer? cas}) =>
       LedgerPushService(

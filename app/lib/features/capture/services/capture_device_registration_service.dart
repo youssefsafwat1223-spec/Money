@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -11,6 +12,7 @@ import '../../../core/privacy/cloud_egress_gate.dart';
 import '../../../core/privacy/consent_authority.dart';
 import '../../../core/session/admission_authority.dart';
 import '../../../core/session/app_session.dart';
+import '../../../core/session/consent_capability.dart';
 import '../../../core/utils/install_id.dart';
 import '../../../data/repositories/drift_user_settings_repository.dart';
 import '../../../domain/entities/supporting_entities.dart';
@@ -106,6 +108,92 @@ class CloudDisableException implements Exception {
   String toString() => 'CloudDisableException($reason)';
 }
 
+/// Thrown by [CaptureDeviceRegistrationService.enableCloud] when Cloud was NOT
+/// turned on and the user must be told so ("couldn't turn on, try again"): the
+/// native/Dart transition was refused, failed or could not be confirmed. Cloud
+/// stays denied (a durable pending denial remains whenever the outcome is
+/// uncertain). [reason] is a coarse code only, never an exception message, uid,
+/// secret or URL. A lifecycle that ended meanwhile is reported as
+/// [StaleAdmissionException] instead (nothing is shown into the live scope).
+class CloudEnableIncompleteException implements Exception {
+  const CloudEnableIncompleteException(this.reason);
+  final String reason;
+  @override
+  String toString() => 'CloudEnableIncompleteException($reason)';
+}
+
+/// Thrown when an explicit Turn on is asked over a stored Cloud ON whose live
+/// authority cannot be verified and no exactly resumable pending enable exists
+/// (native unset, OFF or unreadable, a corrupt or disagreeing layer, a pending
+/// operation of another reserved version). Nothing was written and nothing was
+/// sent; a plain settings save is never proof that a native enable completed.
+/// The person must turn the permission off (the verified restrictive disable)
+/// before it can be turned on again. [reason] is a coarse code only.
+class CloudEnableWithdrawFirstException implements Exception {
+  const CloudEnableWithdrawFirstException([this.reason = 'withdraw_first']);
+  final String reason;
+  @override
+  String toString() => 'CloudEnableWithdrawFirstException($reason)';
+}
+
+/// R17/R18 — the state of this owner's pending explicit enable relative to the
+/// stored consent row (see [CaptureDeviceRegistrationService.pendingEnableState]).
+enum PendingEnableState {
+  /// No pending enable of this owner anywhere.
+  none,
+
+  /// Exactly one operation, consistent in every layer, reserved at exactly the
+  /// version the stored row implies: an explicit Turn on can resume it.
+  resumable,
+
+  /// Anything else (conflicting, corrupt, unreadable, mismatched or stale
+  /// layers, another version, an enable still running): no Turn on; the only
+  /// way out is the verified withdrawal.
+  unresolved,
+}
+
+/// R18 — thrown by [CaptureDeviceRegistrationService.withdrawPendingEnable]
+/// when the withdrawal could not be verified. Egress stays denied and whatever
+/// pending evidence could not be proven cleared stays in place; the person is
+/// told it did not finish. [reason] is a coarse code only.
+class CloudWithdrawIncompleteException implements Exception {
+  const CloudWithdrawIncompleteException(this.reason);
+  final String reason;
+  @override
+  String toString() => 'CloudWithdrawIncompleteException($reason)';
+}
+
+/// R17 — thrown by the explicit choice protocol when the operation that ran
+/// (an exact resume of an older pending enable) did not persist the choice the
+/// person asked for. [persisted] is the row actually stored; nothing requested
+/// beyond it was saved, and no success path may act on the request.
+class ConsentChoiceNotPersistedException implements Exception {
+  const ConsentChoiceNotPersistedException(this.persisted);
+  final UserSettingsEntity persisted;
+  @override
+  String toString() => 'ConsentChoiceNotPersistedException()';
+}
+
+/// How an explicit consent choice must reach durable state, chosen from the
+/// stored choice AND the live/pending authority (see
+/// [CaptureDeviceRegistrationService.explicitEnableRoute]).
+enum ExplicitEnableRoute {
+  /// Cloud is not stored ON: the durable explicit enable (a fresh one, or the
+  /// exact resume of this owner's pending operation, decided inside it).
+  enable,
+
+  /// Cloud is stored ON and a pending enable of exactly the stored reserved
+  /// version exists: the durable enable resumes that operation (no second save).
+  resumePending,
+
+  /// No Cloud widening: either Cloud stays OFF, or Cloud is stored ON AND its
+  /// live ON is verified in every layer, so the change cannot claim an enable.
+  plainSave,
+
+  /// Stored ON without a verifiable live enable: refuse; withdraw first.
+  withdrawFirst,
+}
+
 class _RevokeInputs {
   const _RevokeInputs(this.installId, this.secret, this.jwt);
   final String installId;
@@ -178,6 +266,7 @@ class CaptureDeviceRegistrationService {
     bool Function()? isBackendConfigured,
     Future<String> Function()? loadInstallId,
     NativeBackendConfigWriter? writeNativeBackendConfig,
+    NativeBackendConfigWriter? writeRestrictiveNativeBackendConfig,
     ApnsTokenLoader? loadApnsToken,
     CaptureConsentClient? consentClient,
     CaptureSession? Function()? readSession,
@@ -185,6 +274,7 @@ class CaptureDeviceRegistrationService {
     ConsentMirrorWriter? writeConsentMirror,
     OwnerPublisher? publishOwner,
     Future<int> Function()? readOwnerEpoch,
+    Future<CaptureOwnerRecord?> Function()? readCaptureOwner,
     bool revokeAtSwitchOff = kRevokeAtCloudSwitchOff,
     Duration revokeTimeout = kCloudOffRevokeTimeout,
     Future<Directory> Function()? markerDirectory,
@@ -213,6 +303,13 @@ class CaptureDeviceRegistrationService {
         _loadInstallId = loadInstallId ?? InstallId.get,
         _writeNativeBackendConfig =
             writeNativeBackendConfig ?? NativeCaptureBridge.setBackendConfig,
+        // N-R8: the restriction receipt must be a real native acknowledgment, so
+        // its default propagates a missing method (the ordinary writer swallows
+        // it). A caller that injects only [writeNativeBackendConfig] stands in
+        // for both.
+        _writeRestrictiveBackendConfig = writeRestrictiveNativeBackendConfig ??
+            writeNativeBackendConfig ??
+            NativeCaptureBridge.setBackendConfigAcknowledged,
         _loadApnsTokenOverride = loadApnsToken,
         _consentClient = consentClient,
         _readSession = readSession ?? _defaultReadSession,
@@ -221,7 +318,9 @@ class CaptureDeviceRegistrationService {
             writeConsentMirror ?? NativeCaptureBridge.setCaptureConsentMirror,
         _publishOwner = publishOwner ?? NativeCaptureBridge.publishCaptureOwner,
         _readOwnerEpoch =
-            readOwnerEpoch ?? NativeCaptureBridge.captureOwnerEpoch;
+            readOwnerEpoch ?? NativeCaptureBridge.captureOwnerEpoch,
+        _readCaptureOwner =
+            readCaptureOwner ?? NativeCaptureBridge.getCaptureOwner;
 
   static const _secretKey = 'qirsh_capture_device_secret';
 
@@ -249,6 +348,15 @@ class CaptureDeviceRegistrationService {
   /// service instances).
   static Future<void>? _disableInFlight;
   static Future<void>? _enableInFlight;
+
+  /// R18 / N-CR-2: advanced synchronously, PER OWNER, by every withdrawal of a
+  /// pending enable whose capability is current. An enable of that owner that
+  /// captured an older value has lost its authority at its next check (it
+  /// compensates and reports staleness), so it can never finish over the
+  /// withdrawal. A withdrawal never advances it before its own authority is
+  /// validated, and never for another owner's enable.
+  static final Map<String, int> _withdrawalEpochs = {};
+  static int _withdrawalEpochOf(String uid) => _withdrawalEpochs[uid] ?? 0;
 
   final DriftUserSettingsRepository _settingsRepository;
   final bool Function() _isCurrentScope;
@@ -286,6 +394,7 @@ class CaptureDeviceRegistrationService {
   final bool Function() _isBackendConfigured;
   final Future<String> Function() _loadInstallId;
   final NativeBackendConfigWriter _writeNativeBackendConfig;
+  final NativeBackendConfigWriter _writeRestrictiveBackendConfig;
   final ApnsTokenLoader? _loadApnsTokenOverride;
   final CaptureConsentClient? _consentClient;
   final CaptureSession? Function() _readSession;
@@ -293,6 +402,7 @@ class CaptureDeviceRegistrationService {
   final ConsentMirrorWriter _writeConsentMirror;
   final OwnerPublisher _publishOwner;
   final Future<int> Function() _readOwnerEpoch;
+  final Future<CaptureOwnerRecord?> Function() _readCaptureOwner;
   final bool _revokeAtSwitchOff;
   final Duration _revokeTimeout;
   final CloudEgressGate? _gateOverride;
@@ -989,6 +1099,489 @@ class CaptureDeviceRegistrationService {
   bool isEnablingCloud(UserSettingsEntity before, UserSettingsEntity after) =>
       !_cloudOn(before) && _cloudOn(after);
 
+  /// A1/A3(c) — which protocol an explicit choice must take, from the stored row
+  /// AND the live/pending authority. A stored ON alone never proves that the
+  /// two-runtime enable completed: a plain save over it is allowed only when the
+  /// resolved, unfrozen gate holds a durable ON that the native layers confirm
+  /// for the same generation and version, with no pending operation. An exact
+  /// pending resume is allowed only for this [ownerUid]'s operation reserved at
+  /// exactly the stored consent version. Everything else is [withdrawFirst].
+  /// Reads local stores and the native layer only; it never writes or sends.
+  Future<ExplicitEnableRoute> explicitEnableRoute(
+    UserSettingsEntity current,
+    UserSettingsEntity updated, {
+    required String ownerUid,
+  }) async {
+    final enabling = isEnablingCloud(current, updated);
+    if (!enabling && !_cloudOn(updated)) return ExplicitEnableRoute.plainSave;
+    try {
+      final owner = await _readReplicaOwnerUid() ?? '';
+      if (owner.isEmpty || owner != ownerUid) {
+        return enabling
+            ? ExplicitEnableRoute.enable
+            : ExplicitEnableRoute.withdrawFirst;
+      }
+      // R17: Turn on resumes a pending operation only when it is exactly
+      // resumable; an unresolved pending is never enabled over or resumed.
+      switch (await pendingEnableState(current, ownerUid: owner)) {
+        case PendingEnableState.resumable:
+          return enabling
+              ? ExplicitEnableRoute.enable
+              : ExplicitEnableRoute.resumePending;
+        case PendingEnableState.unresolved:
+          return ExplicitEnableRoute.withdrawFirst;
+        case PendingEnableState.none:
+          if (enabling) return ExplicitEnableRoute.enable;
+      }
+      return await liveOnVerified(owner: owner)
+          ? ExplicitEnableRoute.plainSave
+          : ExplicitEnableRoute.withdrawFirst;
+    } catch (_) {
+      return ExplicitEnableRoute.withdrawFirst;
+    }
+  }
+
+  /// R17 — whether the owner's pending enable is exactly resumable. Reads only
+  /// (local stores and the native inspection); never writes or sends. Resumable
+  /// requires, together: a readable, consistent Dart pending (one record, or the
+  /// same record in both layers); the reserved version the stored row implies
+  /// (an already committed Cloud ON at exactly that version, or a not-yet-saved
+  /// operation reserved at stored + 1); no enable or disable running in this
+  /// process; and, on iOS, a native barrier that is that same operation in both
+  /// layers for the still-live owner lifecycle (or, before the Dart record was
+  /// bound, no native barrier and no ON for the operation's generation).
+  Future<PendingEnableState> pendingEnableState(
+    UserSettingsEntity stored, {
+    required String ownerUid,
+  }) async {
+    try {
+      final owner = await _readReplicaOwnerUid() ?? '';
+      if (owner.isEmpty || owner != ownerUid) {
+        return PendingEnableState.unresolved;
+      }
+      final readout = await _gate.readPending();
+      if (readout.unreadable) return PendingEnableState.unresolved;
+      if (!readout.blocks(owner)) {
+        // Nothing durable; a marker of a running enable is not "none".
+        return await _gate.pendingBlocks(owner: owner)
+            ? PendingEnableState.unresolved
+            : PendingEnableState.none;
+      }
+      if (_enableInFlight != null || _disableInFlight != null) {
+        return PendingEnableState.unresolved;
+      }
+      final rec = readout.agreed(owner) ?? readout.partial(owner);
+      if (rec == null || rec.ownerUid != owner) {
+        return PendingEnableState.unresolved;
+      }
+      final expectedReserved =
+          _cloudOn(stored) ? stored.consentVersion : stored.consentVersion + 1;
+      if (rec.reservedVersion != expectedReserved) {
+        return PendingEnableState.unresolved;
+      }
+      if (!_usesNativeBarrier) return PendingEnableState.resumable;
+
+      final native =
+          await NativeCaptureBridge.getCloudEgressPending(ownerUid: owner);
+      final nativeOwner = await _readCaptureOwner();
+      final nativeEpoch = await _readOwnerEpoch();
+      if (native == null ||
+          native.operation != 'inspect' ||
+          native.barrier.length != 2 ||
+          nativeOwner == null ||
+          nativeOwner.uid != owner) {
+        return PendingEnableState.unresolved;
+      }
+      bool barrierIs(CloudEgressEnableBinding b) =>
+          native.status == CloudEgressTransitionStatus.pending &&
+          native.binding == b &&
+          native.barrier.every((l) =>
+              l.outcome == CloudEgressLayerOutcome.verified &&
+              l.operationId == b.operationId &&
+              l.transitionGeneration == b.transitionGeneration &&
+              l.reservedVersion == b.reservedVersion &&
+              l.ownerGeneration == b.ownerGeneration &&
+              l.ownerEpoch == b.ownerEpoch) &&
+          b.ownerGeneration == nativeOwner.generation &&
+          b.ownerEpoch == nativeEpoch;
+      final bound = rec.binding;
+      if (bound != null) {
+        return barrierIs(bound)
+            ? PendingEnableState.resumable
+            : PendingEnableState.unresolved;
+      }
+      // Denied stage: native `begin` may or may not have run.
+      if (native.status == CloudEgressTransitionStatus.noBarrier) {
+        final cleanNative = native.barrier
+                .every((l) => l.outcome == CloudEgressLayerOutcome.absent) &&
+            !native.egress.any((l) => l.state == 'ON');
+        final dartOn = (await _gate.store.readOwnerLayers(owner)).records.any(
+            (r) =>
+                r.state == EgressState.on &&
+                r.transitionGeneration == rec.transitionGeneration);
+        return cleanNative && !dartOn
+            ? PendingEnableState.resumable
+            : PendingEnableState.unresolved;
+      }
+      final adopted = native.binding;
+      return adopted != null &&
+              adopted.transitionGeneration == rec.transitionGeneration &&
+              adopted.reservedVersion == rec.reservedVersion &&
+              barrierIs(adopted)
+          ? PendingEnableState.resumable
+          : PendingEnableState.unresolved;
+    } catch (_) {
+      return PendingEnableState.unresolved;
+    }
+  }
+
+  /// R18 / N-CR — the explicit, verified withdrawal from a pending or uncertain
+  /// enable.
+  ///
+  /// Serialized against every enable/disable (an enable in flight of the SAME
+  /// owner loses its authority at once and is awaited; a new enable waits for
+  /// this). The capability is validated BEFORE any shared authority is touched:
+  /// an obsolete call changes nothing and throws [StaleAdmissionException].
+  /// Order: the durable DISABLING record (the restrictive state) and the
+  /// restrictive native config/mirror first, then a READ-BACK of every
+  /// independently admitting runtime (Dart store, native egress record, and the
+  /// native config and mirror execution acknowledgments; anything unverified
+  /// BEFORE the local OFF ends in [CloudWithdrawIncompleteException] and nothing
+  /// has been cleared yet); then, exactly as
+  /// [disableCloud] does, the bounded drain and the one-shot, credential- and
+  /// acknowledgment-bound revoke when an effective, acknowledged permission is
+  /// being withdrawn (nothing is revoked, linked, retried or acknowledged
+  /// otherwise; its outcome is [serverRevocation] and never gates the local
+  /// OFF); then the typed local OFF ([commitLocalOff]); only then the EXACT
+  /// attributable evidence is cleared (the native operation by a confirmed
+  /// abandon, the Dart record by a read-back-verified clear); last the durable
+  /// OFF, read back again. The FINAL read-back runs after the local OFF and the
+  /// evidence were already cleared, so a failure there still ends in
+  /// [CloudWithdrawIncompleteException] with egress denied, but it does NOT leave
+  /// the earlier steps undone: no later failure is a promise that all evidence
+  /// is still in place. Evidence that is unreadable, conflicting or cannot be
+  /// attributed to one operation is never cleared. It
+  /// never clears a pending merely to display Off, and it never touches another
+  /// owner's records.
+  Future<void> withdrawPendingEnable({
+    required ConsentCapability capability,
+    required Future<void> Function() commitLocalOff,
+  }) async {
+    final admission = AdmissionAuthority(capability.uid, () => capability.isCurrent,
+        epoch: capability.epoch);
+    final current =
+        _captureLifetime(requireAdmission: true, admissionAuthority: admission);
+    // N-CR-2: validate the supplied authority BEFORE invalidating anything. An
+    // obsolete capability must not end a successor's running enable.
+    if (!current()) throw const StaleAdmissionException();
+    // The outgoing enable of THIS owner loses its authority NOW.
+    _withdrawalEpochs[capability.uid] = _withdrawalEpochOf(capability.uid) + 1;
+    while (true) {
+      if (!current()) throw const StaleAdmissionException();
+      final inFlight = _disableInFlight ?? _enableInFlight;
+      if (inFlight == null) break;
+      try {
+        await inFlight;
+      } catch (_) {}
+    }
+    late final Future<void> flight;
+    flight = _withdrawPendingEnable(capability, current, commitLocalOff)
+        .whenComplete(() {
+      if (identical(_disableInFlight, flight)) _disableInFlight = null;
+    });
+    _disableInFlight = flight;
+    return flight;
+  }
+
+  /// What the withdrawal can attribute: the exact Dart record and native
+  /// operation to clear, or the coarse [reason] it cannot (nothing is cleared
+  /// then). Reads only.
+  Future<({String? reason, PendingEnableRecord? rec, CloudEgressEnableBinding? nativeOp})>
+      _attributePending(String owner) async {
+    final readout = await _gate.readPending();
+    if (readout.unreadable) {
+      return (reason: 'pending_unreadable', rec: null, nativeOp: null);
+    }
+    final rec = readout.agreed(owner) ?? readout.partial(owner);
+    if (readout.blocks(owner) && (rec == null || rec.ownerUid != owner)) {
+      return (reason: 'pending_conflict', rec: null, nativeOp: null);
+    }
+    CloudEgressEnableBinding? nativeOp;
+    if (_usesNativeBarrier) {
+      CloudEgressEnableResult? inspected;
+      try {
+        inspected =
+            await NativeCaptureBridge.getCloudEgressPending(ownerUid: owner);
+      } catch (_) {}
+      if (inspected == null ||
+          inspected.operation != 'inspect' ||
+          inspected.barrier.length != 2) {
+        return (reason: 'native_unreadable', rec: rec, nativeOp: null);
+      }
+      switch (inspected.status) {
+        case CloudEgressTransitionStatus.noBarrier:
+          if (inspected.barrier
+              .any((l) => l.outcome != CloudEgressLayerOutcome.absent)) {
+            return (reason: 'native_unresolved', rec: rec, nativeOp: null);
+          }
+        case CloudEgressTransitionStatus.pending:
+          final nb = inspected.binding;
+          if (rec == null ||
+              nb == null ||
+              nb.transitionGeneration != rec.transitionGeneration ||
+              nb.reservedVersion != rec.reservedVersion ||
+              (rec.binding != null && rec.binding != nb) ||
+              !inspected.barrier.every((l) =>
+                  l.outcome == CloudEgressLayerOutcome.verified &&
+                  l.operationId == nb.operationId &&
+                  l.transitionGeneration == nb.transitionGeneration &&
+                  l.reservedVersion == nb.reservedVersion &&
+                  l.ownerGeneration == nb.ownerGeneration &&
+                  l.ownerEpoch == nb.ownerEpoch)) {
+            return (reason: 'native_mismatch', rec: rec, nativeOp: null);
+          }
+          nativeOp = nb;
+        default:
+          return (reason: 'native_unresolved', rec: rec, nativeOp: null);
+      }
+    }
+    return (reason: null, rec: rec, nativeOp: nativeOp);
+  }
+
+  /// N-CR-4: true when [ownerUid]'s pending evidence cannot be attributed to
+  /// one operation (corrupt, unreadable, conflicting or mismatched layers), i.e.
+  /// the verified withdrawal would refuse to clear it. Independent of whether a
+  /// pending record is readable; any failure to decide answers true (never a
+  /// claim that a withdrawal could finish). Reads only; nothing is repaired.
+  Future<bool> pendingProvenanceUnresolved({required String ownerUid}) async {
+    try {
+      return (await _attributePending(ownerUid)).reason != null;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  Future<void> _withdrawPendingEnable(
+    ConsentCapability capability,
+    bool Function() current,
+    Future<void> Function() commitLocalOff,
+  ) async {
+    Never incomplete(String reason) =>
+        throw CloudWithdrawIncompleteException(reason);
+    void stillCurrent() {
+      if (!current()) throw const StaleAdmissionException();
+    }
+
+    stillCurrent();
+    final String owner;
+    try {
+      owner = await _readReplicaOwnerUid() ?? '';
+    } catch (_) {
+      stillCurrent();
+      incomplete('owner_readback');
+    }
+    stillCurrent();
+    if (owner.isEmpty || owner != capability.uid) {
+      throw const StaleAdmissionException();
+    }
+
+    // N-CR-2: the process-wide freeze is owned by THIS flight through a token.
+    // A flight that is no longer current never lifts (or re-imposes) a freeze a
+    // successor may hold.
+    final token = Object();
+    _enableFreeze = token;
+    ConsentAuthority.egressFrozen = true;
+    _gate.advanceEpoch();
+    _gate.freezeEnable(owner);
+    var success = false;
+    try {
+      final settings = await _settingsRepository.getSettings();
+      stillCurrent();
+
+      // The exact attributable evidence (Dart record, native operation).
+      final attribution = await _attributePending(owner);
+      stillCurrent();
+      final reason = attribution.reason;
+      if (reason != null) incomplete(reason);
+      final rec = attribution.rec;
+      final nativeOp = attribution.nativeOp;
+
+      // Restrictive state FIRST: the durable DISABLING record and the
+      // restrictive native config + mirror.
+      final DisableFreeze freeze;
+      try {
+        freeze = await _gate.beginDisabling(
+            owner: owner,
+            reservedVersion: settings.consentVersion + 1,
+            isCurrent: current);
+      } on StaleAdmissionException {
+        rethrow;
+      } catch (_) {
+        stillCurrent();
+        incomplete('restrictive_not_durable');
+      }
+      stillCurrent();
+      final nativeAcked = await _restrictNativeSideAcked(freeze);
+      stillCurrent();
+
+      // N-CR-1: nothing below runs until every independently admitting runtime
+      // is READ BACK as restricted. A best-effort write is not evidence.
+      Future<void> verifyRestricted(String stage, {required bool acks}) async {
+        if (acks && !nativeAcked) incomplete('native_restriction_$stage');
+        final RestrictionReadback readback;
+        try {
+          readback = await _gate.verifyRestriction(freeze);
+        } catch (_) {
+          stillCurrent();
+          incomplete('restriction_readback_$stage');
+        }
+        stillCurrent();
+        if (!readback.dart) incomplete('dart_restriction_$stage');
+        if (readback.native == false) incomplete('native_restriction_$stage');
+      }
+
+      await verifyRestricted('begin', acks: true);
+
+      // N-CR-3: an effective, acknowledged permission is withdrawn the way
+      // [disableCloud] withdraws it: frozen revoke inputs, the bounded drain,
+      // then at most ONE ack- and credential-bound revoke. Without a stored ON,
+      // an acknowledgment for this owner, a secret and the owner's JWT the revoke
+      // is not attempted (revoke not attempted; that is NOT proof that no server
+      // permission exists, and a leftover acknowledgment alone never qualifies).
+      // Its outcome never gates the local OFF.
+      try {
+        _RevokeInputs? inputs;
+        try {
+          inputs = await _captureRevokeInputs(freeze, settings);
+        } catch (_) {}
+        stillCurrent();
+        await _gate.drain();
+        stillCurrent();
+        await _gate.drainNative(freeze.owner);
+        stillCurrent();
+        await _revokeOnce(freeze, inputs);
+      } on StaleAdmissionException {
+        rethrow;
+      } catch (_) {
+        // Nothing here may block the local OFF below.
+      }
+      stillCurrent();
+
+      // The typed local OFF (both permissions).
+      try {
+        await commitLocalOff();
+      } on StaleAdmissionException {
+        rethrow;
+      } catch (_) {
+        stillCurrent();
+        await _gate.rewriteDisabling(freeze, isCurrent: current);
+        stillCurrent();
+        incomplete('local_off');
+      }
+      stillCurrent();
+
+      // Only now the exact evidence, and only over a restriction that is still
+      // verified: native abandon (confirmed), then the Dart record (read back),
+      // never anything unattributed.
+      await verifyRestricted('clear', acks: false);
+      final op = nativeOp;
+      if (op != null) {
+        CloudEgressEnableResult? abandoned;
+        try {
+          abandoned = await NativeCaptureBridge.finishCloudEgressEnable(
+              ownerUid: owner, binding: op, abandon: true);
+        } catch (_) {}
+        stillCurrent();
+        if (abandoned == null || !abandoned.confirmsAbandoned(op)) {
+          incomplete('native_abandon');
+        }
+      }
+      if (rec != null) {
+        final cleared = await _gate.clearPendingEnable(rec, isCurrent: current);
+        stillCurrent();
+        if (!cleared.all || (await _gate.readPending()).blocks(owner)) {
+          incomplete('pending_not_cleared');
+        }
+      }
+      stillCurrent();
+      final committed = await _gate.commitOff(freeze, isCurrent: current);
+      stillCurrent();
+      if (!committed) incomplete('off_not_durable');
+      // The durable OFF (or the DISABLING it replaces) must still be held by
+      // every admitting runtime: the completion is reported only on read-back.
+      await verifyRestricted('final', acks: false);
+      stillCurrent();
+      success = true;
+    } finally {
+      try {
+        // A flight that no longer owns the freeze token, or whose lifecycle
+        // ended, leaves the process-wide freeze alone: a successor (or the next
+        // initialization) owns it. The owner lifts it only on a verified
+        // completion and keeps it otherwise.
+        if (identical(_enableFreeze, token)) {
+          _enableFreeze = null;
+          if (current()) ConsentAuthority.egressFrozen = !success;
+        }
+        await _gate.thawEnable(owner);
+        if (success && current()) await _gate.refresh();
+      } catch (_) {}
+    }
+  }
+
+  /// True only for a resolved, unfrozen process whose active owner has no
+  /// pending enable, a clean durable Dart ON, and (where a native barrier
+  /// exists) the SAME ON (generation and version) read back from BOTH native
+  /// layers with no native barrier outstanding. Any failure, absence or
+  /// disagreement is false: "can't confirm", never "on".
+  Future<bool> liveOnVerified({String? owner}) async {
+    try {
+      final o = owner ?? await _readReplicaOwnerUid() ?? '';
+      if (o.isEmpty ||
+          !_gate.isResolved ||
+          ConsentAuthority.egressFrozen ||
+          await _gate.pendingBlocks(owner: o)) {
+        return false;
+      }
+      final view = await _gate.view(owner: o);
+      final dart = view.record;
+      if (view.uncertain || dart == null || dart.state != EgressState.on) {
+        return false;
+      }
+      if (_usesNativeBarrier) {
+        // R16: the REAL native inspection of a completed enable is `noBarrier`
+        // (nothing pending) with the ON in both egress layers; absence of a
+        // pending is read together with the full owner/lifecycle-valid ON, never
+        // as a `done` completion (native never answers that to an inspection).
+        final native =
+            await NativeCaptureBridge.getCloudEgressPending(ownerUid: o);
+        final nativeOwner = await _readCaptureOwner();
+        final nativeEpoch = await _readOwnerEpoch();
+        if (native == null ||
+            native.operation != 'inspect' ||
+            native.status != CloudEgressTransitionStatus.noBarrier ||
+            native.barrier.length != 2 ||
+            native.barrier
+                .any((l) => l.outcome != CloudEgressLayerOutcome.absent) ||
+            nativeOwner == null ||
+            nativeOwner.uid != o ||
+            native.egress.length != 2 ||
+            !native.egress.every((l) =>
+                l.outcome == CloudEgressLayerOutcome.verified &&
+                l.state == 'ON' &&
+                l.operationId == null &&
+                l.transitionGeneration == dart.transitionGeneration &&
+                l.reservedVersion == dart.reservedVersion &&
+                l.ownerGeneration == nativeOwner.generation &&
+                l.ownerEpoch == nativeEpoch)) {
+          return false;
+        }
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Astra G C.4 — the Cloud ON->OFF transition. In order:
   ///  (a) FREEZE, synchronously: the in-process flag and the epoch advance
   ///      first; then, under the admission lock, `cloud_egress_state = DISABLING`
@@ -1086,38 +1679,619 @@ class CaptureDeviceRegistrationService {
 
   /// Astra G: an explicit enable (the only way out of the persistent OFF gate).
   /// Advances to a NEW transition generation and version (strictly greater),
-  /// writes ON to every store, lifts the freeze, then runs [commitLocalOn] (the
-  /// UI's settings save) and the existing ON path ([syncBackendState]).
-  Future<void> enableCloud({
+  /// writes ON to every store, lifts the freeze, then commits the local consent
+  /// (the typed [write]) and the existing ON path ([syncBackendState]).
+  ///
+  /// The bounded local part (gate write, settings commit) runs inside the
+  /// session's local drain; a revoked or mismatched capability fails with
+  /// [StaleAdmissionException] and leaves nothing ON. Calls are SERIALIZED, never
+  /// coalesced: every caller's own commit runs (or the call fails), so a caller is
+  /// never told its settings were saved by somebody else's commit; a stale call
+  /// neither joins nor outlives another scope's in-flight enable.
+  ///
+  /// The local phase is a typed [write]: a [ConsentCapability] plus the changed
+  /// [ConsentChoices]. It runs under the consent runner, which is also open to the
+  /// committed fresh identity (needsOnboarding) and ONLY through that typed
+  /// capability, and its commit is the repository's typed transaction: the
+  /// capability, database and replica owner are verified inside it, and the
+  /// settings and outbox roll back together if the lifecycle ended before its
+  /// final synchronous check. A commit that passed that check is a legitimate
+  /// local persistence and is not claimed to be rolled back; the gate is then
+  /// restricted again if the lifecycle ended before the freeze lifts. There is no
+  /// caller-supplied save callback on this public API: a callback is not
+  /// evidence of authorization.
+  ///
+  /// On iOS (a native barrier exists) the enable is the durable two-runtime
+  /// transition of [_enableCloudNative]: the owner prerequisite, Dart denial
+  /// first, the native barrier, ON only under both barriers, the typed local
+  /// choice, native completion and only then the clearing of the Dart denial.
+  /// It throws [CloudEnableIncompleteException] when Cloud did not turn on and
+  /// [StaleAdmissionException] when the lifecycle ended; a crash or any failure
+  /// leaves Cloud denied. Other platforms keep the separate Dart-only path.
+  Future<void> enableCloud({required ConsentWrite write}) =>
+      _enableCloudWith(write: write);
+
+  /// Test-only entry that keeps the pre-existing contract tests of the gate and
+  /// the registration service (which have no AppSession lifecycle to hold a
+  /// capability) on the callback form. [commitLocalOn] is the caller's local save
+  /// and [authority] the committed local-work authority it captured before its
+  /// first await (default: captured now). Production code must not call it: that
+  /// is enforced by source (a contract test), not by a runtime boundary.
+  @visibleForTesting
+  Future<void> enableCloudForTest({
     required Future<void> Function() commitLocalOn,
+    AdmissionAuthority? authority,
+  }) =>
+      _enableCloudWith(commitLocalOn: commitLocalOn, authority: authority);
+
+  Future<void> _enableCloudWith({
+    Future<void> Function()? commitLocalOn,
+    ConsentWrite? write,
+    AdmissionAuthority? authority,
   }) async {
-    final pending = _disableInFlight;
-    if (pending != null) {
+    if ((commitLocalOn == null) == (write == null)) {
+      throw ArgumentError('pass exactly one of commitLocalOn and write');
+    }
+    final capability = write?.capability;
+    final admission = capability != null
+        ? AdmissionAuthority(capability.uid, () => capability.isCurrent,
+            epoch: capability.epoch)
+        : (authority ?? _captureWorkAuthority());
+    final epochOwner = admission?.uid ?? _readSession()?.uid ?? '';
+    final enableWithdrawalEpoch = _withdrawalEpochOf(epochOwner);
+    final lifetime =
+        _captureLifetime(requireAdmission: true, admissionAuthority: admission);
+    bool current() =>
+        lifetime() && _withdrawalEpochOf(epochOwner) == enableWithdrawalEpoch;
+    while (true) {
+      if (!current()) throw const StaleAdmissionException();
+      final pending = _disableInFlight ?? _enableInFlight;
+      if (pending == null) break;
       try {
         await pending;
       } catch (_) {}
     }
-    return _enableInFlight ??=
-        _enableCloud(commitLocalOn).whenComplete(() => _enableInFlight = null);
+    if (write != null && _usesNativeBarrier) {
+      // iOS: the durable two-runtime transition (N-E). The Dart-only path below
+      // is the separate explicit path of platforms without a native barrier.
+      late final Future<void> nativeFlight;
+      nativeFlight = _enableCloudNative(write, current).whenComplete(() {
+        if (identical(_enableInFlight, nativeFlight)) _enableInFlight = null;
+      });
+      _enableInFlight = nativeFlight;
+      return nativeFlight;
+    }
+    final Future<void> Function() commit = write != null
+        ? () async {
+            await _settingsRepository.saveConsentChoice(
+                write.capability, write.choices);
+          }
+        : commitLocalOn!;
+    Future<void> run() => _enableCloud(commit, current, admission);
+    late final Future<void> flight;
+    flight = (capability != null
+            ? AppSession.instance.runConsentLocalOperation(capability, run)
+            : admission == null
+                ? run()
+                : AppSession.instance.runAdmittedLocalOperation(admission, run))
+        .whenComplete(() {
+      if (identical(_enableInFlight, flight)) _enableInFlight = null;
+    });
+    _enableInFlight = flight;
+    return flight;
   }
 
-  Future<void> _enableCloud(Future<void> Function() commitLocalOn) async {
+  Future<void> _enableCloud(
+    Future<void> Function() commitLocalOn,
+    bool Function() current,
+    AdmissionAuthority? admission,
+  ) async {
+    if (!current()) throw const StaleAdmissionException();
     _gate.advanceEpoch();
     final owner = await _readReplicaOwnerUid() ?? '';
+    if (!current() || (admission != null && owner != admission.uid)) {
+      throw const StaleAdmissionException();
+    }
     final settings = await _settingsRepository.getSettings();
-    await _gate.enable(
-        owner: owner, reservedVersion: settings.consentVersion + 1);
+    if (!current()) throw const StaleAdmissionException();
+    final written = await _gate.enable(
+        owner: owner,
+        reservedVersion: settings.consentVersion + 1,
+        isCurrent: current);
+    // From here on a failure restricts exactly the record written above (the
+    // gate leaves any newer one alone). The freeze is NOT lifted until the
+    // consent is saved, so a failure never leaves a usable widening behind. If
+    // the restriction itself cannot be established that is reported as such
+    // (never as the original error or a success), and a still-current scope
+    // fails closed; a revoked one must not freeze a newer scope.
+    Future<Never> abandon(Object error) async {
+      var restricted = false;
+      try {
+        restricted = await _gate.restrictWrittenOn(written);
+      } catch (_) {}
+      if (restricted) throw error;
+      if (current()) ConsentAuthority.egressFrozen = true;
+      throw const EgressWriteFailedException('enable_not_restricted');
+    }
+
+    if (!current()) await abandon(const StaleAdmissionException());
+    try {
+      await commitLocalOn();
+    } catch (error) {
+      // Not saved: the gate must not stay ON without the consent. A failure
+      // after the scope was revoked (its database closed) is staleness.
+      await abandon(current() ? error : const StaleAdmissionException());
+    }
+    if (!current()) await abandon(const StaleAdmissionException());
     ConsentAuthority.egressFrozen = false;
-    await commitLocalOn();
     await _gate.refresh();
+    if (!current()) await abandon(const StaleAdmissionException());
+  }
+
+  // ── N-E: the native-backed enable ─────────────────────────────────────────
+
+  /// iOS (a native barrier exists): the enable is a durable two-runtime
+  /// transition. Platforms without the native queue use the separate explicit
+  /// Dart-only path in [_enableCloud].
+  bool get _usesNativeBarrier => _isIos() && NativeCaptureBridge.hasNativeQueue;
+
+  /// The owner whose process-wide freeze the running native enable holds, so a
+  /// stale flight never releases a newer one's freeze.
+  static Object? _enableFreeze;
+
+  static String _randomOperationId() {
+    final random = Random.secure();
+    return [
+      for (var i = 0; i < 16; i++)
+        random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ].join();
+  }
+
+  /// Phases 1-6 of the ratified enable. Dart denies first; the native barrier is
+  /// established; ON is written only under both barriers; the typed local choice
+  /// is committed (the only work inside the consent local drain); native
+  /// completes; only then is the Dart denial cleared. Any failure or crash leaves
+  /// Cloud denied. NO backend registration, link or consent push happens here:
+  /// they follow a successful return only.
+  Future<void> _enableCloudNative(
+      ConsentWrite write, bool Function() current) async {
+    final capability = write.capability;
+    if (!current()) throw const StaleAdmissionException();
+    Never incomplete(String reason) => throw CloudEnableIncompleteException(reason);
+
+    // Phase 1 — owner prerequisite, BEFORE any freeze and before anything is
+    // enabled: the committed identity's verified restrictive owner publication
+    // and a native read-back of exactly that lifecycle.
+    final lifetime =
+        await AppSession.instance.committedOwnerLifetime(capability);
+    if (!current()) throw const StaleAdmissionException();
+    if (lifetime == null) incomplete('owner_publication');
+    final String owner;
+    final int nativeEpoch;
+    final CaptureOwnerRecord? nativeOwner;
+    try {
+      owner = await _readReplicaOwnerUid() ?? '';
+      nativeOwner = await _readCaptureOwner();
+      nativeEpoch = await _readOwnerEpoch();
+    } catch (_) {
+      if (!current()) throw const StaleAdmissionException();
+      incomplete('owner_readback');
+    }
+    if (!current() || owner != capability.uid ||
+        _readSession()?.uid != owner) {
+      throw const StaleAdmissionException();
+    }
+    if (nativeOwner == null ||
+        nativeOwner.uid != owner ||
+        nativeOwner.generation != lifetime.ownerGeneration ||
+        nativeEpoch != lifetime.ownerEpoch) {
+      incomplete('owner_mismatch');
+    }
+
+    // Phase 2 — freeze Dart admission SYNCHRONOUSLY (no await since the check
+    // above), then the durable pending denial.
+    final wasFrozen = ConsentAuthority.egressFrozen;
+    final token = Object();
+    _enableFreeze = token;
+    ConsentAuthority.egressFrozen = true;
+    _gate.freezeEnable(owner);
+
+    PendingEnableRecord? pending;
+    // Every pending record shape this flow may have left in a layer (unbound,
+    // and bound after a partially applied bind): compensation clears them all.
+    final pendingShapes = <PendingEnableRecord>[];
+    // Native `begin` was dispatched and its binding is not known (the reply was
+    // lost, null or unparseable): the operation cannot be proven abandoned.
+    var beginUnknown = false;
+    CloudEgressEnableBinding? binding;
+    CloudEgressRecord? dartOn;
+    var settingsCommitted = false;
+    var completeDispatched = false;
+    var success = false;
+    var uncertain = false;
+
+    Future<CloudEgressEnableResult?> nativeCall(
+        Future<CloudEgressEnableResult?> Function() call) async {
+      try {
+        return await call();
+      } catch (_) {
+        return null;
+      }
+    }
+
+    // Exact-binding compensation. True only when nothing of this operation
+    // remains: native restricted AND abandoned (both confirmed), the Dart ON the
+    // flow wrote restricted, and the Dart pending cleared with read-back.
+    Future<bool> compensate() async {
+      final b = binding;
+      if (b != null) {
+        final restricted = await nativeCall(() =>
+            NativeCaptureBridge.restrictCloudEgressEnable(
+                ownerUid: owner, binding: b));
+        if (restricted == null || !restricted.confirmsRestricted(b)) {
+          return false;
+        }
+      }
+      final on = dartOn;
+      if (on != null && !(await _gate.restrictDartLayers(on)).all) {
+        return false;
+      }
+      if (b != null) {
+        final abandoned = await nativeCall(() =>
+            NativeCaptureBridge.finishCloudEgressEnable(
+                ownerUid: owner, binding: b, abandon: true));
+        if (abandoned == null || !abandoned.confirmsAbandoned(b)) return false;
+      }
+      if (b == null && beginUnknown) return false;
+      final latestPending = pending;
+      for (final p in {if (latestPending != null) latestPending, ...pendingShapes}) {
+        if (!(await _gate.clearPendingEnable(p)).all) return false;
+      }
+      // Only a read-back that shows no pending of this owner left in either
+      // layer is a clean compensation.
+      return !(await _gate.readPending()).blocks(owner);
+    }
+
+    // A lifecycle that ended at an await: undo what is provably ours, EXCEPT
+    // once native completion was dispatched (it may have run; the Dart denial is
+    // then kept), and report staleness.
+    Future<void> guard() async {
+      if (current()) return;
+      if (!completeDispatched) {
+        try {
+          await compensate();
+        } catch (_) {}
+      } else {
+        uncertain = true;
+      }
+      throw const StaleAdmissionException();
+    }
+
+    Future<Never> abort(String reason) async {
+      bool clean;
+      try {
+        clean = await compensate();
+      } catch (_) {
+        clean = false;
+      }
+      if (!clean) uncertain = true;
+      if (!current()) throw const StaleAdmissionException();
+      incomplete(reason);
+    }
+
+    try {
+      final settings = await _settingsRepository.getSettings();
+      if (!current()) throw const StaleAdmissionException();
+      final readout = await _gate.readPending();
+      if (!current()) throw const StaleAdmissionException();
+      if (readout.unreadable ||
+          (readout.secure.records.containsKey(owner) &&
+              readout.file.records.containsKey(owner) &&
+              readout.agreed(owner) == null)) {
+        uncertain = true;
+        incomplete('pending_unresolved');
+      }
+
+      var existing = readout.agreed(owner) ?? readout.partial(owner);
+      var generation = 0;
+      var reserved = 0;
+      var resumed = false;
+
+      if (existing != null) {
+        // An explicit retry over an unresolved operation of THIS owner.
+        uncertain = true;
+        pending = existing;
+        if (readout.agreed(owner) == null &&
+            !(await _gate.repairPendingEnable(existing)).all) {
+          // Exactly one layer holds it: re-persist it in the layer that lost it
+          // before anything else; if that cannot be verified, stay denied.
+          incomplete('pending_unresolved');
+        }
+        final recordedBinding = existing.binding;
+        if (recordedBinding == null) {
+          // Denied stage: native `begin` may or may not have run.
+          final inspected = await nativeCall(() =>
+              NativeCaptureBridge.getCloudEgressPending(ownerUid: owner));
+          if (!current()) throw const StaleAdmissionException();
+          // R16: the real native inspection answers `noBarrier` (nothing
+          // pending) or `pending` (both layers hold it); `incomplete`
+          // (one layer), `conflict`, `uncertain` and anything else is unresolved.
+          if (inspected == null ||
+              inspected.operation != 'inspect' ||
+              (inspected.status != CloudEgressTransitionStatus.noBarrier &&
+                  inspected.status != CloudEgressTransitionStatus.pending) ||
+              inspected.barrier.length != 2 ||
+              (inspected.status == CloudEgressTransitionStatus.noBarrier &&
+                  inspected.barrier.any(
+                      (l) => l.outcome != CloudEgressLayerOutcome.absent))) {
+            incomplete('pending_unresolved');
+          }
+          final nativeHolds =
+              inspected.status == CloudEgressTransitionStatus.pending;
+          if (!nativeHolds) {
+            if (inspected.egress.any((r) => r.state == 'ON') ||
+                (await _gate.store.readOwnerLayers(owner)).records.any((r) =>
+                    r.state == EgressState.on &&
+                    r.transitionGeneration == existing!.transitionGeneration)) {
+              incomplete('pending_unresolved');
+            }
+            if (!(await _gate.clearPendingEnable(existing)).all) {
+              incomplete('pending_unresolved');
+            }
+            pending = null;
+            existing = null;
+            uncertain = false;
+          } else {
+            final nb = inspected.binding;
+            if (nb == null ||
+                nb.transitionGeneration != existing.transitionGeneration ||
+                nb.reservedVersion != existing.reservedVersion ||
+                nb.ownerGeneration != lifetime.ownerGeneration ||
+                nb.ownerEpoch != lifetime.ownerEpoch ||
+                inspected.barrier.length != 2 ||
+                !inspected.barrier.every((l) =>
+                    l.outcome == CloudEgressLayerOutcome.verified &&
+                    l.operationId == nb.operationId)) {
+              incomplete('pending_unresolved');
+            }
+            final adopted = existing.bound(nb);
+            if (!(await _gate.bindPendingEnable(from: existing, to: adopted))
+                .all) {
+              incomplete('pending_unresolved');
+            }
+            pending = existing = adopted;
+          }
+        }
+        final liveBinding = existing?.binding;
+        if (existing != null && liveBinding != null) {
+          if (liveBinding.ownerGeneration != lifetime.ownerGeneration ||
+              liveBinding.ownerEpoch != lifetime.ownerEpoch) {
+            // An operation of a lifecycle that no longer exists: conservative
+            // exact restrict/abandon. Only a fully confirmed cleanup lets the
+            // retry begin a NEW generation; anything else stays denied.
+            binding = liveBinding;
+            if (!await compensate()) incomplete('stale_operation');
+            binding = null;
+            pending = null;
+            existing = null;
+            uncertain = false;
+          } else {
+            if (!(await _gate.repairPendingEnable(existing)).all) {
+              incomplete('pending_unresolved');
+            }
+            final r = await nativeCall(() =>
+                NativeCaptureBridge.beginCloudEgressEnable(
+                    ownerUid: owner,
+                    transitionGeneration: existing!.transitionGeneration,
+                    reservedVersion: existing.reservedVersion,
+                    resume: liveBinding));
+            await guard();
+            if (r == null ||
+                !r.confirmsBarrierEstablished(
+                    transitionGeneration: existing.transitionGeneration,
+                    reservedVersion: existing.reservedVersion,
+                    resumed: liveBinding)) {
+              binding = liveBinding;
+              await abort('native_resume');
+            }
+            binding = liveBinding;
+            generation = existing.transitionGeneration;
+            reserved = existing.reservedVersion;
+            resumed = true;
+          }
+        }
+      }
+
+      if (!resumed) {
+        if (_cloudOn(settings)) incomplete('already_on');
+        // Phase 2 — durable Dart pending denial in BOTH layers, read back.
+        final int allocated;
+        try {
+          allocated = await _gate.allocateEnableGeneration(owner);
+        } catch (_) {
+          if (!current()) throw const StaleAdmissionException();
+          incomplete('generation');
+        }
+        await guard();
+        generation = allocated;
+        reserved = settings.consentVersion + 1;
+        final record = PendingEnableRecord(
+          ownerUid: owner,
+          transitionGeneration: generation,
+          reservedVersion: reserved,
+          localOperationId: _randomOperationId(),
+        );
+        pending = record;
+        pendingShapes.add(record);
+        final written = await _gate.beginPendingEnable(record);
+        await guard();
+        if (!written.all) await abort('pending_not_durable');
+
+        // Phase 3 — native begin (iOS: null/throw/malformed is failure).
+        CloudEgressEnableResult? began;
+        beginUnknown = true;
+        try {
+          began = await NativeCaptureBridge.beginCloudEgressEnable(
+              ownerUid: owner,
+              transitionGeneration: generation,
+              reservedVersion: reserved);
+        } catch (_) {
+          began = null;
+        }
+        final reply = began;
+        if (reply != null &&
+            reply.binding != null &&
+            reply.binding!.transitionGeneration == generation &&
+            reply.binding!.reservedVersion == reserved &&
+            reply.status != CloudEgressTransitionStatus.conflict &&
+            reply.status != CloudEgressTransitionStatus.ownerMismatch) {
+          binding = reply.binding;
+        }
+        if (reply != null &&
+            (binding != null ||
+                reply.status == CloudEgressTransitionStatus.conflict ||
+                reply.status == CloudEgressTransitionStatus.ownerMismatch)) {
+          beginUnknown = false; // the reply names the outcome of this begin
+        }
+        await guard();
+        if (reply == null) {
+          uncertain = true;
+          incomplete('native_begin');
+        }
+        if (!reply.confirmsBarrierEstablished(
+            transitionGeneration: generation, reservedVersion: reserved)) {
+          if (reply.status == CloudEgressTransitionStatus.conflict ||
+              reply.status == CloudEgressTransitionStatus.ownerMismatch) {
+            // Definite no-op: native wrote nothing for this operation.
+            if (!(await _gate.clearPendingEnable(record)).all) uncertain = true;
+            incomplete('native_begin_refused');
+          }
+          if (binding != null) await abort('native_begin');
+          uncertain = true;
+          incomplete('native_begin');
+        }
+        final confirmed = reply.binding!;
+        // Record the full native binding in BOTH Dart layers.
+        final bound = record.bound(confirmed);
+        pendingShapes.add(bound);
+        final rebound =
+            await _gate.bindPendingEnable(from: record, to: bound);
+        if (rebound.all) pending = bound;
+        await guard();
+        if (!rebound.all) await abort('native_bind');
+      }
+
+      // Phase 4 — Dart ON (Dart layers only) and native writeOn, both under
+      // the durable barriers.
+      final activeBinding = binding!;
+      final on = CloudEgressRecord(
+          state: EgressState.on,
+          ownerUid: owner,
+          transitionGeneration: generation,
+          reservedVersion: reserved);
+      dartOn = on;
+      final wroteDart = await _gate.writeDartOn(on);
+      await guard();
+      if (!wroteDart.all) await abort('dart_on');
+      final onReply = await nativeCall(() =>
+          NativeCaptureBridge.writeCloudEgressEnableOn(
+              ownerUid: owner, binding: activeBinding));
+      await guard();
+      if (onReply == null || !onReply.confirmsOnWritten(activeBinding)) {
+        await abort('native_on');
+      }
+
+      // Phase 5 — the typed local choice, the ONLY work inside the consent
+      // drain. A resumed operation whose choice already committed at exactly the
+      // reserved version is not saved again.
+      final latest = resumed ? await _settingsRepository.getSettings() : settings;
+      await guard();
+      final alreadyCommitted = resumed &&
+          _cloudOn(latest) &&
+          latest.consentVersion == reserved;
+      if (!alreadyCommitted) {
+        if (resumed && latest.consentVersion + 1 != reserved) {
+          await abort('consent_version');
+        }
+        UserSettingsEntity saved;
+        try {
+          saved = await AppSession.instance.runConsentLocalOperation(
+              capability,
+              () => _settingsRepository
+                  .saveConsentChoice(capability, write.choices));
+        } on StaleAdmissionException {
+          await abort('consent_not_saved');
+        } catch (_) {
+          await abort('consent_not_saved');
+        }
+        if (!_cloudOn(saved) || saved.consentVersion != reserved) {
+          settingsCommitted = true;
+          await abort('consent_version');
+        }
+      }
+      settingsCommitted = true;
+      await guard();
+
+      // Phase 6 — native completion (never abandoned over an ON), then the Dart
+      // denial is cleared only after native confirmed and the proof is current.
+      completeDispatched = true;
+      final done = await nativeCall(() =>
+          NativeCaptureBridge.finishCloudEgressEnable(
+              ownerUid: owner, binding: activeBinding, abandon: false));
+      if (done == null || !done.confirmsCompleted(activeBinding)) {
+        uncertain = true;
+        incomplete('native_complete');
+      }
+      if (!current()) {
+        uncertain = true;
+        throw const StaleAdmissionException();
+      }
+      final clearing = pending!;
+      final cleared =
+          await _gate.clearPendingEnable(clearing, isCurrent: current);
+      if (!cleared.all ||
+          (await _gate.pendingBlocks(owner: owner)) ||
+          !current()) {
+        uncertain = true;
+        if (!current()) throw const StaleAdmissionException();
+        incomplete('pending_not_cleared');
+      }
+      success = true;
+    } finally {
+      try {
+        if (identical(_enableFreeze, token)) {
+          _enableFreeze = null;
+          ConsentAuthority.egressFrozen = success
+              ? false
+              : (uncertain && settingsCommitted && current())
+                  ? true
+                  : wasFrozen;
+        }
+        await _gate.thawEnable(owner);
+        if (success && current()) await _gate.refresh();
+      } catch (_) {}
+    }
   }
 
   /// Restricts the native side (no network): backend config cloud=false and a
   /// restrictive mirror for the frozen owner at the reserved version.
   Future<void> _restrictNativeSide(DisableFreeze freeze) async {
-    if (!_isIos()) return;
+    await _restrictNativeSideAcked(freeze);
+  }
+
+  /// N-CR-1: the same restriction, but it reports whether BOTH native writes
+  /// (backend config cloud=false, restrictive consent mirror) were acknowledged:
+  /// the native call ran and returned without error. The native side has no read
+  /// API for either, and both are optional defaults writes, so an acknowledgment
+  /// is an execution acknowledgment, not crash-durability proof. The config goes
+  /// through the acknowledgment-preserving writer: a missing native method is
+  /// not an acknowledgment. The verified native egress record is the security
+  /// evidence; a swallowed failure is never evidence of restriction.
+  Future<bool> _restrictNativeSideAcked(DisableFreeze freeze) async {
+    if (!_isIos()) return true;
+    var acked = true;
     try {
-      await _writeNativeBackendConfig(
+      await _writeRestrictiveBackendConfig(
         cloudProcessingEnabled: false,
         installId: await _loadInstallId(),
         backendUrl: SupabaseConfig.url,
@@ -1126,7 +2300,9 @@ class CaptureDeviceRegistrationService {
         ownerUid: freeze.owner,
         transitionGeneration: freeze.transitionGeneration,
       );
-    } catch (_) {}
+    } catch (_) {
+      acked = false;
+    }
     try {
       if (freeze.owner.isNotEmpty) {
         await _writeConsentMirror(
@@ -1137,7 +2313,10 @@ class CaptureDeviceRegistrationService {
             transitionGeneration: freeze.transitionGeneration);
         _mirrorVersions[freeze.owner] = freeze.reservedVersion;
       }
-    } catch (_) {}
+    } catch (_) {
+      acked = false;
+    }
+    return acked;
   }
 
   /// The revoke inputs, FROZEN at DISABLING: the frozen owner's JWT (the live
@@ -1248,14 +2427,22 @@ class CaptureDeviceRegistrationService {
     var epoch = _initializationEpoch;
     bool current() => lifetime() && _gate.epoch == epoch;
     if (!current() || _disableInFlight != null) return;
-    if (ConsentAuthority.egressFrozen) ConsentAuthority.egressFrozen = false;
-    await _reconcile(
+    // N-R9 (Q9): a freeze already in force (a prior owner's incomplete
+    // withdrawal, an uncertain read) is HELD while the reconciliation reads, so
+    // effective admission stays denied until the durable state has been judged.
+    // It ends only below, after a reconciliation that did not block; it is never
+    // cleared first and never released by a timer.
+    final wasFrozen = ConsentAuthority.egressFrozen;
+    final outcome = await _reconcile(
         current: current,
         didAdvanceEpoch: () {
           epoch = _gate.epoch;
           _initializationEpoch = epoch;
         });
     if (!current()) return;
+    if (wasFrozen && outcome != _Gate.blocked) {
+      ConsentAuthority.egressFrozen = false;
+    }
     // Astra H2.3: reconciliation (DISABLING crash recovery, the store/native
     // read) has COMPLETED, so admission may start judging the durable record.
     // Until this line the process-level latch denied everything, grants too. A
@@ -1312,6 +2499,11 @@ class CaptureDeviceRegistrationService {
           : _Gate.blocked;
     }
     try {
+      // N-E: an unresolved pending enable denies and is NEVER completed, aligned
+      // or cleared here. Only an explicit user retry may resume it.
+      if (await _gate.pendingBlocks(owner: owner)) {
+        return _Gate.blocked;
+      }
       if (!current()) return _Gate.blocked;
       final settings = await _settingsRepository.getSettings();
       if (!current()) return _Gate.blocked;
@@ -1335,9 +2527,16 @@ class CaptureDeviceRegistrationService {
       if (rec.state == EgressState.on && !on) {
         // Settings are more restrictive than the record (a disable that never
         // became durable): align the record to OFF, never the other way.
-        await _gate.writeRecord(rec.copyWith(
-            state: EgressState.off,
-            transitionGeneration: rec.transitionGeneration + 1));
+        // N-R9: the alignment allocates above the verified maximum of every
+        // layer; if it cannot be established the record may still read ON, so
+        // the outcome stays blocked (frozen), never "off".
+        final aligned = await _gate.alignOff(rec, isCurrent: current);
+        if (!current()) return _Gate.blocked;
+        if (aligned == null || !aligned.any) {
+          if (!current()) return _Gate.blocked;
+          ConsentAuthority.egressFrozen = true;
+          return _Gate.blocked;
+        }
         return _Gate.off;
       }
       if (rec.state == EgressState.off && on) {
@@ -1358,6 +2557,10 @@ class CaptureDeviceRegistrationService {
     return rec.state == EgressState.off ? _Gate.off : _Gate.open;
   }
 
+  /// Completes a DISABLING record a dead process left behind. This IS a path
+  /// that can end the process freeze (N-R9: the code does not claim "no thaw
+  /// anywhere"): only after the durable OFF was written by [CloudEgressGate.commitOff]
+  /// (a corrupt, unreadable or newer layer refuses it); otherwise it stays frozen.
   Future<bool> _completePendingDisable(CloudEgressRecord rec,
       bool Function() current, void Function()? didAdvanceEpoch) async {
     if (!current()) return false;
@@ -1618,5 +2821,57 @@ class CaptureDeviceRegistrationService {
         _credentialRecovery = null;
       }
     }
+  }
+}
+
+/// N2: the LOCAL restrictive owner publication of a committed admission. It is
+/// an extension so the many `implements` doubles of the service keep compiling;
+/// it adds no state.
+///
+/// Cloud OFF by construction: native publishes the owner with cloud and AI off,
+/// so there is no registerDevice, link, consent push, APNs registration or any
+/// other backend call. It is separate from `linkToCurrentUser`, which widens a
+/// mirror only after a server link.
+extension RestrictiveOwnerPublication on CaptureDeviceRegistrationService {
+  /// The strictly verified native receipt, or null when nothing was published or
+  /// the reply does not confirm the captured uid, epoch and version. Every step
+  /// before the native call rechecks the forwarded committed authority, the exact
+  /// session, replica and gate epoch; a stale service publishes nothing. The
+  /// reply is deliberately NOT rechecked against the lifetime: a loss during the
+  /// publication must still hand the caller the exact lifetime it has to fence.
+  Future<RestrictiveCaptureOwnerReceipt?> publishRestrictiveOwner({
+    required AdmissionAuthority admissionAuthority,
+  }) async {
+    final current = _captureLifetime(
+        requireAdmission: true, admissionAuthority: admissionAuthority);
+    if (!current() || !_isIos()) return null;
+    final session = _readSession();
+    if (session == null ||
+        await _readReplicaOwnerUid() != session.uid ||
+        !current()) {
+      return null;
+    }
+    final _Tx tx;
+    try {
+      tx = await _beginTx(lifetime: current);
+    } on StaleAdmissionException {
+      return null;
+    }
+    // Read BEFORE the publication: a clear since then makes native refuse it.
+    final epoch = await _readOwnerEpoch();
+    if (!current()) return null;
+    final version = (await _settingsRepository.getSettings()).consentVersion;
+    if (!await _holds(tx)) return null;
+    final receipt = await NativeCaptureBridge.publishRestrictiveCaptureOwner(
+      uid: session.uid,
+      version: version,
+      expectedEpoch: epoch,
+    );
+    if (receipt == null ||
+        !receipt.confirms(
+            uid: session.uid, expectedEpoch: epoch, version: version)) {
+      return null;
+    }
+    return receipt;
   }
 }

@@ -444,7 +444,7 @@ void main() {
   test('disable during mirror generation await cannot widen native consent', () async {
     final secure = MemorySlot();
     final file = MemorySlot();
-    final gate = PausedGenerationGate(CloudEgressStore(secure: secure, file: file));
+    final gate = PausedGenerationGate(CloudEgressStore.forTesting(secure: secure, file: file));
     CloudEgressGate.instance = gate;
     final f = await F2Fixture.create();
     try {

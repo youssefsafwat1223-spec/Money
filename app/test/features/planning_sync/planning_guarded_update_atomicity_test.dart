@@ -72,7 +72,7 @@ void main() {
       final start = source.indexOf('Future<_PlanningPushOutcome> _guardedUpdate');
       final body = source.substring(
           start, source.indexOf('Future<_PlanningPushOutcome> _resolveUpsertConflict'));
-      expect(body, contains('base ??= await _remoteSink.fetchServerUpdatedAt'));
+      expect(body, contains('base ??= await _remote(() => _remoteSink.fetchServerUpdatedAt'));
       expect(body.contains('updateByServerId(remoteTable, serverId, row)'),
           isFalse,
           reason: 'an id-only update is the last-write-wins defect (G17)');

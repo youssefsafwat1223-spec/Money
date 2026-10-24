@@ -5829,7 +5829,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smartConsentBullet1 =>
-      'تُرسَل رسائل البنك التي تلتقطها إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، وقد يحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.';
+      'تُرسل الرسائل البنكية الملتقطة إلى خوادم قرش بعد إزالة أرقام البطاقات والحسابات والهواتف والرموز. قد تعالج خدمة Google Gemini هذا النص لتحديد المبلغ والتاجر والبنك.';
 
   @override
   String get smartConsentBullet2 =>
@@ -5837,7 +5837,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get smartConsentBullet3 =>
-      'يمكنك إيقاف أيٍّ منهما في أي وقت من الإعدادات ← الخصوصية.';
+      'بعد الموافقة، تعمل المزامنة والتحليلات المسموح بها تلقائيًا عند توفر الخدمة. يمكنك سحب أي موافقة من الإعدادات ← الخصوصية. المتابعة محليًا لا ترسل هذه البيانات.';
 
   @override
   String get smartConsentEnable => 'تفعيل التحليل الذكي والمزامنة السحابية';
@@ -6176,4 +6176,208 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get conflictFieldActive => 'نشط';
+
+  @override
+  String get startupCoordinatorTitle => 'تعذّر بدء التطبيق بأمان';
+
+  @override
+  String get startupCoordinatorBody =>
+      'لم يتمكن قِرش من التأكد أن أي جزء آخر من التطبيق لا يستخدم بياناتك، فلم يفتح شيئًا. لم تتغير بياناتك. حاول مرة أخرى، وإن تكررت المشكلة فأعد تشغيل التطبيق.';
+
+  @override
+  String get startupCoordinatorRetry => 'حاول مرة أخرى';
+
+  @override
+  String get localReadBannerTitle => 'بدون اتصال — للعرض فقط';
+
+  @override
+  String get localReadBannerBody =>
+      'بياناتك على هذا الجهاز معروضة للاطّلاع فقط. سجّل الدخول من جديد لإضافة العمليات أو تعديلها أو مزامنتها.';
+
+  @override
+  String get localReadReconnect => 'إعادة الاتصال';
+
+  @override
+  String get localReadLogout => 'تسجيل الخروج';
+
+  @override
+  String get localReadBalancesTitle => 'الأرصدة';
+
+  @override
+  String get localReadTransactionsTitle => 'العمليات';
+
+  @override
+  String get localReadNoTransactions => 'لا توجد عمليات على هذا الجهاز.';
+
+  @override
+  String get localReadNoAccounts => 'لا توجد حسابات على هذا الجهاز.';
+
+  @override
+  String get localReadLoadError => 'تعذّرت قراءة بياناتك على هذا الجهاز.';
+
+  @override
+  String get localReadLogoutFailed => 'لم يكتمل تسجيل الخروج. حاول مرة أخرى.';
+
+  @override
+  String get signOutCleanupIncompleteMessage =>
+      'تم تسجيل خروجك على هذا الجهاز، لكن تعذّر إكمال قفل بياناتك دون اتصال، وقد تُفتح من جديد بعد إعادة تشغيل التطبيق. أعد المحاولة.';
+
+  @override
+  String get signOutCleanupRetry => 'إعادة المحاولة';
+
+  @override
+  String get signOutCleanupStillIncomplete =>
+      'ما زال تعذّر قفل بياناتك دون اتصال، وقد تُفتح من جديد بعد إعادة تشغيل التطبيق. أعد المحاولة.';
+
+  @override
+  String get removeDataDenyIncompleteMessage =>
+      'تعذّر إكمال إلغاء الوصول دون اتصال إلى البيانات على هذا الجهاز، وقد تُفتح من جديد بعد إعادة تشغيل التطبيق. أعد المحاولة.';
+
+  @override
+  String get removeDataDenyStillIncomplete =>
+      'ما زال تعذّر إلغاء الوصول دون اتصال، وقد يُتاح من جديد بعد إعادة تشغيل التطبيق. أعد المحاولة.';
+
+  @override
+  String get cloudEnableIncomplete =>
+      'تعذّر تشغيل المعالجة السحابية. ستبقى متوقفة. حاول مرة أخرى.';
+
+  @override
+  String get cloudEnableWithdrawFirst =>
+      'لا يمكننا التأكد من الحالة الحالية، لذلك لم يتغيّر شيء. أوقفها أولًا ثم فعّلها من جديد.';
+
+  @override
+  String get cloudEnableChoiceNotSaved =>
+      'اكتملت المعالجة السحابية باختيارك السابق، ولم يُحفظ اختيارك الجديد. راجِع الخيارات واختر من جديد لإضافته.';
+
+  @override
+  String get initialConsentAccept => 'أوافق على المزامنة والتحليل الذكي';
+
+  @override
+  String get initialConsentDecline => 'المتابعة محليًا';
+
+  @override
+  String get consentMgmtTitle => 'المزامنة السحابية والتحليل الذكي';
+
+  @override
+  String get consentStatusActive => 'مفعّلة';
+
+  @override
+  String get consentStatusPartial => 'مفعّلة جزئيًا';
+
+  @override
+  String get consentStatusOff => 'متوقفة';
+
+  @override
+  String get consentStatusUnknown => 'تعذّر التأكد';
+
+  @override
+  String get consentStatusTurningOn => 'جارٍ التفعيل…';
+
+  @override
+  String get consentStatusTurningOff => 'جارٍ الإيقاف…';
+
+  @override
+  String get consentStatusActiveBody =>
+      'المزامنة السحابية والتحليل الذكي مفعّلان معًا.';
+
+  @override
+  String get consentStatusPartialBody =>
+      'جزء فقط من هذه الموافقة مفعّل. فعّلها لمراجعتها واتخاذ قرارك من جديد، أو أوقفها.';
+
+  @override
+  String get consentStatusOffBody =>
+      'لا يُرسل أي شيء إلى خوادم قرش ولا يحلله الذكاء الاصطناعي. تبقى بياناتك على هذا الجهاز، ويظل الإدخال اليدوي متاحًا.';
+
+  @override
+  String get consentStatusUnknownBody =>
+      'لا يمكننا التأكد من الحالة الحالية الآن، لذا تبقى المزامنة والتحليل متوقفين إلى أن يتم التأكد.';
+
+  @override
+  String get consentStatusUnknownRecovery =>
+      'لاستعادتها، أوقفها أولًا ثم فعّلها من جديد.';
+
+  @override
+  String get consentStatusTurningOnBody =>
+      'لم نتمكن من التأكد من اكتمال التفعيل. تبقى المزامنة والتحليل متوقفين إلى أن يكتمل.';
+
+  @override
+  String get consentStatusTurningOffBody =>
+      'تم إيقاف المزامنة والتحليل بالفعل. نُنهي الإجراء الآن.';
+
+  @override
+  String get consentTurnOn => 'مراجعة وتفعيل';
+
+  @override
+  String get consentTurnOff => 'إيقاف';
+
+  @override
+  String get consentRefresh => 'تحقّق مجددًا';
+
+  @override
+  String get consentWithdrawTitle => 'إيقاف المزامنة السحابية والتحليل الذكي؟';
+
+  @override
+  String get consentWithdrawBody =>
+      'تتوقف المزامنة والتحليل فورًا معًا. تبقى بياناتك على هذا الجهاز، ويمكنك تفعيلهما مجددًا من هنا في أي وقت.';
+
+  @override
+  String get consentWithdrawConfirm => 'إيقاف';
+
+  @override
+  String get consentWithdrawFailed =>
+      'لم نتمكن من التأكد من إيقاف هذه الميزة. يبقى الإرسال متوقفًا. حاول مجددًا.';
+
+  @override
+  String get signOutDataStays =>
+      'تبقى بياناتك على هذا الجهاز وتعود إليك عند تسجيل الدخول مجددًا.';
+
+  @override
+  String get deleteAccountTitle => 'حذف الحساب';
+
+  @override
+  String get deleteAccountIntro =>
+      'احذف حسابك في قرش وكل البيانات المحفوظة معه نهائيًا.';
+
+  @override
+  String get deleteAccountAction => 'حذف الحساب';
+
+  @override
+  String get deleteAccountConfirmTitle => 'حذف حسابك؟';
+
+  @override
+  String get deleteAccountConfirmBody =>
+      'سيُحذف حسابك وكل بياناتك نهائيًا وعلى الفور، ولا يمكن التراجع عن ذلك.';
+
+  @override
+  String get deleteAccountConfirmAction => 'حذف نهائي';
+
+  @override
+  String get deleteAccountProgress => 'جارٍ حذف حسابك…';
+
+  @override
+  String get deleteAccountSuccess => 'تم حذف حسابك.';
+
+  @override
+  String get deleteAccountAcceptedBody =>
+      'استلمنا طلب الحذف، لكن حسابك لم يُحذف بعد. يمكنك متابعته أو إلغاؤه من الخصوصية والبيانات.';
+
+  @override
+  String get deleteAccountFailed => 'تعذّر إكمال حذف حسابك. حاول مجددًا.';
+
+  @override
+  String get deleteAccountFailedFinal =>
+      'لا يمكننا حذف حسابك من هنا الآن. حاول لاحقًا أو تواصل مع الدعم.';
+
+  @override
+  String get deleteAccountUnconfirmed => 'لم نتمكن من التأكد من حذف حسابك بعد.';
+
+  @override
+  String get deleteAccountRetry => 'حاول مجددًا';
+
+  @override
+  String get deleteAccountDone => 'تم';
+
+  @override
+  String get deleteAccountConfirmBodyScheduled =>
+      'سيُرسل طلب الحذف، ثم يحذف الخادم حسابك وكل بياناتك نهائيًا لاحقًا، ولا يمكن التراجع عن ذلك.';
 }

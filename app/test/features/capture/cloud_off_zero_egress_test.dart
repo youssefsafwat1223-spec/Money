@@ -748,7 +748,7 @@ void main() {
       // Explicit enable: a NEW generation, then egress resumes (link).
       final offGen =
           (await CloudEgressGate.instance.view()).record!.transitionGeneration;
-      await relaunched.enableCloud(
+      await relaunched.enableCloudForTest(
           commitLocalOn: () => save(cloud: ConsentState.accepted));
       expect((await CloudEgressGate.instance.view()).record!.transitionGeneration,
           greaterThan(offGen));

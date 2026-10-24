@@ -76,7 +76,7 @@ void main() {
     ));
     await tester.pump(const Duration(milliseconds: 200));
     if (entry == OnboardingSetupEntry.full) {
-      expect(find.text('Step 1 of 7'), findsOneWidget);
+      expect(find.text('Step 1 of 6'), findsOneWidget);
       await tester.tap(find.textContaining(country).first);
       await advance(tester);
     }
@@ -84,72 +84,29 @@ void main() {
 
   setUp(() => accountRepo = SpyAccountRepo());
 
-  testWidgets('steps run in the specified order, nothing is pre-selected',
-      (tester) async {
+  testWidgets('one consent choice precedes readiness and account setup', (tester) async {
     await pumpSetup(tester);
-    expect(find.text('Step 2 of 7'), findsOneWidget);
-    expect(find.text('Cloud Sync'), findsOneWidget);
+    expect(find.text('Step 2 of 6'), findsOneWidget);
     expect(repo.settings.cloudConsentState, ConsentState.unset);
-    await tester.tap(find.text('Not now'));
+    await tester.tap(find.byKey(const Key('initialConsentDecline')));
     await advance(tester);
-
-    expect(find.text('Step 3 of 7'), findsOneWidget);
-    expect(find.text('Smart Analysis'), findsOneWidget);
-    await tester.tap(find.text('Not now'));
-    await advance(tester);
-
-    expect(find.text('Step 4 of 7'), findsOneWidget);
-    expect(find.text('Connection status'), findsOneWidget);
+    expect(find.text('Step 3 of 6'), findsOneWidget);
+    expect(repo.settings.cloudConsentState, ConsentState.declined);
+    expect(repo.settings.aiConsentState, ConsentState.declined);
     await tester.tap(find.text('Continue'));
     await advance(tester);
-
-    expect(find.text('Step 5 of 7'), findsOneWidget);
-    expect(find.text('Set up your account'), findsOneWidget);
-    // Not yet done: the Start button is disabled and no account exists.
-    expect(accountRepo.accounts, isEmpty);
-    expect(repo.saveCalls, 0, reason: '"Not now" writes nothing');
-    expect(repo.settings.cloudConsentState, ConsentState.unset);
-    expect(repo.settings.aiConsentState, ConsentState.unset);
-    expect(service.retryCalls, 0);
+    expect(find.text('Step 4 of 6'), findsOneWidget);
   });
 
-  testWidgets('Cloud Sync: Enable grants cloud ONLY; AI stays unset',
-      (tester) async {
+  testWidgets('explicit Accept grants cloud and AI through existing authority', (tester) async {
     await pumpSetup(tester);
-    await tester.tap(find.text('Enable Cloud Sync'));
+    await tester.tap(find.byKey(const Key('initialConsentAccept')));
     await advance(tester);
     expect(repo.settings.cloudConsentState, ConsentState.accepted);
-    expect(repo.settings.aiConsentState, ConsentState.unset);
-
-    // AI step with cloud ON: disclosure only, no dependency notice.
-    expect(find.text('Step 3 of 7'), findsOneWidget);
-    expect(find.text('Enable Smart Analysis'), findsOneWidget);
-    expect(find.textContaining('requires Cloud Sync'), findsNothing);
-    await tester.tap(find.text('Enable Smart Analysis'));
-    await advance(tester);
     expect(repo.settings.aiConsentState, ConsentState.accepted);
+    expect(service.enableCalls, 1);
     expect(service.retryCalls, 1);
-  });
-
-  testWidgets('Smart Analysis with cloud OFF only explains the dependency: '
-      'no grant is offered, so cloud and AI are never granted together',
-      (tester) async {
-    await pumpSetup(tester);
-    await tester.tap(find.text('Not now'));
-    await advance(tester);
-
-    expect(find.text('Turn on Cloud Sync first to use Smart Analysis.'),
-        findsOneWidget);
-    expect(find.text('Enable Smart Analysis'), findsNothing);
-    expect(find.text('Enable Cloud Sync and Smart Analysis'), findsNothing);
-    expect(find.text('Enable Cloud Sync'), findsNothing);
-    // The skip control still lets the user move on, writing nothing.
-    await tester.tap(find.text('Not now'));
-    await advance(tester);
-    expect(find.text('Step 4 of 7'), findsOneWidget);
-    expect(repo.saveCalls, 0);
-    expect(repo.settings.cloudConsentState, ConsentState.unset);
-    expect(repo.settings.aiConsentState, ConsentState.unset);
+    expect(find.text('Step 3 of 6'), findsOneWidget);
   });
 
   testWidgets('readiness shows live status and a failure never blocks',
@@ -157,24 +114,22 @@ void main() {
     await pumpSetup(tester);
     service.outcome = const CaptureRegistrationStatus(
         CaptureRegistrationPhase.failed, 'register_failed');
-    await tester.tap(find.text('Enable Cloud Sync'));
-    await advance(tester);
-    await tester.tap(find.text('Enable Smart Analysis'));
+    await tester.tap(find.byKey(const Key('initialConsentAccept')));
     await advance(tester);
 
-    expect(find.text('Step 4 of 7'), findsOneWidget);
+    expect(find.text('Step 3 of 6'), findsOneWidget);
     expect(find.textContaining("isn't connected"), findsOneWidget);
     expect(find.text('Retry'), findsOneWidget);
     await tester.tap(find.text('Continue'));
     await advance(tester);
-    expect(find.text('Step 5 of 7'), findsOneWidget);
+    expect(find.text('Step 4 of 6'), findsOneWidget);
   });
 
   testWidgets('Account Setup: name is required, currency defaults to the '
       'country currency, no default name', (tester) async {
     await pumpSetup(tester);
-    for (var i = 0; i < 2; i++) {
-      await tester.tap(find.text('Not now'));
+    for (var i = 0; i < 1; i++) {
+      await tester.tap(find.byKey(const Key('initialConsentDecline')));
       await advance(tester);
     }
     await tester.tap(find.text('Continue'));
@@ -195,8 +150,8 @@ void main() {
       'save retries with the SAME id, then the step completes',
       (tester) async {
     await pumpSetup(tester);
-    for (var i = 0; i < 2; i++) {
-      await tester.tap(find.text('Not now'));
+    for (var i = 0; i < 1; i++) {
+      await tester.tap(find.byKey(const Key('initialConsentDecline')));
       await advance(tester);
     }
     await tester.tap(find.text('Continue'));
@@ -208,7 +163,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('account-save-button')));
     await tester.pumpAndSettle();
     expect(accountRepo.accounts, isEmpty);
-    expect(find.text('Step 5 of 7'), findsOneWidget);
+    expect(find.text('Step 4 of 6'), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('account-save-button')));
     await advance(tester);
@@ -219,7 +174,7 @@ void main() {
     expect(accountRepo.accounts.single.name, 'My bank');
     expect(accountRepo.accounts.single.currency, 'EGP');
     expect(accountRepo.accounts.single.type, AccountType.bank);
-    expect(find.text('Step 6 of 7'), findsOneWidget);
+    expect(find.text('Step 5 of 6'), findsOneWidget);
   });
 
   testWidgets('an existing account is shown; user may continue or add another',
@@ -236,8 +191,8 @@ void main() {
       updatedAt: now,
     ));
     await pumpSetup(tester);
-    for (var i = 0; i < 2; i++) {
-      await tester.tap(find.text('Not now'));
+    for (var i = 0; i < 1; i++) {
+      await tester.tap(find.byKey(const Key('initialConsentDecline')));
       await advance(tester);
     }
     await tester.tap(find.text('Continue'));
@@ -258,7 +213,7 @@ void main() {
     await tester.tap(find.text('Start'));
     await tester.pumpAndSettle();
     expect(find.text('Add an account to finish setup.'), findsOneWidget);
-    expect(find.text('Step 5 of 7'), findsOneWidget,
+    expect(find.text('Step 4 of 6'), findsOneWidget,
         reason: 'sent back to Account Setup');
   });
 }

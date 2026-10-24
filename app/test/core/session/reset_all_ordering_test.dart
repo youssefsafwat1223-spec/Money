@@ -95,7 +95,7 @@ void main() {
   test('both destructive UI flows go through resetAllLocalData', () {
     for (final path in const [
       'lib/features/settings/settings_screen.dart',
-      'lib/features/settings/privacy_screen.dart',
+      'lib/features/settings/delete_account_screen.dart',
     ]) {
       final src = File('${Directory.current.path}/$path').readAsStringSync();
       expect(src, contains('resetAllLocalData('), reason: path);

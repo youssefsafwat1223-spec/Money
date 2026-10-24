@@ -79,6 +79,8 @@ class EncryptedBackupService implements BackupService {
     // Audit H-23: the local-database ownership authority, used to adopt
     // pre-owner-binding backup state deterministically. Injected for tests.
     Future<String?> Function()? readLocalDataOwnerUid,
+    // O-BX-1: the restore's participation in the session admission drain.
+    Future<void> Function(Future<void> Function() run)? maintenanceParticipant,
   })  : _database = database,
         _client = client ?? supabase.Supabase.instance.client,
         _storage = storage ?? SecureStorageOptions.storage,
@@ -87,7 +89,9 @@ class EncryptedBackupService implements BackupService {
         _afterRestore = afterRestore,
         _ownershipGuard = ownershipGuard ?? OwnershipGuard(),
         _readLocalDataOwnerUid =
-            readLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid;
+            readLocalDataOwnerUid ?? AppSession.instance.readLocalDataOwnerUid,
+        _maintenanceParticipant = maintenanceParticipant ??
+            AppSession.instance.runMaintenanceParticipant;
 
   static const _bucket = 'backups';
   static const _enabledKey = 'backup_enabled';
@@ -130,6 +134,8 @@ class EncryptedBackupService implements BackupService {
   final Future<void> Function()? _afterRestore;
   final OwnershipGuard _ownershipGuard;
   final Future<String?> Function() _readLocalDataOwnerUid;
+  final Future<void> Function(Future<void> Function() run)
+      _maintenanceParticipant;
 
   // MALI-014/076n §2/§9 — one restore orchestrator per process so its durable
   // replay journal is consulted across restore attempts.
@@ -558,6 +564,7 @@ class EncryptedBackupService implements BackupService {
       preparedUserId: prepared.userId,
       currentUserId: _currentUserId,
       afterRestore: _afterRestore,
+      maintenanceParticipant: _maintenanceParticipant,
     );
     // A committed replay belonging to another admission must not proceed to key
     // publication. RestoreService has already preserved the truthful committed

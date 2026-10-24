@@ -7,6 +7,8 @@ import 'package:go_router/go_router.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/session/account_scope.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/core/session/account_fence_authority.dart';
+import 'package:money_companion/data/db/app_database.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'f2_fixture.dart';
@@ -114,14 +116,26 @@ class _ShellProbeState extends ConsumerState<_ShellProbe> {
       AppSession.instance.revalidateForShell(widget.client);
 
   var startupWorkRuns = 0;
+  var startupComplete = false;
+  bool? startupResult;
+  Object? startupError;
+  StackTrace? startupStack;
 
   @override
   void initState() {
     super.initState();
     widget.onMounted(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
-      if (!await revalidate()) return;
-      startupWorkRuns++;
+      try {
+        startupResult = await revalidate();
+        if (!startupResult!) return;
+        startupWorkRuns++;
+      } catch (error, stack) {
+        startupError = error;
+        startupStack = stack;
+      } finally {
+        startupComplete = true;
+      }
     });
   }
 
@@ -134,10 +148,12 @@ void main() {
 
   late F2Fixture f;
   late SupabaseClient client;
+  late void Function() restoreFence;
   final session = AppSession.instance;
   final shells = <_ShellProbeState>[];
+  final databases = <AppDatabase>[];
 
-  setUp(() => shells.clear());
+  setUp(() { shells.clear(); databases.clear(); });
 
   /// Frames and real time alternate: the probes' futures live in the fake-async
   /// zone while the fixture's file/database I/O needs real time.
@@ -147,29 +163,6 @@ void main() {
       await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 15)));
     }
-  }
-
-  Future<void> bootSignedInX(WidgetTester tester,
-      {required bool honorStatusInRouter}) async {
-    await tester.runAsync(() async {
-      // Production waits for a frame after withdrawing a scope (main.dart's
-      // host is built with `afterWithdraw: WidgetsBinding.instance.endOfFrame`),
-      // so the old tree is gone before the new generation mounts.
-      f = await F2Fixture.create(
-          afterWithdraw: () => WidgetsBinding.instance.endOfFrame);
-      await f.signIn('uid-x');
-      client = await f.clientFor('uid-x');
-    });
-    await tester.pumpWidget(_Harness(
-      host: f.host,
-      client: client,
-      honorStatusInRouter: honorStatusInRouter,
-      onShellMounted: shells.add,
-    ));
-    await settle(tester);
-    expect(find.text('shell'), findsOneWidget);
-    expect(shells, hasLength(1));
-    expect(shells.single.startupWorkRuns, 1, reason: 'the signed-in shell works');
   }
 
   /// Zones: continuations registered inside the fake-async zone (the shell's own
@@ -185,13 +178,72 @@ void main() {
     expect(cond(), isTrue, reason: 'condition not reached');
   }
 
+  Future<void> bootSignedInX(WidgetTester tester,
+      {required bool honorStatusInRouter}) async {
+    await tester.runAsync(() async {
+      restoreFence = AccountFenceAuthority.replacePersistenceForTest();
+      // Production waits for a frame after withdrawing a scope (main.dart's
+      // host is built with `afterWithdraw: WidgetsBinding.instance.endOfFrame`),
+      // so the old tree is gone before the new generation mounts.
+      f = await F2Fixture.create(
+          afterWithdraw: () => WidgetsBinding.instance.endOfFrame);
+      f.host.addListener(() {
+        final database = f.host.current?.database;
+        if (database != null && !databases.contains(database)) databases.add(database);
+      });
+      final initialDatabase = f.host.current?.database;
+      if (initialDatabase != null) databases.add(initialDatabase);
+      await f.signIn('uid-x');
+      client = await f.clientFor('uid-x');
+    });
+    await tester.pumpWidget(_Harness(
+      host: f.host,
+      client: client,
+      honorStatusInRouter: honorStatusInRouter,
+      onShellMounted: shells.add,
+    ));
+    await settle(tester);
+    expect(find.text('shell'), findsOneWidget);
+    expect(shells, hasLength(1));
+    final initialShell = shells.single;
+    final initialGeneration = f.host.current!.generation;
+    await pumpUntil(tester, () => initialShell.startupComplete);
+    expect(initialShell.startupError, isNull, reason: '${initialShell.startupStack}');
+    expect(initialShell.startupResult, isTrue);
+    expect(shells.single, same(initialShell));
+    expect(f.host.current!.generation, initialGeneration);
+    expect(shells.single.startupWorkRuns, 1, reason: 'the signed-in shell works');
+  }
+
   Future<void> finish(WidgetTester tester) async {
+    await pumpUntil(tester, () => shells.every((shell) => shell.startupComplete));
+    for (final shell in shells) {
+      expect(shell.startupError, isNull, reason: '${shell.startupStack}');
+    }
+    var drained = false;
+    unawaited(session.drainAdmissions().then((_) => drained = true));
+    await pumpUntil(tester, () => drained);
     await tester.pumpWidget(const SizedBox.shrink());
+    await tester.runAsync(() => client.dispose());
     var disposed = false;
     await tester.runAsync(() async {
       unawaited(f.dispose().then((_) => disposed = true));
     });
     await pumpUntil(tester, () => disposed);
+    for (final database in databases) {
+      expect(database.lifecycleState, DatabaseLifecycleState.closed);
+    }
+    expect(f.host.activeUid, isNull);
+    var initialized = false;
+    var ready = false;
+    unawaited(AccountFenceAuthority.shared.initialize().then((value) {
+      ready = value;
+      initialized = true;
+    }));
+    await pumpUntil(tester, () => initialized);
+    expect(ready, isTrue);
+    expect(AccountFenceAuthority.shared.store.ready, isTrue);
+    restoreFence();
   }
 
   testWidgets('router honors status: the remounted tree shows signed-out, no '
@@ -248,6 +300,9 @@ void main() {
     await settle(tester);
 
     expect(shells.length, 2, reason: 'the shell DID remount (router not the fence)');
+    await pumpUntil(tester, () => shells.last.startupComplete);
+    expect(shells.last.startupError, isNull, reason: '${shells.last.startupStack}');
+    expect(shells.last.startupResult, isFalse);
     expect(shells.last.startupWorkRuns, 0,
         reason: 'revalidateForShell refuses: status is not authenticated');
 

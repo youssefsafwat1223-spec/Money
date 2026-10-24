@@ -1,13 +1,12 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:drift/native.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/privacy/consent_authority.dart';
 import 'package:money_companion/core/sync/sync_health.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_dedup_store.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
@@ -33,12 +32,6 @@ import 'package:money_companion/features/planning_sync/services/planning_push_se
 ///
 /// The "client" in each test is a tripwire: any call on it is counted, and the
 /// consent-OFF assertions demand zero.
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'memory-key';
-  @override
-  Future<String?> readStoredKey() async => 'memory-key';
-}
 
 class _Trip {
   int calls = 0;
@@ -128,15 +121,14 @@ class _RecordingSettingsSink extends _Trip implements PlanningRemoteSink {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   late AppDatabase db;
+  late LedgerAdmissionFixture parentAdmission;
 
   setUp(() async {
     FlutterSecureStorage.setMockInitialValues({});
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    parentAdmission=await LedgerAdmissionFixture.open('user-1');
+    db=parentAdmission.database;
   });
-  tearDown(() async => db.close());
+  tearDown(() => parentAdmission.finish());
 
   Future<void> seedPlanningRow(String type, String op, Map<String, dynamic> p,
       {String id = 'o1', String entityId = 'e1'}) async {
@@ -261,13 +253,15 @@ void main() {
     });
 
     test('consent OFF records consentBlocked, not a failure', () async {
-      final health = SyncHealth();
+      final health = SyncHealth(db:db);
       await seedPlanningRow('budget', 'create', {'local_id': 'e1'});
       final s = service(_TripSink(), () async => false, health: health);
-      await health.runPhase(
-          SyncDomain.planning, SyncDirection.push, () => s.push());
-      await health.runPhase(
-          SyncDomain.planning, SyncDirection.push, () => s.push());
+      final first=SyncPhaseBinding();
+      await health.runPhase(SyncDomain.planning, SyncDirection.push,
+          () => s.pushWithPhase(first), binding:first);
+      final second=SyncPhaseBinding();
+      await health.runPhase(SyncDomain.planning, SyncDirection.push,
+          () => s.pushWithPhase(second), binding:second);
       final h = health.of(SyncDomain.planning);
       expect(h.lastErrorClass, SyncErrorClass.consentBlocked);
       expect(h.consecutiveFailures, 0);
@@ -479,7 +473,7 @@ void main() {
     test('consent ON: proceeds (push attempts the row, pull reaches client)',
         () async {
       await seedPlanningRow(
-          'goal_contribution', 'create', {'local_goal_id': 'g', 'amount': '1'});
+          'goal_contribution', 'create', {'local_id': 'e1', 'local_goal_id': 'g', 'amount': '1'});
       final r = _TripChildRemote();
       await service(r, () async => true).sync();
       final row = (await rows('planning_sync_outbox')).single;
@@ -491,6 +485,18 @@ void main() {
 
   // ------------------------------------------------------------------ accounts
   group('accounts', () {
+    late LedgerAdmissionFixture accountAdmission;
+    late AppDatabase standaloneDatabase;
+    setUp(() async {
+      standaloneDatabase = db;
+      accountAdmission = parentAdmission;
+      db = accountAdmission.database;
+    });
+    tearDown(() async {
+      try { await accountAdmission.finish(); }
+      finally { db = standaloneDatabase; }
+    });
+
     test('push: consent OFF -> no client call, row untouched; ON -> proceeds',
         () async {
       await seedPlanningRow('account', 'create', {'local_id': 'e1'});
@@ -531,6 +537,12 @@ void main() {
 
   // -------------------------------------------------------------------- ledger
   group('ledger', () {
+    late LedgerAdmissionFixture admission;
+    setUp(() async {
+      admission = parentAdmission;
+      db = admission.database;
+    });
+    tearDown(() => admission.finish());
     test('push: consent OFF -> no client, row untouched; ON -> proceeds',
         () async {
       await db.customStatement('''

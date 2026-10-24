@@ -72,6 +72,39 @@ class CaptureOwnerRecord {
   }
 }
 
+/// Exact native restrictive owner proof. A nullable/Boolean publication result
+/// cannot widen a lifecycle; callers must verify the captured UID/epoch/version.
+class RestrictiveCaptureOwnerReceipt {
+  const RestrictiveCaptureOwnerReceipt(this.owner, this.phase);
+  final CaptureOwnerRecord? owner;
+  final CloudEgressEnableResult phase;
+
+  static RestrictiveCaptureOwnerReceipt? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    final copy = Map<Object?, Object?>.from(raw);
+    final ownerRaw = copy.remove('owner');
+    final phase = CloudEgressEnableResult.tryParse(copy);
+    final owner = ownerRaw == null ? null : CaptureOwnerRecord.tryParse(ownerRaw);
+    if (phase == null || phase.operation != 'publishRestrictive' ||
+        (ownerRaw != null && owner == null)) {
+      return null;
+    }
+    return RestrictiveCaptureOwnerReceipt(owner, phase);
+  }
+
+  bool confirms({required String uid, required int expectedEpoch, required int version}) {
+    final value = owner;
+    return value != null && value.uid == uid && value.uidHash.length == 64 &&
+        RegExp(r'^[0-9a-f]{64}$').hasMatch(value.uidHash) && value.generation > 0 &&
+        phase.status == CloudEgressTransitionStatus.done &&
+        phase.ownerGeneration == value.generation && phase.ownerEpoch == expectedEpoch &&
+        phase.egress.length == 2 && phase.egress.every((r) =>
+          r.outcome == CloudEgressLayerOutcome.verified && r.state == 'OFF' &&
+          r.ownerGeneration == value.generation && r.ownerEpoch == expectedEpoch &&
+          r.reservedVersion == version);
+  }
+}
+
 /// The reconciled native `cloud_egress_state` (C.4 / C.5).
 enum CloudEgressStatus { unset, ownerless, record, uncertain }
 
@@ -138,6 +171,381 @@ class CloudEgressSnapshot {
     }
     return null;
   }
+}
+
+/// Outcome of one pending-enable phase (native `TransitionStatus`). Only [done]
+/// is success; every other value is a refusal or an uncertain outcome.
+enum CloudEgressTransitionStatus {
+  done,
+  incomplete,
+  conflict,
+  stale,
+  noBarrier,
+  uncertain,
+  pending,
+
+  /// The native active owner is absent, another owner, or no longer the owner
+  /// lifecycle (generation / epoch) the operation was bound to. Nothing was
+  /// written and the barrier, if any, keeps denying.
+  ownerMismatch,
+}
+
+/// What one native layer (file or keychain) holds / what a phase did to it.
+enum CloudEgressLayerOutcome {
+  verified,
+  restricted,
+  alreadyRestrictive,
+  superseded,
+  absent,
+  cleared,
+  notOurs,
+  unreadable,
+  writeFailed,
+  mismatch,
+}
+
+/// The full identity of one native pending-enable operation: the nonsecret
+/// native-created [operationId], the egress [transitionGeneration] and
+/// [reservedVersion] it enables, and the EXISTING F2 evidence of the owner
+/// lifecycle it was bound to ([ownerGeneration], [ownerEpoch]). Every phase after
+/// `begin` must present all of it; native refuses any mismatch.
+class CloudEgressEnableBinding {
+  const CloudEgressEnableBinding({
+    required this.operationId,
+    required this.transitionGeneration,
+    required this.reservedVersion,
+    required this.ownerGeneration,
+    required this.ownerEpoch,
+  });
+
+  final String operationId;
+  final int transitionGeneration;
+  final int reservedVersion;
+  final int ownerGeneration;
+  final int ownerEpoch;
+
+  @override
+  bool operator ==(Object other) =>
+      other is CloudEgressEnableBinding &&
+      other.operationId == operationId &&
+      other.transitionGeneration == transitionGeneration &&
+      other.reservedVersion == reservedVersion &&
+      other.ownerGeneration == ownerGeneration &&
+      other.ownerEpoch == ownerEpoch;
+
+  @override
+  int get hashCode => Object.hash(operationId, transitionGeneration,
+      reservedVersion, ownerGeneration, ownerEpoch);
+}
+
+class CloudEgressLayerReport {
+  const CloudEgressLayerReport({
+    required this.layer,
+    required this.outcome,
+    this.state,
+    this.transitionGeneration,
+    this.reservedVersion,
+    this.operationId,
+    this.ownerGeneration,
+    this.ownerEpoch,
+  });
+
+  /// `file` or `keychain`.
+  final String layer;
+  final CloudEgressLayerOutcome outcome;
+
+  /// `ON`, `DISABLING` or `OFF` for an egress layer that holds an entry.
+  final String? state;
+  final int? transitionGeneration;
+  final int? reservedVersion;
+  final String? operationId;
+  final int? ownerGeneration;
+  final int? ownerEpoch;
+}
+
+/// The structured native reply of a pending-enable phase (consent-security
+/// amendment). It is NEVER success by itself: use the phase-specific
+/// `confirms…` methods, which also check both layers and the full operation
+/// binding. [tryParse] is strict; null means malformed and must be treated as a
+/// failure.
+class CloudEgressEnableResult {
+  const CloudEgressEnableResult({
+    required this.operation,
+    required this.status,
+    required this.barrier,
+    required this.egress,
+    this.operationId,
+    this.transitionGeneration,
+    this.reservedVersion,
+    this.ownerGeneration,
+    this.ownerEpoch,
+  });
+
+  static const _operations = {
+    'begin', 'writeOn', 'restrict', 'complete', 'abandon', 'inspect', 'revoke', 'publishRestrictive',
+  };
+  static const _topKeys = {
+    'contractVersion', 'operation', 'status', 'operationId',
+    'transitionGeneration', 'reservedVersion', 'ownerGeneration', 'ownerEpoch',
+    'barrier', 'egress',
+  };
+  static const _layerKeys = {
+    'layer', 'outcome', 'state', 'transitionGeneration', 'reservedVersion',
+    'operationId', 'ownerGeneration', 'ownerEpoch',
+  };
+  static const _layerNames = ['file', 'keychain'];
+  static final _operationIdPattern = RegExp(r'^[0-9a-f]{32}$');
+
+  final String operation;
+  final CloudEgressTransitionStatus status;
+  final String? operationId;
+  final int? transitionGeneration;
+  final int? reservedVersion;
+  final int? ownerGeneration;
+  final int? ownerEpoch;
+
+  /// Pending-barrier layers, in order `file`, `keychain`.
+  final List<CloudEgressLayerReport> barrier;
+
+  /// Egress-state layers, in order `file`, `keychain` (empty when not read).
+  final List<CloudEgressLayerReport> egress;
+
+  /// The operation this reply is about, or null when any part of its identity is
+  /// missing (then nothing can be resumed, restricted or finished with it).
+  CloudEgressEnableBinding? get binding {
+    final id = operationId;
+    final generation = transitionGeneration;
+    final version = reservedVersion;
+    final ownerGen = ownerGeneration;
+    final epoch = ownerEpoch;
+    if (id == null ||
+        generation == null ||
+        version == null ||
+        ownerGen == null ||
+        epoch == null) {
+      return null;
+    }
+    return CloudEgressEnableBinding(
+      operationId: id,
+      transitionGeneration: generation,
+      reservedVersion: version,
+      ownerGeneration: ownerGen,
+      ownerEpoch: epoch,
+    );
+  }
+
+  static T? _enumByName<T extends Enum>(List<T> values, Object? raw) {
+    for (final v in values) {
+      if (v.name == raw) return v;
+    }
+    return null;
+  }
+
+  /// -1 marks a present but invalid value (valid ones are >= 0).
+  static int? _optionalInt(Map<Object?, Object?> raw, String key) {
+    if (!raw.containsKey(key)) return null;
+    final value = raw[key];
+    return value is int && value >= 0 ? value : -1;
+  }
+
+  static bool _validId(Map<Object?, Object?> raw) {
+    if (!raw.containsKey('operationId')) return true;
+    final id = raw['operationId'];
+    return id is String && _operationIdPattern.hasMatch(id);
+  }
+
+  static CloudEgressLayerReport? _parseLayer(Object? raw) {
+    if (raw is! Map || !raw.keys.every(_layerKeys.contains)) return null;
+    final layer = raw['layer'];
+    final outcome = _enumByName(CloudEgressLayerOutcome.values, raw['outcome']);
+    if (layer is! String || !_layerNames.contains(layer) || outcome == null) {
+      return null;
+    }
+    final state = raw['state'];
+    if (raw.containsKey('state') &&
+        !(state is String && const {'ON', 'DISABLING', 'OFF'}.contains(state))) {
+      return null;
+    }
+    final generation = _optionalInt(raw, 'transitionGeneration');
+    final version = _optionalInt(raw, 'reservedVersion');
+    final ownerGeneration = _optionalInt(raw, 'ownerGeneration');
+    final ownerEpoch = _optionalInt(raw, 'ownerEpoch');
+    if (generation == -1 ||
+        version == -1 ||
+        ownerGeneration == -1 ||
+        ownerEpoch == -1 ||
+        !_validId(raw)) {
+      return null;
+    }
+    return CloudEgressLayerReport(
+      layer: layer,
+      outcome: outcome,
+      state: state as String?,
+      transitionGeneration: generation,
+      reservedVersion: version,
+      operationId: raw['operationId'] as String?,
+      ownerGeneration: ownerGeneration,
+      ownerEpoch: ownerEpoch,
+    );
+  }
+
+  /// Exactly `file` then `keychain` (or, when [allowEmpty], nothing).
+  static List<CloudEgressLayerReport>? _parseLayers(Object? raw,
+      {required bool allowEmpty}) {
+    if (raw is! List) return null;
+    if (raw.isEmpty) return allowEmpty ? const [] : null;
+    if (raw.length != _layerNames.length) return null;
+    final out = <CloudEgressLayerReport>[];
+    for (var i = 0; i < raw.length; i++) {
+      final report = _parseLayer(raw[i]);
+      if (report == null || report.layer != _layerNames[i]) return null;
+      out.add(report);
+    }
+    return out;
+  }
+
+  static CloudEgressEnableResult? tryParse(Object? raw) {
+    if (raw is! Map || !raw.keys.every(_topKeys.contains)) return null;
+    final operation = raw['operation'];
+    final status = _enumByName(CloudEgressTransitionStatus.values, raw['status']);
+    if (raw['contractVersion'] != 1 ||
+        operation is! String ||
+        !_operations.contains(operation) ||
+        status == null) {
+      return null;
+    }
+    final generation = _optionalInt(raw, 'transitionGeneration');
+    final version = _optionalInt(raw, 'reservedVersion');
+    final ownerGeneration = _optionalInt(raw, 'ownerGeneration');
+    final ownerEpoch = _optionalInt(raw, 'ownerEpoch');
+    final barrier = _parseLayers(raw['barrier'], allowEmpty: false);
+    final egress = _parseLayers(raw['egress'], allowEmpty: true);
+    if (generation == -1 ||
+        version == -1 ||
+        ownerGeneration == -1 ||
+        ownerEpoch == -1 ||
+        barrier == null ||
+        egress == null ||
+        !_validId(raw)) {
+      return null;
+    }
+    return CloudEgressEnableResult(
+      operation: operation,
+      status: status,
+      operationId: raw['operationId'] as String?,
+      transitionGeneration: generation,
+      reservedVersion: version,
+      ownerGeneration: ownerGeneration,
+      ownerEpoch: ownerEpoch,
+      barrier: barrier,
+      egress: egress,
+    );
+  }
+
+  bool get _isDone => status == CloudEgressTransitionStatus.done;
+
+  bool _boundTo(CloudEgressEnableBinding b) =>
+      operationId == b.operationId &&
+      transitionGeneration == b.transitionGeneration &&
+      reservedVersion == b.reservedVersion &&
+      ownerGeneration == b.ownerGeneration &&
+      ownerEpoch == b.ownerEpoch;
+
+  /// The barrier layer holds exactly this operation, owner binding included.
+  bool _holdsOperation(CloudEgressLayerReport r) =>
+      r.outcome == CloudEgressLayerOutcome.verified &&
+      r.operationId == operationId &&
+      r.transitionGeneration == transitionGeneration &&
+      r.reservedVersion == reservedVersion &&
+      r.ownerGeneration == ownerGeneration &&
+      r.ownerEpoch == ownerEpoch;
+
+  bool _holdsOn(CloudEgressLayerReport r) =>
+      r.outcome == CloudEgressLayerOutcome.verified &&
+      r.state == 'ON' &&
+      r.transitionGeneration == transitionGeneration &&
+      r.reservedVersion == reservedVersion;
+
+  bool _barrierGone(CloudEgressLayerReport r) =>
+      r.outcome == CloudEgressLayerOutcome.cleared ||
+      r.outcome == CloudEgressLayerOutcome.absent;
+
+  /// N: absent pending is never evidence of revocation. BOTH existing egress
+  /// layers must contain the exact outgoing lifecycle retirement, read back.
+  bool confirmsLifetimeRevoked(CloudEgressEnableBinding expected) =>
+      operation == 'revoke' && _isDone && _boundTo(expected) &&
+      egress.length == 2 && egress.every((r) =>
+        r.outcome == CloudEgressLayerOutcome.verified && r.state == 'OFF' &&
+        r.operationId == expected.operationId &&
+        r.ownerGeneration == expected.ownerGeneration &&
+        r.ownerEpoch == expected.ownerEpoch &&
+        r.transitionGeneration == expected.transitionGeneration &&
+        r.reservedVersion == expected.reservedVersion);
+
+  /// `begin` achieved: the barrier for exactly this generation and version, bound
+  /// to a native owner lifecycle, is read back from BOTH layers. A resume passes
+  /// the [resumed] binding it asked for, and the reply must be that operation.
+  /// The caller learns [binding] from this result.
+  bool confirmsBarrierEstablished({
+    required int transitionGeneration,
+    required int reservedVersion,
+    CloudEgressEnableBinding? resumed,
+  }) {
+    final b = binding;
+    return operation == 'begin' &&
+        _isDone &&
+        b != null &&
+        b.transitionGeneration == transitionGeneration &&
+        b.reservedVersion == reservedVersion &&
+        (resumed == null || b == resumed) &&
+        barrier.length == 2 &&
+        barrier.every(_holdsOperation);
+  }
+
+  /// `writeOn` achieved: ON(generation, version) is read back from BOTH layers.
+  bool confirmsOnWritten(CloudEgressEnableBinding b) =>
+      operation == 'writeOn' &&
+      _isDone &&
+      _boundTo(b) &&
+      egress.length == 2 &&
+      egress.every(_holdsOn);
+
+  /// `restrict` achieved: no layer still holds this operation's ON. A layer that
+  /// is `superseded` belongs to a newer generation and is reported, not claimed.
+  bool confirmsRestricted(CloudEgressEnableBinding b) =>
+      operation == 'restrict' &&
+      _isDone &&
+      _boundTo(b) &&
+      egress.length == 2 &&
+      egress.every((r) => const {
+            CloudEgressLayerOutcome.restricted,
+            CloudEgressLayerOutcome.alreadyRestrictive,
+            CloudEgressLayerOutcome.superseded,
+            CloudEgressLayerOutcome.absent,
+          }.contains(r.outcome));
+
+  /// `complete` achieved: ON in both egress layers AND the barrier entry removed
+  /// from both layers, all read back by native code, for the still-live owner
+  /// lifecycle the operation was bound to.
+  bool confirmsCompleted(CloudEgressEnableBinding b) =>
+      operation == 'complete' &&
+      _isDone &&
+      _boundTo(b) &&
+      egress.length == 2 &&
+      egress.every(_holdsOn) &&
+      barrier.length == 2 &&
+      barrier.every(_barrierGone);
+
+  /// `abandon` achieved: the barrier entry removed from both layers while no
+  /// layer holds any ON for the owner.
+  bool confirmsAbandoned(CloudEgressEnableBinding b) =>
+      operation == 'abandon' &&
+      _isDone &&
+      _boundTo(b) &&
+      egress.length == 2 &&
+      !egress.any((r) => r.state == 'ON') &&
+      barrier.length == 2 &&
+      barrier.every(_barrierGone);
 }
 
 /// A-12-min R2: the native verdict on whether a persisted capture may leave the
@@ -786,6 +1194,50 @@ class NativeCaptureBridge {
     }
   }
 
+  /// N-R8 (N-CR-1): the same `setCaptureBackendConfig` call, but for a caller
+  /// that must treat a normal return as "the native method ran and accepted".
+  /// A missing method or channel ([MissingPluginException]), any other platform
+  /// failure and a platform without the native queue all PROPAGATE: only a
+  /// native acknowledgment returns normally. That return is an execution
+  /// acknowledgment, not independent crash-durability proof (the native write is
+  /// an optional defaults write); the verified native egress record remains the
+  /// security evidence. `stale_generation` surfaces as [CaptureQueueException].
+  static Future<void> setBackendConfigAcknowledged({
+    required bool cloudProcessingEnabled,
+    required String installId,
+    required String backendUrl,
+    required String anonKey,
+    bool aiConsentGranted = false,
+    String? deviceSecret,
+    bool captureContractV2 = false,
+    String? ownerUid,
+    int? transitionGeneration,
+  }) async {
+    if (!_hasNativeQueue) {
+      throw const CaptureQueueException(
+          'unsupported', 'no native capture queue on this platform');
+    }
+    try {
+      await _channel.invokeMethod<void>('setCaptureBackendConfig', {
+        'cloudProcessingEnabled': cloudProcessingEnabled,
+        'installId': installId,
+        'deviceSecret': deviceSecret,
+        'backendUrl': backendUrl,
+        'anonKey': anonKey,
+        'aiConsentGranted': aiConsentGranted,
+        'captureContractV2': captureContractV2,
+        if (ownerUid != null) 'ownerUid': ownerUid,
+        if (transitionGeneration != null)
+          'transitionGeneration': transitionGeneration,
+      });
+    } on PlatformException catch (e) {
+      if (e.code == 'stale_generation') {
+        throw CaptureQueueException(e.code, e.message);
+      }
+      rethrow;
+    }
+  }
+
   // ── CAP-6 queue v3: owner record, unbound claim, Remove-data barrier ───────
   //
   // Every call below runs natively under the queue flock. They throw
@@ -840,6 +1292,25 @@ class NativeCaptureBridge {
           'transitionGeneration': transitionGeneration,
       }),
     );
+  }
+
+  /// N: a restrictive local publication receipt; no backend linking is performed.
+  static Future<RestrictiveCaptureOwnerReceipt?> publishRestrictiveCaptureOwner({
+    required String uid, required int version, required int expectedEpoch,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return RestrictiveCaptureOwnerReceipt.tryParse(
+      await _queueCall<Object?>('publishRestrictiveCaptureOwner', {
+        'uid': uid, 'version': version, 'expectedEpoch': expectedEpoch,
+      }));
+  }
+
+  static Future<CloudEgressEnableResult?> revokeCaptureAuthorizationLifetime({
+    required String ownerUid, required CloudEgressEnableBinding binding,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return CloudEgressEnableResult.tryParse(await _queueCall<Object?>(
+      'revokeCaptureAuthorizationLifetime', _phaseArguments(ownerUid, binding)));
   }
 
   /// The owner epoch, bumped natively by every owner clear. 0 off iOS.
@@ -967,6 +1438,134 @@ class NativeCaptureBridge {
     return CloudEgressSnapshot.tryParse(
       await _queueCall<Object?>('getCloudEgressState', {'ownerUid': ownerUid}),
     );
+  }
+
+  /// Pending explicit-enable barrier (consent-security amendment), phase 1.
+  /// Persists the owner's pending denial in BOTH native layers, read back, BEFORE
+  /// any ON is written. The operation is bound natively to the COMMITTED native
+  /// active owner and its F2 generation / epoch: with no committed owner (a first
+  /// use whose publication is deferred or not yet committed) or another owner the
+  /// reply is `ownerMismatch` and nothing is written or minted, so the caller
+  /// must wait or refuse honestly. A fresh begin NEVER adopts an existing
+  /// operation, even with identical parameters: it is a `conflict` that reports
+  /// the pending operation. A [resume] of that exact operation (its full binding,
+  /// from [getCloudEgressPending]) is the only way to repair it. The returned
+  /// [CloudEgressEnableResult.binding] is what every later phase must present.
+  /// Throws [CaptureQueueException] `removal_in_progress` during Remove data and
+  /// `malformed_transition_result` for any reply that is not a valid result. Null
+  /// off iOS (no native layer). Success is ONLY
+  /// [CloudEgressEnableResult.confirmsBarrierEstablished].
+  static Future<CloudEgressEnableResult?> beginCloudEgressEnable({
+    required String ownerUid,
+    required int transitionGeneration,
+    required int reservedVersion,
+    CloudEgressEnableBinding? resume,
+  }) async {
+    if (resume != null &&
+        (resume.transitionGeneration != transitionGeneration ||
+            resume.reservedVersion != reservedVersion)) {
+      throw ArgumentError('resume must name the same generation and version');
+    }
+    if (!_hasNativeQueue) return null;
+    return _enableResult(
+      'begin',
+      await _queueCall<Object?>('beginCloudEgressEnable', {
+        'ownerUid': ownerUid,
+        'transitionGeneration': transitionGeneration,
+        'reservedVersion': reservedVersion,
+        if (resume != null) 'resumeOperationId': resume.operationId,
+        if (resume != null) 'resumeOwnerEpoch': resume.ownerEpoch,
+      }),
+    );
+  }
+
+  static Map<String, Object?> _phaseArguments(
+          String ownerUid, CloudEgressEnableBinding binding) =>
+      {
+        'ownerUid': ownerUid,
+        'operationId': binding.operationId,
+        'transitionGeneration': binding.transitionGeneration,
+        'reservedVersion': binding.reservedVersion,
+        'ownerGeneration': binding.ownerGeneration,
+        'ownerEpoch': binding.ownerEpoch,
+      };
+
+  /// Phase 2: writes ON for the exact pending operation into each native egress
+  /// layer and reads each back, only while the operation's owner lifecycle is
+  /// still the live one (else `ownerMismatch`). The barrier stays, so nothing is
+  /// admitted yet. Success is ONLY [CloudEgressEnableResult.confirmsOnWritten].
+  static Future<CloudEgressEnableResult?> writeCloudEgressEnableOn({
+    required String ownerUid,
+    required CloudEgressEnableBinding binding,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return _enableResult(
+      'writeOn',
+      await _queueCall<Object?>(
+          'writeCloudEgressEnableOn', _phaseArguments(ownerUid, binding)),
+    );
+  }
+
+  /// Phase 3, compensation: per layer, and only for an operation the native
+  /// barrier proves. No barrier, an unreadable barrier or another operation
+  /// writes nothing (`noBarrier` / `uncertain` / `conflict`); a newer generation
+  /// and an unreadable layer are never touched. Never lifts the barrier. Success
+  /// is ONLY [CloudEgressEnableResult.confirmsRestricted]; anything else keeps
+  /// denial.
+  static Future<CloudEgressEnableResult?> restrictCloudEgressEnable({
+    required String ownerUid,
+    required CloudEgressEnableBinding binding,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return _enableResult(
+      'restrict',
+      await _queueCall<Object?>(
+          'restrictCloudEgressEnable', _phaseArguments(ownerUid, binding)),
+    );
+  }
+
+  /// Phase 4: the only way the barrier is lifted. [abandon] false completes the
+  /// operation: native re-reads the Remove-data barrier and the live owner under
+  /// its lock (an older queued complete after a logout / readmission is an
+  /// `ownerMismatch` and clears nothing) and verifies ON in both egress layers.
+  /// [abandon] true abandons it: native requires NO ON for the owner in either
+  /// layer (a prior grant is not exempt: restrict it first). Success is ONLY
+  /// [CloudEgressEnableResult.confirmsCompleted] / [confirmsAbandoned]; a
+  /// partial clear is `incomplete` and the remaining layer keeps denying.
+  static Future<CloudEgressEnableResult?> finishCloudEgressEnable({
+    required String ownerUid,
+    required CloudEgressEnableBinding binding,
+    required bool abandon,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return _enableResult(
+      abandon ? 'abandon' : 'complete',
+      await _queueCall<Object?>('finishCloudEgressEnable',
+          {..._phaseArguments(ownerUid, binding), 'abandon': abandon}),
+    );
+  }
+
+  /// Read-only: what each native layer holds for [ownerUid]'s pending barrier and
+  /// egress entry, so a restart can find the operation it must finish. Null off
+  /// iOS.
+  static Future<CloudEgressEnableResult?> getCloudEgressPending({
+    required String ownerUid,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return _enableResult(
+      'inspect',
+      await _queueCall<Object?>('getCloudEgressPending', {'ownerUid': ownerUid}),
+    );
+  }
+
+  /// A malformed, null or wrong-operation reply on iOS is a failure, never a
+  /// result: the caller must fail closed on the exception.
+  static CloudEgressEnableResult _enableResult(String operation, Object? raw) {
+    final parsed = CloudEgressEnableResult.tryParse(raw);
+    if (parsed == null || parsed.operation != operation) {
+      throw const CaptureQueueException('malformed_transition_result');
+    }
+    return parsed;
   }
 
   /// C.4: native (App Intent / extension) uploads already admitted for

@@ -9868,7 +9868,7 @@ abstract class AppL10n {
   /// No description provided for @smartConsentBullet1.
   ///
   /// In ar, this message translates to:
-  /// **'تُرسَل رسائل البنك التي تلتقطها إلى خوادم قِرش بعد حذف أرقام البطاقات والحسابات والهواتف والرموز، وقد يحلّلها مزوّد ذكاء اصطناعي لقراءة المبلغ والتاجر والبنك.'**
+  /// **'تُرسل الرسائل البنكية الملتقطة إلى خوادم قرش بعد إزالة أرقام البطاقات والحسابات والهواتف والرموز. قد تعالج خدمة Google Gemini هذا النص لتحديد المبلغ والتاجر والبنك.'**
   String get smartConsentBullet1;
 
   /// No description provided for @smartConsentBullet2.
@@ -9880,7 +9880,7 @@ abstract class AppL10n {
   /// No description provided for @smartConsentBullet3.
   ///
   /// In ar, this message translates to:
-  /// **'يمكنك إيقاف أيٍّ منهما في أي وقت من الإعدادات ← الخصوصية.'**
+  /// **'بعد الموافقة، تعمل المزامنة والتحليلات المسموح بها تلقائيًا عند توفر الخدمة. يمكنك سحب أي موافقة من الإعدادات ← الخصوصية. المتابعة محليًا لا ترسل هذه البيانات.'**
   String get smartConsentBullet3;
 
   /// No description provided for @smartConsentEnable.
@@ -10422,6 +10422,366 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'نشط'**
   String get conflictFieldActive;
+
+  /// No description provided for @startupCoordinatorTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر بدء التطبيق بأمان'**
+  String get startupCoordinatorTitle;
+
+  /// No description provided for @startupCoordinatorBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم يتمكن قِرش من التأكد أن أي جزء آخر من التطبيق لا يستخدم بياناتك، فلم يفتح شيئًا. لم تتغير بياناتك. حاول مرة أخرى، وإن تكررت المشكلة فأعد تشغيل التطبيق.'**
+  String get startupCoordinatorBody;
+
+  /// No description provided for @startupCoordinatorRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'حاول مرة أخرى'**
+  String get startupCoordinatorRetry;
+
+  /// No description provided for @localReadBannerTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون اتصال — للعرض فقط'**
+  String get localReadBannerTitle;
+
+  /// No description provided for @localReadBannerBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك على هذا الجهاز معروضة للاطّلاع فقط. سجّل الدخول من جديد لإضافة العمليات أو تعديلها أو مزامنتها.'**
+  String get localReadBannerBody;
+
+  /// No description provided for @localReadReconnect.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة الاتصال'**
+  String get localReadReconnect;
+
+  /// No description provided for @localReadLogout.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الخروج'**
+  String get localReadLogout;
+
+  /// No description provided for @localReadBalancesTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأرصدة'**
+  String get localReadBalancesTitle;
+
+  /// No description provided for @localReadTransactionsTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'العمليات'**
+  String get localReadTransactionsTitle;
+
+  /// No description provided for @localReadNoTransactions.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات على هذا الجهاز.'**
+  String get localReadNoTransactions;
+
+  /// No description provided for @localReadNoAccounts.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد حسابات على هذا الجهاز.'**
+  String get localReadNoAccounts;
+
+  /// No description provided for @localReadLoadError.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت قراءة بياناتك على هذا الجهاز.'**
+  String get localReadLoadError;
+
+  /// No description provided for @localReadLogoutFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم يكتمل تسجيل الخروج. حاول مرة أخرى.'**
+  String get localReadLogoutFailed;
+
+  /// No description provided for @signOutCleanupIncompleteMessage.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم تسجيل خروجك على هذا الجهاز، لكن تعذّر إكمال قفل بياناتك دون اتصال، وقد تُفتح من جديد بعد إعادة تشغيل التطبيق. أعد المحاولة.'**
+  String get signOutCleanupIncompleteMessage;
+
+  /// No description provided for @signOutCleanupRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعادة المحاولة'**
+  String get signOutCleanupRetry;
+
+  /// No description provided for @signOutCleanupStillIncomplete.
+  ///
+  /// In ar, this message translates to:
+  /// **'ما زال تعذّر قفل بياناتك دون اتصال، وقد تُفتح من جديد بعد إعادة تشغيل التطبيق. أعد المحاولة.'**
+  String get signOutCleanupStillIncomplete;
+
+  /// No description provided for @removeDataDenyIncompleteMessage.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر إكمال إلغاء الوصول دون اتصال إلى البيانات على هذا الجهاز، وقد تُفتح من جديد بعد إعادة تشغيل التطبيق. أعد المحاولة.'**
+  String get removeDataDenyIncompleteMessage;
+
+  /// No description provided for @removeDataDenyStillIncomplete.
+  ///
+  /// In ar, this message translates to:
+  /// **'ما زال تعذّر إلغاء الوصول دون اتصال، وقد يُتاح من جديد بعد إعادة تشغيل التطبيق. أعد المحاولة.'**
+  String get removeDataDenyStillIncomplete;
+
+  /// No description provided for @cloudEnableIncomplete.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تشغيل المعالجة السحابية. ستبقى متوقفة. حاول مرة أخرى.'**
+  String get cloudEnableIncomplete;
+
+  /// No description provided for @cloudEnableWithdrawFirst.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يمكننا التأكد من الحالة الحالية، لذلك لم يتغيّر شيء. أوقفها أولًا ثم فعّلها من جديد.'**
+  String get cloudEnableWithdrawFirst;
+
+  /// No description provided for @cloudEnableChoiceNotSaved.
+  ///
+  /// In ar, this message translates to:
+  /// **'اكتملت المعالجة السحابية باختيارك السابق، ولم يُحفظ اختيارك الجديد. راجِع الخيارات واختر من جديد لإضافته.'**
+  String get cloudEnableChoiceNotSaved;
+
+  /// No description provided for @initialConsentAccept.
+  ///
+  /// In ar, this message translates to:
+  /// **'أوافق على المزامنة والتحليل الذكي'**
+  String get initialConsentAccept;
+
+  /// No description provided for @initialConsentDecline.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتابعة محليًا'**
+  String get initialConsentDecline;
+
+  /// No description provided for @consentMgmtTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزامنة السحابية والتحليل الذكي'**
+  String get consentMgmtTitle;
+
+  /// No description provided for @consentStatusActive.
+  ///
+  /// In ar, this message translates to:
+  /// **'مفعّلة'**
+  String get consentStatusActive;
+
+  /// No description provided for @consentStatusPartial.
+  ///
+  /// In ar, this message translates to:
+  /// **'مفعّلة جزئيًا'**
+  String get consentStatusPartial;
+
+  /// No description provided for @consentStatusOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'متوقفة'**
+  String get consentStatusOff;
+
+  /// No description provided for @consentStatusUnknown.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر التأكد'**
+  String get consentStatusUnknown;
+
+  /// No description provided for @consentStatusTurningOn.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ التفعيل…'**
+  String get consentStatusTurningOn;
+
+  /// No description provided for @consentStatusTurningOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ الإيقاف…'**
+  String get consentStatusTurningOff;
+
+  /// No description provided for @consentStatusActiveBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزامنة السحابية والتحليل الذكي مفعّلان معًا.'**
+  String get consentStatusActiveBody;
+
+  /// No description provided for @consentStatusPartialBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'جزء فقط من هذه الموافقة مفعّل. فعّلها لمراجعتها واتخاذ قرارك من جديد، أو أوقفها.'**
+  String get consentStatusPartialBody;
+
+  /// No description provided for @consentStatusOffBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يُرسل أي شيء إلى خوادم قرش ولا يحلله الذكاء الاصطناعي. تبقى بياناتك على هذا الجهاز، ويظل الإدخال اليدوي متاحًا.'**
+  String get consentStatusOffBody;
+
+  /// No description provided for @consentStatusUnknownBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يمكننا التأكد من الحالة الحالية الآن، لذا تبقى المزامنة والتحليل متوقفين إلى أن يتم التأكد.'**
+  String get consentStatusUnknownBody;
+
+  /// No description provided for @consentStatusUnknownRecovery.
+  ///
+  /// In ar, this message translates to:
+  /// **'لاستعادتها، أوقفها أولًا ثم فعّلها من جديد.'**
+  String get consentStatusUnknownRecovery;
+
+  /// No description provided for @consentStatusTurningOnBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم نتمكن من التأكد من اكتمال التفعيل. تبقى المزامنة والتحليل متوقفين إلى أن يكتمل.'**
+  String get consentStatusTurningOnBody;
+
+  /// No description provided for @consentStatusTurningOffBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم إيقاف المزامنة والتحليل بالفعل. نُنهي الإجراء الآن.'**
+  String get consentStatusTurningOffBody;
+
+  /// No description provided for @consentTurnOn.
+  ///
+  /// In ar, this message translates to:
+  /// **'مراجعة وتفعيل'**
+  String get consentTurnOn;
+
+  /// No description provided for @consentTurnOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'إيقاف'**
+  String get consentTurnOff;
+
+  /// No description provided for @consentRefresh.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحقّق مجددًا'**
+  String get consentRefresh;
+
+  /// No description provided for @consentWithdrawTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'إيقاف المزامنة السحابية والتحليل الذكي؟'**
+  String get consentWithdrawTitle;
+
+  /// No description provided for @consentWithdrawBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'تتوقف المزامنة والتحليل فورًا معًا. تبقى بياناتك على هذا الجهاز، ويمكنك تفعيلهما مجددًا من هنا في أي وقت.'**
+  String get consentWithdrawBody;
+
+  /// No description provided for @consentWithdrawConfirm.
+  ///
+  /// In ar, this message translates to:
+  /// **'إيقاف'**
+  String get consentWithdrawConfirm;
+
+  /// No description provided for @consentWithdrawFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم نتمكن من التأكد من إيقاف هذه الميزة. يبقى الإرسال متوقفًا. حاول مجددًا.'**
+  String get consentWithdrawFailed;
+
+  /// No description provided for @signOutDataStays.
+  ///
+  /// In ar, this message translates to:
+  /// **'تبقى بياناتك على هذا الجهاز وتعود إليك عند تسجيل الدخول مجددًا.'**
+  String get signOutDataStays;
+
+  /// No description provided for @deleteAccountTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الحساب'**
+  String get deleteAccountTitle;
+
+  /// No description provided for @deleteAccountIntro.
+  ///
+  /// In ar, this message translates to:
+  /// **'احذف حسابك في قرش وكل البيانات المحفوظة معه نهائيًا.'**
+  String get deleteAccountIntro;
+
+  /// No description provided for @deleteAccountAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف الحساب'**
+  String get deleteAccountAction;
+
+  /// No description provided for @deleteAccountConfirmTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف حسابك؟'**
+  String get deleteAccountConfirmTitle;
+
+  /// No description provided for @deleteAccountConfirmBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيُحذف حسابك وكل بياناتك نهائيًا وعلى الفور، ولا يمكن التراجع عن ذلك.'**
+  String get deleteAccountConfirmBody;
+
+  /// No description provided for @deleteAccountConfirmAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف نهائي'**
+  String get deleteAccountConfirmAction;
+
+  /// No description provided for @deleteAccountProgress.
+  ///
+  /// In ar, this message translates to:
+  /// **'جارٍ حذف حسابك…'**
+  String get deleteAccountProgress;
+
+  /// No description provided for @deleteAccountSuccess.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم حذف حسابك.'**
+  String get deleteAccountSuccess;
+
+  /// No description provided for @deleteAccountAcceptedBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'استلمنا طلب الحذف، لكن حسابك لم يُحذف بعد. يمكنك متابعته أو إلغاؤه من الخصوصية والبيانات.'**
+  String get deleteAccountAcceptedBody;
+
+  /// No description provided for @deleteAccountFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر إكمال حذف حسابك. حاول مجددًا.'**
+  String get deleteAccountFailed;
+
+  /// No description provided for @deleteAccountFailedFinal.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا يمكننا حذف حسابك من هنا الآن. حاول لاحقًا أو تواصل مع الدعم.'**
+  String get deleteAccountFailedFinal;
+
+  /// No description provided for @deleteAccountUnconfirmed.
+  ///
+  /// In ar, this message translates to:
+  /// **'لم نتمكن من التأكد من حذف حسابك بعد.'**
+  String get deleteAccountUnconfirmed;
+
+  /// No description provided for @deleteAccountRetry.
+  ///
+  /// In ar, this message translates to:
+  /// **'حاول مجددًا'**
+  String get deleteAccountRetry;
+
+  /// No description provided for @deleteAccountDone.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم'**
+  String get deleteAccountDone;
+
+  /// No description provided for @deleteAccountConfirmBodyScheduled.
+  ///
+  /// In ar, this message translates to:
+  /// **'سيُرسل طلب الحذف، ثم يحذف الخادم حسابك وكل بياناتك نهائيًا لاحقًا، ولا يمكن التراجع عن ذلك.'**
+  String get deleteAccountConfirmBodyScheduled;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

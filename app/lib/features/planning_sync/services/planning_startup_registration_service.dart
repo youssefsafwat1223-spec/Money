@@ -1,8 +1,10 @@
-import 'package:flutter/foundation.dart';
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/app_session.dart';
+import '../../../core/session/admission_authority.dart';
+import '../../../core/sync/sync_health.dart';
+import '../../../core/sync/outbox_failure.dart';
 
 import '../../../data/db/app_database.dart';
-import '../../../data/repositories/drift_repository_support.dart';
-import '../../../domain/entities/category_entity.dart';
 import 'planning_outbox_queue.dart';
 
 /// Registers local singleton/custom rows only after the first remote pull.
@@ -38,70 +40,51 @@ class PlanningStartupRegistrationService {
   /// UUIDs, so their CREATE can only insert a new remote row — it cannot
   /// merge-overwrite an existing one the way the fixed-`local_id` settings
   /// singleton can.
-  Future<void> registerMissingRows({
-    required bool settingsPullCompleted,
-  }) async {
-    final settings = settingsPullCompleted ? await _registerSettings() : 0;
-    final categories = await _registerCustomCategories();
-    if (kDebugMode) {
-      debugPrint(
-        '[PlanningRegistration] done: settings=$settings '
-        'categories=$categories '
-        'settingsAuthority=${settingsPullCompleted ? 'confirmed' : 'unknown'}',
-      );
-    }
-  }
+  Future<void> registerMissingRows({required bool settingsPullCompleted}) =>
+      registerMissingRowsWithPhase(settingsPullCompleted: settingsPullCompleted,
+          phase: SyncPhaseBinding());
 
-  Future<int> _registerSettings() async {
-    if (!_isEnabled(PlanningOutboxQueue.settingsEntityType)) return 0;
-    final row = await _db.customSelect('''
-      SELECT * FROM user_settings
-      WHERE server_id IS NULL
-        AND COALESCE(sync_status, '') != 'pending'
-        AND NOT EXISTS (
-          SELECT 1 FROM planning_sync_outbox
-          WHERE entity_type = '${PlanningOutboxQueue.settingsEntityType}'
-        )
-      LIMIT 1;
-    ''').getSingleOrNull();
-    if (row == null) return 0;
-    final queued = await _queue.enqueueSettings(
-      PlanningSyncOperation.create,
-      userSettingsFromRow(row),
-    );
-    return queued ? 1 : 0;
-  }
-
-  Future<int> _registerCustomCategories() async {
-    if (!_isEnabled(PlanningOutboxQueue.categoriesEntityType)) return 0;
-    final rows = await _db.customSelect('''
-      SELECT * FROM categories c
-      WHERE c.deleted_at IS NULL
-        AND c.key LIKE 'custom_%'
-        AND c.server_id IS NULL
-        AND COALESCE(c.sync_status, '') != 'pending'
-        AND NOT EXISTS (
-          SELECT 1 FROM planning_sync_outbox o
-          WHERE o.entity_type = '${PlanningOutboxQueue.categoriesEntityType}'
-            AND o.entity_id = c.id
-        );
-    ''').get();
-    var queued = 0;
-    for (final row in rows) {
-      final didQueue = await _queue.enqueueCategory(
-        PlanningSyncOperation.create,
-        CategoryEntity(
-          id: row.read<String>('id'),
-          key: row.read<String>('key'),
-          nameAr: row.read<String>('name_ar'),
-          icon: row.read<String>('icon'),
-          color: row.read<String>('color'),
-          isIncome: row.read<int>('is_income') == 1,
-          sort: row.read<int>('sort_order'),
-        ),
-      );
-      if (didQueue) queued++;
+  Future<void> registerMissingRowsWithPhase({required bool settingsPullCompleted,
+      required SyncPhaseBinding phase}) async {
+    void supplied() {
+      if (phase.isBound && (!phase.isCurrent || !identical(phase.database, _db))) {
+        throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.stale);
+      }
     }
-    return queued;
+    supplied();
+    final authority = AccountFenceAuthority.shared;
+    final handle = await authority.captureForDatabase(AppSession.instance, _db);
+    supplied();
+    if (handle == null) throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.unbound);
+    void check() {
+      supplied(); authority.requireCurrentForDatabase(handle, _db);
+    }
+    try {
+      check();
+      if (settingsPullCompleted && _isEnabled(PlanningOutboxQueue.settingsEntityType)) {
+        final settings = await authority.runCurrentLocal(handle, _db, () =>
+            _db.customSelect('SELECT id FROM user_settings LIMIT 1;').getSingleOrNull());
+        check();
+        if (settings != null) {
+          await _queue.enqueueRegisteredParent(authority, handle,
+              entityType: PlanningOutboxQueue.settingsEntityType,
+              entityId: settings.read<String>('id'), settingsPullCompleted: true, phase: phase);
+          check();
+        }
+      }
+      if (!_isEnabled(PlanningOutboxQueue.categoriesEntityType)) return;
+      final categories = await authority.runCurrentLocal(handle, _db, () => _db.customSelect(
+          "SELECT id FROM categories WHERE deleted_at IS NULL AND key LIKE 'custom_%';").get());
+      check();
+      for (final category in categories) {
+        check();
+        await _queue.enqueueRegisteredParent(authority, handle,
+            entityType: PlanningOutboxQueue.categoriesEntityType,
+            entityId: category.read<String>('id'), settingsPullCompleted: false, phase: phase);
+        check();
+      }
+    } on StaleAdmissionException {
+      throw const PlanningDeliveryStopped(PlanningDeliveryStopReason.stale);
+    }
   }
 }

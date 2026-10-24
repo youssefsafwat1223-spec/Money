@@ -5831,7 +5831,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smartConsentBullet1 =>
-      'Captured bank messages are sent to Qirsh servers with card, account and phone numbers and codes removed, and may be analysed by an AI service to read the amount, merchant and bank.';
+      'Captured bank messages are sent to Qirsh servers after card, account and phone numbers and codes are removed. Google Gemini may process this text to identify the amount, merchant and bank.';
 
   @override
   String get smartConsentBullet2 =>
@@ -5839,7 +5839,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get smartConsentBullet3 =>
-      'You can turn either off at any time in Settings → Privacy.';
+      'After you accept, sync and permitted analysis run automatically when available. You can withdraw either permission in Settings → Privacy. Choosing local use sends none of this data.';
 
   @override
   String get smartConsentEnable => 'Enable Smart Analysis & Cloud Sync';
@@ -6167,4 +6167,213 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get conflictFieldActive => 'Active';
+
+  @override
+  String get startupCoordinatorTitle => 'We could not start safely';
+
+  @override
+  String get startupCoordinatorBody =>
+      'Qirsh could not confirm that no other part of the app is using your data, so it has not opened anything. Your data was not changed. Try again; if this keeps happening, restart the app.';
+
+  @override
+  String get startupCoordinatorRetry => 'Try again';
+
+  @override
+  String get localReadBannerTitle => 'Offline — read only';
+
+  @override
+  String get localReadBannerBody =>
+      'Your data on this device is shown for viewing only. Sign in again to add, edit or sync.';
+
+  @override
+  String get localReadReconnect => 'Reconnect';
+
+  @override
+  String get localReadLogout => 'Log out';
+
+  @override
+  String get localReadBalancesTitle => 'Balances';
+
+  @override
+  String get localReadTransactionsTitle => 'Transactions';
+
+  @override
+  String get localReadNoTransactions =>
+      'There are no transactions on this device.';
+
+  @override
+  String get localReadNoAccounts => 'There are no accounts on this device.';
+
+  @override
+  String get localReadLoadError =>
+      'Your data on this device could not be read.';
+
+  @override
+  String get localReadLogoutFailed =>
+      'Logging out did not complete. Try again.';
+
+  @override
+  String get signOutCleanupIncompleteMessage =>
+      'You\'re signed out on this device, but we couldn\'t finish locking your offline data, so it may open again after a restart. Try again.';
+
+  @override
+  String get signOutCleanupRetry => 'Retry';
+
+  @override
+  String get signOutCleanupStillIncomplete =>
+      'Your offline data still couldn\'t be locked. It may open again after a restart. Try again.';
+
+  @override
+  String get removeDataDenyIncompleteMessage =>
+      'We couldn\'t finish revoking offline access to the data on this device, so it may open again after a restart. Try again.';
+
+  @override
+  String get removeDataDenyStillIncomplete =>
+      'Offline access still couldn\'t be revoked. It may open again after a restart. Try again.';
+
+  @override
+  String get cloudEnableIncomplete =>
+      'Couldn\'t turn on cloud processing. It stays off. Please try again.';
+
+  @override
+  String get cloudEnableWithdrawFirst =>
+      'We can\'t confirm the current state, so nothing was changed. Turn it off first, then turn it on again.';
+
+  @override
+  String get cloudEnableChoiceNotSaved =>
+      'Cloud processing was finished with your earlier choice. Your new choice was not saved. Review and choose again to add it.';
+
+  @override
+  String get initialConsentAccept => 'Accept cloud sync and smart analysis';
+
+  @override
+  String get initialConsentDecline => 'Continue locally';
+
+  @override
+  String get consentMgmtTitle => 'Cloud sync & Smart Analysis';
+
+  @override
+  String get consentStatusActive => 'On';
+
+  @override
+  String get consentStatusPartial => 'Partly on';
+
+  @override
+  String get consentStatusOff => 'Off';
+
+  @override
+  String get consentStatusUnknown => 'Can\'t confirm';
+
+  @override
+  String get consentStatusTurningOn => 'Turning on…';
+
+  @override
+  String get consentStatusTurningOff => 'Turning off…';
+
+  @override
+  String get consentStatusActiveBody =>
+      'Cloud sync and Smart Analysis are both on.';
+
+  @override
+  String get consentStatusPartialBody =>
+      'Only part of this permission is on. Turn it on to review and choose again, or turn it off.';
+
+  @override
+  String get consentStatusOffBody =>
+      'Nothing is sent to Qirsh servers or analysed by AI. Everything stays on this device and manual entry keeps working.';
+
+  @override
+  String get consentStatusUnknownBody =>
+      'We can\'t confirm the current state right now, so sync and analysis stay paused until it is confirmed.';
+
+  @override
+  String get consentStatusUnknownRecovery =>
+      'To restore it, turn it off first, then turn it on again.';
+
+  @override
+  String get consentStatusTurningOnBody =>
+      'We couldn\'t confirm that this finished. Sync and analysis stay paused until it does.';
+
+  @override
+  String get consentStatusTurningOffBody =>
+      'Sync and analysis are already stopped. Finishing up.';
+
+  @override
+  String get consentTurnOn => 'Review and turn on';
+
+  @override
+  String get consentTurnOff => 'Turn off';
+
+  @override
+  String get consentRefresh => 'Check again';
+
+  @override
+  String get consentWithdrawTitle => 'Turn off cloud sync and Smart Analysis?';
+
+  @override
+  String get consentWithdrawBody =>
+      'Sync and analysis stop right away, both together. Your data stays on this device, and you can turn them on again here at any time.';
+
+  @override
+  String get consentWithdrawConfirm => 'Turn off';
+
+  @override
+  String get consentWithdrawFailed =>
+      'We couldn\'t confirm turning this off. Sharing stays paused. Please try again.';
+
+  @override
+  String get signOutDataStays =>
+      'Your data stays on this device and comes back when you sign in again.';
+
+  @override
+  String get deleteAccountTitle => 'Delete account';
+
+  @override
+  String get deleteAccountIntro =>
+      'Permanently delete your Qirsh account and all the data saved with it.';
+
+  @override
+  String get deleteAccountAction => 'Delete account';
+
+  @override
+  String get deleteAccountConfirmTitle => 'Delete your account?';
+
+  @override
+  String get deleteAccountConfirmBody =>
+      'This permanently deletes your account and all your data, immediately. It cannot be undone.';
+
+  @override
+  String get deleteAccountConfirmAction => 'Delete permanently';
+
+  @override
+  String get deleteAccountProgress => 'Deleting your account…';
+
+  @override
+  String get deleteAccountSuccess => 'Your account was deleted.';
+
+  @override
+  String get deleteAccountAcceptedBody =>
+      'We received your deletion request, but your account is not deleted yet. You can check or cancel it in Privacy & data.';
+
+  @override
+  String get deleteAccountFailed =>
+      'We couldn\'t finish deleting your account. Please try again.';
+
+  @override
+  String get deleteAccountFailedFinal =>
+      'We can\'t delete your account from here right now. Please try again later or contact support.';
+
+  @override
+  String get deleteAccountUnconfirmed =>
+      'We couldn\'t confirm that your account was deleted yet.';
+
+  @override
+  String get deleteAccountRetry => 'Try again';
+
+  @override
+  String get deleteAccountDone => 'Done';
+
+  @override
+  String get deleteAccountConfirmBodyScheduled =>
+      'Your deletion request will be sent, and the server will then permanently delete your account and all your data. This cannot be undone.';
 }

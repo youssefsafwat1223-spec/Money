@@ -1,6 +1,6 @@
+import 'ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -8,7 +8,6 @@ import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -23,12 +22,6 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 /// flips to synced, D-3 awaiting-FX park honours op_seq, D-6 parked-in-flight
 /// create is converted (not dropped) by a delete, D-7 cold-start auth re-arm,
 /// D-9 owner-scoped coalescing.
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 const _tx = 'tx-001';
 const _base = '2026-06-01T10:00:00.000Z';
@@ -77,7 +70,7 @@ Map<String, dynamic> _payload(Map<String, Object?> row) =>
 typedef _Handler = Future<http.Response> Function(http.Request request);
 
 SupabaseClient _client(List<http.Request> calls, _Handler handler) =>
-    SupabaseClient(
+    LedgerAdmissionFixture.trackClient(SupabaseClient(
       'https://example.supabase.co',
       'public-anon-key',
       accessToken: () async => 'qa-access-token',
@@ -85,7 +78,7 @@ SupabaseClient _client(List<http.Request> calls, _Handler handler) =>
         calls.add(request);
         return handler(request);
       }),
-    );
+    ));
 
 http.Response _json(Object body, http.Request request) => http.Response(
       jsonEncode(body),
@@ -137,14 +130,15 @@ Future<TransactionEntity> _load(AppDatabase db, [String id = _tx]) async =>
 
 void main() {
   late AppDatabase db;
+  late LedgerAdmissionFixture admission;
 
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    admission = await LedgerAdmissionFixture.open('user-1');
+    db = admission.database;
   });
   tearDown(() async {
     outboxHasValidSession = () => false;
-    await db.close();
+    await admission.finish();
   });
 
   group('D-1 conflict with an in-flight edit', () {
@@ -311,12 +305,15 @@ void main() {
   group('D-9 owner-scoped coalescing', () {
     test('user B never folds into user A\'s parked row; B pushes under B',
         () async {
+      await admission.finish();
+      admission = await LedgerAdmissionFixture.open('user-B');
+      db = admission.database;
       await _insertTx(db, serverId: 'srv-1', serverUpdatedAt: _base);
       final qa = _queue(db, auth: 'user-A');
       await qa.enqueue(OutboxOperation.update, await _load(db));
       await db.customStatement(
           "UPDATE transactions SET note = 'A edit' WHERE id = '$_tx';");
-      // B signs in: A's row is parked owner_mismatch by the cycle start.
+      // Already admitted B reconciles a synthetic foreign-A row conservatively.
       final qb = _queue(db, auth: 'user-B');
       await qb.reconcileOwnership('user-B');
       expect((await _outbox(db)).single['failure_class'], 'owner_mismatch');

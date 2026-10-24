@@ -1,3 +1,9 @@
+import 'dart:async';
+
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/admission_authority.dart';
+import '../../../core/session/app_session.dart';
+import '../../../core/sync/account_fence_retry.dart';
 import '../../../core/sync/sync_health.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -79,7 +85,11 @@ abstract class AccountsRemoteSink {
 class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
   const SupabaseAccountsRemoteSink();
 
-  SupabaseClient get _client => Supabase.instance.client;
+  SupabaseClient get _client {
+    final invocation = Zone.current[_accountsInvocationKey] as _AccountsInvocation?;
+    invocation?.requireCurrent();
+    return Supabase.instance.client;
+  }
 
   @override
   Future<Map<String, dynamic>?> findAccountByLocalId(
@@ -104,18 +114,18 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
     // statement so the guard predicate always travels with the deleted_at write.
     final deletedAt = DateTime.now().toUtc().toIso8601String();
     final rows = expectedUpdatedAt != null
-        ? await _client
+        ? await retryAccountFenceMutation(() => _client
             .from('user_accounts')
             .update({'deleted_at': deletedAt})
             .eq('id', serverId)
             .eq('updated_at', expectedUpdatedAt)
-            .select('id, updated_at')
-        : await _client
+            .select('id, updated_at'))
+        : await retryAccountFenceMutation(() => _client
             .from('user_accounts')
             .update({'deleted_at': deletedAt})
             .eq('id', serverId)
             .isFilter('deleted_at', null)
-            .select('id, updated_at');
+            .select('id, updated_at'));
     return guardedAck(rows, 'accounts.guardedTombstone');
   }
 
@@ -154,12 +164,12 @@ class SupabaseAccountsRemoteSink implements AccountsRemoteSink {
     Map<String, dynamic> row,
   ) async {
     // C-6: the predicate travels WITH the write, so the database enforces it.
-    final rows = await _client
+    final rows = await retryAccountFenceMutation(() => _client
         .from('user_accounts')
         .update(row)
         .eq('id', serverId)
         .eq('updated_at', expectedUpdatedAt)
-        .select(_ackCols);
+        .select(_ackCols));
     return guardedAck(rows, 'accounts.atomicGuardedUpdate');
   }
 
@@ -189,7 +199,9 @@ class AccountsPushService {
     /// that forgets it gets no network.
     Future<bool> Function()? mayEgress,
     SyncHealth? health,
+    AccountFenceRetry? fenceRetry,
   })  : _db = db,
+        _fenceRetry = fenceRetry ?? AccountFenceRetry(),
         _health = health,
         _mayEgress = mayEgress ?? _denyEgressByDefault,
         _queue = queue,
@@ -197,7 +209,7 @@ class AccountsPushService {
         _getAuthUserId = getAuthUserId ?? _defaultGetAuthUserId,
         _remoteSink = remoteSink ?? const SupabaseAccountsRemoteSink(),
         _casGate = casGate,
-        _cas = RevisionCasEngine(casRemote ?? const SupabaseCasRemote()),
+        _casRemote = casRemote ?? const SupabaseCasRemote(),
         _conflicts = SyncConflictStore(db),
         _coordinator = coordinator,
         _pushCapability = pushCapability;
@@ -209,12 +221,15 @@ class AccountsPushService {
   final PlanningOutboxQueue _queue;
   final Future<bool> Function() _mayEgress;
   final SyncHealth? _health;
+  final AccountFenceRetry _fenceRetry;
   final bool Function() _isEnabled;
   final Future<String?> Function() _getAuthUserId;
   final AccountsRemoteSink _remoteSink;
 
   final RevisionCasGate? _casGate;
-  final RevisionCasEngine _cas;
+  final CasRemote _casRemote;
+  RevisionCasEngine get _cas => RevisionCasEngine(
+      _AccountsCasRemote(_casRemote, _invocation!));
   final SyncConflictStore _conflicts;
   CasPlan _plan = const CasPlan(CasMode.legacy);
 
@@ -232,52 +247,158 @@ class AccountsPushService {
 
   static Future<bool> _denyEgressByDefault() async => false;
 
-  Future<AccountsPushResult> push() async {
+  bool _busy = false;
+  _AccountsInvocation? _invocation;
+  static final _operationId = RegExp(
+      r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$');
+
+  Future<AccountsPushResult> push() => pushWithPhase(SyncPhaseBinding());
+
+  Future<AccountsPushResult> pushWithPhase(SyncPhaseBinding phase) async {
+    if (_busy) throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.overlap);
+    _busy = true;
+    try {
+      final authority = AccountFenceAuthority.shared;
+      final handle = await authority.captureForDatabase(AppSession.instance, _db);
+      if (handle == null) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.unbound);
+      }
+      final invocation = _AccountsInvocation(authority, handle, _db, phase);
+      _invocation = invocation;
+      phase.bind(invocation);
+      final result = await _pushBound();
+      _requireCurrent();
+      return result;
+    } on StaleAdmissionException {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+    } finally {
+      _invocation = null;
+      _busy = false;
+    }
+  }
+
+  void _requireCurrent() => _invocation!.requireCurrent();
+
+  Future<T> _local<T>(Future<T> Function() action) async {
+    _requireCurrent();
+    try {
+      return await _invocation!.runLocal(action);
+    } on StaleAdmissionException {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+    }
+  }
+
+  Future<void> _itemLocal(PlanningOutboxItem item,
+      Future<void> Function() action) => _local(() => _db.transaction(() async {
+    if (!await _queue.accountsHolderCurrent(item)) return;
+    await action();
+  }));
+
+  Future<T> _remote<T>(Future<T> Function() action) async {
+    _requireCurrent();
+    try {
+      final result = await runZoned(action,
+          zoneValues: {_accountsInvocationKey: _invocation!});
+      _requireCurrent();
+      return result;
+    } catch (error) {
+      if (decodeAccountsAccountDenial(error) != null) rethrow;
+      if (error is AccountFenceDeliveryCancellation) rethrow;
+      _requireCurrent();
+      rethrow;
+    }
+  }
+
+  Future<Never> _deny(PlanningOutboxItem item, Object error) async {
+    final state = decodeAccountsAccountDenial(error)!;
+    final current = _invocation!;
+    final result = await current.authority.acceptAccountsDenial(current.handle,
+        _db, state, rowId: item.id, entityType: item.entityType,
+        entityId: item.entityId, ownerUid: item.ownerUid, opSeq: item.opSeq,
+        operationId: item.operationId!,
+        park: (ticket) => _queue.parkAccountDenial(item, state, ticket));
+    throw AccountsDeliveryStopped(AccountsDeliveryStopReason.denial,
+        accepted: result.accepted, parked: result.parked, complete: result.complete);
+  }
+
+  void _validateItem(PlanningOutboxItem item) {
+    if (item.ownerUid != _invocation!.ownerUid || item.operationId == null ||
+        !_operationId.hasMatch(item.operationId!)) {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.provenance);
+    }
+  }
+
+  Future<AccountsPushResult> _pushBound() async {
     // C-3 — money must not leave the device without cloud consent. This is the
     // headline of F-025: the privacy screen promises the switch disables
     // synchronisation, and it did not.
     if (!await _mayEgress()) {
-      _health?.noteConsentBlocked(SyncDomain.accounts);
+      _invocation!.phase.noteConsentBlocked(_health);
       return const AccountsPushResult();
     }
+    _requireCurrent();
     if (!_isEnabled()) return const AccountsPushResult();
     final userId = await _getAuthUserId();
+    _requireCurrent();
     if (userId == null) return const AccountsPushResult();
 
+    if (userId != _invocation!.ownerUid) {
+      throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+    }
     // WP-5: legacy push or revision CAS; unprovable capability = nothing sent.
-    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.plan(userId);
+    _plan = _casGate == null ? const CasPlan(CasMode.legacy) : await _casGate.planForAccounts(userId, authority: _invocation!.authority,
+        handle: _invocation!.handle, database: _db);
+    _requireCurrent();
     if (_plan.mode == CasMode.stopped) return const AccountsPushResult();
 
     // D-7: the AuthSessionValid broadcast has no replay, so a cold start can miss
     // it. A valid authenticated session at the start of a cycle re-arms rows
     // parked `auth_required` (cheap UPDATE; no attempt was ever consumed).
     if (outboxHasValidSession()) {
-      await _queue.reArmAuthParked(entityTypes: const [
+      await _local(() => _queue.reArmAuthParked(entityTypes: const [
         PlanningOutboxQueue.accountsEntityType,
         PlanningOutboxQueue.accountDefaultCommandType,
-      ]);
+      ]));
     }
 
     if (_pushCapability() == ExactTransportCapability.verifiedExact) {
-      await _queue.reArmParked();
+      await _local(() => _queue.reArmParked());
     }
     // A-2 (G18): only rows recorded for THIS identity may be sent.
-    await _queue.reconcileOwnership(userId);
+    final verified = await _queue.ownershipVerified(userId);
+    _requireCurrent();
+    await _local(() => _queue.reconcileVerifiedOwnership(userId, verified));
 
     int pushed = 0;
     int conflicts = 0;
     int failed = 0;
     int abandoned = 0;
     int parked = 0;
+    var fenceStopped = false;
 
     // Field syncs FIRST, so a default command can resolve its target's server id
     // (a freshly-created default account is established before the command runs).
-    final items = await _queue.pendingItems(
+    final items = await _local(() => _queue.pendingItems(
       entityType: PlanningOutboxQueue.accountsEntityType,
-    );
+    ));
     for (final item in items) {
+      _validateItem(item);
       try {
-        final outcome = await _processItem(item, userId);
+        final outcome = await _fenceRetry.runItem(
+            isCurrent: () async {
+              _requireCurrent();
+              if (!_isEnabled()) return false;
+              final uid = await _getAuthUserId();
+              _requireCurrent();
+              if (uid != userId) return false;
+              final consent = await _mayEgress();
+              _requireCurrent();
+              if (!consent) return false;
+              final current = await _local(() => _queue.accountFenceCurrent(item));
+              _requireCurrent();
+              return current;
+            },
+            body: () => _processItem(item, userId));
         switch (outcome) {
           case _AccountsPushOutcome.pushed:
             pushed++;
@@ -289,16 +410,34 @@ class AccountsPushService {
             break; // edited while examined: stays pending for the next cycle
           case _AccountsPushOutcome.parked:
             parked++;
-            _health?.noteCapabilityParked(SyncDomain.accounts);
+            _invocation!.phase.noteCapabilityParked(_health);
         }
       } on CasEpochMismatch {
         // Stale epoch: nothing was written; stop the cycle (WP-7 rebootstraps).
-        await _queue.releaseInFlight(item.id);
+        await _itemLocal(item, () => _queue.releaseInFlight(item.id));
         break;
+      } on AccountFenceRetryStopped {
+        fenceStopped = true;
+        break;
+      } on AccountFenceDeliveryCancellation {
+        rethrow;
       } catch (e) {
+        if (decodeAccountsAccountDenial(e) != null) await _deny(item, e);
+        _requireCurrent();
+        final fence = classifyOutboxError(e);
+        if (fence == OutboxFailureClass.accountFenceContention ||
+            fence == OutboxFailureClass.accountDeletionPending) {
+          final held = await _local(() => _queue.recordAccountFenceFailure(item, fence,
+              _fenceRetry.clock().add(_fenceRetry.cooldown)));
+          _invocation!.phase.noteFailure(_health, e);
+          if (fence == OutboxFailureClass.accountDeletionPending) {
+            if (held) parked++; fenceStopped = true; break;
+          }
+          continue;
+        }
         failed++;
-        _health?.noteFailure(SyncDomain.accounts, e);
-        await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
+        _invocation!.phase.noteFailure(_health, e);
+        await _itemLocal(item, () => _queue.markFailed(item.id, e.toString(), classifyOutboxError(e)));
         if (kDebugMode) debugPrint('[AccountsPush] item error: $e');
       }
     }
@@ -306,28 +445,58 @@ class AccountsPushService {
     // MALI-055n — dedicated default-account commands. Each resolves to the atomic
     // set_default_account RPC; it rewrites no account fields. Idempotent on
     // retry. A target not yet synced defers (missingDependency) for a later pass.
-    final commands = await _queue.pendingItems(
+    final commands = fenceStopped ? <PlanningOutboxItem>[] : await _local(() => _queue.pendingItems(
       entityType: PlanningOutboxQueue.accountDefaultCommandType,
-    );
+    ));
     for (final item in commands) {
+      _validateItem(item);
       try {
         final targetLocalId = item.payloadJson['target_local_id'] as String?;
         final serverId = targetLocalId == null
             ? null
             : await _serverIdForLocalAccount(targetLocalId);
         if (serverId == null) {
-          await _queue.markFailed(item.id, 'default target not yet synced',
-              OutboxFailureClass.missingDependency);
+          await _itemLocal(item, () => _queue.markFailed(item.id, 'default target not yet synced',
+              OutboxFailureClass.missingDependency));
           failed++;
           continue;
         }
-        await _remoteSink.setDefaultAccount(serverId);
-        await _queue.markSuccess(item);
+        await _fenceRetry.runItem(
+            isCurrent: () async {
+              _requireCurrent();
+              if (!_isEnabled()) return false;
+              final uid = await _getAuthUserId();
+              _requireCurrent();
+              if (uid != userId) return false;
+              final consent = await _mayEgress();
+              _requireCurrent();
+              if (!consent) return false;
+              final current = await _local(() => _queue.accountFenceCurrent(item));
+              _requireCurrent();
+              return current;
+            },
+            body: () => retryAccountFenceMutation(() => _remote(() => _remoteSink.setDefaultAccount(serverId))));
+        await _itemLocal(item, () => _queue.markSuccess(item));
         pushed++;
+      } on AccountFenceRetryStopped {
+        break;
+      } on AccountFenceDeliveryCancellation {
+        rethrow;
       } catch (e) {
+        if (decodeAccountsAccountDenial(e) != null) await _deny(item, e);
+        _requireCurrent();
+        final fence = classifyOutboxError(e);
+        if (fence == OutboxFailureClass.accountFenceContention ||
+            fence == OutboxFailureClass.accountDeletionPending) {
+          final held = await _local(() => _queue.recordAccountFenceFailure(item, fence,
+              _fenceRetry.clock().add(_fenceRetry.cooldown)));
+          _invocation!.phase.noteFailure(_health, e);
+          if (fence == OutboxFailureClass.accountDeletionPending) { if (held) parked++; break; }
+          continue;
+        }
         failed++;
-        _health?.noteFailure(SyncDomain.accounts, e);
-        await _queue.markFailed(item.id, e.toString(), classifyOutboxError(e));
+        _invocation!.phase.noteFailure(_health, e);
+        await _itemLocal(item, () => _queue.markFailed(item.id, e.toString(), classifyOutboxError(e)));
         if (kDebugMode) debugPrint('[AccountsPush] default command error: $e');
       }
     }
@@ -356,9 +525,9 @@ class AccountsPushService {
           cutoverState: _coordinator.state(),
           pushCapability: _pushCapability(),
         )) {
-      final parkedNow = await _queue.park(
+      final parkedNow = await _local(() => _queue.park(
           item.id, exactMoneyTransportUnverifiedReason,
-          ifOpSeq: item.opSeq);
+          ifOpSeq: item.opSeq));
       return parkedNow
           ? _AccountsPushOutcome.parked
           : _AccountsPushOutcome.deferred;
@@ -385,7 +554,7 @@ class AccountsPushService {
       // flag is NOT applied here (MALI-055n) — it travels via the dedicated
       // default command, which create() enqueues alongside this row.
       if (existingServerId == null) {
-        final response = await _remoteSink.upsertAccount(row);
+        final response = await retryAccountFenceMutation(() => _remote(() => _remoteSink.upsertAccount(row)));
         final serverId = response['id'] as String;
         await _attachServerId(
             item.entityId, serverId, response['updated_at'] as String?,
@@ -413,17 +582,16 @@ class AccountsPushService {
         // pending edit wins only if the server row is unchanged since the fetch;
         // zero rows (changed or vanished) → conflict, local edit kept.
         final base = item.payloadJson['server_updated_at'] as String? ??
-            await _remoteSink.fetchAccountUpdatedAt(serverId);
+            await _remote(() => _remoteSink.fetchAccountUpdatedAt(serverId));
         response = base == null
             ? null
-            : await _remoteSink.guardedUpdateAccount(serverId, base, row);
+            : await retryAccountFenceMutation(() => _remote(() => _remoteSink.guardedUpdateAccount(serverId, base, row)));
       }
 
       // MALI-026 (Phase-9M): a 0-row guarded update returns null → conflict, not
       // an NPE on the ack.
       if (response == null) {
-        await _markConflict(item.entityId);
-        await _queue.markSuccess(item);
+        await _conflictAndAck(item);
         return _AccountsPushOutcome.conflict;
       }
 
@@ -435,8 +603,7 @@ class AccountsPushService {
       return _AccountsPushOutcome.pushed;
     } catch (e) {
       if (isTransportConflict(e)) {
-        await _markConflict(item.entityId);
-        await _queue.markSuccess(item);
+        await _conflictAndAck(item);
         return _AccountsPushOutcome.conflict;
       }
       rethrow;
@@ -448,8 +615,8 @@ class AccountsPushService {
     String userId,
   ) async {
     var serverId = await _serverIdForLocalAccount(item.entityId);
-    serverId ??= (await _remoteSink.findAccountByLocalId(
-        userId, item.entityId))?['id'] as String?;
+    serverId ??= (await _remote(() => _remoteSink.findAccountByLocalId(
+        userId, item.entityId)))?['id'] as String?;
     if (serverId == null) {
       await _markSynced(item.entityId, null, item: item);
       return _AccountsPushOutcome.pushed;
@@ -461,7 +628,8 @@ class AccountsPushService {
       // updated_at. A zero-row result is classified, so a stale delete can never
       // clobber a newer accepted update.
       final base = item.payloadJson['server_updated_at'] as String?;
-      final ack = await _remoteSink.guardedTombstoneAccount(serverId, base);
+      final target = serverId;
+      final ack = await _remote(() => _remoteSink.guardedTombstoneAccount(target, base));
       if (ack != null) {
         await _markSynced(item.entityId, serverId, item: item);
         return _AccountsPushOutcome.pushed;
@@ -469,8 +637,7 @@ class AccountsPushService {
       return await _resolveDeleteConflict(serverId, item);
     } catch (e) {
       if (isTransportConflict(e)) {
-        await _markConflict(item.entityId);
-        await _queue.markSuccess(item);
+        await _conflictAndAck(item);
         return _AccountsPushOutcome.conflict;
       }
       rethrow;
@@ -530,8 +697,8 @@ class AccountsPushService {
     String userId,
   ) async {
     var serverId = await _serverIdForLocalAccount(item.entityId);
-    serverId ??= (await _remoteSink.findAccountByLocalId(
-        userId, item.entityId))?['id'] as String?;
+    serverId ??= (await _remote(() => _remoteSink.findAccountByLocalId(
+        userId, item.entityId)))?['id'] as String?;
     if (serverId == null) {
       await _markSynced(item.entityId, null, item: item);
       return _AccountsPushOutcome.pushed;
@@ -565,7 +732,7 @@ class AccountsPushService {
       return _AccountsPushOutcome.pushed;
     }
     // Stored durably BEFORE the outbox op is consumed, in one local transaction.
-    await _db.transaction(() async {
+    await _itemLocal(item, () async {
       await _conflicts.flag(
         entityType: ConflictEntities.account,
         localId: item.entityId,
@@ -587,22 +754,21 @@ class AccountsPushService {
     String serverId,
     PlanningOutboxItem item,
   ) async {
-    final state = await _remoteSink.fetchAccountState(serverId);
+    final state = await _remote(() => _remoteSink.fetchAccountState(serverId));
     if (state != null && state['deleted_at'] != null) {
       await _markSynced(item.entityId, serverId, item: item);
       return _AccountsPushOutcome.pushed;
     }
-    await _markConflict(item.entityId);
-    await _queue.markSuccess(item);
+    await _conflictAndAck(item);
     return _AccountsPushOutcome.conflict;
   }
 
   Future<String?> _serverIdForLocalAccount(String id) async {
-    final row = await _db
+    final row = await _local(() => _db
         .customSelect(
           'SELECT server_id FROM accounts WHERE id = ${sqlString(id)} LIMIT 1;',
         )
-        .getSingleOrNull();
+        .getSingleOrNull());
     return row?.readNullable<String>('server_id');
   }
 
@@ -617,7 +783,7 @@ class AccountsPushService {
     required PlanningOutboxItem item,
   }) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    return _db.transaction(() async {
+    return _itemLocal(item, () async {
       await _queue.acknowledge(
         item,
         serverUpdatedAt: serverUpdatedAt,
@@ -646,7 +812,7 @@ class AccountsPushService {
     required PlanningOutboxItem item,
   }) {
     final now = dateTimeToSql(DateTime.now().toUtc());
-    return _db.transaction(() async {
+    return _itemLocal(item, () async {
       await _queue.acknowledge(item);
       await _db.customStatement('''
         UPDATE accounts
@@ -658,6 +824,11 @@ class AccountsPushService {
       ''');
     });
   }
+
+  Future<void> _conflictAndAck(PlanningOutboxItem item) => _itemLocal(item, () async {
+    await _markConflict(item.entityId);
+    await _queue.markSuccess(item);
+  });
 
   Future<void> _markConflict(String localId) async {
     await _db.customStatement('''
@@ -699,3 +870,71 @@ class AccountsPushService {
 }
 
 enum _AccountsPushOutcome { pushed, conflict, abandoned, parked, deferred }
+
+final Object _accountsInvocationKey = Object();
+
+class _AccountsInvocation implements SyncPhaseLifecycle {
+  _AccountsInvocation(this.authority, this.handle, this.database, this.phase);
+  final AccountFenceAuthority authority;
+  final AccountFenceHandle handle;
+  @override
+  final AppDatabase database;
+  final SyncPhaseBinding phase;
+  void requireCurrent() {
+    if (!isCurrent) throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+  }
+  String get ownerUid => authority.ownerUid(handle);
+  @override
+  bool get isCurrent => authority.isCurrentForDatabase(handle, database);
+  @override
+  Future<T> runLocal<T>(Future<T> Function() action) =>
+      authority.runCurrentLocal(handle, database, action);
+}
+
+
+/// Guard the actual underlying method after the retry predicate's final await.
+class _AccountsCasRemote implements CasRemote {
+  _AccountsCasRemote(this.delegate, this.invocation);
+  final CasRemote delegate;
+  final _AccountsInvocation invocation;
+
+  Future<T> _send<T>(Future<T> Function() send) async {
+    void check() {
+      if (!invocation.isCurrent) {
+        throw const AccountsDeliveryStopped(AccountsDeliveryStopReason.stale);
+      }
+    }
+    check();
+    try {
+      final result = await send();
+      check();
+      return result;
+    } catch (error) {
+      if (decodeAccountsAccountDenial(error) != null) rethrow;
+      check();
+      rethrow;
+    }
+  }
+
+  @override
+  Future<CasResult> insertIfAbsent({required String table, required String epoch,
+      required String opId, required Map<String, dynamic> row}) => _send(() =>
+      delegate.insertIfAbsent(table: table, epoch: epoch, opId: opId, row: row));
+
+  @override
+  Future<CasResult> casUpdate({required String table, required String epoch,
+      required String opId, required String serverId, required int expectedRevision,
+      required Map<String, dynamic> patch}) => _send(() => delegate.casUpdate(
+      table: table, epoch: epoch, opId: opId, serverId: serverId,
+      expectedRevision: expectedRevision, patch: patch));
+
+  @override
+  Future<CasResult> casTombstone({required String table, required String epoch,
+      required String opId, required String serverId, required int expectedRevision}) =>
+      _send(() => delegate.casTombstone(table: table, epoch: epoch, opId: opId,
+          serverId: serverId, expectedRevision: expectedRevision));
+
+  @override
+  Future<Map<String, dynamic>?> fetchRow(String table, String serverId) =>
+      _send(() => delegate.fetchRow(table, serverId));
+}

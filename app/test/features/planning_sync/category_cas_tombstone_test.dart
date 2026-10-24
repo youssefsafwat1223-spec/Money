@@ -1,7 +1,6 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_category_repository.dart';
 import 'package:money_companion/data/sync/server_capabilities.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
@@ -12,12 +11,6 @@ import '../../harness/fake_cas_server.dart';
 // (0116 sync_cas_tombstone_category) when revision_cas is verified; the legacy
 // guarded tombstone is unchanged when it is not.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 class _LegacySink implements PlanningRemoteSink {
   int guardedTombstones = 0;
@@ -32,6 +25,8 @@ class _LegacySink implements PlanningRemoteSink {
   dynamic noSuchMethod(Invocation i) => throw StateError('unexpected ${i.memberName}');
 }
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -40,8 +35,8 @@ void main() {
   late String catId;
 
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     queue = PlanningOutboxQueue(
       db: db,
       isSyncEnabled: (_) => true,
@@ -58,7 +53,7 @@ void main() {
     );
     await repo.deleteCategory(catId);
   });
-  tearDown(() => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   PlanningPushService casPush(FakeCasServer srv,
           {String epoch = 'e1',

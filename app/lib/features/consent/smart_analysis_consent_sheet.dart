@@ -7,27 +7,35 @@ import 'package:go_router/go_router.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/privacy/consent_authority.dart';
 import '../../core/privacy/diagnostics_consent_gate.dart';
+import '../../core/session/admission_authority.dart';
 import '../../core/session/app_session.dart';
+import '../../core/session/consent_capability.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../domain/entities/supporting_entities.dart';
+import '../../domain/repositories/user_settings_repository.dart';
 import '../capture/services/capture_device_registration_service.dart';
 import '../settings/settings_providers.dart';
 
-/// Explicit, SEPARATE opt-ins for Cloud Sync and Smart Analysis (two controls,
-/// two actions). Nothing is pre-selected: only an Enable button grants, and only
-/// the one it belongs to; Smart Analysis is offered only once Cloud Sync is on
-/// (AI needs cloud). "Not now", dismissing or going back change nothing.
-/// Returns true only if something was granted. [onAnswered] fires only when the
-/// user pressed one of the sheet's buttons (not on a swipe-dismiss).
+/// One disclosed initial choice for Cloud Sync and Smart Analysis. Nothing is
+/// pre-selected: Accept grants both; local use persists both denials. Dismissal
+/// changes nothing. Privacy management retains independent withdrawal.
+///
+/// [management] opens the same disclosure from the Privacy screen to RE-consent:
+/// its secondary action is a plain Cancel that writes nothing (first-use "Continue
+/// locally", which persists a denial of both, is not offered there), and the
+/// link back to the Privacy page is dropped because the person is already on it.
 Future<bool> showSmartAnalysisConsentSheet(
   BuildContext context,
   WidgetRef ref, {
   VoidCallback? onAnswered,
+  ConsentLocalWork? work,
+  bool management = false,
 }) async {
+  final scope = work ?? ref.read(consentLocalWorkProvider)();
   final granted = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
@@ -37,6 +45,8 @@ Future<bool> showSmartAnalysisConsentSheet(
         padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter, AppSpacing.s2, AppSpacing.gutter, AppSpacing.s6),
         child: SmartAnalysisConsentPanel(
+          work: scope,
+          management: management,
           onDone: (granted) {
             onAnswered?.call();
             Navigator.of(sheetContext).pop(granted);
@@ -61,50 +71,173 @@ Future<void> maybeReaskConsent(
   Future<bool> Function()? seen,
   Future<void> Function()? markSeen,
 }) async {
-  final settings = await ref.read(userSettingsRepositoryProvider).getSettings();
-  if (settings.cloudConsentState != ConsentState.unset ||
-      settings.aiConsentState != ConsentState.unset) {
+  final work = ref.read(consentLocalWorkProvider)();
+  if (work == null) return;
+  final repository = ref.read(userSettingsRepositoryProvider);
+  try {
+    final settings = await work.run(repository.getSettings);
+    if (!work.current ||
+        settings.cloudConsentState != ConsentState.unset ||
+        settings.aiConsentState != ConsentState.unset) {
+      return;
+    }
+    if (await (seen ?? AppSession.instance.consentPromptSeen)()) return;
+  } on StaleAdmissionException {
     return;
   }
-  if (await (seen ?? AppSession.instance.consentPromptSeen)()) return;
-  if (!context.mounted) return;
+  if (!context.mounted || !work.current) return;
   await showSmartAnalysisConsentSheet(
     context,
     ref,
-    onAnswered: () =>
-        unawaited((markSeen ?? AppSession.instance.markConsentPromptSeen)()),
+    work: work,
+    onAnswered: () {
+      // markConsentPromptSeen binds to the epoch at ITS call: only the scope
+      // that was asked may mark it.
+      if (work.current) {
+        unawaited((markSeen ?? AppSession.instance.markConsentPromptSeen)());
+      }
+    },
   );
 }
 
-/// Persists an explicit consent grant (same sequence as
-/// PrivacyScreen._setConsent). Only the flags passed as true are changed; it
-/// never writes `declined`. Throws if the save fails (nothing granted).
+/// The consent-only capability of the lifecycle a consent action started in, and
+/// the runner of its bounded local work inside the session's local drain. The
+/// action captures it once, before its first await. It is the typed
+/// [ConsentCapability] the session issued (valid through onboarding), never a
+/// flag: the general local-work authority still requires an authenticated session.
+class ConsentLocalWork {
+  ConsentLocalWork(this.capability, this._run);
+
+  final ConsentCapability capability;
+  final Future<T> Function<T>(Future<T> Function() action) _run;
+
+  /// Null when no lifecycle may be asked or saved (nothing admitted, an explicit
+  /// admission, logout, removal or account switch in flight).
+  static ConsentLocalWork? capture() {
+    final capability = AppSession.instance.captureConsentCapability();
+    return capability == null
+        ? null
+        : ConsentLocalWork(
+            capability,
+            <T>(action) => AppSession.instance
+                .runConsentLocalOperation(capability, action));
+  }
+
+  bool get current => capability.isCurrent;
+
+  /// Bounded local work only: no network, retry, removal or server revoke.
+  Future<T> run<T>(Future<T> Function() action) {
+    if (!current) throw const StaleAdmissionException();
+    return _run(action);
+  }
+}
+
+/// Seam for widget tests with fake repositories (no authenticated session).
+final consentLocalWorkProvider =
+    Provider<ConsentLocalWork? Function()>((ref) => ConsentLocalWork.capture);
+
+/// Persists the explicit choice through the TYPED consent writer and the
+/// enable/disable transition authority. A failed save never grants consent.
+/// Everything is captured before the first await; a lifecycle that ends meanwhile
+/// (logout, removal, another uid, a readmission at a new epoch) ends in
+/// [StaleAdmissionException] with nothing granted and no later side effect.
+/// There is no caller-supplied save callback: the write is the choices plus the
+/// capability, verified inside the repository transaction.
 Future<UserSettingsEntity> saveConsentChoice(
   WidgetRef ref, {
   bool cloud = false,
   bool ai = false,
+  bool declined = false,
+  ConsentLocalWork? work,
+  CaptureDeviceRegistrationService? registration,
 }) async {
-  final current = await ref.read(userSettingsRepositoryProvider).getSettings();
-  final updated = current.copyWith(
-    cloudConsentState: cloud ? ConsentState.accepted : null,
-    aiConsentState: ai ? ConsentState.accepted : null,
+  final scope = work ?? ref.read(consentLocalWorkProvider)();
+  if (scope == null) throw const StaleAdmissionException();
+  final updated = await applyConsentChoice(
+    scope: scope,
+    repository: ref.read(userSettingsRepositoryProvider),
+    writer: ref.read(consentSettingsWriterProvider),
+    service: registration ?? ref.read(captureDeviceRegistrationServiceProvider),
+    cloud: cloud,
+    ai: ai,
+    declined: declined,
   );
-  Future<void> save() async {
-    await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
-    ref.invalidate(userSettingsProvider);
-  }
-
-  // Astra G: widening Cloud is an explicit enable (new generation + version).
-  final registration = ref.read(captureDeviceRegistrationServiceProvider);
-  if (registration.isEnablingCloud(current, updated)) {
-    await registration.enableCloud(commitLocalOn: save);
-  } else {
-    await save();
-  }
+  if (ref.context.mounted) ref.invalidate(userSettingsProvider);
   DiagnosticsConsentGate.set(
     ConsentAuthority.decide(EgressClass.diagnostics, updated),
   );
   return updated;
+}
+
+/// The widget-free core of [saveConsentChoice]: chooses the protocol for the
+/// explicit choice and runs it, bound to [scope].
+Future<UserSettingsEntity> applyConsentChoice({
+  required ConsentLocalWork scope,
+  required UserSettingsRepository repository,
+  required ConsentSettingsWriter writer,
+  required CaptureDeviceRegistrationService service,
+  bool cloud = false,
+  bool ai = false,
+  bool declined = false,
+}) async {
+  void requireCurrent() {
+    if (!scope.current) throw const StaleAdmissionException();
+  }
+
+  final current = await scope.run(repository.getSettings);
+  requireCurrent();
+  final choices = ConsentChoices(
+    cloud: declined
+        ? ConsentState.declined
+        : cloud
+            ? ConsentState.accepted
+            : null,
+    ai: declined
+        ? ConsentState.declined
+        : ai
+            ? ConsentState.accepted
+            : null,
+  );
+  final updated = choices.applyTo(current);
+  Future<void> commit() async {
+    await writer.saveConsentChoice(scope.capability, choices);
+  }
+
+  // Astra G: widening Cloud is an explicit enable (new generation + version).
+  if (service.isDisablingCloud(current, updated)) {
+    requireCurrent();
+    DiagnosticsConsentGate.set(false);
+    await service.disableCloud(commitLocalOff: () => scope.run(commit));
+  } else {
+    // A3(c)/G2: the protocol follows BOTH the stored choice and the live/pending
+    // authority. A stored ON is never completed by a plain save unless the live
+    // ON is verified; otherwise the exact pending operation resumes, or the
+    // person is told to turn the permission off first (nothing written).
+    final route = await service.explicitEnableRoute(current, updated,
+        ownerUid: scope.capability.uid);
+    requireCurrent();
+    switch (route) {
+      case ExplicitEnableRoute.enable:
+      case ExplicitEnableRoute.resumePending:
+        await service.enableCloud(
+            write: ConsentWrite(scope.capability, choices));
+      case ExplicitEnableRoute.plainSave:
+        await scope.run(commit);
+      case ExplicitEnableRoute.withdrawFirst:
+        throw const CloudEnableWithdrawFirstException();
+    }
+  }
+  requireCurrent();
+  // R17: the result is the row that is actually persisted, never the predicted
+  // one. An exact resume of an older pending enable skips the save, so the
+  // choice asked for may not be stored: that is reported, not claimed.
+  final persisted = await scope.run(repository.getSettings);
+  requireCurrent();
+  if (persisted.cloudProcessingEnabled != updated.cloudProcessingEnabled ||
+      persisted.aiConsentGranted != updated.aiConsentGranted) {
+    throw ConsentChoiceNotPersistedException(persisted);
+  }
+  return persisted;
 }
 
 /// Disclosure + actions of the sheet.
@@ -116,11 +249,21 @@ class SmartAnalysisConsentPanel extends ConsumerStatefulWidget {
     required this.onDone,
     this.onDark = false,
     this.privacyRoute = '/privacy',
+    this.work,
+    this.management = false,
   });
 
   final ValueChanged<bool> onDone;
   final bool onDark;
   final String privacyRoute;
+
+  /// The scope the question is shown for (default: captured when the panel is
+  /// created). Every action and the final [onDone] are bound to it.
+  final ConsentLocalWork? work;
+
+  /// Re-consent from Privacy management: Cancel (no write) instead of the
+  /// first-use denial, and no link back to the page it is shown on.
+  final bool management;
 
   @override
   ConsumerState<SmartAnalysisConsentPanel> createState() =>
@@ -130,158 +273,127 @@ class SmartAnalysisConsentPanel extends ConsumerStatefulWidget {
 class _SmartAnalysisConsentPanelState
     extends ConsumerState<SmartAnalysisConsentPanel> {
   bool _granting = false;
-  bool _grantedAny = false;
+  late final ConsentLocalWork? _work;
+
+  @override
+  void initState() {
+    super.initState();
+    _work = widget.work ?? ref.read(consentLocalWorkProvider)();
+  }
+
+  /// The only way [SmartAnalysisConsentPanel.onDone] fires: the captured scope
+  /// must still be current at this very moment.
+  void _complete(ConsentLocalWork work, bool granted) {
+    if (mounted && work.current) widget.onDone(granted);
+  }
 
   Future<void> _grant({required bool cloud, required bool ai}) async {
     if (_granting) return;
+    final work = _work;
+    if (work == null) {
+      AppToast.showError(context, context.l10n.setupSaveFailed);
+      return;
+    }
+    if (!work.current) return;
+    final service = ref.read(captureDeviceRegistrationServiceProvider);
     setState(() => _granting = true);
     try {
-      await saveConsentChoice(ref, cloud: cloud, ai: ai);
-    } catch (_) {
-      // Saving failed: nothing was granted; the user can tap Enable again.
-      if (mounted) AppToast.showError(context, context.l10n.setupSaveFailed);
+      await saveConsentChoice(ref,
+          cloud: cloud, ai: ai, work: work, registration: service);
+    } catch (error) {
+      // Saving failed: nothing was granted; the user can tap Enable again. A
+      // revoked scope reports nothing (no toast into whatever scope is now live).
+      if (mounted && work.current && error is! StaleAdmissionException) {
+        // An incomplete Cloud enable is not a failed save: say it could not turn
+        // on (it stays off) so the user can try again.
+        AppToast.showError(
+            context,
+            error is CloudEnableIncompleteException
+                ? context.l10n.cloudEnableIncomplete
+                : error is CloudEnableWithdrawFirstException
+                    ? context.l10n.cloudEnableWithdrawFirst
+                    : error is ConsentChoiceNotPersistedException
+                        ? context.l10n.cloudEnableChoiceNotSaved
+                        : context.l10n.setupSaveFailed);
+      }
       if (mounted) setState(() => _granting = false);
       return;
     }
     // Consent IS saved from here on. A registration failure is reported by the
     // live status below (connected / failed + Retry), never as a save failure.
-    if (mounted) setState(() => _grantedAny = true);
     try {
-      final service = ref.read(captureDeviceRegistrationServiceProvider);
-      if (ai) {
-        await service.retry();
-      } else {
-        await service.syncBackendState();
+      if (work.current) {
+        if (ai) {
+          await service.retry();
+        } else {
+          await service.syncBackendState();
+        }
       }
     } catch (_) {}
     if (mounted) setState(() => _granting = false);
+    _complete(work, true);
   }
 
-  Widget _section({
-    required String title,
-    required List<String> bullets,
-    required bool on,
-    required Color fg,
-    required Color muted,
-    String? lead,
-    String? enableLabel,
-    VoidCallback? onEnable,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Row(children: [
-          Expanded(child: Text(title, style: AppTypography.bodyStrong(fg))),
-          if (on)
-            Icon(Icons.check_circle, size: 18, color: context.colors.success),
-        ]),
-        const SizedBox(height: AppSpacing.s2),
-        if (lead != null) ...[
-          Text(lead, style: AppTypography.body(muted)),
-          const SizedBox(height: AppSpacing.s2),
-        ],
-        for (final bullet in bullets)
-          Padding(
-            padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('•  ', style: AppTypography.body(muted)),
-                Expanded(child: Text(bullet, style: AppTypography.body(muted))),
-              ],
-            ),
-          ),
-        if (!on && enableLabel != null)
-          SizedBox(
-            height: AppSpacing.buttonHeight,
-            child: FilledButton(
-              onPressed: _granting ? null : onEnable,
-              style: widget.onDark
-                  ? FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: AppBrandBlue.brand,
-                    )
-                  : null,
-              child: Text(enableLabel),
-            ),
-          ),
-      ],
-    );
+  Future<void> _decline() async {
+    if (_granting) return;
+    final work = _work;
+    if (work == null) {
+      AppToast.showError(context, context.l10n.setupSaveFailed);
+      return;
+    }
+    if (!work.current) return;
+    final service = ref.read(captureDeviceRegistrationServiceProvider);
+    setState(() => _granting = true);
+    try {
+      await saveConsentChoice(ref,
+          declined: true, work: work, registration: service);
+      _complete(work, false);
+    } catch (error) {
+      if (mounted && work.current && error is! StaleAdmissionException) {
+        AppToast.showError(context, context.l10n.setupSaveFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _granting = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final c = context.colors;
-    final fg = widget.onDark ? Colors.white : c.textPrimary;
-    final muted =
-        widget.onDark ? Colors.white.withValues(alpha: 0.72) : c.textSecondary;
-    final settings = ref.watch(userSettingsProvider).valueOrNull;
-    final cloudOn = settings?.cloudProcessingEnabled ?? false;
-    final aiOn = settings?.aiConsentGranted ?? false;
+    final fg = widget.onDark ? Colors.white : context.colors.textPrimary;
+    final muted = widget.onDark ? Colors.white70 : context.colors.textSecondary;
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text(
-          l10n.smartConsentTitle,
-          style: AppTypography.sectionTitle(fg),
-        ),
+        Text(l10n.smartConsentTitle, style: AppTypography.sectionTitle(fg)),
         const SizedBox(height: AppSpacing.s3),
-        _section(
-          title: l10n.onbCloudTitle,
-          bullets: [
-            l10n.onbCloudBullet1,
-            l10n.onbCloudBullet2,
-            l10n.onbCloudBullet3,
-          ],
-          on: cloudOn,
-          fg: fg,
-          muted: muted,
-          enableLabel: l10n.onbCloudEnable,
-          onEnable: () => _grant(cloud: true, ai: false),
+        for (final text in [l10n.smartConsentBullet2, l10n.smartConsentBullet1, l10n.smartConsentBullet3])
+          Padding(padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+            child: Text(text, style: AppTypography.body(muted))),
+        FilledButton(
+          key: const Key('initialConsentAccept'),
+          onPressed: _granting ? null : () => _grant(cloud: true, ai: true),
+          child: Text(l10n.initialConsentAccept),
         ),
-        const SizedBox(height: AppSpacing.s4),
-        _section(
-          title: l10n.onbAiTitle,
-          bullets: [l10n.onbAiBullet1, l10n.onbAiBullet2],
-          on: aiOn,
-          fg: fg,
-          muted: muted,
-          lead: cloudOn ? null : l10n.smartConsentAiNeedsCloud,
-          // AI is never granted without cloud: no button until cloud is on.
-          enableLabel: cloudOn ? l10n.onbAiEnable : null,
-          onEnable: () => _grant(cloud: false, ai: true),
-        ),
-        const SizedBox(height: AppSpacing.s3),
-        if (_grantedAny && cloudOn)
-          SmartAnalysisRegistrationStatus(onDark: widget.onDark),
-        const SizedBox(height: AppSpacing.s2),
-        if (_grantedAny)
-          SizedBox(
-            height: AppSpacing.buttonHeight,
-            child: FilledButton(
-              onPressed: _granting ? null : () => widget.onDone(true),
-              style: widget.onDark
-                  ? FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: AppBrandBlue.brand,
-                    )
-                  : null,
-              child: Text(l10n.setupCloudCta),
-            ),
-          )
-        else
+        if (widget.management)
           TextButton(
+            key: const Key('consentManageCancel'),
+            // Cancelling re-consent changes nothing: no save, no denial.
             onPressed: _granting ? null : () => widget.onDone(false),
-            style: TextButton.styleFrom(foregroundColor: fg),
-            child: Text(l10n.smartConsentNotNow),
+            child: Text(l10n.commonCancel),
+          )
+        else ...[
+          TextButton(
+            key: const Key('initialConsentDecline'),
+            onPressed: _granting ? null : _decline,
+            child: Text(l10n.initialConsentDecline),
           ),
-        TextButton(
-          onPressed: () => context.push(widget.privacyRoute),
-          style: TextButton.styleFrom(foregroundColor: muted),
-          child: Text(l10n.smartConsentPrivacyLink),
-        ),
+          TextButton(
+            onPressed: () => context.push(widget.privacyRoute),
+            child: Text(l10n.smartConsentPrivacyLink),
+          ),
+        ],
       ],
     );
   }

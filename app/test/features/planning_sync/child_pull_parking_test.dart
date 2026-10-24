@@ -1,18 +1,10 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 import 'package:money_companion/features/planning_sync/services/planning_child_sync_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
-
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 /// Pull-only fake: serves injected server rows with real keyset pagination and
 /// can be told to throw on a chosen page to exercise partial-failure recovery.
@@ -81,10 +73,11 @@ Map<String, dynamic> _gc(String id, {required String goalServerId, String when =
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  Future<AppDatabase> openDb() => AppDatabase.open(
-        executor: NativeDatabase.memory(),
-        keyStore: _MemoryKeyStore(),
-      );
+  Future<AppDatabase> openDb() async {
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    addTearDown(admission.finish);
+    return admission.database;
+  }
 
   PlanningChildSyncService service(
     AppDatabase db,

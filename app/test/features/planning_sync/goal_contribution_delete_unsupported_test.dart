@@ -1,7 +1,5 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
@@ -13,13 +11,6 @@ import 'package:money_companion/features/planning_sync/services/planning_outbox_
 /// a contribution delete must still dead-letter immediately as an observable
 /// permanent failure, not be retried 12 times as a transient error. The endpoint
 /// path itself is covered in goal_contribution_delete_test.dart.
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
-
 class _NoRemote implements PlanningChildRemote {
   @override
   dynamic noSuchMethod(Invocation i) => throw StateError('server must not be called');
@@ -28,10 +19,9 @@ class _NoRemote implements PlanningChildRemote {
 void main() {
   test('a goal-contribution delete dead-letters at once as unsupported',
       () async {
-    final db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    addTearDown(admission.finish);
+    final db=admission.database;
     addTearDown(db.close);
     final queue = PlanningOutboxQueue(
       db: db,

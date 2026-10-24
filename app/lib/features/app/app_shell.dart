@@ -1,5 +1,6 @@
 import '../../core/backend/auth_client_provider.dart';
 import '../../core/sync/sync_health.dart';
+import '../../core/sync/outbox_failure.dart';
 import '../../core/sync/sync_recovery.dart';
 import '../../core/sync/sync_status.dart';
 import 'dart:async';
@@ -17,6 +18,8 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
+import '../../data/db/app_database.dart';
+import '../../core/session/admission_authority.dart';
 import '../ads/banner_ads_providers.dart';
 import '../report_ads/report_ads_providers.dart';
 import 'sync_cadence.dart';
@@ -62,6 +65,7 @@ import '../capture/services/captured_message_processor.dart';
 import '../capture/services/capture_notification_authority.dart';
 import '../capture/services/local_notification_service.dart';
 import '../capture/services/notification_log_service.dart';
+import '../capture/services/notification_log_sync_service.dart';
 import '../capture/services/pending_notification_actions.dart';
 import '../capture/services/native_capture_bridge.dart';
 import '../capture/services/capture_identity_metrics.dart';
@@ -98,9 +102,9 @@ class AppShell extends ConsumerStatefulWidget {
 
 class _AppShellState extends ConsumerState<AppShell> {
   late final AppLifecycleListener _lifecycleListener;
-  StreamSubscription<String>? _confirmSubscription;
+  StreamSubscription<CaptureConfirmRequest>? _confirmSubscription;
   StreamSubscription<CaptureQuickAction>? _quickActionSubscription;
-  StreamSubscription<String>? _navigationSubscription;
+  StreamSubscription<CaptureNavigationRequest>? _navigationSubscription;
   StreamSubscription<void>? _syncWakeupSubscription;
   StreamSubscription<void>? _authRearmSubscription;
   Timer? _syncDebounceTimer;
@@ -138,6 +142,17 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// most once per app session; a later, genuinely separate notification for
   /// a different transaction is unaffected since ids are unique per capture.
   final Set<String> _autoNavigatedTransactionIds = {};
+
+  /// O-LC-2: [origin] is the lifecycle a foreground callback started in. It
+  /// qualifies only while still current AND equal (uid and admission epoch) to
+  /// the lifecycle this shell is admitted under right now.
+  bool _originIsMine(AdmissionAuthority origin) {
+    if (!origin.isCurrent || !mounted) return false;
+    final mine = AppSession.instance.captureLocalWorkAuthority();
+    return mine != null &&
+        mine.uid == origin.uid &&
+        mine.epoch == origin.epoch;
+  }
 
   bool _claimAutoNavigation(String transactionId) =>
       _autoNavigatedTransactionIds.add(transactionId);
@@ -184,15 +199,25 @@ class _AppShellState extends ConsumerState<AppShell> {
       });
     }
     _lifecycleListener = AppLifecycleListener(onResume: _onResume);
-    _confirmSubscription = CaptureRuntime.instance.confirmRequests.listen(
-      _openConfirmSheet,
+    // O-LC-2: events carry the lifecycle they were raised in; this shell acts
+    // only for events of ITS OWN lifecycle (a shell mounted for a successor never
+    // inherits a stale callback).
+    _confirmSubscription = CaptureRuntime.instance.confirmEvents.listen(
+      (request) {
+        if (!_originIsMine(request.origin)) return;
+        unawaited(_openConfirmSheet(request.transactionId,
+            origin: request.origin));
+      },
     );
     _quickActionSubscription =
         CaptureRuntime.instance.quickActionRequests.listen(
       _applyQuickAction,
     );
-    _navigationSubscription = CaptureRuntime.instance.navigationRequests.listen(
-      _handleNotificationRoute,
+    _navigationSubscription = CaptureRuntime.instance.navigationEvents.listen(
+      (request) {
+        if (!_originIsMine(request.origin)) return;
+        _handleNotificationRoute(request.route);
+      },
     );
     // A-5: an authenticated session / token refresh re-arms auth-parked rows.
     _authRearmSubscription = bindAuthRearm(
@@ -265,7 +290,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       unawaited(_runLedgerSync(recoveryProbe: true));
       await _drainPendingNotificationRoutes();
       if (!work.current) return;
-      await _syncEngagement();
+      if (!await _syncEngagement(originalWork: work)) return;
       if (!work.current) return;
       // Cold-start work is a long await chain inside initState's closure, and
       // the shell is a route: opening a top-level page disposes it part-way
@@ -444,7 +469,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Resume is a recovery-eligible trigger (always attempt).
     unawaited(_runLedgerSync(recoveryProbe: true));
     await _drainPendingNotificationRoutes();
-    await _syncEngagement();
+    if (!await _syncEngagement(originalWork: work)) return;
     // Resume work is a long await chain and the shell is a route: opening a
     // top-level page (/accounts, /goals, …) disposes it part-way through, and
     // every `ref` use below then throws. This method has no try, so that
@@ -706,9 +731,21 @@ class _AppShellState extends ConsumerState<AppShell> {
     // attempt is best-effort and independent: one offline/failed queue must not
     // skip the rest. A failure/timeout here is NEVER treated as a successful
     // sync — the sign-out flow re-checks the unsynced inventory afterward.
+    final work = AdmittedLocalWork.capture(ref);
+    if (work == null) return;
+    final generation = _syncGate.generation;
+    final notificationPhase = SyncPhaseBinding();
+    bool originalCurrent() => mounted && _syncGate.admits(generation) && work.current;
+    notificationPhase.bind(_NotificationCallerLifecycle(work, originalCurrent));
+    final startupPhase = SyncPhaseBinding();
+    startupPhase.bind(_NotificationCallerLifecycle(work, originalCurrent));
+    var stopped = false;
     Future<void> attempt(Future<void> Function() push) async {
+      if (stopped || !originalCurrent()) { stopped = true; return; }
       try {
         await push();
+      } on AccountFenceDeliveryCancellation {
+        stopped = true;
       } catch (_) {
         // Re-checked by the unsynced inventory; do not block the other queues.
       }
@@ -726,7 +763,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       // unsynced-inventory re-check surfaces it in the existing warning dialog.
       await ref
           .read(startupSyncReconcileServiceProvider)
-          .run(timeBudget: const Duration(seconds: 3));
+          .run(timeBudget: const Duration(seconds: 3), phase: startupPhase);
     });
     await attempt(() async {
       await ref.read(accountsPushServiceProvider).push();
@@ -744,8 +781,10 @@ class _AppShellState extends ConsumerState<AppShell> {
       await ref.read(smartInboxSyncServiceProvider).push();
     });
     await attempt(() async {
-      await ref.read(notificationLogSyncServiceProvider).sync();
+      final outcome = await ref.read(notificationLogSyncServiceProvider).syncWithPhase(notificationPhase);
+      if (outcome == NotificationUploadOutcome.deferred) stopped = true;
     });
+    if (!originalCurrent() || (notificationPhase.isBound && !notificationPhase.isCurrent)) stopped = true;
     await attempt(() async {
       await ref.read(senderBankMappingSyncServiceProvider)?.sync();
     });
@@ -849,6 +888,16 @@ class _AppShellState extends ConsumerState<AppShell> {
     // not write or refresh under a new owner. Sub-services also fail-safe (no
     // auth user id after sign-out); this is the belt-and-braces entry check.
     if (!_syncGate.admits(gen)) return;
+    // The ORIGINAL admitted work is captured synchronously, before the first
+    // await below, and `gen` stays the generation this run was scheduled under.
+    final work = AdmittedLocalWork.capture(ref);
+    bool originalCurrent() =>
+        mounted && _syncGate.admits(gen) && work != null && work.current;
+    SyncPhaseBinding? reconcilePhase;
+    if (work != null) {
+      reconcilePhase = SyncPhaseBinding();
+      reconcilePhase.bind(_NotificationCallerLifecycle(work, originalCurrent));
+    }
     // WP-7: an epoch change rebootstraps the replica (behind `replica_epoch`);
     // egress is frozen while one is in progress.
     final uid = supabase.Supabase.instance.client.auth.currentUser?.id;
@@ -864,7 +913,19 @@ class _AppShellState extends ConsumerState<AppShell> {
     // itself to be cheap when nothing is pending. On transient failure we leave
     // the flag unset so the next cycle retries.
     if (!_didReconcile) {
-      final outcome = await ref.read(startupSyncReconcileServiceProvider).run();
+      if (!originalCurrent()) return;
+      final ReconcileOutcome outcome;
+      try {
+        outcome = await ref
+            .read(startupSyncReconcileServiceProvider)
+            .run(phase: reconcilePhase);
+      } on AccountFenceDeliveryCancellation {
+        // A typed stop ends this body; `_didReconcile` stays unlatched.
+        return;
+      }
+      // The original lifetime may have ended during the run: neither latch nor
+      // continue the rest of this body on it.
+      if (!originalCurrent()) return;
       // Audit H-1: a PARTIAL reconcile must retry too. Latching the one-shot
       // flag on anything short of proven-complete meant a half-finished
       // backfill was never attempted again this session, while the unresolved
@@ -928,26 +989,46 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
     // S3: ادفع تغييرات الحالة المحلية (رفض/معالجة) أولاً ثم اسحب. الخدمة تتحقق
     // داخليًا من التفعيل، فنستدعيها دائمًا (offline-safe).
+    final phase = SyncPhaseBinding();
+    bool currentInbox() => mounted && _syncGate.admits(gen) && phase.isCurrent;
     try {
       final smartInbox = ref.read(smartInboxSyncServiceProvider);
+      bool current() => currentInbox();
       await health.runPhase(
-          SyncDomain.smartInbox, SyncDirection.push, () => smartInbox.push(),
-          rethrowErrors: true);
+          SyncDomain.smartInbox, SyncDirection.push, () => smartInbox.pushWithPhase(phase),
+          binding: phase, rethrowErrors: true);
+      if (!current()) return;
+      final pullPhase = phase.forNextPhase();
+      final domain = smartInboxReconcileDomain(smartInbox);
       final inbox = await reconcileOrPull(
         reconciler: reconciler,
-        domain: smartInboxReconcileDomain(smartInbox),
+        domain: ReconcileDomain(name: domain.name, entities: domain.entities,
+          isEnabled: () => current() && domain.isEnabled(),
+          runFromEpoch: ({required dirtyEntities, required isAdmitted}) {
+            if (!current() || !isAdmitted()) {
+              throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
+            }
+            return domain.runFromEpoch(dirtyEntities: dirtyEntities,
+                isAdmitted: () => current() && isAdmitted());
+          }),
         normalPull: (admitted) async {
+          if (!current() || !admitted()) {
+            throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
+          }
           await health.runPhase(SyncDomain.smartInbox, SyncDirection.pull,
-              () => smartInbox.pull(isAdmitted: admitted),
-              rethrowErrors: true);
+              () => smartInbox.pull(isAdmitted: () => current() && admitted()),
+              binding: pullPhase, rethrowErrors: true);
         },
       );
-      if (inbox == ReconcileDomainResult.cancelled) return;
+      if (!current() || inbox == ReconcileDomainResult.cancelled) return;
+    } on AccountFenceDeliveryCancellation {
+      return;
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[SmartInboxSync] sync skipped: ${error.runtimeType}');
       }
     }
+    if (!currentInbox()) return;
     try {
       await planning.syncChildren();
     } catch (error) {
@@ -959,24 +1040,33 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Gamification: submit durable engagement events (server awards exactly
     // once), then pull the acknowledged server aggregate (MALI-024 — the client
     // never uploads a total).
+    final engagementPhase = SyncPhaseBinding();
+    bool currentEngagement() => mounted && _syncGate.admits(gen) && engagementPhase.isCurrent;
     try {
       await health.runPhase(SyncDomain.engagement, SyncDirection.push,
-          () => ref.read(engagementEventServiceProvider).push(),
-          rethrowErrors: true);
+          () => ref.read(engagementEventServiceProvider).pushWithPhase(engagementPhase),
+          binding: engagementPhase, rethrowErrors: true);
+    } on AccountFenceDeliveryCancellation {
+      return;
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[Engagement] push skipped: ${error.runtimeType}');
       }
     }
+    if (!currentEngagement()) return;
     try {
       await health.runPhase(SyncDomain.engagement, SyncDirection.pull,
           () => ref.read(gamificationSyncServiceProvider).performSync(),
-          rethrowErrors: true);
+          binding: engagementPhase.forNextPhase(), rethrowErrors: true);
+    } on AccountFenceDeliveryCancellation {
+      return;
     } catch (error) {
       if (kDebugMode) {
         debugPrint('[GamificationSync] sync skipped: ${error.runtimeType}');
       }
     }
+
+    if (!currentEngagement()) return;
 
     // Read-only duplicate trace — runs once per session after a full
     // push/pull/reconcile cycle so any duplicate is visible in its final state.
@@ -1536,19 +1626,30 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// recovery instead of surfacing as an unhandled exception. Any other error
   /// type is intentionally left to propagate — this must not become a
   /// blanket catch-all that hides unrelated bugs.
-  Future<void> _syncEngagement() async {
-    if (_syncEngagementInFlight) return;
+  Future<bool> _syncEngagement({AdmittedLocalWork? originalWork}) async {
+    if (_syncEngagementInFlight || !mounted) return false;
+    final work = originalWork ?? AdmittedLocalWork.capture(ref);
+    if (work == null || !work.current) return false;
+    final generation = _syncGate.generation;
+    final phase = SyncPhaseBinding();
+    bool rawCurrent() => mounted && _syncGate.admits(generation) && work.current;
+    phase.bind(_NotificationCallerLifecycle(work, rawCurrent));
+    bool current() => rawCurrent() && phase.isCurrent && identical(phase.database, work.database);
     _syncEngagementInFlight = true;
     try {
-      await _syncEngagementBody();
+      return await _syncEngagementBody(work, current, phase) && current();
+    } on AccountFenceDeliveryCancellation {
+      return false;
     } on AuthRepoException {
+      if (!current()) return false;
       await _handleAuthRequiredFailure();
-    } on StateError catch (_) {
-      // Same disposal race as _runLedgerSync; same exact discriminator.
-      if (mounted) rethrow;
-      if (kDebugMode) {
-        debugPrint('[Engagement] stopped: shell disposed mid-sync');
-      }
+      return false;
+    } on StateError {
+      if (current()) rethrow;
+      return false;
+    } catch (_) {
+      if (!current()) return false;
+      rethrow;
     } finally {
       _syncEngagementInFlight = false;
     }
@@ -1584,14 +1685,14 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
-  Future<void> _syncEngagementBody() async {
+  Future<bool> _syncEngagementBody(AdmittedLocalWork work, bool Function() current, SyncPhaseBinding phase) async {
     // Entry is already a disposal window: this is awaited from _onResume after
     // other awaits, so the shell can be gone before the first line runs.
-    if (!mounted) return;
+    if (!current()) return false;
     final preferences =
         await ref.read(loadNotificationPreferencesUseCaseProvider).call();
     // Same reason as _onResume: the shell can be disposed across this await.
-    if (!mounted) return;
+    if (!current()) return false;
 
     // Streak reminder, weekly report, and bill/subscription reminders are
     // scheduled locally (no server-side equivalent exists) — this was
@@ -1599,8 +1700,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     // (commit 8bf8259b) and never restored, so these three notification
     // types stopped firing entirely.
     // Same disposal race as below: an await preceded this.
-    if (!mounted) return;
+    if (!current()) return false;
     final bills = await ref.read(billRepositoryProvider).getAll();
+    if (!current()) return false;
     final planned = const NotificationPlanner().planScheduled(
       preferences: preferences,
       bills: bills,
@@ -1613,6 +1715,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     await LocalNotificationService.instance.schedulePlannedNotifications(
       planned,
     );
+    if (!current()) return false;
     // V1 retired the streak reminder. Deleting the scheduling code does not
     // unschedule what the OS already holds, so every planning cycle also
     // cancels any reminder a pre-V1 build left pending.
@@ -1620,10 +1723,19 @@ class _AppShellState extends ConsumerState<AppShell> {
 
     // Opportunistic — drains native (iOS Shortcut) notification events and
     // syncs the local outbox to notification_logs. Never blocks engagement
-    // evaluation on network availability.
+    // evaluation after the original lifetime has retired.
     // Same disposal race as below: an await preceded this.
-    if (!mounted) return;
-    unawaited(ref.read(notificationLogSyncServiceProvider).sync());
+    if (!current()) return false;
+    try {
+      final outcome = await ref.read(notificationLogSyncServiceProvider).syncWithPhase(phase);
+      if (!current() || outcome == NotificationUploadOutcome.deferred) return false;
+    } on AccountFenceDeliveryCancellation { rethrow; }
+    on AuthRepoException { rethrow; }
+    catch (_) {
+      // Current ordinary upload failure remains best effort; stale work stops.
+      if (!current()) return false;
+    }
+    return current();
   }
 
   /// Invalidates only the providers a transaction mutation (confirm/dismiss/
@@ -1667,10 +1779,13 @@ class _AppShellState extends ConsumerState<AppShell> {
   Future<void> _openConfirmSheet(
     String transactionId, {
     String? secondaryNotice,
+    AdmissionAuthority? origin,
   }) async {
     if (!mounted) {
       return;
     }
+    // Before the id is claimed: a stale request must not consume it.
+    if (origin != null && !_originIsMine(origin)) return;
     if (!_claimAutoNavigation(transactionId)) {
       return;
     }
@@ -1678,12 +1793,14 @@ class _AppShellState extends ConsumerState<AppShell> {
     // transactionByIdProvider fresh, and refreshing the list/dashboard
     // providers before the sheet is even visible only caused a visible
     // flash right as a notification was tapped, with no data it needed.
+    final work = AdmittedLocalWork.capture(ref);
+    if (work == null) return;
     await showConfirmTransactionSheet(
       context,
       transactionId,
       secondaryNotice: secondaryNotice,
     );
-    await _syncEngagement();
+    if (!await _syncEngagement(originalWork: work)) return;
     _drainCelebrations();
   }
 
@@ -1693,6 +1810,15 @@ class _AppShellState extends ConsumerState<AppShell> {
       {AdmittedLocalWork? work}) async {
     work ??= AdmittedLocalWork.capture(ref);
     if (work == null || !work.current) return;
+    // O-LC-2: an action raised in another lifecycle than this shell's current
+    // admitted work is dropped before any effect.
+    final origin = action.origin;
+    if (origin != null &&
+        !(origin.isCurrent &&
+            origin.uid == work.authority.uid &&
+            origin.epoch == work.authority.epoch)) {
+      return;
+    }
     try {
       if (action.confirm) {
         await work.local(() =>
@@ -1707,7 +1833,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
     if (!work.current) return;
     _refreshAll();
-    await _syncEngagement();
+    if (!await _syncEngagement(originalWork: work)) return;
     if (!work.current) return;
     _drainCelebrations();
   }
@@ -2243,5 +2369,25 @@ class _NavTab extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+/// An additional caller restriction backed by the original admitted work.
+/// The uploader still captures and validates its own real host capability.
+class _NotificationCallerLifecycle implements SyncPhaseLifecycle {
+  _NotificationCallerLifecycle(this.work, this.current);
+  final AdmittedLocalWork work;
+  final bool Function() current;
+  @override
+  AppDatabase get database => work.database;
+  @override
+  bool get isCurrent => current();
+  @override
+  Future<T> runLocal<T>(Future<T> Function() action) {
+    if (!isCurrent) throw const StaleAdmissionException();
+    return work.local(() {
+      if (!isCurrent) throw const StaleAdmissionException();
+      return action();
+    });
   }
 }

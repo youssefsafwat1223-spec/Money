@@ -1,3 +1,4 @@
+import '../../features/capture/ledger_admission_fixture.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
@@ -95,6 +96,14 @@ void main() {
       expect(kRetryableDeadLetterSql, isNot(contains('permission_denied')));
     });
 
+    group('real admitted sender boundary', () {
+    LedgerAdmissionFixture? admission;
+    setUp(() async {
+      await db.close();
+      admission = await LedgerAdmissionFixture.open('user-1');
+      db = admission!.database;
+    });
+    tearDown(() async { await admission?.finish(); });
     test('an auth-rejected mapping backs off instead of re-sending every poll',
         () async {
       await db.customStatement('''
@@ -131,6 +140,7 @@ void main() {
       expect(store.upsertCalls, afterFirst,
           reason: 'inside the backoff window nothing is re-sent');
     });
+  });
   });
 
   group('D-5 SyncStatus truth', () {

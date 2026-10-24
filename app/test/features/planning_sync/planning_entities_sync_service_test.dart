@@ -1,8 +1,7 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_bill_repository.dart';
 import 'package:money_companion/data/repositories/drift_budget_repository.dart';
 import 'package:money_companion/data/repositories/drift_goal_repository.dart';
@@ -17,13 +16,6 @@ import 'package:money_companion/features/planning_sync/services/planning_outbox_
 import 'package:money_companion/features/planning_sync/services/planning_pull_service.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
   final rows = <String, Map<String, Map<String, dynamic>>>{};
@@ -195,12 +187,6 @@ class _FakePlanningRemote implements PlanningRemoteSink, PlanningRemoteSource {
   }
 }
 
-Future<AppDatabase> _openDb() {
-  return AppDatabase.open(
-    executor: NativeDatabase.memory(),
-    keyStore: _MemoryKeyStore(),
-  );
-}
 
 PlanningOutboxQueue _queue(
   AppDatabase db, {
@@ -272,6 +258,8 @@ PlanEntity _plan(String id) => PlanEntity(
       createdAt: DateTime.utc(2026, 7, 1),
     );
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -279,11 +267,12 @@ void main() {
     late AppDatabase db;
 
     setUp(() async {
-      db = await _openDb();
+      _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
     });
 
     tearDown(() async {
-      await db.close();
+      await _parentAdmission.finish();
     });
 
     test('planning flags OFF still record sync intent (A-2 G5)', () async {
@@ -714,8 +703,8 @@ void main() {
   // ---- WP-5: lost-ACK receipt + durable conflict on the planning pull ------
   group('WP-5 planning pull: receipts and durable conflicts', () {
     late AppDatabase db;
-    setUp(() async => db = await _openDb());
-    tearDown(() => db.close());
+    setUp(() async { _parentAdmission = await LedgerAdmissionFixture.open('user-1'); db = _parentAdmission.database; });
+    tearDown(() => _parentAdmission.finish());
 
     Map<String, dynamic> remoteGoal({String? lastOp, String? deletedAt, int revision = 2}) => {
           'id': 'server-g1',

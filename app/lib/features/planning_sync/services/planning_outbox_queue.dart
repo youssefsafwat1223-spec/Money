@@ -1,3 +1,7 @@
+import '../../../core/sync/sync_health.dart';
+import '../../../core/session/admission_authority.dart';
+import '../../../core/session/account_fence_authority.dart';
+import '../../../core/session/account_fence_store.dart';
 import 'dart:convert';
 
 import '../../../core/sync/outbox_operation_id.dart';
@@ -567,6 +571,14 @@ class PlanningOutboxQueue {
     final intent = await resolveOutboxIntent(_getOwnerUid, _getAuthUserId);
     if (intent == null) return false;
 
+    return _enqueueFixedIntent(intent.ownerUid, entityType: entityType,
+        entityId: entityId, op: op, table: table, payload: payload, parkReason: parkReason);
+  }
+
+  Future<bool> _enqueueFixedIntent(String? ownerUid, {required String entityType,
+      required String entityId, required PlanningSyncOperation op,
+      required String table, required Map<String, dynamic> payload, String? parkReason,
+      bool notify = true}) async {
     // MALI-022: snapshot the last-known server version as an optimistic base
     // token, so the push can detect a concurrent remote edit and conflict
     // instead of blindly overwriting it (mirrors the ledger's server_updated_at
@@ -596,7 +608,7 @@ class PlanningOutboxQueue {
     };
 
     await _writeOutbox(
-      ownerUid: intent.ownerUid,
+      ownerUid: ownerUid,
       entityType: entityType,
       entityId: entityId,
       opName: op.name,
@@ -610,6 +622,7 @@ class PlanningOutboxQueue {
           ? 'UPDATE $table SET id = id WHERE 1 = 0;'
           : "UPDATE $table SET sync_status = 'pending' WHERE id = ${sqlString(entityId)};",
       parkReason: parkReason,
+      notify: notify,
     );
     return true;
   }
@@ -627,6 +640,7 @@ class PlanningOutboxQueue {
     required String localUpdateSql,
     String? parkReason,
     int? baseRevision,
+    bool notify = true,
   }) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     await _db.transaction(() async {
@@ -649,15 +663,20 @@ class PlanningOutboxQueue {
               ? "AND payload_json NOT LIKE '%\"consent_only\":true%'"
               : '';
       final existing = await _db.customSelect(
-        'SELECT id, operation, status, in_flight_seq, operation_id, payload_json FROM planning_sync_outbox '
+        'SELECT id, operation, status, failure_class, in_flight_seq, operation_id, payload_json FROM planning_sync_outbox '
         'WHERE entity_type = ${sqlString(entityType)} '
         'AND entity_id = ${sqlString(entityId)} '
-        'AND $kOutboxCoalescibleSql AND ${outboxOwnerMatchSql(ownerUid)} '
+        "AND ($kOutboxCoalescibleSql OR (entity_type IN ('account','account_default_command','budget','subscription','goal','plan','card','category','settings','goal_contribution','bill_payment','plan_transaction_link') AND status = 'parked' AND failure_class = '$kParkAccountDeletionGone')) AND ${outboxOwnerMatchSql(ownerUid)} "
         '$consentOnlyClause ORDER BY created_at ASC LIMIT 1;',
       ).getSingleOrNull();
       String rowId;
+      var deletionHeld = false;
       if (existing != null) {
         rowId = existing.read<String>('id');
+        deletionHeld = existing.read<String>('status') == 'parked' &&
+            (existing.readNullable<String>('failure_class') == kParkAccountDeletionPending ||
+                ((_childTypes.contains(entityType) || _parentTypes.contains(entityType) || entityType == accountsEntityType || entityType == accountDefaultCommandType) &&
+                existing.readNullable<String>('failure_class') == kParkAccountDeletionGone));
         final coalesced =
             coalesceOutboxOperation(existing.read<String>('operation'), opName);
         // WP-5: a NEW operation id for the edited row; the previous one is
@@ -682,7 +701,7 @@ class PlanningOutboxQueue {
           previousOpId: existing.readNullable<String>('operation_id'),
           possiblySent: existing.readNullable<int>('in_flight_seq') != null,
         );
-        if (coalesced == null &&
+        if (!deletionHeld && coalesced == null &&
             existing.readNullable<int>('in_flight_seq') == null) {
           // Never on the wire (never handed to a push — the durable
           // in_flight_seq marker is NULL; D-6: parking alone never proves it was
@@ -700,7 +719,9 @@ class PlanningOutboxQueue {
           UPDATE planning_sync_outbox
           SET operation = ${sqlString(coalesced ?? 'delete')},
               payload_json = ${sqlString(jsonEncode(payload))},
-              attempt_count = 0, status = 'pending', failure_class = NULL,
+              attempt_count = ${deletionHeld ? 'attempt_count' : '0'},
+                status = ${sqlString(deletionHeld ? 'parked' : 'pending')},
+                failure_class = ${sqlNullableString(deletionHeld ? existing.readNullable<String>('failure_class') : null)},
               last_error = NULL, next_retry_at = NULL,
               op_seq = op_seq + 1,
               operation_id = ${sqlString(IdGenerator.uuidV4())},
@@ -726,7 +747,7 @@ class PlanningOutboxQueue {
           );
         ''');
       }
-      if (parkReason != null) {
+      if (parkReason != null && !deletionHeld) {
         await _db.customStatement('''
           UPDATE planning_sync_outbox
           SET status = 'parked', failure_class = ${sqlString(parkReason)}
@@ -735,7 +756,7 @@ class PlanningOutboxQueue {
       }
       await _db.customStatement(localUpdateSql);
     });
-    if (parkReason == null && _isSyncEnabled(entityType)) _onQueued?.call();
+    if (notify && parkReason == null && _isSyncEnabled(entityType)) _onQueued?.call();
   }
 
   /// D-1: SQL predicate true for an outbox row whose (user-resolved) entity is in
@@ -880,13 +901,15 @@ class PlanningOutboxQueue {
   /// A-2 (G18): park rows recorded for another owner / unverified legacy rows,
   /// and re-arm the ones whose owner is the current identity again. Runs at the
   /// start of every push cycle, so nothing is ever sent under a different uid.
+  Future<bool> ownershipVerified(String currentUid) =>
+      isOutboxOwnerVerified(_getOwnerUid, currentUid);
+
+  Future<void> reconcileVerifiedOwnership(String currentUid, bool verified) =>
+      reconcileOutboxOwnership(db: _db, table: 'planning_sync_outbox',
+          currentUid: currentUid, ownershipVerified: verified);
+
   Future<void> reconcileOwnership(String currentUid) async {
-    await reconcileOutboxOwnership(
-      db: _db,
-      table: 'planning_sync_outbox',
-      currentUid: currentUid,
-      ownershipVerified: await isOutboxOwnerVerified(_getOwnerUid, currentUid),
-    );
+    await reconcileVerifiedOwnership(currentUid, await ownershipVerified(currentUid));
   }
 
   /// A-2 (G5): re-evaluate rows parked `dependency_wait` and unpark the ones
@@ -978,6 +1001,212 @@ class PlanningOutboxQueue {
     final accountId = card?.readNullable<String>('account_id');
     if (accountId == null) return null;
     return {...payload, 'local_account_id': accountId};
+  }
+
+  /// The same queued snapshot must still own the mutation before every retry.
+  Future<bool> accountFenceCurrent(PlanningOutboxItem item) async {
+    final row = await _db.customSelect(
+      "SELECT 1 FROM planning_sync_outbox WHERE id = ${sqlString(item.id)} "
+      "AND status = 'pending' AND op_seq = ${item.opSeq} "
+      "AND in_flight_seq = ${item.opSeq} "
+      "AND operation_id = ${sqlNullableString(item.operationId)} "
+      "AND owner_uid IS ${sqlNullableString(item.ownerUid)};").getSingleOrNull();
+    return row != null;
+  }
+
+  static const _parentTypes = {'budget', 'subscription', 'goal', 'plan',
+      'card', 'category', 'settings'};
+
+  Future<bool> parentHolderCurrent(PlanningOutboxItem item) async {
+    if (!_parentTypes.contains(item.entityType)) return false;
+    return await _db.customSelect("SELECT 1 FROM planning_sync_outbox "
+      "WHERE id = ${sqlString(item.id)} AND status = 'pending' "
+      "AND entity_type = ${sqlString(item.entityType)} AND entity_id = ${sqlString(item.entityId)} "
+      "AND owner_uid IS ${sqlNullableString(item.ownerUid)} "
+      "AND in_flight_seq = ${item.opSeq};").getSingleOrNull() != null;
+  }
+
+  Future<bool> parkParentDenial(PlanningOutboxItem item, AccountFenceState state,
+      AccountFenceParentParking ticket) async {
+    ticket.requireExact(_db, rowId: item.id, entityType: item.entityType,
+        entityId: item.entityId, ownerUid: item.ownerUid, opSeq: item.opSeq,
+        operationId: item.operationId, state: state);
+    return await _db.customUpdate("""
+      UPDATE planning_sync_outbox SET status = 'parked',
+        failure_class = ${sqlString(state == AccountFenceState.pending
+            ? kParkAccountDeletionPending : kParkAccountDeletionGone)},
+        last_error = NULL, next_retry_at = NULL,
+        updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
+      WHERE id = ${sqlString(item.id)} AND status = 'pending'
+        AND entity_type = ${sqlString(item.entityType)} AND entity_id = ${sqlString(item.entityId)}
+        AND owner_uid IS ${sqlNullableString(item.ownerUid)} AND in_flight_seq = ${item.opSeq};
+    """) > 0;
+  }
+
+  static const _childTypes={'goal_contribution','bill_payment','plan_transaction_link'};
+  Future<bool> childHolderCurrent(PlanningOutboxItem item) async {
+    if (!_childTypes.contains(item.entityType)) return false;
+    return await _db.customSelect("SELECT 1 FROM planning_sync_outbox "
+      "WHERE id = ${sqlString(item.id)} AND status = 'pending' "
+      "AND entity_type = ${sqlString(item.entityType)} AND entity_id = ${sqlString(item.entityId)} "
+      "AND owner_uid IS ${sqlNullableString(item.ownerUid)} "
+      "AND in_flight_seq = ${item.opSeq};").getSingleOrNull() != null;
+  }
+
+  Future<bool> parkChildDenial(PlanningOutboxItem item, AccountFenceState state,
+      AccountFenceChildParking ticket) async {
+    ticket.requireExact(_db, rowId: item.id, entityType: item.entityType,
+        entityId: item.entityId, ownerUid: item.ownerUid, opSeq: item.opSeq,
+        operationId: item.operationId, state: state);
+    return await _db.customUpdate("""
+      UPDATE planning_sync_outbox SET status = 'parked',
+        failure_class = ${sqlString(state == AccountFenceState.pending
+            ? kParkAccountDeletionPending : kParkAccountDeletionGone)},
+        last_error = NULL, next_retry_at = NULL,
+        updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
+      WHERE id = ${sqlString(item.id)} AND status = 'pending'
+        AND entity_type = ${sqlString(item.entityType)} AND entity_id = ${sqlString(item.entityId)}
+        AND owner_uid IS ${sqlNullableString(item.ownerUid)} AND in_flight_seq = ${item.opSeq};
+    """) > 0;
+  }
+
+  /// Every dependency rebuild is a separate, original-bound local transaction.
+  Future<int> resolveParentDependencies(AccountFenceAuthority authority,
+      AccountFenceHandle handle, SyncPhaseBinding phase) async {
+    void check() {
+      if (!phase.isCurrent || !identical(phase.database, _db)) throw const StaleAdmissionException();
+      authority.requireCurrentForDatabase(handle, _db);
+    }
+    check();
+    final candidates = await authority.runCurrentLocal(handle, _db, () => _db.customSelect(
+      "SELECT id FROM planning_sync_outbox WHERE status = 'parked' "
+      "AND failure_class = '$kParkDependencyWait';").get());
+    check();
+    var changed = 0;
+    for (final candidate in candidates) {
+      check();
+      changed += await authority.runCurrentLocal(handle, _db, () => _db.transaction(() async {
+        final id = candidate.read<String>('id');
+        final row = await _db.customSelect("SELECT entity_type, entity_id, payload_json FROM planning_sync_outbox "
+            "WHERE id = ${sqlString(id)} AND status = 'parked' AND failure_class = '$kParkDependencyWait' "
+            "AND (owner_uid IS NULL OR owner_uid = ${sqlString(authority.ownerUid(handle))});").getSingleOrNull();
+        if (row == null || !_parentTypes.contains(row.read<String>('entity_type'))) return 0;
+        final payload = (jsonDecode(row.read<String>('payload_json')) as Map).cast<String, dynamic>();
+        final entity = row.read<String>('entity_id');
+        final patched = switch (row.read<String>('entity_type')) {
+          settingsEntityType => await _resolveSettingsDependency(entity),
+          budgetsEntityType => await _resolveBudgetDependency(entity, payload),
+          cardsEntityType => await _resolveCardDependency(entity, payload),
+          _ => null,
+        };
+        if (patched == null) return 0;
+        return _db.customUpdate("UPDATE planning_sync_outbox SET payload_json = ${sqlString(jsonEncode(patched))}, "
+            "status = 'pending', failure_class = NULL, attempt_count = 0, next_retry_at = NULL, "
+            "updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))} WHERE id = ${sqlString(id)};");
+      }));
+    }
+    check();
+    if (changed > 0) _onQueued?.call();
+    return changed;
+  }
+
+  /// Rebuild registration payload from the actual current row, atomically with
+  /// eligibility and fixed-owner enqueue. No async owner reader enters the unit.
+  Future<bool> enqueueRegisteredParent(AccountFenceAuthority authority,
+      AccountFenceHandle handle, {required String entityType, required String entityId,
+      required bool settingsPullCompleted, required SyncPhaseBinding phase}) async {
+    void check() {
+      if (phase.isBound && (!phase.isCurrent || !identical(phase.database, _db))) {
+        throw const StaleAdmissionException();
+      }
+      authority.requireCurrentForDatabase(handle, _db);
+    }
+    check();
+    final changed = await authority.runCurrentLocal(handle, _db,
+      () => _db.transaction(() async {
+    if (entityType == settingsEntityType) {
+      if (!settingsPullCompleted) return false;
+      final row = await _db.customSelect("SELECT * FROM user_settings WHERE id = ${sqlString(entityId)} "
+          "AND server_id IS NULL AND COALESCE(sync_status, '') != 'pending' AND NOT EXISTS "
+          "(SELECT 1 FROM planning_sync_outbox WHERE entity_type = 'settings') LIMIT 1;").getSingleOrNull();
+      if (row == null) return false;
+      return _enqueueFixedIntent(authority.ownerUid(handle), entityType: settingsEntityType,
+          entityId: entityId, op: PlanningSyncOperation.create, table: 'user_settings',
+          payload: _buildSettingsPayload(userSettingsFromRow(row)), notify: false);
+    }
+    if (entityType != categoriesEntityType) return false;
+    final row = await _db.customSelect("SELECT * FROM categories WHERE id = ${sqlString(entityId)} "
+        "AND deleted_at IS NULL AND key LIKE 'custom_%' AND server_id IS NULL "
+        "AND COALESCE(sync_status, '') != 'pending' AND NOT EXISTS (SELECT 1 FROM planning_sync_outbox "
+        "WHERE entity_type = 'category' AND entity_id = ${sqlString(entityId)});").getSingleOrNull();
+    if (row == null) return false;
+    final category = CategoryEntity(id: entityId, key: row.read<String>('key'),
+        nameAr: row.read<String>('name_ar'), icon: row.read<String>('icon'),
+        color: row.read<String>('color'), isIncome: row.read<int>('is_income') == 1,
+        sort: row.read<int>('sort_order'));
+    return _enqueueFixedIntent(authority.ownerUid(handle), entityType: categoriesEntityType,
+        entityId: entityId, op: PlanningSyncOperation.create, table: 'categories',
+        payload: _buildCategoryPayload(PlanningSyncOperation.create, category), notify: false);
+  }));
+    check();
+    if (changed && _isSyncEnabled(entityType)) _onQueued?.call();
+    return changed;
+  }
+
+  /// Holder evidence for account-only finalization. A coalesced edit may have a
+  /// newer op_seq while the rejected/successful request still owns this marker.
+  Future<bool> accountsHolderCurrent(PlanningOutboxItem item) async {
+    if (item.entityType != accountsEntityType &&
+        item.entityType != accountDefaultCommandType) {
+      return false;
+    }
+    return await _db.customSelect("SELECT 1 FROM planning_sync_outbox "
+      "WHERE id = ${sqlString(item.id)} AND status = 'pending' "
+      "AND entity_type = ${sqlString(item.entityType)} "
+      "AND entity_id = ${sqlString(item.entityId)} "
+      "AND owner_uid IS ${sqlNullableString(item.ownerUid)} "
+      "AND in_flight_seq = ${item.opSeq};").getSingleOrNull() != null;
+  }
+
+  Future<bool> parkAccountDenial(PlanningOutboxItem item,
+      AccountFenceState state, AccountFenceAccountsParking ticket) async {
+    ticket.requireExact(_db, rowId: item.id, entityType: item.entityType,
+        entityId: item.entityId, ownerUid: item.ownerUid, opSeq: item.opSeq,
+        operationId: item.operationId, state: state);
+    return await _db.customUpdate("""
+      UPDATE planning_sync_outbox SET status = 'parked',
+        failure_class = ${sqlString(state == AccountFenceState.pending
+            ? kParkAccountDeletionPending : kParkAccountDeletionGone)},
+        last_error = NULL, next_retry_at = NULL,
+        updated_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}
+      WHERE id = ${sqlString(item.id)} AND status = 'pending'
+        AND entity_type = ${sqlString(item.entityType)}
+        AND entity_id = ${sqlString(item.entityId)}
+        AND owner_uid IS ${sqlNullableString(item.ownerUid)}
+        AND in_flight_seq = ${item.opSeq};
+    """) > 0;
+  }
+
+  /// A refusal is not an ACK or business attempt. Preserve payload, operation
+  /// identity and ALL possibly-sent history. A stale outcome cannot overwrite
+  /// a newer in-flight holder. A queued edit may inherit QD001's same-row hold.
+  Future<bool> recordAccountFenceFailure(PlanningOutboxItem item,
+      OutboxFailureClass failure, DateTime retryAt) async {
+    final pending = failure == OutboxFailureClass.accountDeletionPending;
+    final now = dateTimeToSql(DateTime.now().toUtc());
+    final changed = await _db.customUpdate("""
+      UPDATE planning_sync_outbox
+      SET status = '${pending ? 'parked' : 'pending'}',
+          failure_class = ${sqlString(failure.reason)}, last_error = NULL,
+          next_retry_at = ${pending ? 'NULL' : sqlString(dateTimeToSql(retryAt.toUtc()))},
+          updated_at = ${sqlString(now)}
+      WHERE id = ${sqlString(item.id)} AND status = 'pending'
+        AND owner_uid IS ${sqlNullableString(item.ownerUid)}
+        AND ${pending
+          ? 'in_flight_seq = ${item.opSeq}'
+          : 'op_seq = ${item.opSeq} AND in_flight_seq = ${item.opSeq} AND operation_id = ${sqlNullableString(item.operationId)}'};
+    """);
+    return changed > 0;
   }
 
   /// MALI-023: typed failure handling — permanent → dead-letter immediately;
@@ -1100,7 +1329,8 @@ class PlanningOutboxQueue {
   /// A-5: Retry-now — drop the backoff wait of pending rows (no attempt reset).
   Future<int> clearRetryBackoff() => _db.customUpdate(
         "UPDATE planning_sync_outbox SET next_retry_at = NULL "
-        "WHERE status = 'pending' AND next_retry_at IS NOT NULL;",
+        "WHERE status = 'pending' AND next_retry_at IS NOT NULL "
+        "AND COALESCE(failure_class, '') != '$kFailAccountFenceContention';",
       );
 
   /// MALI-026 (B8-2.10 §8): park a canonical money row whose exact push
@@ -1131,7 +1361,10 @@ class PlanningOutboxQueue {
       SET status = 'pending', failure_class = NULL, next_retry_at = NULL,
           updated_at = ${sqlString(now)}
       WHERE status = 'parked'
-        AND COALESCE(failure_class, '') NOT IN $kOutboxSelfHealingParkReasonsSql;
+        AND COALESCE(failure_class, '') NOT IN $kOutboxSelfHealingParkReasonsSql
+        AND COALESCE(failure_class, '') != '$kParkAccountDeletionPending'
+        AND NOT (entity_type IN ('account','account_default_command','budget','subscription','goal','plan','card','category','settings','goal_contribution','bill_payment','plan_transaction_link')
+          AND COALESCE(failure_class, '') = '$kParkAccountDeletionGone');
     ''');
   }
 

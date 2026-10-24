@@ -43,11 +43,8 @@ String unsyncedItemsList(BuildContext context, UnsyncedInventory inv) {
   return parts.join(l10n.setListSeparator);
 }
 
-/// The sign-out sheet. "Sign out and keep encrypted data" is the primary,
-/// default action (SYNC-Q8); "Sign out and remove data from this device" is a
-/// separate destructive choice. Unsynced work only WARNS (SYNC-Q2): it never
-/// blocks either action, and keeping is what happens by default. Null when the
-/// sheet is dismissed.
+/// Ordinary sign-out offers one preserving action. Unsynced work warns but
+/// never blocks locking the account. Device-removal confirmation stays separate.
 Future<SignOutChoice?> showSignOutSheet(
   BuildContext context, {
   UnsyncedInventory? pending,
@@ -76,6 +73,12 @@ Future<SignOutChoice?> showSignOutSheet(
               children: [
                 Text(l10n.setSignOut,
                     style: AppTypography.sectionTitle(c.textMain)),
+                const SizedBox(height: AppSpacing.s2),
+                Text(
+                  l10n.signOutDataStays,
+                  key: const Key('signOutDataStays'),
+                  style: AppTypography.body(c.textMuted),
+                ),
                 if (unsynced) ...[
                   const SizedBox(height: AppSpacing.s3),
                   Text(
@@ -90,25 +93,8 @@ Future<SignOutChoice?> showSignOutSheet(
                   key: const Key('signOutKeepData'),
                   onPressed: () =>
                       Navigator.of(sheetContext).pop(SignOutChoice.keepData),
-                  child: Text(l10n.signOutKeepData),
+                  child: Text(l10n.setSignOut),
                 ),
-                const SizedBox(height: AppSpacing.s2),
-                Text(l10n.signOutKeepDataHint,
-                    style: AppTypography.caption(c.textLight)),
-                const SizedBox(height: AppSpacing.s5),
-                OutlinedButton(
-                  key: const Key('signOutRemoveData'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: c.danger,
-                    side: BorderSide(color: c.danger),
-                  ),
-                  onPressed: () =>
-                      Navigator.of(sheetContext).pop(SignOutChoice.removeData),
-                  child: Text(l10n.signOutRemoveData),
-                ),
-                const SizedBox(height: AppSpacing.s2),
-                Text(l10n.signOutRemoveDataHint,
-                    style: AppTypography.caption(c.textLight)),
                 const SizedBox(height: AppSpacing.s3),
                 TextButton(
                   onPressed: () => Navigator.of(sheetContext).pop(),

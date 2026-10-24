@@ -1,3 +1,19 @@
+import 'package:money_companion/core/session/account_scope.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+// Test-only mock of the already-pinned SDK transitive preferences store.
+// ignore: depend_on_referenced_packages
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart' as notifications;
+import 'package:money_companion/core/session/account_fence_authority.dart';
+import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
+import 'package:money_companion/core/tracking/user_activity_service.dart';
+import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
+import 'package:money_companion/data/repositories/drift_sender_bank_mapping_repository.dart';
+import 'package:money_companion/domain/repositories/sender_bank_mapping_repository.dart';
+import 'package:money_companion/domain/entities/supporting_entities.dart';
+import '../../harness/egress_test_support.dart';
 import 'dart:async';
 import 'dart:io';
 import 'dart:convert';
@@ -12,6 +28,7 @@ import 'package:money_companion/core/session/capture_queue.dart';
 import 'package:money_companion/core/session/remove_data_flow.dart';
 import 'package:money_companion/core/startup/bootstrap_runner.dart';
 import 'package:money_companion/data/db/app_database.dart';
+import 'package:money_companion/data/db/database_access_broker.dart';
 import 'package:money_companion/data/db/replica_store.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
 import 'package:path/path.dart' as p;
@@ -62,6 +79,8 @@ class _Queue implements CaptureQueueBridge {
 }
 
 void main() {
+  _senderBootstrapConfigured();
+  group('original removal integration controls', () {
   TestWidgetsFlutterBinding.ensureInitialized();
   late Directory support;
   late RecordingSecureStorage storage;
@@ -146,6 +165,78 @@ void main() {
 
   Future<void> signIn(String uid) => session.completeOnboarding(
       method: 'google', email: '$uid@example.com', userId: uid);
+
+  test(
+      'O-H1: one inert coordinator exists before any recovery or opener and '
+      'is reused by retries and later runners', () async {
+    final events = <String>[];
+    String? stepAtCreation = 'unset';
+    late BootstrapRunner first;
+    first = BootstrapRunner(debugCoordinatorEvent: (event) {
+      events.add(event);
+      if (event == 'coordinator') stepAtCreation = first.lastStep;
+    })
+      ..captureQueue = queue;
+    runners.add(first);
+    await first.run();
+    expect(events.first, 'coordinator',
+        reason: 'before the first recovery, session load or Drift opener');
+    expect(stepAtCreation, isNull, reason: 'no bootstrap step had started');
+    final coordinator = first.debugCoordinator;
+    expect(coordinator, isNotNull);
+    expect(coordinator!.isInert, isTrue);
+    expect(coordinator.mode, DatabaseAccessMode.closed);
+    expect(coordinator.client.isHostIssued, isFalse);
+    expect(DatabaseAccessBroker.discover(), isNotNull);
+
+    // Retry of the retained runner: no replacement registration.
+    await first.run();
+    expect(identical(first.debugCoordinator, coordinator), isTrue);
+    expect(events.where((e) => e == 'coordinator'), hasLength(1));
+
+    // A rebuilt runner reuses the process-retained coordinator.
+    await first.accountScope.lock();
+    final second = BootstrapRunner(debugCoordinatorEvent: events.add)
+      ..captureQueue = queue;
+    runners.add(second);
+    await second.run();
+    expect(identical(second.debugCoordinator, coordinator), isTrue);
+    expect(events.where((e) => e == 'coordinator'), hasLength(1));
+    expect(events.where((e) => e == 'coordinator-reused'), hasLength(1));
+    expect(coordinator.mode, DatabaseAccessMode.closed,
+        reason: 'creating it granted nothing');
+    expect(coordinator.client.isHostIssued, isFalse);
+  });
+
+  test(
+      'O-H3: the real cold launch reserves its primary open as a launch-specific '
+      'private reservation that grants nothing', () async {
+    final first = await boot(staleSessionOf: 'uid-launch');
+    await signIn('uid-launch');
+    await first.accountScope.detach(); // the process dies while `active`
+    session.debugResetAdmissionState();
+    session.configureRemoveData(null);
+    session.configureAccountScope(null);
+    final restarted = await boot(staleSessionOf: 'uid-launch');
+    expect(restarted.accountScope.activeUid, 'uid-launch',
+        reason: 'the existing replica was opened at launch');
+    final coordinator = restarted.debugCoordinator!;
+    final reservation = session.debugDatabaseOpenReservation;
+    expect(reservation, isNotNull);
+    expect(reservation!.kind, DatabaseReservationKind.coldLaunchPrimary);
+    expect(reservation.uid, 'uid-launch');
+    expect(reservation.hasOpened, isTrue);
+    expect(
+        reservation.ownsDatabase(restarted.accountScope.current!.database),
+        isTrue,
+        reason: 'the real primary handle is the tracked one');
+    expect(coordinator.pendingOpens, 0);
+    expect(coordinator.openHolders, greaterThanOrEqualTo(1));
+    // Reserving is bookkeeping: no job client, no mode, nothing promoted.
+    expect(coordinator.mode, DatabaseAccessMode.closed);
+    expect(coordinator.client.isHostIssued, isFalse);
+    expect(reservation.isPromoted, isFalse);
+  });
 
   test(
       'Stage2 real ended child lease permits pending removal on actual restart',
@@ -356,9 +447,337 @@ void main(List<String> a) {
       expect(runner.accountScope.activeUid, 'uid-y');
     });
   }
+  });
 }
 
 CaptureRemovalBarrierRead _present() => CaptureRemovalBarrierRead.parse(
     {'nonce': 'n', 'uidHash': 'h', 'startedAt': 't'});
 CaptureRemovalBarrierRead _malformed() =>
     CaptureRemovalBarrierRead.parse({'nonce': 1});
+
+/// The genuine seed SDK's serialized session, read by the runner's observing
+/// store during its own first initialization. Writes/removals stay consistent
+/// with later SDK recovery reads; this storage supplies no admission authority.
+class _SenderBootstrapStorage extends LocalStorage {
+  _SenderBootstrapStorage(this._session, {required this.onInitialize});
+  String? _session;
+  final void Function() onInitialize;
+  @override
+  Future<void> initialize() async => onInitialize();
+  @override
+  Future<bool> hasAccessToken() async => _session != null;
+  @override
+  Future<String?> accessToken() async => _session;
+  @override
+  Future<void> persistSession(String persistSessionString) async =>
+      _session = persistSessionString;
+  @override
+  Future<void> removePersistedSession() async => _session = null;
+}
+
+void _senderBootstrapConfigured() {
+  const exactConfig = String.fromEnvironment('SUPABASE_ENV') == 'local' &&
+      String.fromEnvironment('SUPABASE_URL') == 'https://example.supabase.co' &&
+      String.fromEnvironment('SUPABASE_ANON_KEY') == 'anon';
+  group('configured real sender bootstrap receivers', () {
+    setUpAll(notifications.AndroidFlutterLocalNotificationsPlugin.registerWith);
+    for (final schedule in ['cold', 'same-uid', 'onboarding']) {
+      test('$schedule actual publication owns sender work and strict completion', () async {
+        const uid = 'uid-a';
+        final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        final previousGate = CloudEgressGate.instance;
+        final previousPlugin = FlutterLocalNotificationsPlatform.instance;
+        final restore = AccountFenceAuthority.replacePersistenceForTest();
+        final gate = TestEgress(seedOn: true).install();
+        final databases = <AppDatabase>{};
+        final requests = <http.Request>[]; final unknown = <String>[];
+        final dispatchProofs = <Map<String, Object?>>[];
+        List<Map<String, Object?>>? expectedBody;
+        final channelCalls = <String>[];
+        final firstSend = Completer<void>(); final secondSend = Completer<void>();
+        final followingPull = Completer<void>();
+        Map<String, Object?>? successorAck;
+        final releaseOld = Completer<void>();
+        var sends = 0; var runnerTracking = false;
+        Supabase? ownedSdk; SupabaseClient? seedClient;
+        F2Fixture? fixture; BootstrapRunner? runner; Timer? frames;
+        Future<void>? identity;
+        void rememberSeed() { final db = fixture?.host.current?.database; if (db != null) databases.add(db); }
+        void rememberRunner() { final db = runner?.accountScope.current?.database; if (db != null) databases.add(db); }
+        final channels = <String>['plugins.flutter.io/path_provider', 'mali/device_timezone',
+          'dexterous.com/flutter/local_notifications', 'money_companion/native_capture'];
+        try {
+          // Each case models a fresh process. An externally initialized SDK is
+          // never accepted as proof; only the runner may initialize this one.
+          Supabase? existingSdk;
+          try { existingSdk = Supabase.instance; } on AssertionError { /* not initialized */ }
+          expect(existingSdk, isNull);
+          BootstrapRunner.debugResetSdkInitializationLatch();
+          SharedPreferences.setMockInitialValues({});
+          fixture = await F2Fixture.create(afterWithdraw: () async {});
+          fixture.host.addListener(rememberSeed); rememberSeed();
+          messenger.setMockMethodCallHandler(const MethodChannel('plugins.flutter.io/path_provider'), (call) async {
+            channelCalls.add('path:${call.method}');
+            if (const {'getApplicationSupportDirectory', 'getTemporaryDirectory', 'getApplicationDocumentsDirectory'}
+                .contains(call.method)) {
+              return fixture!.support.path;
+            }
+            unknown.add('path:${call.method}'); throw PlatformException(code: 'unexpected');
+          });
+          messenger.setMockMethodCallHandler(const MethodChannel('mali/device_timezone'), (call) async {
+            channelCalls.add('timezone:${call.method}');
+            if (call.method == 'getLocalTimezone') return 'UTC';
+            unknown.add('timezone:${call.method}'); throw PlatformException(code: 'unexpected');
+          });
+          messenger.setMockMethodCallHandler(const MethodChannel('dexterous.com/flutter/local_notifications'), (call) async {
+            channelCalls.add('notifications:${call.method}');
+            if (call.method == 'initialize') return true;
+            if (call.method == 'getNotificationAppLaunchDetails') return {'notificationLaunchedApp': false};
+            if (call.method == 'pendingNotificationRequests') return <Object>[];
+            if (call.method == 'cancelAll') return null;
+            unknown.add('notifications:${call.method}'); throw PlatformException(code: 'unexpected');
+          });
+          messenger.setMockMethodCallHandler(const MethodChannel('money_companion/native_capture'), (call) async {
+            channelCalls.add('capture:${call.method}');
+            if (call.method == 'captureCapabilities') return '{}';
+            if (call.method == 'setCaptureBackendConfig') return null;
+            unknown.add('capture:${call.method}'); throw PlatformException(code: 'unexpected');
+          });
+          notifications.AndroidFlutterLocalNotificationsPlugin.registerWith();
+          final innerHttp = MockClient((request) async {
+            requests.add(request);
+            final path = request.url.path;
+            Object? body;
+            if (request.method == 'POST' && path == '/rest/v1/sender_bank_mappings') {
+              final sent = (jsonDecode(request.body) as List).cast<Map<String, dynamic>>();
+              final cap = fixture!.session.captureLocalWorkAuthority();
+              dispatchProofs.add({'scope': runner?.accountScope.current,
+                'capUid': cap?.uid, 'capEpoch': cap?.epoch, 'current': cap?.isCurrent,
+                'db': runner?.accountScope.current?.database});
+              final mutationIndex = ++sends;
+              if (!firstSend.isCompleted) firstSend.complete();
+              if (sends == 2 && !secondSend.isCompleted) secondSend.complete();
+              if (schedule == 'same-uid' && sends == 1) await releaseOld.future;
+              body = [for (final row in sent) {...row,
+                'id': '11223344-5566-4788-8899-aabbccddeeff',
+                'updated_at': mutationIndex == 1 ? '2026-10-20T10:00:00Z' : '2026-10-20T11:00:00Z'}];
+            } else if (request.method == 'GET' && path == '/rest/v1/sender_bank_mappings') {
+              if (!followingPull.isCompleted) followingPull.complete();
+              body = <Object>[];
+            } else if (request.method == 'GET' && path == '/rest/v1/profiles') {
+              body = {'onboarding_completed_at': schedule == 'onboarding' ? null : '2026-10-01T00:00:00Z'};
+            } else if (request.method == 'PATCH' && path == '/rest/v1/profiles') {
+              body = null;
+            } else if (request.method == 'POST' && path == '/rest/v1/rpc/record_metric') {
+              body = null;
+            } else if (request.method == 'POST' && path == '/rest/v1/rpc/qirsh_server_capabilities') {
+              body = {'sync_seq': false};
+            } else if (request.method == 'POST' && path == '/rest/v1/rpc/mark_onboarding_completed') {
+              body = null;
+            } else { unknown.add('${request.method} $path ${request.body}'); body = {'code': 'unexpected'}; }
+            return http.Response(jsonEncode(body), unknown.isEmpty ? 200 : 400,
+                headers: {'content-type': 'application/json'}, request: request);
+          });
+          seedClient = await F2Fixture.liveClient(uid);
+          fixture.session.configureAccountScope(fixture.host);
+          await fixture.session.setIdentity(method: 'google', email: '$uid@example.com', userId: uid);
+          if (schedule != 'onboarding') {
+            await fixture.session.finishOnboarding(client: seedClient);
+          }
+          final seedSession = seedClient.auth.currentSession!;
+          expect(seedSession.user.id, uid);
+          expect(seedSession.isExpired, isFalse);
+          final sdkStorage = _SenderBootstrapStorage(jsonEncode(seedSession.toJson()),
+              // This callback runs from the actual SDK storage initialization,
+              // after the SDK object exists, even if later initialization fails.
+              onInitialize: () => ownedSdk ??= Supabase.instance);
+          await UserActivityService.waitPendingActivityWork();
+          final seedDB = fixture.host.current!.database;
+          final settings = DriftUserSettingsRepository(seedDB);
+          await settings.saveSettings((await settings.getSettings()).copyWith(cloudConsentState: ConsentState.accepted));
+          final repo = DriftSenderBankMappingRepository(seedDB);
+          final mapping = await repo.saveSuggestion(const SenderBankMappingDraft(senderId: 'bootstrap-bank',
+              suggestedBankName: 'Bank', suggestedCountry: 'SA', confidence: .9));
+          await repo.confirm(mappingId: mapping.id, bankKey: 'bank');
+          final seeded = (await seedDB.customSelect('SELECT * FROM sender_bank_mappings;').getSingle()).data;
+          expectedBody = [{
+            'user_id': uid,
+            for (final key in ['sender_id', 'normalized_sender_id', 'bank_key', 'suggested_bank_name',
+              'suggested_country', 'confidence', 'reason', 'status', 'source', 'first_seen_at',
+              'last_seen_at', 'confirmed_at', 'rejected_at', 'rejection_expires_at', 'created_at', 'deleted_at']) key: seeded[key],
+            if (seeded['accepted_by'] != null) 'accepted_by': seeded['accepted_by'],
+          }];
+          await fixture.session.drainAdmissions();
+          await fixture.host.detach(); await fixture.host.current!.database.close();
+          fixture.session.configureAccountScope(null); fixture.session.configureRemoveData(null);
+          expect(databases.every((db) => db.lifecycleState == DatabaseLifecycleState.closed), isTrue);
+          final binding = TestWidgetsFlutterBinding.instance;
+          frames = Timer.periodic(const Duration(milliseconds: 20), (_) {
+            binding.scheduleFrame(); binding.handleBeginFrame(Duration.zero); binding.handleDrawFrame();
+          });
+          runner = BootstrapRunner(
+            debugSdk: BootstrapSdkTestConfig(url: 'https://example.supabase.co',
+                innerStorage: sdkStorage, innerHttp: innerHttp),
+            debugAfterWithdraw: () async {}, debugStorageEvent: (_) {
+            if (!runnerTracking) {
+              runner!.accountScope.addListener(rememberRunner); runnerTracking = true;
+            }
+            rememberRunner();
+          })..captureQueue = _Queue();
+          await runner.run();
+          expect(ownedSdk, same(Supabase.instance));
+          expect(ownedSdk!.isInitialized, isTrue);
+          expect(ownedSdk!.client.auth.currentSession!.user.id, uid);
+          if (!runnerTracking) { runner.accountScope.addListener(rememberRunner); runnerTracking = true; }
+          rememberRunner();
+          expect(runner.accountScope.activeUid, uid);
+          if (schedule == 'onboarding') {
+            expect(fixture.session.status, SessionStatus.needsOnboarding);
+            expect(sends, 0);
+            await fixture.session.finishOnboarding();
+          }
+          await firstSend.future.timeout(const Duration(seconds: 10));
+          final original = fixture.session.captureLocalWorkAuthority()!;
+          if (schedule == 'same-uid') {
+            identity = fixture.session.setIdentity(method: 'google', email: '$uid@example.com', userId: uid);
+            await identity;
+            expect(original.isCurrent, isFalse);
+            await secondSend.future.timeout(const Duration(seconds: 10));
+            await followingPull.future.timeout(const Duration(seconds: 10));
+            successorAck = (await runner.accountScope.current!.database.customSelect(
+                'SELECT * FROM sender_bank_mappings;').getSingle()).data;
+            expect(successorAck['sync_status'], 'synced');
+            expect(successorAck['server_updated_at'], '2026-10-20T11:00:00Z');
+            releaseOld.complete();
+          }
+          // The barrier observes actual send/health/pull completion, not arrival.
+          await runner.waitPendingSenderBankMappingSync();
+          await runner.waitPendingBootstrapWork();
+          await UserActivityService.waitPendingActivityWork();
+          // A same-state notification is not a new readiness transition.
+          final sentBeforeNotify = sends;
+          final senderBeforeNotify = requests.where((r) => r.url.path == '/rest/v1/sender_bank_mappings' ||
+              r.url.path == '/rest/v1/rpc/qirsh_server_capabilities').toList();
+          final ackBeforeNotify = (await runner.accountScope.current!.database.customSelect(
+              'SELECT * FROM sender_bank_mappings;').getSingle()).data;
+          fixture.session.notifyListeners();
+          await fixture.session.drainAdmissions();
+          await runner.waitPendingSenderBankMappingSync();
+          expect(requests.where((r) => r.url.path == '/rest/v1/sender_bank_mappings' ||
+              r.url.path == '/rest/v1/rpc/qirsh_server_capabilities'), senderBeforeNotify);
+          expect((await runner.accountScope.current!.database.customSelect(
+              'SELECT * FROM sender_bank_mappings;').getSingle()).data, ackBeforeNotify);
+          await runner.shutdownSenderBankMappingSync();
+          expect(identical(runner.shutdownSenderBankMappingSync(), runner.shutdownSenderBankMappingSync()), isTrue);
+          expect(sends, schedule == 'same-uid' ? 2 : 1);
+          expect(sends, sentBeforeNotify);
+          final actualDB = runner.accountScope.current!.database;
+          final row = await actualDB.customSelect('SELECT sync_status FROM sender_bank_mappings;').getSingle();
+          expect(row.read<String>('sync_status'), 'synced');
+          if (successorAck != null) {
+            expect((await actualDB.customSelect('SELECT * FROM sender_bank_mappings;').getSingle()).data, successorAck);
+          }
+          expect(requests.where((r) => r.method == 'GET' && r.url.path == '/rest/v1/sender_bank_mappings'), hasLength(1));
+          for (final request in requests) {
+            final path = request.url.path;
+            final body = request.body.isEmpty ? null : jsonDecode(request.body);
+            if (path == '/rest/v1/sender_bank_mappings' && request.method == 'POST') {
+              expect(request.url.queryParameters['on_conflict'], 'user_id,normalized_sender_id');
+              expect(request.url.queryParameters['select'], '*');
+              expect(request.headers['prefer'], contains('return=representation'));
+              expect(body, expectedBody); expect((body as List).single['user_id'], uid);
+              expect(body.single['normalized_sender_id'], 'BOOTSTRAPBANK');
+              expect(body.single['status'], 'confirmed');
+            } else if (path == '/rest/v1/rpc/record_metric') {
+              expect(body, {'p_metric_key': 'app_open', 'p_dimension': null});
+            } else if (path == '/rest/v1/rpc/qirsh_server_capabilities' || path == '/rest/v1/rpc/mark_onboarding_completed') {
+              expect(body, isNull);
+            } else if (path == '/rest/v1/profiles' && request.method == 'PATCH') {
+              expect(request.url.queryParameters['id'], 'eq.$uid');
+              expect((body as Map).keys, ['last_seen_at']);
+              expect(DateTime.parse(body['last_seen_at'] as String).isUtc, isTrue);
+            } else if (path == '/rest/v1/profiles') {
+              expect(request.url.queryParameters['select'], 'onboarding_completed_at');
+              expect(request.url.queryParameters['id'], 'eq.$uid');
+            }
+          }
+          expect(dispatchProofs, hasLength(sends));
+          for (final proof in dispatchProofs) {
+            expect(proof['capUid'], uid); expect(proof['current'], isTrue);
+            expect(proof['capEpoch'], isA<int>()); expect(proof['db'], isNotNull);
+            final scope = proof['scope'] as AccountScope;
+            expect(scope.uid, uid); expect(identical(scope.database, proof['db']), isTrue);
+          }
+          if (schedule == 'same-uid') {
+            expect(dispatchProofs[1]['capEpoch'], isNot(dispatchProofs[0]['capEpoch']));
+          }
+          expect(unknown, isEmpty);
+          expect(channelCalls, isNotEmpty);
+          expect(await gate.gate.permits(), isTrue);
+        } catch (error, stack) {
+          debugPrint('configured sender primary: $error\n$stack');
+          rethrow;
+        } finally {
+          // Keep strict cleanup failures observable while still releasing every
+          // owned resource if setup or the real SDK initialization failed early.
+          final cleanupFailures = <(Object, StackTrace)>[];
+          Future<void> cleanup(FutureOr<void> Function() action) async {
+            try { await action(); }
+            catch (error, stack) { cleanupFailures.add((error, stack)); }
+          }
+          ownedSdk?.client.auth.stopAutoRefresh();
+          if (!releaseOld.isCompleted) releaseOld.complete();
+          await cleanup(() async { await identity; });
+          if (runner != null) {
+            await cleanup(runner.shutdownSenderBankMappingSync);
+            await cleanup(fixture!.session.drainAdmissions);
+            await cleanup(runner.waitPendingBootstrapWork);
+            await cleanup(UserActivityService.waitPendingActivityWork);
+            // No replacement scope is opened solely to clean up a runner whose
+            // first SDK initialization failed before publishing any database.
+            if (runner.accountScope.current != null) {
+              await cleanup(() async {
+                await runner!.accountScope.lock(); rememberRunner();
+              });
+            }
+            ownedSdk?.client.auth.stopAutoRefresh();
+            await cleanup(runner.waitPendingBootstrapWork);
+            await cleanup(UserActivityService.waitPendingActivityWork);
+            await cleanup(() async { await runner!.accountScope.current?.database.close(); });
+            await cleanup(runner.accountScope.dispose);
+          }
+          ownedSdk?.client.auth.stopAutoRefresh();
+          if (fixture != null) {
+            fixture.session.configureAccountScope(null); fixture.session.configureRemoveData(null);
+            fixture.session.configureCaptureOwnerClear(null); fixture.session.configureCaptureOwnerPublish(null);
+            await cleanup(() {
+              expect(databases.every((db) => db.lifecycleState == DatabaseLifecycleState.closed), isTrue);
+            });
+            await cleanup(() async {
+              expect(await AccountFenceAuthority.shared.initialize(), isTrue);
+              expect(AccountFenceAuthority.shared.store.ready, isTrue);
+            });
+            await cleanup(fixture.dispose); rememberSeed();
+            await cleanup(() {
+              expect(databases.every((db) => db.lifecycleState == DatabaseLifecycleState.closed), isTrue);
+            });
+          }
+          frames?.cancel();
+          await cleanup(() async { await seedClient?.dispose(); });
+          await cleanup(() async { await ownedSdk?.dispose(); });
+          await cleanup(() { expect(unknown, isEmpty); });
+          await cleanup(restore);
+          CloudEgressGate.instance = previousGate;
+          FlutterLocalNotificationsPlatform.instance = previousPlugin;
+          for (final channel in channels) { messenger.setMockMethodCallHandler(MethodChannel(channel), null); }
+          for (final failure in cleanupFailures) {
+            debugPrint('configured sender cleanup: ${failure.$1}\n${failure.$2}');
+          }
+          if (cleanupFailures.isNotEmpty) {
+            Error.throwWithStackTrace(cleanupFailures.first.$1, cleanupFailures.first.$2);
+          }
+        }
+      });
+    }
+  }, skip: !exactConfig ? 'Requires exact synthetic local/example/anon defines; no configured coverage otherwise.' : false);
+}

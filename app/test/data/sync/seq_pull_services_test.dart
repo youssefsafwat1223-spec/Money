@@ -1,3 +1,4 @@
+import '../../features/capture/ledger_admission_fixture.dart';
 // WP-4: sequence pull across EVERY pull service (accounts, planning, children,
 // smart inbox, sender mappings, gamification, ledger) behind one SeqPullGate.
 // Covers SYNC T3 (bootstrap), T4 (incremental / idle = one head call), T22
@@ -408,6 +409,10 @@ void main() {
 
     test('children: parked-or-applied rows still advance their own cursor',
         () async {
+      await db.close();
+      final childAdmission=await LedgerAdmissionFixture.open(_uid);
+      addTearDown(childAdmission.finish);
+      db=childAdmission.database;
       await db.customStatement(
           "INSERT INTO goals(id,name,currency,target_amount,target_amount_minor,"
           "saved_amount,saved_amount_minor,last_notified_saved_amount_minor,"

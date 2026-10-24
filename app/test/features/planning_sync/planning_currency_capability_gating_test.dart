@@ -1,7 +1,6 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/sync/exact_transport_capability.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
@@ -30,12 +29,6 @@ const _unsupported = ExactTransportCapability.unsupported;
 const _canonical =
     FixedPlanningCutoverCoordinator(PlanningCutoverState.canonical);
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 /// Records every table push()ed to it. Throws if a supposedly-parked write ever
 /// reaches the network.
@@ -144,6 +137,8 @@ BudgetEntity _budgetEntity() => BudgetEntity(
       lastNotifiedPeriodStart: DateTime.utc(2026, 8, 1),
     );
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -246,10 +241,8 @@ void main() {
     late AppDatabase db;
 
     setUp(() async {
-      db = await AppDatabase.open(
-        executor: NativeDatabase.memory(),
-        keyStore: _MemoryKeyStore(),
-      );
+      _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
       // These cases assert PARKING behaviour and use 'cat-001' as a placeholder
       // category. Since F-029 fails closed on an unresolvable category, the row
       // must exist — otherwise the budget is never queued and the test would be
@@ -259,7 +252,7 @@ void main() {
         "sort_order) VALUES('cat-001', 'cat_001_key', 'فئة', 'tag', '#000', 0, 97);",
       );
     });
-    tearDown(() async => db.close());
+    tearDown(() => _parentAdmission.finish());
 
     PlanningOutboxQueue queue() => PlanningOutboxQueue(
           db: db,
@@ -398,10 +391,8 @@ void main() {
     late AppDatabase db;
 
     setUp(() async {
-      db = await AppDatabase.open(
-        executor: NativeDatabase.memory(),
-        keyStore: _MemoryKeyStore(),
-      );
+      _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
       // These cases assert PARKING behaviour and use 'cat-001' as a placeholder
       // category. Since F-029 fails closed on an unresolvable category, the row
       // must exist — otherwise the budget is never queued and the test would be
@@ -411,7 +402,7 @@ void main() {
         "sort_order) VALUES('cat-001', 'cat_001_key', 'فئة', 'tag', '#000', 0, 97);",
       );
     });
-    tearDown(() async => db.close());
+    tearDown(() => _parentAdmission.finish());
 
     // Scenario 4 (+6) — with the gate disabling planning money entities, the
     // pull NEVER fetches user_budgets/user_goals/goal_contributions, so no

@@ -1,7 +1,6 @@
-import 'package:drift/native.dart';
+import '../../features/capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/sync/sender_bank_mapping_sync_service.dart';
 import 'package:money_companion/data/sync/sync_cursor.dart';
 
@@ -12,13 +11,6 @@ import 'package:money_companion/data/sync/sync_cursor.dart';
 /// banks — i.e. **which banks the user holds**. That is not money, but it is a
 /// direct read on the user's financial life, and the privacy screen promises
 /// «إيقافها يعطّل … والمزامنة».
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'memory-key';
-  @override
-  Future<String?> readStoredKey() async => 'memory-key';
-}
-
 /// Records every call. If consent is enforced, this store is never touched.
 class _SpyRemoteStore implements SenderMappingRemoteStore {
   int fetchCalls = 0;
@@ -45,15 +37,14 @@ class _SpyRemoteStore implements SenderMappingRemoteStore {
 void main() {
   late AppDatabase db;
   late _SpyRemoteStore remote;
+  late LedgerAdmissionFixture admission;
 
   setUp(() async {
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    admission = await LedgerAdmissionFixture.open('user-1');
+    db = admission.database;
     remote = _SpyRemoteStore();
   });
-  tearDown(() async => db.close());
+  tearDown(() async => admission.finish());
 
   SenderBankMappingSyncService service({required bool consent}) =>
       SenderBankMappingSyncService(

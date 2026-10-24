@@ -20,8 +20,13 @@ import 'package:sqlite3/sqlite3.dart';
 /// [OpenMode.readWrite], which SQLite refuses for a missing file, so the open
 /// cannot create anything.
 class ExistingOnlySqlite3 implements Sqlite3 {
-  const ExistingOnlySqlite3(this._inner);
+  const ExistingOnlySqlite3(this._inner, {this.mode = OpenMode.readWrite});
   final Sqlite3 _inner;
+
+  /// The mode every open uses, whatever the caller asks for. Never a creating
+  /// mode. [OpenMode.readOnly] is the local-read connection: SQLite itself then
+  /// refuses every write, whatever statement reaches it.
+  final OpenMode mode;
 
   @override
   Database open(
@@ -33,7 +38,9 @@ class ExistingOnlySqlite3 implements Sqlite3 {
   }) => _inner.open(
     filename,
     vfs: vfs,
-    mode: OpenMode.readWrite,
+    // The CONFIGURED mode, not the caller's: the parameter above has the same
+    // name as the field and would otherwise shadow it.
+    mode: this.mode,
     uri: uri,
     mutex: mutex,
   );
@@ -86,7 +93,23 @@ class ExistingOnlySqlite3 implements Sqlite3 {
 /// isolate immediately before drift would create the parent directory, so a file
 /// that vanished since the caller's existence check makes the open FAIL there,
 /// before any directory exists.
-SqliteResolver databaseResolver(String path, {required bool createFile}) {
+SqliteResolver databaseResolver(
+  String path, {
+  required bool createFile,
+  bool readOnly = false,
+}) {
+  if (readOnly) {
+    // Offline local read: an existing file, opened with SQLITE_OPEN_READONLY.
+    // Never combined with creation, and never an immutable/URI shortcut, so
+    // SQLite still honours the file's own journal/WAL state.
+    assert(!createFile, 'a read-only open can never create');
+    return () {
+      if (!File(path).existsSync()) {
+        throw const FileSystemException('database does not exist');
+      }
+      return const ExistingOnlySqlite3(sqlite3, mode: OpenMode.readOnly);
+    };
+  }
   if (createFile) return () => sqlite3;
   return () {
     if (!File(path).existsSync()) {

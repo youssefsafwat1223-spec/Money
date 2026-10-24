@@ -1,14 +1,13 @@
+import 'ledger_admission_fixture.dart';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart';
 import 'package:http/testing.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/core/sync/sync_health.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/domain/errors/repo_exceptions.dart';
 import 'package:money_companion/features/capture/services/ledger_outbox_queue.dart';
@@ -19,15 +18,10 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // A-6: the historic-data backfill must never send an awaiting-FX row directly
 // and must isolate a permanently-rejected row instead of aborting the run.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 void main() {
   late AppDatabase db;
+  late LedgerAdmissionFixture admission;
   late List<Map<String, dynamic>> inserts;
   var rejectMerchant = 'BAD';
   var rejectCode = '23514';
@@ -35,8 +29,8 @@ void main() {
   var networkDown = false;
 
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    admission = await LedgerAdmissionFixture.open('user-a');
+    db = admission.database;
     await db.customStatement("UPDATE accounts SET server_id = 'srv-acct';");
     inserts = [];
     rejectMerchant = 'BAD';
@@ -44,7 +38,7 @@ void main() {
     rejectStatus = 400;
     networkDown = false;
   });
-  tearDown(() async => db.close());
+  tearDown(() async => admission.finish());
 
   Future<void> seed(String id, String merchant,
       {double amount = 10, bool foreign = false, String? accountId}) async {
@@ -61,7 +55,7 @@ void main() {
     await backfillNonPlanningMoneyV30(db);
   }
 
-  SupabaseClient client() => SupabaseClient(
+  SupabaseClient client() => LedgerAdmissionFixture.trackClient(SupabaseClient(
         'https://example.supabase.co',
         'anon',
         accessToken: () async => 'tok',
@@ -91,7 +85,7 @@ void main() {
             'transaction_type': body['transaction_type'],
           });
         }),
-      );
+      ));
 
   TransactionsBackfillService service() => TransactionsBackfillService(
         db: db,

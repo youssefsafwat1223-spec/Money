@@ -10,6 +10,7 @@ import '../../features/accounts/accounts_screen.dart';
 import '../../features/achievements/achievements_screen.dart';
 import '../../features/announcements/announcements_screen.dart';
 import '../../features/app/app_shell.dart';
+import '../../features/app/local_read_shell.dart';
 import '../../features/onboarding/auth_screen.dart';
 import '../../features/onboarding/brand_screen.dart';
 import '../../features/onboarding/restore_prompt_screen.dart';
@@ -17,6 +18,7 @@ import '../../features/onboarding/setup_screen.dart';
 import '../../features/onboarding/story_screen.dart';
 import '../../features/reports/reports_screen.dart';
 import '../../features/help/help_screen.dart';
+import '../../features/settings/delete_account_screen.dart';
 import '../../features/settings/privacy_screen.dart';
 import '../../features/settings/data_transfer_screen.dart';
 import '../../features/settings/planning_currency_repair_screen.dart';
@@ -39,6 +41,14 @@ import '../../features/goals/goals_screen.dart';
 import '../../features/settings/settings_screen.dart';
 import '../../features/transactions/transaction_details_screen.dart';
 
+/// Offline local read: the only locations reachable while a verified local-read
+/// scope is published. Null = allowed; otherwise the location to redirect to.
+String? localReadRedirect(String location) {
+  final path = Uri.tryParse(location)?.path;
+  if (path == '/' || path == '/onboarding/auth') return null;
+  return '/';
+}
+
 String onboardingEntryPathForSession(AppSession session) {
   // Only ever consulted after the welcome/story gate has been passed, so the
   // signed-out returning user lands directly on mandatory auth.
@@ -54,6 +64,11 @@ final appRouter = GoRouter(
   observers: [modalRouteObserver],
   redirect: (context, state) {
     final session = AppSession.instance;
+    // A retained read-only scope stays restrictive during authority handoff.
+    // The home builder exposes its data only after selected-authority proof.
+    if (session.localReadPresentationRestricted) {
+      return localReadRedirect(state.uri.toString());
+    }
     final status = session.status;
     final inWelcome = state.matchedLocation == '/welcome';
     final inOnboarding = state.matchedLocation.startsWith('/onboarding');
@@ -99,7 +114,11 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/',
       name: 'home',
-      builder: (context, state) => const AppShell(),
+      builder: (context, state) => AppSession.instance.localReadActive
+          ? const LocalReadShell()
+          : AppSession.instance.localReadPresentationRestricted
+              ? const SizedBox.shrink()
+              : const AppShell(),
     ),
     GoRoute(
       path: '/onboarding/brand',
@@ -143,6 +162,11 @@ final appRouter = GoRouter(
       path: '/privacy',
       name: 'privacy',
       builder: (context, state) => const PrivacyScreen(),
+    ),
+    GoRoute(
+      path: '/delete-account',
+      name: 'delete-account',
+      builder: (context, state) => const DeleteAccountScreen(),
     ),
     GoRoute(
       path: '/help',

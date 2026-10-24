@@ -1,12 +1,11 @@
+import 'ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/sql_value_codec.dart';
 import 'package:money_companion/data/repositories/drift_transaction_repository.dart';
@@ -21,23 +20,16 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // pull uses). Proves withdrawal/unknown/refund/etc. survive without semantic
 // conversion, plus old-payload and unsupported-version compatibility.
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 void main() {
   late AppDatabase db;
+  late LedgerAdmissionFixture admission;
 
   setUp(() async {
-    db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
+    admission = await LedgerAdmissionFixture.open('user-1');
+    db = admission.database;
   });
-  tearDown(() => db.close());
+  tearDown(() => admission.finish());
 
   LedgerOutboxQueue queue() => LedgerOutboxQueue(
         db: db,
@@ -70,7 +62,7 @@ void main() {
   Future<Map<String, dynamic>> pushAndCapture(LedgerOutboxQueue q) async {
     final now = dateTimeToSql(DateTime.now().toUtc());
     Map<String, dynamic>? sent;
-    final client = SupabaseClient(
+    final client = LedgerAdmissionFixture.trackClient(SupabaseClient(
       'https://example.supabase.co',
       'anon',
       accessToken: () async => 'token',
@@ -85,7 +77,7 @@ void main() {
           request: request,
         );
       }),
-    );
+    ));
     final r = await LedgerPushService(
       db: db,
       queue: q,

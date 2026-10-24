@@ -404,7 +404,7 @@ void main() {
             commitLocalOff: () => save(cloud: ConsentState.declined)),
         // Astra G (updated truthfully): leaving the persistent OFF gate is an
         // explicit enable (a plain save of ON would be reverted to OFF).
-        () => s.enableCloud(
+        () => s.enableCloudForTest(
             commitLocalOn: () => save(cloud: ConsentState.accepted)),
         () => save(ai: ConsentState.accepted),
       ]) {

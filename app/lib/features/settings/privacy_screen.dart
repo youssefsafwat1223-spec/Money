@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../core/privacy/gated_url_launcher.dart';
 
-import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
-import '../../core/router/app_router.dart';
-import '../../core/session/app_session.dart';
+import '../../core/session/admission_authority.dart';
+import '../../core/session/consent_capability.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -20,6 +18,7 @@ import '../../core/privacy/diagnostics_consent_gate.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../capture/services/capture_device_registration_service.dart';
 import '../consent/smart_analysis_consent_sheet.dart';
+import 'consent_status.dart';
 import '../onboarding/widgets/neon_illustration.dart';
 import 'settings_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
@@ -77,42 +76,14 @@ class PrivacyScreen extends ConsumerWidget {
                 ref.watch(userSettingsProvider).maybeWhen(
                       data: (settings) => Column(
                         children: [
-                          _ConsentSwitchCard(
-                            icon: AppLucideIcons.cloud,
-                            title: context.l10n.privCloudProcessing,
-                            subtitle:
-                                context.l10n.privCloudProcessingBody,
-                            value: settings.cloudProcessingEnabled,
-                            onChanged: (value) => _setConsent(
-                              ref,
-                              // MALI-059n: an interaction is an EXPLICIT choice —
-                              // record accepted/declined (never left unset).
-                              settings.copyWith(
-                                cloudConsentState: value
-                                    ? ConsentState.accepted
-                                    : ConsentState.declined,
-                              ),
-                            ),
-                          ),
-                          _ConsentSwitchCard(
-                            icon: AppLucideIcons.sparkles,
-                            title: context.l10n.privAiAnalysis,
-                            subtitle:
-                                // This copy is deliberately truthful for both server regimes:
-                                // pre-WP4 (AI analyses every consented message) and WP4-Lite
-                                // (AI only when deterministic rules cannot resolve the message).
-                                // "may be analysed" covers both, so it needs no revisit when
-                                // process-ios-sms WP4-Lite is deployed.
-                                context.l10n.privAiAnalysisBody,
-                            value: settings.aiConsentGranted,
-                            onChanged: (value) => _setConsent(
-                              ref,
-                              settings.copyWith(
-                                aiConsentState: value
-                                    ? ConsentState.accepted
-                                    : ConsentState.declined,
-                              ),
-                            ),
+                          // Cloud sync and Smart Analysis are one disclosed
+                          // permission: a status the person can trust and
+                          // deliberate actions, not a daily switch. Re-consent
+                          // reopens the existing disclosure; withdrawal is
+                          // confirmed and stops both together.
+                          _ConsentManagementCard(
+                            settings: settings,
+                            withdraw: _withdrawConsent,
                           ),
                           if (settings.cloudProcessingEnabled &&
                               ref
@@ -143,18 +114,16 @@ class PrivacyScreen extends ConsumerWidget {
                               title: l10n.couponsPersonalizationTitle,
                               subtitle: l10n.couponsPersonalizationBody,
                               value: settings.merchantPersonalizationEnabled,
-                              onChanged: (value) => _setConsent(
-                                ref,
-                                settings.copyWith(
-                                    merchantPersonalizationEnabled: value),
-                              ),
+                              onChanged: (value) =>
+                                  _setMerchantPersonalization(ref, value),
                             ),
                         ],
                       ),
                       orElse: () => const SizedBox.shrink(),
                     ),
                 const SizedBox(height: AppSpacing.s5),
-                Text(context.l10n.privDangerZone, style: AppTypography.subhead(c.danger)),
+                Text(context.l10n.privDangerZone,
+                    style: AppTypography.subhead(c.danger)),
                 const SizedBox(height: AppSpacing.s2),
                 ref.watch(accountDeletionStatusProvider).maybeWhen(
                       data: (status) => status.isPending
@@ -170,7 +139,7 @@ class PrivacyScreen extends ConsumerWidget {
                 _PrivacyCard(
                   icon: AppLucideIcons.trash2,
                   title: context.l10n.privDeleteAccountAll,
-                  onTap: () => _confirmDelete(context, ref),
+                  onTap: () => context.push('/delete-account'),
                   danger: true,
                 ),
               ],
@@ -181,54 +150,132 @@ class PrivacyScreen extends ConsumerWidget {
     );
   }
 
-  /// Persists a consent change and pushes the new state to the native capture
-  /// layer immediately (the iOS extension reads it from the App Group), so
-  /// revoking cloud processing takes effect without waiting for a restart.
-  Future<void> _setConsent(
+  /// Withdraws BOTH permissions (Cloud sync and Smart Analysis) and pushes the
+  /// new state to the native capture layer immediately (the iOS extension reads
+  /// it from the App Group), so revoking cloud processing takes effect without
+  /// waiting for a restart.
+  ///
+  /// This screen never widens consent. Turning on is only the disclosure
+  /// ([showSmartAnalysisConsentSheet] -> [saveConsentChoice] -> the typed
+  /// enable of the registration service), whose route follows the stored choice
+  /// AND the live/pending authority; there is no enable branch here.
+  ///
+  /// [work] is the consent capability of the lifecycle the person confirmed the
+  /// withdrawal in, captured BEFORE the confirmation opened and verified by the
+  /// caller; it is the only authority this uses. The choices are merged into
+  /// the CURRENT stored row (never a stale snapshot) through the TYPED consent
+  /// transaction, which verifies the capability, database and replica owner. A
+  /// Cloud ON->OFF is the restrictive disable protocol, not a plain save. If
+  /// that lifecycle ends meanwhile (logout, removal, readmission) nothing
+  /// further happens: no later write, diagnostics change, sync or cache refresh
+  /// reaches whatever scope is live now. Network (the revoke, the backend sync)
+  /// stays outside the bounded local work.
+  ///
+  /// [report] hears an honest failure (only while this lifecycle is still the
+  /// live one); the caller never infers success from the absence of one.
+  Future<void> _withdrawConsent(
     WidgetRef ref,
-    UserSettingsEntity updated,
-  ) async {
+    ConsentLocalWork work, {
+    VoidCallback? report,
+  }) async {
+    if (!work.current) return; // the lifecycle ended: nothing is changed
+    const choices = ConsentChoices(
+        cloud: ConsentState.declined, ai: ConsentState.declined);
     final registration = ref.read(captureDeviceRegistrationServiceProvider);
-    Future<void> commit() async {
-      await ref.read(userSettingsRepositoryProvider).saveSettings(updated);
-      ref.invalidate(userSettingsProvider);
+    final repository = ref.read(userSettingsRepositoryProvider);
+    final writer = ref.read(consentSettingsWriterProvider);
+
+    void applied(UserSettingsEntity persisted) {
+      if (!work.current) return;
+      if (ref.context.mounted) ref.invalidate(userSettingsProvider);
       // OD-05 (C-3) — apply the diagnostics gate IMMEDIATELY, in the same turn as
-      // the toggle. Sentry's beforeSend is synchronous and cannot await a settings
-      // read, so the gate is pushed rather than pulled: a revocation must take
-      // effect before the next crash, not at the next startup.
+      // the withdrawal. Sentry's beforeSend is synchronous and cannot await a
+      // settings read, so the gate is pushed rather than pulled: a revocation
+      // must take effect before the next crash, not at the next startup.
       DiagnosticsConsentGate.set(
-        ConsentAuthority.decide(EgressClass.diagnostics, updated),
+        ConsentAuthority.decide(EgressClass.diagnostics, persisted),
       );
     }
 
-    final before = await ref.read(userSettingsRepositoryProvider).getSettings();
-    if (registration.isDisablingCloud(before, updated)) {
-      // E1: Cloud ON->OFF is a transition, not a plain save: freeze egress, one
-      // best-effort revoke, then commit OFF whatever the revoke did.
-      DiagnosticsConsentGate.set(false);
-      try {
-        await registration.disableCloud(commitLocalOff: commit);
-      } catch (_) {
-        // FAIL CLOSED: the local OFF write failed. Egress stays frozen for this
-        // process and the next launch completes OFF; nothing to retry here.
-        return;
-      }
-    } else if (registration.isEnablingCloud(before, updated)) {
-      // Astra G: OFF/unset -> ON is an explicit enable (new transition
-      // generation and version) and the only way out of the persistent OFF gate.
-      try {
-        await registration.enableCloud(commitLocalOn: commit);
-      } catch (_) {
-        return; // not enabled: egress stays denied
-      }
-    } else {
-      await commit();
+    Future<void> commit() async {
+      applied(await writer.saveConsentChoice(work.capability, choices));
     }
+
+    try {
+      final before = await work.run(repository.getSettings);
+      if (!work.current) return;
+      // The would-be row: the CURRENT stored settings with the withdrawal applied.
+      final updated = choices.applyTo(before);
+      // R18: a pending/uncertain enable is withdrawn by the verified restrictive
+      // operation, which clears only the exact attributable pending evidence; a
+      // plain save or a plain disable would leave the durable pending behind.
+      if (await registration.pendingEnableState(before,
+              ownerUid: work.capability.uid) !=
+          PendingEnableState.none) {
+        if (!work.current) return;
+        DiagnosticsConsentGate.set(false);
+        try {
+          await registration.withdrawPendingEnable(
+              capability: work.capability,
+              commitLocalOff: () => work.run(commit));
+        } on StaleAdmissionException {
+          return;
+        } catch (_) {
+          // FAIL CLOSED: not verified; egress stays denied.
+          if (work.current) report?.call();
+          return;
+        }
+      } else if (registration.isDisablingCloud(before, updated)) {
+        // E1: Cloud ON->OFF is a transition, not a plain save: freeze egress, one
+        // best-effort revoke, then commit OFF whatever the revoke did.
+        DiagnosticsConsentGate.set(false);
+        try {
+          await registration.disableCloud(
+              commitLocalOff: () => work.run(commit));
+        } catch (_) {
+          // FAIL CLOSED: local OFF failed; egress stays frozen, next launch completes.
+          if (work.current) report?.call();
+          return;
+        }
+      } else {
+        await work.run(commit);
+      }
+    } on StaleAdmissionException {
+      return; // the lifecycle ended: nothing reaches the live scope
+    }
+    if (!work.current) return;
     try {
       await registration.syncBackendState();
     } catch (_) {
       // Best-effort: the startup sync re-applies the stored value anyway.
     }
+  }
+
+  /// Merchant personalization uses the authenticated local drain and changes
+  /// only its own column; it never performs a consent transition or sync.
+  Future<void> _setMerchantPersonalization(WidgetRef ref, bool value) async {
+    final context = ref.context;
+    final work = AdmittedLocalWork.capture(ref);
+    if (work == null) return;
+    final writer = ref.read(merchantPreferenceWriterProvider);
+    // Bind the retained authority to this widget's exact current database too.
+    final authority = AdmissionAuthority(
+      work.authority.uid,
+      () => work.current,
+      epoch: work.authority.epoch,
+    );
+    try {
+      await work.local(() =>
+          writer.saveMerchantPersonalization(authority, work.database, value));
+    } on StaleAdmissionException {
+      return;
+    } catch (_) {
+      if (context.mounted && work.current) {
+        AppToast.showError(context, context.l10n.setupSaveFailed);
+      }
+      return;
+    }
+    if (work.current) ref.invalidate(userSettingsProvider);
   }
 
   Future<void> _openExternalLink(BuildContext context, Uri url) async {
@@ -238,46 +285,6 @@ class PrivacyScreen extends ConsumerWidget {
         SnackBar(content: Text(context.l10n.privLinkFailed)),
       );
     }
-  }
-
-  Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(context.l10n.privDeleteAccountTitle),
-        content: Text(context.l10n.privDeleteAccountBody),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: Text(context.l10n.commonCancel)),
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: Text(context.l10n.privDeleteAccount)),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-
-    try {
-      await ref.read(accountDeletionServiceProvider).requestDeletion();
-    } catch (error) {
-      if (context.mounted) {
-        final message = error is RepoException
-            ? repoErrorMessage(context, error)
-            : context.l10n.privScheduleFailed;
-        AppToast.show(context, message);
-      }
-      return;
-    }
-
-    // The reset replaces the account scope, which disposes this screen, so the
-    // navigation uses the app router rather than this screen's context.
-    await AppSession.instance.resetAllLocalData(
-      signOutRemote: SupabaseConfig.isConfigured
-          ? supabase.Supabase.instance.client.auth.signOut
-          : null,
-    );
-    appRouter.go('/welcome');
   }
 
   Future<void> _confirmCancelDeletion(
@@ -310,6 +317,247 @@ class PrivacyScreen extends ConsumerWidget {
     }
   }
 }
+
+/// Cloud sync + Smart Analysis as ONE disclosed permission: an honest status and
+/// deliberate actions. Nothing here changes a choice by being rendered; Turn on
+/// reopens the existing disclosure (only its Accept grants), Turn off asks first
+/// and then stops both together through the restrictive disable protocol.
+class _ConsentManagementCard extends ConsumerStatefulWidget {
+  const _ConsentManagementCard({
+    required this.settings,
+    required this.withdraw,
+  });
+
+  final UserSettingsEntity settings;
+  final Future<void> Function(WidgetRef ref, ConsentLocalWork work,
+      {VoidCallback? report}) withdraw;
+
+  @override
+  ConsumerState<_ConsentManagementCard> createState() =>
+      _ConsentManagementCardState();
+}
+
+class _ConsentManagementCardState
+    extends ConsumerState<_ConsentManagementCard> {
+  bool _busy = false;
+
+  void _refresh() {
+    if (!mounted) return;
+    ref.invalidate(userSettingsProvider);
+    ref.invalidate(consentLiveFactsProvider);
+  }
+
+  Future<void> _turnOn() async {
+    if (_busy) return;
+    final work = ref.read(consentLocalWorkProvider)();
+    setState(() => _busy = true);
+    try {
+      await showSmartAnalysisConsentSheet(context, ref,
+          management: true, work: work);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    // A lifecycle that ended meanwhile leaves the live scope untouched.
+    if (work != null && !work.current) return;
+    _refresh();
+  }
+
+  Future<void> _turnOff() async {
+    if (_busy) return;
+    // G5: the outgoing scope is captured and BOUND before the confirmation
+    // opens. The confirmation belongs to that lifecycle only: after a
+    // readmission or account switch, a NEW valid capability exists, but this
+    // dialog must not act through it.
+    final scope = ref.read(consentLocalWorkProvider)();
+    if (scope == null) return; // no committed lifecycle: nothing to withdraw
+    final l10n = context.l10n;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(l10n.consentWithdrawTitle),
+        content: Text(l10n.consentWithdrawBody),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text(l10n.commonCancel)),
+          TextButton(
+              key: const Key('consentWithdrawConfirm'),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: Text(l10n.consentWithdrawConfirm)),
+        ],
+      ),
+    );
+    // Verify that SAME scope before acting.
+    if (confirmed != true || !mounted || !scope.current) return;
+    setState(() => _busy = true);
+    var failed = false;
+    try {
+      // Both permissions, together: the withdrawal never leaves one behind.
+      await widget.withdraw(
+        ref,
+        scope,
+        report: () => failed = true,
+      );
+    } catch (_) {
+      failed = true;
+    }
+    if (mounted) setState(() => _busy = false);
+    if (!mounted || !scope.current) return;
+    _refresh();
+    if (failed) {
+      AppToast.showError(context, context.l10n.consentWithdrawFailed);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final l10n = context.l10n;
+    final facts = ref.watch(consentLiveFactsProvider).valueOrNull;
+    final status = deriveConsentStatus(widget.settings, facts);
+    final (label, body, icon, tone) = switch (status) {
+      ConsentStatus.active => (
+          l10n.consentStatusActive,
+          l10n.consentStatusActiveBody,
+          AppLucideIcons.cloud,
+          c.success
+        ),
+      ConsentStatus.partial => (
+          l10n.consentStatusPartial,
+          l10n.consentStatusPartialBody,
+          AppLucideIcons.cloud,
+          c.warning
+        ),
+      ConsentStatus.off => (
+          l10n.consentStatusOff,
+          l10n.consentStatusOffBody,
+          AppLucideIcons.cloud,
+          c.textMuted
+        ),
+      ConsentStatus.unknown => (
+          l10n.consentStatusUnknown,
+          l10n.consentStatusUnknownBody,
+          AppLucideIcons.cloud,
+          c.warning
+        ),
+      ConsentStatus.turningOn => (
+          l10n.consentStatusTurningOn,
+          l10n.consentStatusTurningOnBody,
+          AppLucideIcons.cloud,
+          c.warning
+        ),
+      ConsentStatus.turningOff => (
+          l10n.consentStatusTurningOff,
+          l10n.consentStatusTurningOffBody,
+          AppLucideIcons.cloud,
+          c.warning
+        ),
+    };
+    final settled = facts != null;
+    // G1: Turn on only where a verified transition exists. Off and a verified
+    // partial go through the disclosure's enable; Turning on offers the exact
+    // resume of its own pending operation. "Can't confirm" (a stored ON whose
+    // live state is not verified) has no safe enable: it offers the withdrawal
+    // (the verified restrictive disable) and a re-check, then a fresh enable.
+    // R17/R18: "Turning on…" offers Turn on only for an exactly resumable
+    // pending enable, and Turn off (the verified withdrawal) for every pending.
+    final canTurnOn = settled &&
+        (status == ConsentStatus.off ||
+            status == ConsentStatus.partial ||
+            (status == ConsentStatus.turningOn &&
+                facts.pendingResumable));
+    // N-CR-4: unresolved pending provenance has no supported action but a
+    // re-check: Turn on is refused by the route and the withdrawal cannot clear
+    // the evidence, so neither is offered, and no recovery is promised.
+    final unresolved = settled && facts.pendingUnresolved;
+    final canTurnOff = settled &&
+        !unresolved &&
+        (status == ConsentStatus.active ||
+            status == ConsentStatus.partial ||
+            status == ConsentStatus.unknown ||
+            status == ConsentStatus.turningOn);
+    final canRefresh = settled &&
+        (status == ConsentStatus.unknown ||
+            status == ConsentStatus.turningOn ||
+            status == ConsentStatus.turningOff);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: c.surface,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Icon(icon, color: c.primary),
+                const SizedBox(width: AppSpacing.s2),
+                Expanded(
+                  child: Text(l10n.consentMgmtTitle,
+                      style: AppTypography.bodyStrong(c.textMain)),
+                ),
+              ]),
+              const SizedBox(height: AppSpacing.s2),
+              Row(
+                key: const Key('consentStatus'),
+                children: [
+                  Icon(Icons.circle, size: 10, color: tone),
+                  const SizedBox(width: AppSpacing.s2),
+                  Text(label, style: AppTypography.bodyStrong(tone)),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.s1),
+              Text(body, style: AppTypography.caption(c.textLight)),
+              if (settled &&
+                  !unresolved &&
+                  (status == ConsentStatus.unknown ||
+                      (status == ConsentStatus.turningOn &&
+                          !facts.pendingResumable))) ...[
+                const SizedBox(height: AppSpacing.s1),
+                Text(l10n.consentStatusUnknownRecovery,
+                    style: AppTypography.caption(c.textLight)),
+              ],
+              const SizedBox(height: AppSpacing.s2),
+              Text(l10n.privCloudProcessingBody,
+                  style: AppTypography.caption(c.textMuted)),
+              const SizedBox(height: AppSpacing.s1),
+              Text(l10n.privAiAnalysisBody,
+                  style: AppTypography.caption(c.textMuted)),
+              if (canTurnOn || canTurnOff || canRefresh) ...[
+                const SizedBox(height: AppSpacing.s2),
+                Wrap(
+                  spacing: AppSpacing.s2,
+                  children: [
+                    if (canTurnOn)
+                      FilledButton(
+                        key: const Key('consentTurnOn'),
+                        onPressed: _busy ? null : _turnOn,
+                        child: Text(l10n.consentTurnOn),
+                      ),
+                    if (canTurnOff)
+                      OutlinedButton(
+                        key: const Key('consentTurnOff'),
+                        onPressed: _busy ? null : _turnOff,
+                        child: Text(l10n.consentTurnOff),
+                      ),
+                    if (canRefresh)
+                      TextButton(
+                        key: const Key('consentRefresh'),
+                        onPressed: _busy ? null : _refresh,
+                        child: Text(l10n.consentRefresh),
+                      ),
+                  ],
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 
 class _PendingDeletionCard extends StatelessWidget {
   const _PendingDeletionCard({

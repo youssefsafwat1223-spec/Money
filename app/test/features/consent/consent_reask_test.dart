@@ -69,7 +69,7 @@ void main() {
       'nothing is saved or sent before the answer (EN)', (tester) async {
     await pump(tester);
     expect(find.text('Smart Analysis & Cloud Sync'), findsOneWidget);
-    expect(find.text('Enable Cloud Sync'), findsOneWidget);
+    expect(find.byKey(const Key('initialConsentAccept')), findsOneWidget);
     expect(repo.saveCalls, 0);
     expect(repo.settings.cloudConsentState, ConsentState.unset);
     expect(repo.settings.aiConsentState, ConsentState.unset);
@@ -81,17 +81,18 @@ void main() {
   testWidgets('re-ask renders in Arabic', (tester) async {
     await pump(tester, locale: 'ar');
     expect(find.text('التحليل الذكي والمزامنة السحابية'), findsOneWidget);
-    expect(find.text('تفعيل المزامنة السحابية'), findsOneWidget);
+    expect(find.byKey(const Key('initialConsentAccept')), findsOneWidget);
   });
 
   testWidgets('"Not now" records the question as asked, writes nothing (stays '
       'denied)', (tester) async {
     await pump(tester);
-    await tester.tap(find.text('Not now'));
+    await tester.tap(find.byKey(const Key('initialConsentDecline')));
     await tester.pumpAndSettle();
     expect(markCalls, 1);
-    expect(repo.saveCalls, 0);
-    expect(repo.settings.cloudConsentState, ConsentState.unset);
+    expect(repo.saveCalls, 1);
+    expect(repo.settings.cloudConsentState, ConsentState.declined);
+    expect(repo.settings.aiConsentState, ConsentState.declined);
     expect(service.syncCalls + service.retryCalls, 0);
   });
 

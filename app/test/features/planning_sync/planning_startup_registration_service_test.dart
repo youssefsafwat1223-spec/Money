@@ -1,29 +1,19 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'dart:io';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_startup_registration_service.dart';
 
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('startup registers settings and custom categories exactly once',
       () async {
-    final db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
-    addTearDown(db.close);
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    final db=admission.database;
+    addTearDown(admission.finish);
     await db.customStatement('''
       INSERT INTO categories(id,key,name_ar,icon,color,is_income,sort_order)
       VALUES ('custom-1','custom_hobby','هواية','star','#123456',0,100);
@@ -57,11 +47,9 @@ void main() {
       'NEW-H-4: without a completed settings pull, NO full-row settings CREATE '
       'is queued (categories may still register) and retry stays possible',
       () async {
-    final db = await AppDatabase.open(
-      executor: NativeDatabase.memory(),
-      keyStore: _MemoryKeyStore(),
-    );
-    addTearDown(db.close);
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    final db=admission.database;
+    addTearDown(admission.finish);
     await db.customStatement('''
       INSERT INTO categories(id,key,name_ar,icon,color,is_income,sort_order)
       VALUES ('custom-1','custom_hobby','هواية','star','#123456',0,100);
@@ -119,8 +107,8 @@ void main() {
     ).readAsStringSync();
     expect(
       source,
-      contains('registerMissingRows(\n'
-          '          settingsPullCompleted: settingsPullCompleted)'),
+      contains('registerMissingRowsWithPhase(\n'
+          '          settingsPullCompleted: settingsPullCompleted, phase: registrationPhase)'),
     );
     expect(
       source,

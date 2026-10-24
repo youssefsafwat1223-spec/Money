@@ -28,6 +28,7 @@ import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
 import '../../core/session/remove_data_flow.dart' show RemoveDataIncompleteException;
 import '../../core/session/unsynced_inventory.dart';
+import '../app/local_read_cleanup_notice.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
@@ -837,12 +838,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               description: context.l10n.setExitAndEraseSub,
               children: [
                 _NavTile(
-                  icon: AppLucideIcons.repeat,
-                  title: context.l10n.setStartOver,
-                  subtitle: context.l10n.setStartOverSub,
-                  onTap: () => _confirmReset(context, ref),
-                ),
-                _NavTile(
                   icon: AppLucideIcons.logOut,
                   iconColor: c.danger,
                   title: context.l10n.setSignOut,
@@ -938,6 +933,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // Captured while the screen still exists.
     final messenger = ScaffoldMessenger.maybeOf(context);
     final failedText = context.l10n.setSignOutFailed;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    final l10n = context.l10n;
     final choice = await showSignOutSheet(context, pending: pending);
     if (choice == null) return;
     if (choice == SignOutChoice.removeData) {
@@ -964,13 +961,17 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
     }
 
+    var outcome = SignOutOutcome.complete;
     try {
       if (choice == SignOutChoice.removeData) {
+        // D4: this screen is disposed by the scope swap. An unfinished durable
+        // denial is reported by the ROOT (`DenyIncompleteNoticeHost`, fed by the
+        // session), not from here, and apart from the data-removed notice.
         await AppSession.instance
             .removeDataFromDevice(signOutRemote: signOutRemote);
         return;
       }
-      await AppSession.instance.signOut();
+      outcome = await AppSession.instance.signOut();
     } on RemoveDataIncompleteException {
       // The device is signed out locally and the unfinished removal resumes at
       // the next launch or sign-in (the remote sign-out already ran).
@@ -980,6 +981,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       return;
     }
     await signOutRemote();
+    if (outcome == SignOutOutcome.durableDenyIncomplete) {
+      await showSignOutIncompleteNotice(navigator, l10n);
+    }
   }
 
   Map<String, String> _countryValues(List<RemoteCountry> countries) {
@@ -1639,6 +1643,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
+  // Retained F2 removal flow; ordinary logout no longer exposes it.
+  // ignore: unused_element
   Future<void> _confirmReset(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,

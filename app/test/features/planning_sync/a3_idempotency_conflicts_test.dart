@@ -1,10 +1,9 @@
+import '../capture/ledger_admission_fixture.dart';
 import 'dart:convert';
 
-import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/sync/outbox_failure.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/domain/entities/category_entity.dart';
 import 'package:money_companion/features/planning_sync/services/planning_outbox_queue.dart';
 import 'package:money_companion/features/planning_sync/services/planning_push_service.dart';
@@ -12,12 +11,6 @@ import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
 /// A-3 — idempotent create (G7), typed conflict classification (G16), no blind
 /// updates (G17) and the durable in-flight marker.
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 /// A fake that models a server table with a PARTIAL unique index on
 /// (user_id, local_id): INSERT of an existing local_id throws 23505.
@@ -145,13 +138,15 @@ PlanningPushService _push(AppDatabase db, _Sink sink) => PlanningPushService(
       mayEgressProfile: () async => true,
     );
 
+late LedgerAdmissionFixture _parentAdmission;
+
 void main() {
   late AppDatabase db;
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    _parentAdmission = await LedgerAdmissionFixture.open('user-1');
+    db = _parentAdmission.database;
   });
-  tearDown(() async => db.close());
+  tearDown(() => _parentAdmission.finish());
 
   group('G7 idempotent create on partial-index tables', () {
     test('replay of a landed create: 23505 on (user_id, local_id) -> fetch + '

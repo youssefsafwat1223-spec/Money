@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import '../session/account_fence_store.dart';
+
 import 'package:supabase_flutter/supabase_flutter.dart'
     show
         AuthException,
@@ -45,7 +47,10 @@ enum OutboxFailureClass {
   /// D-4: 42501 / 403 while a VALID session exists — an RLS / permission denial,
   /// not an authentication problem. Permanent (dead-letter: observable and
   /// re-armable by Retry), never hidden forever as `auth_required`.
-  permissionDenied;
+  permissionDenied,
+
+  accountFenceContention,
+  accountDeletionPending;
 
   /// A permanent failure is dead-lettered immediately (no retry).
   bool get isPermanent =>
@@ -64,6 +69,8 @@ enum OutboxFailureClass {
         serverSchemaMismatch => kFailServerSchemaMismatch,
         serverCheckViolation => kFailServerCheckViolation,
         permissionDenied => kFailPermissionDenied,
+        accountFenceContention => kFailAccountFenceContention,
+        accountDeletionPending => kParkAccountDeletionPending,
         _ => name,
       };
 
@@ -91,6 +98,79 @@ const String kFailDuplicateBusinessKey = 'duplicate_business_key';
 const String kFailServerSchemaMismatch = 'server_schema_mismatch';
 const String kFailServerCheckViolation = 'server_check_violation';
 const String kFailPermissionDenied = 'permission_denied';
+
+const String kFailAccountFenceContention = 'account_fence_contention';
+const String kParkAccountDeletionPending = 'account_deletion_pending';
+const String kParkAccountDeletionGone = 'account_deletion_gone';
+
+/// Ledger-only authoritative raw decoder. Other families retain their existing
+/// classifier; message text and arbitrary wrapped errors are never authority.
+AccountFenceState? decodeLedgerAccountDenial(Object error) {
+  if (error is! PostgrestException) return null;
+  return switch (error.code) {
+    'QD001' => AccountFenceState.pending,
+    'QD002' => AccountFenceState.gone,
+    _ => null,
+  };
+}
+
+enum LedgerDeliveryStopReason { unbound, stale, overlap, provenance, denial }
+
+abstract interface class AccountFenceDeliveryCancellation implements Exception {}
+
+class LedgerDeliveryStopped implements AccountFenceDeliveryCancellation {
+  const LedgerDeliveryStopped(this.reason, {this.accepted = false,
+      this.parked = false, this.complete = false});
+  final LedgerDeliveryStopReason reason;
+  final bool accepted;
+  final bool parked;
+  final bool complete;
+  @override
+  String toString() => 'LedgerDeliveryStopped:${reason.name}';
+}
+
+AccountFenceState? decodeAccountsAccountDenial(Object error) {
+  if (error is! PostgrestException) return null;
+  return switch (error.code) {
+    'QD001' => AccountFenceState.pending,
+    'QD002' => AccountFenceState.gone,
+    _ => null,
+  };
+}
+
+enum AccountsDeliveryStopReason { unbound, stale, overlap, provenance, denial }
+
+class AccountsDeliveryStopped implements AccountFenceDeliveryCancellation {
+  const AccountsDeliveryStopped(this.reason, {this.accepted = false,
+      this.parked = false, this.complete = false});
+  final AccountsDeliveryStopReason reason;
+  final bool accepted;
+  final bool parked;
+  final bool complete;
+  @override
+  String toString() => 'AccountsDeliveryStopped:${reason.name}';
+}
+
+AccountFenceState? decodeParentAccountDenial(Object error) {
+  if (error is! PostgrestException) return null;
+  return switch (error.code) {
+    'QD001' => AccountFenceState.pending,
+    'QD002' => AccountFenceState.gone,
+    _ => null,
+  };
+}
+
+enum PlanningDeliveryStopReason { unbound, stale, overlap, provenance, denial }
+class PlanningDeliveryStopped implements AccountFenceDeliveryCancellation {
+  const PlanningDeliveryStopped(this.reason, {this.accepted = false,
+      this.parked = false, this.complete = false});
+  final PlanningDeliveryStopReason reason;
+  final bool accepted;
+  final bool parked;
+  final bool complete;
+  @override
+  String toString() => 'PlanningDeliveryStopped:${reason.name}';
+}
 
 /// D-4: whether a VALID authenticated session exists right now. Consulted when a
 /// write is rejected 42501/403: with a valid session that is an RLS denial
@@ -228,6 +308,8 @@ OutboxFailureClass classifyOutboxError(Object error, {bool? hasValidSession}) {
   if (error is PostgrestException) {
     final code = error.code ?? '';
     // PostgREST/Postgres SQLSTATE-ish codes.
+    if (code == '55P03') return OutboxFailureClass.accountFenceContention;
+    if (code == 'QD001') return OutboxFailureClass.accountDeletionPending;
     if (code == '409') return OutboxFailureClass.conflict;
     // A-3: a unique violation that reaches here was NOT the entity's own
     // idempotency key (push services handle that replay first) — a business-key
@@ -280,4 +362,91 @@ OutboxFailureClass classifyOutboxError(Object error, {bool? hasValidSession}) {
   // Unknown → treat as transient (retry with backoff) rather than dead-letter,
   // so a novel-but-recoverable error is never silently discarded.
   return OutboxFailureClass.transientNetwork;
+}
+
+AccountFenceState? decodeChildAccountDenial(Object error){
+  if(error is! PostgrestException)return null;
+  return switch(error.code){'QD001'=>AccountFenceState.pending,'QD002'=>AccountFenceState.gone,_=>null};
+}
+enum ChildDeliveryStopReason {unbound,stale,overlap,provenance,denial,nonMutationRefusal}
+class ChildDeliveryStopped implements AccountFenceDeliveryCancellation {
+  const ChildDeliveryStopped(this.reason,{this.accepted=false,this.parked=false,this.complete=false});
+  final ChildDeliveryStopReason reason;
+  final bool accepted;
+  final bool parked;
+  final bool complete;
+  @override
+  String toString()=>'ChildDeliveryStopped:${reason.name}';
+}
+
+AccountFenceState? decodeSmartInboxAccountDenial(Object error) {
+  if (error is! PostgrestException) return null;
+  return switch (error.code) {
+    'QD001' => AccountFenceState.pending,
+    'QD002' => AccountFenceState.gone,
+    _ => null,
+  };
+}
+
+enum SmartInboxDeliveryStopReason { unbound, stale, overlap, provenance, denial, nonMutationRefusal }
+class SmartInboxDeliveryStopped implements AccountFenceDeliveryCancellation {
+  const SmartInboxDeliveryStopped(this.reason, {this.accepted = false, this.complete = false});
+  final SmartInboxDeliveryStopReason reason;
+  final bool accepted;
+  final bool complete;
+  @override
+  String toString() => 'SmartInboxDeliveryStopped:${reason.name}';
+}
+
+AccountFenceState? decodeEngagementAccountDenial(Object error) {
+  if (error is! PostgrestException) return null;
+  return switch (error.code) {
+    'QD001' => AccountFenceState.pending,
+    'QD002' => AccountFenceState.gone,
+    _ => null,
+  };
+}
+
+enum EngagementDeliveryStopReason { unbound, stale, overlap, provenance, denial, nonMutationRefusal }
+class EngagementDeliveryStopped implements AccountFenceDeliveryCancellation {
+  const EngagementDeliveryStopped(this.reason, {this.accepted = false, this.complete = false});
+  final EngagementDeliveryStopReason reason;
+  final bool accepted;
+  final bool complete;
+  @override
+  String toString() => 'EngagementDeliveryStopped:${reason.name}';
+}
+
+AccountFenceState? decodeSenderMappingAccountDenial(Object error) {
+  if (error is! PostgrestException) return null;
+  return switch (error.code) {
+    'QD001' => AccountFenceState.pending,
+    'QD002' => AccountFenceState.gone,
+    _ => null,
+  };
+}
+enum SenderMappingDeliveryStopReason { unbound, stale, overlap, provenance, denial, nonMutationRefusal }
+class SenderMappingDeliveryStopped implements AccountFenceDeliveryCancellation {
+  const SenderMappingDeliveryStopped(this.reason, {this.accepted = false, this.complete = false});
+  final SenderMappingDeliveryStopReason reason;
+  final bool accepted, complete;
+  @override
+  String toString() => 'SenderMappingDeliveryStopped:${reason.name}';
+}
+
+AccountFenceState? decodeNotificationAccountDenial(Object error) {
+  if (error is! PostgrestException) return null;
+  return switch (error.code) {
+    'QD001' => AccountFenceState.pending,
+    'QD002' => AccountFenceState.gone,
+    _ => null,
+  };
+}
+enum NotificationDeliveryStopReason { unbound, stale, overlap, provenance, denial, nonMutationRefusal }
+class NotificationDeliveryStopped implements AccountFenceDeliveryCancellation {
+  const NotificationDeliveryStopped(this.reason, {this.accepted = false, this.complete = false});
+  final NotificationDeliveryStopReason reason;
+  final bool accepted, complete;
+  @override
+  String toString() => 'NotificationDeliveryStopped:${reason.name}';
 }

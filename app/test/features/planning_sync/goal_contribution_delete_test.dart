@@ -1,7 +1,6 @@
-import 'package:drift/native.dart';
+import '../capture/ledger_admission_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
-import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/db/money_v30_backfill.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/data/sync/server_capabilities.dart';
@@ -18,13 +17,6 @@ import '../../harness/fake_cas_server.dart';
 // server's saved_amount is applied to the local goal. Replaces the pre-0116
 // behaviour (immediate unsupported_operation dead letter) wherever the endpoint
 // and an epoch are available.
-
-class _MemoryKeyStore implements DatabaseKeyStore {
-  @override
-  Future<String> readOrCreateKey() async => 'test-key';
-  @override
-  Future<String?> readStoredKey() async => 'test-key';
-}
 
 /// Emulates the 0116 function: epoch, idempotent tombstone, saved_amount - amount once.
 class _DeleteRemote implements PlanningChildRemote {
@@ -137,8 +129,9 @@ void main() {
   }
 
   setUp(() async {
-    db = await AppDatabase.open(
-        executor: NativeDatabase.memory(), keyStore: _MemoryKeyStore());
+    final admission=await LedgerAdmissionFixture.open('user-1');
+    addTearDown(admission.finish);
+    db=admission.database;
     queue = PlanningOutboxQueue(
       db: db,
       isSyncEnabled: _only,

@@ -1,3 +1,9 @@
+import 'dart:async';
+import 'dart:convert';
+import '../../core/session/account_fence_authority.dart';
+import '../../core/session/admission_authority.dart';
+import '../../core/session/app_session.dart';
+import '../../core/sync/account_fence_retry.dart';
 import '../../core/sync/sync_health.dart';
 import 'package:drift/drift.dart' show QueryRow;
 import 'package:flutter/foundation.dart';
@@ -86,11 +92,24 @@ class SupabaseSenderBankMappingRemoteStore implements SenderMappingRemoteStore {
     List<Map<String, dynamic>> rows,
   ) async {
     if (rows.isEmpty) return const [];
-    final response = await _client
-        .from(_table)
-        .upsert(rows, onConflict: 'user_id,normalized_sender_id')
-        .select();
-    return (response as List).cast<Map<String, dynamic>>();
+    final context = Zone.current[_senderRemoteKey] as _SenderRemoteContext?;
+    context?.invocation.requireCurrent();
+    if (context != null && jsonEncode(rows) != jsonEncode(context.payload)) {
+      throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.provenance);
+    }
+    // Synchronous factory and representation parsing are outside origin tagging.
+    final response = _client.from(_table)
+        .upsert(rows, onConflict: 'user_id,normalized_sender_id').select();
+    final List<Map<String, dynamic>> result;
+    try {
+      result = await response;
+    } on supabase.PostgrestException catch (error) {
+      if (context != null && decodeSenderMappingAccountDenial(error) != null) {
+        throw _SenderMutationRefusal(context, error);
+      }
+      rethrow;
+    }
+    return result;
   }
 }
 
@@ -106,11 +125,13 @@ class SenderBankMappingSyncService {
     Future<bool> Function()? mayEgress,
     int pageSize = 200,
     SyncHealth? health,
+    AccountFenceRetry? fenceRetry,
     /// WP-4: sequence pull gate. Null keeps the legacy timestamp pull.
     SeqPullGate? seqGate,
   })  : assert(pageSize > 0),
         _seqGate = seqGate,
         _health = health,
+        _fenceRetry = fenceRetry ?? AccountFenceRetry(),
         _db = db,
         _remoteStore = remoteStore,
         _currentUserId = currentUserId,
@@ -126,135 +147,276 @@ class SenderBankMappingSyncService {
   final SyncHealth? _health;
   final int _pageSize;
   final SeqPullGate? _seqGate;
+  final AccountFenceRetry _fenceRetry;
+  bool _busy = false;
 
   static const _cursorKey = 'sender_bank_mappings';
 
-  Future<SenderMappingSyncResult> sync() async {
-    final userId = _currentUserId();
-    if (userId == null || userId.trim().isEmpty) {
-      return const SenderMappingSyncResult();
-    }
-    // C-3 — which banks a user holds is a direct read on their financial life.
-    // This service had NO consent check at all: with the cloud switch off, a
-    // signed-in user still uploaded their sender→bank mappings.
-    final health = _health;
-    if (!await _mayEgress()) {
-      await health?.runPhase(SyncDomain.senderMappings, SyncDirection.push,
-          () async => health.noteConsentBlocked(SyncDomain.senderMappings));
-      return const SenderMappingSyncResult();
-    }
-    // Push local edits/deletes FIRST so they become the newest server version,
-    // then pull remote changes.
-    final pushResult = health == null
-        ? await push(userId)
-        : (await health.runPhase(
-                SyncDomain.senderMappings, SyncDirection.push, () => push(userId))) ??
-            (0, 0);
-    final pullResult = health == null
-        ? await pull(userId)
-        : (await health.runPhase(
-                SyncDomain.senderMappings, SyncDirection.pull, () => pull(userId))) ??
-            (imported: 0, updated: 0, tombstoned: 0);
-    return SenderMappingSyncResult(
-      imported: pullResult.imported,
-      updated: pullResult.updated,
-      tombstoned: pullResult.tombstoned,
-      pushed: pushResult.$1,
-      failed: pushResult.$2,
-    );
+  Future<SenderMappingSyncResult> sync() => syncWithPhase(SyncPhaseBinding());
+
+  Future<SenderMappingSyncResult> syncWithPhase(SyncPhaseBinding phase,
+      {AdmissionAuthority? originalAuthority}) async {
+    return _bound(phase, originalAuthority, (invocation, allowed) async {
+      if (!allowed) {
+        await _health?.runPhase(SyncDomain.senderMappings, SyncDirection.push,
+            () async => phase.noteConsentBlocked(_health), binding: phase, rethrowErrors: true);
+        return const SenderMappingSyncResult();
+      }
+      final pushed = _health == null ? await _push(invocation, phase) :
+          (await _health.runPhase(SyncDomain.senderMappings, SyncDirection.push,
+              () => _push(invocation, phase), binding: phase, rethrowErrors: true))!;
+      invocation.requireCurrent();
+      final pullPhase = phase.forNextPhase();
+      final pulled = _health == null ? await pull(invocation.uid) :
+          (await _health.runPhase(SyncDomain.senderMappings, SyncDirection.pull,
+              () => pull(invocation.uid), binding: pullPhase, rethrowErrors: true))!;
+      invocation.requireCurrent();
+      return SenderMappingSyncResult(imported: pulled.imported, updated: pulled.updated,
+          tombstoned: pulled.tombstoned, pushed: pushed.$1, failed: pushed.$2);
+    });
   }
 
-  /// Uploads pending local mappings and tombstones with typed error handling.
   Future<(int, int)> push([String? forUserId]) async {
-    final userId = forUserId ?? _currentUserId();
-    if (userId == null || userId.trim().isEmpty) return (0, 0);
-    // Gated independently of sync(): push/pull are public and called directly.
-    if (!await _mayEgress()) {
-      _health?.noteConsentBlocked(SyncDomain.senderMappings);
-      return (0, 0);
+    final phase = SyncPhaseBinding();
+    if (_health == null) return pushWithPhase(phase, forUserId: forUserId);
+    return (await _health.runPhase(SyncDomain.senderMappings, SyncDirection.push,
+        () => pushWithPhase(phase, forUserId: forUserId), binding: phase, rethrowErrors: true))!;
+  }
+
+  Future<(int, int)> pushWithPhase(SyncPhaseBinding phase, {String? forUserId,
+      AdmissionAuthority? originalAuthority}) => _bound(phase, originalAuthority, (invocation, allowed) async {
+    if (forUserId != null && forUserId != invocation.uid) {
+      throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.provenance);
     }
+    if (!allowed) { phase.noteConsentBlocked(_health); return (0, 0); }
+    return _push(invocation, phase);
+  });
 
-    // Uploadable = confirmed/rejected mappings OR any tombstone, that are not
-    // already synced.
-    // G10: a terminally failed mapping (sync_permanent = 1) is never retried,
-    // and a retryable failure waits out its backoff (sync_next_retry_at).
-    final nowSql = dateTimeToSql(DateTime.now().toUtc());
-    final pending = await _db.customSelect(
-      "SELECT * FROM sender_bank_mappings "
-      "WHERE sync_status IN ('pending', 'failed') AND sync_permanent = 0 "
-      "AND (sync_next_retry_at IS NULL OR sync_next_retry_at <= ${sqlString(nowSql)}) "
-      "AND (deleted_at IS NOT NULL OR status IN ('confirmed', 'rejected'));",
-    ).get();
-
-    if (pending.isEmpty) return (0, 0);
-
-    // MALI-029 — ONE batched upsert for the whole pending set (the remote sink
-    // accepts a List) instead of a network round-trip per mapping, and the
-    // synced-marking is committed in ONE transaction instead of one per row. The
-    // server-authoritative updated_at is mapped back by the natural key
-    // (normalized_sender_id). A batch loses per-item error isolation, so on ANY
-    // batch failure we fall back to the accepted per-row path — one bad mapping
-    // never fails the rest, and the natural-key duplicate is still resolved by the
-    // upsert itself (no error).
+  Future<T> _bound<T>(SyncPhaseBinding phase, AdmissionAuthority? received,
+      Future<T> Function(_SenderInvocation, bool) work) async {
+    if (_busy) throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.overlap);
+    _busy = true;
+    final inherited = phase.isBound ? phase : null;
+    void supplied() {
+      if ((inherited != null && (!inherited.isCurrent || !identical(inherited.database, _db))) ||
+          (received != null && (!received.isCurrent ||
+            AppSession.instance.captureLocalWorkAuthority()?.epoch != received.epoch))) {
+        throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.stale);
+      }
+    }
     try {
-      final serverRows = [for (final row in pending) _toServerRow(row, userId)];
-      final stored = await _remoteStore.upsert(serverRows);
-      final updatedByKey = <String, String?>{
-        for (final s in stored)
-          if (s['normalized_sender_id'] != null)
-            s['normalized_sender_id'] as String: s['updated_at'] as String?,
-      };
-      await _db.transaction(() async {
-        for (final row in pending) {
-          await _markSynced(
-            row.read<String>('id'),
-            updatedByKey[row.read<String>('normalized_sender_id')],
-            pushedUpdatedAt: row.read<String>('updated_at'),
-          );
+      supplied();
+      final authority = AccountFenceAuthority.shared;
+      final handle = await authority.captureForDatabase(AppSession.instance, _db);
+      supplied();
+      if (handle == null) throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.unbound);
+      final invocation = _SenderInvocation(authority, handle, _db, inherited, received, _currentUserId);
+      if (!phase.isBound) phase.bind(invocation);
+      invocation.requireCurrent();
+      if (_currentUserId() != invocation.uid) {
+        throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.stale);
+      }
+      final bool allowed;
+      try { allowed = await _mayEgress(); }
+      catch (error, stack) {
+        invocation.requireCurrent();
+        if (_health != null) {
+          await _health.runPhase<void>(SyncDomain.senderMappings, SyncDirection.push,
+              () => Future<void>.error(error, stack), binding: phase, rethrowErrors: true);
         }
+        Error.throwWithStackTrace(error, stack);
+      }
+      invocation.requireCurrent();
+      return await work(invocation, allowed);
+    } on StaleAdmissionException {
+      throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.stale);
+    } finally { _busy = false; }
+  }
+
+  Future<(int, int)> _push(_SenderInvocation invocation, SyncPhaseBinding phase) async {
+    invocation.requireCurrent();
+    final nowSql = dateTimeToSql(_fenceRetry.clock().toUtc());
+    final pending = await invocation.runLocal(() => _db.transaction(() => _db.customSelect(
+      "SELECT * FROM sender_bank_mappings WHERE sync_status IN ('pending', 'failed') "
+      'AND sync_permanent=0 AND (sync_next_retry_at IS NULL OR sync_next_retry_at<=${sqlString(nowSql)}) '
+      "AND (deleted_at IS NOT NULL OR status IN ('confirmed','rejected'));",
+    ).get()));
+    invocation.requireCurrent();
+    if (pending.isEmpty) return (0, 0);
+    List<Map<String, dynamic>> stored;
+    try {
+      stored = await _send(invocation, pending);
+    } on _SenderReceiptFailure catch (error) {
+      phase.noteFailure(_health, error); return (0, 0);
+    } on AccountFenceDeliveryCancellation { rethrow; }
+    on _SenderRemoteOrdinary catch (failure) {
+      final error = failure.error;
+      if (error is supabase.PostgrestException && error.code == '55P03') {
+        await _cooldown(invocation, pending); phase.noteFailure(_health, error); return (0, 0);
+      }
+      return _pushPerRow(invocation, phase, pending);
+    }
+    // Local receipt/ACK exceptions never fall into network replay.
+    final tokens = _validateReceipt(stored, pending, invocation.uid);
+    try {
+      await _ack(invocation, pending, tokens);
+    } on AccountFenceDeliveryCancellation { rethrow; }
+    catch (error) { invocation.requireCurrent(); phase.noteFailure(_health, error); return (pending.length, 0); }
+    return (pending.length, 0);
+  }
+
+  Future<List<Map<String, dynamic>>> _send(_SenderInvocation invocation, List<QueryRow> pending) async {
+    invocation.requireCurrent();
+    final intent = await invocation.authority.captureSenderMappingIntent(invocation.handle, _db,
+        pending.map((row) => row.data).toList());
+    invocation.requireCurrent();
+    if (intent == null) throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.provenance);
+    final payload = List<Map<String, dynamic>>.unmodifiable(pending.map((row) =>
+        Map<String, dynamic>.unmodifiable(_toServerRow(row, invocation.uid))));
+    final context = _SenderRemoteContext(invocation, intent, payload);
+    Object? remoteFailure;
+    StackTrace? remoteStack;
+    Future<List<Map<String, dynamic>>> dispatch() {
+      invocation.requireCurrent();
+      final Future<List<Map<String, dynamic>>> actual;
+      try {
+        actual = runZoned(() => _remoteStore.upsert(payload),
+            zoneValues: {_senderRemoteKey: context});
+      } catch (error, stack) {
+        remoteFailure = error;
+        remoteStack = stack;
+        rethrow;
+      }
+      return actual.catchError((Object error, StackTrace stack) {
+        remoteFailure = error;
+        remoteStack = stack;
+        Error.throwWithStackTrace(error, stack);
       });
-      if (kDebugMode) {
-        debugPrint('[SenderMappingSync] push: pushed=${pending.length} '
-            'failed=0 (batched)');
+    }
+    try {
+      final stored = await _fenceRetry.runItem(isCurrent: () {
+        remoteFailure = null;
+        remoteStack = null;
+        return _retryCurrent(invocation, pending);
+      }, body: () => retryAccountFenceMutation(dispatch));
+      invocation.requireCurrent();
+      // Parse/validate OUTSIDE the remote-failure fallback boundary.
+      try { _validateReceipt(stored, pending, invocation.uid); }
+      catch (_) { throw const _SenderReceiptFailure(); }
+      return stored;
+    } on _SenderMutationRefusal catch (refusal) {
+      if (!identical(refusal.context, context)) {
+        throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.provenance);
       }
-      return (pending.length, 0);
-    } catch (e) {
-      if (kDebugMode) {
-        debugPrint('[SenderMappingSync] batch push failed, per-row fallback: $e');
+      final result = await invocation.authority.acceptSenderMappingDenial(invocation.handle, _db, intent,
+          decodeSenderMappingAccountDenial(refusal.raw)!);
+      throw SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.denial,
+          accepted: result.accepted, complete: result.complete);
+    } on AccountFenceDeliveryCancellation { rethrow; }
+    on TypeError { throw const _SenderReceiptFailure(); }
+    on FormatException { throw const _SenderReceiptFailure(); }
+    on AccountFenceRetryStopped {
+      throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.stale);
+    } catch (error) {
+      if (decodeSenderMappingAccountDenial(error) != null) {
+        throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.nonMutationRefusal);
       }
-      return _pushPerRow(pending, userId);
+      invocation.requireCurrent();
+      if (identical(error, remoteFailure)) {
+        throw _SenderRemoteOrdinary(error, remoteStack!);
+      }
+      rethrow;
     }
   }
 
-  /// Accepted per-row path (isolates a single bad mapping) — used as the fallback
-  /// when the batched upsert fails.
-  Future<(int, int)> _pushPerRow(
-      List<QueryRow> pending, String userId) async {
-    var pushed = 0;
-    var failed = 0;
-    for (final row in pending) {
-      final id = row.read<String>('id');
-      try {
-        final stored = await _remoteStore.upsert([_toServerRow(row, userId)]);
-        final serverUpdatedAt =
-            stored.isEmpty ? null : stored.first['updated_at'] as String?;
-        await _markSynced(id, serverUpdatedAt,
-            pushedUpdatedAt: row.read<String>('updated_at'));
-        pushed++;
-      } catch (e) {
-        final failureClass = classifyOutboxError(e);
-        _health?.noteFailure(SyncDomain.senderMappings, e);
-        await _markFailed(id, failureClass);
-        failed++;
-        if (kDebugMode) {
-          debugPrint(
-            '[SenderMappingSync] push failed (${failureClass.name}): $e',
-          );
+  Future<bool> _retryCurrent(_SenderInvocation invocation, List<QueryRow> rows) async {
+    invocation.requireCurrent();
+    if (_currentUserId() != invocation.uid) return false;
+    final allowed = await _mayEgress();
+    invocation.requireCurrent();
+    if (!allowed) return false;
+    final exact = await invocation.runLocal(() => _db.transaction(() async {
+      for (final row in rows) { if (!await _matches(row)) return false; }
+      return true;
+    }));
+    invocation.requireCurrent(); return exact;
+  }
+
+  Map<String, String> _validateReceipt(List<Map<String, dynamic>> stored, List<QueryRow> pending, String uid) {
+    final keys = pending.map((row) => row.read<String>('normalized_sender_id')).toSet();
+    final result = <String, String>{};
+    for (final row in stored) {
+      final key = row['normalized_sender_id']; final id = row['id']; final stamp = row['updated_at'];
+      if (key is! String || !keys.contains(key) || result.containsKey(key) ||
+          id is! String || id.isEmpty || stamp is! String || DateTime.tryParse(stamp) == null ||
+          (row.containsKey('user_id') && row['user_id'] != uid)) {
+        throw const _SenderReceiptFailure();
+      }
+      result[key] = stamp;
+    }
+    if (result.length != keys.length) throw const _SenderReceiptFailure();
+    return result;
+  }
+
+  Future<bool> _matches(QueryRow snapshot) async {
+    final actual = await _db.customSelect('SELECT * FROM sender_bank_mappings '
+        'WHERE id=${sqlString(snapshot.read<String>('id'))};').getSingleOrNull();
+    return actual != null && mapEquals(actual.data, snapshot.data);
+  }
+
+  Future<void> _ack(_SenderInvocation invocation, List<QueryRow> rows, Map<String, String> tokens) async {
+    await invocation.runLocal(() => _db.transaction(() async {
+      for (final row in rows) {
+        if (await _matches(row)) {
+          await _markSynced(row.read<String>('id'),
+              tokens[row.read<String>('normalized_sender_id')], pushedUpdatedAt: row.read<String>('updated_at'));
         }
       }
-    }
-    if (kDebugMode) {
-      debugPrint('[SenderMappingSync] push: pushed=$pushed failed=$failed');
+    }));
+    invocation.requireCurrent();
+  }
+
+  Future<void> _cooldown(_SenderInvocation invocation, List<QueryRow> rows) async {
+    final next = dateTimeToSql(_fenceRetry.clock().toUtc().add(_fenceRetry.cooldown));
+    await invocation.runLocal(() => _db.transaction(() async {
+      for (final row in rows) {
+        if (await _matches(row)) {
+          await _db.customStatement('UPDATE sender_bank_mappings '
+              'SET sync_next_retry_at=${sqlString(next)} WHERE id=${sqlString(row.read<String>('id'))};');
+        }
+      }
+    }));
+    invocation.requireCurrent();
+  }
+
+  Future<(int, int)> _pushPerRow(_SenderInvocation invocation, SyncPhaseBinding phase, List<QueryRow> pending) async {
+    var pushed = 0, failed = 0;
+    for (final row in pending) {
+      invocation.requireCurrent();
+      if (!await invocation.runLocal(() => _db.transaction(() => _matches(row)))) continue;
+      List<Map<String, dynamic>> stored;
+      try { stored = await _send(invocation, [row]); }
+      on _SenderReceiptFailure catch (error) { phase.noteFailure(_health, error); continue; }
+      on AccountFenceDeliveryCancellation { rethrow; }
+      on _SenderRemoteOrdinary catch (failure) {
+        final error = failure.error;
+        invocation.requireCurrent();
+        if (error is supabase.PostgrestException && error.code == '55P03') {
+          await _cooldown(invocation, [row]); phase.noteFailure(_health, error); return (pushed, failed);
+        }
+        final matched = await invocation.runLocal(() => _db.transaction(() async {
+          if (!await _matches(row)) return false;
+          await _markFailed(row.read<String>('id'), classifyOutboxError(error)); return true;
+        }));
+        invocation.requireCurrent();
+        if (matched) { phase.noteFailure(_health, error); failed++; }
+        continue;
+      }
+      final tokens = _validateReceipt(stored, [row], invocation.uid);
+      pushed++; // Complete remote acceptance is independent of local ACK success.
+      try { await _ack(invocation, [row], tokens); }
+      on AccountFenceDeliveryCancellation { rethrow; }
+      catch (error) { invocation.requireCurrent(); phase.noteFailure(_health, error); continue; }
     }
     return (pushed, failed);
   }
@@ -342,7 +504,7 @@ class SenderBankMappingSyncService {
       if (useSeq && reachedEof) {
         await _seqGate!.markCaughtUp(userId, _cursorKey, seqCursor, plan);
       }
-    } catch (e) {
+    } on AccountFenceDeliveryCancellation { rethrow; } catch (e) {
       _health?.noteFailure(SyncDomain.senderMappings, e);
       if (kDebugMode) debugPrint('[SenderMappingSync] pull error: $e');
     }
@@ -498,10 +660,9 @@ class SenderBankMappingSyncService {
     };
   }
 
-  /// A-2 (G3): settles the mapping ONLY if it is unchanged since it was read for
-  /// this push ([pushedUpdatedAt] — every local edit bumps `updated_at`). A
-  /// mapping edited while the push was in flight stays `pending` and is pushed
-  /// on the next cycle instead of being silently marked synced.
+  /// Called inside the tracked transaction only after the full persisted row
+  /// matches the handed snapshot. The timestamp predicate is an additional
+  /// guard; it is not a distinct local edit identity.
   Future<void> _markSynced(
     String id,
     String? serverUpdatedAt, {
@@ -576,3 +737,50 @@ class SenderBankMappingSyncService {
 }
 
 enum _Outcome { imported, updated, tombstoned, skipped }
+
+class _SenderInvocation implements SyncPhaseLifecycle {
+  _SenderInvocation(this.authority, this.handle, this.database, this.inherited, this.received, this.currentUserId);
+  final AccountFenceAuthority authority;
+  final AccountFenceHandle handle;
+  @override
+  final AppDatabase database;
+  final SyncPhaseBinding? inherited;
+  final AdmissionAuthority? received;
+  final String? Function() currentUserId;
+  String get uid => authority.ownerUid(handle);
+  @override
+  bool get isCurrent => currentUserId() == uid && authority.isCurrentForDatabase(handle, database) &&
+      (inherited == null || inherited!.isCurrent) &&
+      (received == null || (received!.uid == uid && received!.isCurrent &&
+        AppSession.instance.captureLocalWorkAuthority()?.epoch == received!.epoch));
+  void requireCurrent() {
+    if (!isCurrent) throw const SenderMappingDeliveryStopped(SenderMappingDeliveryStopReason.stale);
+  }
+  @override
+  Future<T> runLocal<T>(Future<T> Function() action) {
+    requireCurrent();
+    return authority.runCurrentLocal(handle, database, () {
+      requireCurrent();
+      return action();
+    });
+  }
+}
+const _senderRemoteKey = #senderMappingMutation;
+class _SenderRemoteContext {
+  const _SenderRemoteContext(this.invocation, this.intent, this.payload);
+  final _SenderInvocation invocation;
+  final AccountFenceSenderMappingIntent intent;
+  final List<Map<String, dynamic>> payload;
+}
+class _SenderMutationRefusal implements Exception {
+  const _SenderMutationRefusal(this.context, this.raw);
+  final _SenderRemoteContext context;
+  final supabase.PostgrestException raw;
+}
+class _SenderReceiptFailure implements Exception { const _SenderReceiptFailure(); }
+
+class _SenderRemoteOrdinary implements Exception {
+  const _SenderRemoteOrdinary(this.error, this.stack);
+  final Object error;
+  final StackTrace stack;
+}

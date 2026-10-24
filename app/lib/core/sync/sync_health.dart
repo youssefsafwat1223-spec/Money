@@ -65,6 +65,8 @@ enum SyncErrorClass {
           return conflict;
         case OutboxFailureClass.transientNetwork:
           return offline;
+        case OutboxFailureClass.accountFenceContention:
+        case OutboxFailureClass.accountDeletionPending:
         case OutboxFailureClass.rateLimit:
         case OutboxFailureClass.serverError:
         case OutboxFailureClass.permanentValidation:
@@ -216,6 +218,54 @@ class SyncQueueCounts {
   final DateTime? nextRetryAt;
 }
 
+/// The real ledger supplies only its original verified lifetime implementation.
+abstract interface class SyncPhaseLifecycle {
+  bool get isCurrent;
+  AppDatabase get database;
+  Future<T> runLocal<T>(Future<T> Function() action);
+}
+
+/// One invocation, once-bound. An unbound real phase never uses legacy saves.
+class SyncPhaseBinding {
+  SyncPhaseLifecycle? _lifecycle;
+  bool _bound = false;
+  _PhaseNotes? _notes;
+  SyncDomain? _domain;
+  AppDatabase? _database;
+
+  bool get isBound => _bound;
+  bool get isCurrent => _lifecycle?.isCurrent == true;
+  AppDatabase? get database => _lifecycle?.database;
+
+  Future<T> runLocal<T>(Future<T> Function() action) {
+    final lifecycle = _lifecycle;
+    if (lifecycle == null) {
+      throw const LedgerDeliveryStopped(LedgerDeliveryStopReason.unbound);
+    }
+    return lifecycle.runLocal(action);
+  }
+
+  SyncPhaseBinding forNextPhase() {
+    final next = SyncPhaseBinding();
+    final lifecycle = _lifecycle;
+    if (lifecycle != null) next.bind(lifecycle);
+    return next;
+  }
+
+  void bind(SyncPhaseLifecycle lifecycle) {
+    if (_bound) throw StateError('sync_phase_already_bound');
+    _bound = true;
+    _lifecycle = lifecycle;
+  }
+
+  void noteConsentBlocked(SyncHealth? health) => health?._boundNote(this,
+      (notes) => notes.consentBlocked = true);
+  void noteCapabilityParked(SyncHealth? health) => health?._boundNote(this,
+      (notes) => notes.capabilityParked = true);
+  void noteFailure(SyncHealth? health, Object error) => health?._boundNote(this,
+      (notes) => notes.failure ??= SyncErrorClass.classify(error));
+}
+
 /// Durable, lightweight per-domain sync health.
 ///
 /// Persistence pattern: one `sync_cursors` row per domain, keyed
@@ -289,6 +339,7 @@ class SyncHealth {
           .customSelect('SELECT entity, last_id FROM sync_cursors '
               "WHERE entity LIKE 'sync_health:%';")
           .get();
+      if (!identical(_db, db)) return;
       for (final row in rows) {
         final name = row.read<String>('entity').substring(_keyPrefix.length);
         for (final d in SyncDomain.values) {
@@ -326,6 +377,36 @@ class SyncHealth {
 
   _PhaseNotes _note(SyncDomain d) => _notes.putIfAbsent(d, _PhaseNotes.new);
 
+  void _boundNote(SyncPhaseBinding binding, void Function(_PhaseNotes) note) {
+    final notes = binding._notes;
+    final lifecycle = binding._lifecycle;
+    if (notes != null && lifecycle != null && lifecycle.isCurrent &&
+        identical(_db, binding._database) &&
+        identical(_notes[binding._domain], notes)) {
+      note(notes);
+    }
+  }
+
+  Future<void> _recordBound(SyncPhaseBinding binding, SyncDomain domain,
+      void Function() record) async {
+    final lifecycle = binding._lifecycle;
+    if (lifecycle == null || !lifecycle.isCurrent ||
+        !identical(_db, binding._database) ||
+        !identical(lifecycle.database, binding._database) ||
+        !identical(_notes[domain], binding._notes)) {
+      return;
+    }
+    await lifecycle.runLocal(() async {
+      if (!identical(_db, binding._database) ||
+          !identical(_notes[domain], binding._notes)) {
+        return;
+      }
+      record();
+      final snapshot = jsonEncode(of(domain).toJson());
+      await _saveSnapshot(binding._database!, domain, snapshot);
+    });
+  }
+
   // --- orchestrators --------------------------------------------------------
 
   /// Runs [body] as one sync phase and records its outcome:
@@ -337,34 +418,54 @@ class SyncHealth {
     SyncDirection direction,
     Future<T> Function() body, {
     bool rethrowErrors = false,
+    SyncPhaseBinding? binding,
   }) async {
-    _notes[domain] = _PhaseNotes();
+    final ownNotes = _PhaseNotes();
+    _notes[domain] = ownNotes;
+    if (binding != null) {
+      binding._notes = ownNotes;
+      binding._domain = domain;
+      binding._database = _db;
+    }
     try {
       final result = await body();
-      final n = _notes[domain]!;
-      if (n.consentBlocked) {
-        _recordBlocked(domain, SyncErrorClass.consentBlocked);
-      } else if (n.failure != null) {
-        _recordFailure(domain, n.failure!);
-      } else if (n.capabilityParked) {
-        _recordBlocked(domain, SyncErrorClass.capabilityParked);
-      } else {
-        _recordSuccess(domain, direction);
+      void record({required bool save}) {
+        if (ownNotes.consentBlocked) {
+          _recordBlocked(domain, SyncErrorClass.consentBlocked, save: save);
+        } else if (ownNotes.failure != null) {
+          _recordFailure(domain, ownNotes.failure!, save: save);
+        } else if (ownNotes.capabilityParked) {
+          _recordBlocked(domain, SyncErrorClass.capabilityParked, save: save);
+        } else {
+          _recordSuccess(domain, direction, save: save);
+        }
+      }
+      if (binding != null) {
+        await _recordBound(binding, domain, () => record(save: false));
+      } else if (identical(_notes[domain], ownNotes)) {
+        record(save: true);
       }
       return result;
     } catch (e) {
-      recordFailure(domain, e);
+      if (e is! AccountFenceDeliveryCancellation) {
+        if (binding != null) {
+          await _recordBound(binding, domain, () =>
+              _recordFailure(domain, SyncErrorClass.classify(e), save: false));
+        } else if (identical(_notes[domain], ownNotes)) {
+          recordFailure(domain, e);
+        }
+      }
       if (rethrowErrors) rethrow;
       return null;
     } finally {
-      _notes.remove(domain);
+      if (identical(_notes[domain], ownNotes)) _notes.remove(domain);
     }
   }
 
   void recordFailure(SyncDomain d, Object error) =>
       _recordFailure(d, SyncErrorClass.classify(error));
 
-  void _recordSuccess(SyncDomain d, SyncDirection dir) {
+  void _recordSuccess(SyncDomain d, SyncDirection dir, {bool save = true}) {
     final s = of(d);
     final now = _clock();
     final clearState = s.lastErrorClass?.isBlockedState ?? false;
@@ -375,10 +476,10 @@ class SyncHealth {
       lastErrorClass: clearState ? null : s.lastErrorClass,
       consecutiveFailures: 0,
     );
-    _save(d);
+    if (save) _save(d);
   }
 
-  void _recordFailure(SyncDomain d, SyncErrorClass c) {
+  void _recordFailure(SyncDomain d, SyncErrorClass c, {bool save = true}) {
     final s = of(d);
     _state[d] = SyncDomainHealth(
       lastPushSuccessAt: s.lastPushSuccessAt,
@@ -387,12 +488,12 @@ class SyncHealth {
       lastErrorClass: c,
       consecutiveFailures: s.consecutiveFailures + 1,
     );
-    _save(d);
+    if (save) _save(d);
   }
 
   /// A blocked state is ONE state: re-entering it repeatedly neither bumps the
   /// failure counter nor rewrites the timestamp.
-  void _recordBlocked(SyncDomain d, SyncErrorClass c) {
+  void _recordBlocked(SyncDomain d, SyncErrorClass c, {bool save = true}) {
     final s = of(d);
     if (s.lastErrorClass == c) return;
     _state[d] = SyncDomainHealth(
@@ -402,29 +503,29 @@ class SyncHealth {
       lastErrorClass: c,
       consecutiveFailures: s.consecutiveFailures,
     );
-    _save(d);
+    if (save) _save(d);
   }
 
   void _save(SyncDomain d) {
     final db = _db;
     if (db == null) return;
-    unawaited(() async {
-      try {
-        await db.customStatement(
-          'INSERT INTO sync_cursors(entity, last_updated_at, last_id) VALUES ('
-          '${sqlString('$_keyPrefix${d.name}')}, '
-          '${sqlString(_clock().toUtc().toIso8601String())}, '
-          '${sqlString(jsonEncode(of(d).toJson()))}) '
-          'ON CONFLICT(entity) DO UPDATE SET '
-          'last_updated_at = excluded.last_updated_at, '
-          'last_id = excluded.last_id;',
-        );
-      } catch (e) {
-        if (kDebugMode) {
-          debugPrint('[SyncHealth] persist failed: ${e.runtimeType}');
-        }
-      }
-    }());
+    unawaited(_saveSnapshot(db, d, jsonEncode(of(d).toJson())));
+  }
+
+  Future<void> _saveSnapshot(AppDatabase db, SyncDomain d, String snapshot) async {
+    try {
+      await db.customStatement(
+        'INSERT INTO sync_cursors(entity, last_updated_at, last_id) VALUES ('
+        '${sqlString('$_keyPrefix${d.name}')}, '
+        '${sqlString(_clock().toUtc().toIso8601String())}, '
+        '${sqlString(snapshot)}) '
+        'ON CONFLICT(entity) DO UPDATE SET '
+        'last_updated_at = excluded.last_updated_at, '
+        'last_id = excluded.last_id;',
+      );
+    } catch (e) {
+      if (kDebugMode) debugPrint('[SyncHealth] persist failed: ${e.runtimeType}');
+    }
   }
 
   /// Outbox depth for the health surface. Raw counts only.

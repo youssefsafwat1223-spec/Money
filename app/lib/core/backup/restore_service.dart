@@ -27,7 +27,61 @@ class RestoreService {
   final RestoreJournal _journal;
 
   /// Execute the mutation phase for [plan].
+  ///
+  /// O-BX-1: the restore is an exclusive-maintenance creator. When the session
+  /// supplies [maintenanceParticipant] the WHOLE execution (journal, maintenance
+  /// and the post-commit tail, all of which use the database) runs inside the
+  /// session's admission drain, so a local-read restoration waits for it and a
+  /// restore that has not started is refused, before any journal write, lease,
+  /// intent or mutation, with [RestoreOutcome.ownershipChanged].
   Future<RestoreResult> execute({
+    required RestorePlan plan,
+    DatabaseLeaseManager? leaseManager,
+    OwnershipGuard? ownershipGuard,
+    AdmissionToken? admissionToken,
+    String? preparedUserId,
+    String? Function()? currentUserId,
+    Future<void> Function()? afterRestore,
+    Duration drainTimeout = const Duration(seconds: 10),
+    Duration exclusiveTimeout = const Duration(seconds: 10),
+    PlanningCutoverCoordinator planningCoordinator =
+        const SchemaV29PlanningCutoverCoordinator(),
+    RestorePayloadRepairDecision? planningRepairDecision,
+    void Function(String point)? onFaultPoint,
+    Future<void> Function(Future<void> Function() run)? maintenanceParticipant,
+  }) async {
+    Future<RestoreResult> body() => _execute(
+          plan: plan,
+          leaseManager: leaseManager,
+          ownershipGuard: ownershipGuard,
+          admissionToken: admissionToken,
+          preparedUserId: preparedUserId,
+          currentUserId: currentUserId,
+          afterRestore: afterRestore,
+          drainTimeout: drainTimeout,
+          exclusiveTimeout: exclusiveTimeout,
+          planningCoordinator: planningCoordinator,
+          planningRepairDecision: planningRepairDecision,
+          onFaultPoint: onFaultPoint,
+        );
+    final participant = maintenanceParticipant;
+    if (participant == null) return body();
+    var entered = false;
+    late RestoreResult result;
+    try {
+      await participant(() async {
+        entered = true;
+        result = await body();
+      });
+    } on StaleOwnershipException {
+      if (entered) rethrow;
+      return RestoreResult(RestoreOutcome.ownershipChanged,
+          operationId: plan.operationId);
+    }
+    return result;
+  }
+
+  Future<RestoreResult> _execute({
     required RestorePlan plan,
     DatabaseLeaseManager? leaseManager,
     OwnershipGuard? ownershipGuard,

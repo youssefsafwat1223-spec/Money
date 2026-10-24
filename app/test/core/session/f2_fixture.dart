@@ -9,6 +9,7 @@ import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/core/session/remove_data_flow.dart';
 import 'package:money_companion/data/db/app_database.dart';
+import 'package:money_companion/data/db/database_access_broker.dart';
 import 'package:money_companion/data/db/replica_store.dart';
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -33,6 +34,9 @@ class GatedScope implements AccountScopeControl {
 
   @override
   String? get activeUid => host.activeUid;
+
+  @override
+  AccountScope? get activeScope => host.activeScope;
 
   /// Completes (once) when the first `detach` finished its work, i.e. when the
   /// signed-out scope is published and a generation-keyed ProviderScope remounts.
@@ -82,6 +86,7 @@ class F2Fixture {
   Future<AccountScopeInit> Function(AppDatabase db, String? uid)? initialize;
   Future<void> Function()? afterWithdraw;
   ReplicaOpener? opener;
+  DatabaseAccessBroker? coordinator;
   String? crashAfterStep;
 
   /// [afterWithdraw] defaults to the host's own; the widget test passes
@@ -90,8 +95,10 @@ class F2Fixture {
     Future<AccountScopeInit> Function(AppDatabase db, String? uid)? initialize,
     Future<void> Function()? afterWithdraw,
     ReplicaOpener? opener,
+    DatabaseAccessBroker? coordinator,
   }) async {
     final f = F2Fixture._();
+    f.coordinator = coordinator;
     f.initialize = initialize;
     f.afterWithdraw = afterWithdraw;
     f.opener = opener;
@@ -118,14 +125,33 @@ class F2Fixture {
     await session.load();
   }
 
+  /// A NEW process after the old one died while its replica was still `active`
+  /// (killed, crashed, backgrounded away): nothing was locked on the way out.
+  Future<void> restartWithoutLock() async {
+    await host.detach();
+    await host.current?.database.close();
+    host.dispose();
+    session.configureRemoveData(null);
+    session.configureAccountScope(null);
+    _build();
+    await session.load();
+  }
+
   void _build() {
     store = ReplicaStore(appSupportDirectory: support.path, opener: opener);
-    host = AccountScopeHost(
-      store: store,
-      initialize: (db, uid) async => await (initialize?.call(db, uid) ??
-          Future.value(const AccountScopeInit())),
-      afterWithdraw: afterWithdraw,
-    );
+    Future<AccountScopeInit> init(AppDatabase db, String? uid) async =>
+        await (initialize?.call(db, uid) ??
+            Future.value(const AccountScopeInit()));
+    final c = coordinator;
+    // R8: a fixture without a coordinator is explicit about it.
+    host = c == null
+        ? AccountScopeHost.uncoordinatedForTesting(
+            store: store, initialize: init, afterWithdraw: afterWithdraw)
+        : AccountScopeHost(
+            store: store,
+            initialize: init,
+            afterWithdraw: afterWithdraw,
+            coordinator: c);
     scope = GatedScope(host);
     flow = RemoveDataFlow(
       store: store,
@@ -138,6 +164,11 @@ class F2Fixture {
         if (s == crashAfterStep) throw _Crash();
       },
     );
+    if (c == null) {
+      session.configureUncoordinatedForTesting();
+    } else {
+      session.configureDatabaseCoordinator(c);
+    }
     session.configureAccountScope(scope);
     session.configureRemoveData(flow);
   }
@@ -145,6 +176,7 @@ class F2Fixture {
   Future<void> dispose() async {
     session.configureRemoveData(null);
     session.configureAccountScope(null);
+    session.configureUncoordinatedForTesting();
     session.configureCaptureOwnerClear(null);
     await host.lock();
     await host.current?.database.close();

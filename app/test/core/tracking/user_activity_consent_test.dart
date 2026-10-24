@@ -1,3 +1,11 @@
+import 'dart:async';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
+import '../../harness/egress_test_support.dart';
+import '../session/f2_fixture.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/tracking/user_activity_service.dart';
 
@@ -16,6 +24,7 @@ import 'package:money_companion/core/tracking/user_activity_service.dart';
 /// consulted, and that an unconfigured build is silent. The end-to-end proof
 /// that nothing leaves with consent off is the integration test.
 void main() {
+  _activityObservationControls();
   setUp(UserActivityService.resetForTest);
   tearDown(UserActivityService.resetForTest);
 
@@ -54,4 +63,92 @@ void main() {
     // No assertion beyond "does not throw": the field is private. This exists
     // so the call site in AppSession stays covered if the method changes shape.
   });
+}
+
+class _ActivitySdkStorage extends GotrueAsyncStorage {
+  const _ActivitySdkStorage();
+  @override
+  Future<String?> getItem({required String key}) async => null;
+  @override
+  Future<void> setItem({required String key, required String value}) async {}
+  @override
+  Future<void> removeItem({required String key}) async {}
+}
+
+void _activityObservationControls() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  group('configured activity owned completion', () {
+    late CloudEgressGate previous;
+    late Future<http.Response> Function(http.Request) respond;
+    final requests = <http.Request>[];
+    setUpAll(() async {
+      previous = CloudEgressGate.instance;
+      TestEgress(seedOn: true).install();
+      await Supabase.initialize(url: 'https://example.supabase.co', anonKey: 'anon',
+          authOptions: const FlutterAuthClientOptions(autoRefreshToken: false,
+              detectSessionInUri: false, localStorage: EmptyLocalStorage(),
+              pkceAsyncStorage: _ActivitySdkStorage()),
+          httpClient: GatedHttpClient(MockClient((request) { requests.add(request); return respond(request); })));
+      await F2Fixture.recoverSession_(Supabase.instance.client, 'uid-a');
+    });
+    tearDownAll(() async {
+      await UserActivityService.waitPendingActivityWork();
+      await Supabase.instance.dispose();
+      CloudEgressGate.instance = previous;
+    });
+    setUp(() {
+      requests.clear();
+      respond = (request) async => http.Response('', 204, request: request);
+    });
+    for (final signIn in [false, true]) {
+      test('${signIn ? 'onSignIn' : 'ping'} barrier observes held actual operation and does not send', () async {
+        final reached = Completer<void>(); final release = Completer<void>();
+        Future<void>? producer; Future<void>? barrier;
+        var complete = false;
+        UserActivityService.configureConsentGate(() async => true);
+        respond = (request) async {
+          reached.complete(); await release.future;
+          return http.Response('', 204, request: request);
+        };
+        try {
+          producer = signIn ? UserActivityService.onSignIn() : UserActivityService.ping();
+          await reached.future;
+          barrier = UserActivityService.waitPendingActivityWork().then((_) { complete = true; });
+          await Future<void>.value();
+          expect(complete, isFalse); expect(requests, hasLength(1));
+          final request = requests.single;
+          expect(request.method, 'PATCH'); expect(request.url.path, '/rest/v1/profiles');
+          expect(request.url.queryParameters['id'], 'eq.uid-a');
+          final body = jsonDecode(request.body) as Map;
+          expect(body.keys, ['last_seen_at']); expect(DateTime.parse(body['last_seen_at'] as String).isUtc, isTrue);
+          release.complete(); await producer; await barrier;
+          expect(complete, isTrue); expect(requests, hasLength(1));
+          await UserActivityService.ping();
+          expect(requests, hasLength(1), reason: 'completed operation stamped the original throttle');
+          await UserActivityService.waitPendingActivityWork(); expect(requests, hasLength(1));
+        } finally {
+          if (!release.isCompleted) release.complete();
+          try { await producer; } finally { await barrier; await UserActivityService.waitPendingActivityWork(); }
+        }
+      });
+    }
+    test('denied activity is not throttled and sign-in still forces one later write', () async {
+      var gates = 0;
+      UserActivityService.configureConsentGate(() async { gates++; return false; });
+      await UserActivityService.ping(); await UserActivityService.ping();
+      await UserActivityService.waitPendingActivityWork();
+      expect(gates, 2); expect(requests, isEmpty);
+      UserActivityService.configureConsentGate(() async => true);
+      await UserActivityService.onSignIn(); await UserActivityService.waitPendingActivityWork();
+      expect(requests, hasLength(1));
+      final request = requests.single;
+      expect(request.method, 'PATCH'); expect(request.url.path, '/rest/v1/profiles');
+      expect(request.url.queryParameters['id'], 'eq.uid-a');
+      final body = jsonDecode(request.body) as Map;
+      expect(body.keys, ['last_seen_at']); expect(DateTime.parse(body['last_seen_at'] as String).isUtc, isTrue);
+    });
+  }, skip: !(const String.fromEnvironment('SUPABASE_ENV') == 'local' &&
+      const String.fromEnvironment('SUPABASE_URL') == 'https://example.supabase.co' &&
+      const String.fromEnvironment('SUPABASE_ANON_KEY') == 'anon')
+      ? 'Requires exact synthetic local/example/anon defines; no configured coverage otherwise.' : false);
 }

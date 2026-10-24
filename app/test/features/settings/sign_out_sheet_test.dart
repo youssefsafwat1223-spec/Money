@@ -70,12 +70,8 @@ void main() {
     expect(primary, findsOneWidget);
     expect(tester.widget(primary), isA<FilledButton>(),
         reason: 'the default action is the filled, primary button');
-    expect(find.text('Sign out and keep encrypted data'), findsOneWidget);
-    expect(find.text('Sign out and remove data from this device'),
-        findsOneWidget);
-    expect(tester.widget(find.byKey(const Key('signOutRemoveData'))),
-        isA<OutlinedButton>(),
-        reason: 'removal is a separate, secondary, destructive control');
+    expect(find.text('Sign out'), findsNWidgets(2));
+    expect(find.byKey(const Key('signOutRemoveData')), findsNothing);
   });
 
   testWidgets('tapping the default returns keepData', (tester) async {
@@ -115,11 +111,25 @@ void main() {
             .widget<FilledButton>(find.byKey(const Key('signOutKeepData')))
             .onPressed,
         isNotNull);
-    expect(
-        tester
-            .widget<OutlinedButton>(find.byKey(const Key('signOutRemoveData')))
-            .onPressed,
-        isNotNull);
+    expect(find.byKey(const Key('signOutRemoveData')), findsNothing);
+  });
+
+  testWidgets('says plainly that the data stays on this device and returns on '
+      'sign-in, with one action and no encrypted keep/remove choice',
+      (tester) async {
+    await _open(tester);
+    expect(find.byKey(const Key('signOutDataStays')), findsOneWidget);
+    expect(find.text(lookupAppL10n(const Locale('en')).signOutDataStays),
+        findsOneWidget);
+    expect(find.textContaining('ncrypted'), findsNothing);
+    expect(find.byType(FilledButton), findsOneWidget);
+  });
+
+  testWidgets('the Arabic sheet says the data stays on the device',
+      (tester) async {
+    await _open(tester, locale: const Locale('ar'));
+    expect(find.text(lookupAppL10n(const Locale('ar')).signOutDataStays),
+        findsOneWidget);
   });
 
   testWidgets('no warning when nothing is unsynced', (tester) async {
@@ -129,9 +139,7 @@ void main() {
 
   testWidgets('the Arabic sheet renders the proposed copy', (tester) async {
     await _open(tester, locale: const Locale('ar'));
-    expect(find.text('تسجيل الخروج مع الاحتفاظ بالبيانات المشفّرة'),
-        findsOneWidget);
-    expect(find.text('تسجيل الخروج وحذف البيانات من هذا الجهاز'),
-        findsOneWidget);
+    expect(find.text('تسجيل الخروج'), findsNWidgets(2));
+    expect(find.byKey(const Key('signOutRemoveData')), findsNothing);
   });
 }

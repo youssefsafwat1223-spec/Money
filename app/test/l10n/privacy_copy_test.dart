@@ -16,7 +16,8 @@ void main() {
     'onbCloudBullet1',
     'onbAiBullet1',
   ];
-  // AI-describing strings must hedge with "may be analysed" / «قد».
+  // AI-describing strings must use conditional language, including the named
+  // provider disclosure on the initial consent sheet.
   const aiKeys = {
     'privAiAnalysisBody',
     'smartConsentBullet1',
@@ -32,15 +33,35 @@ void main() {
   for (final k in keys) {
     test('$k (en) states sanitisation and no absolute claims', () {
       final s = en[k] as String;
-      expect(s, contains('card, account and phone numbers and codes removed'));
+      if (k == 'smartConsentBullet1') {
+        expect(
+            s,
+            contains('sent to Qirsh servers after card, account and phone '
+                'numbers and codes are removed'));
+        expect(s, contains('Google Gemini may process this text'));
+      } else {
+        expect(
+            s, contains('card, account and phone numbers and codes removed'));
+      }
       expect(s.toLowerCase(), isNot(matches(RegExp(r'\bevery\b'))));
       expect(s.toLowerCase(), isNot(contains('only when')));
-      if (aiKeys.contains(k)) expect(s, contains('may be analysed'));
+      if (aiKeys.contains(k) && k != 'smartConsentBullet1') {
+        expect(s, contains('may be analysed'));
+      }
     });
 
     test('$k (ar) states sanitisation and no absolute claims', () {
       final s = ar[k] as String;
-      expect(s, contains('بعد حذف أرقام البطاقات والحسابات والهواتف والرموز'));
+      if (k == 'smartConsentBullet1') {
+        expect(
+            s,
+            contains('إلى خوادم قرش بعد إزالة أرقام البطاقات والحسابات '
+                'والهواتف والرموز'));
+        expect(s, contains('قد تعالج خدمة Google Gemini هذا النص'));
+      } else {
+        expect(
+            s, contains('بعد حذف أرقام البطاقات والحسابات والهواتف والرموز'));
+      }
       expect(s, isNot(contains('كل رسالة')));
       expect(s, isNot(contains('فقط عندما')));
       if (aiKeys.contains(k)) expect(s, contains('قد '));

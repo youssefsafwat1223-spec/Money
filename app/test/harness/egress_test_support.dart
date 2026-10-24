@@ -60,7 +60,7 @@ class TestEgress {
       file.value = body;
     }
     gate = CloudEgressGate(
-      store: CloudEgressStore(secure: secure, file: file, native: native),
+      store: CloudEgressStore.forTesting(secure: secure, file: file, native: native),
       activeOwner: () async => owner,
       drainTimeout: drain,
       nativeInflight: (_) async => (count: 0, latestDeadline: null),
