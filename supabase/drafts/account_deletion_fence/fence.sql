@@ -1,16 +1,17 @@
--- DRAFT — NOT APPLIED — requires Astra review and owner approval
---
--- account_deletion_fence v2 — additive draft for IMMEDIATE, permanent account deletion.
--- NOT a migration: it lives under supabase/drafts/ on purpose. The final filename must be allocated
--- by the Supabase CLI (suffix `account_deletion_fence`) only after approval; the reviewed-set rollback is
--- rollback.sql beside this file (DECISIONS.md defines what 'exact' does and does not mean there). NOTHING here has been executed or PARSED anywhere: no database, no
--- SQL parser, no linter. Treat every statement as unreviewed source. DECISIONS.md holds the
--- decisions (all PROPOSED); inventory.md (in the unit log directory) grounds every source claim.
+-- account_deletion_fence v2 — additive migration for IMMEDIATE, permanent account deletion.
+-- This file is migration 0117 (supabase/migrations/0117_account_deletion_fence.sql is the canonical copy; this
+-- drafts/ copy is the generator's working copy and MUST stay byte-identical). The reviewed-set rollback is
+-- supabase/rollback/0117_account_deletion_fence_rollback.sql (identical to rollback.sql beside this file; DECISIONS.md
+-- defines what 'exact' does and does not mean there).
+-- STATUS: qualified on a disposable, loopback-only Supabase stack (migrate, apply, acl, concurrency, drain, rollback
+-- with an identical baseline) and reviewed by a fresh Opus 5.5 security review. Applying it to production requires the
+-- owner's explicit approval. DECISIONS.md holds the decisions; inventory.md (in the unit log directory) grounds every
+-- source claim.
 --
 -- This file is LITERAL SQL. It contains no statement that generates DDL from the catalog. The only
 -- DO blocks are fail-closed ASSERTIONS (preflight at the top, effective-ACL checks at the end);
--- they read the catalog and raise, they never create or alter anything. The single exception is the
--- guarded scheduling block in section 11, which only calls cron.schedule and never generates DDL. Sections 5 (and the
+-- they read the catalog and raise, they never create or alter anything. The exceptions are the
+-- guarded pg_cron blocks (section 0 snapshot insert; section 11 cron.schedule / cron.unschedule), which never generate DDL. Sections 5 (and the
 -- preflight rows) were produced offline from the historical migrations by gen_rpc_bodies.py and
 -- are checked in as text; the script is NOT needed to apply this file (it only lets a reviewer
 -- reproduce the text byte for byte).
@@ -19,10 +20,12 @@
 -- · 3 direct-DML closure · 4 hooks · 5 restated RPC bodies with admission (E3) · 6 acceptance/lease
 -- RPCs (incl. challenge issuer/reader, Apple subject lookup) · 7 erasure (E1, O4, O5) · 8 legacy route + audit
 -- append-only exception · 9 ACL + ownership · 10 effective-privilege assertions · 11 retention purge function and
--- guarded pg_cron schedules (the ONLY non-assertion DO block; skipped when pg_cron is absent).
+-- guarded pg_cron schedules and the legacy-job unschedule (skipped when pg_cron is absent).
 -- 2026-10-24 owner decisions D4-D7 (DELETION-COMPLETION-CONTRACT.md; recorded in DECISIONS.md): 14-day anonymous
 -- marker retention + daily purge (D5), referral/entitlement protocol retired with QD040 (D6, section 5), admin
--- self-deletion blocked with QD031 (D7). Still unparsed and unexecuted.
+-- self-deletion blocked with QD031 (D7). Review fixes F1-F4 (DECISIONS.md): legacy purge queue must be empty at apply
+-- (QD096) and the legacy 30-day cron job is unscheduled and snapshotted (section 11); owner-column forgery by API roles
+-- is refused with 42501 before admission (guard_owner_columns); terminal failure disposes Apple ciphertext.
 --
 -- Assumptions that MUST be proven on a real stack (E8, owner-gated) before approval:
 --   * the migration role is `postgres`, owns every restated public function, may CREATE ROLE, and
@@ -73,6 +76,22 @@ begin
   end if;
   if to_regclass('auth.users') is null then
     raise exception 'account_fence preflight: auth.users missing' using errcode = 'QD090';
+  end if;
+  if to_regclass('public.account_purge_queue') is null then
+    raise exception 'account_fence preflight: public.account_purge_queue missing' using errcode = 'QD090';
+  end if;
+end
+$assert$;
+
+-- F1 / E5 owner policy: legacy 30-day purge work is never converted, accelerated or discarded by this migration.
+-- EXCLUSIVE mode blocks every writer (the legacy worker enqueues and advances rows) for the rest of this transaction,
+-- so the emptiness test below stays true until commit. Rows are NOT deleted or modified here.
+lock table public.account_purge_queue in exclusive mode;
+do $assert$
+begin
+  if exists (select 1 from public.account_purge_queue) then
+    raise exception 'account_fence preflight: legacy purge work is queued or in progress in public.account_purge_queue; it needs a separate incident assessment (E5) before this migration'
+      using errcode = 'QD096';
   end if;
 end
 $assert$;
@@ -188,8 +207,17 @@ as $$
     from auth.identities i where i.user_id = p_uid and i.provider = 'apple' limit 1
 $$;
 
-revoke all on function account_fence.auth_uid(), account_fence.auth_user_exists(uuid), account_fence.auth_apple_subject(uuid) from public;
-grant execute on function account_fence.auth_uid(), account_fence.auth_user_exists(uuid), account_fence.auth_apple_subject(uuid) to account_fence_owner;
+-- F2: public.account_purge_queue is never erased by this design (it has no owner policy and no DELETE grant). The
+-- preflight proves it EMPTY at apply (QD096, table locked EXCLUSIVE) and section 11 unschedules the only job that enqueues
+-- into it, so no row can appear afterwards. This fourth shim lets erase_verify ASSERT that no queue row exists for the
+-- subject (the narrow owner has no privilege on the table); it returns one boolean for a caller-supplied uid.
+create function account_fence.legacy_queue_has_uid(p_uid uuid) returns boolean
+language sql volatile security definer
+set search_path = pg_catalog, pg_temp
+as $$ select exists (select 1 from public.account_purge_queue q where q.user_id = p_uid) $$;
+
+revoke all on function account_fence.auth_uid(), account_fence.auth_user_exists(uuid), account_fence.auth_apple_subject(uuid), account_fence.legacy_queue_has_uid(uuid) from public;
+grant execute on function account_fence.auth_uid(), account_fence.auth_user_exists(uuid), account_fence.auth_apple_subject(uuid), account_fence.legacy_queue_has_uid(uuid) to account_fence_owner;
 
 -- Rollback metadata, captured BEFORE any ACL or body is changed. rollback.sql compares against it and replays
 -- only the reviewed mutation set (DECISIONS.md E3 defines what that guarantees).
@@ -243,6 +271,24 @@ select 'column', c.attrelid::regclass::text || '.' || c.attname, c.attacl
  where c.attrelid in (select t.oid from pg_catalog.pg_class t where t.relnamespace = 'public'::regnamespace and t.relkind in ('r', 'p'))
    and c.attnum > 0 and not c.attisdropped and c.attacl is not null;
 insert into account_fence.rollback_misc_snapshot values ('migration_role', current_user, null);
+
+-- F1: exact schedule/command of the legacy 30-day purge cron job (0065) that section 11 unschedules. Captured here, before RLS
+-- and the owner transfer, so rollback.sql can re-schedule it verbatim. Empty when pg_cron or the job is absent.
+create table account_fence.rollback_cron_snapshot (
+  jobname  text primary key,
+  schedule text not null,
+  command  text not null,
+  active   boolean not null
+);
+do $snap$
+begin
+  if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') then
+    insert into account_fence.rollback_cron_snapshot (jobname, schedule, command, active)
+    select j.jobname, j.schedule, j.command, j.active
+      from cron.job j where j.jobname = 'purge-scheduled-deletions-job';
+  end if;
+end
+$snap$;
 
 -- E3 attribute preflight (needs the snapshot above; changes nothing outside account_fence).
 -- >>> GENERATED:BEGIN rpc_attr_preflight
@@ -429,6 +475,7 @@ alter table account_fence.erasure_ctx enable row level security;
 alter table account_fence.rollback_function_snapshot enable row level security;
 alter table account_fence.rollback_table_snapshot enable row level security;
 alter table account_fence.rollback_misc_snapshot enable row level security;
+alter table account_fence.rollback_cron_snapshot enable row level security;
 -- FORCE + one explicit owner policy: proves the narrow owner works under forced RLS without BYPASSRLS.
 -- (The snapshot tables are filled above, before RLS, by the migration role: ENABLE only.)
 alter table account_fence.deletion_job force row level security;
@@ -1170,6 +1217,22 @@ declare
 begin
   if tg_op in ('UPDATE', 'DELETE') then jo := pg_catalog.to_jsonb(old); end if;
   if tg_op in ('INSERT', 'UPDATE') then jn := pg_catalog.to_jsonb(new); end if;
+  -- F3: BEFORE ROW triggers run before RLS WITH CHECK, so a direct API write naming ANOTHER user's strict owner column
+  -- would reach admit(victim, true) and leak the victim's pending/missing/busy state (QD001/QD002/55P03) instead of the
+  -- RLS answer 42501. Direct client DML exists only on the five client tables (the ones with restrictive fence policies);
+  -- their RLS requires owner = auth.uid(), so refuse a mismatch with 42501 BEFORE any admission or lock. The role GUC is
+  -- used because this function is SECURITY DEFINER (current_user is the narrow owner here); definer RPCs that legitimately
+  -- write other users' rows do so on tables outside this list.
+  if tg_op in ('INSERT', 'UPDATE')
+     and tg_table_name in ('profiles', 'backups', 'notification_logs', 'feature_flag_overrides', 'financial_import_runs')
+     and pg_catalog.current_setting('role', true) in ('anon', 'authenticated') then
+    foreach a in array tg_argv loop
+      continue when left(a, 8) = 'install:' or right(a, 1) = '?';
+      if nullif(jn ->> a, '')::uuid is distinct from account_fence.auth_uid() then
+        raise exception 'owner_column_mismatch' using errcode = '42501';
+      end if;
+    end loop;
+  end if;
   -- Retry/log binding protocol (source-only, not a schema equality constraint): every log I/U/D takes
   -- BOTH identity TRY keys before checking children or ordinary/erasure admission. No row-lock wait is
   -- added. Retry mutations use the same keys before reading parent UUID/hash. Failed TRY aborts.
@@ -5318,6 +5381,10 @@ begin
          current_step = null, lease_token = null, lease_expires_at = null,
          next_attempt_at = pg_catalog.clock_timestamp() + pg_catalog.make_interval(secs => greatest(p_retry_delay_ms, 0) / 1000.0)
    where job_id = j.job_id;
+  if p_retryable is not true then
+    -- F4: a terminal failure never retries, so the committed Apple token is destroyed now (same shape as complete_step).
+    update account_fence.deletion_material set state = 'disposed', ciphertext = null where job_id = j.job_id;
+  end if;
   return pg_catalog.jsonb_build_object('ok', true);
 end; $$;
 
@@ -5369,6 +5436,7 @@ $$;
 -- clamped to 1..5000) and idempotent:
 --   * COMPLETED jobs with completed_at < now() - 14 days, children first (workset, material, scope, receipt), then the job;
 --     a nonterminal job is NEVER purged by age (it escalates through last_code);
+--   * material of FAILED jobs (state disposed, ciphertext null; the job row stays);
 --   * orphan material (job_id null): an expired still-reserved row is first emptied (state disposed, ciphertext null),
 --     then disposed orphans older than 14 days are deleted;
 --   * attempt tombstones older than 14 days;
@@ -5385,7 +5453,7 @@ declare
   v_cut   timestamptz;
   v_jobs  uuid[];
   n_work  integer := 0; n_mat integer := 0; n_scope integer := 0; n_rcpt integer := 0;
-  n_job   integer := 0; n_omat integer := 0; n_tomb integer := 0; n_chal integer := 0;
+  n_job   integer := 0; n_omat integer := 0; n_tomb integer := 0; n_chal integer := 0; n_fmat integer := 0;
 begin
   perform pg_catalog.set_config('lock_timeout', '5s', true);
   v_cut := v_now - interval '14 days';
@@ -5407,6 +5475,16 @@ begin
     delete from account_fence.deletion_job where job_id = any(v_jobs) and state = 'completed';
     get diagnostics n_job = row_count;
   end if;
+
+  -- F4: material still attached to a job in the terminal 'failed' state is emptied (belt and braces for
+  -- account_deletion_record_failure; the job and its marker are NOT deleted by age).
+  update account_fence.deletion_material
+     set state = 'disposed', ciphertext = null
+   where ref in (select m.ref from account_fence.deletion_material m
+                   join account_fence.deletion_job fj on fj.job_id = m.job_id
+                  where fj.state = 'failed' and m.state <> 'disposed'
+                  order by m.reserved_at limit v_limit);
+  get diagnostics n_fmat = row_count;
 
   update account_fence.deletion_material
      set state = 'disposed', ciphertext = null
@@ -5431,7 +5509,7 @@ begin
 
   return pg_catalog.jsonb_build_object(
     'jobs', n_job, 'scopes', n_scope, 'receipts', n_rcpt, 'worksets', n_work, 'job_material', n_mat,
-    'orphan_material', n_omat, 'tombstones', n_tomb, 'challenges', n_chal);
+    'orphan_material', n_omat, 'tombstones', n_tomb, 'challenges', n_chal, 'failed_job_material', n_fmat);
 end;
 $$;
 
@@ -5766,6 +5844,7 @@ begin
     union all select 'admin_users'::text as tbl where exists (select 1 from public.admin_users where id = p_uid or granted_by = p_uid)
     union all select 'capture_rate_limits'::text as tbl where exists (select 1 from public.capture_rate_limits where account_fence.rate_key_in_scope(install_id_hash))
     union all select 'ai_request_idempotency'::text as tbl where exists (select 1 from public.ai_request_idempotency where account_fence.owner_key_in_scope(owner_key))
+    union all select 'account_purge_queue'::text as tbl where account_fence.legacy_queue_has_uid(p_uid)
   ) s limit 1;
   if v_tbl is not null then
     raise exception 'erasure_closure_incomplete' using errcode = 'QD013', detail = 'fence:' || v_tbl;
@@ -6119,6 +6198,7 @@ alter table account_fence.erasure_ctx owner to account_fence_owner;
 alter table account_fence.rollback_function_snapshot owner to account_fence_owner;
 alter table account_fence.rollback_table_snapshot owner to account_fence_owner;
 alter table account_fence.rollback_misc_snapshot owner to account_fence_owner;
+alter table account_fence.rollback_cron_snapshot owner to account_fence_owner;
 alter function account_fence.gate_key(uuid) owner to account_fence_owner;
 alter function account_fence.install_gate_key(text) owner to account_fence_owner;
 alter function account_fence.erasure_uid() owner to account_fence_owner;
@@ -6220,23 +6300,23 @@ begin
   -- ownership: functions, entry points, schema, and EVERY relation in account_fence
   select string_agg(p.oid::regprocedure::text, ', ') into v
     from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
-     and p.proname not in ('auth_uid', 'auth_user_exists', 'auth_apple_subject')
+     and p.proname not in ('auth_uid', 'auth_user_exists', 'auth_apple_subject', 'legacy_queue_has_uid')
      and pg_get_userbyid(p.proowner) <> 'account_fence_owner';
   if v is not null then raise exception 'assert: not owned by account_fence_owner: %', v using errcode = 'QD093'; end if;
-  -- The three auth shims are the ONLY account_fence functions that stay owned by the migration role (the narrow owner
-  -- cannot be granted schema auth). They must be exactly: migration-role-owned, SECURITY DEFINER, pinned search_path,
+  -- The four shims (three auth, one legacy-queue probe) are the ONLY account_fence functions that stay owned by the migration role (the narrow owner
+  -- cannot be granted schema auth, nor the legacy queue). They must be exactly: migration-role-owned, SECURITY DEFINER, pinned search_path,
   -- and executable by account_fence_owner alone (and the owner).
   select string_agg(p.oid::regprocedure::text, ', ') into v
     from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
-     and p.proname in ('auth_uid', 'auth_user_exists', 'auth_apple_subject')
+     and p.proname in ('auth_uid', 'auth_user_exists', 'auth_apple_subject', 'legacy_queue_has_uid')
      and (pg_get_userbyid(p.proowner) <> current_user or not p.prosecdef
           or p.proconfig is distinct from array['search_path=pg_catalog, pg_temp']
           or exists (select 1 from aclexplode(p.proacl) a
                       where a.grantee not in (p.proowner, v_fence) or a.privilege_type <> 'EXECUTE'));
-  if v is not null then raise exception 'assert: auth shim has unexpected owner/attributes/ACL: %', v using errcode = 'QD093'; end if;
+  if v is not null then raise exception 'assert: shim has unexpected owner/attributes/ACL: %', v using errcode = 'QD093'; end if;
   if (select count(*) from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
-       and p.proname in ('auth_uid', 'auth_user_exists', 'auth_apple_subject')) <> 3 then
-    raise exception 'assert: expected exactly the three auth shims' using errcode = 'QD093';
+       and p.proname in ('auth_uid', 'auth_user_exists', 'auth_apple_subject', 'legacy_queue_has_uid')) <> 4 then
+    raise exception 'assert: expected exactly the four migration-role shims' using errcode = 'QD093';
   end if;
   select string_agg(p.oid::regprocedure::text, ', ') into v
     from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'account_deletion\_%'
@@ -6409,6 +6489,20 @@ begin
   if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') then
     perform cron.schedule('account-deletion-worker', '*/5 * * * *', $job$select public.run_account_deletion_worker()$job$);
     perform cron.schedule('account-deletion-purge-expired', '17 3 * * *', $job$select account_fence.purge_expired_deletion_records()$job$);
+  end if;
+end
+$cron$;
+
+-- F1 / E5: quiesce the legacy 30-day worker. The job 'purge-scheduled-deletions-job' (0065) would otherwise sweep Storage for an
+-- overdue legacy profile and then fail forever on the revoked purge_user_data. Its exact schedule, command and active flag were
+-- recorded in account_fence.rollback_cron_snapshot (section 0); rollback.sql re-schedules it from that record. Profiles that only
+-- have delete_scheduled_at set are NOT touched or accelerated: the user may cancel, or choose immediate deletion with fresh
+-- confirmation. The queue was proven empty by the preflight (QD096) and nothing can enqueue once the job is gone.
+do $cron$
+begin
+  if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron')
+     and exists (select 1 from cron.job where jobname = 'purge-scheduled-deletions-job') then
+    perform cron.unschedule('purge-scheduled-deletions-job');
   end if;
 end
 $cron$;

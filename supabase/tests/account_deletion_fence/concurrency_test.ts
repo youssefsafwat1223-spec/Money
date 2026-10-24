@@ -1,6 +1,5 @@
 // concurrency_test.ts — real-database schedules for the account-deletion fence.
-// WRITTEN, NOT EXECUTED. It needs the disposable loopback stack that run.sh
-// provisions, with fence.sql applied. It talks to PostgreSQL through `psql`
+// It needs the disposable loopback stack, with fence.sql (migration 0117) applied. It talks to PostgreSQL through `psql`
 // subprocesses (one long-lived process per session) so it has no driver
 // dependency, and to the real Auth/Storage HTTP APIs on loopback.
 //
@@ -275,6 +274,26 @@ t('duplicate acceptance of the same scope returns the same job; a fenced attempt
     assertStringIncludes(late, 'fenced');
   });
 });
+
+for (const [retryable, expected] of [[true, 'committed:true'], [false, 'disposed:false']] as const) {
+  t(`F4: record_failure retryable=${retryable} leaves Apple material ${expected}`, async () => {
+    const u = await createUser();
+    await withSessions(['admin', 'svc'], async (s) => {
+      const seed = await seedAcceptance(s.admin, u.id, retryable ? 'f4r' : 'f4t');
+      await s.admin.run(seed.accept(`attempt-f4-${retryable}`));
+      const probe = `select state || ':' || (ciphertext is not null) from account_fence.deletion_material where ref = '${seed.ref}';`;
+      assertEquals(await s.admin.run(probe), 'committed:true');
+      const claim = await s.svc.run(`select public.account_deletion_claim_lease('w1', 60000, null);`);
+      const lease = JSON.parse(claim.split('\n').find((l) => l.startsWith('{'))!);
+      const { job_id, token, generation } = lease.lease;
+      const out = await s.svc.run(
+        `select public.account_deletion_record_failure('${job_id}','${token}',${generation},'apple_revoke','apple_rejected',${retryable},0);`,
+      );
+      assert(!out.includes('ERROR'), out);
+      assertEquals(await s.admin.run(probe), expected);
+    });
+  });
+}
 
 // ── Real Auth / Storage API schedules ────────────────────────────────────────
 

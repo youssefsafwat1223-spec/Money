@@ -73,3 +73,11 @@ select rolname, rolconfig from pg_roles where rolname in ('authenticator','anon'
 
 \echo '== ordinary-writer gap reproduction: no pending predicate exists before the fence'
 select not exists (select 1 from pg_namespace where nspname = 'account_fence') as fence_absent;
+
+\echo '== pg_cron jobs (deterministic: no jobid, no timestamps)'
+select exists (select 1 from pg_extension where extname = 'pg_cron') as has_cron \gset
+\if :has_cron
+select jobname, schedule, command, active from cron.job order by jobname;
+\else
+\echo 'pg_cron not installed'
+\endif

@@ -1,10 +1,12 @@
 # Account-deletion fence — D-SQL3 decision record
 
-**DRAFT — NOT APPLIED — requires Astra review and owner approval.** SQL was NEVER PARSED or EXECUTED. This is local
-source preparation under `brief-D-SQL3.md`, Astra R8 §9/Q12–Q20/§12 and the subsequent Astra D-SQL3 retry-attribution verdict,
-not an accepted execution-proof candidate.
-No database, SQL parser, Docker, Supabase CLI, network, credential, `.env`, hosted configuration, native/device or release
-operation was used. Owner decisions below remain pending; no authority to adopt/apply is implied.
+**STATUS (2026-10-24):** promoted to migration `0117_account_deletion_fence` (rollback `supabase/rollback/0117_account_deletion_fence_rollback.sql`).
+Qualified on a disposable loopback-only Supabase stack (migrate, apply, acl, concurrency, drain, rollback with an identical baseline) and
+reviewed by a fresh Opus 5.5 security review (findings F1-F4 below were fixed afterwards and need a re-run of the real-DB lifecycle).
+**Production apply requires the owner's explicit approval.** **The migration copy is canonical:** `supabase/migrations/0117_account_deletion_fence.sql`
+and `supabase/rollback/0117_account_deletion_fence_rollback.sql` must stay byte-identical to `fence.sql` / `rollback.sql` in this directory,
+which remain the generator's working copy (`gen_rpc_bodies.py --check` fails when they differ). The text below was written during drafting; where it says
+"proposed" or "unparsed" read it together with this status and the qualification and review sections.
 
 Historical migration evidence is at base `81c59422cfce498e1efab4d2f5cee4124a982593`; actual deployed catalogs/default grants
 are unknown. The updated source inventory and operation matrix are in
@@ -255,7 +257,7 @@ separate owner approval of a disposable loopback-only stack. No server or real d
 - **D4 (OWNER-APPROVED 2026-10-24)** — Apple token encryption key: AES-256-GCM key in an Edge Function secret, ciphertext destroyed
   after verified revocation or at the end of the retry window, no KMS. SQL support only: `deletion_challenge.nonce_hash`
   (64 lower-hex), `account_deletion_issue_challenge`, `account_deletion_read_challenge`, `account_deletion_apple_subject`
-  (service role only; read_challenge returns NULL when absent and exactly `nonce_hash`, `expires_at_ms`, `consumed` when found; Apple `sub` from `auth.identities` `provider_id`, falling back to `identity_data->>'sub'`, never email). The
+  (service role only; read_challenge returns NULL when absent and exactly `nonce_hash`, `expires_at_ms`, `consumed` when found; Apple `sub` from `auth.identities` `provider_id` (read through the `account_fence.auth_apple_subject` shim), falling back to `identity_data->>'sub'`, never email). The
   raw nonce is returned once and never stored. Challenge TTL 5 minutes; at most 3 open challenges per uid (`QD032`).
   The expired-reserved-material sweep in the purge function destroys orphaned ciphertext whose job never committed.
 - **D5 (OWNER-APPROVED 2026-10-24)** — the anonymous post-deletion marker (job with uid nulled, scope, receipt, material metadata) is
@@ -284,8 +286,9 @@ separate owner approval of a disposable loopback-only stack. No server or real d
   separate privilege that needs its own approval.
 
 New privileges this section adds for the narrow owner (all removed by rollback's `DROP OWNED`, with ACLs compared against the
-snapshot): column SELECT on `auth.identities (user_id, provider, provider_id, identity_data)`, USAGE on schema `extensions` and EXECUTE on
-`extensions.gen_random_bytes(integer)` (pgcrypto, as the existing migrations assume), and the `admin_users` SELECT policy above.
+snapshot): USAGE on schema `extensions` and EXECUTE on `extensions.gen_random_bytes(integer)` (pgcrypto, as the existing migrations
+assume), and the `admin_users` SELECT policy above. There is NO column SELECT on `auth.identities`: the Apple subject is read through the
+migration-role-owned `account_fence.auth_apple_subject` shim (see the qualification section; four shims in total after F2).
 
 ## Remaining owner decisions — no adoption chosen here
 
@@ -305,10 +308,10 @@ worker quiescence, rollout order and rollback assumptions. No additional authori
 
 ## What remains unproven and open for Astra
 
-SQL not parsed or executed: syntax, PostgreSQL version graph semantics, effective grants, RLS, pg_locks encoding, actual trigger/
-FK behavior, Auth cascades, retry mixed-batch liveness, fresh-clock lease waits, challenge/job schedules, cross-install capture
-retention, exact audit-header output, approved non-superuser rollback, surviving evidence, grantor chains and atomic rollback
-failure. Deno's 154 passing coordinator/adapter/handler tests do not exercise any of those SQL behaviors. The frozen tests and
+The SQL has been parsed and executed on the disposable loopback stack (see the qualification section), so syntax and the main lifecycle are
+proven there. Still unproven, or proven only on that stack: behavior against production data volumes and the real hosted catalog, the
+review fixes F1-F4 (they need a fresh real-DB lifecycle run), retry mixed-batch liveness under production concurrency, cross-install
+capture retention, grantor chains of a hosted project, and atomic rollback failure modes. Deno's 154 passing coordinator/adapter/handler tests do not exercise any of those SQL behaviors. The frozen tests and
 coordinator remain unchanged. Generator inspection modes preserve hashes and `--check` matches; no `--write` was required.
 
 Astra review questions: Is conservative mixed role-edge overapproximation acceptable for both target versions? Is retaining
@@ -332,3 +335,25 @@ failed, including Auth's own user insert through the profiles guard). Fix: three
 (`account_fence.auth_uid`, `auth_user_exists`, `auth_apple_subject`) that stay owned by the migration role, are executable by the
 narrow owner only, and are pinned by a section 10 assertion. PROVEN: the migration role can CREATE ROLE, hold NOLOGIN/NOINHERIT owner
 membership during the transaction, use `extensions.gen_random_bytes` grants, and the PostgREST schema list does not expose `account_fence`.
+
+## Opus 5.5 review fixes F1-F4 (2026-10-24)
+
+- **F1 (P1) legacy 30-day worker.** The E5 owner policy requires quiescing worker dispatch and preserving queued/partial evidence. The
+  preflight now takes `LOCK TABLE public.account_purge_queue IN EXCLUSIVE MODE` and raises QD096 when the table has any row (legacy work is
+  queued or in progress; it needs a separate E5 incident assessment before this migration). Rows are never deleted or converted. Section 11
+  unschedules the pg_cron job `purge-scheduled-deletions-job` (0065) after section 0 recorded its schedule, command and active flag in
+  `account_fence.rollback_cron_snapshot`; rollback.sql re-schedules it from that record. Profiles with only `delete_scheduled_at` set stay
+  untouched and are never accelerated: the user may cancel them or choose immediate deletion with fresh confirmation (allowed by E5).
+- **F2 (P1) account_purge_queue.** The table is never erased: it is provably empty at apply (F1) and nothing can enqueue afterwards (job
+  unscheduled). Instead of a DELETE grant, `erase_verify` asserts no queue row exists for the subject via the migration-role shim
+  `account_fence.legacy_queue_has_uid(uuid)` (fourth shim; section 10 asserts exactly four).
+- **F3 (P2) existence oracle.** `guard_owner_columns` refuses (42501, `owner_column_mismatch`) a direct INSERT/UPDATE by role `anon` or
+  `authenticated` (role GUC; the function is SECURITY DEFINER) whose strict owner column differs from `account_fence.auth_uid()`, before any
+  admission or lock, on the five client-DML tables (profiles, backups, notification_logs, feature_flag_overrides, financial_import_runs).
+  Other tables are written for foreign users only by SECURITY DEFINER RPCs, which run with the caller's role GUC, so the check is scoped to avoid
+  breaking them. Test: `acl.sql` section 11.
+- **F4 (P2) ciphertext on failed jobs.** `account_deletion_record_failure` with `p_retryable = false` disposes the job's Apple material
+  (`state = 'disposed', ciphertext = null`, the complete_step shape); `purge_expired_deletion_records` also empties material of jobs in state
+  `failed` (new `failed_job_material` counter). Test: `concurrency_test.ts` F4 cases.
+- **Offline checks:** the generator ignores the 0117 migration when reading history (it restates earlier functions) and `--check` asserts
+  the migration and rollback copies are identical to the drafts.

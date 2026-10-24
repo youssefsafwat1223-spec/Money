@@ -1,6 +1,8 @@
--- DRAFT — NOT APPLIED — requires Astra review and owner approval
---
--- Rollback for fence.sql (v2). NOT a migration and NOT executed anywhere; unparsed.
+-- Rollback for fence.sql (v2) = migration 0117 (account_deletion_fence). Canonical copy:
+-- supabase/rollback/0117_account_deletion_fence_rollback.sql (byte-identical to this drafts/ working copy).
+-- Qualified on a disposable loopback-only Supabase stack (rollback restores an identical baseline) and reviewed by a fresh
+-- Opus 5.5 review. Running it against production requires the owner's explicit approval. It also re-schedules the legacy
+-- 'purge-scheduled-deletions-job' cron job from account_fence.rollback_cron_snapshot when fence.sql unscheduled it.
 --
 -- WHAT "EXACT" MEANS HERE (E3 / Q15; the definition is also in DECISIONS.md):
 --   catalog IDENTITY   for function owners, function DEFINITIONS (the restored pg_get_functiondef text must equal
@@ -3369,6 +3371,7 @@ $acl$;
 -- (cron.unschedule raises for an unknown job, so existence is tested first; 0112 convention).
 -- account_fence.purge_expired_deletion_records dies with the schema in the DROP OWNED below.
 do $cron$
+declare r record;
 begin
   if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') then
     if exists (select 1 from cron.job where jobname = 'account-deletion-worker') then
@@ -3377,6 +3380,14 @@ begin
     if exists (select 1 from cron.job where jobname = 'account-deletion-purge-expired') then
       perform cron.unschedule('account-deletion-purge-expired');
     end if;
+    -- F1: restore the legacy 30-day purge job exactly as recorded by fence.sql (schedule, command, active flag).
+    -- Absent snapshot row (job did not exist at apply) restores nothing.
+    for r in select c.jobname, c.schedule, c.command, c.active from account_fence.rollback_cron_snapshot c loop
+      perform cron.schedule(r.jobname, r.schedule, r.command);
+      if not r.active then
+        perform cron.alter_job((select j.jobid from cron.job j where j.jobname = r.jobname), active := false);
+      end if;
+    end loop;
   end if;
 end
 $cron$;

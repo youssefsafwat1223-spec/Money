@@ -1,5 +1,5 @@
--- acl.sql — POST-fence catalog ASSERTIONS. NOT EXECUTED by its author.
--- Run only on the disposable database after fence.sql. Raises on any violation.
+-- acl.sql — POST-fence catalog ASSERTIONS.
+-- Run only on the disposable database after fence.sql (migration 0117). Raises on any violation.
 \set ON_ERROR_STOP on
 do $$
 declare
@@ -122,4 +122,42 @@ begin
   end if;
 
   raise notice 'acl.sql: all assertions passed';
+end $$;
+
+-- 11. F3 existence oracle: an authenticated API caller naming ANOTHER user's id in a strict owner column is refused with
+--     42501 (message owner_column_mismatch) by the guard BEFORE admission, so QD001/QD002/55P03 are never observable.
+--     The ids are random: the guard fires before any FK check, so no Auth user needs to exist.
+do $$
+declare
+  v_a uuid := gen_random_uuid();
+  v_b uuid := gen_random_uuid();
+  v_state text;
+  v_msg text;
+begin
+  perform set_config('request.jwt.claims', format('{"sub":"%s","role":"authenticated"}', v_a), true);
+  begin
+    set local role authenticated;
+    insert into public.profiles (id) values (v_b);
+    v_state := 'no error';
+  exception when others then
+    v_state := sqlstate;
+    v_msg := sqlerrm;
+  end;
+  reset role;
+  if v_state is distinct from '42501' or v_msg is distinct from 'owner_column_mismatch' then
+    raise exception 'F3: cross-user profiles insert gave % (%), expected 42501 owner_column_mismatch', v_state, v_msg;
+  end if;
+  raise notice 'acl.sql: F3 oracle check passed';
+end $$;
+
+-- 12. F2: the legacy purge queue is empty (apply preflight QD096) and the legacy cron job is unscheduled.
+do $$
+begin
+  if exists (select 1 from public.account_purge_queue) then
+    raise exception 'F2: public.account_purge_queue is not empty';
+  end if;
+  if exists (select 1 from pg_extension where extname = 'pg_cron')
+     and exists (select 1 from cron.job where jobname = 'purge-scheduled-deletions-job') then
+    raise exception 'F1: legacy purge-scheduled-deletions-job is still scheduled';
+  end if;
 end $$;

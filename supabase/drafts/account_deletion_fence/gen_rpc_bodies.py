@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# DRAFT — NOT APPLIED — requires Astra review and owner approval
+# Working-copy generator for migration 0117 (the migration copy is canonical and must stay identical).
 #
 # Offline, deterministic, stdlib-only source-to-source generator for fence.sql
 # section 5 ("restated bodies with admission"). It reads ONLY the historical
@@ -15,7 +15,8 @@
 #   (no argument)  read-only; identical to --check (reports, exit 1 if a file would change)
 #   --help         prints usage; reads/writes nothing
 #   --check        read-only; exit 0 if fence.sql and rollback.sql already equal the
-#                  generated text, exit 1 if either would change
+#                  generated text AND the canonical copies supabase/migrations/0117_account_deletion_fence.sql and
+#                  supabase/rollback/0117_account_deletion_fence_rollback.sql are byte-identical to them; exit 1 otherwise
 #   --write        the ONLY mode that rewrites fence.sql / rollback.sql (generated regions)
 # Any other argument (including abbreviations of the above) is rejected with exit 2
 # before any file is read for writing. See DECISIONS.md (Q22).
@@ -42,6 +43,13 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 MIG = os.path.normpath(os.path.join(HERE, '..', '..', 'migrations'))
 FENCE = os.path.join(HERE, 'fence.sql')
+# (drafts working copy, canonical migration/rollback copy file name, directory of the canonical copy). The canonical copies
+# must stay byte-identical to the drafts; --check fails otherwise.
+MIGRATION_COPIES = (
+    ('fence.sql', '0117_account_deletion_fence.sql', MIG),
+    ('rollback.sql', '0117_account_deletion_fence_rollback.sql',
+     os.path.normpath(os.path.join(HERE, '..', '..', 'rollback'))),
+)
 BEGIN_MARK = '-- >>> GENERATED:BEGIN rpc_bodies'
 END_MARK = '-- <<< GENERATED:END rpc_bodies'
 
@@ -51,6 +59,9 @@ HDR = re.compile(r'^\s*create\s+(or\s+replace\s+)?function\s+(?:public\.)?("?[a-
 def load_defs():
     defs = []
     for f in sorted(glob.glob(os.path.join(MIG, '*.sql'))):
+        # The fence migration itself RESTATES the historical functions; history is everything before it.
+        if os.path.basename(f) == MIGRATION_COPIES[0][1]:
+            continue
         lines = open(f, encoding='utf-8').read().split('\n')
         i = 0
         while i < len(lines):
@@ -586,10 +597,17 @@ def main():
     if check:
         same = all(a == b for _, a, b in results)
         print('check: generated regions %s' % ('match' if same else 'DIFFER (nothing written)'))
-        sys.exit(0 if same else 1)
+        copies_ok = True
+        for draft, name, d in MIGRATION_COPIES:
+            mp = os.path.join(d, name)
+            ok = os.path.exists(mp) and open(mp, 'rb').read() == open(os.path.join(HERE, draft), 'rb').read()
+            print('check: %s %s' % (mp, 'identical to drafts/%s' % draft if ok else 'MISSING or DIFFERS from drafts/%s' % draft))
+            copies_ok = copies_ok and ok
+        sys.exit(0 if same and copies_ok else 1)
     for path, _, new in results:
         open(path, 'w', encoding='utf-8').write(new)
     print('spliced %d generated functions, %d preflight rows' % (len(SPECS) + len(TEMPLATES), len(pre)))
+    print('reminder: copy fence.sql / rollback.sql to the canonical migration copies (see MIGRATION_COPIES)')
 
 
 if __name__ == '__main__':
