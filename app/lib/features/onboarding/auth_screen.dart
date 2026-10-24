@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../../core/auth/auth_service.dart';
 import '../../core/auth/supabase_auth_service.dart' show AuthCancelledException;
 import '../../core/backend/supabase_config.dart';
+import '../../core/privacy/cloud_egress_gate.dart' show EgressDeniedException;
 import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
@@ -48,6 +49,21 @@ const _authDeepNavy = Color(0xFF031322);
 /// through `debugDefaultTargetPlatformOverride`.
 @visibleForTesting
 bool get appleSignInSupported => defaultTargetPlatform == TargetPlatform.iOS;
+
+/// A short, non-sensitive reason code for a failed sign-in, appended to the
+/// generic toast so a field report can be diagnosed: the exception type and, for
+/// an egress refusal, the gate's reason string. Never the exception message, a
+/// token, an email or a uid. The Supabase client wraps a refused request in its
+/// own exception type, so the reason is read from the stable `egress_denied:`
+/// prefix that [EgressDeniedException] puts in its message (reason strings are
+/// lower-case identifiers).
+@visibleForTesting
+String signInFailureCode(Object error) {
+  if (error is EgressDeniedException) return 'EgressDenied:${error.reason}';
+  final wrapped = RegExp(r'egress_denied:([a-z_]+)').firstMatch('$error');
+  if (wrapped != null) return 'EgressDenied:${wrapped.group(1)}';
+  return error.runtimeType.toString();
+}
 
 /// Page 3 of the redesigned onboarding: mandatory sign-in.
 ///
@@ -126,7 +142,10 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         if (error is AuthCancelledException) {
           // The user closed the sheet. Nothing failed; say nothing.
         } else {
-          AppToast.showError(context, context.l10n.authSignInError);
+          AppToast.showError(
+            context,
+            '${context.l10n.authSignInError} (E: ${signInFailureCode(error)})',
+          );
         }
       }
     } finally {
