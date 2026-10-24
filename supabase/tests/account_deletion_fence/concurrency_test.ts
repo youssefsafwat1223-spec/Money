@@ -299,6 +299,15 @@ for (const [retryable, expected] of [[true, 'committed:true'], [false, 'disposed
       );
       assert(!out.includes('ERROR'), out);
       assertEquals(await s.admin.run(probe), expected);
+      if (!retryable) {
+        // A terminal ('failed') job blocks rollback by design (QD099: an accepted deletion job is not completed) and drain never
+        // claims it. This requeue stands in for the operator's incident path so drain can finish the lifecycle.
+        const requeued = await s.admin.run(
+          `update account_fence.deletion_job set state = 'retryable', next_attempt_at = now(), lease_token = null, lease_expires_at = null where job_id = '${ownJob}' returning 1;`,
+        );
+        assert(!requeued.includes('ERROR'), requeued);
+        assertEquals(requeued.split('\n')[0].trim(), '1', `requeue did not update exactly one row: ${requeued}`);
+      }
     });
   });
 }
