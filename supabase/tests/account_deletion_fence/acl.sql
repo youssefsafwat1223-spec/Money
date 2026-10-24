@@ -161,3 +161,38 @@ begin
     raise exception 'F1: legacy purge-scheduled-deletions-job is still scheduled';
   end if;
 end $$;
+
+-- 13. F4 operator recovery functions: migration principal only. authenticated / service_role are refused (42501), anon has no EXECUTE.
+do $$
+declare
+  fn text;
+  v_state text;
+begin
+  foreach fn in array array['account_fence.operator_failed_jobs()', 'account_fence.operator_requeue_failed_job(uuid)'] loop
+    if has_function_privilege('anon', fn, 'EXECUTE') or has_function_privilege('authenticated', fn, 'EXECUTE')
+       or has_function_privilege('service_role', fn, 'EXECUTE') then
+      raise exception 'F4: % is executable by an API role', fn;
+    end if;
+  end loop;
+  foreach fn in array array['authenticated', 'service_role'] loop
+    v_state := 'no error';
+    begin
+      execute format('set local role %I', fn);
+      perform * from account_fence.operator_failed_jobs();
+    exception when others then
+      v_state := sqlstate;
+    end;
+    reset role;
+    if v_state is distinct from '42501' then raise exception 'F4: % calling operator_failed_jobs gave %', fn, v_state; end if;
+    v_state := 'no error';
+    begin
+      execute format('set local role %I', fn);
+      perform account_fence.operator_requeue_failed_job(gen_random_uuid());
+    exception when others then
+      v_state := sqlstate;
+    end;
+    reset role;
+    if v_state is distinct from '42501' then raise exception 'F4: % calling operator_requeue_failed_job gave %', fn, v_state; end if;
+  end loop;
+  raise notice 'acl.sql: F4 operator function ACL checks passed';
+end $$;

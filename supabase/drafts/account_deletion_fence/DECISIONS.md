@@ -352,8 +352,18 @@ membership during the transaction, use `extensions.gen_random_bytes` grants, and
   admission or lock, on the five client-DML tables (profiles, backups, notification_logs, feature_flag_overrides, financial_import_runs).
   Other tables are written for foreign users only by SECURITY DEFINER RPCs, which run with the caller's role GUC, so the check is scoped to avoid
   breaking them. Test: `acl.sql` section 11.
-- **F4 (P2) ciphertext on failed jobs.** `account_deletion_record_failure` with `p_retryable = false` disposes the job's Apple material
-  (`state = 'disposed', ciphertext = null`, the complete_step shape); `purge_expired_deletion_records` also empties material of jobs in state
-  `failed` (new `failed_job_material` counter). Test: `concurrency_test.ts` F4 cases.
+- **F4 (P2) ciphertext on failed jobs (revised after the real-DB run).** The first version disposed the Apple material immediately on a
+  terminal failure; the real DB showed a terminally `failed` job then has no exit (accept() returns the open job, the lease worker never
+  claims `failed`, and neither `postgres` nor any API role may update `deletion_job`), and an immediate disposal would make a manual retry
+  unable to revoke the Apple token. Decision (Opus): `deletion_job.failed_at` is set by `account_deletion_record_failure` on a terminal
+  failure and cleared on a retryable one; the committed Apple ciphertext is RETAINED for at most 14 days after `failed_at` (the D5 window)
+  and `purge_expired_deletion_records` disposes it only for jobs with `state = 'failed' and failed_at < now() - 14 days` (counter
+  `failed_job_material`; the job row stays). The only exit is `account_fence.operator_requeue_failed_job(uuid)` (migration principal only,
+  granted with the literal `grant execute ... to postgres` the file already uses, since the preflight pins `current_user = postgres`):
+  `not_failed` when the job is missing or not failed; `apple_material_disposed` when `apple_revoke` is not completed and no committed material
+  remains (an owner incident, never a silent skip); otherwise the job becomes `retryable` with `failed_at` cleared, attempts and last_code kept.
+  `account_fence.operator_failed_jobs()` (same ACL) lists failed jobs (job_id, last_code, completed_steps, attempts, failed_at,
+  material_committed) and never returns uid, ciphertext or attempt_id. Tests: `acl.sql` section 13, `concurrency_test.ts` F4 cases. The
+  14-day disposal arm is not exercised on the DB (no test-only way to age `failed_at` is provided).
 - **Offline checks:** the generator ignores the 0117 migration when reading history (it restates earlier functions) and `--check` asserts
   the migration and rollback copies are identical to the drafts.

@@ -280,8 +280,8 @@ t('duplicate acceptance of the same scope returns the same job; a fenced attempt
   });
 });
 
-for (const [retryable, expected] of [[true, 'committed:true'], [false, 'disposed:false']] as const) {
-  t(`F4: record_failure retryable=${retryable} leaves Apple material ${expected}`, async () => {
+for (const [retryable, expected] of [[true, 'committed:true'], [false, 'committed:true']] as const) {
+  t(`F4: record_failure retryable=${retryable} leaves Apple material ${expected} (terminal failure retains it for 14 days)`, async () => {
     const u = await createUser();
     await withSessions(['admin', 'svc'], async (s) => {
       const seed = await seedAcceptance(s.admin, u.id, retryable ? 'f4r' : 'f4t');
@@ -300,13 +300,14 @@ for (const [retryable, expected] of [[true, 'committed:true'], [false, 'disposed
       assert(!out.includes('ERROR'), out);
       assertEquals(await s.admin.run(probe), expected);
       if (!retryable) {
-        // A terminal ('failed') job blocks rollback by design (QD099: an accepted deletion job is not completed) and drain never
-        // claims it. This requeue stands in for the operator's incident path so drain can finish the lifecycle.
-        const requeued = await s.admin.run(
-          `update account_fence.deletion_job set state = 'retryable', next_attempt_at = now(), lease_token = null, lease_expires_at = null where job_id = '${ownJob}' returning 1;`,
-        );
-        assert(!requeued.includes('ERROR'), requeued);
-        assertEquals(requeued.split('\n')[0].trim(), '1', `requeue did not update exactly one row: ${requeued}`);
+        // A terminal ('failed') job blocks rollback by design (QD099) and drain never claims it. The ONLY exit is the operator
+        // function (migration principal only), which also needs the Apple material to be still committed.
+        const failedJobs = await s.admin.run(`select count(*) from account_fence.operator_failed_jobs() where job_id = '${ownJob}' and material_committed;`);
+        assertEquals(failedJobs, '1');
+        const requeued = await s.admin.run(`select account_fence.operator_requeue_failed_job('${ownJob}');`);
+        assertStringIncludes(requeued, '"ok": true');
+        const again = await s.admin.run(`select account_fence.operator_requeue_failed_job('${ownJob}');`);
+        assertStringIncludes(again, 'not_failed');
       }
     });
   });

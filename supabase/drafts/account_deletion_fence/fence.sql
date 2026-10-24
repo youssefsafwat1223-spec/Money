@@ -398,6 +398,9 @@ create table account_fence.deletion_job (
   last_code          text check (last_code is null or last_code ~ '^[a-z][a-z0-9_]{0,39}$'),
   accepted_at        timestamptz not null default clock_timestamp(),
   completed_at       timestamptz,
+  -- F4 (revised): set by account_deletion_record_failure on a TERMINAL failure, cleared on a retryable failure and by
+  -- account_fence.operator_requeue_failed_job. Drives the 14-day retention of the job's committed Apple material.
+  failed_at          timestamptz,
   -- D5: anonymous completion marker. Set by account_deletion_complete_job to at most completed_at + 14 days;
   -- the whole marker (job, scope, receipt, material) is physically purged by account_fence.purge_expired_deletion_records.
   retained_until     timestamptz,
@@ -5377,14 +5380,11 @@ begin
   update account_fence.deletion_job
      set attempts = attempts + 1,
          state = case when p_retryable then 'retryable' else 'failed' end,
+         failed_at = case when p_retryable then null else pg_catalog.clock_timestamp() end,
          last_code = case when p_code ~ '^[a-z][a-z0-9_]{0,39}$' then p_code end,
          current_step = null, lease_token = null, lease_expires_at = null,
          next_attempt_at = pg_catalog.clock_timestamp() + pg_catalog.make_interval(secs => greatest(p_retry_delay_ms, 0) / 1000.0)
    where job_id = j.job_id;
-  if p_retryable is not true then
-    -- F4: a terminal failure never retries, so the committed Apple token is destroyed now (same shape as complete_step).
-    update account_fence.deletion_material set state = 'disposed', ciphertext = null where job_id = j.job_id;
-  end if;
   return pg_catalog.jsonb_build_object('ok', true);
 end; $$;
 
@@ -5436,7 +5436,7 @@ $$;
 -- clamped to 1..5000) and idempotent:
 --   * COMPLETED jobs with completed_at < now() - 14 days, children first (workset, material, scope, receipt), then the job;
 --     a nonterminal job is NEVER purged by age (it escalates through last_code);
---   * material of FAILED jobs (state disposed, ciphertext null; the job row stays);
+--   * material of jobs FAILED for more than 14 days (state disposed, ciphertext null; the job row stays);
 --   * orphan material (job_id null): an expired still-reserved row is first emptied (state disposed, ciphertext null),
 --     then disposed orphans older than 14 days are deleted;
 --   * attempt tombstones older than 14 days;
@@ -5476,13 +5476,14 @@ begin
     get diagnostics n_job = row_count;
   end if;
 
-  -- F4: material still attached to a job in the terminal 'failed' state is emptied (belt and braces for
-  -- account_deletion_record_failure; the job and its marker are NOT deleted by age).
+  -- F4 (revised): the committed Apple material of a job that has been terminally 'failed' for MORE than 14 days (failed_at, set by
+  -- account_deletion_record_failure) is emptied; until then it is retained so an operator can requeue the job and still revoke.
+  -- The job row and its marker are NOT deleted by age.
   update account_fence.deletion_material
      set state = 'disposed', ciphertext = null
    where ref in (select m.ref from account_fence.deletion_material m
                    join account_fence.deletion_job fj on fj.job_id = m.job_id
-                  where fj.state = 'failed' and m.state <> 'disposed'
+                  where fj.state = 'failed' and fj.failed_at < v_now - interval '14 days' and m.state <> 'disposed'
                   order by m.reserved_at limit v_limit);
   get diagnostics n_fmat = row_count;
 
@@ -5510,6 +5511,45 @@ begin
   return pg_catalog.jsonb_build_object(
     'jobs', n_job, 'scopes', n_scope, 'receipts', n_rcpt, 'worksets', n_work, 'job_material', n_mat,
     'orphan_material', n_omat, 'tombstones', n_tomb, 'challenges', n_chal, 'failed_job_material', n_fmat);
+end;
+$$;
+
+-- F4 recovery (operator only). A job in the terminal state 'failed' has no automatic exit: accept() returns the open job for the
+-- uid and the lease worker never claims 'failed'. These two functions are the ONLY exit and are executable by the migration
+-- principal (postgres) alone: no API role, not even service_role. Neither returns uid, ciphertext or attempt_id.
+create function account_fence.operator_failed_jobs()
+returns table (job_id uuid, last_code text, completed_steps text[], attempts integer, failed_at timestamptz, material_committed boolean)
+language sql stable security definer
+set search_path = pg_catalog, pg_temp
+as $$
+  select j.job_id, j.last_code, j.completed_steps, j.attempts, j.failed_at,
+         exists (select 1 from account_fence.deletion_material m where m.job_id = j.job_id and m.state = 'committed')
+    from account_fence.deletion_job j
+   where j.state = 'failed'
+   order by j.failed_at nulls first, j.job_id
+$$;
+
+create function account_fence.operator_requeue_failed_job(p_job_id uuid) returns jsonb
+language plpgsql volatile security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  j account_fence.deletion_job;
+begin
+  select * into j from account_fence.deletion_job x where x.job_id = p_job_id for update;
+  if not found or j.state is distinct from 'failed' then
+    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'not_failed');
+  end if;
+  -- Without a committed token the Apple revoke can no longer happen: an incident for the owner, never a silent skip.
+  if not ('apple_revoke' = any(j.completed_steps))
+     and not exists (select 1 from account_fence.deletion_material m where m.job_id = j.job_id and m.state = 'committed') then
+    return pg_catalog.jsonb_build_object('ok', false, 'reason', 'apple_material_disposed');
+  end if;
+  update account_fence.deletion_job
+     set state = 'retryable', next_attempt_at = pg_catalog.clock_timestamp(), failed_at = null,
+         lease_token = null, lease_expires_at = null, current_step = null
+   where job_id = j.job_id;
+  return pg_catalog.jsonb_build_object('ok', true);
 end;
 $$;
 
@@ -6134,6 +6174,8 @@ revoke all on function account_fence.erase_user_data(uuid, uuid) from public, an
 revoke all on function account_fence.erase_verify(uuid) from public, anon, authenticated, service_role;
 revoke all on function account_fence.audit_redaction_ok(jsonb, jsonb) from public, anon, authenticated, service_role;
 revoke all on function account_fence.purge_expired_deletion_records(integer) from public, anon, authenticated, service_role;
+revoke all on function account_fence.operator_failed_jobs() from public, anon, authenticated, service_role;
+revoke all on function account_fence.operator_requeue_failed_job(uuid) from public, anon, authenticated, service_role;
 revoke all on function account_fence.profiles_protect_legacy_schedule() from public, anon, authenticated, service_role;
 revoke all on function account_fence.legacy_queue_guard() from public, anon, authenticated, service_role;
 grant execute on function account_fence.is_pending_self() to authenticated;
@@ -6244,6 +6286,8 @@ alter function account_fence.audit_redaction_ok(jsonb, jsonb) owner to account_f
 alter function account_fence.profiles_protect_legacy_schedule() owner to account_fence_owner;
 alter function account_fence.legacy_queue_guard() owner to account_fence_owner;
 alter function account_fence.purge_expired_deletion_records(integer) owner to account_fence_owner;
+alter function account_fence.operator_failed_jobs() owner to account_fence_owner;
+alter function account_fence.operator_requeue_failed_job(uuid) owner to account_fence_owner;
 alter function public.account_deletion_reserve_material(text, text) owner to account_fence_owner;
 alter function public.account_deletion_dispose_material(text) owner to account_fence_owner;
 alter function public.account_deletion_read_material(text) owner to account_fence_owner;
@@ -6280,6 +6324,8 @@ grant execute on function account_fence.referral_owners_for_referred(uuid) to po
 grant execute on function account_fence.assert_unlink_allowed(text) to postgres;
 grant execute on function account_fence.audit_redaction_ok(jsonb, jsonb) to postgres;
 grant execute on function account_fence.purge_expired_deletion_records(integer) to postgres;   -- pg_cron runs as the migration role
+grant execute on function account_fence.operator_failed_jobs() to postgres;                       -- F4 operator recovery
+grant execute on function account_fence.operator_requeue_failed_job(uuid) to postgres;           -- (preflight pins current_user = postgres)
 revoke create on schema public from account_fence_owner;
 revoke account_fence_owner from current_user;
 
@@ -6407,6 +6453,23 @@ begin
      or has_function_privilege('service_role', 'public.purge_user_data(uuid)', 'EXECUTE')
      or has_function_privilege('service_role', 'public.capture_history_forget_owner(uuid)', 'EXECUTE') then
     raise exception 'assert: legacy erasure helper still executable by anon/service_role' using errcode = 'QD093';
+  end if;
+
+  -- F4 operator recovery functions: owned by the narrow owner, SECURITY DEFINER with a pinned search_path, and EXECUTE for the
+  -- migration principal (and the owner) only; never PUBLIC, never an API role (the loop above already rejects API reachability).
+  select string_agg(p.oid::regprocedure::text, ', ') into v
+    from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
+     and p.proname in ('operator_failed_jobs', 'operator_requeue_failed_job')
+     and (pg_get_userbyid(p.proowner) <> 'account_fence_owner' or not p.prosecdef
+          or p.proconfig is distinct from array['search_path=pg_catalog, pg_temp']
+          or p.proacl is null
+          or exists (select 1 from aclexplode(p.proacl) a
+                      where a.privilege_type <> 'EXECUTE' or a.grantee = 0
+                         or a.grantee not in (p.proowner, 'postgres'::regrole::oid)));
+  if v is not null then raise exception 'assert: operator recovery function has unexpected owner/attributes/ACL: %', v using errcode = 'QD093'; end if;
+  if (select count(*) from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
+       and p.proname in ('operator_failed_jobs', 'operator_requeue_failed_job')) <> 2 then
+    raise exception 'assert: expected exactly the two operator recovery functions' using errcode = 'QD093';
   end if;
 
   -- the narrow owner: not superuser/bypass/login; NO membership path to it for any non-superuser (version-
