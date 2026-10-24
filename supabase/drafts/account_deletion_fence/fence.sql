@@ -6263,25 +6263,23 @@ grant execute on function account_fence.is_pending_self() to authenticated;
 grant execute on function account_fence.admit_self() to authenticated;
 grant execute on function account_fence.admit_check_self(uuid) to authenticated;
 
-revoke all on function
-  public.account_deletion_reserve_material(text, text),
-  public.account_deletion_dispose_material(text),
-  public.account_deletion_read_material(text),
-  public.account_deletion_find_accepted(text),
-  public.account_deletion_issue_challenge(uuid),
-  public.account_deletion_read_challenge(uuid, text),
-  public.account_deletion_apple_subject(uuid),
-  public.account_deletion_accept(text, uuid, text, bigint, text, text, text),
-  public.account_deletion_fence_attempt(text),
-  public.account_deletion_claim_lease(text, integer, uuid),
-  public.account_deletion_heartbeat(uuid, uuid, integer, integer),
-  public.account_deletion_begin_step(uuid, uuid, integer, text),
-  public.account_deletion_complete_step(uuid, uuid, integer, text),
-  public.account_deletion_record_failure(uuid, uuid, integer, text, text, boolean, bigint),
-  public.account_deletion_complete_job(uuid, uuid, integer, bigint),
-  public.account_deletion_get_receipt(text),
-  public.account_deletion_purge(uuid, uuid, integer)
-  from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_reserve_material(text, text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_dispose_material(text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_read_material(text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_find_accepted(text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_issue_challenge(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_read_challenge(uuid, text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_apple_subject(uuid) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_accept(text, uuid, text, bigint, text, text, text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_fence_attempt(text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_claim_lease(text, integer, uuid) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_heartbeat(uuid, uuid, integer, integer) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_begin_step(uuid, uuid, integer, text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_complete_step(uuid, uuid, integer, text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_record_failure(uuid, uuid, integer, text, text, boolean, bigint) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_complete_job(uuid, uuid, integer, bigint) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_get_receipt(text) from public, anon, authenticated, service_role;
+revoke all on function public.account_deletion_purge(uuid, uuid, integer) from public, anon, authenticated, service_role;
 grant execute on function
   public.account_deletion_reserve_material(text, text),
   public.account_deletion_dispose_material(text),
