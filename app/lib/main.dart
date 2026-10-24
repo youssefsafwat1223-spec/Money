@@ -144,6 +144,7 @@ class _StartupAppState extends State<StartupApp> {
           ...widget.externalOverrides,
           if (scope.isLocalRead) ...localReadProviderOverrides(scope),
           appDatabaseProvider.overrideWithValue(database),
+          accountScopeHostProvider.overrideWithValue(host),
           startupHasLocalDataProvider.overrideWithValue(scope.hasLocalData),
           // MALI-026 (B8-3 §1/§12) — seed the coordinator with the REAL state
           // resolved from the DB at bootstrap (canonical for fresh v30, unresolved

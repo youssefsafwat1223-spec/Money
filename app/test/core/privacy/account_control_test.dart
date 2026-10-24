@@ -576,6 +576,44 @@ void _immediateDeletionTests() {
       expect(sent.length, 1);
     });
 
+    group('challenge issuance grant', () {
+      final challengeBody = jsonEncode({'action': 'challenge'});
+      final headers = {'content-type': 'application/json', 'authorization': 'Bearer captured'};
+      test('exact {action:challenge} with the captured bearer passes once', () async {
+        await grant(() => send(body: challengeBody, headers: headers),
+            action: ImmediateDeletionAction.challenge, expectedBody: challengeBody, token: 'captured');
+        expect(sent.length, 1);
+        expect(sent.single.followRedirects, isFalse);
+      });
+      for (final bad in ['extra-key', 'receipt', 'wrong-action', 'no-token', 'replaced-token']) {
+        test('$bad is denied before transport', () async {
+          var body = challengeBody;
+          String? token = 'captured';
+          var sendHeaders = headers;
+          switch (bad) {
+            case 'extra-key': body = jsonEncode({'action': 'challenge', 'x': 1});
+            case 'receipt': body = jsonEncode({'action': 'challenge', 'receipt_secret': secret});
+            case 'wrong-action': body = jsonEncode({'action': 'status'});
+            case 'no-token': token = null;
+            case 'replaced-token': sendHeaders = {...headers, 'authorization': 'Bearer other'};
+          }
+          await expectLater(
+              grant(() => send(body: body, headers: sendHeaders),
+                  action: ImmediateDeletionAction.challenge, expectedBody: body, token: token),
+              throwsA(isA<EgressDeniedException>()));
+          expect(sent, isEmpty);
+        });
+      }
+      test('a challenge grant cannot be used to send a deletion request', () async {
+        final request = jsonEncode({'challenge_id': 'c', 'challenge_response': 'p', 'receipt_secret': secret});
+        await expectLater(
+            grant(() => send(body: request, headers: headers),
+                action: ImmediateDeletionAction.challenge, expectedBody: request, token: 'captured'),
+            throwsA(isA<EgressDeniedException>()));
+        expect(sent, isEmpty);
+      });
+    });
+
     test('concurrent same-grant dispatches admit only one; grant ends after completion', () async {
       late Zone zone;
       final results = await grant(() async {

@@ -445,6 +445,77 @@ void _configuredLegacyDeletionStageA() {
       observedRequest(body);expect(failure,isA<ServerRepoException>());
     });
   },skip:configured?false:'Requires only the approved synthetic local SUPABASE_ENV/URL/ANON_KEY defines; default run does not exercise configured legacy RPC coverage.');
+
+  group('challenge()', () {
+    Map<String, Object?> issued() => {
+          'status': 'challenge',
+          'challenge_id': 'challenge-id-0123456789abcdef',
+          'nonce': 'raw-nonce-0123456789abcdef',
+          'expires_at_ms': 4102444800000,
+        };
+
+    test('sends exactly {action:challenge} with the Bearer token and maps the issue', () async {
+      final sink = <http.Request>[];
+      final result = await _client((_) async => _json(200, issued()), sink: sink).challenge();
+      expect(result, isA<ImmediateChallengeIssued>());
+      final issuedResult = result as ImmediateChallengeIssued;
+      expect(issuedResult.challengeId, 'challenge-id-0123456789abcdef');
+      expect(issuedResult.nonce, 'raw-nonce-0123456789abcdef');
+      expect(issuedResult.expiresAtMs, 4102444800000);
+      expect(sink.single.method, 'POST');
+      expect(sink.single.headers['Authorization'], 'Bearer jwt-abc');
+      expect(jsonDecode(sink.single.body), {'action': 'challenge'});
+      expect('$result', isNot(contains('raw-nonce')));
+    });
+
+    Future<ImmediateChallengeResult> reply(int status, Object body) =>
+        _client((_) async => _json(status, body)).challenge();
+
+    test('admin_self_delete_blocked, challenge_rate_limited and already_pending are typed refusals', () async {
+      final admin = await reply(403, {'status': 'error', 'code': 'admin_self_delete_blocked'});
+      expect((admin as ImmediateChallengeRefused).reason, ImmediateChallengeRefusal.adminBlocked);
+      final limited = await reply(429, {'status': 'error', 'code': 'challenge_rate_limited'});
+      expect((limited as ImmediateChallengeRefused).reason, ImmediateChallengeRefusal.rateLimited);
+      final bare429 = await reply(429, {'status': 'error'});
+      expect((bare429 as ImmediateChallengeRefused).reason, ImmediateChallengeRefusal.rateLimited);
+      for (final r in [
+        await reply(409, {'status': 'error', 'code': 'already_pending'}),
+        await reply(200, {'status': 'accepted', 'code': 'already_pending'}),
+        await reply(202, {'status': 'accepted'}),
+        await reply(200, {'status': 'in_progress'}),
+      ]) {
+        expect((r as ImmediateChallengeRefused).reason, ImmediateChallengeRefusal.alreadyPending);
+      }
+    });
+
+    test('malformed, incomplete or unexpected replies are failures, never an issued challenge', () async {
+      for (final body in <Object>[
+        {'status': 'challenge'},
+        {...issued(), 'nonce': ''},
+        {...issued(), 'challenge_id': 7},
+        {...issued(), 'expires_at_ms': 'soon'},
+        {'status': 'completed'},
+        'not json',
+      ]) {
+        final r = await _client((_) async => http.Response(
+            body is String ? body : jsonEncode(body), 200)).challenge();
+        expect(r, isA<ImmediateChallengeFailed>(), reason: '$body');
+      }
+      final server = await reply(503, {'status': 'unavailable'});
+      expect((server as ImmediateChallengeFailed).retryable, isTrue);
+      final unauth = await reply(401, {'status': 'error'});
+      expect((unauth as ImmediateChallengeFailed).retryable, isFalse);
+    });
+
+    test('transport errors, timeouts and a missing token fail without sending', () async {
+      final net = await _client((_) async => throw http.ClientException('down')).challenge();
+      expect((net as ImmediateChallengeFailed).code, 'network');
+      final sink = <http.Request>[];
+      final none = await _client((_) async => _json(200, issued()), token: () async => null, sink: sink).challenge();
+      expect((none as ImmediateChallengeFailed).code, 'unauthenticated');
+      expect(sink, isEmpty);
+    });
+  });
 }
 
 class _LegacySdkStorage extends GotrueAsyncStorage {

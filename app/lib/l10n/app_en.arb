@@ -3222,10 +3222,10 @@
   "consentWithdrawFailed": "We couldn't confirm turning this off. Sharing stays paused. Please try again.",
   "signOutDataStays": "Your data stays on this device and comes back when you sign in again.",
   "deleteAccountTitle": "Delete account",
-  "deleteAccountIntro": "Permanently delete your Qirsh account and all the data saved with it.",
+  "deleteAccountIntro": "Permanently and immediately delete your Qirsh account and all the data saved with it. You'll confirm with Apple, and this cannot be undone.",
   "deleteAccountAction": "Delete account",
   "deleteAccountConfirmTitle": "Delete your account?",
-  "deleteAccountConfirmBody": "This permanently deletes your account and all your data, immediately. It cannot be undone.",
+  "deleteAccountConfirmBody": "This permanently deletes your account and all your data, immediately. You'll be asked to confirm with Apple. It cannot be undone.",
   "deleteAccountConfirmAction": "Delete permanently",
   "deleteAccountProgress": "Deleting your account…",
   "deleteAccountSuccess": "Your account was deleted.",
@@ -3235,5 +3235,11 @@
   "deleteAccountUnconfirmed": "We couldn't confirm that your account was deleted yet.",
   "deleteAccountRetry": "Try again",
   "deleteAccountDone": "Done",
-  "deleteAccountConfirmBodyScheduled": "Your deletion request will be sent, and the server will then permanently delete your account and all your data. This cannot be undone."
+  "deleteAccountConfirmBodyScheduled": "Your deletion request will be sent, and the server will then permanently delete your account and all your data. This cannot be undone.",
+  "deleteAccountPendingBody": "Your account deletion is in progress. Your account is not deleted yet. Check again in a moment.",
+  "deleteAccountCheckStatus": "Check status",
+  "deleteAccountUnconfirmedStale": "Your sign-in changed before we could confirm the result. Reopen this screen to check.",
+  "deleteAccountAdminBlocked": "This is an admin account and can't be deleted until its admin access is removed. Contact the team to remove it first.",
+  "deleteAccountRateLimited": "Too many attempts. Please wait a few minutes and try again.",
+  "deleteAccountLocalCleanupPending": "Your account was deleted from our servers, but we couldn't finish clearing this device. Close and reopen the app."
 }

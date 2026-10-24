@@ -76,6 +76,114 @@ String generateReceiptSecret({Random? random}) {
   return base64Url.encode(bytes).replaceAll('=', '');
 }
 
+/// Why the server refused to issue a re-authentication challenge. None of these
+/// is a deletion outcome: nothing was requested and nothing was deleted.
+enum ImmediateChallengeRefusal {
+  /// `admin_self_delete_blocked`: admin rights must be removed first (D7).
+  adminBlocked,
+
+  /// `challenge_rate_limited`: too many unconsumed challenges; wait.
+  rateLimited,
+
+  /// `already_pending`: a deletion job already exists server-side. Use status,
+  /// never a new request.
+  alreadyPending,
+}
+
+/// Result of `{action: "challenge"}`.
+sealed class ImmediateChallengeResult {
+  const ImmediateChallengeResult();
+}
+
+final class ImmediateChallengeIssued extends ImmediateChallengeResult {
+  const ImmediateChallengeIssued({
+    required this.challengeId,
+    required this.nonce,
+    required this.expiresAtMs,
+  });
+  final String challengeId;
+
+  /// Raw nonce, returned once. Never log or persist it.
+  final String nonce;
+  final int expiresAtMs;
+  @override
+  String toString() => 'ImmediateChallengeIssued';
+}
+
+final class ImmediateChallengeRefused extends ImmediateChallengeResult {
+  const ImmediateChallengeRefused(this.reason);
+  final ImmediateChallengeRefusal reason;
+  @override
+  String toString() => 'ImmediateChallengeRefused(${reason.name})';
+}
+
+final class ImmediateChallengeFailed extends ImmediateChallengeResult {
+  const ImmediateChallengeFailed({required this.retryable, required this.code});
+  final bool retryable;
+  final String code;
+  @override
+  String toString() =>
+      'ImmediateChallengeFailed(code: $code, retryable: $retryable)';
+}
+
+final RegExp _challengeTokenRe = RegExp(r'^[A-Za-z0-9_-]{16,256}$');
+
+ImmediateChallengeResult _interpretChallenge(http.Response r) {
+  final status = r.statusCode;
+  Map<String, dynamic>? json;
+  try {
+    final decoded = jsonDecode(r.body);
+    if (decoded is Map<String, dynamic>) json = decoded;
+  } catch (_) {
+    json = null;
+  }
+  final label = json?['status'];
+  final rawCode = json?['code'];
+  final code = rawCode is String && _codeRe.hasMatch(rawCode) ? rawCode : null;
+  if (code == 'admin_self_delete_blocked') {
+    return const ImmediateChallengeRefused(
+        ImmediateChallengeRefusal.adminBlocked);
+  }
+  if (code == 'challenge_rate_limited') {
+    return const ImmediateChallengeRefused(
+        ImmediateChallengeRefusal.rateLimited);
+  }
+  if (code == 'already_pending' ||
+      ((status == 200 || status == 202) &&
+          (label == 'accepted' || label == 'in_progress'))) {
+    return const ImmediateChallengeRefused(
+        ImmediateChallengeRefusal.alreadyPending);
+  }
+  if (status == 200 && label == 'challenge') {
+    final id = json?['challenge_id'];
+    final nonce = json?['nonce'];
+    final expires = json?['expires_at_ms'];
+    if (id is String &&
+        _challengeTokenRe.hasMatch(id) &&
+        nonce is String &&
+        _challengeTokenRe.hasMatch(nonce) &&
+        expires is num &&
+        expires > 0) {
+      return ImmediateChallengeIssued(
+          challengeId: id, nonce: nonce, expiresAtMs: expires.toInt());
+    }
+    return const ImmediateChallengeFailed(
+        retryable: true, code: 'invalid_response');
+  }
+  if (status == 429) {
+    return const ImmediateChallengeRefused(
+        ImmediateChallengeRefusal.rateLimited);
+  }
+  if (status == 401) {
+    return const ImmediateChallengeFailed(
+        retryable: false, code: 'unauthenticated');
+  }
+  final retryable = status >= 500 || status == 408;
+  return ImmediateChallengeFailed(
+      retryable: retryable,
+      code: code ?? (retryable ? 'server_error' : 'rejected'));
+}
+
 class ImmediateAccountDeletionClient {
   ImmediateAccountDeletionClient({
     required this.httpClient,
@@ -109,6 +217,47 @@ class ImmediateAccountDeletionClient {
       'challenge_response': challengeResponse,
       'receipt_secret': receiptSecret,
     });
+  }
+
+  /// Asks the server for a fresh single-use re-authentication challenge. Sends
+  /// no deletion request and starts no work; an issued challenge is only the
+  /// nonce the Apple re-authentication must be bound to.
+  Future<ImmediateChallengeResult> challenge() async {
+    final String? token;
+    try {
+      token = await accessToken();
+    } catch (_) {
+      return const ImmediateChallengeFailed(
+          retryable: true, code: 'session_unavailable');
+    }
+    if (token == null || token.isEmpty) {
+      return const ImmediateChallengeFailed(
+          retryable: false, code: 'unauthenticated');
+    }
+    return _sendChallenge(token, jsonEncode(<String, Object>{'action': 'challenge'}));
+  }
+
+  Future<ImmediateChallengeResult> _sendChallenge(
+      String token, String serializedBody) async {
+    final http.Response response;
+    try {
+      response = await httpClient
+          .post(
+            functionUrl,
+            headers: <String, String>{
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+              if (apiKey != null) 'apikey': apiKey!,
+            },
+            body: serializedBody,
+          )
+          .timeout(requestTimeout);
+    } on TimeoutException {
+      return const ImmediateChallengeFailed(retryable: true, code: 'timeout');
+    } catch (_) {
+      return const ImmediateChallengeFailed(retryable: true, code: 'network');
+    }
+    return _interpretChallenge(response);
   }
 
   /// Read-only poll by receipt. Never starts or accelerates work.
@@ -316,6 +465,53 @@ class ImmediateAccountDeletionRecovery {
         return ImmediateDeletionRecoveryHandle._(this, owner, receipt.operationId, binding, epoch);
       });
     } catch (_) { return null; }
+  }
+
+  /// Challenge issuance for the captured, still-current binding. Not a deletion
+  /// request: it touches no receipt and never retries.
+  Future<ImmediateChallengeResult> challenge() async {
+    final epoch = gate.epoch;
+    ImmediateDeletionBinding binding;
+    try {
+      binding = await captureBinding();
+    } catch (_) {
+      return const ImmediateChallengeFailed(
+          retryable: true, code: 'session_unavailable');
+    }
+    final owner = binding.owner;
+    final token = binding.bearerToken;
+    if (owner == null ||
+        owner.isEmpty ||
+        token == null ||
+        token.isEmpty ||
+        !_current(binding, epoch)) {
+      return const ImmediateChallengeFailed(
+          retryable: true, code: 'stale_context');
+    }
+    final serialized = jsonEncode(<String, Object>{'action': 'challenge'});
+    ImmediateChallengeResult result;
+    try {
+      result = await gate.runImmediateDeletion(
+        action: ImmediateDeletionAction.challenge,
+        owner: owner,
+        activeOwner: owner,
+        epoch: epoch,
+        isCurrent: () => _current(binding, epoch),
+        functionUrl: _client.functionUrl,
+        serializedBody: serialized,
+        bearerToken: token,
+        timeout: _client.requestTimeout,
+        exchange: () => _client._sendChallenge(token, serialized),
+      );
+    } catch (_) {
+      return const ImmediateChallengeFailed(
+          retryable: true, code: 'exchange_unconfirmed');
+    }
+    if (!_current(binding, epoch)) {
+      return const ImmediateChallengeFailed(
+          retryable: true, code: 'stale_context');
+    }
+    return result;
   }
 
   Future<ImmediateDeletionResult> request({

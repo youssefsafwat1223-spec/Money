@@ -6330,7 +6330,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get deleteAccountIntro =>
-      'Permanently delete your Qirsh account and all the data saved with it.';
+      'Permanently and immediately delete your Qirsh account and all the data saved with it. You\'ll confirm with Apple, and this cannot be undone.';
 
   @override
   String get deleteAccountAction => 'Delete account';
@@ -6340,7 +6340,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get deleteAccountConfirmBody =>
-      'This permanently deletes your account and all your data, immediately. It cannot be undone.';
+      'This permanently deletes your account and all your data, immediately. You\'ll be asked to confirm with Apple. It cannot be undone.';
 
   @override
   String get deleteAccountConfirmAction => 'Delete permanently';
@@ -6376,4 +6376,27 @@ class AppL10nEn extends AppL10n {
   @override
   String get deleteAccountConfirmBodyScheduled =>
       'Your deletion request will be sent, and the server will then permanently delete your account and all your data. This cannot be undone.';
+
+  @override
+  String get deleteAccountPendingBody =>
+      'Your account deletion is in progress. Your account is not deleted yet. Check again in a moment.';
+
+  @override
+  String get deleteAccountCheckStatus => 'Check status';
+
+  @override
+  String get deleteAccountUnconfirmedStale =>
+      'Your sign-in changed before we could confirm the result. Reopen this screen to check.';
+
+  @override
+  String get deleteAccountAdminBlocked =>
+      'This is an admin account and can\'t be deleted until its admin access is removed. Contact the team to remove it first.';
+
+  @override
+  String get deleteAccountRateLimited =>
+      'Too many attempts. Please wait a few minutes and try again.';
+
+  @override
+  String get deleteAccountLocalCleanupPending =>
+      'Your account was deleted from our servers, but we couldn\'t finish clearing this device. Close and reopen the app.';
 }

@@ -1,17 +1,23 @@
 import '../session/admission_authority.dart';
 import 'account_access_mode.dart';
-import '../session/account_scope.dart' show AccountAccessMode;
+import '../session/account_scope.dart' show AccountAccessMode, AccountScopeHost;
 import '../session/consent_capability.dart';
 import '../session/merchant_preference_writer.dart';
 import '../sync/pending_sync_reconciler.dart';
 import 'dart:async';
 import 'dart:io' show Platform;
 
+import 'package:http/http.dart' as http;
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../auth/account_deletion_gateway.dart';
 import '../auth/account_deletion_service.dart';
+import '../auth/apple_deletion_reauth.dart';
+import '../auth/immediate_deletion_flow.dart';
+import '../auth/immediate_deletion_receipt_store.dart';
+import '../auth/prepared_immediate_deletion_gateway.dart';
 import '../backend/metrics_client.dart';
 import '../backend/rules_client.dart';
 import '../backend/supabase_config.dart';
@@ -433,11 +439,51 @@ final accountDeletionServiceProvider = writerProvider<AccountDeletionService>((r
   return AccountDeletionService();
 });
 
-/// The deletion backend the Delete account screen talks to. Here: the existing
-/// scheduled service, reported truthfully (never as completed).
+/// LEGACY: the scheduled (30-day) deletion backend, reported truthfully (never
+/// as completed). The Delete account screen no longer uses it; it remains only
+/// for the status/cancel of requests scheduled before immediate deletion.
 final accountDeletionGatewayProvider = writerProvider<AccountDeletionGateway>((ref) {
   return ScheduledAccountDeletionGateway(
       ref.watch(accountDeletionServiceProvider));
+});
+
+/// The account scope host, supplied by the root `ProviderScope` (main.dart).
+/// Null where none exists (tests, bootstrap): deletion then fails closed.
+final accountScopeHostProvider =
+    writerProvider<AccountScopeHost?>((ref) => null);
+
+final appleDeletionReauthProvider = writerProvider<AppleDeletionReauth>(
+    (ref) => const PlatformAppleDeletionReauth());
+
+/// Immediate, permanent deletion: operation-bound (prepare/challenge/Apple
+/// re-auth/request/recover) with original-owner local removal. A writer provider,
+/// so it is never built under an offline local-read scope.
+final immediateDeletionFlowProvider = writerProvider<ImmediateDeletionFlow>((ref) {
+  final host = ref.watch(accountScopeHostProvider);
+  final base = Uri.tryParse(SupabaseConfig.url);
+  if (host == null || !SupabaseConfig.isConfigured || base == null) {
+    return const UnavailableDeletionFlow();
+  }
+  final supabase.SupabaseClient client;
+  try {
+    client = supabase.Supabase.instance.client;
+  } catch (_) {
+    return const UnavailableDeletionFlow();
+  }
+  final transport = http.Client();
+  ref.onDispose(transport.close);
+  return GatewayDeletionFlow(
+    gateway: PreparedImmediateDeletionGateway(
+      session: AppSession.instance,
+      host: host,
+      client: client,
+      store: ImmediateDeletionReceiptStore(),
+      transport: transport,
+      functionUrl: base.replace(path: '/functions/v1/delete-account-immediate'),
+      apiKey: SupabaseConfig.anonKey,
+    ),
+    apple: ref.watch(appleDeletionReauthProvider),
+  );
 });
 
 final accountDeletionStatusProvider =

@@ -10,8 +10,9 @@ import '../session/app_session.dart';
 import 'immediate_account_deletion.dart';
 import 'immediate_deletion_receipt_store.dart';
 
-/// INACTIVE source preparation. This is deliberately not AccountDeletionGateway.
-/// No provider/UI registration, sign-out or polling belongs here. Original
+/// Operation-bound immediate-deletion adapter. This is deliberately not
+/// AccountDeletionGateway. It is consumed by GatewayDeletionFlow (provider/UI
+/// registration lives there); no sign-out or polling belongs here. Original
 /// local removal is a separate, one-use evidence consumer. SDK wiring is trusted: the public host proof cannot expose its private
 /// issuer client for an independent object-identity check. Activation must qualify
 /// that wiring separately. Custody remains foreground-isolate scoped, not CAS.
@@ -167,6 +168,45 @@ final class PreparedImmediateDeletionGateway {
                 challengeId: challengeId,
                 challengeResponse: challengeResponse));
       });
+
+  /// Fetches one fresh re-authentication challenge for this exact operation. It
+  /// writes no receipt and starts no deletion; only an operation that has not
+  /// yet sent a request (and is not a resumed one) can ask. A challenge that
+  /// arrives after the original binding was lost is discarded.
+  Future<PreparedChallengeOutcome> challenge(
+      PreparedDeletionOperation operation) {
+    if (!identical(operation._issuer, this)) {
+      return Future.value(const PreparedChallengeUnavailable._());
+    }
+    final prior = operation._tail;
+    final result = _own<PreparedChallengeOutcome>(() async {
+      await prior;
+      if (operation._closed ||
+          operation._attempted ||
+          operation._resumed ||
+          !operation._original.current) {
+        return const PreparedChallengeUnavailable._();
+      }
+      final issued = await operation._recovery.challenge();
+      if (operation._closed ||
+          operation._attempted ||
+          !operation._original.current) {
+        return const PreparedChallengeUnavailable._();
+      }
+      return switch (issued) {
+        ImmediateChallengeIssued() => PreparedChallengeIssued._(
+            challengeId: issued.challengeId,
+            nonce: issued.nonce,
+            expiresAtMs: issued.expiresAtMs),
+        ImmediateChallengeRefused() => PreparedChallengeRefused._(issued.reason),
+        ImmediateChallengeFailed() => PreparedChallengeFailed._(
+            retryable: issued.retryable, code: issued.code),
+      };
+    });
+    operation._tail =
+        result.then<void>((_) {}, onError: (Object _, StackTrace __) {});
+    return result;
+  }
 
   /// No challenge, new operation or authorization POST is created by recovery.
   Future<PreparedDeletionOutcome> recover(
@@ -353,6 +393,40 @@ final class PreparedDeletionOperation {
   late ImmediateAccountDeletionRecovery _recovery;
   @override
   String toString() => 'PreparedDeletionOperation';
+}
+
+sealed class PreparedChallengeOutcome {
+  const PreparedChallengeOutcome._();
+}
+
+final class PreparedChallengeIssued extends PreparedChallengeOutcome {
+  const PreparedChallengeIssued._(
+      {required this.challengeId,
+      required this.nonce,
+      required this.expiresAtMs})
+      : super._();
+  final String challengeId;
+  final String nonce;
+  final int expiresAtMs;
+  @override
+  String toString() => 'PreparedChallengeIssued';
+}
+
+final class PreparedChallengeRefused extends PreparedChallengeOutcome {
+  const PreparedChallengeRefused._(this.reason) : super._();
+  final ImmediateChallengeRefusal reason;
+}
+
+final class PreparedChallengeFailed extends PreparedChallengeOutcome {
+  const PreparedChallengeFailed._({required this.retryable, required this.code})
+      : super._();
+  final bool retryable;
+  final String code;
+}
+
+/// Stale binding, closed/foreign/resumed operation: no challenge was usable.
+final class PreparedChallengeUnavailable extends PreparedChallengeOutcome {
+  const PreparedChallengeUnavailable._() : super._();
 }
 
 enum PreparedLocalRemovalOutcome {

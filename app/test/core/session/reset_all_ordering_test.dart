@@ -92,13 +92,26 @@ void main() {
     expect(order, contains('finish:A'));
   });
 
-  test('both destructive UI flows go through resetAllLocalData', () {
+  test('Remove data goes through resetAllLocalData; Delete account does not '
+      'use the global reset at all', () {
+    String read(String path) =>
+        File('${Directory.current.path}/$path').readAsStringSync();
+    final settings = read('lib/features/settings/settings_screen.dart');
+    expect(settings, contains('resetAllLocalData('));
+    // Delete account removes ONLY the original owner's replica, and only from
+    // remote-completion evidence (PreparedImmediateDeletionGateway). The global
+    // shortcut must stay unreachable from the screen and its flow.
+    for (final path in const [
+      'lib/features/settings/delete_account_screen.dart',
+      'lib/core/auth/immediate_deletion_flow.dart',
+    ]) {
+      expect(read(path).contains('resetAllLocalData'), isFalse, reason: path);
+    }
     for (final path in const [
       'lib/features/settings/settings_screen.dart',
       'lib/features/settings/delete_account_screen.dart',
     ]) {
-      final src = File('${Directory.current.path}/$path').readAsStringSync();
-      expect(src, contains('resetAllLocalData('), reason: path);
+      final src = read(path);
       expect(src.contains('wipeAndReset()'), isFalse,
           reason: '$path must not hand-roll wipe -> reset without the fence');
       expect(src.contains('.wipeAll()'), isFalse, reason: path);

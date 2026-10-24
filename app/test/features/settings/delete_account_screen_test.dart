@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
-import 'package:money_companion/core/auth/account_deletion_gateway.dart';
+import 'package:money_companion/core/auth/immediate_deletion_flow.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/core/session/remove_data_flow.dart';
@@ -19,23 +19,70 @@ import 'package:money_companion/l10n/app_localizations.dart';
 import '../../core/session/fake_account_scope.dart';
 import '../../core/session/fake_remove_barrier.dart';
 
-class _Gateway implements AccountDeletionGateway {
-  _Gateway({this.deletesImmediately = true});
-  @override
-  final bool deletesImmediately;
-  final List<StreamController<AccountDeletionState>> runs = [];
-  int get calls => runs.length;
+/// Drives the screen without the platform, network or a real gateway. The real
+/// challenge/Apple/request/local-removal chain is covered against the real
+/// gateway in core/auth/immediate_deletion_flow_test.dart.
+class _Session implements DeletionFlowSession {
+  _Session(this.flow);
+  final _Flow flow;
+  final confirms = <Completer<DeletionFlowResult>>[];
+  final checks = <Completer<DeletionFlowResult>>[];
+  int closed = 0;
 
   @override
-  Stream<AccountDeletionState> delete() {
-    final c = StreamController<AccountDeletionState>();
-    runs.add(c);
-    return c.stream;
+  Future<DeletionFlowResult> confirm() {
+    final c = Completer<DeletionFlowResult>();
+    confirms.add(c);
+    flow.events.add('confirm');
+    return c.future;
+  }
+
+  @override
+  Future<DeletionFlowResult> checkStatus() {
+    final c = Completer<DeletionFlowResult>();
+    checks.add(c);
+    flow.events.add('check');
+    return c.future;
+  }
+
+  @override
+  void close() {
+    closed++;
+    flow.events.add('close');
+  }
+}
+
+class _Flow implements ImmediateDeletionFlow {
+  _Flow({this.beginReturns = true});
+  bool beginReturns;
+  _Session? existing;
+  final events = <String>[];
+  final sessions = <_Session>[];
+  int begins = 0;
+  int resumes = 0;
+
+  @override
+  Future<DeletionFlowSession?> begin() async {
+    begins++;
+    events.add('begin');
+    if (!beginReturns) return null;
+    final s = _Session(this);
+    sessions.add(s);
+    return s;
+  }
+
+  @override
+  Future<DeletionFlowSession?> resume() async {
+    resumes++;
+    events.add('resume');
+    return existing;
   }
 }
 
 final _en = lookupAppL10n(const Locale('en'));
 
+/// Real removal flow wired to fakes: ANY global reset/sign-out the screen did
+/// would be recorded here. The screen must never cause one itself.
 List<String> _wireRemoval() {
   FlutterSecureStorage.setMockInitialValues({'local_data_owner_uid': 'uid-x'});
   final calls = <String>[];
@@ -59,8 +106,14 @@ List<String> _wireRemoval() {
   return calls;
 }
 
-Widget _app(_Gateway gateway, {String locale = 'en'}) => ProviderScope(
-      overrides: [accountDeletionGatewayProvider.overrideWithValue(gateway)],
+Widget _app(_Flow flow,
+        {String locale = 'en', void Function()? onCompleted}) =>
+    ProviderScope(
+      overrides: [
+        immediateDeletionFlowProvider.overrideWithValue(flow),
+        deleteAccountAfterCompletionProvider
+            .overrideWithValue(onCompleted ?? () {}),
+      ],
       child: MaterialApp.router(
         theme: AppTheme.light,
         locale: Locale(locale),
@@ -78,214 +131,345 @@ Widget _app(_Gateway gateway, {String locale = 'en'}) => ProviderScope(
       ),
     );
 
-Future<void> _startAndConfirm(WidgetTester tester) async {
+Future<void> _open(WidgetTester tester, _Flow flow,
+    {String locale = 'en',
+    void Function()? onCompleted,
+    bool settle = true}) async {
+  await tester.binding.setSurfaceSize(const Size(800, 1400));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(_app(flow, locale: locale, onCompleted: onCompleted));
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    // A resumed status check shows an endless spinner: pump, never settle.
+    await tester.pump();
+    await tester.pump();
+  }
+}
+
+Future<void> _tapAction(WidgetTester tester) async {
   await tester.tap(find.byKey(const Key('deleteAccountAction')));
   await tester.pumpAndSettle();
+}
+
+Future<void> _startAndConfirm(WidgetTester tester) async {
+  await _tapAction(tester);
   await tester.tap(find.byKey(const Key('deleteAccountConfirm')));
   await tester.pump();
+}
+
+Future<void> _settle(WidgetTester tester, Completer<DeletionFlowResult> c,
+    DeletionFlowResult result) async {
+  c.complete(result);
+  await tester.pumpAndSettle();
 }
 
 void main() {
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
 
-  testWidgets('one clear action; nothing runs on open', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
-    await tester.pumpAndSettle();
+  testWidgets('one clear action; opening only looks for an existing operation',
+      (tester) async {
+    final flow = _Flow();
+    await _open(tester, flow);
     expect(find.byKey(const Key('deleteAccountAction')), findsOneWidget);
-    expect(find.text(_en.deleteAccountAction), findsWidgets);
-    expect(gateway.calls, 0);
+    expect(flow.events, ['resume'], reason: 'no begin, no confirm, no network');
+    expect(flow.begins, 0);
   });
 
-  testWidgets('the confirmation states it is permanent and immediate, and '
-      'cancelling does nothing', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
-    await tester.tap(find.byKey(const Key('deleteAccountAction')));
-    await tester.pumpAndSettle();
+  testWidgets(
+      'the operation is captured BEFORE the confirmation dialog; the dialog '
+      'says permanent, immediate and Apple; cancelling releases it and sends nothing',
+      (tester) async {
+    final flow = _Flow();
+    await _open(tester, flow);
+    await _tapAction(tester);
+    expect(flow.events, ['resume', 'begin'], reason: 'captured before dialog');
     expect(find.text(_en.deleteAccountConfirmBody), findsOneWidget);
-    expect(_en.deleteAccountConfirmBody.toLowerCase(), contains('permanent'));
-    expect(_en.deleteAccountConfirmBody.toLowerCase(), contains('immediate'));
+    final body = _en.deleteAccountConfirmBody.toLowerCase();
+    expect(body, contains('permanent'));
+    expect(body, contains('immediate'));
+    expect(body, contains('apple'));
+    expect(_en.deleteAccountIntro.toLowerCase(), contains('apple'));
+    final ar = lookupAppL10n(const Locale('ar'));
+    expect(ar.deleteAccountConfirmBody, contains('Apple'));
+    expect(ar.deleteAccountIntro, contains('Apple'));
     await tester.tap(find.text(_en.commonCancel));
     await tester.pumpAndSettle();
-    expect(gateway.calls, 0);
+    expect(flow.events, ['resume', 'begin', 'close']);
+    expect(flow.sessions.single.confirms, isEmpty);
     expect(find.byKey(const Key('deleteAccountProgress')), findsNothing);
   });
 
-  testWidgets('in progress shows progress and no success, no navigation',
+  testWidgets('confirming runs the captured session once and shows progress',
       (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
     final removal = _wireRemoval();
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
+    final flow = _Flow();
+    await _open(tester, flow);
     await _startAndConfirm(tester);
-    gateway.runs.single.add(const AccountDeletionInProgress());
-    await tester.pump();
+    expect(flow.events, ['resume', 'begin', 'confirm']);
     expect(find.byKey(const Key('deleteAccountProgress')), findsOneWidget);
     expect(find.byKey(const Key('deleteAccountSuccess')), findsNothing);
     expect(removal, isEmpty);
-    expect(gateway.calls, 1);
-    await gateway.runs.single.close();
+    // The action cannot be fired again while it runs.
+    final button =
+        tester.widget<FilledButton>(find.byKey(const Key('deleteAccountAction')));
+    expect(button.onPressed, isNull);
   });
 
-  testWidgets('accepted-but-not-completed is not success: it says so honestly '
-      'and keeps the person and their local data where they are', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('Apple cancel returns the screen to idle with nothing shown or reset',
+      (tester) async {
     final removal = _wireRemoval();
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
+    final flow = _Flow();
+    await _open(tester, flow);
     await _startAndConfirm(tester);
-    gateway.runs.single
-      ..add(const AccountDeletionInProgress())
-      ..add(AccountDeletionAccepted(scheduledFor: DateTime.utc(2026, 11, 14)));
-    await gateway.runs.single.close();
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('deleteAccountAccepted')), findsOneWidget);
-    expect(find.text(_en.deleteAccountAcceptedBody), findsOneWidget);
+    await _settle(
+        tester, flow.sessions.single.confirms.single, const DeletionFlowCancelled());
+    expect(find.byKey(const Key('deleteAccountProgress')), findsNothing);
+    expect(find.text(_en.deleteAccountFailed), findsNothing);
     expect(find.byKey(const Key('deleteAccountSuccess')), findsNothing);
-    expect(removal, isEmpty, reason: 'no local reset before completion');
-    expect(find.byType(DeleteAccountScreen), findsOneWidget);
-    // The honest copy never claims the account is already deleted.
-    expect(_en.deleteAccountAcceptedBody.toLowerCase(),
-        isNot(contains('has been deleted')));
-  });
-
-  testWidgets('completed shows success and only then resets and returns to '
-      'the auth screen', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final removal = _wireRemoval();
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
-    await _startAndConfirm(tester);
-    gateway.runs.single.add(const AccountDeletionInProgress());
-    await tester.pump();
     expect(removal, isEmpty);
-    gateway.runs.single.add(const AccountDeletionCompleted());
-    await gateway.runs.single.close();
-    for (var i = 0; i < 500 && !removal.contains('finish:uid-x'); i++) {
-      await tester.pump();
-      await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 10)));
-    }
-    await tester.pump();
-    expect(removal, contains('finish:uid-x'));
-    expect(gateway.calls, 1);
+    // A later attempt is a fresh capture.
+    await _startAndConfirm(tester);
+    expect(flow.begins, 2);
   });
 
-  testWidgets('a retryable failure shows an honest error with Retry that '
-      'runs the gateway again; local data is untouched', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  group('refusals and non-final outcomes never succeed and never reset', () {
+    final cases = <(String, DeletionFlowResult, Key, String)>[
+      (
+        'pending',
+        const DeletionFlowPending(),
+        const Key('deleteAccountPending'),
+        _en.deleteAccountPendingBody
+      ),
+      (
+        'unconfirmed',
+        const DeletionFlowUnconfirmed(canCheckStatus: true),
+        const Key('deleteAccountUnconfirmed'),
+        _en.deleteAccountUnconfirmed
+      ),
+      (
+        'unconfirmed (stale)',
+        const DeletionFlowUnconfirmed(canCheckStatus: false),
+        const Key('deleteAccountUnconfirmed'),
+        _en.deleteAccountUnconfirmedStale
+      ),
+      (
+        'admin blocked',
+        const DeletionFlowAdminBlocked(),
+        const Key('deleteAccountAdminBlocked'),
+        _en.deleteAccountAdminBlocked
+      ),
+      (
+        'rate limited',
+        const DeletionFlowRateLimited(),
+        const Key('deleteAccountRateLimited'),
+        _en.deleteAccountRateLimited
+      ),
+      (
+        'local cleanup pending',
+        const DeletionFlowLocalCleanupPending(),
+        const Key('deleteAccountLocalCleanupPending'),
+        _en.deleteAccountLocalCleanupPending
+      ),
+    ];
+    for (final c in cases) {
+      testWidgets(c.$1, (tester) async {
+        final removal = _wireRemoval();
+        var navigated = 0;
+        final flow = _Flow();
+        await _open(tester, flow, onCompleted: () => navigated++);
+        await _startAndConfirm(tester);
+        await _settle(tester, flow.sessions.single.confirms.single, c.$2);
+        expect(find.byKey(c.$3), findsOneWidget);
+        expect(find.text(c.$4), findsOneWidget);
+        expect(find.byKey(const Key('deleteAccountSuccess')), findsNothing);
+        expect(removal, isEmpty, reason: 'no global reset or sign-out');
+        expect(navigated, 0);
+      });
+    }
+
+    testWidgets('pending says "not deleted yet" and Check status re-checks '
+        'the same operation without a new request', (tester) async {
+      final flow = _Flow();
+      await _open(tester, flow);
+      await _startAndConfirm(tester);
+      final session = flow.sessions.single;
+      await _settle(tester, session.confirms.single, const DeletionFlowPending());
+      expect(_en.deleteAccountPendingBody.toLowerCase(), contains('not deleted yet'));
+      await tester.tap(find.byKey(const Key('deleteAccountCheckStatus')));
+      await tester.pump();
+      expect(session.checks, hasLength(1));
+      expect(session.confirms, hasLength(1));
+      expect(flow.begins, 1);
+    });
+
+    testWidgets('a stale (non-checkable) unknown offers no Check status',
+        (tester) async {
+      final flow = _Flow();
+      await _open(tester, flow);
+      await _startAndConfirm(tester);
+      await _settle(tester, flow.sessions.single.confirms.single,
+          const DeletionFlowUnconfirmed(canCheckStatus: false));
+      expect(find.byKey(const Key('deleteAccountCheckStatus')), findsNothing);
+    });
+
+    testWidgets('local cleanup pending states the server deletion and offers no '
+        'false success or retry', (tester) async {
+      final flow = _Flow();
+      await _open(tester, flow);
+      await _startAndConfirm(tester);
+      await _settle(tester, flow.sessions.single.confirms.single,
+          const DeletionFlowLocalCleanupPending());
+      expect(_en.deleteAccountLocalCleanupPending, contains('deleted from our servers'));
+      expect(find.byKey(const Key('deleteAccountRetry')), findsNothing);
+      expect(find.byKey(const Key('deleteAccountSuccess')), findsNothing);
+    });
+  });
+
+  testWidgets('a retryable failure shows Retry that re-runs the SAME captured '
+      'session; local data is untouched', (tester) async {
     final removal = _wireRemoval();
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
+    final flow = _Flow();
+    await _open(tester, flow);
     await _startAndConfirm(tester);
-    gateway.runs.single.add(const AccountDeletionFailed(retryable: true));
-    await gateway.runs.single.close();
-    await tester.pumpAndSettle();
+    final session = flow.sessions.single;
+    await _settle(
+        tester, session.confirms.single, const DeletionFlowFailed(retryable: true));
     expect(find.text(_en.deleteAccountFailed), findsOneWidget);
-    expect(find.byKey(const Key('deleteAccountSuccess')), findsNothing);
     expect(removal, isEmpty);
     await tester.tap(find.byKey(const Key('deleteAccountRetry')));
     await tester.pump();
-    expect(gateway.calls, 2, reason: 'Retry runs the deletion again');
-    gateway.runs.last.add(const AccountDeletionFailed(retryable: true));
-    await gateway.runs.last.close();
-    await tester.pumpAndSettle();
-    expect(removal, isEmpty);
+    expect(session.confirms, hasLength(2));
+    expect(flow.begins, 1);
   });
 
   testWidgets('a non-retryable failure offers no Retry', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
+    final flow = _Flow();
+    await _open(tester, flow);
     await _startAndConfirm(tester);
-    gateway.runs.single.add(const AccountDeletionFailed(retryable: false));
-    await gateway.runs.single.close();
-    await tester.pumpAndSettle();
+    await _settle(tester, flow.sessions.single.confirms.single,
+        const DeletionFlowFailed(retryable: false));
     expect(find.text(_en.deleteAccountFailedFinal), findsOneWidget);
     expect(find.byKey(const Key('deleteAccountRetry')), findsNothing);
   });
 
-  testWidgets('a stream error is a failure, never success', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+  testWidgets('a thrown error is an unconfirmed outcome, never success',
+      (tester) async {
     final removal = _wireRemoval();
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
+    final flow = _Flow();
+    await _open(tester, flow);
     await _startAndConfirm(tester);
-    gateway.runs.single.addError(StateError('boom'));
-    await gateway.runs.single.close();
+    flow.sessions.single.confirms.single.completeError(StateError('boom'));
     await tester.pumpAndSettle();
-    expect(find.text(_en.deleteAccountFailed), findsOneWidget);
+    expect(find.byKey(const Key('deleteAccountUnconfirmed')), findsOneWidget);
+    expect(find.byKey(const Key('deleteAccountSuccess')), findsNothing);
     expect(removal, isEmpty);
   });
 
-  testWidgets('a stream that ends while still in progress is not success',
+  testWidgets('no admitted account / begin fails: honest final failure, nothing runs',
       (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
     final removal = _wireRemoval();
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway));
-    await _startAndConfirm(tester);
-    gateway.runs.single.add(const AccountDeletionInProgress());
-    await gateway.runs.single.close();
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('deleteAccountSuccess')), findsNothing);
+    final flow = _Flow(beginReturns: false);
+    await _open(tester, flow);
+    await _tapAction(tester);
+    expect(find.text(_en.deleteAccountConfirmTitle), findsNothing,
+        reason: 'no dialog without a captured operation');
+    expect(find.text(_en.deleteAccountFailedFinal), findsOneWidget);
     expect(removal, isEmpty);
-    expect(find.byKey(const Key('deleteAccountRetry')), findsOneWidget);
+  });
+
+  testWidgets(
+      'Completed shows success and navigates; the screen itself performs NO '
+      'global reset or sign-out (the flow already removed the original replica)',
+      (tester) async {
+    final removal = _wireRemoval();
+    var navigated = 0;
+    final flow = _Flow();
+    await _open(tester, flow, onCompleted: () => navigated++);
+    await _startAndConfirm(tester);
+    await tester.pump();
+    expect(navigated, 0);
+    await _settle(tester, flow.sessions.single.confirms.single,
+        const DeletionFlowCompleted());
+    expect(find.byKey(const Key('deleteAccountSuccess')), findsOneWidget);
+    expect(navigated, 1);
+    expect(removal, isEmpty,
+        reason: 'resetAllLocalData/sign-out is not reachable from this screen');
+  });
+
+  group('restart recovery', () {
+    testWidgets('an existing operation is resumed by status on open; no new '
+        'operation, dialog or confirm', (tester) async {
+      final removal = _wireRemoval();
+      final flow = _Flow();
+      flow.existing = _Session(flow);
+      await _open(tester, flow, settle: false);
+      expect(flow.events, ['resume', 'check']);
+      expect(flow.begins, 0);
+      expect(find.byKey(const Key('deleteAccountProgress')), findsOneWidget);
+      await _settle(tester, flow.existing!.checks.single, const DeletionFlowPending());
+      expect(find.byKey(const Key('deleteAccountPending')), findsOneWidget);
+      expect(removal, isEmpty);
+      // Delete is blocked while a deletion is pending (no duplicate operation).
+      final button = tester
+          .widget<FilledButton>(find.byKey(const Key('deleteAccountAction')));
+      expect(button.onPressed, isNull);
+    });
+
+    testWidgets('a resumed operation that completes shows success and navigates',
+        (tester) async {
+      var navigated = 0;
+      final flow = _Flow();
+      flow.existing = _Session(flow);
+      await _open(tester, flow, onCompleted: () => navigated++, settle: false);
+      await _settle(tester, flow.existing!.checks.single, const DeletionFlowCompleted());
+      expect(find.byKey(const Key('deleteAccountSuccess')), findsOneWidget);
+      expect(navigated, 1);
+    });
+
+    testWidgets('begin refused because an operation exists falls back to resuming it',
+        (tester) async {
+      final flow = _Flow(beginReturns: false);
+      await _open(tester, flow);
+      flow.existing = _Session(flow);
+      await tester.tap(find.byKey(const Key('deleteAccountAction')));
+      await tester.pump();
+      await tester.pump();
+      expect(flow.events, ['resume', 'begin', 'resume', 'check']);
+      expect(find.text(_en.deleteAccountFailedFinal), findsNothing);
+    });
   });
 
   testWidgets('Arabic renders the same states', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 1400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
     final ar = lookupAppL10n(const Locale('ar'));
-    final gateway = _Gateway();
-    await tester.pumpWidget(_app(gateway, locale: 'ar'));
-    await tester.pumpAndSettle();
+    final flow = _Flow();
+    await _open(tester, flow, locale: 'ar');
     expect(find.text(ar.deleteAccountAction), findsWidgets);
-    await tester.tap(find.byKey(const Key('deleteAccountAction')));
-    await tester.pumpAndSettle();
+    await _tapAction(tester);
     expect(find.text(ar.deleteAccountConfirmBody), findsOneWidget);
+    await tester.tap(find.byKey(const Key('deleteAccountConfirm')));
+    await tester.pump();
+    await _settle(tester, flow.sessions.single.confirms.single,
+        const DeletionFlowAdminBlocked());
+    expect(find.text(ar.deleteAccountAdminBlocked), findsOneWidget);
   });
 
-  for (final locale in ['en', 'ar']) {
-    testWidgets('confirmation copy follows the gateway ($locale)',
-        (tester) async {
-      await tester.binding.setSurfaceSize(const Size(800, 1400));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      final l10n = lookupAppL10n(Locale(locale));
-      for (final immediate in [true, false]) {
-        await tester.pumpWidget(
-            _app(_Gateway(deletesImmediately: immediate), locale: locale));
-        await tester.pumpAndSettle();
-        await tester.tap(find.byKey(const Key('deleteAccountAction')));
-        await tester.pumpAndSettle();
-        expect(
-            find.text(immediate
-                ? l10n.deleteAccountConfirmBody
-                : l10n.deleteAccountConfirmBodyScheduled),
-            findsOneWidget);
-        expect(
-            find.text(immediate
-                ? l10n.deleteAccountConfirmBodyScheduled
-                : l10n.deleteAccountConfirmBody),
-            findsNothing);
-        await tester.tap(find.byKey(const Key('deleteAccountConfirm')));
-        await tester.pump();
-        await tester.pumpWidget(const SizedBox());
-      }
-    });
-  }
+  test('every new deletion string exists in both languages', () {
+    final en = lookupAppL10n(const Locale('en'));
+    final ar = lookupAppL10n(const Locale('ar'));
+    for (final pair in [
+      (en.deleteAccountPendingBody, ar.deleteAccountPendingBody),
+      (en.deleteAccountCheckStatus, ar.deleteAccountCheckStatus),
+      (en.deleteAccountUnconfirmedStale, ar.deleteAccountUnconfirmedStale),
+      (en.deleteAccountAdminBlocked, ar.deleteAccountAdminBlocked),
+      (en.deleteAccountRateLimited, ar.deleteAccountRateLimited),
+      (en.deleteAccountLocalCleanupPending, ar.deleteAccountLocalCleanupPending),
+    ]) {
+      expect(pair.$1.trim(), isNotEmpty);
+      expect(pair.$2.trim(), isNotEmpty);
+      expect(pair.$1, isNot(pair.$2));
+    }
+  });
 
   test('the scheduled copy makes no immediate claim', () {
     final en = lookupAppL10n(const Locale('en')).deleteAccountConfirmBodyScheduled;

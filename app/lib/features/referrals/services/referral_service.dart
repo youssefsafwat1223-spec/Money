@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../domain/errors/repo_exceptions.dart';
+import '../referral_error.dart' show isReferralFeatureRetired;
 import '../referral_models.dart';
 
 /// Thin client for the authenticated referral RPCs (0083). Never used directly
@@ -41,6 +42,8 @@ class SupabaseReferralService implements ReferralService {
       final response = await _getClient().rpc('get_referral_summary');
       return ReferralSummary.fromJson(_asMap(response));
     } catch (error) {
+      // Retired feature: the screen's neutral "not available" state.
+      if (isReferralFeatureRetired(error)) return null;
       throw mapSupabaseError(error);
     }
   }
@@ -57,6 +60,10 @@ class SupabaseReferralService implements ReferralService {
           await _getClient().rpc('apply_referral_code', params: {'p_code': code});
       return ApplyCodeOutcome.fromJson(_asMap(response));
     } catch (error) {
+      if (isReferralFeatureRetired(error)) {
+        return const ApplyCodeOutcome(
+            ok: false, reason: ReferralReason.featureRetired);
+      }
       throw mapSupabaseError(error);
     }
   }
@@ -67,6 +74,12 @@ class SupabaseReferralService implements ReferralService {
       final response = await _getClient().rpc('request_referral_qualification');
       return QualificationOutcome.fromJson(_asMap(response));
     } catch (error) {
+      if (isReferralFeatureRetired(error)) {
+        return const QualificationOutcome(
+            qualified: false,
+            granted: false,
+            reason: ReferralReason.featureRetired);
+      }
       throw mapSupabaseError(error);
     }
   }

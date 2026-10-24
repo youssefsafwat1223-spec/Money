@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/auth/account_deletion_gateway.dart';
 import 'package:money_companion/core/auth/account_deletion_service.dart';
+import 'package:money_companion/core/auth/immediate_deletion_flow.dart';
 import 'package:money_companion/core/di/account_access_mode.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/session/account_scope.dart';
@@ -130,6 +131,24 @@ void main() {
     expect(gateway.deletesImmediately, isFalse);
     expect(serviceBuilds, 1);
     expect(clientReads, 0);
+  });
+
+  test('immediate deletion flow: denied under local read, fail-closed without a scope host', () async {
+    final local = ProviderContainer(overrides: [
+      accountAccessModeProvider.overrideWithValue(AccountAccessMode.localRead),
+    ]);
+    addTearDown(local.dispose);
+    expect(() => local.read(immediateDeletionFlowProvider),
+        throwsA(isA<LocalReadWriterDenied>()));
+    expect(() => local.read(appleDeletionReauthProvider),
+        throwsA(isA<LocalReadWriterDenied>()));
+
+    final writable = ProviderContainer();
+    addTearDown(writable.dispose);
+    final flow = writable.read(immediateDeletionFlowProvider);
+    expect(flow, isA<UnavailableDeletionFlow>());
+    expect(await flow.begin(), isNull);
+    expect(await flow.resume(), isNull);
   });
 
   test('under a writable scope the same providers build as before', () async {

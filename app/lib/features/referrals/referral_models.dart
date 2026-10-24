@@ -14,6 +14,10 @@ class ReferralReason {
   static const alreadyReferred = 'already_referred';
   static const noActiveRule = 'no_active_rule';
 
+  // D6: the old referral protocol is permanently retired (SQLSTATE QD040).
+  // Client-side token only; the server answers with an error, not jsonb.
+  static const featureRetired = 'feature_retired';
+
   // qualify_referral_internal reasons (jsonb {qualified:false, reason:...})
   static const noAttribution = 'no_attribution';
   static const identityUnverified = 'identity_unverified';

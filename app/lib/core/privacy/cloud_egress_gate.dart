@@ -1257,7 +1257,7 @@ class AccountControlGrant {
 
 /// Foreground immediate deletion exchanges have a separate, body-bound grant.
 /// They cannot borrow any of the legacy account-control endpoints.
-enum ImmediateDeletionAction { request, status }
+enum ImmediateDeletionAction { request, status, challenge }
 
 class _ImmediateDeletionGrant {
   _ImmediateDeletionGrant({
@@ -1783,7 +1783,8 @@ class CloudEgressGate {
         functionUrl.path != '/functions/v1/delete-account-immediate' ||
         functionUrl.hasQuery || functionUrl.hasFragment || owner.isEmpty ||
         (activeOwner != null && activeOwner != owner) ||
-        (action == ImmediateDeletionAction.request &&
+        ((action == ImmediateDeletionAction.request ||
+                action == ImmediateDeletionAction.challenge) &&
             (activeOwner != owner || bearerToken == null || bearerToken.isEmpty)) ||
         (action == ImmediateDeletionAction.status && bearerToken != null)) {
       throw EgressDeniedException('deletion_scope');
@@ -1791,16 +1792,21 @@ class CloudEgressGate {
     dynamic body;
     try { body = jsonDecode(serializedBody); } catch (_) { body = null; }
     final status = action == ImmediateDeletionAction.status;
-    final keys = status
-        ? {'action', 'receipt_secret'}
-        : {'challenge_id', 'challenge_response', 'receipt_secret',
-            if (body is Map && body.containsKey('action')) 'action'};
+    final challenge = action == ImmediateDeletionAction.challenge;
+    final keys = challenge
+        ? {'action'}
+        : status
+            ? {'action', 'receipt_secret'}
+            : {'challenge_id', 'challenge_response', 'receipt_secret',
+                if (body is Map && body.containsKey('action')) 'action'};
     if (body is! Map<String, dynamic> ||
         body.length != keys.length || !body.keys.every(keys.contains) ||
-        body['receipt_secret'] is! String ||
-        !RegExp(r'^[A-Za-z0-9_-]{43,128}$').hasMatch(body['receipt_secret'] as String) ||
+        (challenge && body['action'] != 'challenge') ||
+        (!challenge &&
+            (body['receipt_secret'] is! String ||
+                !RegExp(r'^[A-Za-z0-9_-]{43,128}$').hasMatch(body['receipt_secret'] as String))) ||
         (status && body['action'] != 'status') ||
-        (!status && ((body.containsKey('action') && body['action'] != 'request') ||
+        (!status && !challenge && ((body.containsKey('action') && body['action'] != 'request') ||
             body['challenge_id'] is! String || (body['challenge_id'] as String).isEmpty ||
             body['challenge_response'] is! String || (body['challenge_response'] as String).isEmpty))) {
       throw EgressDeniedException('deletion_scope');

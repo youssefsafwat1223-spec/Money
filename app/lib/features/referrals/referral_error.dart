@@ -1,3 +1,5 @@
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
+
 import '../../domain/errors/repo_exceptions.dart';
 import '../../l10n/app_localizations.dart';
 import 'referral_models.dart';
@@ -17,6 +19,7 @@ String referralReasonMessage(AppL10n l10n, String? reason) {
       return l10n.referralErrorAlreadyReferred;
     case ReferralReason.noActiveRule:
     case ReferralReason.awaitingActiveRule:
+    case ReferralReason.featureRetired:
       return l10n.referralErrorNoActiveRule;
     case ReferralReason.identityUnverified:
       return l10n.referralErrorIdentityUnverified;
@@ -30,6 +33,7 @@ String referralReasonMessage(AppL10n l10n, String? reason) {
 /// to controlled copy. Reuses the app-wide RepoException classification but only
 /// through the clean, non-interpolating branches so no server text is exposed.
 String referralThrownMessage(AppL10n l10n, Object error) {
+  if (isReferralFeatureRetired(error)) return l10n.referralErrorNoActiveRule;
   final repo = error is RepoException ? error : mapSupabaseError(error);
   switch (repo) {
     case AuthRepoException():
@@ -40,4 +44,14 @@ String referralThrownMessage(AppL10n l10n, Object error) {
     default:
       return l10n.referralErrorGeneric;
   }
+}
+
+/// D6: true when the server refused because the referral protocol is retired
+/// (`QD040` / `feature_retired`). Not an error to show or retry: the feature is
+/// simply unavailable, and nothing was changed server-side.
+bool isReferralFeatureRetired(Object error) {
+  if (error is! PostgrestException) return false;
+  if (error.code == 'QD040') return true;
+  bool has(String? text) => text != null && text.contains('feature_retired');
+  return has(error.message) || has(error.details?.toString()) || has(error.hint);
 }

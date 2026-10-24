@@ -6336,7 +6336,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get deleteAccountIntro =>
-      'احذف حسابك في قرش وكل البيانات المحفوظة معه نهائيًا.';
+      'احذف حسابك في قرش وكل البيانات المحفوظة معه نهائيًا وعلى الفور. ستؤكد ذلك عبر Apple، ولا يمكن التراجع عنه.';
 
   @override
   String get deleteAccountAction => 'حذف الحساب';
@@ -6346,7 +6346,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get deleteAccountConfirmBody =>
-      'سيُحذف حسابك وكل بياناتك نهائيًا وعلى الفور، ولا يمكن التراجع عن ذلك.';
+      'سيُحذف حسابك وكل بياناتك نهائيًا وعلى الفور، ولا يمكن التراجع عن ذلك. ستحتاج إلى التأكيد عبر Apple.';
 
   @override
   String get deleteAccountConfirmAction => 'حذف نهائي';
@@ -6380,4 +6380,27 @@ class AppL10nAr extends AppL10n {
   @override
   String get deleteAccountConfirmBodyScheduled =>
       'سيُرسل طلب الحذف، ثم يحذف الخادم حسابك وكل بياناتك نهائيًا لاحقًا، ولا يمكن التراجع عن ذلك.';
+
+  @override
+  String get deleteAccountPendingBody =>
+      'حذف حسابك قيد التنفيذ، وحسابك لم يُحذف بعد. تحقق مرة أخرى بعد قليل.';
+
+  @override
+  String get deleteAccountCheckStatus => 'تحقق من الحالة';
+
+  @override
+  String get deleteAccountUnconfirmedStale =>
+      'تغيّرت جلسة الدخول قبل أن نتأكد من النتيجة. افتح هذه الشاشة مجددًا للتحقق.';
+
+  @override
+  String get deleteAccountAdminBlocked =>
+      'هذا حساب مشرف ولا يمكن حذفه قبل إزالة صلاحيات الإشراف عنه. تواصل مع الفريق لإزالتها أولًا.';
+
+  @override
+  String get deleteAccountRateLimited =>
+      'محاولات كثيرة. انتظر بضع دقائق ثم حاول مجددًا.';
+
+  @override
+  String get deleteAccountLocalCleanupPending =>
+      'تم حذف حسابك من خوادمنا، لكن تعذّر إنهاء مسح البيانات على هذا الجهاز. أغلق التطبيق وافتحه مجددًا.';
 }

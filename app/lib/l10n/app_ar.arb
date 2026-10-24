@@ -3438,10 +3438,10 @@
   "consentWithdrawFailed": "لم نتمكن من التأكد من إيقاف هذه الميزة. يبقى الإرسال متوقفًا. حاول مجددًا.",
   "signOutDataStays": "تبقى بياناتك على هذا الجهاز وتعود إليك عند تسجيل الدخول مجددًا.",
   "deleteAccountTitle": "حذف الحساب",
-  "deleteAccountIntro": "احذف حسابك في قرش وكل البيانات المحفوظة معه نهائيًا.",
+  "deleteAccountIntro": "احذف حسابك في قرش وكل البيانات المحفوظة معه نهائيًا وعلى الفور. ستؤكد ذلك عبر Apple، ولا يمكن التراجع عنه.",
   "deleteAccountAction": "حذف الحساب",
   "deleteAccountConfirmTitle": "حذف حسابك؟",
-  "deleteAccountConfirmBody": "سيُحذف حسابك وكل بياناتك نهائيًا وعلى الفور، ولا يمكن التراجع عن ذلك.",
+  "deleteAccountConfirmBody": "سيُحذف حسابك وكل بياناتك نهائيًا وعلى الفور، ولا يمكن التراجع عن ذلك. ستحتاج إلى التأكيد عبر Apple.",
   "deleteAccountConfirmAction": "حذف نهائي",
   "deleteAccountProgress": "جارٍ حذف حسابك…",
   "deleteAccountSuccess": "تم حذف حسابك.",
@@ -3451,5 +3451,11 @@
   "deleteAccountUnconfirmed": "لم نتمكن من التأكد من حذف حسابك بعد.",
   "deleteAccountRetry": "حاول مجددًا",
   "deleteAccountDone": "تم",
-  "deleteAccountConfirmBodyScheduled": "سيُرسل طلب الحذف، ثم يحذف الخادم حسابك وكل بياناتك نهائيًا لاحقًا، ولا يمكن التراجع عن ذلك."
+  "deleteAccountConfirmBodyScheduled": "سيُرسل طلب الحذف، ثم يحذف الخادم حسابك وكل بياناتك نهائيًا لاحقًا، ولا يمكن التراجع عن ذلك.",
+  "deleteAccountPendingBody": "حذف حسابك قيد التنفيذ، وحسابك لم يُحذف بعد. تحقق مرة أخرى بعد قليل.",
+  "deleteAccountCheckStatus": "تحقق من الحالة",
+  "deleteAccountUnconfirmedStale": "تغيّرت جلسة الدخول قبل أن نتأكد من النتيجة. افتح هذه الشاشة مجددًا للتحقق.",
+  "deleteAccountAdminBlocked": "هذا حساب مشرف ولا يمكن حذفه قبل إزالة صلاحيات الإشراف عنه. تواصل مع الفريق لإزالتها أولًا.",
+  "deleteAccountRateLimited": "محاولات كثيرة. انتظر بضع دقائق ثم حاول مجددًا.",
+  "deleteAccountLocalCleanupPending": "تم حذف حسابك من خوادمنا، لكن تعذّر إنهاء مسح البيانات على هذا الجهاز. أغلق التطبيق وافتحه مجددًا."
 }

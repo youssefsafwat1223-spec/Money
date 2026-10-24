@@ -10702,7 +10702,7 @@ abstract class AppL10n {
   /// No description provided for @deleteAccountIntro.
   ///
   /// In ar, this message translates to:
-  /// **'احذف حسابك في قرش وكل البيانات المحفوظة معه نهائيًا.'**
+  /// **'احذف حسابك في قرش وكل البيانات المحفوظة معه نهائيًا وعلى الفور. ستؤكد ذلك عبر Apple، ولا يمكن التراجع عنه.'**
   String get deleteAccountIntro;
 
   /// No description provided for @deleteAccountAction.
@@ -10720,7 +10720,7 @@ abstract class AppL10n {
   /// No description provided for @deleteAccountConfirmBody.
   ///
   /// In ar, this message translates to:
-  /// **'سيُحذف حسابك وكل بياناتك نهائيًا وعلى الفور، ولا يمكن التراجع عن ذلك.'**
+  /// **'سيُحذف حسابك وكل بياناتك نهائيًا وعلى الفور، ولا يمكن التراجع عن ذلك. ستحتاج إلى التأكيد عبر Apple.'**
   String get deleteAccountConfirmBody;
 
   /// No description provided for @deleteAccountConfirmAction.
@@ -10782,6 +10782,42 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'سيُرسل طلب الحذف، ثم يحذف الخادم حسابك وكل بياناتك نهائيًا لاحقًا، ولا يمكن التراجع عن ذلك.'**
   String get deleteAccountConfirmBodyScheduled;
+
+  /// No description provided for @deleteAccountPendingBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'حذف حسابك قيد التنفيذ، وحسابك لم يُحذف بعد. تحقق مرة أخرى بعد قليل.'**
+  String get deleteAccountPendingBody;
+
+  /// No description provided for @deleteAccountCheckStatus.
+  ///
+  /// In ar, this message translates to:
+  /// **'تحقق من الحالة'**
+  String get deleteAccountCheckStatus;
+
+  /// No description provided for @deleteAccountUnconfirmedStale.
+  ///
+  /// In ar, this message translates to:
+  /// **'تغيّرت جلسة الدخول قبل أن نتأكد من النتيجة. افتح هذه الشاشة مجددًا للتحقق.'**
+  String get deleteAccountUnconfirmedStale;
+
+  /// No description provided for @deleteAccountAdminBlocked.
+  ///
+  /// In ar, this message translates to:
+  /// **'هذا حساب مشرف ولا يمكن حذفه قبل إزالة صلاحيات الإشراف عنه. تواصل مع الفريق لإزالتها أولًا.'**
+  String get deleteAccountAdminBlocked;
+
+  /// No description provided for @deleteAccountRateLimited.
+  ///
+  /// In ar, this message translates to:
+  /// **'محاولات كثيرة. انتظر بضع دقائق ثم حاول مجددًا.'**
+  String get deleteAccountRateLimited;
+
+  /// No description provided for @deleteAccountLocalCleanupPending.
+  ///
+  /// In ar, this message translates to:
+  /// **'تم حذف حسابك من خوادمنا، لكن تعذّر إنهاء مسح البيانات على هذا الجهاز. أغلق التطبيق وافتحه مجددًا.'**
+  String get deleteAccountLocalCleanupPending;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

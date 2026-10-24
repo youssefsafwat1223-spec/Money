@@ -2,26 +2,38 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
-import '../../core/auth/account_deletion_gateway.dart';
-import '../../core/backend/supabase_config.dart';
+import '../../core/auth/immediate_deletion_flow.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/router/app_router.dart';
-import '../../core/session/app_session.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/l10n_ext.dart';
 
-enum _Phase { idle, running, accepted, failed, unconfirmed, completed }
+enum _Phase {
+  idle,
+  running,
+  pending,
+  unconfirmed,
+  failed,
+  adminBlocked,
+  rateLimited,
+  localCleanupPending,
+  completed,
+}
 
-/// Delete account: one clear action, an explicit confirmation, and an honest
-/// report of what the backend achieved. The person is shown success and returned
-/// to the auth screen ONLY when the gateway reports
-/// [AccountDeletionCompleted]; a request that was merely accepted, still in
-/// progress, or that failed is never presented as a finished deletion, and local
-/// data is only reset on completion.
+/// Where the person goes after a CONFIRMED deletion (remote completion and
+/// original local removal). Overridable in tests.
+final deleteAccountAfterCompletionProvider =
+    Provider<void Function()>((ref) => () => appRouter.go('/welcome'));
+
+/// Delete account: immediate, permanent, confirmed with Apple. The operation is
+/// captured BEFORE the confirmation dialog; on confirm it runs challenge ->
+/// Apple re-authentication -> request. Success is shown, and the person is sent
+/// to onboarding, ONLY after operation-bound remote completion AND confirmed
+/// removal of the original local replica. Pending, unknown, refused and failed
+/// states are reported as such and never touch local data.
 class DeleteAccountScreen extends ConsumerStatefulWidget {
   const DeleteAccountScreen({super.key});
 
@@ -33,25 +45,92 @@ class DeleteAccountScreen extends ConsumerStatefulWidget {
 class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
   _Phase _phase = _Phase.idle;
   bool _retryable = true;
-  StreamSubscription<AccountDeletionState>? _sub;
+  bool _canCheckStatus = true;
+  bool _running = false;
+  DeletionFlowSession? _session;
+
+  @override
+  void initState() {
+    super.initState();
+    // A request that survived a restart (or a closed screen) is resumed, never
+    // duplicated: status only.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_resumeExisting());
+    });
+  }
 
   @override
   void dispose() {
-    unawaited(_sub?.cancel());
+    // A session mid-run settles itself (including local removal); only an
+    // idle, never-confirmed one is released.
+    if (!_running) _session?.close();
     super.dispose();
   }
 
+  ImmediateDeletionFlow? _flow() {
+    try {
+      return ref.read(immediateDeletionFlowProvider);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> _resumeExisting() async {
+    if (_running) return false;
+    final flow = _flow();
+    if (flow == null) return false;
+    final DeletionFlowSession? existing;
+    try {
+      existing = await flow.resume();
+    } catch (_) {
+      return false;
+    }
+    if (existing == null || !mounted || _running) {
+      existing?.close();
+      return false;
+    }
+    _session = existing;
+    unawaited(_run(existing.checkStatus));
+    return true;
+  }
+
   Future<void> _confirmAndStart() async {
-    if (_phase == _Phase.running) return;
+    if (_running) return;
     final l10n = context.l10n;
-    final immediate = ref.read(accountDeletionGatewayProvider).deletesImmediately;
+    final flow = _flow();
+    // Replace an abandoned, never-requested capture instead of leaking it.
+    _session?.close();
+    _session = null;
+    _running = true;
+    setState(() => _phase = _Phase.running);
+    DeletionFlowSession? session;
+    try {
+      session = await flow?.begin();
+    } catch (_) {
+      session = null;
+    }
+    _running = false;
+    if (!mounted) {
+      session?.close();
+      return;
+    }
+    if (session == null) {
+      // No admitted original account, or an operation already exists.
+      if (await _resumeExisting()) return;
+      if (!mounted) return;
+      setState(() {
+        _phase = _Phase.failed;
+        _retryable = false;
+      });
+      return;
+    }
+    final captured = session;
+    setState(() => _phase = _Phase.idle);
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: Text(l10n.deleteAccountConfirmTitle),
-        content: Text(immediate
-            ? l10n.deleteAccountConfirmBody
-            : l10n.deleteAccountConfirmBodyScheduled),
+        content: Text(l10n.deleteAccountConfirmBody),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(ctx, false),
@@ -64,66 +143,94 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
-    _start();
+    if (confirmed != true || !mounted) {
+      captured.close();
+      if (mounted) setState(() => _phase = _Phase.idle);
+      return;
+    }
+    _session = captured;
+    unawaited(_run(captured.confirm));
   }
 
-  void _start() {
-    if (_phase == _Phase.running) return;
-    setState(() => _phase = _Phase.running);
-    unawaited(_sub?.cancel());
-    _sub = ref.read(accountDeletionGatewayProvider).delete().listen(
-      (state) {
-        if (!mounted) return;
-        switch (state) {
-          case AccountDeletionInProgress():
-            setState(() => _phase = _Phase.running);
-          case AccountDeletionAccepted():
-            setState(() => _phase = _Phase.accepted);
-            ref.invalidate(accountDeletionStatusProvider);
-          case AccountDeletionFailed(:final retryable):
-            setState(() {
-              _phase = _Phase.failed;
-              _retryable = retryable;
-            });
-          case AccountDeletionCompleted():
-            setState(() => _phase = _Phase.completed);
-            unawaited(_finish());
-        }
-      },
-      onError: (Object _) {
-        if (!mounted) return;
-        setState(() {
+  Future<void> _retry() async {
+    final session = _session;
+    if (session == null) return _confirmAndStart();
+    unawaited(_run(session.confirm));
+  }
+
+  Future<void> _check() async {
+    final session = _session;
+    if (session == null) return;
+    unawaited(_run(session.checkStatus));
+  }
+
+  Future<void> _run(Future<DeletionFlowResult> Function() action) async {
+    if (_running) return;
+    _running = true;
+    // Captured before any await: a confirmed removal replaces the account scope
+    // and disposes this screen, but navigation must still happen.
+    final afterCompletion = ref.read(deleteAccountAfterCompletionProvider);
+    if (mounted) setState(() => _phase = _Phase.running);
+    DeletionFlowResult result;
+    try {
+      result = await action();
+    } catch (_) {
+      result = const DeletionFlowUnconfirmed(canCheckStatus: true);
+    }
+    _running = false;
+    if (result is DeletionFlowCompleted) {
+      if (mounted) setState(() => _phase = _Phase.completed);
+      afterCompletion();
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      switch (result) {
+        case DeletionFlowCompleted():
+          _phase = _Phase.completed;
+        case DeletionFlowLocalCleanupPending():
+          _phase = _Phase.localCleanupPending;
+        case DeletionFlowPending():
+          _phase = _Phase.pending;
+        case DeletionFlowUnconfirmed(:final canCheckStatus):
+          _phase = _Phase.unconfirmed;
+          _canCheckStatus = canCheckStatus;
+        case DeletionFlowFailed(:final retryable):
           _phase = _Phase.failed;
-          _retryable = true;
-        });
-      },
-      onDone: () {
-        // A stream that ends while the deletion is still in progress did not
-        // confirm anything: never a success.
-        if (!mounted || _phase != _Phase.running) return;
-        setState(() => _phase = _Phase.unconfirmed);
-      },
-    );
-  }
-
-  /// Completed on the server: only now is the local replica reset and the person
-  /// returned to the auth screen. The reset replaces the account scope (which
-  /// disposes this screen), so navigation uses the app router.
-  Future<void> _finish() async {
-    await AppSession.instance.resetAllLocalData(
-      signOutRemote: SupabaseConfig.isConfigured
-          ? supabase.Supabase.instance.client.auth.signOut
-          : null,
-    );
-    appRouter.go('/welcome');
+          _retryable = retryable;
+        case DeletionFlowAdminBlocked():
+          _phase = _Phase.adminBlocked;
+        case DeletionFlowRateLimited():
+          _phase = _Phase.rateLimited;
+        case DeletionFlowCancelled():
+          // The person dismissed Apple: nothing was sent.
+          _phase = _Phase.idle;
+          _session = null;
+      }
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final l10n = context.l10n;
-    final busy = _phase == _Phase.running || _phase == _Phase.completed;
+    final busy = _phase == _Phase.running ||
+        _phase == _Phase.completed ||
+        _phase == _Phase.pending ||
+        _phase == _Phase.unconfirmed ||
+        _phase == _Phase.localCleanupPending;
+
+    Widget message(String text, {Color? color, String? key}) => Text(text,
+        key: key == null ? null : Key(key),
+        style: AppTypography.body(color ?? c.textMain));
+
+    Widget action(String keyName, String label, VoidCallback onPressed) =>
+        Padding(
+          padding: const EdgeInsets.only(top: AppSpacing.s2),
+          child: TextButton(
+              key: Key(keyName), onPressed: onPressed, child: Text(label)),
+        );
+
     Widget status() {
       switch (_phase) {
         case _Phase.idle:
@@ -146,46 +253,59 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
           return Text(l10n.deleteAccountSuccess,
               key: const Key('deleteAccountSuccess'),
               style: AppTypography.bodyStrong(c.textMain));
-        case _Phase.accepted:
+        case _Phase.pending:
           return Column(
-            key: const Key('deleteAccountAccepted'),
+            key: const Key('deleteAccountPending'),
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(l10n.deleteAccountAcceptedBody,
-                  style: AppTypography.body(c.textMain)),
-              const SizedBox(height: AppSpacing.s2),
-              TextButton(
-                key: const Key('deleteAccountDone'),
-                onPressed: () => Navigator.of(context).maybePop(),
-                child: Text(l10n.deleteAccountDone),
-              ),
+              message(l10n.deleteAccountPendingBody),
+              action('deleteAccountCheckStatus', l10n.deleteAccountCheckStatus,
+                  _check),
+            ],
+          );
+        case _Phase.unconfirmed:
+          return Column(
+            key: const Key('deleteAccountUnconfirmed'),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              message(
+                  _canCheckStatus
+                      ? l10n.deleteAccountUnconfirmed
+                      : l10n.deleteAccountUnconfirmedStale,
+                  color: c.danger),
+              if (_canCheckStatus)
+                action('deleteAccountCheckStatus',
+                    l10n.deleteAccountCheckStatus, _check),
             ],
           );
         case _Phase.failed:
-        case _Phase.unconfirmed:
-          final failed = _phase == _Phase.failed;
-          final retryable = !failed || _retryable;
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(
-                !failed
-                    ? l10n.deleteAccountUnconfirmed
-                    : retryable
-                        ? l10n.deleteAccountFailed
-                        : l10n.deleteAccountFailedFinal,
-                style: AppTypography.body(c.danger),
-              ),
-              if (retryable) ...[
-                const SizedBox(height: AppSpacing.s2),
-                TextButton(
-                  key: const Key('deleteAccountRetry'),
-                  onPressed: _start,
-                  child: Text(l10n.deleteAccountRetry),
-                ),
-              ],
+              message(
+                  _retryable
+                      ? l10n.deleteAccountFailed
+                      : l10n.deleteAccountFailedFinal,
+                  color: c.danger),
+              if (_retryable)
+                action('deleteAccountRetry', l10n.deleteAccountRetry, _retry),
             ],
           );
+        case _Phase.adminBlocked:
+          return message(l10n.deleteAccountAdminBlocked,
+              color: c.danger, key: 'deleteAccountAdminBlocked');
+        case _Phase.rateLimited:
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              message(l10n.deleteAccountRateLimited,
+                  color: c.danger, key: 'deleteAccountRateLimited'),
+              action('deleteAccountRetry', l10n.deleteAccountRetry, _retry),
+            ],
+          );
+        case _Phase.localCleanupPending:
+          return message(l10n.deleteAccountLocalCleanupPending,
+              color: c.danger, key: 'deleteAccountLocalCleanupPending');
       }
     }
 
@@ -204,9 +324,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
           FilledButton(
             key: const Key('deleteAccountAction'),
             style: FilledButton.styleFrom(backgroundColor: c.danger),
-            onPressed: busy || _phase == _Phase.accepted
-                ? null
-                : _confirmAndStart,
+            onPressed: busy ? null : _confirmAndStart,
             child: Text(l10n.deleteAccountAction),
           ),
           const SizedBox(height: AppSpacing.s4),
