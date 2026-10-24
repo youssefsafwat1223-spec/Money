@@ -910,7 +910,7 @@ workflows:
                           assert data.get('com.apple.developer.applesignin') == ['Default']
                   assert not profile.get('ProvisionedDevices') and not profile.get('ProvisionsAllDevices')
                   prefix = pathlib.Path(tmp) / ('certificate-' + bundle)
-                  subprocess.run(['codesign', '-d', '--extract-certificates', str(prefix), str(app)], check=True, capture_output=True)
+                  subprocess.run(['codesign', '-d', '--extract-certificates=' + str(prefix), str(app)], check=True, capture_output=True)
                   certificate = pathlib.Path(str(prefix) + '0').read_bytes()
                   assert certificate in profile['DeveloperCertificates'], 'signature certificate not permitted by profile'
                   signing_certificates.append(hashlib.sha256(certificate).hexdigest())
