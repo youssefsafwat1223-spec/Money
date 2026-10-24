@@ -603,6 +603,25 @@ Deno.test('accept fails but the fence proves it can no longer commit: nonaccepta
   assertEquals(h.backend.tombstones.size, 1);
 });
 
+Deno.test('accept refused with QD031 (admin promoted mid-flow) and fenced: admin_self_delete_blocked, disposal requested', async () => {
+  const h = harness();
+  h.backend.errorOn.set('account_deletion_accept', 'QD031');
+  const r = await h.coordinator.requestDeletion(request());
+  assertEquals(r, { status: 'error', code: 'admin_self_delete_blocked', retryable: false });
+  assertEquals(h.backend.names().filter((n) => n === 'account_deletion_fence_attempt').length, 1);
+  assertEquals(h.backend.names().includes('account_deletion_dispose_material'), true);
+  assertEquals(h.backend.jobs.size, 0);
+});
+
+Deno.test('QD031 on accept without a proven fence stays acceptance_unknown and retains the material', async () => {
+  const h = harness();
+  h.backend.errorOn.set('account_deletion_accept', 'QD031');
+  h.backend.throwOn.add('account_deletion_fence_attempt');
+  const r = await h.coordinator.requestDeletion(request());
+  assertEquals(r, { status: 'error', code: 'acceptance_unknown', retryable: true, recovery: 'lookup_receipt' });
+  assertEquals(h.backend.names().includes('account_deletion_dispose_material'), false);
+});
+
 Deno.test('accept committed but its response was lost: the fence reveals the job, no disposal', async () => {
   const h = harness();
   h.backend.lostResponse.add('account_deletion_accept');

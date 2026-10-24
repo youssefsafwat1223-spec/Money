@@ -297,6 +297,10 @@ export function createAccountDeletionAdapter(ports: AdapterPorts) {
       if (isObject(fenced) && fenced.fenced === true) {
         // Proven: this attempt can never commit. The coordinator's following
         // findAccepted() may now be trusted as nonacceptance.
+        // An admin promoted mid-flow (QD031) is a definite refusal, not an outage.
+        if (failure instanceof RpcFailure && failure.fn === 'account_deletion_accept' && failure.code === 'QD031') {
+          return { outcome: 'admin_blocked' };
+        }
         throw failure;
       }
       const committed = isObject(fenced) && fenced.fenced === false ? mapOutcome(fenced) : null;

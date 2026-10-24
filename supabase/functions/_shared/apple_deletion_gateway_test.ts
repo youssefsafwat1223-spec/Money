@@ -46,6 +46,10 @@ async function signJwt(
   return `${input}.${b64urlEncode(sig)}`;
 }
 
+// Exchange id_tokens are not re-verified; only the payload's sub is read.
+const unsignedJwt = (claims: Record<string, unknown>) =>
+  `${b64urlEncode(enc.encode('{"alg":"none"}'))}.${b64urlEncode(enc.encode(JSON.stringify(claims)))}.sig`;
+
 const goodClaims = () => ({
   iss: 'https://appleid.apple.com',
   aud: CLIENT_ID,
@@ -66,7 +70,7 @@ type Fx = {
   tokenResponse: () => Response | Promise<Response>;
   revokeResponse: () => Response | Promise<Response>;
   now: number;
-  calls: { url: string; body: string }[];
+  calls: { url: string; body: string; signal?: AbortSignal | null }[];
   rpcCalls: { fn: string; args: Record<string, unknown> }[];
   rpcError: boolean;
 };
@@ -77,7 +81,7 @@ function fixture(over: Partial<Fx> = {}) {
     subject: SUB,
     jwksStatus: 200,
     jwks: { keys: [rsaJwk, ecJwk] },
-    tokenResponse: () => Response.json({ refresh_token: 'r.refresh-secret', access_token: 'a' }),
+    tokenResponse: () => Response.json({ refresh_token: 'r.refresh-secret', access_token: 'a', id_token: unsignedJwt({ sub: SUB }) }),
     revokeResponse: () => new Response('', { status: 200 }),
     now: NOW,
     calls: [],
@@ -87,7 +91,7 @@ function fixture(over: Partial<Fx> = {}) {
   };
   const stubFetch = (async (input: string | URL | Request, init?: RequestInit) => {
     const url = String(input);
-    fx.calls.push({ url, body: String(init?.body ?? '') });
+    fx.calls.push({ url, body: String(init?.body ?? ''), signal: init?.signal });
     if (url === 'https://appleid.apple.com/auth/keys') {
       return fx.jwksStatus === 200 ? Response.json(fx.jwks) : new Response('x', { status: fx.jwksStatus });
     }
@@ -310,6 +314,23 @@ Deno.test('exchange 5xx, network error, other 4xx and malformed success are outa
   }
 });
 
+Deno.test('exchange id_token with a missing, malformed or different sub is apple_subject_mismatch and yields no refresh token', async () => {
+  const t = await idToken();
+  const bodies: unknown[] = [
+    { refresh_token: 'r.x' },
+    { refresh_token: 'r.x', id_token: 'not-a-jwt' },
+    { refresh_token: 'r.x', id_token: 'a.!!!.c' },
+    { refresh_token: 'r.x', id_token: unsignedJwt({}) },
+    { refresh_token: 'r.x', id_token: unsignedJwt({ sub: 'someone.else' }) },
+    { refresh_token: 'r.x', id_token: unsignedJwt({ sub: 42 }) },
+    { refresh_token: 'r.x', id_token: 7 },
+  ];
+  for (const b of bodies) {
+    const r = await authorize(fixture({ tokenResponse: () => Response.json(b) }).gw, response(t));
+    assertEquals(r, { status: 'apple_subject_mismatch' });
+  }
+});
+
 // ── revoke ───────────────────────────────────────────────────────────────────
 Deno.test('revoke 200 is revoked_verified and posts the contract form fields', async () => {
   const { fx, gw } = fixture();
@@ -338,12 +359,50 @@ Deno.test('revoke 5xx and network errors are retryable', async () => {
   );
 });
 
-Deno.test('revoke other 4xx is failed; 429 is retryable (deviation from contract wording, flagged)', async () => {
-  for (const status of [400, 401, 403, 404]) {
-    assertEquals(await fixture({ revokeResponse: () => Response.json({ error: 'invalid_client' }, { status }) }).gw.revoke('t'), 'failed');
+Deno.test('revoke 400 invalid_request and unsupported_token_type are permanent failures', async () => {
+  for (const error of ['invalid_request', 'unsupported_token_type']) {
+    assertEquals(await fixture({ revokeResponse: () => Response.json({ error }, { status: 400 }) }).gw.revoke('t'), 'failed');
   }
-  assertEquals(await fixture({ revokeResponse: () => new Response('', { status: 400 }) }).gw.revoke('t'), 'failed');
-  assertEquals(await fixture({ revokeResponse: () => new Response('', { status: 429 }) }).gw.revoke('t'), 'retryable');
+});
+
+Deno.test('revoke config/auth errors, throttling and unparseable bodies are retryable, never failed', async () => {
+  for (const error of ['invalid_client', 'unauthorized_client']) {
+    assertEquals(await fixture({ revokeResponse: () => Response.json({ error }, { status: 400 }) }).gw.revoke('t'), 'retryable');
+  }
+  for (const status of [401, 403, 404, 429]) {
+    assertEquals(await fixture({ revokeResponse: () => Response.json({ error: 'invalid_client' }, { status }) }).gw.revoke('t'), 'retryable');
+  }
+  assertEquals(await fixture({ revokeResponse: () => Response.json({ error: 'something_new' }, { status: 400 }) }).gw.revoke('t'), 'retryable');
+  assertEquals(await fixture({ revokeResponse: () => new Response('', { status: 400 }) }).gw.revoke('t'), 'retryable');
+  assertEquals(await fixture({ revokeResponse: () => new Response('<html>', { status: 400 }) }).gw.revoke('t'), 'retryable');
+});
+
+// ── timeouts ─────────────────────────────────────────────────────────────────
+const timeoutError = () => new DOMException('The signal has timed out', 'TimeoutError');
+
+Deno.test('every Apple fetch carries an abort signal', async () => {
+  const { fx, gw } = fixture();
+  assertEquals((await authorize(gw, response(await idToken()))).status, 'ok');
+  assertEquals(await gw.revoke('t'), 'revoked_verified');
+  assertEquals(fx.calls.length, 3);
+  for (const c of fx.calls) assert(c.signal instanceof AbortSignal, c.url);
+});
+
+Deno.test('a timed-out JWKS fetch or code exchange is an outage (throw); a timed-out revoke is retryable', async () => {
+  const t = await idToken();
+  const gwJwks = createAppleDeletionGateway({
+    fetch: (() => Promise.reject(timeoutError())) as typeof fetch,
+    now: () => NOW,
+    rpc: { rpc: (fn: string) => Promise.resolve({ data: fn === 'account_deletion_read_challenge' ? { nonce_hash: NONCE_HASH, expires_at_ms: NOW + 120_000, consumed: false } : SUB, error: null }) },
+    config: { teamId: TEAM, keyId: KEY_ID, clientId: CLIENT_ID, privateKeyP8: P8_PEM },
+  });
+  await assertRejects(() => authorize(gwJwks, response(t)), Error, 'apple_jwks_unavailable');
+  await assertRejects(
+    () => authorize(fixture({ tokenResponse: () => Promise.reject(timeoutError()) }).gw, response(t)),
+    Error,
+    'apple_exchange_unavailable',
+  );
+  assertEquals(await fixture({ revokeResponse: () => Promise.reject(timeoutError()) }).gw.revoke('t'), 'retryable');
 });
 
 // ── config ───────────────────────────────────────────────────────────────────

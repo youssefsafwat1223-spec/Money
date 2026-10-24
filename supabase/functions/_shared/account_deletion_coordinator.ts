@@ -150,6 +150,7 @@ export type ErrorCode =
   | 'apple_subject_mismatch'
   | 'authorization_unavailable'
   | 'idempotency_conflict'
+  | 'admin_self_delete_blocked'
   | 'store_unavailable'
   | 'acceptance_unknown'
   | 'invalid_store_response'
@@ -237,7 +238,10 @@ export type AcceptOutcome =
   // hash is attached to it; no second job or freeze is created.
   | { outcome: 'already_pending'; jobId: string }
   | { outcome: 'challenge_expired' }
-  | { outcome: 'idempotency_conflict' };
+  | { outcome: 'idempotency_conflict' }
+  // The account was promoted to admin after authorization (SQLSTATE QD031).
+  // Only ever returned by a store once the attempt is proven fenced.
+  | { outcome: 'admin_blocked' };
 
 export type Lease = { jobId: string; token: string; generation: number };
 export type JobSnapshot = {
@@ -590,6 +594,9 @@ export function createAccountDeletionCoordinator(deps: CoordinatorDeps) {
         case 'idempotency_conflict':
           await releaseMaterial(appleMaterialRef);
           return err('idempotency_conflict', false);
+        case 'admin_blocked':
+          await releaseMaterial(appleMaterialRef);
+          return err('admin_self_delete_blocked', false);
       }
     }
     return await reconcileAcceptance(scopeKey, receiptHash, appleMaterialRef);

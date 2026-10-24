@@ -16,6 +16,8 @@ const REVOKE_URL = 'https://appleid.apple.com/auth/revoke';
 export const JWKS_TTL_MS = 60 * 60 * 1000;
 const JWKS_MIN_REFETCH_MS = 60 * 1000;
 const SKEW_MS = 60 * 1000;
+// Bound every Apple call so a hung connection lands in the outage/retryable branches.
+const FETCH_TIMEOUT_MS = 10_000;
 const CLIENT_SECRET_LIFETIME_S = 5 * 60;
 
 export interface AppleDeletionConfig {
@@ -126,7 +128,11 @@ export function createAppleDeletionGateway(deps: AppleGatewayDeps): AppleGateway
     if (jwks && now - jwks.fetchedAt < JWKS_TTL_MS && !force) return jwks.keys;
     let res: Response;
     try {
-      res = await deps.fetch(JWKS_URL, { method: 'GET', headers: { accept: 'application/json' } });
+      res = await deps.fetch(JWKS_URL, {
+        method: 'GET',
+        headers: { accept: 'application/json' },
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      });
     } catch {
       throw new Error('apple_jwks_unavailable');
     }
@@ -241,7 +247,20 @@ export function createAppleDeletionGateway(deps: AppleGatewayDeps): AppleGateway
       method: 'POST',
       headers: { 'content-type': 'application/x-www-form-urlencoded', accept: 'application/json' },
       body: new URLSearchParams(form).toString(),
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
+  }
+
+  function exchangeSubjectMatches(idToken: unknown, expected: string): boolean {
+    if (typeof idToken !== 'string') return false;
+    const parts = idToken.split('.');
+    if (parts.length !== 3) return false;
+    try {
+      const claims = parseJson(b64urlDecode(parts[1]));
+      return isObject(claims) && typeof claims.sub === 'string' && constantTimeEqual(claims.sub, expected);
+    } catch {
+      return false;
+    }
   }
 
   async function errorCodeOf(res: Response): Promise<string | null> {
@@ -312,6 +331,10 @@ export function createAppleDeletionGateway(deps: AppleGatewayDeps): AppleGateway
       if (!isObject(body) || typeof body.refresh_token !== 'string' || body.refresh_token.length === 0) {
         throw new Error('apple_exchange_malformed');
       }
+      // Cross-check: the id_token Apple returns for this exchange must name the
+      // same subject. It arrived over TLS in direct answer to our authenticated
+      // request, so only the claim is read here, not a second signature.
+      if (!exchangeSubjectMatches(body.id_token, sub)) return { status: 'apple_subject_mismatch' };
       return { status: 'ok', refreshToken: body.refresh_token, challengeExpiresAtMs: challenge.expiresAtMs };
     },
 
@@ -331,10 +354,14 @@ export function createAppleDeletionGateway(deps: AppleGatewayDeps): AppleGateway
         await res.body?.cancel().catch(() => {});
         return 'revoked_verified';
       }
-      if (res.status === 400 && (await errorCodeOf(res)) === 'invalid_grant') return 'revoked_verified';
+      // Only a clearly permanent token/request error is terminal. Everything else
+      // (client config, key rotation, clock skew, throttling, outages, unparseable
+      // bodies) is retryable so an operator fix does not strand in-flight deletions.
+      const code = res.status === 400 ? await errorCodeOf(res) : null;
+      if (res.status === 400 && code === 'invalid_grant') return 'revoked_verified';
       await res.body?.cancel().catch(() => {});
-      if (res.status >= 500 || res.status === 429) return 'retryable';
-      return 'failed';
+      if (res.status === 400 && (code === 'invalid_request' || code === 'unsupported_token_type')) return 'failed';
+      return 'retryable';
     },
   };
 }
