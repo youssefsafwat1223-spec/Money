@@ -331,6 +331,27 @@ Deno.test('exchange id_token with a missing, malformed or different sub is apple
   }
 });
 
+Deno.test('exchange subject mismatch best-effort revokes the exchanged refresh token once, whatever the revoke outcome', async () => {
+  const t = await idToken();
+  const outcomes: [string, () => Response | Promise<Response>][] = [
+    ['200', () => new Response('', { status: 200 })],
+    ['500', () => new Response('x', { status: 500 })],
+    ['throws', () => {
+      throw new Error('network_down');
+    }],
+  ];
+  for (const [, revokeResponse] of outcomes) {
+    const { fx, gw } = fixture({
+      tokenResponse: () => Response.json({ refresh_token: 'r.stray', id_token: unsignedJwt({ sub: 'someone.else' }) }),
+      revokeResponse,
+    });
+    assertEquals(await authorize(gw, response(t)), { status: 'apple_subject_mismatch' });
+    const revokes = fx.calls.filter((c) => c.url === 'https://appleid.apple.com/auth/revoke');
+    assertEquals(revokes.length, 1);
+    assertEquals(new URLSearchParams(revokes[0].body).get('token'), 'r.stray');
+  }
+});
+
 // ── revoke ───────────────────────────────────────────────────────────────────
 Deno.test('revoke 200 is revoked_verified and posts the contract form fields', async () => {
   const { fx, gw } = fixture();

@@ -334,7 +334,20 @@ export function createAppleDeletionGateway(deps: AppleGatewayDeps): AppleGateway
       // Cross-check: the id_token Apple returns for this exchange must name the
       // same subject. It arrived over TLS in direct answer to our authenticated
       // request, so only the claim is read here, not a second signature.
-      if (!exchangeSubjectMatches(body.id_token, sub)) return { status: 'apple_subject_mismatch' };
+      if (!exchangeSubjectMatches(body.id_token, sub)) {
+        // The exchange minted a live refresh token for a different subject; revoke
+        // it best-effort so it is not left behind. Nothing here may alter the verdict.
+        try {
+          const rv = await postForm(REVOKE_URL, {
+            token: body.refresh_token,
+            token_type_hint: 'refresh_token',
+            client_id: config.clientId,
+            client_secret: await clientSecret(),
+          });
+          await rv.body?.cancel().catch(() => {});
+        } catch { /* best effort */ }
+        return { status: 'apple_subject_mismatch' };
+      }
       return { status: 'ok', refreshToken: body.refresh_token, challengeExpiresAtMs: challenge.expiresAtMs };
     },
 
