@@ -42,7 +42,7 @@ begin
     end if;
   end loop;
   select count(*) into n from pg_proc where pronamespace = 'public'::regnamespace and proname like 'account_deletion\_%';
-  if n <> 14 then raise exception 'expected 14 account_deletion_* RPCs, found %', n; end if;
+  if n <> 17 then raise exception 'expected 17 account_deletion_* RPCs, found %', n; end if;
 
   -- 4. no blanket erasure bypass
   if has_function_privilege('service_role', 'public.purge_user_data(uuid)', 'EXECUTE') then
@@ -53,34 +53,40 @@ begin
     raise exception 'service_role still has direct DML on a fenced counter/ledger table';
   end if;
 
-  -- 5. account_fence function ACL: only the admission helpers reach API roles
+  -- 5. account_fence function ACL: ONLY the three authenticated self helpers are reachable by an API role
+  --    (fence.sql section 9 grants the admission helpers to the migration role alone); anon, service_role and
+  --    PUBLIC reach nothing, and authenticated reaches nothing else.
   for r in select p.oid, p.proname from pg_proc p where p.pronamespace = 'account_fence'::regnamespace loop
-    if r.proname not in ('admit','admit_check','admit_many','admit_install','admit_rate_key','admit_owner_key')
-       and (has_function_privilege('authenticated', r.oid, 'EXECUTE')
-            or has_function_privilege('anon', r.oid, 'EXECUTE')
-            or has_function_privilege('service_role', r.oid, 'EXECUTE')
-            or has_function_privilege(0, r.oid, 'EXECUTE')) then
-      raise exception 'account_fence.% is callable by an API role/PUBLIC', r.proname;
+    if has_function_privilege('anon', r.oid, 'EXECUTE')
+       or has_function_privilege('service_role', r.oid, 'EXECUTE')
+       or has_function_privilege(0, r.oid, 'EXECUTE') then
+      raise exception 'account_fence.% is callable by anon/service_role/PUBLIC', r.proname;
+    end if;
+    if r.proname not in ('admit_self','admit_check_self','is_pending_self')
+       and has_function_privilege('authenticated', r.oid, 'EXECUTE') then
+      raise exception 'account_fence.% is callable by authenticated', r.proname;
     end if;
   end loop;
 
-  -- 6. every moved original is paired with a same-identity wrapper whose ACL matches
-  for r in select p.oid, p.proname, pg_get_function_identity_arguments(p.oid) as idargs, p.proacl
-             from pg_proc p where p.pronamespace = 'account_fence_impl'::regnamespace loop
-    if not exists (select 1 from pg_proc w
-                    where w.pronamespace = 'public'::regnamespace and w.proname = r.proname
-                      and pg_get_function_identity_arguments(w.oid) = r.idargs) then
-      raise exception 'no wrapper for moved %(%)', r.proname, r.idargs;
-    end if;
-    if exists (select 1 from pg_proc w
-                where w.pronamespace = 'public'::regnamespace and w.proname = r.proname
-                  and pg_get_function_identity_arguments(w.oid) = r.idargs
-                  and w.proacl is distinct from r.proacl) then
-      raise exception 'wrapper ACL differs from original for %(%)', r.proname, r.idargs;
-    end if;
+  -- 6. no wrapper/impl-schema design in this draft: bodies are restated in place (fence.sql section 5), so the
+  --    account_fence_impl schema must not exist, and no restated public function may have GAINED anon/authenticated
+  --    EXECUTE relative to the pre-fence snapshot (a NULL snapshot ACL means the PUBLIC default, i.e. executable).
+  if to_regnamespace('account_fence_impl') is not null then
+    raise exception 'unexpected schema account_fence_impl';
+  end if;
+  for r in select p.oid, s.fn_identity, s.fn_acl
+             from account_fence.rollback_function_snapshot s join pg_proc p on p.oid = to_regprocedure(s.fn_identity) loop
     if has_function_privilege('anon', r.oid, 'EXECUTE')
-       and not exists (select 1 from aclexplode(r.proacl) a where a.grantee = (select oid from pg_roles where rolname = 'anon')) then
-      raise exception 'anon gained EXECUTE on moved %', r.proname;
+       and r.fn_acl is not null
+       and not exists (select 1 from aclexplode(r.fn_acl) a
+                        where a.privilege_type = 'EXECUTE' and a.grantee in (0, (select oid from pg_roles where rolname = 'anon'))) then
+      raise exception 'anon gained EXECUTE on %', r.fn_identity;
+    end if;
+    if has_function_privilege('authenticated', r.oid, 'EXECUTE')
+       and r.fn_acl is not null
+       and not exists (select 1 from aclexplode(r.fn_acl) a
+                        where a.privilege_type = 'EXECUTE' and a.grantee in (0, (select oid from pg_roles where rolname = 'authenticated'))) then
+      raise exception 'authenticated gained EXECUTE on %', r.fn_identity;
     end if;
   end loop;
 

@@ -95,6 +95,15 @@ async function createUser(): Promise<{ id: string; email: string; password: stri
   });
   assertEquals(res.status, 200, 'synthetic user creation');
   const body = await res.json();
+  // A fresh Auth user owns no user_settings row, so every schedule below that UPDATEs user_settings would match zero rows
+  // and fire no row guard at all (vacuous). Seed exactly one row (before any acceptance) so the guards actually run.
+  const seed = new Session('seed');
+  try {
+    const out = await seed.run(`insert into public.user_settings(user_id, local_id) values ('${body.id}', 'fence-settings');`);
+    assert(!out.includes('ERROR'), `user_settings seed failed: ${out}`);
+  } finally {
+    await seed.close();
+  }
   return { id: body.id as string, email, password };
 }
 
@@ -112,17 +121,21 @@ async function signIn(email: string, password: string): Promise<string> {
 const asUser = (uid: string) =>
   `set local role authenticated; select set_config('request.jwt.claims', '{"sub":"${uid}","role":"authenticated"}', true);`;
 
-/** Seeds an acceptable challenge + reserved material directly (the issuer is an open item). */
+/** Seeds an acceptable challenge (via the service-role issuer RPC) + reserved material. A direct INSERT into
+ *  account_fence.deletion_challenge is impossible by design: no role but the narrow owner has any privilege on it. */
 async function seedAcceptance(admin: Session, uid: string, tag: string) {
   const ref = `enc:${tag}-${crypto.randomUUID().replaceAll('-', '')}`;
-  await admin.run(
-    `insert into account_fence.deletion_challenge(challenge_id, uid, nonce_hash, expires_at) values ('ch-${tag}', '${uid}', encode(sha256(convert_to('n-${tag}', 'UTF8')), 'hex'), now() + interval '10 min');` +
-      `select public.account_deletion_reserve_material('${ref}', 'sealed');`,
-  );
+  const issuedOut = await admin.run(`select public.account_deletion_issue_challenge('${uid}');`);
+  const line = issuedOut.split('\n').find((l) => l.startsWith('{'));
+  assert(line !== undefined, `challenge issuance failed: ${issuedOut}`);
+  const issued = JSON.parse(line!);
+  assertEquals(issued.outcome, 'issued', issuedOut);
+  const reserved = await admin.run(`select public.account_deletion_reserve_material('${ref}', 'sealed');`);
+  assert(!reserved.includes('ERROR'), reserved);
   return {
     ref,
     accept: (attempt: string) =>
-      `select public.account_deletion_accept('scope-${tag}', '${uid}', 'ch-${tag}', ${Date.now() + 600_000}, 'rh-${tag}', '${ref}', '${attempt}');`,
+      `select public.account_deletion_accept('scope-${tag}', '${uid}', '${issued.challenge_id}', ${issued.expires_at_ms}, 'rh-${tag}', '${ref}', '${attempt}');`,
   };
 }
 
@@ -239,7 +252,7 @@ t('Auth ON DELETE SET NULL cascade passes the guard (referrals.referred_user_id)
   await withSessions(['admin'], async (s) => {
     const ins = await s.admin.run(
       `insert into public.referral_codes(user_id, code) values ('${referrer.id}', 'ABCDEFGH') on conflict do nothing;` +
-        `insert into public.referrals(referrer_user_id, referred_user_id, referral_code, status) values ('${referrer.id}','${referred.id}','ABCDEFGH','qualified');`,
+        `insert into public.referrals(referrer_user_id, referred_user_id, referral_code, status, qualified_at) values ('${referrer.id}','${referred.id}','ABCDEFGH','qualified', now());`,
     );
     assert(!ins.includes('ERROR'), ins);
     const del = await s.admin.run(`delete from auth.users where id = '${referred.id}';`);

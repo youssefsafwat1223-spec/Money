@@ -317,3 +317,18 @@ cross-install capture bridge sufficiently conservative? Does the implemented ret
 design note without weakening the specific Auth cascade contract? Historical retry conflicts/shared-child blocking remains O4. Are the exact before/after audit header representation and the
 recorded executor's snapshot-read/owner replay assumptions correct? Qualify those only in the separately approved E8 matrix.
 E4/E6/O3 integration, challenge/Apple/KMS dependencies and owner-policy adoption remain open. No readiness claim is made.
+
+## First real-database qualification (loopback stack, 2026-10-24)
+
+Stack: postgres 17.6.1.167, gotrue v2.197.0, postgrest v14.5, storage-api v1.77.5 (see `supabase/tests/account_deletion_fence/loopback_stack/`).
+Defects found by the first parse/execution and fixed: `text || "char"` on `pg_default_acl.defaclobjtype` (cast to text, fence.sql and
+rollback.sql); `r.strict` record field (renamed `is_strict` in `gen_rpc_bodies.py`); an unparenthesised `CASE ... THEN` inside a PL/pgSQL
+`IF ... THEN` condition; schema-qualified `pg_catalog.extract(epoch from ...)` (not valid syntax); two RAISE format strings with a missing
+argument; PL/pgSQL record `r` shadowing the SQL alias `r` in the section 10 assertions; `deletion_material.ref` regex `{8,256}` exceeding the
+regex repetition limit 255; and grants to the migration role issued before `ALTER ... OWNER`, which the owner change silently discarded.
+Header assumption DISPROVEN: the migration role `postgres` has USAGE on schema `auth` and EXECUTE on `auth.uid()` without grant option,
+so the narrow owner could not be given them (the grants were no-ops with a WARNING, and every `auth.*` reference from the narrow owner
+failed, including Auth's own user insert through the profiles guard). Fix: three read-only SECURITY DEFINER shims
+(`account_fence.auth_uid`, `auth_user_exists`, `auth_apple_subject`) that stay owned by the migration role, are executable by the
+narrow owner only, and are pinned by a section 10 assertion. PROVEN: the migration role can CREATE ROLE, hold NOLOGIN/NOINHERIT owner
+membership during the transaction, use `extensions.gen_random_bytes` grants, and the PostgREST schema list does not expose `account_fence`.

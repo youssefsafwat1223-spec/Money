@@ -1,0 +1,22 @@
+_format_version: "2.1"
+_transform: true
+# No credentials and no plugins: the gateway only routes. It is reachable on 127.0.0.1 only.
+services:
+  - name: auth
+    url: http://auth:9999/
+    routes:
+      - name: auth-all
+        strip_path: true
+        paths: [/auth/v1/]
+  - name: rest
+    url: http://rest:3000/
+    routes:
+      - name: rest-all
+        strip_path: true
+        paths: [/rest/v1/]
+  - name: storage
+    url: http://storage:5000/
+    routes:
+      - name: storage-all
+        strip_path: true
+        paths: [/storage/v1/]

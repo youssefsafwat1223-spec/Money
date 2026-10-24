@@ -3483,12 +3483,12 @@ begin
              where m.kind = 'column' and m.identity = a.attrelid::regclass::text || '.' || a.attname)
     union all
     select 'default_acl' where exists (
-      select 1 from ((select d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype as k2,
+      select 1 from ((select d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype::text as k2,
                              (select array_agg(y::text order by y::text) from unnest(d.defaclacl) y) as a2 from pg_default_acl d
                       except select m.identity, (select array_agg(y::text order by y::text) from unnest(m.acl) y) from rb_misc m where m.kind = 'default_acl')
                      union all
                      (select m.identity, (select array_agg(y::text order by y::text) from unnest(m.acl) y) from rb_misc m where m.kind = 'default_acl'
-                      except select d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype,
+                      except select d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype::text,
                                     (select array_agg(y::text order by y::text) from unnest(d.defaclacl) y) from pg_default_acl d)) z)
   ) x;
   if v is not null then raise exception 'rollback post-condition failed (misc): %', v using errcode = 'QD098'; end if;

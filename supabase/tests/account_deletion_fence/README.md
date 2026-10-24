@@ -69,3 +69,21 @@ unchanged. Even a later qualified synthetic stack cannot alone prove production
 adoption, complete personal-data erasure, Apple revocation, challenge issuance,
 KMS custody/destruction, retention enforcement, every writer or effects already
 dispatched. The concurrency matrix needs its own coverage review.
+
+## Approved loopback runtime path (`loopback_stack/`) — separate from the refusal gates above
+
+`run.sh` and `preflight.sh` above remain unconditional refusal gates and are NOT used by, changed by, or bypassed
+through this path. `loopback_stack/` is a separate runtime that the owner explicitly approved for ONE disposable,
+loopback-only stack with synthetic data (2026-10-24). It never uses the Supabase CLI and never pulls an image.
+
+| File | Purpose |
+| --- | --- |
+| `docker-compose.yml` | Fixed project `qirsh-fence-<8 hex>`; db (postgres 17.6.1.167), auth (gotrue v2.197.0), rest (postgrest v14.5), storage (storage-api v1.77.5, file backend) and a DB-less Kong 2.8.1 gateway giving one API URL for `/auth/v1`, `/rest/v1`, `/storage/v1`. `pull_policy: never`, no restart policy, exactly two published ports, both `127.0.0.1:`-bound (the Docker Desktop daemon `ip` setting does not apply on this host). No OpenAI/S3/Apple/SMTP values; no inherited environment. |
+| `kong.yml` | Routing only; no credentials, no plugins. |
+| `up.sh` | Validates the resolved model (`docker compose config`: every `host_ip` is `127.0.0.1`, images local, project not protected, no existing project), writes fresh random JWT secret, anon/service JWTs and DB password into a `chmod 700` temp dir outside the repo (never printed), starts db first, sets the service-role passwords, starts the rest, then proves with `lsof` that each published port listens on `127.0.0.1` only. Any violation tears the project down and exits non-zero. Prints `RUNDIR=<dir>`. |
+| `phases.sh` | `migrate` (all `supabase/migrations/*.sql` in order as `postgres`), `baseline-pre`, `apply` (`fence.sql`), `acl` (`acl.sql`), `concurrency` (`concurrency_test.ts`, `deno test --cached-only`), `drain`, `rollback` (`rollback.sql`), `baseline-post`, `compare`, or `all`. |
+| `drain.sh` | Drives every open job through the full service lifecycle (including a real Auth admin delete) so `rollback.sql`'s quiescence assertion can be satisfied; rollback correctly refuses while any job is not `completed`. |
+| `down.sh` | `docker compose -p <recorded project> down -v --remove-orphans` only. No prune, no wildcard stop. |
+
+Run on a fresh stack each time (`concurrency_test.ts` scope keys are static, so a second run on one stack reports `duplicate`).
+Always run `down.sh <RUNDIR>` afterwards, then confirm `docker ps -a` / `docker volume ls` hold no `qirsh-fence-*` resource.

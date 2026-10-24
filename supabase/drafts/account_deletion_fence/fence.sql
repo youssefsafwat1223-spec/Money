@@ -27,13 +27,15 @@
 -- Assumptions that MUST be proven on a real stack (E8, owner-gated) before approval:
 --   * the migration role is `postgres`, owns every restated public function, may CREATE ROLE, and
 --     holds GRANT OPTION on auth.users(id), schema auth and auth.uid() (needed for the narrow owner);
+--       DISPROVEN on the Supabase image (postgres has USAGE on auth and EXECUTE on auth.uid() without grant option):
+--       replaced by the migration-role-owned account_fence.auth_* shims (section 1, right after CREATE SCHEMA);
 --   * PostgREST db-schemas does NOT expose account_fence (and nothing here relies on that: no
 --     API role can execute a bypass-capable function; see the assertions in section 9);
 --   * deployed pg_proc.prosrc of every restated function equals its migration text (preflight);
 --   * (D5/D7, 2026-10-24) pgcrypto is installed in schema `extensions` (as the existing migrations assume:
 --     generate_referral_code uses extensions.gen_random_bytes) and the migration role may GRANT USAGE on it and
---     EXECUTE on extensions.gen_random_bytes(integer); the migration role may also GRANT column SELECT on
---     auth.identities (user_id, provider, provider_id, identity_data). Same class of assumption as auth.users(id).
+--     EXECUTE on extensions.gen_random_bytes(integer) (PROVEN on the Supabase image: no warning);
+--     auth.identities is read through the account_fence.auth_apple_subject shim, not through a column grant.
 --   * Auth deletion performs NO UPDATE of any application row after section 7 closed every
 --     reference (erase_verify); a residual reference makes the Auth delete fail closed.
 --   * The narrow owner's WRITE reach is bounded by erasure predicates that are false outside an erasure
@@ -160,6 +162,35 @@ grant account_fence_owner to current_user;
 
 create schema account_fence;
 
+-- Qualification finding (loopback stack, 2026-10-24): the migration role `postgres` holds USAGE on schema auth and
+-- EXECUTE on auth.uid() WITHOUT grant option (auth.users/auth.identities carry arwdDxtm with grant option only on a/r), so
+-- `grant usage on schema auth` / `grant execute on function auth.uid()` to account_fence_owner grant NOTHING (WARNING only)
+-- and the narrow owner could not reference any auth object ("permission denied for schema auth", which also broke Auth's own
+-- user insert through the profiles guard). Narrowest fix: three read-only SECURITY DEFINER shims that STAY OWNED BY THE
+-- MIGRATION ROLE (never altered to account_fence_owner), pinned search_path, VOLATILE (each inner query takes its own
+-- snapshot, as the inline statements they replace did), EXECUTE granted to account_fence_owner only. They return strictly
+-- less than the column grants they replace: one boolean / one text for a caller-supplied uid, never a row set.
+create function account_fence.auth_uid() returns uuid
+language sql volatile security definer
+set search_path = pg_catalog, pg_temp
+as $$ select auth.uid() $$;
+
+create function account_fence.auth_user_exists(p_uid uuid) returns boolean
+language sql volatile security definer
+set search_path = pg_catalog, pg_temp
+as $$ select exists (select 1 from auth.users u where u.id = p_uid) $$;
+
+create function account_fence.auth_apple_subject(p_uid uuid) returns text
+language sql volatile security definer
+set search_path = pg_catalog, pg_temp
+as $$
+  select coalesce(nullif(i.provider_id, ''), i.identity_data ->> 'sub')
+    from auth.identities i where i.user_id = p_uid and i.provider = 'apple' limit 1
+$$;
+
+revoke all on function account_fence.auth_uid(), account_fence.auth_user_exists(uuid), account_fence.auth_apple_subject(uuid) from public;
+grant execute on function account_fence.auth_uid(), account_fence.auth_user_exists(uuid), account_fence.auth_apple_subject(uuid) to account_fence_owner;
+
 -- Rollback metadata, captured BEFORE any ACL or body is changed. rollback.sql compares against it and replays
 -- only the reviewed mutation set (DECISIONS.md E3 defines what that guarantees).
 create table account_fence.rollback_function_snapshot (
@@ -202,7 +233,7 @@ select 'function', 'auth.uid()', p.proacl from pg_catalog.pg_proc p where p.oid 
 insert into account_fence.rollback_misc_snapshot
 select 'function', 'extensions.gen_random_bytes(integer)', p.proacl from pg_catalog.pg_proc p where p.oid = 'extensions.gen_random_bytes(integer)'::regprocedure;
 insert into account_fence.rollback_misc_snapshot
-select 'default_acl', d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype, d.defaclacl
+select 'default_acl', d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype::text, d.defaclacl
   from pg_catalog.pg_default_acl d;
 -- E3: snapshot every public application column ACL, including all reviewed E2/Q14 revokes.
 -- A table-level REVOKE never removes a column grant. No catalog-driven DDL is used.
@@ -270,7 +301,7 @@ begin
     ('public.award_gamification_for_transaction(text,uuid)', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=public'),
     ('public.bump_capture_rate_limit(text,integer)', 'sql', true, 'v', false, 'u', false, 100, 'search_path=public'),
     ('public.complete_ai_idempotency(text,text,text,text,jsonb)', 'sql', true, 'v', false, 'u', false, 100, 'search_path=public')
-  ) as t(sig, lang, secdef, vol, strict, par, leak, cost, cfg) loop
+  ) as t(sig, lang, secdef, vol, is_strict, par, leak, cost, cfg) loop
     select * into p from pg_catalog.pg_proc where oid = to_regprocedure(r.sig);
     if p.oid is null then
       raise exception 'account_fence preflight: signature does not resolve: %', r.sig using errcode = 'QD090';
@@ -284,7 +315,7 @@ begin
     if v_lang is distinct from r.lang
        or p.prosecdef is distinct from r.secdef
        or p.provolatile::text is distinct from r.vol
-       or p.proisstrict is distinct from r.strict
+       or p.proisstrict is distinct from r.is_strict
        or p.proparallel::text is distinct from r.par
        or p.proleakproof is distinct from r.leak
        or p.procost::numeric is distinct from r.cost::numeric
@@ -345,7 +376,7 @@ create table account_fence.deletion_receipt (
   job_id       uuid not null references account_fence.deletion_job (job_id)
 );
 create table account_fence.deletion_material (
-  ref         text primary key check (ref ~ '^enc:[A-Za-z0-9_.:-]{8,256}$'),
+  ref         text primary key check (ref ~ '^enc:[A-Za-z0-9_.:-]{8,255}$'),
   state       text not null default 'reserved' check (state in ('reserved', 'committed', 'disposed')),
   ciphertext  text,
   job_id      uuid references account_fence.deletion_job (job_id),
@@ -503,7 +534,7 @@ $$;
 create function account_fence.is_pending_self() returns boolean
 language sql volatile security definer
 set search_path = pg_catalog, pg_temp
-as $$ select account_fence.is_pending(auth.uid()) $$;
+as $$ select account_fence.is_pending(account_fence.auth_uid()) $$;
 
 -- Ordinary-writer admission. NEVER waits: if the account gate is held (by an accepting or erasing
 -- transaction, or a sibling writer) the whole mutation fails with 55P03 and rolls back. Re-entrant
@@ -531,7 +562,7 @@ begin
   if not p_allow_pending and account_fence.is_pending(p_uid) then
     perform account_fence.deny('pending');
   end if;
-  if p_require_auth_user and not exists (select 1 from auth.users u where u.id = p_uid) then
+  if p_require_auth_user and not account_fence.auth_user_exists(p_uid) then
     perform account_fence.deny('gone');
   end if;
 end;
@@ -543,7 +574,7 @@ language plpgsql volatile security definer
 set search_path = pg_catalog, pg_temp
 as $$
 begin
-  perform account_fence.admit(auth.uid());
+  perform account_fence.admit(account_fence.auth_uid());
 end;
 $$;
 
@@ -554,7 +585,7 @@ language plpgsql volatile security definer
 set search_path = pg_catalog, pg_temp
 as $$
 begin
-  if p_uid is not null and p_uid = auth.uid() then
+  if p_uid is not null and p_uid = account_fence.auth_uid() then
     perform account_fence.admit(p_uid);
   end if;
   return true;
@@ -1068,7 +1099,7 @@ begin
        and n ->> 'consent_version' = '0' and n ->> 'consent_client_generation' = '0'
        and n ->> 'last_revoke_generation' is null and n ->> 'apns_token' is null and n ->> 'token_updated_at' is null
        and (n ->> 'owner_generation')::bigint = (o ->> 'owner_generation')::bigint
-             + case when o ->> 'user_id' is not null or o ->> 'consent_owner_uid' is not null then 1 else 0 end then
+             + (case when o ->> 'user_id' is not null or o ->> 'consent_owner_uid' is not null then 1 else 0 end) then
       return 'unlink';
     end if;
     return null;
@@ -1110,7 +1141,7 @@ begin
     return false;
   end if;
   v := nullif(p_row ->> c, '')::uuid;
-  return v is not null and not exists (select 1 from auth.users u where u.id = v);
+  return v is not null and not account_fence.auth_user_exists(v);
 end;
 $$;
 
@@ -1541,12 +1572,10 @@ revoke insert (user_id, last_seq, epoch, epoch_reason, updated_at), update (user
 
 -- 4d. Narrow erasure privileges for account_fence_owner (E1). Row-level reach is bounded by the
 -- policies below: every predicate is false outside an erasure transaction (erasure_uid() is NULL).
-grant usage on schema auth to account_fence_owner;
-grant select (id) on table auth.users to account_fence_owner;
-grant execute on function auth.uid() to account_fence_owner;
+-- (No grant on schema auth / auth.users / auth.uid() / auth.identities: the migration role cannot grant them; see the
+-- account_fence.auth_* shims after `create schema account_fence`.)
 -- D4/contract section 4: account_deletion_apple_subject reads the Apple `sub` of the caller-supplied uid. Column-level,
 -- read-only. If RLS were enabled on auth.identities the narrow owner would see no row (-> null -> mismatch, fail closed).
-grant select (user_id, provider, provider_id, identity_data) on table auth.identities to account_fence_owner;
 -- Contract section 1: the challenge issuer draws 32 CSPRNG bytes twice (pgcrypto; sha256 is built in).
 grant usage on schema extensions to account_fence_owner;
 grant execute on function extensions.gen_random_bytes(integer) to account_fence_owner;
@@ -5005,7 +5034,7 @@ begin
   perform pg_catalog.set_config('lock_timeout', '5s', true);
   perform pg_catalog.pg_advisory_xact_lock(account_fence.gate_key(p_uid));   -- lock_timeout -> 55P03
 
-  if not exists (select 1 from auth.users u where u.id = p_uid) then
+  if not account_fence.auth_user_exists(p_uid) then
     perform account_fence.deny('gone');
   end if;
   if exists (select 1 from public.admin_users a where a.id = p_uid) then
@@ -5028,7 +5057,7 @@ begin
   values (v_id, p_uid, pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(v_nonce, 'UTF8')), 'hex'), v_exp);
   return pg_catalog.jsonb_build_object(
     'outcome', 'issued', 'challenge_id', v_id, 'nonce', v_nonce,
-    'expires_at_ms', pg_catalog.floor(pg_catalog.extract(epoch from v_exp) * 1000)::bigint);
+    'expires_at_ms', pg_catalog.floor(extract(epoch from v_exp) * 1000)::bigint);
 end;
 $$;
 
@@ -5043,7 +5072,7 @@ set search_path = pg_catalog, pg_temp
 as $$
   select pg_catalog.jsonb_build_object(
       'nonce_hash', c.nonce_hash,
-      'expires_at_ms', pg_catalog.floor(pg_catalog.extract(epoch from c.expires_at) * 1000)::bigint,
+      'expires_at_ms', pg_catalog.floor(extract(epoch from c.expires_at) * 1000)::bigint,
       'consumed', c.consumed_at is not null)
     from account_fence.deletion_challenge c
    where c.challenge_id = p_challenge_id and c.uid = p_uid
@@ -5055,8 +5084,7 @@ returns text
 language sql stable security definer
 set search_path = pg_catalog, pg_temp
 as $$
-  select coalesce(nullif(i.provider_id, ''), i.identity_data ->> 'sub')
-    from auth.identities i where i.user_id = p_uid and i.provider = 'apple' limit 1
+  select account_fence.auth_apple_subject(p_uid)
 $$;
 
 -- Acceptance: attempt -> account gate -> EXISTING job FOR UPDATE -> challenge FOR UPDATE -> FK inserts.
@@ -5094,7 +5122,7 @@ begin
       else pg_catalog.jsonb_build_object('outcome', 'idempotency_conflict') end;
   end if;
 
-  if not exists (select 1 from auth.users u where u.id = p_uid) then
+  if not account_fence.auth_user_exists(p_uid) then
     perform account_fence.deny('gone');
   end if;
   -- D7: an admin account is never accepted (QD031, before any insert); admin rights must be removed first.
@@ -5328,7 +5356,7 @@ returns jsonb language sql stable security definer set search_path = pg_catalog,
   select case
     when j.state = 'completed' and j.retained_until > pg_catalog.clock_timestamp() then
       pg_catalog.jsonb_build_object('state', 'completed',
-        'retained_until_ms', (pg_catalog.extract(epoch from j.retained_until) * 1000)::bigint)
+        'retained_until_ms', (extract(epoch from j.retained_until) * 1000)::bigint)
     when j.state = 'completed' then null
     else pg_catalog.jsonb_build_object('state', j.state)
   end
@@ -5931,7 +5959,7 @@ begin
   -- (4) Default privileges: compared by FULL CONTENT (role, namespace, object type, every aclitem), not by count.
   if exists (
     select 1 from (
-      (select d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype as k,
+      (select d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype::text as k,
               (select array_agg(x::text order by x::text) from pg_catalog.unnest(d.defaclacl) x) as a
          from pg_catalog.pg_default_acl d
        except
@@ -5941,7 +5969,7 @@ begin
       (select m.identity, (select array_agg(x::text order by x::text) from pg_catalog.unnest(m.acl) x)
          from account_fence.rollback_misc_snapshot m where m.kind = 'default_acl'
        except
-       select d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype,
+       select d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype::text,
               (select array_agg(x::text order by x::text) from pg_catalog.unnest(d.defaclacl) x)
          from pg_catalog.pg_default_acl d)) z) then
     raise exception 'assert: pg_default_acl content changed during apply' using errcode = 'QD093';
@@ -5982,7 +6010,7 @@ $assert$;
 -- 9. Effective ACLs (explicit) and ownership transfer to the narrow owner
 -- ════════════════════════════════════════════════════════════════════════════
 revoke all on schema account_fence from public, anon, authenticated, service_role;
-grant usage on schema account_fence to postgres, authenticated;
+grant usage on schema account_fence to authenticated;
 revoke all on all tables in schema account_fence from public, anon, authenticated, service_role;
 revoke all on function account_fence.gate_key(uuid) from public, anon, authenticated, service_role;
 revoke all on function account_fence.install_gate_key(text) from public, anon, authenticated, service_role;
@@ -6029,22 +6057,9 @@ revoke all on function account_fence.audit_redaction_ok(jsonb, jsonb) from publi
 revoke all on function account_fence.purge_expired_deletion_records(integer) from public, anon, authenticated, service_role;
 revoke all on function account_fence.profiles_protect_legacy_schedule() from public, anon, authenticated, service_role;
 revoke all on function account_fence.legacy_queue_guard() from public, anon, authenticated, service_role;
-grant execute on function account_fence.is_pending(uuid) to postgres;
 grant execute on function account_fence.is_pending_self() to authenticated;
-grant execute on function account_fence.admit(uuid, boolean, boolean) to postgres;
 grant execute on function account_fence.admit_self() to authenticated;
 grant execute on function account_fence.admit_check_self(uuid) to authenticated;
-grant execute on function account_fence.admit_many(uuid[], boolean, boolean) to postgres;
-grant execute on function account_fence.admit_install(text, boolean, boolean) to postgres;
-grant execute on function account_fence.admit_rate_key(text) to postgres;
-grant execute on function account_fence.admit_owner_key(text) to postgres;
-grant execute on function account_fence.assert_gated(uuid[]) to postgres;
-grant execute on function account_fence.referral_code_owner(text) to postgres;
-grant execute on function account_fence.referral_owners(uuid) to postgres;
-grant execute on function account_fence.referral_owners_for_referred(uuid) to postgres;
-grant execute on function account_fence.assert_unlink_allowed(text) to postgres;
-grant execute on function account_fence.audit_redaction_ok(jsonb, jsonb) to postgres;
-grant execute on function account_fence.purge_expired_deletion_records(integer) to postgres;   -- pg_cron runs as the migration role
 
 revoke all on function
   public.account_deletion_reserve_material(text, text),
@@ -6167,6 +6182,24 @@ alter function public.account_deletion_complete_job(uuid, uuid, integer, bigint)
 alter function public.account_deletion_get_receipt(text) owner to account_fence_owner;
 alter function public.account_deletion_purge(uuid, uuid, integer) owner to account_fence_owner;
 alter schema account_fence owner to account_fence_owner;
+-- Grants TO THE MIGRATION ROLE must come AFTER the ownership transfer: while it still owned these objects, a grant to
+-- itself is a no-op, and ALTER ... OWNER then discards the old owner's implicit entry (found on the loopback stack:
+-- postgres lost EXECUTE on account_fence.admit and the legacy-route writers failed with 42501). The membership granted
+-- in section 1 still carries INHERIT here, so these grants are issued on behalf of the new owner.
+grant usage on schema account_fence to postgres;
+grant execute on function account_fence.is_pending(uuid) to postgres;
+grant execute on function account_fence.admit(uuid, boolean, boolean) to postgres;
+grant execute on function account_fence.admit_many(uuid[], boolean, boolean) to postgres;
+grant execute on function account_fence.admit_install(text, boolean, boolean) to postgres;
+grant execute on function account_fence.admit_rate_key(text) to postgres;
+grant execute on function account_fence.admit_owner_key(text) to postgres;
+grant execute on function account_fence.assert_gated(uuid[]) to postgres;
+grant execute on function account_fence.referral_code_owner(text) to postgres;
+grant execute on function account_fence.referral_owners(uuid) to postgres;
+grant execute on function account_fence.referral_owners_for_referred(uuid) to postgres;
+grant execute on function account_fence.assert_unlink_allowed(text) to postgres;
+grant execute on function account_fence.audit_redaction_ok(jsonb, jsonb) to postgres;
+grant execute on function account_fence.purge_expired_deletion_records(integer) to postgres;   -- pg_cron runs as the migration role
 revoke create on schema public from account_fence_owner;
 revoke account_fence_owner from current_user;
 
@@ -6187,8 +6220,24 @@ begin
   -- ownership: functions, entry points, schema, and EVERY relation in account_fence
   select string_agg(p.oid::regprocedure::text, ', ') into v
     from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
+     and p.proname not in ('auth_uid', 'auth_user_exists', 'auth_apple_subject')
      and pg_get_userbyid(p.proowner) <> 'account_fence_owner';
   if v is not null then raise exception 'assert: not owned by account_fence_owner: %', v using errcode = 'QD093'; end if;
+  -- The three auth shims are the ONLY account_fence functions that stay owned by the migration role (the narrow owner
+  -- cannot be granted schema auth). They must be exactly: migration-role-owned, SECURITY DEFINER, pinned search_path,
+  -- and executable by account_fence_owner alone (and the owner).
+  select string_agg(p.oid::regprocedure::text, ', ') into v
+    from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
+     and p.proname in ('auth_uid', 'auth_user_exists', 'auth_apple_subject')
+     and (pg_get_userbyid(p.proowner) <> current_user or not p.prosecdef
+          or p.proconfig is distinct from array['search_path=pg_catalog, pg_temp']
+          or exists (select 1 from aclexplode(p.proacl) a
+                      where a.grantee not in (p.proowner, v_fence) or a.privilege_type <> 'EXECUTE'));
+  if v is not null then raise exception 'assert: auth shim has unexpected owner/attributes/ACL: %', v using errcode = 'QD093'; end if;
+  if (select count(*) from pg_proc p where p.pronamespace = 'account_fence'::regnamespace
+       and p.proname in ('auth_uid', 'auth_user_exists', 'auth_apple_subject')) <> 3 then
+    raise exception 'assert: expected exactly the three auth shims' using errcode = 'QD093';
+  end if;
   select string_agg(p.oid::regprocedure::text, ', ') into v
     from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'account_deletion\_%'
      and pg_get_userbyid(p.proowner) <> 'account_fence_owner';
@@ -6260,7 +6309,7 @@ begin
     if has_function_privilege(r.oid, 'public.purge_user_data(uuid)', 'EXECUTE')
        or has_function_privilege(r.oid, 'public.capture_history_forget_owner(uuid)', 'EXECUTE') then
       if r.principal = any(api) then
-        raise exception 'assert: role % can still execute a legacy erasure helper' using errcode = 'QD093';
+        raise exception 'assert: role % can still execute a legacy erasure helper', r.rolname using errcode = 'QD093';
       end if;
     end if;
     -- no API-reachable privilege on any account_fence table or schema beyond USAGE for the authenticated self helpers
@@ -6270,7 +6319,7 @@ begin
             or has_any_column_privilege(r.oid, c.oid, 'SELECT, INSERT, UPDATE, REFERENCES'));
     if v is not null then raise exception 'assert: role % has privileges on account_fence tables: %', r.rolname, v using errcode = 'QD093'; end if;
     if has_schema_privilege(r.oid, 'account_fence', 'CREATE') or (not r.is_auth and has_schema_privilege(r.oid, 'account_fence', 'USAGE')) then
-      raise exception 'assert: role % has account_fence schema privileges beyond the authenticated USAGE' using errcode = 'QD093';
+      raise exception 'assert: role % has account_fence schema privileges beyond the authenticated USAGE', r.rolname using errcode = 'QD093';
     end if;
   end loop;
   if has_function_privilege('anon', 'public.purge_user_data(uuid)', 'EXECUTE')
@@ -6282,22 +6331,22 @@ begin
 
   -- the narrow owner: not superuser/bypass/login; NO membership path to it for any non-superuser (version-
   -- appropriate: PG16 USAGE|SET, PG15 MEMBER); no ADMIN OPTION for anyone but the migration role; no lingering CREATE.
-  if exists (select 1 from pg_roles r where r.rolname = 'account_fence_owner'
-              and (r.rolsuper or r.rolbypassrls or r.rolcanlogin or r.rolcreaterole or r.rolcreatedb or r.rolreplication or r.rolinherit)) then
+  if exists (select 1 from pg_roles pr where pr.rolname = 'account_fence_owner'
+              and (pr.rolsuper or pr.rolbypassrls or pr.rolcanlogin or pr.rolcreaterole or pr.rolcreatedb or pr.rolreplication or pr.rolinherit)) then
     raise exception 'assert: account_fence_owner is over-privileged' using errcode = 'QD093';
   end if;
   if v_ver >= 160000 then
-    select string_agg(r.rolname, ', ') into v from pg_roles r
-     where r.rolname <> 'account_fence_owner' and not r.rolsuper
-       and (pg_has_role(r.oid, 'account_fence_owner', 'USAGE') or pg_has_role(r.oid, 'account_fence_owner', 'SET'));
+    select string_agg(pr.rolname, ', ') into v from pg_roles pr
+     where pr.rolname <> 'account_fence_owner' and not pr.rolsuper
+       and (pg_has_role(pr.oid, 'account_fence_owner', 'USAGE') or pg_has_role(pr.oid, 'account_fence_owner', 'SET'));
   else
-    select string_agg(r.rolname, ', ') into v from pg_roles r
-     where r.rolname <> 'account_fence_owner' and not r.rolsuper and pg_has_role(r.oid, 'account_fence_owner', 'MEMBER');
+    select string_agg(pr.rolname, ', ') into v from pg_roles pr
+     where pr.rolname <> 'account_fence_owner' and not pr.rolsuper and pg_has_role(pr.oid, 'account_fence_owner', 'MEMBER');
   end if;
   if v is not null then raise exception 'assert: membership path to account_fence_owner: %', v using errcode = 'QD093'; end if;
   select string_agg(m.member::regrole::text, ', ') into v from pg_auth_members m
    where m.roleid = v_fence and m.admin_option and m.member::regrole::text <> current_user
-     and not (select r.rolsuper from pg_roles r where r.oid = m.member);
+     and not (select pr.rolsuper from pg_roles pr where pr.oid = m.member);
   if v is not null then raise exception 'assert: ADMIN OPTION on account_fence_owner held by: %', v using errcode = 'QD093'; end if;
   if has_schema_privilege('account_fence_owner', 'public', 'CREATE') then
     raise exception 'assert: account_fence_owner still has CREATE on schema public' using errcode = 'QD093';
