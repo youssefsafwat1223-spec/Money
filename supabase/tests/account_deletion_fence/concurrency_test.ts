@@ -206,9 +206,12 @@ t('erasure: leased purge succeeds, context is gone afterwards, and a client GUC 
   await withSessions(['admin', 'svc', 'client'], async (s) => {
     const seed = await seedAcceptance(s.admin, u.id, 'er');
     await s.admin.run(seed.accept('attempt-er-1'));
-    const claim = await s.svc.run(`select public.account_deletion_claim_lease('w1', 60000, null);`);
+    const ownJob = await s.admin.run(`select job_id from account_fence.deletion_material where ref = '${seed.ref}';`);
+    assertEquals(ownJob.length, 36, `material has no job: ${ownJob}`);
+    const claim = await s.svc.run(`select public.account_deletion_claim_lease('w1', 60000, '${ownJob}');`);
     const lease = JSON.parse(claim.split('\n').find((l) => l.startsWith('{'))!);
     const { job_id, token, generation } = lease.lease;
+    assertEquals(job_id, ownJob, 'claimed another test\'s job');
     for (const stage of ['apple_revoke', 'storage_sweep', 'sql_purge']) {
       await s.svc.run(`select public.account_deletion_begin_step('${job_id}','${token}',${generation},'${stage}');`);
       if (stage !== 'sql_purge') {
@@ -283,9 +286,12 @@ for (const [retryable, expected] of [[true, 'committed:true'], [false, 'disposed
       await s.admin.run(seed.accept(`attempt-f4-${retryable}`));
       const probe = `select state || ':' || (ciphertext is not null) from account_fence.deletion_material where ref = '${seed.ref}';`;
       assertEquals(await s.admin.run(probe), 'committed:true');
-      const claim = await s.svc.run(`select public.account_deletion_claim_lease('w1', 60000, null);`);
+      const ownJob = await s.admin.run(`select job_id from account_fence.deletion_material where ref = '${seed.ref}';`);
+      assertEquals(ownJob.length, 36, `material has no job: ${ownJob}`);
+      const claim = await s.svc.run(`select public.account_deletion_claim_lease('w1', 60000, '${ownJob}');`);
       const lease = JSON.parse(claim.split('\n').find((l) => l.startsWith('{'))!);
       const { job_id, token, generation } = lease.lease;
+      assertEquals(job_id, ownJob, 'claimed another test\'s job');
       const out = await s.svc.run(
         `select public.account_deletion_record_failure('${job_id}','${token}',${generation},'apple_revoke','apple_rejected',${retryable},0);`,
       );
