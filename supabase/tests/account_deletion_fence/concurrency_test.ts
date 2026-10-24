@@ -221,8 +221,10 @@ t('erasure: leased purge succeeds, context is gone afterwards, and a client GUC 
     const purge = await s.svc.run(`select public.account_deletion_purge('${job_id}','${token}',${generation});`);
     assertStringIncludes(purge, 'done');
     assertEquals(await s.admin.run(`select count(*) from account_fence.erasure_ctx;`), '0');
+    // the purge really erased this user's rows (so the probe below must be an INSERT: an UPDATE would match 0 rows)
+    assertEquals(await s.admin.run(`select count(*) from public.user_settings where user_id = '${u.id}';`), '0');
     // forged context attempts
-    const forged = await s.client.run(`begin; ${asUser(u.id)} set local app.erasure = 'on'; update public.user_settings set updated_at = now() where user_id = '${u.id}'; rollback;`);
+    const forged = await s.client.run(`begin; ${asUser(u.id)} set local app.erasure = 'on'; insert into public.user_settings(user_id, local_id) values ('${u.id}', 'forged-guc'); rollback;`);
     assertStringIncludes(forged, 'QD001');
     const direct = await s.client.run(`set role service_role; select public.purge_user_data('${u.id}');`);
     assertStringIncludes(direct, 'permission denied');
