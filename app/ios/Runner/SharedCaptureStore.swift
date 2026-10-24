@@ -1589,9 +1589,18 @@ enum SharedCaptureStore {
       if egressDenied(forOwner: owner?.uid) { return false }
       if let generation, let uid = owner?.uid,
          egressGenerationIsStale(generation, owner: uid) { return false }
-      return owner != nil
-        || (!egressView().maps.contains { $0.owners.values.contains { $0.state != "ON" } }
-          && !pendingView().holdsAny)
+      if owner != nil { return true }
+      // No active owner: a stored lifecycle-bound ON (or retirement) belongs to an
+      // owner lifetime that can no longer be proven live (cleared owner), so it can
+      // never admit a request. Fail closed until an owner is published again.
+      let view = egressView()
+      return !view.maps.contains {
+          $0.owners.values.contains {
+            $0.state != "ON" || $0.retirement != nil
+              || $0.lifetimeOwnerGeneration != nil || $0.lifetimeOwnerEpoch != nil
+          }
+        }
+        && !pendingView().holdsAny
     }) ?? false
   }
 

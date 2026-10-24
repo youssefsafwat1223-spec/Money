@@ -1830,8 +1830,16 @@ class RunnerTests: XCTestCase {
     // and epoch) is still stored: A's evidence must not admit through any entrance.
     try SharedCaptureStore.clearActiveOwner(clearHint: false)
     _ = try publish(ownerB, cloud: false, ai: false)
-    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly, "upload")
-    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "host request")
+    // A's item is stamped under A; with B active it is "not this owner's to process
+    // now": `.waiting` = no egress, no banner (authorizeUploadLocked; the App Intent
+    // and AppDelegate both treat it as durable-queue-and-wait). Stricter than
+    // `.localOnly`, which would show A's local-parse banner under B.
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .waiting, "upload")
+    // A host request has no capture/subject; it is judged by the ACTIVE owner B's own
+    // entry (egressDenied: "another owner's entry is never applied to this owner").
+    // B is unset, so B's own request is admitted; A's bound ON admits nothing here.
+    XCTAssertEqual(try egressState(ownerB), .unset, "B is judged by its own entry")
+    XCTAssertTrue(SharedCaptureStore.egressAdmitsHostRequest(), "host request is B's own")
     XCTAssertThrowsError(try publish(ownerA, cloud: true, ai: false), "mirror/config widening")
   }
 
@@ -1972,8 +1980,14 @@ class RunnerTests: XCTestCase {
         _ = try publish(ownerB, cloud: false, ai: false)
       }
       XCTAssertFalse(widen(good.transitionGeneration), "config entrance must refuse: \(kind)")
-      XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly, "upload: \(kind)")
-      XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "host request: \(kind)")
+      // Replaced active owner: the stamped item waits (no egress, no banner); every
+      // other break keeps the stamped owner and is denied as `.localOnly`.
+      XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id),
+                     kind == .activeUidReplaced ? .waiting : .localOnly, "upload: \(kind)")
+      // With the owner replaced, the host request's subject is B, judged by B's own
+      // (unset) entry; A's bound ON never applies to B.
+      XCTAssertEqual(SharedCaptureStore.egressAdmitsHostRequest(),
+                     kind == .activeUidReplaced, "host request: \(kind)")
       // A restrictive config write is never refused for denial.
       XCTAssertTrue(restrict(good.transitionGeneration), "restrictive config: \(kind)")
     }
@@ -2112,10 +2126,12 @@ class RunnerTests: XCTestCase {
 
   /// Snapshot uncertain + native admission denied, with every raw store unchanged.
   private func assertSnapshotDenied(_ uid: String, _ message: String = "",
+                                    hostRequestAdmitted: Bool = false,
                                     file: StaticString = #filePath, line: UInt = #line) throws {
     let before = try rawState()
     XCTAssertEqual(try egressState(uid), .uncertain, message, file: file, line: line)
-    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), message, file: file, line: line)
+    XCTAssertEqual(SharedCaptureStore.egressAdmitsHostRequest(), hostRequestAdmitted, message,
+                   file: file, line: line)
     XCTAssertEqual(try rawState(), before, "reads never mutate: \(message)", file: file, line: line)
   }
 
@@ -2165,8 +2181,9 @@ class RunnerTests: XCTestCase {
     try SharedCaptureStore.clearActiveOwner(clearHint: false)
     XCTAssertGreaterThan(try SharedCaptureStore.ownerEpoch(), epoch)
     try assertSnapshotDenied(ownerA, "owner cleared")
-    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
-    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+    // No active owner: the stamped item is "not this owner's to process now".
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .waiting)
+    XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .waiting)
   }
 
   // N-R tests 3: same UID new generation, and another current UID, separately.
@@ -2180,8 +2197,10 @@ class RunnerTests: XCTestCase {
       let successor = try publish(other ? ownerB : ownerA, cloud: false, ai: false)
       XCTAssertNotEqual(successor.generation, op.ownerGeneration)
       let bytes = try rawState()
-      try assertSnapshotDenied(ownerA, other ? "other current owner" : "same uid, new generation")
-      XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .localOnly)
+      // Another current owner B is judged by its own (unset) entry for a host request.
+      try assertSnapshotDenied(ownerA, other ? "other current owner" : "same uid, new generation",
+                               hostRequestAdmitted: other)
+      XCTAssertEqual(SharedCaptureStore.admitUpload(payloadID: id), .waiting)
       if other {
         XCTAssertEqual(try egressState(ownerB), .unset, "the requested uid is judged by its own entry")
       }
@@ -2376,8 +2395,11 @@ class RunnerTests: XCTestCase {
     let cases: [(String, Rec, SharedCaptureStore.TransitionStatus)] = [
       ("other generation", offRec(2, 3, ownerGeneration: b.ownerGeneration + 1, ownerEpoch: b.ownerEpoch), .ownerMismatch),
       ("other epoch", offRec(2, 3, ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch + 1), .ownerMismatch),
-      ("half bound generation", offRec(2, 3, ownerGeneration: b.ownerGeneration, ownerEpoch: nil), .ownerMismatch),
-      ("half bound epoch", offRec(2, 3, ownerGeneration: nil, ownerEpoch: b.ownerEpoch), .ownerMismatch),
+      // A half-bound record fails egress decoding (decodeEgressMap), so the layer is
+      // unreadable/corrupt: `.uncertain` ("nothing was judged or written"). Dart treats
+      // every non-`done` reply identically (confirmsOnWritten false -> abort).
+      ("half bound generation", offRec(2, 3, ownerGeneration: b.ownerGeneration, ownerEpoch: nil), .uncertain),
+      ("half bound epoch", offRec(2, 3, ownerGeneration: nil, ownerEpoch: b.ownerEpoch), .uncertain),
       ("retired lifetime", Rec(state: "OFF", transitionGeneration: 2, reservedVersion: 3,
          lifetimeOwnerGeneration: b.ownerGeneration, lifetimeOwnerEpoch: b.ownerEpoch,
          retirement: retired), .ownerMismatch),
@@ -2408,7 +2430,18 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(try writeOn(ownerA, op).status, .done)
     let bytes = try rawState()
     XCTAssertEqual(try writeOn(ownerA, op).status, .done, "idempotent exact bound ON")
-    XCTAssertEqual(try rawState(), bytes)
+    // Semantically identical: JSONEncoder key order is not stable across encodes, so
+    // the egress layers are compared decoded; every other raw field is compared as is.
+    let again = try rawState()
+    XCTAssertEqual(try egressRecord(file: ownerA), try boundOn(op))
+    XCTAssertEqual(try egressRecord(keychain: ownerA), try boundOn(op))
+    XCTAssertEqual(again.egressFile?.count, bytes.egressFile?.count)
+    XCTAssertEqual(again.egressKeychain?.count, bytes.egressKeychain?.count)
+    XCTAssertEqual(again.pendingFile, bytes.pendingFile)
+    XCTAssertEqual(again.pendingKeychain, bytes.pendingKeychain)
+    XCTAssertEqual(again.owner, bytes.owner)
+    XCTAssertEqual(again.epoch, bytes.epoch)
+    XCTAssertEqual(again.generationCounter, bytes.generationCounter)
     // Stripped ON forged in both layers before complete.
     let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
     let stripped = Rec(state: "ON", transitionGeneration: 3, reservedVersion: 4)
