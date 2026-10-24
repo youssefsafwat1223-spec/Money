@@ -251,3 +251,98 @@ Deno.test('E6 body and action validation precedes missing request bearer', async
   assertEquals((await h(post(valid, {}))).status, 401);
   assertEquals(c.seen, []);
 });
+
+// ── challenge route ──────────────────────────────────────────────────────────
+import type { ChallengeIssue, ChallengePort } from './handler.ts';
+
+function port(over: Partial<ChallengePort> = {}): ChallengePort & { issued: string[] } {
+  const issued: string[] = [];
+  return {
+    issued,
+    getUser: (jwt) => Promise.resolve(jwt === 'jwt-abc' ? { id: UID } : null),
+    isAdmin: () => Promise.resolve(false),
+    issue: (uid): Promise<ChallengeIssue> => {
+      issued.push(uid);
+      return Promise.resolve({ outcome: 'issued', challengeId: 'cid-1', nonce: 'nonce-1', expiresAtMs: 1234 });
+    },
+    ...over,
+  };
+}
+const challengeHandler = (p?: ChallengePort, c = coordinator()) =>
+  createDeleteAccountHandler({ coordinator: c, workerId: 'w', challenge: p });
+
+Deno.test('challenge: a live user gets challenge_id, nonce and expires_at_ms; the coordinator is untouched', async () => {
+  const p = port();
+  const c = coordinator();
+  const res = await challengeHandler(p, c)(post({ action: 'challenge' }));
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { status: 'challenge', challenge_id: 'cid-1', nonce: 'nonce-1', expires_at_ms: 1234 });
+  assertEquals(res.headers.get('cache-control'), 'no-store');
+  assertEquals(p.issued, [UID]);
+  assertEquals(c.seen.length, 0);
+});
+
+Deno.test('challenge: missing bearer is 401 and an invalid/stale JWT is 401, neither issues', async () => {
+  const p = port();
+  const h = challengeHandler(p);
+  assertEquals((await h(post({ action: 'challenge' }, {}))).status, 401);
+  const res = await h(post({ action: 'challenge' }, { authorization: 'Bearer stale' }));
+  assertEquals(res.status, 401);
+  assertEquals((await res.json()).code, 'unauthenticated');
+  assertEquals(p.issued.length, 0);
+});
+
+Deno.test('challenge: an admin is refused with 403 admin_self_delete_blocked and nothing is issued', async () => {
+  const p = port({ isAdmin: () => Promise.resolve(true) });
+  const res = await challengeHandler(p)(post({ action: 'challenge' }));
+  assertEquals(res.status, 403);
+  assertEquals(await res.json(), { status: 'error', code: 'admin_self_delete_blocked', retryable: false });
+  assertEquals(p.issued.length, 0);
+});
+
+Deno.test('challenge: the issuer reporting admin (QD031) is also 403', async () => {
+  const res = await challengeHandler(port({ issue: () => Promise.resolve({ outcome: 'admin' as const }) }))(post({ action: 'challenge' }));
+  assertEquals(res.status, 403);
+  assertEquals((await res.json()).code, 'admin_self_delete_blocked');
+});
+
+Deno.test('challenge: rate limit (QD032) is 429 challenge_rate_limited', async () => {
+  const res = await challengeHandler(port({ issue: () => Promise.resolve({ outcome: 'rate_limited' as const }) }))(post({ action: 'challenge' }));
+  assertEquals(res.status, 429);
+  assertEquals((await res.json()).code, 'challenge_rate_limited');
+});
+
+Deno.test('challenge: already_pending answers {status:accepted} with no nonce', async () => {
+  const res = await challengeHandler(port({ issue: () => Promise.resolve({ outcome: 'already_pending' as const }) }))(post({ action: 'challenge' }));
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { status: 'accepted' });
+});
+
+Deno.test('challenge: fails closed (503 not_configured) when no challenge port is wired', async () => {
+  const res = await challengeHandler(undefined)(post({ action: 'challenge' }));
+  assertEquals(res.status, 503);
+  assertEquals((await res.json()).code, 'not_configured');
+});
+
+Deno.test('challenge: an admin-check or issuer outage is 503 and never issues a challenge unchecked', async () => {
+  const p = port({ isAdmin: () => Promise.reject(new Error('db down')) });
+  const res = await challengeHandler(p)(post({ action: 'challenge' }));
+  assertEquals(res.status, 503);
+  assertEquals(p.issued.length, 0);
+  const res2 = await challengeHandler(port({ issue: () => Promise.reject(new Error('rpc down')) }))(post({ action: 'challenge' }));
+  assertEquals(res2.status, 503);
+  assertFalse(JSON.stringify(await res2.json()).includes('rpc down'));
+});
+
+Deno.test('challenge: extra body fields (e.g. a client-supplied uid) are rejected', async () => {
+  const p = port();
+  const res = await challengeHandler(p)(post({ action: 'challenge', uid: UID }));
+  assertEquals(res.status, 400);
+  assertEquals(p.issued.length, 0);
+});
+
+Deno.test('request route still works with a challenge port wired and unchanged semantics', async () => {
+  const res = await challengeHandler(port())(post(valid));
+  assertEquals(res.status, 200);
+  assertEquals(await res.json(), { status: 'completed' });
+});

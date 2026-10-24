@@ -4,6 +4,9 @@
 // Wire contract (see app/lib/core/auth/account_deletion_service.dart):
 //   request : { challenge_id, challenge_response, receipt_secret }  + Bearer JWT
 //   status  : { action: 'status', receipt_secret } (receipt capability only)
+//   challenge: { action: 'challenge' } + Bearer JWT -> { status: 'challenge', challenge_id,
+//               nonce, expires_at_ms } | 403 admin_self_delete_blocked | 429 challenge_rate_limited
+//               | { status: 'accepted' } when a deletion is already pending
 //   response: { status: 'completed' | 'in_progress' | 'accepted' | 'unknown'
 //               | 'unavailable' | 'error', code?, retryable?, recovery? }
 // 'completed' is returned ONLY when the coordinator's receipt reports completed.
@@ -15,6 +18,9 @@ import type {
   RequestResult,
   RunOutcome,
 } from '../_shared/account_deletion_coordinator.ts';
+import type { ChallengePort } from '../_shared/account_deletion_wiring.ts';
+
+export type { ChallengeIssue, ChallengePort } from '../_shared/account_deletion_wiring.ts';
 
 export interface DeletionCoordinatorLike {
   requestDeletion(req: DeletionRequest): Promise<RequestResult>;
@@ -43,6 +49,8 @@ const ERROR_HTTP: Record<string, number> = {
   challenge_replayed: 409,
   apple_subject_mismatch: 403,
   idempotency_conflict: 409,
+  admin_self_delete_blocked: 403,
+  challenge_rate_limited: 429,
 };
 
 function bearerOf(req: Request): string {
@@ -66,7 +74,36 @@ function statusReply(st: PublicStatus): Response {
   }
 }
 
-export function createDeleteAccountHandler(deps: { coordinator: DeletionCoordinatorLike; workerId: string }) {
+async function challengeReply(port: ChallengePort | undefined, bearerToken: string): Promise<Response> {
+  if (!port) return reply({ status: 'error', code: 'not_configured', retryable: false }, 503);
+  try {
+    const user = await port.getUser(bearerToken);
+    if (!user) return reply({ status: 'error', code: 'unauthenticated', retryable: false }, 401);
+    if (await port.isAdmin(user.id)) {
+      return reply({ status: 'error', code: 'admin_self_delete_blocked', retryable: false }, 403);
+    }
+    const r = await port.issue(user.id);
+    switch (r.outcome) {
+      case 'issued':
+        return reply({ status: 'challenge', challenge_id: r.challengeId, nonce: r.nonce, expires_at_ms: r.expiresAtMs }, 200);
+      case 'admin':
+        return reply({ status: 'error', code: 'admin_self_delete_blocked', retryable: false }, 403);
+      case 'rate_limited':
+        return reply({ status: 'error', code: 'challenge_rate_limited', retryable: true }, 429);
+      case 'already_pending':
+        return reply({ status: 'accepted' }, 200);
+      case 'unauthenticated':
+        return reply({ status: 'error', code: 'unauthenticated', retryable: false }, 401);
+    }
+  } catch {
+    // Admin check or issuer unreachable: refuse rather than issue a challenge unchecked.
+    return reply({ status: 'error', code: 'store_unavailable', retryable: true }, 503);
+  }
+}
+
+export function createDeleteAccountHandler(
+  deps: { coordinator: DeletionCoordinatorLike; workerId: string; challenge?: ChallengePort },
+) {
   const { coordinator, workerId } = deps;
 
   return async (req: Request): Promise<Response> => {
@@ -93,6 +130,12 @@ export function createDeleteAccountHandler(deps: { coordinator: DeletionCoordina
           !/^[A-Za-z0-9_-]{43,128}$/.test(b.receipt_secret)
         ) return reply({ status: 'error', code: 'invalid_request', retryable: false }, 400);
         return statusReply(await coordinator.getStatus(b.receipt_secret));
+      }
+      if (action === 'challenge') {
+        if (Object.keys(b).length !== 1) return reply({ status: 'error', code: 'invalid_request', retryable: false }, 400);
+        const token = bearerOf(req);
+        if (!token) return reply({ status: 'error', code: 'unauthenticated', retryable: false }, 401);
+        return await challengeReply(deps.challenge, token);
       }
       if (action !== 'request') {
         return reply({ status: 'error', code: 'invalid_request', retryable: false }, 400);
