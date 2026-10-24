@@ -1262,6 +1262,35 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _unlinkCaptureDevice = unlink;
   }
 
+  Future<void> Function()? _localReminderClear;
+
+  /// Registers the LOCAL-ONLY clear of the removed owner's scheduled and
+  /// delivered OS notifications. Used by immediate deletion, which suppresses
+  /// the owner-clear and remote unlink hooks but must not leave reminders.
+  void configureLocalReminderClear(Future<void> Function()? clear) {
+    _localReminderClear = clear;
+  }
+
+  /// After a confirmed immediate-deletion local removal of [target]: clears the
+  /// OS reminders and signs the deleted owner's SDK session out of THIS device.
+  /// Local scope; with Cloud OFF the gated client sends nothing, and a denied
+  /// logout request is swallowed. A session of another uid is never touched.
+  Future<void> _clearRemovedOwnerDeviceResidue(String target) async {
+    final clear = _localReminderClear;
+    if (clear != null) {
+      try {
+        await clear();
+      } catch (_) {}
+    }
+    final client = _databaseIssuerClient ?? _clientForConsent();
+    if (client == null || client.auth.currentSession?.user.id != target) return;
+    try {
+      await client.auth
+          .signOut(scope: supabase.SignOutScope.local)
+          .timeout(const Duration(seconds: 4));
+    } catch (_) {}
+  }
+
   /// WP-3b: wires the per-uid replica layer. Sign-out then LOCKS the active
   /// replica instead of wiping it, and an admitted uid unlocks and opens its own.
   void configureAccountScope(AccountScopeControl? scope) {
@@ -3249,6 +3278,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       }
       await flow.settlePreparedRemoval(reservation,
           localCleanupConfirmed: true);
+      if (owned()) await _clearRemovedOwnerDeviceResidue(target);
       _logoutIncomplete = false;
       confirmed = true;
     } catch (_) {
@@ -3579,9 +3609,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
             break;
           }
         }
-        final strictTarget = recovered.localOnly == false
-            ? null
-            : (recoveredOwner ?? identityOwner);
+        // Only a record that says local-only is the strict path: an ordinary
+        // interrupted Remove data (false) or an unknown mode (null) finishes
+        // through the normal sign-out below.
+        final strictTarget = recovered.localOnly == true
+            ? (recoveredOwner ?? identityOwner)
+            : null;
         if (strictTarget != null) {
           try {
             await mutate(() async {
@@ -3592,6 +3625,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
               }
               await _finishPreparedOriginalIdentity(strictTarget,
                   stillCurrent: () => epoch == _admissionEpoch);
+              if (epoch == _admissionEpoch) {
+                await _clearRemovedOwnerDeviceResidue(strictTarget);
+              }
             });
           } catch (_) {
             return blocked();

@@ -91,10 +91,12 @@ class _World {
     h.session.configureAccountScope(h.fixture.host);
     h.sdk = SupabaseClient('https://example.supabase.co', 'synthetic-anon',
         authOptions: const AuthClientOptions(autoRefreshToken: false),
-        httpClient: MockClient((request) async {
-      h.unexpectedSdk.add(request);
-      throw StateError('unexpected SDK transport');
-    }));
+        // Same gated transport as production: a local sign-out's logout request
+        // is denied with Cloud OFF and never reaches the socket.
+        httpClient: GatedHttpClient(MockClient((request) async {
+          h.unexpectedSdk.add(request);
+          throw StateError('unexpected SDK transport');
+        })));
     await F2Fixture.recoverSession_(h.sdk, _owner);
     h.transport = MockClient((request) async {
       h.requests.add(request);
@@ -222,11 +224,13 @@ void main() {
             expect(h.requests, isEmpty, reason: 'prepare sends nothing');
             expect(await h.fixture.artifactsOf(_owner), isNotEmpty);
 
+            // The SDK session is signed out locally once removal completes.
+            final token = h.sdk.auth.currentSession?.accessToken;
             final result = await _bounded(session.confirm());
 
             expect(result, isA<DeletionFlowCompleted>());
             expect(h.actions, ['challenge', 'request']);
-            final token = h.sdk.auth.currentSession?.accessToken;
+            expect(h.sdk.auth.currentSession, isNull);
             expect(h.requests.first.headers['Authorization'], 'Bearer $token');
             expect(h.bodies.first, {'action': 'challenge'});
             expect(apple.nonces, ['raw-nonce-0123456789abcdef']);

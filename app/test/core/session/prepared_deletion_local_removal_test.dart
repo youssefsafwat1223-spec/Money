@@ -31,6 +31,7 @@ class _World {
   final holds = <Hold>[];
   final producers = <Future<void>>[];
   final unexpectedSdk = <http.Request>[];
+  var reminderClears = 0;
   late F2Fixture fixture;
   late SupabaseClient sdk;
   late void Function() restoreFence;
@@ -44,11 +45,16 @@ class _World {
     w.session.configureAccountScope(w.fixture.host);
     w.sdk = SupabaseClient('https://example.supabase.co', 'synthetic-anon',
         authOptions: const AuthClientOptions(autoRefreshToken: false),
-        httpClient: MockClient((request) async {
-      w.unexpectedSdk.add(request);
-      throw StateError('unexpected SDK request');
-    }));
+        // Production wraps the SDK transport in the same gate: with Cloud OFF a
+        // local sign-out's logout request is denied before it can reach a socket.
+        httpClient: GatedHttpClient(MockClient((request) async {
+          w.unexpectedSdk.add(request);
+          throw StateError('unexpected SDK request');
+        })));
     await F2Fixture.recoverSession_(w.sdk, _owner);
+    w.session.configureLocalReminderClear(() async {
+      w.reminderClears++;
+    });
     w.egress.owner = _owner;
     w.egress.install();
     await w.admit(_owner);
@@ -115,6 +121,7 @@ class _World {
     fixture.storage.gate = null;
     fixture.barrier.onCall = null;
     session.configureCaptureDeviceUnlink(null);
+    session.configureLocalReminderClear(null);
     session.debugAuthEventCompleted = null;
     await _bounded(session.debugResetAuthBinding());
     await _bounded(session.drainAdmissions());
@@ -480,6 +487,30 @@ void main() {
           }));
 
   test(
+      'confirmed removal clears reminders once and the SDK session locally, with no remote effects',
+      () => _world((w) async {
+            var unlink = 0;
+            var purge = 0;
+            w.session.configureCaptureDeviceUnlink(() async {
+              unlink++;
+            });
+            w.session.configureCaptureOwnerClear(() async {
+              purge++;
+              return true;
+            });
+            expect(w.sdk.auth.currentSession?.user.id, _owner);
+            expect(
+                await _bounded(w.remove()),
+                PreparedOriginalLocalRemovalOutcome
+                    .originalLocalRemovalConfirmed);
+            expect(w.reminderClears, 1);
+            expect(w.sdk.auth.currentSession, isNull);
+            expect(unlink, 0);
+            expect(purge, 0);
+            expect(w.unexpectedSdk, isEmpty);
+          }));
+
+  test(
       'strict cleanup failure retains true barrier and denies local work',
       () => _world((w) async {
             var unlink = 0;
@@ -499,6 +530,7 @@ void main() {
                 isTrue);
             expect(w.session.captureLocalWorkAuthority(), isNull);
             expect(w.sdk.auth.currentSession?.user.id, _owner);
+            expect(w.reminderClears, 0);
             expect(unlink, 0);
             w.fixture.storage.gate = null;
             expect(await _bounded(w.fixture.flow.resumePending()), isTrue);
@@ -571,7 +603,9 @@ void main() {
         expect(w.fixture.storage.data['onboarding_current_account_v1'], isNull);
         expect(await w.fixture.artifactsOf(_owner), isEmpty);
         expect(await w.fixture.flow.revokedUids(), contains(_owner));
-        expect(purge, 0);
+        // No record means the mode is unknown: it finishes through the ordinary
+        // sign-out (owner clear runs) but never sends the remote unlink.
+        expect(purge, 1);
         expect(unlink, 0);
       }));
 
@@ -579,19 +613,28 @@ void main() {
     test('restart stale-marker reread preserves $replacement and refuses cleanup',
         () => _world((w) async {
           await _bounded(w.fixture.flow.remove(_owner));
+          w.fixture.storage.data[RemoveDataFlow.barrierKey] = jsonEncode({
+            'uid': _owner,
+            'uidHash': await w.fixture.hash(_owner),
+            'revoke': true,
+            'localOnly': true,
+          });
           w.fixture.storage.data[kMarkerKey] = _owner;
           await _bounded(w.fixture.restart());
           final identity = w.fixture.storage.data['onboarding_current_account_v1'];
           final revoked = w.fixture.storage.data[RemoveDataFlow.revokedKey];
           var reads = 0;
           var reached = false;
+          // The record's own resume works first; only what follows the race
+          // (the strict stage) must stay clean.
+          var before = 0;
           w.fixture.storage.gate = (op, key) async {
-            if (op == 'read' && key == kMarkerKey && ++reads == 3) {
+            if (op == 'read' && key == kMarkerKey && ++reads == 5) {
               reached = true;
+              before = w.fixture.storage.attempts.length;
               w.fixture.storage.data[kMarkerKey] = replacement;
             }
           };
-          final before = w.fixture.storage.attempts.length;
           expect((await _bounded(w.session.prepareLaunchAdmission())).blocked, isTrue);
           expect(reached, isTrue, reason: 'actual strict marker reread was reached');
           expect(w.fixture.storage.data[kMarkerKey], replacement);
@@ -605,12 +648,18 @@ void main() {
   test('restart stale-marker clear loses its epoch before any successor cleanup',
       () => _world((w) async {
         await _bounded(w.fixture.flow.remove(_owner));
+        w.fixture.storage.data[RemoveDataFlow.barrierKey] = jsonEncode({
+          'uid': _owner,
+          'uidHash': await w.fixture.hash(_owner),
+          'revoke': true,
+          'localOnly': true,
+        });
         w.fixture.storage.data[kMarkerKey] = _owner;
         await _bounded(w.fixture.restart());
         var reads = 0;
         final held = w.hold();
         w.fixture.storage.gate = (op, key) async {
-          if (op == 'read' && key == kMarkerKey && ++reads == 3) {
+          if (op == 'read' && key == kMarkerKey && ++reads == 5) {
             held.reached.complete();
             await held.release.future;
           }
@@ -659,11 +708,47 @@ void main() {
               final result = await _bounded(w.session.prepareLaunchAdmission());
               expect(result.blocked, isFalse);
               expect(unlink, 0);
-              expect(purge, 0);
-              expect(w.sdk.auth.currentSession?.user.id, _owner);
               expect(w.fixture.storage.data['auth_method'], isNull);
+              if (withRecord) {
+                // The strict path: no owner clear, but the deleted owner's
+                // reminders are cleared locally once and the SDK session is gone.
+                expect(purge, 0);
+                expect(w.reminderClears, 1);
+                expect(w.sdk.auth.currentSession, isNull);
+              } else {
+                // Unknown mode finishes through the ordinary sign-out.
+                expect(purge, 1);
+                expect(w.reminderClears, 0);
+                expect(w.sdk.auth.currentSession?.user.id, _owner);
+              }
             }));
   }
+
+  test(
+      'launch ordinary interrupted Remove data finishes the normal path with unlink and owner clear',
+      () => _world((w) async {
+            var unlink = 0;
+            var purge = 0;
+            w.session.configureCaptureDeviceUnlink(() async {
+              unlink++;
+            });
+            w.session.configureCaptureOwnerClear(() async {
+              purge++;
+              return true;
+            });
+            w.fixture.storage.data[RemoveDataFlow.barrierKey] = jsonEncode({
+              'uid': _owner,
+              'uidHash': await w.fixture.hash(_owner),
+              'revoke': true,
+              'localOnly': false,
+            });
+            final result = await _bounded(w.session.prepareLaunchAdmission());
+            expect(result.blocked, isFalse);
+            expect(unlink, 1);
+            expect(purge, 1);
+            expect(w.reminderClears, 0);
+            expect(w.fixture.storage.data['auth_method'], isNull);
+          }));
 
   test(
       'launch helper stopped inside a read cannot clear a successor after epoch loss',

@@ -647,6 +647,7 @@ void main() {
         final reached = Completer<void>(); final release = Completer<void>();
         final launchZoneKey = Object();
         var launchGlobalPurges = 0;
+        var purgesAtHold = 0;
         if (boundary == 'strict-owner-read') {
           f.session.configureCaptureOwnerClear(() async {
             if (Zone.current[launchZoneKey] == true) launchGlobalPurges++;
@@ -657,6 +658,7 @@ void main() {
             // Launch reads its initial marker, then the post-resume marker;
             // the third read belongs to strict original-owner cleanup.
             if (op == 'read' && key == kMarkerKey && ++markerReads == 3) {
+              purgesAtHold = launchGlobalPurges;
               reached.complete(); await release.future;
             }
           };
@@ -684,7 +686,12 @@ void main() {
         expect(f.session.status, SessionStatus.authenticated);
         expect(f.session.captureLocalWorkAuthority()!.isCurrent, isTrue);
         expect(f.storage.data[kMarkerKey], successor);
-        expect(launchGlobalPurges, 0, reason: 'strict launch cleanup invokes no global purge');
+        // No record means the removal mode is unknown: launch finishes through the
+        // ordinary sign-out, whose one owner clear ran before the hold. Nothing
+        // purges once the successor has arrived.
+        expect(launchGlobalPurges, purgesAtHold,
+            reason: 'no launch purge after the successor arrives');
+        if (boundary == 'strict-owner-read') expect(purgesAtHold, 1);
       });
     }
   }

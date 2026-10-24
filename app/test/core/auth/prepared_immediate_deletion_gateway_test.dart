@@ -110,12 +110,14 @@ class _World {
       remember();
       h.sdk = SupabaseClient('https://example.supabase.co', 'synthetic-anon',
           authOptions: const AuthClientOptions(autoRefreshToken: false),
-          httpClient: MockClient((request) async {
+          // Gated like production: a local sign-out's logout request is denied
+          // with Cloud OFF and never reaches the socket.
+          httpClient: GatedHttpClient(MockClient((request) async {
         // A recovered, unexpired SDK session needs no transport here. Any
         // refresh/user/network request is a separately recorded fixture error.
         h.unexpectedSdk.add(request);
         throw StateError('unexpected SDK transport');
-      }));
+      })));
       h.sdkCreated = true;
       await F2Fixture.recoverSession_(h.sdk, _owner);
       h.transport = MockClient((request) async {
@@ -982,7 +984,8 @@ void main() {
                   await _bounded(gateway.removeOriginalLocalReplica(evidence)),
                   PreparedLocalRemovalOutcome.operationUnavailable);
               expect(h.requests, hasLength(1));
-              expect(h.sdk.auth.currentSession?.user.id, _owner);
+              // Local-scope sign-out of the deleted owner's SDK session, no request.
+              expect(h.sdk.auth.currentSession, isNull);
               expect(unlink, 0);
               expect(await h.fixture.artifactsOf(_owner), isEmpty);
               expect(h.session.removalNoticePending.value, isFalse);

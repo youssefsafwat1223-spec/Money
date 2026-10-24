@@ -805,6 +805,20 @@ class LocalNotificationService {
     }
   }
 
+  /// Local-only clear for an account whose data was deleted: cancels every
+  /// scheduled reminder and removes what is already delivered, so a bill or
+  /// subscription body (merchant, amount) never surfaces afterwards. Touches no
+  /// network. Best-effort, like [cancelScheduledReminders].
+  Future<void> clearAllForRemovedOwner() async {
+    await cancelScheduledReminders();
+    try {
+      if (!_initialized) await initialize();
+      await _plugin.cancelAll();
+    } catch (_) {
+      // Best-effort — never blocks the removal that already completed.
+    }
+  }
+
   static int _plannedPriority(PlannedNotificationKind kind) {
     switch (kind) {
       case PlannedNotificationKind.subscriptionReminder:

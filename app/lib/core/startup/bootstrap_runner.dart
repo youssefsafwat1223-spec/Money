@@ -951,6 +951,11 @@ class BootstrapRunner {
       () => release(clearHint: true),
       atSignOut: () => release(clearHint: false),
     );
+    // Immediate deletion never runs the owner clear above (it has no remote
+    // unlink either); the deleted owner's OS reminders are cleared locally here.
+    AppSession.instance.configureLocalReminderClear(
+      LocalNotificationService.instance.clearAllForRemovedOwner,
+    );
     // N2: the admission publishes a RESTRICTIVE native owner, locally and
     // awaited: the session needs the verified receipt to fence this lifetime
     // later. There is no backend link here, so nothing leaves the device while
