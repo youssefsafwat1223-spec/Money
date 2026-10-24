@@ -258,7 +258,7 @@ declare
   v_msg text;
 begin
   select id into v_u from auth.users limit 1;
-  if v_u is null then raise notice 'acl.sql: app-shaped upsert check skipped (no auth user)'; return; end if;
+  if v_u is null then raise notice 'acl.sql: app-shaped upsert check not run here (no auth user); it is covered by concurrency_test.ts (P2-1 app-shaped notification_logs upsert)'; return; end if;
   perform set_config('request.jwt.claims', format('{"sub":"%s","role":"authenticated"}', v_u), true);
   begin
     set local role authenticated;

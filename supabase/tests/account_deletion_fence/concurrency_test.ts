@@ -360,6 +360,36 @@ t('P2-4: a job that already completed a destructive step is not cancellable (req
   });
 });
 
+t('P2-1: the app-shaped notification_logs upsert (user_id = self, no install_id_hash) works; setting install_id_hash is refused', async () => {
+  const u = await createUser();
+  await withSessions(['admin', 'client'], async (s) => {
+    const id = uuid();
+    // exactly the columns notification_log_sync_service.dart sends for 'created' / 'queued', upserted with onConflict: 'id'
+    const upsert = (status: string, tsCol: string) =>
+      `begin; ${asUser(u.id)} insert into public.notification_logs (id, user_id, install_id, notification_type, channel, device_platform, status, ${tsCol}) ` +
+      `values ('${id}', '${u.id}', 'app-install-${id}', 'budget_alert', 'apns', 'ios', '${status}', now()) ` +
+      `on conflict (id) do update set user_id = excluded.user_id, install_id = excluded.install_id, notification_type = excluded.notification_type, ` +
+      `channel = excluded.channel, device_platform = excluded.device_platform, status = excluded.status, ${tsCol} = excluded.${tsCol}; commit;`;
+    const first = await s.client.run(upsert('pending', 'created_at'));
+    assert(!first.includes('ERROR'), `app-shaped insert failed: ${first}`);
+    assertEquals(await s.admin.run(`select status from public.notification_logs where id = '${id}';`), 'pending');
+    const second = await s.client.run(upsert('queued', 'queued_at'));
+    assert(!second.includes('ERROR'), `app-shaped update path failed: ${second}`);
+    assertEquals(await s.admin.run(`select status from public.notification_logs where id = '${id}';`), 'queued');
+    // a client may never set the install hash, on INSERT or UPDATE
+    const hashInsert = await s.client.run(
+      `begin; ${asUser(u.id)} insert into public.notification_logs (id, user_id, install_id, install_id_hash, notification_type) values ('${uuid()}', '${u.id}', 'x', repeat('d', 32), 'budget_alert'); rollback;`,
+    );
+    assertStringIncludes(hashInsert, '42501');
+    assertStringIncludes(hashInsert, 'owner_column_mismatch');
+    const hashUpdate = await s.client.run(
+      `begin; ${asUser(u.id)} update public.notification_logs set install_id_hash = repeat('e', 32) where id = '${id}'; rollback;`,
+    );
+    assertStringIncludes(hashUpdate, '42501');
+    assertStringIncludes(hashUpdate, 'owner_column_mismatch');
+  });
+});
+
 // ── Real Auth / Storage API schedules ────────────────────────────────────────
 
 t('Storage: an authenticated upload after acceptance is refused by the write policy', async () => {
