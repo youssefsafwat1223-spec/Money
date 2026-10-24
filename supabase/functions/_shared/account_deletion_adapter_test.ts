@@ -55,14 +55,19 @@ class FakeBackend {
     return this.calls.map((c) => c.fn);
   }
 
-  async rpc(fn: string, args: Record<string, unknown>): Promise<RpcResult> {
+  rpc(fn: string, args: Record<string, unknown>): Promise<RpcResult> {
     this.calls.push({ fn, args });
-    if (this.throwOn.has(fn)) throw new Error(`network ${LEAK}`);
+    if (this.throwOn.has(fn)) return Promise.reject(new Error(`network ${LEAK}`));
     const code = this.errorOn.get(fn);
-    if (code) return { data: null, error: { code, message: LEAK } };
-    const data = this.exec(fn, args);
-    if (this.lostResponse.has(fn)) throw new Error(`timeout ${LEAK}`);
-    return { data, error: null };
+    if (code) return Promise.resolve({ data: null, error: { code, message: LEAK } });
+    let data: unknown;
+    try {
+      data = this.exec(fn, args);
+    } catch (e) {
+      return Promise.reject(e);
+    }
+    if (this.lostResponse.has(fn)) return Promise.reject(new Error(`timeout ${LEAK}`));
+    return Promise.resolve({ data, error: null });
   }
 
   private jobFor(args: Record<string, unknown>): Job | null {
@@ -234,29 +239,29 @@ function harness(over: Partial<AdapterPorts> = {}) {
     revokeCalls: 0,
     revokeResult: 'revoked_verified' as 'revoked_verified' | 'retryable' | 'failed',
     authorizeResult: null as null | { status: string },
-    async authorize(input: { uid: string; challengeId: string; challengeResponse: string }) {
+    authorize(input: { uid: string; challengeId: string; challengeResponse: string }) {
       this.authorizeCalls++;
       assertEquals(input.uid, UID);
-      if (this.authorizeResult) return this.authorizeResult as never;
-      return { status: 'ok' as const, refreshToken: `rt-${this.authorizeCalls}`, challengeExpiresAtMs: 9_999_999 };
+      if (this.authorizeResult) return Promise.resolve(this.authorizeResult as never);
+      return Promise.resolve({ status: 'ok' as const, refreshToken: `rt-${this.authorizeCalls}`, challengeExpiresAtMs: 9_999_999 });
     },
-    async revoke(refreshToken: string) {
+    revoke(refreshToken: string) {
       this.revokeCalls++;
       order.push('apple_revoke');
       assert(refreshToken.startsWith('rt-'));
-      return this.revokeResult;
+      return Promise.resolve(this.revokeResult);
     },
   };
   const authAdmin = {
     calls: 0,
     error: null as null | { status?: number; code?: string; message?: string },
     throws: false,
-    async deleteUser(uid: string) {
+    deleteUser(uid: string) {
       this.calls++;
       order.push('auth_delete');
       assertEquals(uid, UID);
-      if (this.throws) throw new Error(LEAK);
-      return { error: this.error };
+      if (this.throws) return Promise.reject(new Error(LEAK));
+      return Promise.resolve({ error: this.error });
     },
   };
   const user = { current: { id: UID } as { id: string } | null, throws: false };
@@ -266,12 +271,12 @@ function harness(over: Partial<AdapterPorts> = {}) {
       if (fn === 'account_deletion_purge') order.push('sql_purge');
       return await backend.rpc(fn, args);
     } },
-    identity: { getUser: async (_t: string) => {
-      if (user.throws) throw new Error(LEAK);
-      return user.current;
+    identity: { getUser: (_t: string) => {
+      if (user.throws) return Promise.reject(new Error(LEAK));
+      return Promise.resolve(user.current);
     } },
     apple: apple as unknown as AppleGateway,
-    sealer: { seal: async (p: string) => `sealed(${p})`, unseal: async (c: string) => c.replace(/^sealed\(|\)$/g, '') },
+    sealer: { seal: (p: string) => Promise.resolve(`sealed(${p})`), unseal: (c: string) => Promise.resolve(c.replace(/^sealed\(|\)$/g, '')) },
     storage,
     authAdmin,
     config: {
@@ -408,11 +413,11 @@ Deno.test('Auth user_not_found 404 is confirmed absence and lets the saga finish
 Deno.test('terminal Storage incompleteness is retryable and keeps the receipt non-completed', async () => {
   let sweeps = 0;
   const h2 = harness({
-    eraseObjects: async () => {
+    eraseObjects: () => {
       sweeps++;
-      return sweeps === 1
+      return Promise.resolve(sweeps === 1
         ? { removed: [], complete: true, retryable: false }
-        : { removed: [], complete: false, retryable: true, error: 'work_limit_reached: processed at most 1000 paths' };
+        : { removed: [], complete: false, retryable: true, error: 'work_limit_reached: processed at most 1000 paths' });
     },
   });
   const { run } = await acceptAndRun(h2);
@@ -685,8 +690,8 @@ function workerHarness() {
   let id = 0;
   return harness({
     randomId: () => `private-${++id}`,
-    eraseObjects: async () => ({ removed: [], complete: true, retryable: false }),
-    authAdmin: { deleteUser: async () => ({ error: null }) },
+    eraseObjects: () => Promise.resolve({ removed: [], complete: true, retryable: false }),
+    authAdmin: { deleteUser: () => Promise.resolve({ error: null }) },
   });
 }
 
@@ -806,10 +811,10 @@ for (const response of ['null', 'malformed', 'transport'] as const) {
   Deno.test(`E6 raw ${response} claim consumes the only attempt even without a grant`, async () => {
     const h = workerHarness();
     let calls = 0;
-    h.backend.rpc = async () => {
+    h.backend.rpc = () => {
       calls++;
-      if (response === 'transport') throw new Error('offline');
-      return { data: response === 'null' ? null : { unexpected: true }, error: null };
+      if (response === 'transport') return Promise.reject(new Error('offline'));
+      return Promise.resolve({ data: response === 'null' ? null : { unexpected: true }, error: null });
     };
     const adapter = createAccountDeletionAdapter(h.ports);
     await Promise.allSettled([adapter.store.claimLease({ workerId: 'one', leaseMs: 1000 })]);
@@ -871,13 +876,13 @@ Deno.test('E6 one cached handler plus builder isolates concurrent real request w
   let id = 0;
   const h = harness({
     randomId: () => `handler-private-${++id}`,
-    identity: { getUser: async (token) => ({ id: token === 'jwt-a' ? UID : OTHER_UID }) },
+    identity: { getUser: (token) => Promise.resolve({ id: token === 'jwt-a' ? UID : OTHER_UID }) },
     apple: {
-      authorize: async () => ({ status: 'ok', refreshToken: 'rt-handler', challengeExpiresAtMs: 9_999_999 }),
-      revoke: async () => 'revoked_verified',
+      authorize: () => Promise.resolve({ status: 'ok', refreshToken: 'rt-handler', challengeExpiresAtMs: 9_999_999 }),
+      revoke: () => Promise.resolve('revoked_verified'),
     },
-    authAdmin: { deleteUser: async () => ({ error: null }) },
-    eraseObjects: async () => ({ removed: [], complete: true, retryable: false }),
+    authAdmin: { deleteUser: () => Promise.resolve({ error: null }) },
+    eraseObjects: () => Promise.resolve({ removed: [], complete: true, retryable: false }),
   });
   const handler = createDeleteAccountHandler({ coordinator: h.coordinator, workerId: 'cached-handler' });
   const post = (token: string, secret: string, action = 'request') => new Request('https://offline.invalid/delete', {

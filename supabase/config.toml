@@ -479,3 +479,9 @@ verify_jwt = false
 # because this endpoint is a retired no-op and must not hold a credential that
 # unlocks the three live functions.
 verify_jwt = false
+
+[functions.account-deletion-worker]
+# Invoked only by the pg_cron dispatch (run_account_deletion_worker), gated by
+# its own ACCOUNT_DELETION_WORKER_SECRET (a dedicated secret, not shared with
+# any other worker); raw secret rather than a JWT.
+verify_jwt = false
