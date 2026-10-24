@@ -388,3 +388,17 @@ membership during the transaction, use `extensions.gen_random_bytes` grants, and
   (QD099) unless jobname/schedule/command equal the 0065 values (`30 3 * * *`, `select public.run_purge_scheduled_deletions()`), re-schedules with
   `cron.schedule` when database and user match the current ones, with `cron.schedule_in_database` when available otherwise, and refuses (QD099) when neither applies.
 
+## Opus 5.5 rc3 review fixes
+
+- **Install takeover (blocking):** an authenticated client could insert `notification_logs {user_id: self, install_id_hash: <victim>}`, pass the owner check,
+  reach `admit_install` (oracle) and become an owner of the victim's install via `install_owners`. `guard_owner_columns` now refuses (42501
+  `owner_column_mismatch`) for anon/authenticated on the five client tables any non-null `install:` column on INSERT and any change to it on UPDATE. The only
+  `install:` column declared on those triggers is `notification_logs.install_id_hash`; the app payload (notification_log_sync_service.dart) carries the RAW
+  `install_id`, never the hash, and only service-side RPCs (capture_queue_push, service_role only) write the hash, so no app write changes.
+- **Retry window / stuck leases:** `deletion_job.retry_window_started_at` (default creation time, reset by `operator_requeue_failed_job`) replaces `accepted_at` in
+  the 72 h cap of `account_deletion_record_failure`, and `account_deletion_claim_lease` first moves up to 20 unleased accepted/running/retryable jobs whose window is
+  older than 72 h to `failed` (`last_code = 'retry_window_exceeded'`, `FOR UPDATE SKIP LOCKED`), so a crash-looping job cannot starve the queue. `operator_failed_jobs()`
+  also returns `retry_window_started_at`. No test ages the window (no test-only bypass); the sweep is unexercised on the DB.
+- **Cron preflight pin:** QD097 refuses apply when `purge-scheduled-deletions-job` exists with a schedule/command different from 0065 (`30 3 * * *`,
+  `select public.run_purge_scheduled_deletions()`), so a drifted job is found before apply rather than at rollback.
+

@@ -24,8 +24,8 @@
 -- 2026-10-24 owner decisions D4-D7 (DELETION-COMPLETION-CONTRACT.md; recorded in DECISIONS.md): 14-day anonymous
 -- marker retention + daily purge (D5), referral/entitlement protocol retired with QD040 (D6, section 5), admin
 -- self-deletion blocked with QD031 (D7). Review fixes F1-F4 (DECISIONS.md): legacy purge queue must be empty at apply
--- (QD096) and the legacy 30-day cron job is unscheduled and snapshotted (section 11); owner-column forgery by API roles
--- is refused with 42501 before admission (guard_owner_columns); terminal failure disposes Apple ciphertext.
+-- (QD096), a drifted legacy cron job is refused (QD097), and the legacy 30-day cron job is unscheduled and snapshotted (section 11); owner-column forgery by API roles
+-- is refused with 42501 before admission (guard_owner_columns); client writes may not set install: columns; terminal failure retains Apple ciphertext 14 days (operator recovery functions).
 --
 -- Assumptions that MUST be proven on a real stack (E8, owner-gated) before approval:
 --   * the migration role is `postgres`, owns every restated public function, may CREATE ROLE, and
@@ -92,6 +92,15 @@ begin
   if exists (select 1 from public.account_purge_queue) then
     raise exception 'account_fence preflight: legacy purge work is queued or in progress in public.account_purge_queue; it needs a separate incident assessment (E5) before this migration'
       using errcode = 'QD096';
+  end if;
+  -- Rollback restores ONLY the exact 0065 job; a drifted production job is found here, before apply, not at rollback.
+  if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') then
+    if exists (select 1 from cron.job j where j.jobname = 'purge-scheduled-deletions-job'
+                  and (j.schedule is distinct from '30 3 * * *'
+                       or j.command is distinct from 'select public.run_purge_scheduled_deletions()')) then
+      raise exception 'account_fence preflight: cron job purge-scheduled-deletions-job differs from migration 0065 (schedule 30 3 * * *, command select public.run_purge_scheduled_deletions()); rollback could not restore it, reconcile it first'
+        using errcode = 'QD097';
+    end if;
   end if;
 end
 $assert$;
@@ -403,6 +412,9 @@ create table account_fence.deletion_job (
   -- F4 (revised): set by account_deletion_record_failure on a TERMINAL failure, cleared on a retryable failure and by
   -- account_fence.operator_requeue_failed_job. Drives the 14-day retention of the job's committed Apple material.
   failed_at          timestamptz,
+  -- P3: start of the current retry window (accepted_at at creation, reset by operator_requeue_failed_job). A job that is still
+  -- not terminal 72 hours after this is moved to 'failed' (record_failure on a retryable failure; claim_lease for crash loops).
+  retry_window_started_at timestamptz not null default clock_timestamp(),
   -- D5: anonymous completion marker. Set by account_deletion_complete_job to at most completed_at + 14 days;
   -- the whole marker (job, scope, receipt, material) is physically purged by account_fence.purge_expired_deletion_records.
   retained_until     timestamptz,
@@ -1218,7 +1230,7 @@ declare
   a text; col text; v_strict boolean; o uuid; n uuid; jo jsonb; jn jsonb;
   v_ctx uuid := account_fence.erasure_uid();
   v_kind text; v_icol text; v_oh text; v_nh text; v_excl boolean; v_log_id uuid;
-  v_retry_installs text[] := '{}'::text[]; v_hash text; v_ocol uuid; v_has_owner boolean;
+  v_retry_installs text[] := '{}'::text[]; v_hash text; v_ocol uuid;
 begin
   if tg_op in ('UPDATE', 'DELETE') then jo := pg_catalog.to_jsonb(old); end if;
   if tg_op in ('INSERT', 'UPDATE') then jn := pg_catalog.to_jsonb(new); end if;
@@ -1232,10 +1244,9 @@ begin
      and tg_table_name in ('profiles', 'backups', 'notification_logs', 'feature_flag_overrides', 'financial_import_runs')
      and pg_catalog.current_setting('role', true) in ('anon', 'authenticated') then
     -- (a) strict owner columns must equal the caller; (b) optional ('?') owner columns must equal the caller WHEN non-null;
-    -- (c) a write that sets an install: column must name the caller in some owner column. The client RLS policies for these
+    -- (c) a client write may not set or change an install: column (see below). The client RLS policies for these
     -- tables (e.g. notification_logs_insert_own: auth.uid() = user_id) never admit a NULL or foreign owner, so refusing here
     -- changes no legitimate client write: install-only rows with a NULL user_id are service-side only.
-    v_has_owner := false;
     foreach a in array tg_argv loop
       continue when left(a, 8) = 'install:';
       v_ocol := nullif(jn ->> rtrim(a, '?'), '')::uuid;
@@ -1245,15 +1256,17 @@ begin
       if right(a, 1) <> '?' and v_ocol is distinct from account_fence.auth_uid() then
         raise exception 'owner_column_mismatch' using errcode = '42501';
       end if;
-      if v_ocol is not null then v_has_owner := true; end if;
     end loop;
-    if not v_has_owner then
-      foreach a in array tg_argv loop
-        if left(a, 8) = 'install:' and nullif(jn ->> substr(a, 9), '') is not null then
-          raise exception 'owner_column_mismatch' using errcode = '42501';
-        end if;
-      end loop;
-    end if;
+    -- (c) install: columns (notification_logs.install_id_hash) are written by service-side RPCs only: the app payload carries the RAW
+    -- install_id, never the hash. A client may not set one on INSERT or change one on UPDATE, otherwise it could make itself an
+    -- owner of a victim's install (install_owners) or probe its state through admit_install before RLS answers.
+    foreach a in array tg_argv loop
+      continue when left(a, 8) <> 'install:';
+      if (tg_op = 'INSERT' and nullif(jn ->> substr(a, 9), '') is not null)
+         or (tg_op = 'UPDATE' and (jn ->> substr(a, 9)) is distinct from (jo ->> substr(a, 9))) then
+        raise exception 'owner_column_mismatch' using errcode = '42501';
+      end if;
+    end loop;
   end if;
   -- Retry/log binding protocol (source-only, not a schema equality constraint): every log I/U/D takes
   -- BOTH identity TRY keys before checking children or ordinary/erasure admission. No row-lock wait is
@@ -5312,8 +5325,22 @@ returns jsonb
 language plpgsql volatile security definer
 set search_path = pg_catalog, pg_temp
 as $$
-declare j account_fence.deletion_job;
+declare
+  j account_fence.deletion_job;
+  c_max_retryable_age constant interval := interval '72 hours';
 begin
+  -- P3: a crash-looping job (lease expires, is re-claimed, never reaches record_failure) must not starve others forever: before
+  -- selecting, move up to 20 unleased jobs whose retry window is older than 72 hours to the terminal 'failed' state. Same lock
+  -- discipline as the claim itself (FOR UPDATE SKIP LOCKED), so a concurrent writer of the row is skipped, not waited for.
+  update account_fence.deletion_job d
+     set state = 'failed', failed_at = pg_catalog.clock_timestamp(), last_code = 'retry_window_exceeded',
+         current_step = null, lease_token = null, lease_expires_at = null
+   where d.job_id in (select x.job_id from account_fence.deletion_job x
+                       where x.state in ('accepted', 'running', 'retryable')
+                         and (x.lease_expires_at is null or x.lease_expires_at < pg_catalog.clock_timestamp())
+                         and x.retry_window_started_at < pg_catalog.clock_timestamp() - c_max_retryable_age
+                       order by x.retry_window_started_at limit 20
+                         for update skip locked);
   select * into j from account_fence.deletion_job
    where state in ('accepted', 'running', 'retryable')
      and (p_job_id is null or job_id = p_job_id)
@@ -5394,13 +5421,13 @@ create function public.account_deletion_record_failure(
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
 declare
   j account_fence.deletion_job;
-  -- P2-3: a job may stay retryable for at most this long after acceptance; a retryable failure past it becomes terminal.
+  -- P2-3: a job may stay retryable for at most this long after its retry window started (acceptance or operator requeue); a retryable failure past it becomes terminal.
   c_max_retryable_age constant interval := interval '72 hours';
   v_terminal boolean;
 begin
   j := account_fence.lease_job(p_job_id, p_lease_token, p_generation);
   if j.job_id is null then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'lease_lost'); end if;
-  v_terminal := p_retryable is not true or j.accepted_at < pg_catalog.clock_timestamp() - c_max_retryable_age;
+  v_terminal := p_retryable is not true or j.retry_window_started_at < pg_catalog.clock_timestamp() - c_max_retryable_age;
   update account_fence.deletion_job
      set attempts = attempts + 1,
          state = case when v_terminal then 'failed' else 'retryable' end,
@@ -5542,11 +5569,11 @@ $$;
 -- uid and the lease worker never claims 'failed'. These two functions are the ONLY exit and are executable by the migration
 -- principal (postgres) alone: no API role, not even service_role. Neither returns uid, ciphertext or attempt_id.
 create function account_fence.operator_failed_jobs()
-returns table (job_id uuid, last_code text, completed_steps text[], attempts integer, accepted_at timestamptz, failed_at timestamptz, material_committed boolean)
+returns table (job_id uuid, last_code text, completed_steps text[], attempts integer, accepted_at timestamptz, retry_window_started_at timestamptz, failed_at timestamptz, material_committed boolean)
 language sql stable security definer
 set search_path = pg_catalog, pg_temp
 as $$
-  select j.job_id, j.last_code, j.completed_steps, j.attempts, j.accepted_at, j.failed_at,
+  select j.job_id, j.last_code, j.completed_steps, j.attempts, j.accepted_at, j.retry_window_started_at, j.failed_at,
          exists (select 1 from account_fence.deletion_material m where m.job_id = j.job_id and m.state = 'committed')
     from account_fence.deletion_job j
    where j.state = 'failed'
@@ -5571,6 +5598,7 @@ begin
   end if;
   update account_fence.deletion_job
      set state = 'retryable', next_attempt_at = pg_catalog.clock_timestamp(), failed_at = null,
+         retry_window_started_at = pg_catalog.clock_timestamp(),
          lease_token = null, lease_expires_at = null, current_step = null
    where job_id = j.job_id;
   return pg_catalog.jsonb_build_object('ok', true);

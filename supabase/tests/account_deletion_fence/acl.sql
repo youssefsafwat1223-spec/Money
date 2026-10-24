@@ -236,7 +236,40 @@ begin
   if v_state is distinct from '42501' or v_msg is distinct from 'owner_column_mismatch' then
     raise exception 'P2-1: ownerless install insert gave % (%)', v_state, v_msg;
   end if;
+  -- own user_id + a FOREIGN install hash (cross-account install takeover / admit_install oracle)
+  v_state := 'no error'; v_msg := null;
+  begin
+    set local role authenticated;
+    insert into public.notification_logs (user_id, install_id, install_id_hash, notification_type) values (v_a, 'x', repeat('c', 32), 'test');
+  exception when others then v_state := sqlstate; v_msg := sqlerrm;
+  end;
+  reset role;
+  if v_state is distinct from '42501' or v_msg is distinct from 'owner_column_mismatch' then
+    raise exception 'P2-1: own user_id with foreign install hash gave % (%)', v_state, v_msg;
+  end if;
   raise notice 'acl.sql: P2-1 checks passed';
+end $$;
+
+-- 14b. P2-1: an app-shaped notification_logs upsert (exactly the columns the app sends, user_id = self, no install_id_hash) still
+--      succeeds. Uses an existing Auth user; skipped (notice) on an empty auth.users. The probe row is rolled back.
+do $$
+declare
+  v_u uuid;
+  v_msg text;
+begin
+  select id into v_u from auth.users limit 1;
+  if v_u is null then raise notice 'acl.sql: app-shaped upsert check skipped (no auth user)'; return; end if;
+  perform set_config('request.jwt.claims', format('{"sub":"%s","role":"authenticated"}', v_u), true);
+  begin
+    set local role authenticated;
+    insert into public.notification_logs (id, user_id, install_id, notification_type, channel, status, device_platform)
+    values (gen_random_uuid(), v_u, 'app-install', 'created', 'apns', 'pending', 'ios')
+    on conflict (id) do update set status = excluded.status;
+    raise exception 'probe_ok';
+  exception when others then v_msg := sqlerrm;
+  end;
+  reset role;
+  if v_msg is distinct from 'probe_ok' then raise exception 'P2-1: app-shaped upsert failed: %', v_msg; end if;
 end $$;
 
 -- 15. P2-2: the legacy queue is closed for every caller, service_role included (QD003, raised before any admission oracle).
