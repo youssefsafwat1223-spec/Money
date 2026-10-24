@@ -112,6 +112,7 @@ def body_of(d):
 # ---------------------------------------------------------------------------
 ADM_SELF = ['perform account_fence.admit_self();']
 ADM_UID = ['perform account_fence.admit(auth.uid());']
+RETIRE_LINE = "raise exception 'feature_retired' using errcode = 'QD040';"
 
 SPECS = [
     # --- authenticated INVOKER financial RPCs (caller authorization unchanged)
@@ -133,37 +134,33 @@ SPECS = [
     dict(name='record_metric', sig='public.record_metric(text,text)', begin=ADM_UID),
     dict(name='commit_backup_generation',
          sig='public.commit_backup_generation(text,text,integer,bigint,text,text,text)', begin=ADM_UID),
-    dict(name='get_referral_summary', sig='public.get_referral_summary()', begin=ADM_UID),
-    # --- referral (O6 manifest: discover, try-gate sorted, revalidate under row lock)
-    dict(name='apply_referral_code', sig='public.apply_referral_code(text)',
-         begin=['perform account_fence.admit_many(array[v_uid, account_fence.referral_code_owner(p_code)]);'],
-         before=[(r'^\s*IF v_owner IS NULL THEN', ['perform account_fence.assert_gated(array[v_uid, v_owner]);'])]),
-    dict(name='request_referral_qualification', sig='public.request_referral_qualification()',
-         begin=['perform account_fence.admit_many(array[v_uid] || account_fence.referral_owners_for_referred(v_uid));']),
-    dict(name='qualify_referral_internal', sig='public.qualify_referral_internal(uuid)', begin=[],
-         before=[(r"^\s*IF v_ref\.status = 'qualified' THEN",
-                  ['perform account_fence.assert_gated(array[p_referred_user_id, v_ref.referrer_user_id]);'])]),
+    # D6 (owner decision 2026-10-24, DELETION-COMPLETION-CONTRACT.md section 10): the old referral/entitlement
+    # protocol is PERMANENTLY RETIRED. Every writer below refuses first with QD040 'feature_retired' and has no
+    # side effect (no admission, no lock, no read). Existing entitlement rows are preserved untouched.
+    # get_referral_summary stays a READ path: code CREATION (ensure_referral_code) is retired, so the summary
+    # now reads the existing active code (null when none) instead of minting one.
+    dict(name='get_referral_summary', sig='public.get_referral_summary()', begin=ADM_UID,
+         replace=[('v_code := public.ensure_referral_code(v_uid);',
+                   "select code into v_code from public.referral_codes where user_id = v_uid and status = 'active';",
+                   'D6: read the existing code only; creation is retired')]),
+    dict(name='ensure_referral_code', sig='public.ensure_referral_code(uuid)', retire=True),
+    dict(name='apply_entitlement_mutation',
+         sig='public.apply_entitlement_mutation(text,uuid,text,text,text,integer,text,uuid,integer,integer,uuid,text)',
+         retire=True),
+    dict(name='apply_referral_code', sig='public.apply_referral_code(text)', retire=True),
+    dict(name='request_referral_qualification', sig='public.request_referral_qualification()', retire=True),
+    dict(name='qualify_referral_internal', sig='public.qualify_referral_internal(uuid)', retire=True),
     dict(name='admin_mutate_entitlement',
-         sig='public.admin_mutate_entitlement(text,uuid,uuid,text,text,text,integer)',
-         begin=['perform account_fence.admit_many(array[p_actor_admin_id, p_user_id]);']),
-    dict(name='admin_reject_referral', sig='public.admin_reject_referral(text,uuid,uuid,text)',
-         begin=['perform account_fence.admit_many(array[p_actor_admin_id] || account_fence.referral_owners(p_referral_id));'],
-         before=[(r'^\s*v_claim := public\.referral_admin_claim\(',
-                  ['perform account_fence.assert_gated(array[p_actor_admin_id, v_ref.referrer_user_id, v_ref.referred_user_id]);'])]),
-    dict(name='admin_reverse_referral', sig='public.admin_reverse_referral(text,uuid,uuid,text)',
-         begin=['perform account_fence.admit_many(array[p_actor_admin_id] || account_fence.referral_owners(p_referral_id));'],
-         before=[(r'^\s*v_claim := public\.referral_admin_claim\(',
-                  ['perform account_fence.assert_gated(array[p_actor_admin_id, v_ref.referrer_user_id, v_ref.referred_user_id]);'])]),
+         sig='public.admin_mutate_entitlement(text,uuid,uuid,text,text,text,integer)', retire=True),
+    dict(name='admin_reject_referral', sig='public.admin_reject_referral(text,uuid,uuid,text)', retire=True),
+    dict(name='admin_reverse_referral', sig='public.admin_reverse_referral(text,uuid,uuid,text)', retire=True),
     dict(name='admin_adjust_referral_progress',
-         sig='public.admin_adjust_referral_progress(text,uuid,uuid,text,integer,text)',
-         begin=['perform account_fence.admit_many(array[p_actor_admin_id, p_referrer_user_id]);']),
-    dict(name='admin_rotate_referral_code', sig='public.admin_rotate_referral_code(text,uuid,uuid,text)',
-         begin=['perform account_fence.admit_many(array[p_actor_admin_id, p_user_id]);']),
+         sig='public.admin_adjust_referral_progress(text,uuid,uuid,text,integer,text)', retire=True),
+    dict(name='admin_rotate_referral_code', sig='public.admin_rotate_referral_code(text,uuid,uuid,text)', retire=True),
     dict(name='admin_publish_reward_rule',
          sig='public.admin_publish_reward_rule(text,uuid,text,integer,integer,boolean,text,timestamp with time zone)',
-         begin=['perform account_fence.admit(p_actor_admin_id);']),
-    dict(name='admin_deactivate_reward_rule', sig='public.admin_deactivate_reward_rule(text,uuid,text,text)',
-         begin=['perform account_fence.admit(p_actor_admin_id);']),
+         retire=True),
+    dict(name='admin_deactivate_reward_rule', sig='public.admin_deactivate_reward_rule(text,uuid,text,text)', retire=True),
     # --- capture (O2 narrowing, O4 install owners)
     dict(name='link_capture_device',
          sig='public.link_capture_device(text,text,boolean,boolean,integer,bigint)',
@@ -335,6 +332,9 @@ def apply_edits(d, spec):
     ind = '  '
     out = lines[:begin_idx + 1]
     body = lines[begin_idx + 1:]
+    if spec.get('retire'):
+        # D6: first statement after BEGIN, nothing before it, nothing after it is reachable.
+        out += [ind + RETIRE_LINE + '  -- [fence] D6: referral/entitlement protocol retired (QD040)']
     out += [ind + l + '  -- [fence]' for l in spec.get('begin', [])]
     for (anchor, add) in spec.get('before', []):
         pat = re.compile(anchor, re.I)
@@ -342,11 +342,13 @@ def apply_edits(d, spec):
         if pos is None:
             raise SystemExit('%s: anchor not found: %s' % (spec['name'], anchor))
         body = body[:pos] + [ind + l + '  -- [fence]' for l in add] + body[pos:]
-    for (needle, repl) in spec.get('replace', []):
+    for rep in spec.get('replace', []):
+        needle, repl = rep[0], rep[1]
+        note = rep[2] if len(rep) > 2 else 'O2: no settings-mirror write for a pending account'
         pos = next((i for i, l in enumerate(body) if needle in l), None)
         if pos is None:
             raise SystemExit('%s: replace target not found: %s' % (spec['name'], needle))
-        body[pos] = body[pos].replace(needle, repl.split('  -- [fence]')[0]) + '  -- [fence] O2: no settings-mirror write for a pending account'
+        body[pos] = body[pos].replace(needle, repl.split('  -- [fence]')[0]) + '  -- [fence] ' + note
     return '\n'.join(out + body)
 
 

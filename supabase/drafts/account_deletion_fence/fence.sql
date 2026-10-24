@@ -9,14 +9,20 @@
 --
 -- This file is LITERAL SQL. It contains no statement that generates DDL from the catalog. The only
 -- DO blocks are fail-closed ASSERTIONS (preflight at the top, effective-ACL checks at the end);
--- they read the catalog and raise, they never create or alter anything. Sections 5 (and the
+-- they read the catalog and raise, they never create or alter anything. The single exception is the
+-- guarded scheduling block in section 11, which only calls cron.schedule and never generates DDL. Sections 5 (and the
 -- preflight rows) were produced offline from the historical migrations by gen_rpc_bodies.py and
 -- are checked in as text; the script is NOT needed to apply this file (it only lets a reviewer
 -- reproduce the text byte for byte).
 --
 -- Sections: 0 preflight + rollback snapshot · 1 role/schema/tables · 2 admission + erasure context
 -- · 3 direct-DML closure · 4 hooks · 5 restated RPC bodies with admission (E3) · 6 acceptance/lease
--- RPCs · 7 erasure (E1, O4, O5) · 8 legacy route + audit append-only exception · 9 ACL + ownership.
+-- RPCs (incl. challenge issuer/reader, Apple subject lookup) · 7 erasure (E1, O4, O5) · 8 legacy route + audit
+-- append-only exception · 9 ACL + ownership · 10 effective-privilege assertions · 11 retention purge function and
+-- guarded pg_cron schedules (the ONLY non-assertion DO block; skipped when pg_cron is absent).
+-- 2026-10-24 owner decisions D4-D7 (DELETION-COMPLETION-CONTRACT.md; recorded in DECISIONS.md): 14-day anonymous
+-- marker retention + daily purge (D5), referral/entitlement protocol retired with QD040 (D6, section 5), admin
+-- self-deletion blocked with QD031 (D7). Still unparsed and unexecuted.
 --
 -- Assumptions that MUST be proven on a real stack (E8, owner-gated) before approval:
 --   * the migration role is `postgres`, owns every restated public function, may CREATE ROLE, and
@@ -24,6 +30,10 @@
 --   * PostgREST db-schemas does NOT expose account_fence (and nothing here relies on that: no
 --     API role can execute a bypass-capable function; see the assertions in section 9);
 --   * deployed pg_proc.prosrc of every restated function equals its migration text (preflight);
+--   * (D5/D7, 2026-10-24) pgcrypto is installed in schema `extensions` (as the existing migrations assume:
+--     generate_referral_code uses extensions.gen_random_bytes) and the migration role may GRANT USAGE on it and
+--     EXECUTE on extensions.gen_random_bytes(integer); the migration role may also GRANT column SELECT on
+--     auth.identities (user_id, provider, provider_id, identity_data). Same class of assumption as auth.users(id).
 --   * Auth deletion performs NO UPDATE of any application row after section 7 closed every
 --     reference (erase_verify); a residual reference makes the Auth delete fail closed.
 --   * The narrow owner's WRITE reach is bounded by erasure predicates that are false outside an erasure
@@ -89,6 +99,8 @@ begin
     ('public.record_metric(text,text)', 'd38dd967625dbea6370ac8bd30385955', '0072_backend_security_hardening.sql:76-110'),
     ('public.commit_backup_generation(text,text,integer,bigint,text,text,text)', 'cd88648fac26b202ff511e0631dd6c67', '0076_backup_generation_cas.sql:25-119'),
     ('public.get_referral_summary()', '5d511b088a0335bc84c97b197faae2df', '0083_referral_rewards.sql:906-959'),
+    ('public.ensure_referral_code(uuid)', '7e6cb223413b90160f9505e2014b2258', '0083_referral_rewards.sql:462-503'),
+    ('public.apply_entitlement_mutation(text,uuid,text,text,text,integer,text,uuid,integer,integer,uuid,text)', '363c5c7d7695350fc43be7a43544e424', '0085_concurrency_absent_row_locking.sql:58-223'),
     ('public.apply_referral_code(text)', 'a1c4ea44634c6073042ed5c2b5f405e4', '0083_referral_rewards.sql:833-886'),
     ('public.request_referral_qualification()', 'd6cc3c1a3b3cbe6e54315c8415092e0a', '0083_referral_rewards.sql:889-903'),
     ('public.qualify_referral_internal(uuid)', '6bb19a1eee7e8c425ec838a0eba54167', '0085_concurrency_absent_row_locking.sql:226-402'),
@@ -180,11 +192,15 @@ create table account_fence.rollback_misc_snapshot (
   primary key (kind, identity)
 );
 insert into account_fence.rollback_misc_snapshot
-select 'schema', n.nspname, n.nspacl from pg_catalog.pg_namespace n where n.nspname in ('public', 'auth');
+select 'schema', n.nspname, n.nspacl from pg_catalog.pg_namespace n where n.nspname in ('public', 'auth', 'extensions');
 insert into account_fence.rollback_misc_snapshot
 select 'relation', 'auth.users', c.relacl from pg_catalog.pg_class c where c.oid = 'auth.users'::regclass;
 insert into account_fence.rollback_misc_snapshot
+select 'relation', 'auth.identities', c.relacl from pg_catalog.pg_class c where c.oid = 'auth.identities'::regclass;
+insert into account_fence.rollback_misc_snapshot
 select 'function', 'auth.uid()', p.proacl from pg_catalog.pg_proc p where p.oid = 'auth.uid()'::regprocedure;
+insert into account_fence.rollback_misc_snapshot
+select 'function', 'extensions.gen_random_bytes(integer)', p.proacl from pg_catalog.pg_proc p where p.oid = 'extensions.gen_random_bytes(integer)'::regprocedure;
 insert into account_fence.rollback_misc_snapshot
 select 'default_acl', d.defaclrole::regrole::text || ':' || d.defaclnamespace::regnamespace::text || ':' || d.defaclobjtype, d.defaclacl
   from pg_catalog.pg_default_acl d;
@@ -225,6 +241,8 @@ begin
     ('public.record_metric(text,text)', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=public'),
     ('public.commit_backup_generation(text,text,integer,bigint,text,text,text)', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=public'),
     ('public.get_referral_summary()', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=pg_catalog,public,pg_temp'),
+    ('public.ensure_referral_code(uuid)', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=pg_catalog,public,pg_temp'),
+    ('public.apply_entitlement_mutation(text,uuid,text,text,text,integer,text,uuid,integer,integer,uuid,text)', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=pg_catalog,public,pg_temp'),
     ('public.apply_referral_code(text)', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=pg_catalog,public,pg_temp'),
     ('public.request_referral_qualification()', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=pg_catalog,public,pg_temp'),
     ('public.qualify_referral_internal(uuid)', 'plpgsql', true, 'v', false, 'u', false, 100, 'search_path=pg_catalog,public,pg_temp'),
@@ -303,6 +321,8 @@ create table account_fence.deletion_job (
   last_code          text check (last_code is null or last_code ~ '^[a-z][a-z0-9_]{0,39}$'),
   accepted_at        timestamptz not null default clock_timestamp(),
   completed_at       timestamptz,
+  -- D5: anonymous completion marker. Set by account_deletion_complete_job to at most completed_at + 14 days;
+  -- the whole marker (job, scope, receipt, material) is physically purged by account_fence.purge_expired_deletion_records.
   retained_until     timestamptz,
   -- O4: what the erasure could and could not attribute. Never exposed to clients; product copy must
   -- not claim completeness beyond 'known_ownership_only' (historical attribution is first-owner only).
@@ -337,10 +357,13 @@ create table account_fence.deletion_attempt_tombstone (
   attempt_id text primary key,
   created_at timestamptz not null default clock_timestamp()
 );
--- Challenge rows are written by a not-yet-designed issuer (open item O1); only verified/consumed here.
+-- Challenge rows are written ONLY by public.account_deletion_issue_challenge (section 6, contract section 1) and
+-- consumed by account_deletion_accept. The raw nonce is returned to the client once and is NEVER stored: only
+-- nonce_hash = lower-hex sha256(nonce utf8), which Apple echoes in the identity token's `nonce` claim.
 create table account_fence.deletion_challenge (
   challenge_id text primary key,
   uid          uuid not null,
+  nonce_hash   text not null check (nonce_hash ~ '^[0-9a-f]{64}$'),
   expires_at   timestamptz not null,
   consumed_at  timestamptz
 );
@@ -403,7 +426,9 @@ create policy account_fence_owner_all on account_fence.erasure_ctx to account_fe
 -- business attempt consumed); QD001 pending (park writes, preserve rows); QD002 Auth user gone (revoke
 -- authority); QD003 legacy route unavailable. Other codes: QD010 lease lost, QD011 step not authorised,
 -- QD012 not in erasure context, QD013 closure incomplete, QD020 material unavailable, 0A000 isolation,
--- 22023 invalid key grammar, QD090-QD092 preflight.
+-- 22023 invalid key grammar, QD090-QD092 preflight. D5-D7 (2026-10-24): QD031 admin account cannot be deleted
+-- (remove admin rights first), QD032 challenge issuance rate limited, QD040 feature_retired (raised inline by the
+-- restated referral/entitlement bodies of section 5, not through this function).
 create function account_fence.deny(p_kind text) returns void
 language plpgsql volatile
 set search_path = pg_catalog
@@ -417,6 +442,10 @@ begin
     raise exception 'account_gone' using errcode = 'QD002', detail = 'fence:gone', hint = 'revoke_authority_account_gone';
   elsif p_kind = 'legacy' then
     raise exception 'legacy_scheduled_deletion_disabled' using errcode = 'QD003', detail = 'fence:legacy', hint = 'legacy_route_unavailable';
+  elsif p_kind = 'admin' then
+    raise exception 'admin_self_delete_blocked' using errcode = 'QD031', detail = 'fence:admin', hint = 'remove_admin_rights_first';
+  elsif p_kind = 'challenge_rate' then
+    raise exception 'challenge_rate_limited' using errcode = 'QD032', detail = 'fence:challenge_rate', hint = 'retry_later';
   else
     raise exception 'account_fence_unknown_denial' using errcode = 'XX000';
   end if;
@@ -1515,6 +1544,12 @@ revoke insert (user_id, last_seq, epoch, epoch_reason, updated_at), update (user
 grant usage on schema auth to account_fence_owner;
 grant select (id) on table auth.users to account_fence_owner;
 grant execute on function auth.uid() to account_fence_owner;
+-- D4/contract section 4: account_deletion_apple_subject reads the Apple `sub` of the caller-supplied uid. Column-level,
+-- read-only. If RLS were enabled on auth.identities the narrow owner would see no row (-> null -> mismatch, fail closed).
+grant select (user_id, provider, provider_id, identity_data) on table auth.identities to account_fence_owner;
+-- Contract section 1: the challenge issuer draws 32 CSPRNG bytes twice (pgcrypto; sha256 is built in).
+grant usage on schema extensions to account_fence_owner;
+grant execute on function extensions.gen_random_bytes(integer) to account_fence_owner;
 grant select, delete on table public.user_accounts to account_fence_owner;
 create policy account_fence_erasure on public.user_accounts as permissive for all to account_fence_owner
   using (user_id = account_fence.erasure_uid()) with check (true);
@@ -1654,6 +1689,10 @@ grant select, delete on table public.admin_users to account_fence_owner;
 grant update (granted_by) on table public.admin_users to account_fence_owner;
 create policy account_fence_erasure on public.admin_users as permissive for all to account_fence_owner
   using (id = account_fence.erasure_uid() or granted_by = account_fence.erasure_uid()) with check (true);
+-- D7: the challenge issuer and acceptance (running as the narrow owner OUTSIDE an erasure transaction) must see whether
+-- the subject is an admin. The erasure policy above is false there, so without this read-only policy the check would
+-- silently find nobody. SELECT only (no write reach); a separate READ privilege like the discovery policies below.
+create policy account_fence_discovery on public.admin_users as permissive for select to account_fence_owner using (true);
 -- E1.4: DISCOVERY policies. These are `using (true)`: the narrow owner can READ these tables at ALL times, not
 -- only during erasure (only its writes are bounded by the erasure predicates). Separate privilege; needs approval.
 create policy account_fence_discovery on public.capture_devices as permissive for select to account_fence_owner using (true);
@@ -2700,7 +2739,7 @@ BEGIN
     RAISE EXCEPTION 'unauthenticated' USING ERRCODE = 'insufficient_privilege';
   END IF;
 
-  v_code := public.ensure_referral_code(v_uid);
+  select code into v_code from public.referral_codes where user_id = v_uid and status = 'active';  -- [fence] D6: read the existing code only; creation is retired
 
   -- The caller's OWN attribution, as a bare status. This is the entire reason
   -- the referrals table needs no direct read policy: the UX needs "was my code
@@ -2736,6 +2775,226 @@ BEGIN
     'server_now',          now());
 END $$;
 
+-- [gen] public.ensure_referral_code(uuid)
+--   source: supabase/migrations/0083_referral_rewards.sql:462-503
+--   verbatim statement sha256: beab2db249601be10f16e7122679c42f232485149c7e6c0c628b02f31adce65c
+--   original body md5 (pg_proc.prosrc preflight): 7e6cb223413b90160f9505e2014b2258
+CREATE OR REPLACE FUNCTION public.ensure_referral_code(p_user_id UUID)
+RETURNS TEXT
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_code     TEXT;
+  v_existing TEXT;
+  attempt    INTEGER := 0;
+BEGIN
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
+  SELECT code INTO v_existing FROM public.referral_codes
+   WHERE user_id = p_user_id AND status = 'active';
+  IF v_existing IS NOT NULL THEN
+    RETURN v_existing;
+  END IF;
+
+  -- Bounded collision retry; never degrade to predictable data.
+  WHILE attempt < 5 LOOP
+    attempt := attempt + 1;
+    v_code := public.generate_referral_code();
+    BEGIN
+      -- Conflict target is the PARTIAL index: a concurrent creator for the
+      -- same user loses harmlessly, and rotation history never blocks this.
+      INSERT INTO public.referral_codes (user_id, code)
+      VALUES (p_user_id, v_code)
+      ON CONFLICT (user_id) WHERE status = 'active' DO NOTHING;
+
+      SELECT code INTO v_existing FROM public.referral_codes
+       WHERE user_id = p_user_id AND status = 'active';
+      IF v_existing IS NOT NULL THEN
+        RETURN v_existing;   -- ours, or a concurrent winner's — both canonical
+      END IF;
+    EXCEPTION WHEN unique_violation THEN
+      NULL; -- code collision: draw again
+    END;
+  END LOOP;
+
+  RAISE EXCEPTION 'referral_code_generation_failed'
+    USING ERRCODE = 'data_exception';
+END $$;
+
+-- [gen] public.apply_entitlement_mutation(text,uuid,text,text,text,integer,text,uuid,integer,integer,uuid,text)
+--   source: supabase/migrations/0085_concurrency_absent_row_locking.sql:58-223
+--   verbatim statement sha256: 533e16e7f2cd03664e8e1d7510467af3a29d64b3b21ce1eab3623d6e62fdd712
+--   original body md5 (pg_proc.prosrc preflight): 363c5c7d7695350fc43be7a43544e424
+CREATE OR REPLACE FUNCTION public.apply_entitlement_mutation(
+  p_operation_id     TEXT,
+  p_user_id          UUID,
+  p_entitlement_type TEXT,
+  p_event_type       TEXT,
+  p_source           TEXT,
+  p_duration_days    INTEGER DEFAULT NULL,
+  p_source_reference TEXT    DEFAULT NULL,
+  p_rule_id          UUID    DEFAULT NULL,
+  p_rule_version     INTEGER DEFAULT NULL,
+  p_cycle_index      INTEGER DEFAULT NULL,
+  p_actor_admin_id   UUID    DEFAULT NULL,
+  p_reason           TEXT    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_fingerprint TEXT;
+  v_existing    public.entitlement_events%ROWTYPE;
+  v_prev        public.user_entitlement_state%ROWTYPE;
+  v_new_ends    TIMESTAMPTZ;
+  v_new_status  TEXT;
+  v_event_id    UUID;
+  v_rowcount    INTEGER;
+BEGIN
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
+  -- Audit H-10 (Batch 13): serialize competing writers on the entitlement
+  -- authority key. SELECT ... FOR UPDATE below locks nothing when the state row
+  -- does not exist yet, so two concurrent FIRST grants both read an empty
+  -- previous state, both compute now()+duration, and the second ON CONFLICT
+  -- overwrites the first's ends_at with its own stale precomputed value — the
+  -- two grants collapse into one duration. A transaction advisory lock is
+  -- deterministic on the authority key, needs no existing row, and releases at
+  -- commit/rollback; the loser then re-reads the winner's committed state and
+  -- extends additively. Acquired FIRST (one lock per call) so ordering is
+  -- uniform and no deadlock cycle is possible.
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended('mali_entitlement:' || p_user_id::text || ':' ||
+      coalesce(p_entitlement_type, ''), 0));
+  IF p_operation_id IS NULL OR p_user_id IS NULL THEN
+    RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
+  END IF;
+
+  -- CANONICAL REQUESTED INTENT, hashed with SHA-256.
+  --
+  -- Delimiter-joined concatenation was replaced because it is ambiguous: with a
+  -- '|' separator the fields ('a|b', 'c') and ('a', 'b|c') produce an identical
+  -- string, so two different operations could collide onto one fingerprint.
+  -- jsonb is unambiguous AND canonically ordered by Postgres, so a harmless
+  -- change in key order cannot change the hash.
+  --
+  -- This describes the REQUEST, never the outcome: resulting_ends_at and
+  -- resulting_status are deliberately excluded because they depend on current
+  -- state, and the same request must fingerprint identically whenever it is
+  -- replayed.
+  v_fingerprint := encode(
+    extensions.digest(
+      convert_to(
+        jsonb_build_object(
+          'actor',            coalesce(lower(p_actor_admin_id::text), 'system'),
+          'target_user',      lower(p_user_id::text),
+          'entitlement_type', lower(p_entitlement_type),
+          'event_type',       lower(p_event_type),
+          'source',           lower(p_source),
+          'duration_days',    p_duration_days,
+          'source_reference', p_source_reference,
+          'rule_id',          lower(p_rule_id::text),
+          'rule_version',     p_rule_version,
+          'cycle_index',      p_cycle_index,
+          -- Reason is part of an Admin operation's intent, so a materially
+          -- different reason is a different operation. Normalized (trimmed,
+          -- internal whitespace collapsed) so cosmetic edits do not diverge.
+          'reason',           nullif(btrim(regexp_replace(coalesce(p_reason, ''), '\s+', ' ', 'g')), '')
+        )::text,
+        'UTF8'),
+      'sha256'),
+    'hex');
+
+  SELECT * INTO v_existing
+    FROM public.entitlement_events WHERE operation_id = p_operation_id;
+
+  IF FOUND THEN
+    IF v_existing.operation_fingerprint <> v_fingerprint THEN
+      -- Same key, different intent: refuse rather than return a stranger's result.
+      RAISE EXCEPTION 'idempotency_mismatch' USING ERRCODE = 'data_exception';
+    END IF;
+    RETURN jsonb_build_object(
+      'applied', false, 'duplicate', true,
+      'event_id', v_existing.id,
+      'ends_at', v_existing.resulting_ends_at,
+      'status',  v_existing.resulting_status);
+  END IF;
+
+  -- Lock/read the current state (may not exist).
+  SELECT * INTO v_prev
+    FROM public.user_entitlement_state
+   WHERE user_id = p_user_id AND entitlement_type = p_entitlement_type
+     FOR UPDATE;
+
+  IF p_event_type IN ('grant', 'extend') THEN
+    IF p_duration_days IS NULL OR p_duration_days <= 0 THEN
+      RAISE EXCEPTION 'invalid_duration' USING ERRCODE = 'data_exception';
+    END IF;
+    -- base = greatest(now, current ends_at when the row is still active);
+    -- a revoked or expired entitlement restarts from now. Never shortens.
+    v_new_ends := greatest(
+        now(),
+        CASE WHEN v_prev.user_id IS NOT NULL AND v_prev.status = 'active'
+             THEN v_prev.ends_at ELSE now() END)
+      + make_interval(days => p_duration_days);
+    v_new_status := 'active';
+  ELSIF p_event_type = 'revoke' THEN
+    v_new_ends   := least(coalesce(v_prev.ends_at, now()), now());
+    v_new_status := 'revoked';
+  ELSIF p_event_type = 'shorten' THEN
+    IF p_duration_days IS NULL OR p_duration_days <= 0 THEN
+      RAISE EXCEPTION 'invalid_duration' USING ERRCODE = 'data_exception';
+    END IF;
+    v_new_ends   := greatest(now(),
+                     coalesce(v_prev.ends_at, now()) - make_interval(days => p_duration_days));
+    v_new_status := coalesce(v_prev.status, 'active');
+  ELSE
+    RAISE EXCEPTION 'invalid_event_type' USING ERRCODE = 'data_exception';
+  END IF;
+
+  -- Claim the operation. UNIQUE(operation_id) serializes concurrent replays:
+  -- the loser blocks here, then sees the committed row on retry.
+  INSERT INTO public.entitlement_events (
+    operation_id, operation_fingerprint, user_id, entitlement_type, event_type,
+    source, source_reference, duration_days_applied,
+    previous_status, previous_ends_at, resulting_status, resulting_ends_at,
+    rule_id, rule_version, cycle_index, actor_admin_id, reason)
+  VALUES (
+    p_operation_id, v_fingerprint, p_user_id, p_entitlement_type, p_event_type,
+    p_source, p_source_reference, p_duration_days,
+    v_prev.status, v_prev.ends_at, v_new_status, v_new_ends,
+    p_rule_id, p_rule_version, p_cycle_index, p_actor_admin_id, p_reason)
+  ON CONFLICT (operation_id) DO NOTHING
+  RETURNING id INTO v_event_id;
+
+  GET DIAGNOSTICS v_rowcount = ROW_COUNT;
+  IF v_rowcount = 0 THEN
+    SELECT * INTO v_existing
+      FROM public.entitlement_events WHERE operation_id = p_operation_id;
+    IF v_existing.operation_fingerprint <> v_fingerprint THEN
+      RAISE EXCEPTION 'idempotency_mismatch' USING ERRCODE = 'data_exception';
+    END IF;
+    RETURN jsonb_build_object(
+      'applied', false, 'duplicate', true, 'event_id', v_existing.id,
+      'ends_at', v_existing.resulting_ends_at, 'status', v_existing.resulting_status);
+  END IF;
+
+  -- Same transaction as the event: state and history can never diverge.
+  INSERT INTO public.user_entitlement_state
+         (user_id, entitlement_type, status, starts_at, ends_at)
+  VALUES (p_user_id, p_entitlement_type, v_new_status, now(), v_new_ends)
+  ON CONFLICT (user_id, entitlement_type) DO UPDATE
+     SET status = EXCLUDED.status, ends_at = EXCLUDED.ends_at;
+
+  RETURN jsonb_build_object(
+    'applied', true, 'duplicate', false, 'event_id', v_event_id,
+    'ends_at', v_new_ends, 'status', v_new_status);
+END $$;
+
 -- [gen] public.apply_referral_code(text)
 --   source: supabase/migrations/0083_referral_rewards.sql:833-886
 --   verbatim statement sha256: 059f2d6e341d4e7338014873fcc81b3dc0e30bc6846c9fb961415af2895fb658
@@ -2753,7 +3012,7 @@ DECLARE
   v_owner    UUID;
   v_rule     public.referral_reward_rules%ROWTYPE;
 BEGIN
-  perform account_fence.admit_many(array[v_uid, account_fence.referral_code_owner(p_code)]);  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'unauthenticated' USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -2775,7 +3034,6 @@ BEGIN
    WHERE code = v_code AND status = 'active';
 
   -- Generic result: reveals nothing about whether a code or account exists.
-  perform account_fence.assert_gated(array[v_uid, v_owner]);  -- [fence]
   IF v_owner IS NULL THEN
     RETURN jsonb_build_object('ok', false, 'reason', 'invalid_code');
   END IF;
@@ -2811,7 +3069,7 @@ AS $$
 DECLARE
   v_uid UUID := auth.uid();
 BEGIN
-  perform account_fence.admit_many(array[v_uid] || account_fence.referral_owners_for_referred(v_uid));  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF v_uid IS NULL THEN
     RAISE EXCEPTION 'unauthenticated' USING ERRCODE = 'insufficient_privilege';
   END IF;
@@ -2840,12 +3098,12 @@ DECLARE
   v_ent       jsonb;
   v_next      public.referral_reward_rules%ROWTYPE;
 BEGIN
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   SELECT * INTO v_ref FROM public.referrals
    WHERE referred_user_id = p_referred_user_id FOR UPDATE;
   IF NOT FOUND THEN
     RETURN jsonb_build_object('qualified', false, 'reason', 'no_attribution');
   END IF;
-  perform account_fence.assert_gated(array[p_referred_user_id, v_ref.referrer_user_id]);  -- [fence]
   IF v_ref.status = 'qualified' THEN
     RETURN jsonb_build_object('qualified', true, 'duplicate', true);
   END IF;
@@ -3027,7 +3285,7 @@ DECLARE
   v_prev   public.user_entitlement_state%ROWTYPE;
   v_res    jsonb;
 BEGIN
-  perform account_fence.admit_many(array[p_actor_admin_id, p_user_id]);  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF p_user_id IS NULL THEN
     RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
   END IF;
@@ -3109,7 +3367,7 @@ DECLARE
   v_ref      public.referrals%ROWTYPE;
   v_rowcount INTEGER;
 BEGIN
-  perform account_fence.admit_many(array[p_actor_admin_id] || account_fence.referral_owners(p_referral_id));  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF p_referral_id IS NULL THEN
     RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
   END IF;
@@ -3126,7 +3384,6 @@ BEGIN
     RAISE EXCEPTION 'referral_not_found' USING ERRCODE = 'data_exception';
   END IF;
 
-  perform account_fence.assert_gated(array[p_actor_admin_id, v_ref.referrer_user_id, v_ref.referred_user_id]);  -- [fence]
   v_claim := public.referral_admin_claim(
     p_operation_id, v_fp, p_actor_admin_id, 'reject_referral',
     v_ref.referrer_user_id, p_referral_id::text, v_reason,
@@ -3179,7 +3436,7 @@ DECLARE
   v_ref      public.referrals%ROWTYPE;
   v_rowcount INTEGER;
 BEGIN
-  perform account_fence.admit_many(array[p_actor_admin_id] || account_fence.referral_owners(p_referral_id));  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF p_referral_id IS NULL THEN
     RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
   END IF;
@@ -3196,7 +3453,6 @@ BEGIN
     RAISE EXCEPTION 'referral_not_found' USING ERRCODE = 'data_exception';
   END IF;
 
-  perform account_fence.assert_gated(array[p_actor_admin_id, v_ref.referrer_user_id, v_ref.referred_user_id]);  -- [fence]
   v_claim := public.referral_admin_claim(
     p_operation_id, v_fp, p_actor_admin_id, 'reverse_referral',
     v_ref.referrer_user_id, p_referral_id::text, v_reason,
@@ -3252,7 +3508,7 @@ DECLARE
   v_prog   public.referral_reward_progress%ROWTYPE;
   v_rule   public.referral_reward_rules%ROWTYPE;
 BEGIN
-  perform account_fence.admit_many(array[p_actor_admin_id, p_referrer_user_id]);  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF p_referrer_user_id IS NULL OR p_qualified_in_cycle IS NULL THEN
     RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
   END IF;
@@ -3349,7 +3605,7 @@ DECLARE
   v_attempt INTEGER := 0;
   v_current TEXT;
 BEGIN
-  perform account_fence.admit_many(array[p_actor_admin_id, p_user_id]);  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF p_user_id IS NULL THEN
     RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
   END IF;
@@ -3445,7 +3701,7 @@ DECLARE
   v_version INTEGER;
   v_new_id  UUID;
 BEGIN
-  perform account_fence.admit(p_actor_admin_id);  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF p_reward_type IS NULL OR p_required_referrals IS NULL OR p_reward_days IS NULL
      OR p_repeatable IS NULL THEN
     RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
@@ -3538,7 +3794,7 @@ DECLARE
   v_claim  jsonb;
   v_prev   public.referral_reward_rules%ROWTYPE;
 BEGIN
-  perform account_fence.admit(p_actor_admin_id);  -- [fence]
+  raise exception 'feature_retired' using errcode = 'QD040';  -- [fence] D6: referral/entitlement protocol retired (QD040)
   IF p_reward_type IS NULL THEN
     RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
   END IF;
@@ -4725,6 +4981,84 @@ as $$
     from account_fence.deletion_scope s where s.scope_key = p_scope_key
 $$;
 
+-- Challenge issuance (contract section 1, D7). Serialises with acceptance on the same account gate, so the
+-- 3-open-challenge limit cannot be raced past. The raw nonce exists only in this function's return value; the table
+-- keeps nonce_hash = lower-hex sha256(nonce utf8). challenge_id and nonce are 32 CSPRNG bytes each, base64url
+-- (no padding, 43 chars). Order of refusals: gone (QD002) -> admin (QD031) -> pending job (already_pending) -> rate (QD032).
+create function public.account_deletion_issue_challenge(p_uid uuid)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  v_id    text;
+  v_nonce text;
+  v_exp   timestamptz;
+  v_n     integer;
+begin
+  if p_uid is null then
+    raise exception 'invalid_uid' using errcode = '22023';
+  end if;
+  if pg_catalog.current_setting('transaction_isolation') <> 'read committed' then
+    raise exception 'account_fence_isolation_unsupported' using errcode = '0A000';
+  end if;
+  perform pg_catalog.set_config('lock_timeout', '5s', true);
+  perform pg_catalog.pg_advisory_xact_lock(account_fence.gate_key(p_uid));   -- lock_timeout -> 55P03
+
+  if not exists (select 1 from auth.users u where u.id = p_uid) then
+    perform account_fence.deny('gone');
+  end if;
+  if exists (select 1 from public.admin_users a where a.id = p_uid) then
+    perform account_fence.deny('admin');
+  end if;
+  if exists (select 1 from account_fence.deletion_job j where j.uid = p_uid and j.state <> 'completed') then
+    -- A job is already accepted: the client must use `status`, not mint another challenge.
+    return pg_catalog.jsonb_build_object('outcome', 'already_pending');
+  end if;
+  select pg_catalog.count(*) into v_n from account_fence.deletion_challenge c
+   where c.uid = p_uid and c.consumed_at is null and c.expires_at > pg_catalog.clock_timestamp();
+  if v_n >= 3 then
+    perform account_fence.deny('challenge_rate');
+  end if;
+
+  v_id    := pg_catalog.rtrim(pg_catalog.translate(pg_catalog.encode(extensions.gen_random_bytes(32), 'base64'), E'+/\n', '-_'), '=');
+  v_nonce := pg_catalog.rtrim(pg_catalog.translate(pg_catalog.encode(extensions.gen_random_bytes(32), 'base64'), E'+/\n', '-_'), '=');
+  v_exp   := pg_catalog.clock_timestamp() + interval '5 minutes';
+  insert into account_fence.deletion_challenge (challenge_id, uid, nonce_hash, expires_at)
+  values (v_id, p_uid, pg_catalog.encode(pg_catalog.sha256(pg_catalog.convert_to(v_nonce, 'UTF8')), 'hex'), v_exp);
+  return pg_catalog.jsonb_build_object(
+    'outcome', 'issued', 'challenge_id', v_id, 'nonce', v_nonce,
+    'expires_at_ms', pg_catalog.floor(pg_catalog.extract(epoch from v_exp) * 1000)::bigint);
+end;
+$$;
+
+-- Read-only view of one challenge for the Edge Apple verification (contract section 4). Consumption stays inside
+-- account_deletion_accept. Returns SQL NULL when no row exists for (uid, id); a challenge of another uid is
+-- indistinguishable from an unknown one. When found: exactly nonce_hash, expires_at_ms (number), consumed (boolean). The hash is not secret
+-- (Apple echoes it in the identity token); the raw nonce is not stored anywhere.
+create function public.account_deletion_read_challenge(p_uid uuid, p_challenge_id text)
+returns jsonb
+language sql stable security definer
+set search_path = pg_catalog, pg_temp
+as $$
+  select pg_catalog.jsonb_build_object(
+      'nonce_hash', c.nonce_hash,
+      'expires_at_ms', pg_catalog.floor(pg_catalog.extract(epoch from c.expires_at) * 1000)::bigint,
+      'consumed', c.consumed_at is not null)
+    from account_fence.deletion_challenge c
+   where c.challenge_id = p_challenge_id and c.uid = p_uid
+$$;
+
+-- The Apple `sub` bound to the Auth user (contract section 4). Never matched by email. NULL when there is no Apple identity.
+create function public.account_deletion_apple_subject(p_uid uuid)
+returns text
+language sql stable security definer
+set search_path = pg_catalog, pg_temp
+as $$
+  select coalesce(nullif(i.provider_id, ''), i.identity_data ->> 'sub')
+    from auth.identities i where i.user_id = p_uid and i.provider = 'apple' limit 1
+$$;
+
 -- Acceptance: attempt -> account gate -> EXISTING job FOR UPDATE -> challenge FOR UPDATE -> FK inserts.
 -- Completion takes job -> challenges too. For a new acceptance, challenge -> INSERT new job cannot wait
 -- on a pre-existing holder of that new row. Every challenge is revalidated after its row lock is acquired.
@@ -4762,6 +5096,10 @@ begin
 
   if not exists (select 1 from auth.users u where u.id = p_uid) then
     perform account_fence.deny('gone');
+  end if;
+  -- D7: an admin account is never accepted (QD031, before any insert); admin rights must be removed first.
+  if exists (select 1 from public.admin_users a where a.id = p_uid) then
+    perform account_fence.deny('admin');
   end if;
 
   -- Existing-job order matches completion: job row BEFORE challenge. Re-read under lock.
@@ -4955,9 +5293,17 @@ begin
   return pg_catalog.jsonb_build_object('ok', true);
 end; $$;
 
+-- D5: the anonymous completion marker (uid nulled; job, scope, receipt remain) is kept AT MOST 14 days. The coordinator
+-- still passes p_receipt_retention_ms (its default is 30 days): a SHORTER request is honoured (retained_until = completed_at
+-- + request, floor 0), a longer or NULL request is capped at / defaults to 14 days. account_fence.purge_expired_deletion_records
+-- physically deletes the marker once completed_at + 14 days has passed, whatever retained_until says.
 create function public.account_deletion_complete_job(p_job_id uuid, p_lease_token uuid, p_generation integer, p_receipt_retention_ms bigint)
 returns jsonb language plpgsql volatile security definer set search_path = pg_catalog, pg_temp as $$
-declare j account_fence.deletion_job;
+declare
+  j account_fence.deletion_job;
+  v_now timestamptz;
+  v_max_ms constant bigint := 14::bigint * 24 * 3600 * 1000;   -- D5 cap
+  v_ms bigint;
 begin
   j := account_fence.lease_job(p_job_id, p_lease_token, p_generation);
   if j.job_id is null then return pg_catalog.jsonb_build_object('ok', false, 'reason', 'lease_lost'); end if;
@@ -4966,9 +5312,11 @@ begin
   end if;
   delete from account_fence.deletion_challenge where uid = j.uid;
   delete from account_fence.deletion_workset where job_id = j.job_id;     -- install hashes are identifiers
+  v_now := pg_catalog.clock_timestamp();
+  v_ms  := least(greatest(coalesce(p_receipt_retention_ms, v_max_ms), 0), v_max_ms);
   update account_fence.deletion_job
-     set state = 'completed', uid = null, completed_at = pg_catalog.clock_timestamp(),
-         retained_until = pg_catalog.clock_timestamp() + pg_catalog.make_interval(secs => p_receipt_retention_ms / 1000.0),
+     set state = 'completed', uid = null, completed_at = v_now,
+         retained_until = v_now + pg_catalog.make_interval(secs => v_ms / 1000.0),
          lease_token = null, lease_expires_at = null, current_step = null
    where job_id = j.job_id;
   return pg_catalog.jsonb_build_object('ok', true);
@@ -4986,6 +5334,77 @@ returns jsonb language sql stable security definer set search_path = pg_catalog,
   end
   from account_fence.deletion_receipt r join account_fence.deletion_job j on j.job_id = r.job_id
   where r.receipt_hash = p_receipt_hash
+$$;
+
+-- D5 retention purge (contract section 9). NOT an API entry point: owned by the narrow owner, EXECUTE only for the
+-- migration role (pg_cron runs as the scheduling role). Physically deletes, bounded per run by p_limit (default 500,
+-- clamped to 1..5000) and idempotent:
+--   * COMPLETED jobs with completed_at < now() - 14 days, children first (workset, material, scope, receipt), then the job;
+--     a nonterminal job is NEVER purged by age (it escalates through last_code);
+--   * orphan material (job_id null): an expired still-reserved row is first emptied (state disposed, ciphertext null),
+--     then disposed orphans older than 14 days are deleted;
+--   * attempt tombstones older than 14 days;
+--   * challenges that expired more than 1 day ago.
+-- Job rows are taken FOR UPDATE SKIP LOCKED so a concurrent writer of the same row is skipped, not waited for.
+create function account_fence.purge_expired_deletion_records(p_limit integer default 500)
+returns jsonb
+language plpgsql volatile security definer
+set search_path = pg_catalog, pg_temp
+as $$
+declare
+  v_limit integer := least(greatest(coalesce(p_limit, 500), 1), 5000);
+  v_now   timestamptz := pg_catalog.clock_timestamp();
+  v_cut   timestamptz;
+  v_jobs  uuid[];
+  n_work  integer := 0; n_mat integer := 0; n_scope integer := 0; n_rcpt integer := 0;
+  n_job   integer := 0; n_omat integer := 0; n_tomb integer := 0; n_chal integer := 0;
+begin
+  perform pg_catalog.set_config('lock_timeout', '5s', true);
+  v_cut := v_now - interval '14 days';
+
+  select pg_catalog.array_agg(x.job_id) into v_jobs from (
+    select j.job_id from account_fence.deletion_job j
+     where j.state = 'completed' and j.completed_at < v_cut
+     order by j.completed_at limit v_limit
+       for update skip locked) x;
+  if v_jobs is not null then
+    delete from account_fence.deletion_workset where job_id = any(v_jobs);
+    get diagnostics n_work = row_count;
+    delete from account_fence.deletion_material where job_id = any(v_jobs);
+    get diagnostics n_mat = row_count;
+    delete from account_fence.deletion_scope where job_id = any(v_jobs);
+    get diagnostics n_scope = row_count;
+    delete from account_fence.deletion_receipt where job_id = any(v_jobs);
+    get diagnostics n_rcpt = row_count;
+    delete from account_fence.deletion_job where job_id = any(v_jobs) and state = 'completed';
+    get diagnostics n_job = row_count;
+  end if;
+
+  update account_fence.deletion_material
+     set state = 'disposed', ciphertext = null
+   where ref in (select m.ref from account_fence.deletion_material m
+                  where m.job_id is null and m.state = 'reserved' and m.expires_at < v_now
+                  order by m.expires_at limit v_limit);
+  delete from account_fence.deletion_material
+   where ref in (select m.ref from account_fence.deletion_material m
+                  where m.job_id is null and m.state = 'disposed' and m.reserved_at < v_cut
+                  order by m.reserved_at limit v_limit);
+  get diagnostics n_omat = row_count;
+
+  delete from account_fence.deletion_attempt_tombstone
+   where attempt_id in (select t.attempt_id from account_fence.deletion_attempt_tombstone t
+                         where t.created_at < v_cut order by t.created_at limit v_limit);
+  get diagnostics n_tomb = row_count;
+
+  delete from account_fence.deletion_challenge
+   where challenge_id in (select c.challenge_id from account_fence.deletion_challenge c
+                           where c.expires_at < v_now - interval '1 day' order by c.expires_at limit v_limit);
+  get diagnostics n_chal = row_count;
+
+  return pg_catalog.jsonb_build_object(
+    'jobs', n_job, 'scopes', n_scope, 'receipts', n_rcpt, 'worksets', n_work, 'job_material', n_mat,
+    'orphan_material', n_omat, 'tombstones', n_tomb, 'challenges', n_chal);
+end;
 $$;
 
 -- ════════════════════════════════════════════════════════════════════════════
@@ -5607,6 +6026,7 @@ revoke all on function account_fence.lease_job(uuid, uuid, integer) from public,
 revoke all on function account_fence.erase_user_data(uuid, uuid) from public, anon, authenticated, service_role;
 revoke all on function account_fence.erase_verify(uuid) from public, anon, authenticated, service_role;
 revoke all on function account_fence.audit_redaction_ok(jsonb, jsonb) from public, anon, authenticated, service_role;
+revoke all on function account_fence.purge_expired_deletion_records(integer) from public, anon, authenticated, service_role;
 revoke all on function account_fence.profiles_protect_legacy_schedule() from public, anon, authenticated, service_role;
 revoke all on function account_fence.legacy_queue_guard() from public, anon, authenticated, service_role;
 grant execute on function account_fence.is_pending(uuid) to postgres;
@@ -5624,12 +6044,16 @@ grant execute on function account_fence.referral_owners(uuid) to postgres;
 grant execute on function account_fence.referral_owners_for_referred(uuid) to postgres;
 grant execute on function account_fence.assert_unlink_allowed(text) to postgres;
 grant execute on function account_fence.audit_redaction_ok(jsonb, jsonb) to postgres;
+grant execute on function account_fence.purge_expired_deletion_records(integer) to postgres;   -- pg_cron runs as the migration role
 
 revoke all on function
   public.account_deletion_reserve_material(text, text),
   public.account_deletion_dispose_material(text),
   public.account_deletion_read_material(text),
   public.account_deletion_find_accepted(text),
+  public.account_deletion_issue_challenge(uuid),
+  public.account_deletion_read_challenge(uuid, text),
+  public.account_deletion_apple_subject(uuid),
   public.account_deletion_accept(text, uuid, text, bigint, text, text, text),
   public.account_deletion_fence_attempt(text),
   public.account_deletion_claim_lease(text, integer, uuid),
@@ -5646,6 +6070,9 @@ grant execute on function
   public.account_deletion_dispose_material(text),
   public.account_deletion_read_material(text),
   public.account_deletion_find_accepted(text),
+  public.account_deletion_issue_challenge(uuid),
+  public.account_deletion_read_challenge(uuid, text),
+  public.account_deletion_apple_subject(uuid),
   public.account_deletion_accept(text, uuid, text, bigint, text, text, text),
   public.account_deletion_fence_attempt(text),
   public.account_deletion_claim_lease(text, integer, uuid),
@@ -5721,10 +6148,14 @@ alter function account_fence.erase_verify(uuid) owner to account_fence_owner;
 alter function account_fence.audit_redaction_ok(jsonb, jsonb) owner to account_fence_owner;
 alter function account_fence.profiles_protect_legacy_schedule() owner to account_fence_owner;
 alter function account_fence.legacy_queue_guard() owner to account_fence_owner;
+alter function account_fence.purge_expired_deletion_records(integer) owner to account_fence_owner;
 alter function public.account_deletion_reserve_material(text, text) owner to account_fence_owner;
 alter function public.account_deletion_dispose_material(text) owner to account_fence_owner;
 alter function public.account_deletion_read_material(text) owner to account_fence_owner;
 alter function public.account_deletion_find_accepted(text) owner to account_fence_owner;
+alter function public.account_deletion_issue_challenge(uuid) owner to account_fence_owner;
+alter function public.account_deletion_read_challenge(uuid, text) owner to account_fence_owner;
+alter function public.account_deletion_apple_subject(uuid) owner to account_fence_owner;
 alter function public.account_deletion_accept(text, uuid, text, bigint, text, text, text) owner to account_fence_owner;
 alter function public.account_deletion_fence_attempt(text) owner to account_fence_owner;
 alter function public.account_deletion_claim_lease(text, integer, uuid) owner to account_fence_owner;
@@ -5874,5 +6305,63 @@ begin
 end
 $assert$;
 
-commit;
+-- ════════════════════════════════════════════════════════════════════════════
+-- 11. Scheduling (D5 purge, contract section 8 worker). Guarded: nothing is scheduled when pg_cron is absent.
+-- ════════════════════════════════════════════════════════════════════════════
+-- Worker dispatcher: the 0098 run_cron_daily_reminders pattern exactly (vault `project_url` + a dedicated vault worker
+-- secret, fail closed with a LOG line when either is missing, net.http_post with a Bearer header). OWNER ACTION (NOT
+-- performed here): set the Edge secret ACCOUNT_DELETION_WORKER_SECRET and store the SAME value in Vault as
+-- 'account_deletion_worker_secret'; until then every tick is a logged skip. Owned by the migration role (vault access);
+-- nothing but pg_cron (running as that role) needs EXECUTE, so every API role is revoked and none is granted.
+create function public.run_account_deletion_worker()
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  project_url   text;
+  worker_secret text;
+begin
+  select decrypted_secret into project_url
+    from vault.decrypted_secrets where name = 'project_url' limit 1;
+  select decrypted_secret into worker_secret
+    from vault.decrypted_secrets where name = 'account_deletion_worker_secret' limit 1;
 
+  if project_url is null or worker_secret is null then
+    raise log 'account_deletion_worker skipped: worker secret not configured';
+    return;
+  end if;
+
+  perform net.http_post(
+    url := project_url || '/functions/v1/account-deletion-worker',
+    headers := jsonb_build_object(
+      'Content-Type', 'application/json',
+      'Authorization', 'Bearer ' || worker_secret
+    ),
+    body := '{}'::jsonb
+  );
+end;
+$$;
+revoke all on function public.run_account_deletion_worker() from public, anon, authenticated, service_role;
+do $assert$
+begin
+  if has_function_privilege('anon', 'public.run_account_deletion_worker()', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.run_account_deletion_worker()', 'EXECUTE')
+     or has_function_privilege('service_role', 'public.run_account_deletion_worker()', 'EXECUTE') then
+    raise exception 'assert: run_account_deletion_worker is executable by an API role' using errcode = 'QD093';
+  end if;
+end
+$assert$;
+
+-- cron.schedule upserts by job name (0065/0112 convention), so re-running is safe. rollback.sql unschedules both names.
+do $cron$
+begin
+  if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') then
+    perform cron.schedule('account-deletion-worker', '*/5 * * * *', $job$select public.run_account_deletion_worker()$job$);
+    perform cron.schedule('account-deletion-purge-expired', '17 3 * * *', $job$select account_fence.purge_expired_deletion_records()$job$);
+  end if;
+end
+$cron$;
+
+commit;

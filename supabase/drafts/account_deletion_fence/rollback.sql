@@ -194,6 +194,7 @@ drop policy account_fence_discovery on public.processed_captures;
 drop policy account_fence_discovery on public.capture_install_owner_history;
 drop policy account_fence_discovery on public.referrals;
 drop policy account_fence_discovery on public.referral_codes;
+drop policy account_fence_discovery on public.admin_users;
 drop policy account_fence_discovery on public.notification_retry_queue;
 drop policy account_fence_discovery on public.capture_fingerprints;
 
@@ -1112,6 +1113,218 @@ BEGIN
     'entitlement_status',  coalesce(v_ent.status, 'none'),
     'entitlement_ends_at', v_ent.ends_at,
     'server_now',          now());
+END $$;
+
+-- 0083_referral_rewards.sql:462-503
+CREATE OR REPLACE FUNCTION public.ensure_referral_code(p_user_id UUID)
+RETURNS TEXT
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_code     TEXT;
+  v_existing TEXT;
+  attempt    INTEGER := 0;
+BEGIN
+  SELECT code INTO v_existing FROM public.referral_codes
+   WHERE user_id = p_user_id AND status = 'active';
+  IF v_existing IS NOT NULL THEN
+    RETURN v_existing;
+  END IF;
+
+  -- Bounded collision retry; never degrade to predictable data.
+  WHILE attempt < 5 LOOP
+    attempt := attempt + 1;
+    v_code := public.generate_referral_code();
+    BEGIN
+      -- Conflict target is the PARTIAL index: a concurrent creator for the
+      -- same user loses harmlessly, and rotation history never blocks this.
+      INSERT INTO public.referral_codes (user_id, code)
+      VALUES (p_user_id, v_code)
+      ON CONFLICT (user_id) WHERE status = 'active' DO NOTHING;
+
+      SELECT code INTO v_existing FROM public.referral_codes
+       WHERE user_id = p_user_id AND status = 'active';
+      IF v_existing IS NOT NULL THEN
+        RETURN v_existing;   -- ours, or a concurrent winner's — both canonical
+      END IF;
+    EXCEPTION WHEN unique_violation THEN
+      NULL; -- code collision: draw again
+    END;
+  END LOOP;
+
+  RAISE EXCEPTION 'referral_code_generation_failed'
+    USING ERRCODE = 'data_exception';
+END $$;
+
+-- 0085_concurrency_absent_row_locking.sql:58-223
+CREATE OR REPLACE FUNCTION public.apply_entitlement_mutation(
+  p_operation_id     TEXT,
+  p_user_id          UUID,
+  p_entitlement_type TEXT,
+  p_event_type       TEXT,
+  p_source           TEXT,
+  p_duration_days    INTEGER DEFAULT NULL,
+  p_source_reference TEXT    DEFAULT NULL,
+  p_rule_id          UUID    DEFAULT NULL,
+  p_rule_version     INTEGER DEFAULT NULL,
+  p_cycle_index      INTEGER DEFAULT NULL,
+  p_actor_admin_id   UUID    DEFAULT NULL,
+  p_reason           TEXT    DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+VOLATILE
+SECURITY DEFINER
+SET search_path = pg_catalog, public, pg_temp
+AS $$
+DECLARE
+  v_fingerprint TEXT;
+  v_existing    public.entitlement_events%ROWTYPE;
+  v_prev        public.user_entitlement_state%ROWTYPE;
+  v_new_ends    TIMESTAMPTZ;
+  v_new_status  TEXT;
+  v_event_id    UUID;
+  v_rowcount    INTEGER;
+BEGIN
+  -- Audit H-10 (Batch 13): serialize competing writers on the entitlement
+  -- authority key. SELECT ... FOR UPDATE below locks nothing when the state row
+  -- does not exist yet, so two concurrent FIRST grants both read an empty
+  -- previous state, both compute now()+duration, and the second ON CONFLICT
+  -- overwrites the first's ends_at with its own stale precomputed value — the
+  -- two grants collapse into one duration. A transaction advisory lock is
+  -- deterministic on the authority key, needs no existing row, and releases at
+  -- commit/rollback; the loser then re-reads the winner's committed state and
+  -- extends additively. Acquired FIRST (one lock per call) so ordering is
+  -- uniform and no deadlock cycle is possible.
+  PERFORM pg_advisory_xact_lock(
+    hashtextextended('mali_entitlement:' || p_user_id::text || ':' ||
+      coalesce(p_entitlement_type, ''), 0));
+  IF p_operation_id IS NULL OR p_user_id IS NULL THEN
+    RAISE EXCEPTION 'missing_operation_arguments' USING ERRCODE = 'data_exception';
+  END IF;
+
+  -- CANONICAL REQUESTED INTENT, hashed with SHA-256.
+  --
+  -- Delimiter-joined concatenation was replaced because it is ambiguous: with a
+  -- '|' separator the fields ('a|b', 'c') and ('a', 'b|c') produce an identical
+  -- string, so two different operations could collide onto one fingerprint.
+  -- jsonb is unambiguous AND canonically ordered by Postgres, so a harmless
+  -- change in key order cannot change the hash.
+  --
+  -- This describes the REQUEST, never the outcome: resulting_ends_at and
+  -- resulting_status are deliberately excluded because they depend on current
+  -- state, and the same request must fingerprint identically whenever it is
+  -- replayed.
+  v_fingerprint := encode(
+    extensions.digest(
+      convert_to(
+        jsonb_build_object(
+          'actor',            coalesce(lower(p_actor_admin_id::text), 'system'),
+          'target_user',      lower(p_user_id::text),
+          'entitlement_type', lower(p_entitlement_type),
+          'event_type',       lower(p_event_type),
+          'source',           lower(p_source),
+          'duration_days',    p_duration_days,
+          'source_reference', p_source_reference,
+          'rule_id',          lower(p_rule_id::text),
+          'rule_version',     p_rule_version,
+          'cycle_index',      p_cycle_index,
+          -- Reason is part of an Admin operation's intent, so a materially
+          -- different reason is a different operation. Normalized (trimmed,
+          -- internal whitespace collapsed) so cosmetic edits do not diverge.
+          'reason',           nullif(btrim(regexp_replace(coalesce(p_reason, ''), '\s+', ' ', 'g')), '')
+        )::text,
+        'UTF8'),
+      'sha256'),
+    'hex');
+
+  SELECT * INTO v_existing
+    FROM public.entitlement_events WHERE operation_id = p_operation_id;
+
+  IF FOUND THEN
+    IF v_existing.operation_fingerprint <> v_fingerprint THEN
+      -- Same key, different intent: refuse rather than return a stranger's result.
+      RAISE EXCEPTION 'idempotency_mismatch' USING ERRCODE = 'data_exception';
+    END IF;
+    RETURN jsonb_build_object(
+      'applied', false, 'duplicate', true,
+      'event_id', v_existing.id,
+      'ends_at', v_existing.resulting_ends_at,
+      'status',  v_existing.resulting_status);
+  END IF;
+
+  -- Lock/read the current state (may not exist).
+  SELECT * INTO v_prev
+    FROM public.user_entitlement_state
+   WHERE user_id = p_user_id AND entitlement_type = p_entitlement_type
+     FOR UPDATE;
+
+  IF p_event_type IN ('grant', 'extend') THEN
+    IF p_duration_days IS NULL OR p_duration_days <= 0 THEN
+      RAISE EXCEPTION 'invalid_duration' USING ERRCODE = 'data_exception';
+    END IF;
+    -- base = greatest(now, current ends_at when the row is still active);
+    -- a revoked or expired entitlement restarts from now. Never shortens.
+    v_new_ends := greatest(
+        now(),
+        CASE WHEN v_prev.user_id IS NOT NULL AND v_prev.status = 'active'
+             THEN v_prev.ends_at ELSE now() END)
+      + make_interval(days => p_duration_days);
+    v_new_status := 'active';
+  ELSIF p_event_type = 'revoke' THEN
+    v_new_ends   := least(coalesce(v_prev.ends_at, now()), now());
+    v_new_status := 'revoked';
+  ELSIF p_event_type = 'shorten' THEN
+    IF p_duration_days IS NULL OR p_duration_days <= 0 THEN
+      RAISE EXCEPTION 'invalid_duration' USING ERRCODE = 'data_exception';
+    END IF;
+    v_new_ends   := greatest(now(),
+                     coalesce(v_prev.ends_at, now()) - make_interval(days => p_duration_days));
+    v_new_status := coalesce(v_prev.status, 'active');
+  ELSE
+    RAISE EXCEPTION 'invalid_event_type' USING ERRCODE = 'data_exception';
+  END IF;
+
+  -- Claim the operation. UNIQUE(operation_id) serializes concurrent replays:
+  -- the loser blocks here, then sees the committed row on retry.
+  INSERT INTO public.entitlement_events (
+    operation_id, operation_fingerprint, user_id, entitlement_type, event_type,
+    source, source_reference, duration_days_applied,
+    previous_status, previous_ends_at, resulting_status, resulting_ends_at,
+    rule_id, rule_version, cycle_index, actor_admin_id, reason)
+  VALUES (
+    p_operation_id, v_fingerprint, p_user_id, p_entitlement_type, p_event_type,
+    p_source, p_source_reference, p_duration_days,
+    v_prev.status, v_prev.ends_at, v_new_status, v_new_ends,
+    p_rule_id, p_rule_version, p_cycle_index, p_actor_admin_id, p_reason)
+  ON CONFLICT (operation_id) DO NOTHING
+  RETURNING id INTO v_event_id;
+
+  GET DIAGNOSTICS v_rowcount = ROW_COUNT;
+  IF v_rowcount = 0 THEN
+    SELECT * INTO v_existing
+      FROM public.entitlement_events WHERE operation_id = p_operation_id;
+    IF v_existing.operation_fingerprint <> v_fingerprint THEN
+      RAISE EXCEPTION 'idempotency_mismatch' USING ERRCODE = 'data_exception';
+    END IF;
+    RETURN jsonb_build_object(
+      'applied', false, 'duplicate', true, 'event_id', v_existing.id,
+      'ends_at', v_existing.resulting_ends_at, 'status', v_existing.resulting_status);
+  END IF;
+
+  -- Same transaction as the event: state and history can never diverge.
+  INSERT INTO public.user_entitlement_state
+         (user_id, entitlement_type, status, starts_at, ends_at)
+  VALUES (p_user_id, p_entitlement_type, v_new_status, now(), v_new_ends)
+  ON CONFLICT (user_id, entitlement_type) DO UPDATE
+     SET status = EXCLUDED.status, ends_at = EXCLUDED.ends_at;
+
+  RETURN jsonb_build_object(
+    'applied', true, 'duplicate', false, 'event_id', v_event_id,
+    'ends_at', v_new_ends, 'status', v_new_status);
 END $$;
 
 -- 0083_referral_rewards.sql:833-886
@@ -3142,17 +3355,40 @@ begin
 end
 $acl$;
 
--- Column-level and non-public grants made to the narrow owner are removed with DROP OWNED below.
+-- Column-level and non-public grants made to the narrow owner are removed with DROP OWNED below. This includes the
+-- 2026-10-24 additions: SELECT (user_id, provider, provider_id, identity_data) on auth.identities, USAGE on schema
+-- extensions and EXECUTE on extensions.gen_random_bytes(integer); their ACLs are compared with the snapshot in section 6.
 -- auth.users(id), schema auth and auth.uid() privileges granted to account_fence_owner, and the transient
 -- CREATE on public, are covered by that DROP OWNED (they are grants TO the role); section 6 compares the
 -- remaining ACLs of those objects with the snapshot.
 
 -- 5. Fence entry points, schema, role.
 
+-- D5/contract section 8: remove the two pg_cron jobs and the worker dispatcher added by fence.sql section 11.
+-- Guarded like the schedule itself: nothing happens without pg_cron, and an absent job name is not an error
+-- (cron.unschedule raises for an unknown job, so existence is tested first; 0112 convention).
+-- account_fence.purge_expired_deletion_records dies with the schema in the DROP OWNED below.
+do $cron$
+begin
+  if exists (select 1 from pg_catalog.pg_extension where extname = 'pg_cron') then
+    if exists (select 1 from cron.job where jobname = 'account-deletion-worker') then
+      perform cron.unschedule('account-deletion-worker');
+    end if;
+    if exists (select 1 from cron.job where jobname = 'account-deletion-purge-expired') then
+      perform cron.unschedule('account-deletion-purge-expired');
+    end if;
+  end if;
+end
+$cron$;
+drop function public.run_account_deletion_worker();
+
 drop function public.account_deletion_reserve_material(text, text);
 drop function public.account_deletion_dispose_material(text);
 drop function public.account_deletion_read_material(text);
 drop function public.account_deletion_find_accepted(text);
+drop function public.account_deletion_issue_challenge(uuid);
+drop function public.account_deletion_read_challenge(uuid, text);
+drop function public.account_deletion_apple_subject(uuid);
 drop function public.account_deletion_accept(text, uuid, text, bigint, text, text, text);
 drop function public.account_deletion_fence_attempt(text);
 drop function public.account_deletion_claim_lease(text, integer, uuid);
@@ -3263,7 +3499,7 @@ begin
     union all select 'trigger:' || tgname || ' on ' || tgrelid::regclass::text from pg_trigger where not tgisinternal and tgname like 'a0\_%'
     union all select 'schema:account_fence' where to_regnamespace('account_fence') is not null
     union all select 'role:account_fence_owner' where exists (select 1 from pg_roles where rolname = 'account_fence_owner')
-    union all select 'function:' || p.oid::regprocedure::text from pg_proc p where p.pronamespace = 'public'::regnamespace and p.proname like 'account\_deletion\_%'
+    union all select 'function:' || p.oid::regprocedure::text from pg_proc p where p.pronamespace = 'public'::regnamespace and (p.proname like 'account\_deletion\_%' or p.proname = 'run_account_deletion_worker')
   ) x;
   if v is not null then raise exception 'rollback post-condition failed (residue): %', v using errcode = 'QD098'; end if;
 end

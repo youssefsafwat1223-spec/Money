@@ -245,6 +245,48 @@ not proof that queued or running work was cancelled; withdrawal cannot reverse c
 mechanics, rollout and recovery need their own reviewed implementation and separately authorized adoption. No server or real
 data change is authorized by this draft-only decision.
 
+## D4–D7 — OWNER-APPROVED 2026-10-24 (completion contract; implementation unparsed and unexecuted)
+
+Source of truth: `/Users/luciq/Documents/Codex/beta1-claude-p1/claude-takeover-20261024/DELETION-COMPLETION-CONTRACT.md`
+(owner answers given in the Claude session on 2026-10-24; Beta 1 stays blocked on full immediate deletion, D1). This section
+records what the SQL draft does for them. It is **not** evidence of execution, and adoption/application still needs the
+separate owner approval of a disposable loopback-only stack. No server or real data change is authorized.
+
+- **D4 (OWNER-APPROVED 2026-10-24)** — Apple token encryption key: AES-256-GCM key in an Edge Function secret, ciphertext destroyed
+  after verified revocation or at the end of the retry window, no KMS. SQL support only: `deletion_challenge.nonce_hash`
+  (64 lower-hex), `account_deletion_issue_challenge`, `account_deletion_read_challenge`, `account_deletion_apple_subject`
+  (service role only; read_challenge returns NULL when absent and exactly `nonce_hash`, `expires_at_ms`, `consumed` when found; Apple `sub` from `auth.identities` `provider_id`, falling back to `identity_data->>'sub'`, never email). The
+  raw nonce is returned once and never stored. Challenge TTL 5 minutes; at most 3 open challenges per uid (`QD032`).
+  The expired-reserved-material sweep in the purge function destroys orphaned ciphertext whose job never committed.
+- **D5 (OWNER-APPROVED 2026-10-24)** — the anonymous post-deletion marker (job with uid nulled, scope, receipt, material metadata) is
+  kept 14 days after completion, then physically purged by a daily job. `account_deletion_complete_job` caps `retained_until` at
+  `completed_at + 14 days` (a shorter `p_receipt_retention_ms` is honoured, longer/NULL is capped/defaulted; the coordinator's
+  30-day default is therefore reduced). `account_fence.purge_expired_deletion_records(p_limit)` (bounded, idempotent, never touches
+  nonterminal jobs) also removes attempt tombstones older than 14 days and challenges expired more than 1 day ago. Scheduled by a
+  `pg_cron`-guarded `cron.schedule` (daily 03:17) and the `account-deletion-worker` Edge Function every 5 minutes through the
+  0098 vault + `net.http_post` pattern (new Vault secret `account_deletion_worker_secret`, an OWNER ACTION). Tombstone deletion
+  after 14 days re-opens the window in which a very late replay of a fenced attempt could be accepted; that is an accepted
+  consequence of D5, not a fence guarantee.
+- **D6 (OWNER-APPROVED 2026-10-24)** — the old referral/entitlement protocol is permanently retired; referrals return only through a
+  new, reviewed protocol. Every writer restated in section 5 now begins with `raise exception 'feature_retired' using errcode =
+  'QD040'` (no admission, lock or read first): `apply_referral_code`, `request_referral_qualification`,
+  `qualify_referral_internal`, `ensure_referral_code`, `apply_entitlement_mutation`, `admin_mutate_entitlement`,
+  `admin_reject_referral`, `admin_reverse_referral`, `admin_adjust_referral_progress`, `admin_rotate_referral_code`,
+  `admin_publish_reward_rule`, `admin_deactivate_reward_rule`. `get_referral_summary` stays a read path but no longer creates a
+  code (it reads the active one; null when none). Existing entitlement rows are untouched; `get_entitlement_decision` and
+  feature-flag administration are unchanged. Not retired because they cannot be reached once the above refuse (internal, EXECUTE
+  revoked from every API role, no entitlement/claim write): `referral_admin_claim` (audit/idempotency row) and the pure
+  `generate_referral_code`. The erasure path (`purge_user_data`, `erase_user_data`) is not a referral protocol writer and is unchanged.
+- **D7 (OWNER-APPROVED 2026-10-24)** — admin self-deletion is blocked: a row in `public.admin_users` makes both the challenge issuer and
+  `account_deletion_accept` raise `QD031` (`admin_self_delete_blocked`) before any insert; admin rights must be removed first. Admin audit
+  history is untouched. Because the narrow owner's erasure policy on `admin_users` is false outside an erasure transaction, a new
+  READ-ONLY `account_fence_discovery` SELECT policy on `public.admin_users` (`using (true)`) is added; like the other discovery policies it is a
+  separate privilege that needs its own approval.
+
+New privileges this section adds for the narrow owner (all removed by rollback's `DROP OWNED`, with ACLs compared against the
+snapshot): column SELECT on `auth.identities (user_id, provider, provider_id, identity_data)`, USAGE on schema `extensions` and EXECUTE on
+`extensions.gen_random_bytes(integer)` (pgcrypto, as the existing migrations assume), and the `admin_users` SELECT policy above.
+
 ## Remaining owner decisions — no adoption chosen here
 
 E8: approve an exact disposable project/runtime, cached image IDs, versions, bootstrap/artifact hashes/order, verified-free

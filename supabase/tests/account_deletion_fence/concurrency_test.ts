@@ -116,7 +116,7 @@ const asUser = (uid: string) =>
 async function seedAcceptance(admin: Session, uid: string, tag: string) {
   const ref = `enc:${tag}-${crypto.randomUUID().replaceAll('-', '')}`;
   await admin.run(
-    `insert into account_fence.deletion_challenge(challenge_id, uid, expires_at) values ('ch-${tag}', '${uid}', now() + interval '10 min');` +
+    `insert into account_fence.deletion_challenge(challenge_id, uid, nonce_hash, expires_at) values ('ch-${tag}', '${uid}', encode(sha256(convert_to('n-${tag}', 'UTF8')), 'hex'), now() + interval '10 min');` +
       `select public.account_deletion_reserve_material('${ref}', 'sealed');`,
   );
   return {
