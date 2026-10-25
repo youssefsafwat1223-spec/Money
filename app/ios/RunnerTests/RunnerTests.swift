@@ -259,6 +259,104 @@ class RunnerTests: XCTestCase {
                    .record(.init(state: "DISABLING", transitionGeneration: 2, reservedVersion: 2)))
   }
 
+  // MARK: - Build-52 (81c59422) in-place upgrade state: native egress snapshot
+
+  /// Seeds exactly what build 52 persisted for a signed-in user: active owner
+  /// record + last-admitted hint (Keychain), HMAC key (Keychain), owner
+  /// generation / epoch counters and the consent mirror (App Group defaults),
+  /// and, when [egressOn], the LEGACY egress map (no lifecycle fields, no
+  /// retirement) identically in the Keychain item and the App Group file. No
+  /// pending-enable barrier, no lifetime fields. Returns the owner's hash.
+  @discardableResult
+  private func seedBuild52(
+    egressOn: Bool, epoch: Int = 0, signedOut: Bool = false, mirrorCloud: Bool = true
+  ) throws -> SharedCaptureStore.OwnerRecord {
+    resetSnapshotState()
+    let owner = try publish(ownerA, cloud: mirrorCloud)
+    if egressOn {
+      let data = try egressJSON([(ownerA, "ON", 1)])
+      try data.write(to: egressFileURL, options: .atomic)
+      XCTAssertEqual(SnapshotTestKeychain.writeData(data, forKey: "cloud_egress_state_v1"), errSecSuccess)
+    }
+    if signedOut {
+      try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    }
+    if epoch > 0 {
+      appGroupDefaults.set(epoch, forKey: "capture_owner_epoch_v1")
+    }
+    return owner
+  }
+
+  private func describe52(_ label: String, _ uid: String) -> String {
+    let state: String
+    do { state = "\(try SharedCaptureStore.cloudEgressState(forUid: uid))" }
+    catch { state = "THROWS \(error)" }
+    let pending: String
+    if uid.isEmpty { pending = "n/a (Dart passes non-empty only)" }
+    else if let p = try? SharedCaptureStore.cloudEgressPending(forUid: uid) {
+      pending = "status=\(p.status.rawValue) opId=\(p.operationId ?? "nil") barrier=\(p.barrier.map { $0.outcome }) egress=\(p.egress.map { $0.outcome })"
+    } else { pending = "THROWS" }
+    let line = "BUILD52 \(label) uid=\(uid.isEmpty ? "<empty>" : "owner") state=\(state) | pending: \(pending)"
+    print(line)
+    return state
+  }
+
+  func testBuild52UpgradeSignedInCloudOnLegacyOnRecord() throws {
+    defer { resetSnapshotState() }
+    for epoch in [0, 3] {
+      try seedBuild52(egressOn: true, epoch: epoch)
+      let own = describe52("signedIn+ON-legacy epoch=\(epoch)", ownerA)
+      let none = describe52("signedIn+ON-legacy epoch=\(epoch)", "")
+      XCTAssertEqual(try egressState(ownerA),
+                     .record(.init(state: "ON", transitionGeneration: 1, reservedVersion: 2)), own)
+      // An active owner makes the ownerless snapshot uncertain (by design).
+      XCTAssertEqual(try egressState(""), .uncertain, none)
+    }
+  }
+
+  func testBuild52UpgradeVariantA_OwnerPresentNoEgressMapsAtAll() throws {
+    defer { resetSnapshotState() }
+    try seedBuild52(egressOn: false)
+    let own = describe52("A owner,no egress maps", ownerA)
+    _ = describe52("A owner,no egress maps", "")
+    XCTAssertEqual(try egressState(ownerA), .unset, own)
+  }
+
+  func testBuild52UpgradeVariantB_NoActiveOwnerKeychainHintPresent() throws {
+    defer { resetSnapshotState() }
+    for withOn in [false, true] {
+      try seedBuild52(egressOn: withOn, signedOut: true)
+      XCTAssertEqual(SnapshotTestKeychain.read(forKey: "last_admitted_uid_hash_v1").status, errSecSuccess)
+      XCTAssertEqual(SnapshotTestKeychain.read(forKey: "active_capture_owner_v1").status, errSecItemNotFound)
+      let own = describe52("B signedOut,hint,ON=\(withOn)", ownerA)
+      let none = describe52("B signedOut,hint,ON=\(withOn)", "")
+      XCTAssertNotEqual(try egressState(ownerA), .uncertain, own)
+      XCTAssertNotEqual(try egressState(""), .uncertain, none)
+    }
+  }
+
+  func testBuild52UpgradeVariantC_ConsentMirrorWithoutLifecycleFields() throws {
+    defer { resetSnapshotState() }
+    // Mirror entries are {cloud, ai, version} only; the ON egress record has no
+    // lifetimeOwnerGeneration / lifetimeOwnerEpoch / retirement.
+    let owner = try seedBuild52(egressOn: true)
+    let raw = try Data(contentsOf: egressFileURL)
+    let json = try XCTUnwrap(String(data: raw, encoding: .utf8))
+    XCTAssertFalse(json.contains("lifetime"))
+    XCTAssertFalse(json.contains("retirement"))
+    let mirrors = try XCTUnwrap(appGroupDefaults.dictionary(forKey: "capture_consent_mirror_v1"))
+    XCTAssertEqual(Set((mirrors[owner.uidHash] as? [String: Any] ?? [:]).keys), ["cloud", "ai", "version"])
+    let own = describe52("C mirror-only+legacy ON", ownerA)
+    XCTAssertEqual(try egressState(ownerA),
+                   .record(.init(state: "ON", transitionGeneration: 1, reservedVersion: 2)), own)
+    // Signed-out after 52 sign-out (owner cleared, hint kept, ON kept).
+    try SharedCaptureStore.clearActiveOwner(clearHint: false)
+    _ = describe52("C after sign-out", ownerA)
+    _ = describe52("C after sign-out", "")
+    XCTAssertNotEqual(try egressState(ownerA), .uncertain)
+    XCTAssertEqual(try egressState(""), .ownerless(epoch: 1, generation: 1))
+  }
+
   func testShortcutPersistsBeforeNetworkAndUsesStablePayloadID() throws {
     let root = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()

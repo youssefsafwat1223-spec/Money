@@ -1612,7 +1612,7 @@ class CloudEgressGate {
     if (control == null ||
         !control.active ||
         !_resolved ||
-        ConsentAuthority.egressFrozen) {
+        (ConsentAuthority.egressFrozen && (await _owner(null)).isNotEmpty)) {
       return false;
     }
     final base = Uri.tryParse(_supabaseUrl());
@@ -1635,14 +1635,25 @@ class CloudEgressGate {
       if (!control.active) return 'grant_inactive';
       if (request == null) return 'grant_scope';
     }
-    if (ConsentAuthority.egressFrozen && !revoke) return 'frozen';
+    // A signed-out context (no owner) has no consent subject: an upgraded device
+    // can hold a surviving native active owner while Dart has none, which the
+    // ownerless native read reports as uncertain and freezes. Only the scoped
+    // account-control exchange (the allowlisted auth endpoints, which carry no
+    // user data) may pass that freeze or uncertainty, because it is the sole way
+    // to learn the owner. Signing in then re-runs the per-owner reconciliation,
+    // which keeps or lifts the freeze for the real uid. Ordinary egress is
+    // untouched.
+    final signedOutControl = control != null && owner.isEmpty;
+    if (ConsentAuthority.egressFrozen && !revoke && !signedOutControl) {
+      return 'frozen';
+    }
     // N2: an unconfirmed native lifecycle fence denies ordinary egress. The
     // account-control allowance (re-authentication) and the revoke are exempt.
     if (_lifecycleDenied && control == null && !revoke) {
       return 'lifecycle_fence';
     }
     final readout = await store.read(owner: owner);
-    if (readout.uncertain) return 'state_uncertain';
+    if (readout.uncertain && !signedOutControl) return 'state_uncertain';
     final rec = readout.records[owner];
     if (rec != null && rec.state == EgressState.disabling) {
       return revoke &&

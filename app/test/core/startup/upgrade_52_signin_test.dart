@@ -22,6 +22,7 @@ import 'package:money_companion/data/db/database_access_broker.dart';
 import 'package:money_companion/data/repositories/drift_user_settings_repository.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/data/db/replica_store.dart';
+import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
 import 'package:path/path.dart' as p;
 // ignore: depend_on_referenced_packages
@@ -301,6 +302,109 @@ void main() {
             r.url.path == '/auth/v1/token' &&
             r.url.queryParameters['grant_type'] == 'id_token'),
         hasLength(1));
+  });
+
+  test('upgrade 52 -> 54: signed-out Dart with a surviving native active owner '
+      'must still admit the Apple id_token exchange (no EgressDenied:frozen)',
+      () async {
+    const url = 'https://example.supabase.co';
+    const channel = MethodChannel('money_companion/native_capture');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    NativeCaptureBridge.debugTreatHostAsNative = true;
+    // Native still holds the build-52 active owner (Keychain), so the ownerless
+    // query is `uncertain`; the owner's own record is a clean ON.
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'getCloudEgressState') {
+        final owner = (call.arguments as Map)['ownerUid'] as String;
+        if (owner.isEmpty) return {'status': 'uncertain'};
+        return {
+          'status': 'record',
+          'state': 'ON',
+          'ownerUid': owner,
+          'transitionGeneration': 1,
+          'reservedVersion': 1,
+        };
+      }
+      return null;
+    });
+    addTearDown(() {
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      ConsentAuthority.egressFrozen = false;
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    ConsentAuthority.egressFrozen = false;
+    CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
+
+    final reached = <http.BaseRequest>[];
+    final live = SupabaseClient(url, 'synthetic-anon',
+        authOptions: const AuthClientOptions(autoRefreshToken: false),
+        httpClient: GatedHttpClient(MockClient((request) async {
+          reached.add(request);
+          return http.Response(
+              jsonEncode({
+                'access_token': _jwt(uid, 4102444800),
+                'token_type': 'bearer',
+                'expires_in': 3600,
+                'expires_at': 4102444800,
+                'refresh_token': 'r',
+                'user': {
+                  'id': uid,
+                  'aud': 'authenticated',
+                  'email': '$uid@example.com',
+                  'created_at': '2026-01-01T00:00:00Z',
+                  'app_metadata': <String, dynamic>{},
+                  'user_metadata': <String, dynamic>{},
+                },
+              }),
+              200,
+              headers: {'content-type': 'application/json'});
+        })));
+    clients.add(live);
+
+    // Dart side: no owner marker, no session (what the upgraded device shows).
+    await boot(absentClient());
+    final gate = CloudEgressGate.instance;
+
+    Object? failure;
+    try {
+      await gate.runAccountControl(
+          AccountControlOp.signIn,
+          () => live.auth.signInWithIdToken(
+              provider: OAuthProvider.apple,
+              idToken: 'apple-id-token',
+              nonce: 'raw-nonce'));
+    } catch (e) {
+      failure = e;
+    }
+    expect(failure, isNull,
+        reason: 'sign-in must not be refused before network: $failure');
+    expect(
+        reached.where((r) =>
+            r.method == 'POST' &&
+            r.url.path == '/auth/v1/token' &&
+            r.url.queryParameters['grant_type'] == 'id_token'),
+        hasLength(1));
+    // Privacy: ordinary egress stays denied while the state is uncertain.
+    await expectLater(
+        live.rest.from('transactions').select(),
+        throwsA(isA<EgressDeniedException>()));
+    expect(reached.where((r) => r.url.path.startsWith('/rest/')), isEmpty);
+
+    // Signing in names the owner: the per-owner reconciliation then judges the
+    // real uid's clean ON record and lifts the freeze (nothing before it did).
+    expect(ConsentAuthority.egressFrozen, isTrue);
+    final db = runners.last.accountScope.current!.database;
+    final repo = DriftUserSettingsRepository(db);
+    await repo.saveSettings((await repo.getSettings())
+        .copyWith(cloudConsentState: ConsentState.accepted));
+    await CaptureDeviceRegistrationService(
+      settingsRepository: repo,
+      gate: gate,
+      readReplicaOwnerUid: () async => uid,
+      readSession: () => null,
+    ).resolvePendingDisable();
+    expect(ConsentAuthority.egressFrozen, isFalse);
   });
 
   test('upgrade 52 -> 53 over the REAL Supabase.initialize wiring: the Apple '
