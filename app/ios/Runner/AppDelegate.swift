@@ -623,7 +623,8 @@ enum ApnsEnvironment {
             return ["status": "ownerless", "contractVersion": 1,
                     "ownerEpoch": epoch, "ownerGeneration": generation]
           case .uncertain:
-            return ["status": "uncertain"]
+            // `reason` is a diagnostic constant (no uid, hash or value).
+            return ["status": "uncertain", "reason": SharedCaptureStore.lastEgressUncertainReason]
           case let .record(record):
             return [
               "status": "record", "state": record.state, "ownerUid": ownerUid,

@@ -357,6 +357,44 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(try egressState(""), .ownerless(epoch: 1, generation: 1))
   }
 
+  /// Diagnostic only: the reason constant names the branch that produced
+  /// `.uncertain`, and the answer itself is unchanged.
+  func testEgressUncertainReasonNamesTheBranch() throws {
+    defer { resetSnapshotState() }
+    func diagnosed(_ uid: String) throws -> (SharedCaptureStore.EgressSnapshot, String) {
+      let snap = try egressState(uid)
+      return (snap, snap == .uncertain ? SharedCaptureStore.lastEgressUncertainReason : "")
+    }
+    // Clean build-52 state: no reason.
+    try seedBuild52(egressOn: true)
+    var r = try diagnosed(ownerA)
+    XCTAssertEqual(r.1, "")
+    // Ownerless read with an active owner present.
+    r = try diagnosed("")
+    XCTAssertEqual(r.0, .uncertain)
+    XCTAssertEqual(r.1, "ownerless_active_owner")
+    // Generation counter removed: reads as 0, which disagrees with the owner.
+    try seedBuild52(egressOn: true)
+    appGroupDefaults.removeObject(forKey: "capture_owner_generation_v1")
+    r = try diagnosed(ownerA)
+    XCTAssertEqual(r.0, .uncertain)
+    XCTAssertEqual(r.1, "owner_generation_mismatch")
+    // Generation counter disagrees with the active owner record.
+    try seedBuild52(egressOn: true)
+    let generation = appGroupDefaults.integer(forKey: "capture_owner_generation_v1")
+    appGroupDefaults.set(generation + 5, forKey: "capture_owner_generation_v1")
+    r = try diagnosed(ownerA)
+    XCTAssertEqual(r.1, "owner_generation_mismatch")
+    // Copies of the owner's record differ.
+    try seedBuild52(egressOn: true)
+    try egressJSON([(ownerA, "ON", 2)]).write(to: egressFileURL, options: .atomic)
+    r = try diagnosed(ownerA)
+    XCTAssertEqual(r.0, .uncertain)
+    XCTAssertFalse(r.1.isEmpty)
+    // A reason is never a uid, hash or value.
+    XCTAssertNotNil(r.1.range(of: "^[a-z_/]+$", options: .regularExpression))
+  }
+
   func testShortcutPersistsBeforeNetworkAndUsesStablePayloadID() throws {
     let root = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()

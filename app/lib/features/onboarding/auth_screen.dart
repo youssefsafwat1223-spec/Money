@@ -12,6 +12,7 @@ import '../../core/auth/auth_service.dart';
 import '../../core/auth/supabase_auth_service.dart' show AuthCancelledException;
 import '../../core/backend/supabase_config.dart';
 import '../../core/privacy/cloud_egress_gate.dart' show EgressDeniedException;
+import '../../core/privacy/consent_authority.dart' show ConsentAuthority;
 import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
@@ -50,6 +51,13 @@ const _authDeepNavy = Color(0xFF031322);
 @visibleForTesting
 bool get appleSignInSupported => defaultTargetPlatform == TargetPlatform.iOS;
 
+String _egressCode(String reason) {
+  final tag = ConsentAuthority.egressFreezeTag;
+  return reason == 'frozen' && tag.isNotEmpty
+      ? 'EgressDenied:frozen/$tag'
+      : 'EgressDenied:$reason';
+}
+
 /// A short, non-sensitive reason code for a failed sign-in, appended to the
 /// generic toast so a field report can be diagnosed: the exception type and, for
 /// an egress refusal, the gate's reason string. Never the exception message, a
@@ -59,9 +67,9 @@ bool get appleSignInSupported => defaultTargetPlatform == TargetPlatform.iOS;
 /// lower-case identifiers).
 @visibleForTesting
 String signInFailureCode(Object error) {
-  if (error is EgressDeniedException) return 'EgressDenied:${error.reason}';
+  if (error is EgressDeniedException) return _egressCode(error.reason);
   final wrapped = RegExp(r'egress_denied:([a-z_]+)').firstMatch('$error');
-  if (wrapped != null) return 'EgressDenied:${wrapped.group(1)}';
+  if (wrapped != null) return _egressCode(wrapped.group(1)!);
   return error.runtimeType.toString();
 }
 

@@ -1390,7 +1390,7 @@ class CaptureDeviceRegistrationService {
     // successor may hold.
     final token = Object();
     _enableFreeze = token;
-    ConsentAuthority.egressFrozen = true;
+    ConsentAuthority.freeze('enable_flight');
     _gate.advanceEpoch();
     _gate.freezeEnable(owner);
     var success = false;
@@ -1520,7 +1520,10 @@ class CaptureDeviceRegistrationService {
         // completion and keeps it otherwise.
         if (identical(_enableFreeze, token)) {
           _enableFreeze = null;
-          if (current()) ConsentAuthority.egressFrozen = !success;
+          if (current()) {
+            ConsentAuthority.egressFrozen = !success;
+            if (!success) ConsentAuthority.egressFreezeTag = 'enable_flight_end';
+          }
         }
         await _gate.thawEnable(owner);
         if (success && current()) await _gate.refresh();
@@ -1611,7 +1614,7 @@ class CaptureDeviceRegistrationService {
           .whenComplete(() => _disableInFlight = null);
 
   Future<void> _disableCloud(Future<void> Function() commitLocalOff) async {
-    ConsentAuthority.egressFrozen = true;
+    ConsentAuthority.freeze('disable');
     _gate.advanceEpoch(); // P4: advance BEFORE any transition work
     final sessionUid = _readSession()?.uid;
     String? owner;
@@ -1810,7 +1813,7 @@ class CaptureDeviceRegistrationService {
         restricted = await _gate.restrictWrittenOn(written);
       } catch (_) {}
       if (restricted) throw error;
-      if (current()) ConsentAuthority.egressFrozen = true;
+      if (current()) ConsentAuthority.freeze('enable_not_restricted');
       throw const EgressWriteFailedException('enable_not_restricted');
     }
 
@@ -1893,7 +1896,7 @@ class CaptureDeviceRegistrationService {
     final wasFrozen = ConsentAuthority.egressFrozen;
     final token = Object();
     _enableFreeze = token;
-    ConsentAuthority.egressFrozen = true;
+    ConsentAuthority.freeze('pending_enable');
     _gate.freezeEnable(owner);
 
     PendingEnableRecord? pending;
@@ -2266,6 +2269,9 @@ class CaptureDeviceRegistrationService {
               : (uncertain && settingsCommitted && current())
                   ? true
                   : wasFrozen;
+          if (ConsentAuthority.egressFrozen && !wasFrozen) {
+            ConsentAuthority.egressFreezeTag = 'pending_enable_end';
+          }
         }
         await _gate.thawEnable(owner);
         if (success && current()) await _gate.refresh();
@@ -2485,11 +2491,12 @@ class CaptureDeviceRegistrationService {
       if (!current()) return _Gate.blocked;
     } catch (e) {
       if (!current()) return _Gate.blocked;
-      ConsentAuthority.egressFrozen = true; // owner/state unknown: fail closed
+      ConsentAuthority.freeze('reconcile_throw:${e.runtimeType}'); // owner/state unknown: fail closed
       return _Gate.blocked;
     }
     if (view.uncertain) {
-      ConsentAuthority.egressFrozen = true;
+      ConsentAuthority.freeze(
+          'reconcile_uncertain:${view.readout.problems.join(',')}');
       return _Gate.blocked;
     }
     final rec = view.record;
@@ -2534,7 +2541,7 @@ class CaptureDeviceRegistrationService {
         if (!current()) return _Gate.blocked;
         if (aligned == null || !aligned.any) {
           if (!current()) return _Gate.blocked;
-          ConsentAuthority.egressFrozen = true;
+          ConsentAuthority.freeze('reconcile_align_off');
           return _Gate.blocked;
         }
         return _Gate.off;
@@ -2548,9 +2555,9 @@ class CaptureDeviceRegistrationService {
               _isAndroid() ? ConsentState.declined : settings.aiConsentState,
         ));
       }
-    } catch (_) {
+    } catch (e) {
       if (!current()) return _Gate.blocked;
-      ConsentAuthority.egressFrozen = true;
+      ConsentAuthority.freeze('reconcile_settings_throw:${e.runtimeType}');
       return _Gate.blocked;
     }
     if (!current()) return _Gate.blocked;
@@ -2564,7 +2571,7 @@ class CaptureDeviceRegistrationService {
   Future<bool> _completePendingDisable(CloudEgressRecord rec,
       bool Function() current, void Function()? didAdvanceEpoch) async {
     if (!current()) return false;
-    ConsentAuthority.egressFrozen = true;
+    ConsentAuthority.freeze('pending_disable');
     _gate.advanceEpoch();
     didAdvanceEpoch?.call();
     try {

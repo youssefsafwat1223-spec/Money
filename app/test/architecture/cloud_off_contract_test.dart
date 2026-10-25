@@ -442,7 +442,7 @@ void main() {
       final fn = body(registration,
           'Future<void> _disableCloud(Future<void> Function() commitLocalOff)');
       inOrder(fn, [
-        'ConsentAuthority.egressFrozen = true;',
+        "ConsentAuthority.freeze('disable');",
         '_gate.advanceEpoch();',
         '_gate.beginDisabling(',
         '_restrictNativeSide(',

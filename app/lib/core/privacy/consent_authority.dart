@@ -101,6 +101,16 @@ class ConsentAuthority {
   /// `CloudEgressGate` record, which outlives this flag (persistent OFF gate).
   static bool egressFrozen = false;
 
+  /// Diagnostic only: a short constant naming the site that last froze egress
+  /// (never a uid or a secret). Shown by the sign-in failure code.
+  static String egressFreezeTag = '';
+
+  /// Freezes egress and records [tag] (a constant) as the cause.
+  static void freeze(String tag) {
+    egressFrozen = true;
+    egressFreezeTag = tag;
+  }
+
   /// Reads settings FRESH on every call. See the no-caching note above.
   final Future<UserSettingsEntity> Function() _settings;
 

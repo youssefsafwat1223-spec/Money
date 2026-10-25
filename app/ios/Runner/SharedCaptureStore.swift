@@ -1639,28 +1639,30 @@ enum SharedCaptureStore {
 
   /// Called only under the flock. No owner, key, mirror, epoch or record is written.
   private static func ownerlessEgressSnapshot() throws -> EgressSnapshot {
-    guard try readBarrier() == nil, try readActiveOwner() == nil,
-          let store = defaults,
-          let epoch = snapshotCounter(ownerEpochKey, in: store),
-          let generation = snapshotCounter(ownerGenerationKey, in: store) else { return .uncertain }
+    guard try readBarrier() == nil else { return unc("ownerless_barrier") }
+    guard try readActiveOwner() == nil else { return unc("ownerless_active_owner") }
+    guard let store = defaults else { return unc("defaults_nil") }
+    guard let epoch = snapshotCounter(ownerEpochKey, in: store) else { return unc("epoch_missing") }
+    guard let generation = snapshotCounter(ownerGenerationKey, in: store) else { return unc("generation_missing") }
     let key = try existingUidHmacKey()
     let view = egressView()
-    guard !view.uncertain else { return .uncertain }
+    guard !view.uncertain else { return unc("egress_view_uncertain") }
     // An unresolved or unreadable pending-enable barrier is an unresolved native
     // transition: the ownerless installation is not provably clean.
     let pendingBarrier = pendingView()
-    guard !pendingBarrier.anyUnreadable, !pendingBarrier.holdsAny else { return .uncertain }
+    guard !pendingBarrier.anyUnreadable else { return unc("pending_unreadable") }
+    guard !pendingBarrier.holdsAny else { return unc("pending_held") }
     var records: [String: CloudEgressRecord] = [:]
     for map in view.maps {
       for (hash, record) in map.owners {
-        guard validSnapshotHash(hash), record.state != "DISABLING",
-              records[hash] == nil || records[hash] == record else { return .uncertain }
+        guard validSnapshotHash(hash), record.state != "DISABLING" else { return unc("record_invalid") }
+        guard records[hash] == nil || records[hash] == record else { return unc("record_conflict") }
         records[hash] = record
       }
     }
     // A missing copy of a nonempty map is incomplete evidence, too.
     if !records.isEmpty {
-      guard view.maps.count == 2, view.maps[0] == view.maps[1] else { return .uncertain }
+      guard view.maps.count == 2, view.maps[0] == view.maps[1] else { return unc("record_copies_differ") }
     }
     let hintRead = SharedKeychain.read(forKey: lastAdmittedHashKC)
     let hint: String?
@@ -1668,42 +1670,54 @@ enum SharedCaptureStore {
     case errSecItemNotFound: hint = nil
     case errSecSuccess:
       guard let data = hintRead.data, let hash = String(data: data, encoding: .utf8),
-            validSnapshotHash(hash), generation > 0 else { return .uncertain }
+            validSnapshotHash(hash), generation > 0 else { return unc("hint_invalid") }
       hint = hash
     default: throw QueueError.keyUnavailable(hintRead.status)
     }
     let mirrorRaw = store.object(forKey: consentMirrorKey)
     if let mirrorRaw {
-      guard let mirrors = mirrorRaw as? [String: Any] else { return .uncertain }
+      guard let mirrors = mirrorRaw as? [String: Any] else { return unc("mirror_not_dict") }
       for (hash, value) in mirrors {
         guard validSnapshotHash(hash), let entry = value as? [String: Any],
               snapshotBoolean(entry["cloud"]), snapshotBoolean(entry["ai"]),
-              let rawVersion = entry["version"], snapshotInteger(rawVersion) != nil else { return .uncertain }
+              let rawVersion = entry["version"], snapshotInteger(rawVersion) != nil else { return unc("mirror_entry_invalid") }
       }
     }
     let mirrors = store.dictionary(forKey: consentMirrorKey) ?? [:]
     let inflight = try readInflightRaw()
     guard inflight.allSatisfy({ validSnapshotHash($0.ownerHash) && !$0.payloadId.isEmpty
-      && $0.deadline.isFinite && $0.deadline <= egressNow().timeIntervalSince1970 }) else { return .uncertain }
+      && $0.deadline.isFinite && $0.deadline <= egressNow().timeIntervalSince1970 }) else { return unc("inflight_invalid") }
     if key == nil && (generation > 0 || hint != nil || !records.isEmpty || !mirrors.isEmpty || !inflight.isEmpty) {
-      return .uncertain
+      return unc("hmac_key_missing_with_state")
     }
     return .ownerless(epoch: epoch, generation: generation)
+  }
+
+  /// Diagnostic only: a short constant naming the branch that produced the last
+  /// `.uncertain` answer of [cloudEgressState(forUid:)] (never a uid, hash or
+  /// value). Written under the queue lock; read right after the call.
+  private static var egressUncertainReason = ""
+  static var lastEgressUncertainReason: String { egressUncertainReason }
+  private static func unc(_ reason: String) -> EgressSnapshot {
+    egressUncertainReason = reason
+    return .uncertain
   }
 
   /// The reconciled state of [uid] (C.5): a valid DISABLING/OFF entry in EITHER
   /// store wins (most restrictive, then newest).
   static func cloudEgressState(forUid uid: String) throws -> EgressSnapshot {
     try withQueueLock {
+      egressUncertainReason = ""
       if uid.isEmpty { return try ownerlessEgressSnapshot() }
       let normalized = normalizedUID(uid)
-      guard !normalized.isEmpty else { return .uncertain }
+      guard !normalized.isEmpty else { return unc("uid_empty_after_normalize") }
       let view = egressView()
       guard let key = try existingUidHmacKey() else {
         // An untouched installation has no hash key yet. Inspect before treating
         // an absent per-owner record as unset; never manufacture the missing key.
-        if case .ownerless = try ownerlessEgressSnapshot() { return .unset }
-        return .uncertain
+        let ownerless = try ownerlessEgressSnapshot()
+        if case .ownerless = ownerless { return .unset }
+        return unc("hmac_key_missing/" + egressUncertainReason)
       }
       let mac = HMAC<SHA256>.authenticationCode(for: Data(normalized.utf8), using: key)
       let hash = Data(mac).map { String(format: "%02x", $0) }.joined()
@@ -1714,29 +1728,33 @@ enum SharedCaptureStore {
       }) {
         return .record(top)
       }
-      if view.uncertain { return .uncertain }
+      if view.uncertain { return unc("egress_view_uncertain") }
       // A pending explicit enable is not a usable ON/unset: Dart sees the same
       // restrictive `uncertain` it already fails closed on. (A restrictive record
       // above is still reported as such.) Inspect the barrier with
       // [cloudEgressPending(forUid:)].
       let pendingBarrier = pendingView()
-      if pendingBarrier.anyUnreadable || pendingBarrier.holds(hash) { return .uncertain }
+      if pendingBarrier.anyUnreadable { return unc("pending_unreadable") }
+      if pendingBarrier.holds(hash) { return unc("pending_held") }
       // Restrictive records above remain usable for the existing removal revoke.
       // ON/unset is trustworthy only with readable ownership and generation.
-      guard try readBarrier() == nil, let store = defaults,
-            let epoch = snapshotCounter(ownerEpochKey, in: store),
-            let generation = snapshotCounter(ownerGenerationKey, in: store) else { return .uncertain }
+      guard try readBarrier() == nil else { return unc("barrier_present") }
+      guard let store = defaults else { return unc("defaults_nil") }
+      guard let epoch = snapshotCounter(ownerEpochKey, in: store) else { return unc("epoch_missing") }
+      guard let generation = snapshotCounter(ownerGenerationKey, in: store) else { return unc("generation_missing") }
       let activeOwner = try readActiveOwner()
       if let owner = activeOwner {
         let ownerUid = normalizedUID(owner.uid)
         let ownerMac = HMAC<SHA256>.authenticationCode(for: Data(ownerUid.utf8), using: key)
         let ownerHash = Data(ownerMac).map { String(format: "%02x", $0) }.joined()
-        guard !ownerUid.isEmpty, owner.uid == ownerUid,
-              validSnapshotHash(owner.uidHash), owner.uidHash == ownerHash,
-              owner.generation > 0, owner.generation == generation else { return .uncertain }
+        guard !ownerUid.isEmpty, owner.uid == ownerUid else { return unc("owner_uid_not_normalized") }
+        guard validSnapshotHash(owner.uidHash) else { return unc("owner_hash_invalid") }
+        guard owner.uidHash == ownerHash else { return unc("owner_hash_mismatch") }
+        guard owner.generation > 0 else { return unc("owner_generation_zero") }
+        guard owner.generation == generation else { return unc("owner_generation_mismatch") }
       }
       if mine.isEmpty { return .unset }
-      if mine.count == 2 && mine[0] != mine[1] { return .uncertain }
+      if mine.count == 2 && mine[0] != mine[1] { return unc("record_copies_differ") }
       // N-R1 bound-ON eligibility (read-only; mirrors the lifetime check of
       // [egressDenied]). A record carrying ANY lifecycle field is reported as ON
       // only when the REQUESTED uid is the actual active owner (its normalized uid
@@ -1755,7 +1773,7 @@ enum SharedCaptureStore {
                   && ($0.lifetimeOwnerGeneration ?? 0) > 0
                   && $0.lifetimeOwnerGeneration == owner.generation
                   && $0.lifetimeOwnerEpoch == epoch
-              }) else { return .uncertain }
+              }) else { egressUncertainReason = "lifetime_fields_unbound"; return .uncertain }
       }
       return .record(mine[0])
     }

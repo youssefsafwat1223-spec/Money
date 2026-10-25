@@ -315,6 +315,11 @@ class BootstrapRunner {
     // (stopped while Cloud is OFF / DISABLING / uncertain).
     final egressGate = CloudEgressGate.instance
       ..configureActiveOwner(localDataOwnerUid)
+      ..configureSessionUsable(() {
+        if (!_supabaseInitialized) return false;
+        final s = Supabase.instance.client.auth.currentSession;
+        return s != null && !s.isExpired;
+      })
       // D6: under a verified local-read scope the gate admits only an explicit
       // account-control exchange, whatever Cloud/AI state was saved.
       ..localReadActive = (() => AppSession.instance.localReadEgressDenied)

@@ -509,6 +509,13 @@ class _ConsentManagementCardState
               ),
               const SizedBox(height: AppSpacing.s1),
               Text(body, style: AppTypography.caption(c.textLight)),
+              // Field diagnostic: which site froze egress (a constant tag only).
+              if (settled &&
+                  facts.frozen &&
+                  ConsentAuthority.egressFreezeTag.isNotEmpty)
+                Text('freeze: ${ConsentAuthority.egressFreezeTag}',
+                    key: const Key('freezeTag'),
+                    style: AppTypography.caption(c.textLight)),
               if (settled &&
                   !unresolved &&
                   (status == ConsentStatus.unknown ||

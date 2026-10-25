@@ -24,6 +24,7 @@ import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/data/db/replica_store.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
+import 'package:money_companion/features/onboarding/auth_screen.dart' show signInFailureCode;
 import 'package:path/path.dart' as p;
 // ignore: depend_on_referenced_packages
 import 'package:shared_preferences/shared_preferences.dart';
@@ -480,6 +481,157 @@ void main() {
     await Supabase.instance.dispose();
     CloudEgressGate.instance = CloudEgressGate();
   });
+  // 55 device evidence: marker == uid (a surviving owner) while the build-52
+  // access token is expired, and native cannot vouch for the NAMED owner. The
+  // launch reconcile freezes (reconcile_uncertain), which stops the token
+  // refresh, so the app is signed out with the owner marker still set.
+  for (final nat in ['uncertain', 'null', 'throw', 'ownerless']) {
+    test('upgrade 52 -> 55: marker=uid, native=$nat, expired SDK session: '
+        'launch freezes, sign-in still admitted, ordinary egress denied',
+        () async {
+      const url = 'https://abcdefghij.supabase.co';
+      const channel = MethodChannel('money_companion/native_capture');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      var nativeClean = false;
+      NativeCaptureBridge.debugTreatHostAsNative = true;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method != 'getCloudEgressState') return null;
+        final owner = (call.arguments as Map)['ownerUid'] as String;
+        if (nativeClean && owner.isNotEmpty) {
+          return {
+            'status': 'record',
+            'state': 'ON',
+            'ownerUid': owner,
+            'transitionGeneration': 1,
+            'reservedVersion': 1,
+          };
+        }
+        if (owner.isEmpty) return {'status': 'uncertain'};
+        if (nat == 'uncertain') {
+          return {'status': 'uncertain', 'reason': 'epoch_missing'};
+        }
+        if (nat == 'null') return null;
+        if (nat == 'throw') throw PlatformException(code: 'x');
+        return {'status': 'ownerless', 'ownerEpoch': 1, 'ownerGeneration': 1};
+      });
+      addTearDown(() {
+        NativeCaptureBridge.debugTreatHostAsNative = false;
+        ConsentAuthority.egressFrozen = false;
+        ConsentAuthority.egressFreezeTag = '';
+        messenger.setMockMethodCallHandler(channel, null);
+      });
+      ConsentAuthority.egressFrozen = false;
+      SharedPreferences.setMockInitialValues({});
+      CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
+      await accountThenKill();
+      asBuild52Left();
+      expect(storage.data['local_data_owner_uid'], uid);
+      final reached = <http.BaseRequest>[];
+      String session(int exp) => jsonEncode({
+            'access_token': _jwt(uid, exp),
+            'token_type': 'bearer',
+            'expires_in': 3600,
+            'expires_at': exp,
+            'refresh_token': 'synthetic-refresh',
+            'user': {
+              'id': uid,
+              'app_metadata': <String, Object>{},
+              'user_metadata': <String, Object>{},
+              'aud': 'authenticated',
+              'created_at': '2024-01-01T00:00:00.000Z',
+              'email': '$uid@example.com',
+            },
+          });
+      final runner = BootstrapRunner(
+          debugSdk: BootstrapSdkTestConfig(
+            url: url,
+            innerStorage: _Store(session(1)),
+            innerHttp: MockClient((request) async {
+              reached.add(request);
+              return http.Response(
+                  session(DateTime.now()
+                          .add(const Duration(hours: 1))
+                          .millisecondsSinceEpoch ~/
+                      1000),
+                  200,
+                  headers: {'content-type': 'application/json'});
+            }),
+          ))
+        ..captureQueue = queue;
+      runners.add(runner);
+      await runner.run();
+      final auth = Supabase.instance.client.auth;
+      final gate = CloudEgressGate.instance;
+
+      // The chain: frozen at launch, no refresh, expired session = signed out.
+      expect(ConsentAuthority.egressFrozen, isTrue);
+      expect(ConsentAuthority.egressFreezeTag, 'reconcile_uncertain:native:${{
+        'uncertain': 'epoch_missing',
+        'null': 'unknown',
+        'throw': 'CaptureQueueException',
+        'ownerless': 'unknown',
+      }[nat]}');
+      expect(reached, isEmpty, reason: 'token refresh was blocked');
+      expect(auth.currentSession?.isExpired, isTrue);
+      expect(storage.data['local_data_owner_uid'], uid);
+      expect(await gate.permits(), isFalse);
+
+      // Interactive Apple sign-in must be admitted (it was EgressDenied:frozen).
+      Object? failure;
+      try {
+        await gate.runAccountControl(
+            AccountControlOp.signIn,
+            () => auth.signInWithIdToken(
+                provider: OAuthProvider.apple,
+                idToken: 'apple-id-token',
+                nonce: 'raw-nonce'));
+      } catch (e) {
+        failure = e;
+      }
+      expect(failure, isNull, reason: 'sign-in refused: $failure');
+      expect(
+          reached.where((r) =>
+              r.url.path == '/auth/v1/token' &&
+              r.url.queryParameters['grant_type'] == 'id_token'),
+          hasLength(1));
+      // Privacy: ordinary egress stays denied while frozen, and the diagnostic
+      // names the site.
+      expect(ConsentAuthority.egressFrozen, isTrue);
+      await expectLater(Supabase.instance.client.rest.from('transactions').select(),
+          throwsA(isA<EgressDeniedException>()));
+      expect(reached.where((r) => r.url.path.startsWith('/rest/')), isEmpty);
+      expect(signInFailureCode(EgressDeniedException('frozen')),
+          'EgressDenied:frozen/${ConsentAuthority.egressFreezeTag}');
+
+      // Now signed in with a usable session: a second sign-in grant no longer
+      // passes the freeze (the allowance is for a signed-out context only).
+      await expectLater(
+          gate.runAccountControl(
+              AccountControlOp.signIn,
+              () => auth.signInWithIdToken(
+                  provider: OAuthProvider.apple,
+                  idToken: 'apple-id-token',
+                  nonce: 'raw-nonce')),
+          throwsA(predicate((e) => '$e'.contains('egress_denied:frozen'))));
+
+      // Once native can vouch for the owner, the per-owner reconcile lifts it.
+      nativeClean = true;
+      final db = runner.accountScope.current!.database;
+      final repo = DriftUserSettingsRepository(db);
+      await repo.saveSettings((await repo.getSettings())
+          .copyWith(cloudConsentState: ConsentState.accepted));
+      await CaptureDeviceRegistrationService(
+        settingsRepository: repo,
+        gate: gate,
+        readReplicaOwnerUid: () async => uid,
+        readSession: () => null,
+      ).resolvePendingDisable();
+      expect(ConsentAuthority.egressFrozen, isFalse);
+      await Supabase.instance.dispose();
+      CloudEgressGate.instance = CloudEgressGate();
+    });
+  }
 }
 
 class _Store extends LocalStorage {

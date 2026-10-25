@@ -117,9 +117,13 @@ class CloudEgressSnapshot {
     this.reservedVersion,
     this.ownerEpoch,
     this.ownerGeneration,
+    this.uncertainReason,
   });
 
   final CloudEgressStatus status;
+
+  /// Diagnostic constant naming the native branch that reported `uncertain`.
+  final String? uncertainReason;
   final int? ownerEpoch;
   final int? ownerGeneration;
 
@@ -149,7 +153,12 @@ class CloudEgressSnapshot {
       case 'unset':
         return const CloudEgressSnapshot(CloudEgressStatus.unset);
       case 'uncertain':
-        return const CloudEgressSnapshot(CloudEgressStatus.uncertain);
+        final reason = raw['reason'];
+        return CloudEgressSnapshot(CloudEgressStatus.uncertain,
+            uncertainReason: reason is String &&
+                    RegExp(r'^[a-z_/]{1,64}$').hasMatch(reason)
+                ? reason
+                : null);
       case 'record':
         final state = raw['state'];
         final uid = raw['ownerUid'];

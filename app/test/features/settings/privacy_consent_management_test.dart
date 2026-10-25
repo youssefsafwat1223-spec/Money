@@ -1,3 +1,4 @@
+import 'package:money_companion/core/privacy/consent_authority.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -207,6 +208,17 @@ void main() {
       facts = const ConsentLiveFacts(egressState: EgressState.disabling);
       await pump(tester);
       expect(status(_en.consentStatusTurningOff), findsOneWidget);
+    });
+
+    testWidgets('a frozen gate shows the non-sensitive freeze tag', (tester) async {
+      set(ConsentState.accepted, ConsentState.accepted);
+      facts = const ConsentLiveFacts(frozen: true, uncertain: true);
+      ConsentAuthority.egressFreezeTag = 'reconcile_uncertain:native:epoch_missing';
+      addTearDown(() => ConsentAuthority.egressFreezeTag = '');
+      await pump(tester);
+      expect(find.text('freeze: reconcile_uncertain:native:epoch_missing'),
+          findsOneWidget);
+      facts = ConsentLiveFacts.confirmedOn;
     });
 
     testWidgets('Arabic status renders', (tester) async {

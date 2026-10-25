@@ -251,7 +251,8 @@ class NativeEgressSlot {
         final snap =
             await NativeCaptureBridge.getCloudEgressState(ownerUid: owner);
         if (snap == null || snap.uncertain) {
-          throw const FormatException('native_egress_uncertain');
+          throw FormatException(
+              'native_egress_uncertain:${snap?.uncertainReason ?? 'unknown'}');
         }
         if (owner.isEmpty) {
           if (snap.status != CloudEgressStatus.ownerless) {
@@ -678,8 +679,12 @@ class CloudEgressStore {
             final rec = await native.read(o);
             if (rec != null) layers.add({rec.ownerUid: rec});
           }
-        } catch (_) {
-          problems.add('native');
+        } catch (e) {
+          // Diagnostic detail only: a constant message or the exception type.
+          final detail = e is FormatException
+              ? e.message.replaceFirst('native_egress_uncertain:', '')
+              : e.runtimeType.toString();
+          problems.add('native:$detail');
           break;
         }
       }
@@ -1468,6 +1473,30 @@ class CloudEgressGate {
   void configureActiveOwner(Future<String?> Function() activeOwner) =>
       _activeOwner = activeOwner;
 
+  /// Whether a usable (present, unexpired) Supabase session exists. Wired by
+  /// bootstrap. Unwired answers true, i.e. no extra signed-out allowance.
+  void configureSessionUsable(bool Function() usable) => _sessionUsable = usable;
+  bool Function() _sessionUsable = () => true;
+
+  /// An account-control exchange that runs signed out: either no owner at all,
+  /// or an explicit sign-in / re-authentication while no usable session exists
+  /// (a stale owner marker with an expired, unrefreshable session: the freeze
+  /// blocked the token refresh, so the app is signed out while the marker still
+  /// names the user). It can only reach the allowlisted auth endpoints.
+  bool _signedOutControl(AccountControlGrant? control, String owner) {
+    if (control == null) return false;
+    if (owner.isEmpty) return true;
+    final op = control.op;
+    if (op != AccountControlOp.signIn && op != AccountControlOp.reauthenticate) {
+      return false;
+    }
+    try {
+      return !_sessionUsable();
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Called after every state change (auto-refresh policy, sync mirror).
   Future<void> Function(bool permitsNetwork)? onPermitChanged;
 
@@ -1612,7 +1641,8 @@ class CloudEgressGate {
     if (control == null ||
         !control.active ||
         !_resolved ||
-        (ConsentAuthority.egressFrozen && (await _owner(null)).isNotEmpty)) {
+        (ConsentAuthority.egressFrozen &&
+            !_signedOutControl(control, await _owner(null)))) {
       return false;
     }
     final base = Uri.tryParse(_supabaseUrl());
@@ -1643,7 +1673,7 @@ class CloudEgressGate {
     // to learn the owner. Signing in then re-runs the per-owner reconciliation,
     // which keeps or lifts the freeze for the real uid. Ordinary egress is
     // untouched.
-    final signedOutControl = control != null && owner.isEmpty;
+    final signedOutControl = _signedOutControl(control, owner);
     if (ConsentAuthority.egressFrozen && !revoke && !signedOutControl) {
       return 'frozen';
     }
