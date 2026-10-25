@@ -273,6 +273,7 @@ class CaptureDeviceRegistrationService {
     Future<String?> Function()? readReplicaOwnerUid,
     ConsentMirrorWriter? writeConsentMirror,
     OwnerPublisher? publishOwner,
+    Future<bool> Function(String uid)? repairOwnerGeneration,
     Future<int> Function()? readOwnerEpoch,
     Future<CaptureOwnerRecord?> Function()? readCaptureOwner,
     bool revokeAtSwitchOff = kRevokeAtCloudSwitchOff,
@@ -317,6 +318,7 @@ class CaptureDeviceRegistrationService {
         _writeConsentMirror =
             writeConsentMirror ?? NativeCaptureBridge.setCaptureConsentMirror,
         _publishOwner = publishOwner ?? NativeCaptureBridge.publishCaptureOwner,
+        _repairOwnerGeneration = repairOwnerGeneration ?? _defaultRepairOwnerGeneration,
         _readOwnerEpoch =
             readOwnerEpoch ?? NativeCaptureBridge.captureOwnerEpoch,
         _readCaptureOwner =
@@ -401,6 +403,10 @@ class CaptureDeviceRegistrationService {
   final Future<String?> Function() _readReplicaOwnerUid;
   final ConsentMirrorWriter _writeConsentMirror;
   final OwnerPublisher _publishOwner;
+  final Future<bool> Function(String uid) _repairOwnerGeneration;
+
+  static Future<bool> _defaultRepairOwnerGeneration(String uid) async =>
+      await NativeCaptureBridge.repairActiveOwnerGeneration(uid: uid) != null;
   final Future<int> Function() _readOwnerEpoch;
   final Future<CaptureOwnerRecord?> Function() _readCaptureOwner;
   final bool _revokeAtSwitchOff;
@@ -2483,12 +2489,27 @@ class CaptureDeviceRegistrationService {
     current ??= _captureLifetime();
     if (!current()) return _Gate.blocked;
     final String owner;
-    final EgressView view;
+    EgressView view;
     try {
       owner = await _readReplicaOwnerUid() ?? '';
       if (!current()) return _Gate.blocked;
       view = await _gate.view(owner: owner);
       if (!current()) return _Gate.blocked;
+      // The one repairable native inconsistency: the active owner IS this
+      // signed-in uid (the native side verifies uid and hash) and only the
+      // generation counter disagrees (Keychain outlives an app deletion, the
+      // app-group counter does not). Re-claim the SAME owner with a fresh
+      // generation, then judge again: the freeze is still only ever lifted by
+      // the normal reconciliation below.
+      if (view.uncertain &&
+          owner.isNotEmpty &&
+          _readSession()?.uid == owner &&
+          view.readout.problems.contains('native:owner_generation_mismatch') &&
+          await _repairOwnerGeneration(owner)) {
+        if (!current()) return _Gate.blocked;
+        view = await _gate.view(owner: owner);
+        if (!current()) return _Gate.blocked;
+      }
     } catch (e) {
       if (!current()) return _Gate.blocked;
       ConsentAuthority.freeze('reconcile_throw:${e.runtimeType}'); // owner/state unknown: fail closed

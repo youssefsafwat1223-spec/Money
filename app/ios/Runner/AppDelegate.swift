@@ -490,6 +490,16 @@ enum ApnsEnvironment {
             expectedEpoch: expectedEpoch,
             transitionGeneration: args["transitionGeneration"] as? Int))
         }
+      case "repairActiveOwnerGeneration":
+        // Only the generation counter is repaired, for the SAME verified owner.
+        guard let args = call.arguments as? [String: Any],
+              let uid = args["uid"] as? String, !uid.isEmpty else {
+          result(FlutterError(code: "bad_args", message: "Expected uid.", details: nil))
+          return
+        }
+        queueResult(result) {
+          ownerMap(try SharedCaptureStore.repairActiveOwnerGeneration(uid: uid))
+        }
       case "publishRestrictiveCaptureOwner":
         guard let args = call.arguments as? [String: Any],
               let uid = args["uid"] as? String, !uid.isEmpty,

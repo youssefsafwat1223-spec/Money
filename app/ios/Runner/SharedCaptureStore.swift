@@ -1252,7 +1252,8 @@ enum SharedCaptureStore {
     uid: String,
     mirror: ConsentMirrorValue,
     expectedEpoch: Int,
-    transitionGeneration: Int? = nil
+    transitionGeneration: Int? = nil,
+    repairGeneration: Bool = false
   ) throws -> OwnerRecord {
     try withQueueLock {
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
@@ -1265,15 +1266,27 @@ enum SharedCaptureStore {
       // while the egress state denies (or is uncertain for) this owner. A
       // restrictive mirror (cloud=false, ai=false) is always publishable.
       try guardMirrorWrite(owner: normalized, mirror: mirror, transitionGeneration: transitionGeneration)
+      // Repair mode never manufactures a key: without one no owner can verify.
+      if repairGeneration, try existingUidHmacKey() == nil { throw QueueError.ownerChanged }
       let hash = try uidHash(normalized)
       let current = try readActiveOwner()
       let lifecycleView = egressView()
       if lifecycleView.maps.contains(where: { $0.owners[hash]?.retirement != nil }) {
         throw QueueError.egressDenied
       }
+      var baseGeneration = defaults?.integer(forKey: ownerGenerationKey) ?? 0
+      if repairGeneration {
+        // Only the SAME verified owner whose counter disagrees is repairable.
+        guard let current, current.uid == normalized, current.uidHash == hash,
+              let store = defaults, let counter = snapshotCounter(ownerGenerationKey, in: store) else {
+          throw QueueError.ownerChanged
+        }
+        if current.generation > 0 && current.generation == counter { return current }
+        baseGeneration = max(counter, max(current.generation, 0))
+      }
       writeConsentMirrorEntry(hash: hash, mirror: mirror)
-      if let current, current.uid == normalized { return current }
-      let generation = (defaults?.integer(forKey: ownerGenerationKey) ?? 0) + 1
+      if !repairGeneration, let current, current.uid == normalized { return current }
+      let generation = baseGeneration + 1
       let record = OwnerRecord(uid: normalized, uidHash: hash, generation: generation)
       guard let data = try? JSONEncoder().encode(record) else { throw QueueError.encodingFailed }
       try writeKeychain(data, forKey: activeOwnerKC)
@@ -1282,6 +1295,34 @@ enum SharedCaptureStore {
       defaults?.synchronize()
       return record
     }
+  }
+
+  /// Re-claims the CURRENT active owner with a fresh, monotonic generation when
+  /// the ONLY inconsistency is the app-group generation counter (missing, reset
+  /// or different from the Keychain record: Keychain items survive an app
+  /// deletion, the app-group defaults do not). It goes through the existing
+  /// owner-claim path ([publishActiveOwner]) with the owner's CURRENT consent
+  /// mirror, so nothing widens. Refuses everything else: no active owner, a
+  /// different uid, an owner whose hash does not verify, a Remove-data barrier, a
+  /// retirement, an unreadable counter. The epoch, egress records, queue and
+  /// captures are untouched; work bound to the old generation fails closed
+  /// (is ineligible) instead of being deleted. Already consistent: no-op.
+  @discardableResult
+  static func repairActiveOwnerGeneration(uid: String) throws -> OwnerRecord {
+    let normalized = normalizedUID(uid)
+    let state: (mirror: ConsentMirrorValue, epoch: Int) = try withQueueLock {
+      guard !normalized.isEmpty, let key = try existingUidHmacKey() else { throw QueueError.ownerChanged }
+      let mac = HMAC<SHA256>.authenticationCode(for: Data(normalized.utf8), using: key)
+      let hash = Data(mac).map { String(format: "%02x", $0) }.joined()
+      let entry = defaults?.dictionary(forKey: consentMirrorKey)?[hash] as? [String: Any]
+      let mirror = ConsentMirrorValue(
+        cloud: (entry?["cloud"] as? Bool) ?? false,
+        ai: (entry?["ai"] as? Bool) ?? false,
+        version: (entry?["version"] as? Int) ?? 0)
+      return (mirror, defaults?.integer(forKey: ownerEpochKey) ?? 0)
+    }
+    return try publishActiveOwner(
+      uid: normalized, mirror: state.mirror, expectedEpoch: state.epoch, repairGeneration: true)
   }
 
   /// Clears the owner record (sign-out, or the start of an account transition).

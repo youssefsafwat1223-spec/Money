@@ -632,6 +632,88 @@ void main() {
       CloudEgressGate.instance = CloudEgressGate();
     });
   }
+
+  test(
+      'upgrade 52 -> 56: native active owner is this uid but its generation '
+      'counter disagrees (Keychain outlived a reinstall): the launch reconcile '
+      're-claims the same owner and lifts the freeze', () async {
+    const url = 'https://abcdefghij.supabase.co';
+    const channel = MethodChannel('money_companion/native_capture');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var repaired = 0;
+    NativeCaptureBridge.debugTreatHostAsNative = true;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      if (call.method == 'repairActiveOwnerGeneration') {
+        repaired++;
+        return {'uid': uid, 'uidHash': 'h', 'generation': 9};
+      }
+      if (call.method != 'getCloudEgressState') return null;
+      final owner = (call.arguments as Map)['ownerUid'] as String;
+      if (owner.isEmpty) return {'status': 'uncertain'};
+      if (repaired == 0) {
+        return {'status': 'uncertain', 'reason': 'owner_generation_mismatch'};
+      }
+      return {
+        'status': 'record',
+        'state': 'ON',
+        'ownerUid': owner,
+        'transitionGeneration': 1,
+        'reservedVersion': 1,
+      };
+    });
+    addTearDown(() {
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      ConsentAuthority.egressFrozen = false;
+      ConsentAuthority.egressFreezeTag = '';
+      messenger.setMockMethodCallHandler(channel, null);
+    });
+    ConsentAuthority.egressFrozen = false;
+    SharedPreferences.setMockInitialValues({});
+    CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
+    await accountThenKill();
+    asBuild52Left();
+    final reached = <http.BaseRequest>[];
+    String session(int exp) => jsonEncode({
+          'access_token': _jwt(uid, exp),
+          'token_type': 'bearer',
+          'expires_in': 3600,
+          'expires_at': exp,
+          'refresh_token': 'synthetic-refresh',
+          'user': {
+            'id': uid,
+            'app_metadata': <String, Object>{},
+            'user_metadata': <String, Object>{},
+            'aud': 'authenticated',
+            'created_at': '2024-01-01T00:00:00.000Z',
+            'email': '$uid@example.com',
+          },
+        });
+    final runner = BootstrapRunner(
+        debugSdk: BootstrapSdkTestConfig(
+      url: url,
+      innerStorage: _Store(session(1)),
+      innerHttp: MockClient((request) async {
+        reached.add(request);
+        return http.Response(
+            session(DateTime.now()
+                    .add(const Duration(hours: 1))
+                    .millisecondsSinceEpoch ~/
+                1000),
+            200,
+            headers: {'content-type': 'application/json'});
+      }),
+    ))
+      ..captureQueue = queue;
+    runners.add(runner);
+    await runner.run();
+    expect(repaired, 1);
+    expect(ConsentAuthority.egressFrozen, isFalse,
+        reason: 'tag: ${ConsentAuthority.egressFreezeTag}');
+    expect(storage.data['local_data_owner_uid'], uid);
+    await Supabase.instance.dispose();
+    CloudEgressGate.instance = CloudEgressGate();
+  });
 }
 
 class _Store extends LocalStorage {

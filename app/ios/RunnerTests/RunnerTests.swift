@@ -395,6 +395,49 @@ class RunnerTests: XCTestCase {
     XCTAssertNotNil(r.1.range(of: "^[a-z_/]+$", options: .regularExpression))
   }
 
+  /// Keychain outlives an app deletion, the app-group counter does not: the
+  /// owner record names generation N while the counter is missing / lower. The
+  /// repair re-claims the SAME owner with a fresh generation and nothing else.
+  func testRepairActiveOwnerGenerationOnlyFixesTheCounterOfTheSameOwner() throws {
+    defer { resetSnapshotState() }
+    let counterKey = "capture_owner_generation_v1"
+    for scenario in ["missing", "lower", "higher"] {
+      let owner = try seedBuild52(egressOn: true)
+      let epochBefore = try SharedCaptureStore.ownerEpoch()
+      switch scenario {
+      case "missing": appGroupDefaults.removeObject(forKey: counterKey)
+      case "lower": appGroupDefaults.set(owner.generation - 1, forKey: counterKey)
+      default: appGroupDefaults.set(owner.generation + 7, forKey: counterKey)
+      }
+      XCTAssertEqual(try egressState(ownerA), .uncertain, scenario)
+      XCTAssertEqual(SharedCaptureStore.lastEgressUncertainReason, "owner_generation_mismatch", scenario)
+
+      // A different uid is never repairable, and nothing changes.
+      XCTAssertThrowsError(try SharedCaptureStore.repairActiveOwnerGeneration(uid: ownerB), scenario)
+      XCTAssertEqual(try egressState(ownerA), .uncertain, scenario)
+
+      let mirrorBefore = appGroupDefaults.dictionary(forKey: "capture_consent_mirror_v1") as NSDictionary?
+      let repaired = try SharedCaptureStore.repairActiveOwnerGeneration(uid: ownerA)
+      XCTAssertEqual(appGroupDefaults.dictionary(forKey: "capture_consent_mirror_v1") as NSDictionary?,
+                     mirrorBefore, "consent mirror unchanged")
+      XCTAssertEqual(repaired.uid, owner.uid)
+      XCTAssertEqual(repaired.uidHash, owner.uidHash)
+      XCTAssertGreaterThan(repaired.generation, max(owner.generation, appGroupDefaults.integer(forKey: counterKey) - 1),
+                           scenario)
+      XCTAssertEqual(try SharedCaptureStore.activeOwner()?.generation, repaired.generation)
+      XCTAssertEqual(appGroupDefaults.integer(forKey: counterKey), repaired.generation)
+      XCTAssertEqual(try SharedCaptureStore.ownerEpoch(), epochBefore, "epoch untouched")
+      // Clean named-owner answer, the ON record is untouched.
+      XCTAssertEqual(try egressState(ownerA),
+                     .record(.init(state: "ON", transitionGeneration: 1, reservedVersion: 2)), scenario)
+      // Idempotent once consistent.
+      XCTAssertEqual(try SharedCaptureStore.repairActiveOwnerGeneration(uid: ownerA), repaired)
+    }
+    // No active owner: refused.
+    try seedBuild52(egressOn: true, signedOut: true)
+    XCTAssertThrowsError(try SharedCaptureStore.repairActiveOwnerGeneration(uid: ownerA))
+  }
+
   func testShortcutPersistsBeforeNetworkAndUsesStablePayloadID() throws {
     let root = URL(fileURLWithPath: #filePath)
       .deletingLastPathComponent()

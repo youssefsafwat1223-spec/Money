@@ -1303,6 +1303,19 @@ class NativeCaptureBridge {
     );
   }
 
+  /// Re-claims the SAME active owner with a fresh generation when only the
+  /// native generation counter is inconsistent. Null when unavailable or refused.
+  static Future<CaptureOwnerRecord?> repairActiveOwnerGeneration(
+      {required String uid}) async {
+    if (!_hasNativeQueue) return null;
+    try {
+      return CaptureOwnerRecord.tryParse(
+          await _queueCall<Object?>('repairActiveOwnerGeneration', {'uid': uid}));
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// N: a restrictive local publication receipt; no backend linking is performed.
   static Future<RestrictiveCaptureOwnerReceipt?> publishRestrictiveCaptureOwner({
     required String uid, required int version, required int expectedEpoch,
