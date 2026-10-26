@@ -2433,35 +2433,118 @@ class CaptureDeviceRegistrationService {
   /// Startup hook: finishes a Cloud-OFF transition a dead process left behind
   /// and reconciles the durable state with the replica, before any other egress
   /// can start (C.5). No revoke, ever. Uncertain state keeps egress frozen.
-  Future<void> resolvePendingDisable() async {
-    final lifetime = _captureLifetime(initializing: true);
-    if (_initializationEpoch != _gate.epoch) return;
+  ///
+  /// Two separate questions are asked of this attempt. RESOLUTION OWNERSHIP
+  /// ([resolution] is still the gate's designated resolver): then it always ends
+  /// by resolving the gate, restrictively when it could not finish. MUTATION
+  /// AUTHORITY (the strict lifetime/epoch checks): when lost, nothing more is
+  /// repaired, aligned or thawed. A superseded attempt does neither: its
+  /// successor resolves for itself.
+  Future<void> resolvePendingDisable({EgressResolutionToken? resolution}) async {
+    // A retired provider instance never claims the resolution on its own.
+    if (resolution == null && _disposed) return;
+    final token = resolution ?? _gate.beginResolution();
+    bool owns() => _gate.ownsResolution(token);
+    // Terminal restrictive outcome: retain a freeze already in force (and its
+    // tag), otherwise install one. Never a thaw, never a timer.
+    void restrict(String tag) {
+      if (owns() && !ConsentAuthority.egressFrozen) ConsentAuthority.freeze(tag);
+    }
+
+    var lifetime = () => false;
     var epoch = _initializationEpoch;
-    bool current() => lifetime() && _gate.epoch == epoch;
-    if (!current() || _disableInFlight != null) return;
+    // Ownership is part of the mutation predicate: a superseded attempt does no
+    // internal recovery work either, not only a failed final resolve.
+    bool current() => owns() && lifetime() && _gate.epoch == epoch;
     // N-R9 (Q9): a freeze already in force (a prior owner's incomplete
     // withdrawal, an uncertain read) is HELD while the reconciliation reads, so
     // effective admission stays denied until the durable state has been judged.
     // It ends only below, after a reconciliation that did not block; it is never
     // cleared first and never released by a timer.
     final wasFrozen = ConsentAuthority.egressFrozen;
-    final outcome = await _reconcile(
-        current: current,
-        didAdvanceEpoch: () {
-          epoch = _gate.epoch;
-          _initializationEpoch = epoch;
-        });
-    if (!current()) return;
-    if (wasFrozen && outcome != _Gate.blocked) {
-      ConsentAuthority.egressFrozen = false;
+    try {
+      lifetime = _captureLifetime(initializing: true);
+      if (!current()) {
+        restrict('init_stale');
+      } else if (_disableInFlight != null || _enableInFlight != null) {
+        restrict('init_transition_in_flight');
+      } else {
+        final outcome = await _reconcile(
+            current: current,
+            didAdvanceEpoch: () {
+              epoch = _gate.epoch;
+              _initializationEpoch = epoch;
+            });
+        if (!current()) {
+          restrict('init_lifetime_lost');
+        } else if (wasFrozen && outcome != _Gate.blocked && owns()) {
+          ConsentAuthority.egressFrozen = false;
+        }
+      }
+    } catch (e) {
+      restrict('init_throw:${e.runtimeType}');
     }
     // Astra H2.3: reconciliation (DISABLING crash recovery, the store/native
-    // read) has COMPLETED, so admission may start judging the durable record.
-    // Until this line the process-level latch denied everything, grants too. A
-    // throw above leaves it unresolved (deny). An uncertain or restrictive
-    // outcome is still denied by the record/freeze itself.
-    _gate.markResolved();
-    await _gate.refresh();
+    // read) has COMPLETED or ended restrictively above, so admission may start
+    // judging the durable record. Until this line the process-level latch denied
+    // everything, grants too. An uncertain, restrictive or aborted outcome is
+    // still denied by the record/freeze itself. A superseded attempt resolves
+    // nothing.
+    if (!_gate.markResolved(token)) return;
+    try {
+      await _gate.refresh();
+    } catch (_) {
+      // Resolved; a failed mirror refresh leaves the mirror closed.
+    }
+  }
+
+  /// Admission recovery: the same-uid writable scope was re-admitted (explicit
+  /// sign-in, re-authentication, a fresh automatic session) while egress is
+  /// frozen, so no whole-scope initialization ran for it. Runs the reconciliation
+  /// under the admission's own authority and epoch, NOT the construction-time
+  /// startup lifetime. It thaws only on a verified non-blocked reconciliation
+  /// while its whole predicate still holds; refusal, uncertainty, an exception, a
+  /// lost authority or a successor attempt leave the freeze untouched. No sync,
+  /// no revoke, no deletion; the startup latch is never its job.
+  Future<void> reconcileAfterAdmission({
+    required AdmissionAuthority authority,
+    required bool Function() isCurrentScope,
+  }) async {
+    if (!authority.isCurrent ||
+        _disposed ||
+        !_settingsRepository.isDatabaseOpen ||
+        !isCurrentScope() ||
+        _readSession()?.uid != authority.uid ||
+        !_gate.isResolved ||
+        _enableInFlight != null ||
+        _disableInFlight != null ||
+        !ConsentAuthority.egressFrozen) {
+      return;
+    }
+    var epoch = _gate.epoch; // this attempt's own, never refreshed after an await
+    final token = _gate.beginResolution();
+    final lifetime = _captureLifetime(admissionAuthority: authority);
+    bool current() =>
+        _gate.ownsResolution(token) &&
+        lifetime() &&
+        isCurrentScope() &&
+        authority.isCurrent &&
+        _gate.epoch == epoch &&
+        _enableInFlight == null &&
+        _disableInFlight == null;
+    try {
+      final outcome = await _reconcile(
+          current: current,
+          expectedOwner: authority.uid,
+          didAdvanceEpoch: () => epoch = _gate.epoch);
+      if (!current() || outcome == _Gate.blocked) return;
+      ConsentAuthority.egressFrozen = false;
+      await _gate.refresh();
+    } catch (_) {
+      // Before the thaw the freeze stays (the next authorized admission may try
+      // again); a failed mirror refresh after a verified thaw leaves the mirror
+      // closed and admission still judges the durable record.
+    }
   }
 
   /// The persistent gate for this replica's owner. A DISABLING record with no
@@ -2485,6 +2568,7 @@ class CaptureDeviceRegistrationService {
   Future<_Gate> _reconcile({
     bool Function()? current,
     void Function()? didAdvanceEpoch,
+    String? expectedOwner,
   }) async {
     current ??= _captureLifetime();
     if (!current()) return _Gate.blocked;
@@ -2493,6 +2577,8 @@ class CaptureDeviceRegistrationService {
     try {
       owner = await _readReplicaOwnerUid() ?? '';
       if (!current()) return _Gate.blocked;
+      // Admission recovery acts only on the admitted uid's own replica marker.
+      if (expectedOwner != null && owner != expectedOwner) return _Gate.blocked;
       view = await _gate.view(owner: owner);
       if (!current()) return _Gate.blocked;
       // The one repairable native inconsistency: the active owner IS this
@@ -2626,7 +2712,9 @@ class CaptureDeviceRegistrationService {
                 : ServerRevocation.notAttempted);
       }
       if (!current()) return false;
-      if (!await _gate.commitOff(freeze) || !current()) return false;
+      if (!await _gate.commitOff(freeze, isCurrent: current) || !current()) {
+        return false;
+      }
       ConsentAuthority.egressFrozen = false;
       await _gate.refresh();
       return true;

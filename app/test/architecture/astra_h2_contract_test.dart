@@ -64,9 +64,10 @@ void main() {
         'lib/features/capture/services/capture_device_registration_service.dart');
     expect(reg, isNot(contains('Legacy adoption')));
     expect(reg, isNot(contains('rec == null && on')));
-    final r = body(reg, 'Future<void> resolvePendingDisable()');
-    expect(r.indexOf('await _reconcile()'),
-        lessThan(r.indexOf('_gate.markResolved()')));
+    final r = body(reg,
+        'Future<void> resolvePendingDisable({EgressResolutionToken? resolution})');
+    expect(r.indexOf('await _reconcile('),
+        lessThan(r.indexOf('_gate.markResolved(token)')));
   });
 
   test(

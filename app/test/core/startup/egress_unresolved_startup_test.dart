@@ -142,7 +142,7 @@ void main() {
       await triggers();
       expect(reached, isEmpty, reason: 'triggers, unresolved');
 
-      egress.gate.markResolved(); // bootstrap finished the reconciliation
+      egress.gate.markResolved(egress.gate.beginResolution()); // bootstrap finished the reconciliation
       await egress.gate.refresh();
       expect(await egress.gate.permits(), isFalse);
       await triggers();
@@ -158,7 +158,7 @@ void main() {
     final egress = TestEgress(resolved: false, seedOn: true);
     await boot(egress);
     expect(reached, isEmpty);
-    egress.gate.markResolved();
+    egress.gate.markResolved(egress.gate.beginResolution());
     await Supabase.instance.client.rpc('mark_onboarding_completed');
     expect(reached.where((r) => r.url.path.contains('mark_onboarding')),
         isNotEmpty);

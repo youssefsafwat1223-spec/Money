@@ -247,12 +247,24 @@ void main() {
         .writeAsStringSync(on);
   }
 
+  /// A NEW process over the durable fixtures: a fresh gate (the latch starts
+  /// false), no freeze carried over. Durable stores are left untouched.
+  CloudEgressGate freshProcess(String url) {
+    ConsentAuthority.egressFrozen = false;
+    ConsentAuthority.egressFreezeTag = '';
+    final gate = CloudEgressGate(supabaseUrl: () => url);
+    CloudEgressGate.instance = gate;
+    expect(gate.isResolved, isFalse);
+    return gate;
+  }
+
   test('upgrade 52 -> 53: expired build-52 session, Apple id_token exchange '
       'reaches POST /auth/v1/token?grant_type=id_token', () async {
     const url = 'https://example.supabase.co';
     CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
     await accountThenKill();
     asBuild52Left();
+    freshProcess(url);
 
     final reached = <http.BaseRequest>[];
     final live = SupabaseClient(url, 'synthetic-anon',
@@ -415,6 +427,7 @@ void main() {
     CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
     await accountThenKill();
     asBuild52Left();
+    freshProcess(url);
     final reached = <http.BaseRequest>[];
     final expired = jsonEncode({
       'access_token': _jwt(uid, 1),
@@ -526,6 +539,7 @@ void main() {
       CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
       await accountThenKill();
       asBuild52Left();
+      freshProcess(url);
       expect(storage.data['local_data_owner_uid'], uid);
       final reached = <http.BaseRequest>[];
       String session(int exp) => jsonEncode({
@@ -673,6 +687,8 @@ void main() {
     CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
     await accountThenKill();
     asBuild52Left();
+    freshProcess(url);
+    repaired = 0; // the fixture boot above is another process
     final reached = <http.BaseRequest>[];
     String session(int exp) => jsonEncode({
           'access_token': _jwt(uid, exp),
@@ -714,6 +730,325 @@ void main() {
     await Supabase.instance.dispose();
     CloudEgressGate.instance = CloudEgressGate();
   });
+
+  // Build 57 device evidence: `EgressDenied:unresolved` at sign-in. Marker=uid,
+  // durable ON, expired SDK session, native generation counter disagrees. Every
+  // case boots a NEW process (fresh gate, latch false) over the durable state.
+  group('upgrade 56 -> 58: the startup latch always resolves', () {
+    const url = 'https://abcdefghij.supabase.co';
+    const channel = MethodChannel('money_companion/native_capture');
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    var repairs = 0;
+    var mismatch = true;
+    Completer<void>? holdNext; // the next owner-named native read waits on it
+    Completer<void>? held; // the read that is waiting
+    Completer<void>? heldReached;
+    Completer<void>? repairGate; // a repair waits on it after committing
+    Completer<void>? repairReached;
+    var repairResult = true;
+    late List<http.BaseRequest> reached;
+
+    String sessionJson(int exp) => jsonEncode({
+          'access_token': _jwt(uid, exp),
+          'token_type': 'bearer',
+          'expires_in': 3600,
+          'expires_at': exp,
+          'refresh_token': 'synthetic-refresh',
+          'user': {
+            'id': uid,
+            'app_metadata': <String, Object>{},
+            'user_metadata': <String, Object>{},
+            'aud': 'authenticated',
+            'created_at': '2024-01-01T00:00:00.000Z',
+            'email': '$uid@example.com',
+          },
+        });
+
+    setUp(() {
+      repairs = 0;
+      mismatch = true;
+      holdNext = held = heldReached = repairGate = repairReached = null;
+      repairResult = true;
+      reached = [];
+      NativeCaptureBridge.debugTreatHostAsNative = true;
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        if (call.method == 'repairActiveOwnerGeneration') {
+          repairs++;
+          if (repairResult) mismatch = false; // committed natively
+          repairReached?.complete();
+          await repairGate?.future;
+          if (!repairResult) return null;
+          return {'uid': uid, 'uidHash': 'h', 'generation': 9};
+        }
+        if (call.method != 'getCloudEgressState') return null;
+        final owner = (call.arguments as Map)['ownerUid'] as String;
+        if (owner.isEmpty) return {'status': 'uncertain'};
+        final hold = holdNext;
+        if (hold != null) {
+          holdNext = null;
+          held = hold;
+          heldReached?.complete();
+          await hold.future;
+        }
+        if (mismatch) {
+          return {'status': 'uncertain', 'reason': 'owner_generation_mismatch'};
+        }
+        return {
+          'status': 'record',
+          'state': 'ON',
+          'ownerUid': owner,
+          'transitionGeneration': 1,
+          'reservedVersion': 1,
+        };
+      });
+    });
+    tearDown(() async {
+      NativeCaptureBridge.debugTreatHostAsNative = false;
+      ConsentAuthority.egressFrozen = false;
+      ConsentAuthority.egressFreezeTag = '';
+      messenger.setMockMethodCallHandler(channel, null);
+      await Supabase.instance.dispose();
+      CloudEgressGate.instance = CloudEgressGate();
+    });
+
+    BootstrapRunner newRunner() {
+      final r = BootstrapRunner(
+          debugSdk: BootstrapSdkTestConfig(
+        url: url,
+        innerStorage: _Store(sessionJson(1)),
+        innerHttp: MockClient((request) async {
+          reached.add(request);
+          return http.Response(
+              sessionJson(DateTime.now()
+                      .add(const Duration(hours: 1))
+                      .millisecondsSinceEpoch ~/
+                  1000),
+              200,
+              headers: {'content-type': 'application/json'});
+        }),
+      ))
+        ..captureQueue = queue;
+      runners.add(r);
+      return r;
+    }
+
+    /// The durable state build 56 left behind (optionally with its local-read
+    /// grant), then a brand-new process: fresh gate, fresh native counters.
+    Future<CloudEgressGate> prepare({bool keepGrant = false}) async {
+      SharedPreferences.setMockInitialValues({});
+      CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
+      await accountThenKill();
+      final grant = storage.data[SecureLocalReadStore.storageKey];
+      asBuild52Left();
+      if (keepGrant) {
+        expect(grant, isNotNull, reason: 'the fixture must leave a grant');
+        storage.data[SecureLocalReadStore.storageKey] = grant!;
+      }
+      repairs = 0;
+      mismatch = true;
+      return freshProcess(url);
+    }
+
+    Future<Object?> appleSignIn(CloudEgressGate gate) async {
+      try {
+        await gate.runAccountControl(
+            AccountControlOp.signIn,
+            () => Supabase.instance.client.auth.signInWithIdToken(
+                provider: OAuthProvider.apple,
+                idToken: 'apple-id-token',
+                nonce: 'raw-nonce'));
+        return null;
+      } catch (e) {
+        return e;
+      }
+    }
+
+    /// The real SDK session loss. The session and the `signedOut` event happen
+    /// first; the server logout call is itself (correctly) denied while the
+    /// latch is unresolved, which is ignored here.
+    Future<void> loseSession() => Supabase.instance.client.auth
+        .signOut(scope: SignOutScope.local)
+        .then<void>((_) {}, onError: (Object _) {});
+
+    /// The app's real sign-in completion (auth_screen `_signIn`): the attempt is
+    /// captured BEFORE the provider exchange, then `setIdentity` publishes the
+    /// signed-in scope (its `initialize` is the production `_initializeAccount`).
+    Future<void> productionAppleSignIn(CloudEgressGate gate) async {
+      final client = Supabase.instance.client;
+      final attempt = session.beginAuthAttempt();
+      await gate.runAccountControl(
+          AccountControlOp.signIn,
+          () => client.auth.signInWithIdToken(
+              provider: OAuthProvider.apple,
+              idToken: 'apple-id-token',
+              nonce: 'raw-nonce'));
+      await session.setIdentity(
+        method: 'apple',
+        email: '$uid@example.com',
+        userId: uid,
+        attempt: attempt,
+        sessionCurrent: () =>
+            client.auth.currentSession?.user.id == uid &&
+            !(client.auth.currentSession?.isExpired ?? true),
+      );
+    }
+
+    /// After sign-in the AUTHORIZED writable reconcile has run for the uid: an
+    /// ordinary scope, the owner-generation repaired, the freeze lifted, the
+    /// gate permitting, and nothing deleted.
+    Future<void> expectReconciledAfterSignIn(
+        BootstrapRunner r, CloudEgressGate gate,
+        {required int repairsExpected}) async {
+      final scope = r.accountScope.current!;
+      expect(scope.uid, uid);
+      expect(scope.isLocalRead, isFalse);
+      expect(repairs, repairsExpected);
+      expect(ConsentAuthority.egressFrozen, isFalse,
+          reason: 'tag: ${ConsentAuthority.egressFreezeTag}');
+      expect(storage.data['local_data_owner_uid'], uid);
+      expect(await gate.permits(), isTrue);
+      expect(scope.hasLocalData, isTrue);
+      final rows = await scope.database
+          .customSelect('SELECT COUNT(*) AS c FROM transactions')
+          .getSingle();
+      expect(rows.read<int>('c'), 1, reason: 'no data was deleted');
+    }
+
+    int idTokenRequests() => reached
+        .where((r) =>
+            r.url.path == '/auth/v1/token' &&
+            r.url.queryParameters['grant_type'] == 'id_token')
+        .length;
+
+    /// Resolved but restrictive: nothing ordinary reaches the transport.
+    Future<void> expectResolvedRestrictive(CloudEgressGate gate) async {
+      expect(gate.isResolved, isTrue);
+      expect(ConsentAuthority.egressFrozen, isTrue);
+      expect(await gate.permits(), isFalse);
+      final before = reached.length;
+      await expectLater(
+          Supabase.instance.client.rest.from('transactions').select(),
+          throwsA(anything));
+      await expectLater(
+          gate.runAccountControl(
+              AccountControlOp.signIn,
+              () => Supabase.instance.client.rest.from('transactions').select()),
+          throwsA(anything));
+      expect(reached.length, before, reason: 'no ordinary egress reached it');
+    }
+
+    test('1. the expired session disappears during the initial native read',
+        () async {
+      final gate = await prepare();
+      holdNext = Completer<void>();
+      heldReached = Completer<void>();
+      final r1 = newRunner();
+      final running = r1.run();
+      await heldReached!.future;
+      await loseSession();
+      held!.complete();
+      await running;
+      expect(repairs, 0);
+      expect(ConsentAuthority.egressFreezeTag, 'init_lifetime_lost');
+      await expectResolvedRestrictive(gate);
+      await productionAppleSignIn(gate);
+      expect(idTokenRequests(), 1);
+      await expectReconciledAfterSignIn(r1, gate, repairsExpected: 1);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('2. the session disappears after the repair committed, before its '
+        'reply', () async {
+      final gate = await prepare();
+      repairGate = Completer<void>();
+      repairReached = Completer<void>();
+      final r2 = newRunner();
+      final running = r2.run();
+      await repairReached!.future;
+      expect(mismatch, isFalse, reason: 'the native repair committed');
+      await loseSession();
+      repairGate!.complete();
+      await running;
+      expect(repairs, 1);
+      expect(ConsentAuthority.egressFreezeTag, 'init_lifetime_lost',
+          reason: 'a stale attempt never thaws on the repaired state');
+      await expectResolvedRestrictive(gate);
+      await productionAppleSignIn(gate);
+      expect(idTokenRequests(), 1);
+      // The native state was already repaired and reads clean: no second repair.
+      await expectReconciledAfterSignIn(r2, gate, repairsExpected: 1);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('3. the session is already absent: the repair is skipped, sign-in is '
+        'not refused as unresolved', () async {
+      final gate = await prepare();
+      final r = BootstrapRunner(
+          debugSdk: BootstrapSdkTestConfig(
+        url: url,
+        innerStorage: _AbsentStore(),
+        innerHttp: MockClient((request) async {
+          reached.add(request);
+          return http.Response(
+              sessionJson(DateTime.now()
+                      .add(const Duration(hours: 1))
+                      .millisecondsSinceEpoch ~/
+                  1000),
+              200,
+              headers: {'content-type': 'application/json'});
+        }),
+      ))
+        ..captureQueue = queue;
+      runners.add(r);
+      await r.run();
+      expect(repairs, 0);
+      await expectResolvedRestrictive(gate);
+      await productionAppleSignIn(gate);
+      expect(idTokenRequests(), 1);
+      await expectReconciledAfterSignIn(r, gate, repairsExpected: 1);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test('4. a local-read grant survives the prior process: a fresh gate '
+        'resolves through the dedicated path, no writable initialization',
+        () async {
+      final gate = await prepare(keepGrant: true);
+      final r = newRunner();
+      await r.run();
+      expect(r.accountScope.current!.isLocalRead, isTrue);
+      expect(repairs, 0, reason: 'no repair under a read-only replica');
+      expect(queue.publishCalls, 0);
+      expect(gate.isResolved, isTrue);
+      expect(ConsentAuthority.egressFrozen, isTrue,
+          reason: 'the mismatch is uncertain: frozen, tagged');
+      expect(ConsentAuthority.egressFreezeTag,
+          'startup_uncertain:native:owner_generation_mismatch');
+      await expectResolvedRestrictive(gate);
+      await productionAppleSignIn(gate);
+      expect(idTokenRequests(), 1);
+      await expectReconciledAfterSignIn(r, gate, repairsExpected: 1);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    // The launch scope is already a WRITABLE scope for the uid, so sign-in's
+    // `activate` reuses it without re-initializing; the admission hook
+    // (`reconcileReusedScope`) is what repairs and thaws.
+    test('5. same-uid writable launch scope: the post-sign-in writable reconcile '
+        'repairs and thaws', () async {
+      final gate = await prepare();
+      holdNext = Completer<void>();
+      heldReached = Completer<void>();
+      final r5 = newRunner();
+      final running = r5.run();
+      await heldReached!.future;
+      await loseSession();
+      held!.complete();
+      await running;
+      final before = r5.accountScope.current!;
+      expect(ConsentAuthority.egressFrozen, isTrue);
+      await productionAppleSignIn(gate);
+      expect(identical(r5.accountScope.current, before), isTrue,
+          reason: 'the scope was reused, not re-initialized');
+      await expectReconciledAfterSignIn(r5, gate, repairsExpected: 1);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+  });
 }
 
 class _Store extends LocalStorage {
@@ -725,6 +1060,19 @@ class _Store extends LocalStorage {
   Future<bool> hasAccessToken() async => true;
   @override
   Future<String?> accessToken() async => session;
+  @override
+  Future<void> removePersistedSession() async {}
+  @override
+  Future<void> persistSession(String persistSessionString) async {}
+}
+
+class _AbsentStore extends LocalStorage {
+  @override
+  Future<void> initialize() async {}
+  @override
+  Future<bool> hasAccessToken() async => false;
+  @override
+  Future<String?> accessToken() async => null;
   @override
   Future<void> removePersistedSession() async {}
   @override

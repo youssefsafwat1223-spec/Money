@@ -1,3 +1,4 @@
+import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
 import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:money_companion/core/session/consent_capability.dart';
 import 'package:flutter/foundation.dart';
@@ -51,7 +52,12 @@ class _FakeRegistrationService implements CaptureDeviceRegistrationService {
       false;
 
   @override
-  Future<void> resolvePendingDisable() async {}
+  Future<void> resolvePendingDisable({EgressResolutionToken? resolution}) async {}
+  @override
+  Future<void> reconcileAfterAdmission({
+    required AdmissionAuthority authority,
+    required bool Function() isCurrentScope,
+  }) async {}
 
   @override
   Future<void> enableCloud({required ConsentWrite write}) async {}

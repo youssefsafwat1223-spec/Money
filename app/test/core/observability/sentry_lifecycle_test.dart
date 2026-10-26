@@ -42,7 +42,7 @@ void main() {
     DiagnosticsConsentGate.set(true);
     await settle();
     expect(inits, 0, reason: 'unresolved');
-    e.gate.markResolved();
+    e.gate.markResolved(e.gate.beginResolution());
     await e.gate.refresh();
     await settle();
     expect(inits, 1);

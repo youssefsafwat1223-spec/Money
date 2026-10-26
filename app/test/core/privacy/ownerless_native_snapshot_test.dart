@@ -131,7 +131,7 @@ void main() {
     egress.owner = 'uid-a';
     response = {'status': 'record', 'state': 'ON', 'ownerUid': 'uid-a',
       'transitionGeneration': 1, 'reservedVersion': 1};
-    egress.gate.markResolved();
+    egress.gate.markResolved(egress.gate.beginResolution());
     expect(await egress.gate.permits(), true);
     response = {...response! as Map, 'state': 'OFF'};
     expect(await egress.gate.permits(), false);

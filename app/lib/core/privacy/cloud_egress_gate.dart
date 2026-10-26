@@ -1453,7 +1453,64 @@ class CloudEgressGate {
   /// false admission denies EVERYTHING (grants and the revoke included) and
   /// [permits] is false.
   bool get isResolved => _resolved;
-  void markResolved() => _resolved = true;
+
+  /// Resolution OWNERSHIP: the one startup initialization attempt that is still
+  /// the designated resolver. Established when a scope's initialization begins
+  /// and superseded by the next [beginResolution] (a successor scope resolves
+  /// itself). Separate from an attempt's mutation authority: an attempt may have
+  /// lost the right to repair or mutate and still own the duty to finish its
+  /// resolution restrictively.
+  EgressResolutionToken? _resolutionOwner;
+
+  EgressResolutionToken beginResolution() =>
+      _resolutionOwner = EgressResolutionToken._();
+
+  bool ownsResolution(EgressResolutionToken token) =>
+      identical(_resolutionOwner, token);
+
+  /// Owner-checked completion of the process latch. A superseded attempt
+  /// resolves nothing and gets false. The latch is never reset.
+  bool markResolved(EgressResolutionToken token) {
+    if (!ownsResolution(token)) return false;
+    _resolved = true;
+    return true;
+  }
+
+  /// Resolution for a scope that runs NO writable reconciliation (offline local
+  /// read, or a usable scope whose initialization never resolved). Read-only
+  /// with respect to the account database: it inspects the durable gate state
+  /// and freezes (never thaws) on anything uncertain, unreadable or incomplete
+  /// (or always, with [freezeTag]); the settings alignment, pending-disable
+  /// completion and owner repair are left to the authorized writable
+  /// reconciliation. Resolves only while [token] still owns the resolution.
+  Future<void> resolveRestrictively(EgressResolutionToken token,
+      {String? owner, String? freezeTag}) async {
+    void freeze(String tag) {
+      if (ownsResolution(token) && !ConsentAuthority.egressFrozen) {
+        ConsentAuthority.freeze(tag);
+      }
+    }
+
+    if (freezeTag != null) freeze(freezeTag);
+    try {
+      final v = await view(owner: owner);
+      if (v.uncertain) {
+        freeze('startup_uncertain:${v.readout.problems.join(',')}');
+      } else if (v.record?.state == EgressState.disabling) {
+        freeze('startup_pending_disable');
+      } else if (await _pendingDenies(v.owner)) {
+        freeze('startup_pending_enable');
+      }
+    } catch (e) {
+      freeze('startup_throw:${e.runtimeType}');
+    }
+    if (!markResolved(token)) return;
+    try {
+      await refresh();
+    } catch (_) {
+      // Resolved; a failed mirror refresh leaves the mirror closed.
+    }
+  }
 
   /// Fired whenever the synchronous permit mirror changes (Sentry, ads,
   /// banners follow it).
@@ -2234,6 +2291,12 @@ class CloudEgressGate {
     final cb = onPermitChanged;
     if (cb != null) unawaited(cb(next).catchError((_) {}));
   }
+}
+
+/// Identity of one startup initialization attempt's claim to resolve the
+/// process latch ([CloudEgressGate.beginResolution]).
+class EgressResolutionToken {
+  EgressResolutionToken._();
 }
 
 class EgressView {

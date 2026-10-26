@@ -281,6 +281,7 @@ void main() {
       );
       final pending = service.resolvePendingDisable();
       await settings.reached!.future;
+      egress.gate.beginResolution(); // the successor scope's initialization
       egress.gate.advanceEpoch();
       ConsentAuthority.egressFrozen = false;
       settings.failRead = true;

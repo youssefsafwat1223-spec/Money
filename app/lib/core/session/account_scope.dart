@@ -126,6 +126,7 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
     Future<AppDatabase> Function()? openSignedOut,
     Future<void> Function(ReplicaLocation location)? prepareLocation,
     Future<void> Function()? afterWithdraw,
+    this.reconcileReusedScope,
   })  : _coordinator = coordinator,
         _openSignedOut = openSignedOut ?? _defaultSignedOut,
         _prepareLocation = prepareLocation,
@@ -143,6 +144,7 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
     Future<AppDatabase> Function()? openSignedOut,
     Future<void> Function(ReplicaLocation location)? prepareLocation,
     Future<void> Function()? afterWithdraw,
+    this.reconcileReusedScope,
   })  : _coordinator = null,
         _openSignedOut = openSignedOut ?? _defaultSignedOut,
         _prepareLocation = prepareLocation,
@@ -169,6 +171,14 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
       initialize;
   final Future<AppDatabase> Function() _openSignedOut;
   final Future<void> Function(ReplicaLocation location)? _prepareLocation;
+
+  /// Awaited, inside the host turn, when an admission WITH authority re-admits
+  /// the already published writable scope of its uid (no re-initialization runs
+  /// for it). Lets the owner of the scope's services recover state that only a
+  /// reconciliation can (a startup freeze). It must not enqueue or drain host
+  /// operations. Never called without an authority.
+  final Future<void> Function(AccountScope scope, AdmissionAuthority authority)?
+      reconcileReusedScope;
 
   /// Completes once the withdrawn scope has been torn down by the UI.
   final Future<void> Function() _afterWithdraw;
@@ -280,6 +290,17 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
           AccountFenceAuthority.shared.requireInHostTurn(uid,
               current: _generation == generation && (authority?.isCurrent ?? true));
           authority?.requireFor(uid);
+          final reused = _current!;
+          final reconcile = reconcileReusedScope;
+          if (authority != null && reconcile != null) {
+            await reconcile(reused, authority);
+            AccountFenceAuthority.shared.requireInHostTurn(uid,
+                current: _generation == generation && authority.isCurrent);
+            authority.requireFor(uid);
+            if (!identical(_current, reused)) {
+              throw const StaleAdmissionException();
+            }
+          }
           return;
         }
         var nativeOpenMayHaveStarted = false;

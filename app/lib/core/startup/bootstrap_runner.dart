@@ -573,6 +573,17 @@ class BootstrapRunner {
     AppSession.instance.configureAccountScope(host);
     _receiveSenderBankMapping();
     final scope = host.current!;
+    // A usable scope whose initialization never resolved the egress latch (an
+    // offline local-read scope runs no account initialization; a recovered
+    // failure) is resolved here, restrictively and read-only with respect to the
+    // account database. Settings alignment, pending-disable completion and the
+    // owner-generation repair wait for the authorized writable reconcile.
+    if (!egressGate.isResolved) {
+      await _step('egress_resolution', () => egressGate.resolveRestrictively(
+          egressGate.beginResolution(),
+          owner: scope.uid,
+          freezeTag: scope.isLocalRead ? null : 'startup_unresolved'));
+    }
     final database = _database = scope.database;
     hasLocalData = scope.hasLocalData;
     planningCutoverState = scope.planningCutoverState;
@@ -634,6 +645,9 @@ class BootstrapRunner {
     _dbKeyRefCleanupRan = false;
     var localData = true;
     var cutover = PlanningCutoverState.canonical;
+    // This scope's claim to resolve the egress latch, taken before any service
+    // exists; a successor scope's initialization supersedes it.
+    final resolution = CloudEgressGate.instance.beginResolution();
 
     await _step('has_local_data', () async {
       try {
@@ -695,9 +709,11 @@ class BootstrapRunner {
         readOwnerEpoch: captureQueue.captureOwnerEpoch,
       );
       _captureRegistration = captureRegistration;
+      _captureRegistrationBinding =
+          (service: captureRegistration, database: database, uid: uid);
       // E1: a Cloud-OFF transition that a dead process left half-done is
       // committed (without any revoke) before anything else can egress.
-      await captureRegistration.resolvePendingDisable();
+      await captureRegistration.resolvePendingDisable(resolution: resolution);
       AppSession.instance.configureCaptureDeviceUnlink(
         captureRegistration.unlinkCurrentDevice,
       );
@@ -934,6 +950,11 @@ class BootstrapRunner {
   /// `_initializeAccount`); the capture-owner publish hook drives it.
   CaptureDeviceRegistrationService? _captureRegistration;
 
+  /// The service installed above, with the exact database and uid it was built
+  /// for (the admission-recovery callback must not act through another's).
+  ({CaptureDeviceRegistrationService service, AppDatabase database, String? uid})?
+      _captureRegistrationBinding;
+
   /// WP-3b: account transitions RELEASE the capture owner (never purge waiting
   /// items, §4.2); the queue is purged only by the Remove-data barrier. Also
   /// clears device-wide non-queue residue and the previous account's OS reminders.
@@ -1060,7 +1081,31 @@ class BootstrapRunner {
           AppDatabase.initProcessLiveness(location: location),
       afterWithdraw: debugAfterWithdraw ?? (() => WidgetsBinding.instance.endOfFrame),
       coordinator: coordinator,
+      reconcileReusedScope: _reconcileReusedScope,
     );
+  }
+
+  /// An admission re-admitted the published same-uid writable scope, which runs
+  /// no initialization: when egress is frozen, the registration service bound to
+  /// exactly that database and uid reconciles under the admission's authority.
+  /// Healthy (unfrozen) reuse does nothing. Never throws.
+  Future<void> _reconcileReusedScope(
+      AccountScope scope, AdmissionAuthority authority) async {
+    if (!ConsentAuthority.egressFrozen) return;
+    final bound = _captureRegistrationBinding;
+    if (bound == null ||
+        scope.isLocalRead ||
+        bound.uid != scope.uid ||
+        !identical(bound.database, scope.database)) {
+      return;
+    }
+    try {
+      await bound.service.reconcileAfterAdmission(
+          authority: authority,
+          isCurrentScope: () => identical(_host?.current, scope));
+    } catch (_) {
+      // Recovery is best-effort; the freeze stays.
+    }
   }
 
   /// B2-C — deferred, non-critical startup housekeeping that must NOT gate the
