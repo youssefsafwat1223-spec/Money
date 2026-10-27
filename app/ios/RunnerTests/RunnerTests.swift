@@ -7,6 +7,37 @@ import Security
 
 class RunnerTests: XCTestCase {
 
+  func testConnectingNonKeySceneControllerHasCaptureAndTimezoneBeforeActivation() throws {
+    let delegate = AppDelegate()
+    defer {
+      CFNotificationCenterRemoveEveryObserver(
+        CFNotificationCenterGetDarwinNotifyCenter(),
+        UnsafeRawPointer(Unmanaged.passUnretained(delegate).toOpaque()))
+    }
+    let first = ChannelTestController(name: "connecting-scene-channel-test")
+    let window = UIWindow(frame: .zero)
+    window.rootViewController = first
+    XCTAssertFalse(window.isKeyWindow)
+    delegate.configureNativeCaptureChannelIfNeeded(controller: first)
+    delegate.configureDeviceTimezoneChannelIfNeeded(controller: first)
+    let capture = "money_companion/native_capture"
+    let timezone = "mali/device_timezone"
+    XCTAssertEqual(try first.messages.invoke(capture, method: "hasSmsPermission") as? Bool, false)
+    XCTAssertFalse((try first.messages.invoke(timezone, method: "getLocalTimezone") as? String ?? "").isEmpty)
+    let registrations = first.messages.registrations
+    delegate.configureNativeCaptureChannelIfNeeded(controller: first)
+    delegate.configureDeviceTimezoneChannelIfNeeded(controller: first)
+    XCTAssertEqual(first.messages.registrations, registrations)
+
+    let next = ChannelTestController(name: "reconnecting-scene-channel-test")
+    delegate.configureNativeCaptureChannelIfNeeded(controller: next)
+    delegate.configureDeviceTimezoneChannelIfNeeded(controller: next)
+    XCTAssertNil(first.messages.handlers[capture])
+    XCTAssertNil(first.messages.handlers[timezone])
+    XCTAssertEqual(try next.messages.invoke(capture, method: "hasSmsPermission") as? Bool, false)
+    XCTAssertFalse((try next.messages.invoke(timezone, method: "getLocalTimezone") as? String ?? "").isEmpty)
+  }
+
   func testNotificationLogConsumePreservesForeignLegacyAndUnboundOrigins() throws {
     resetSnapshotState()
     defer { resetSnapshotState() }
@@ -1007,7 +1038,7 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(try items().map { $0.reviewState }, before.map { $0.reviewState })
   }
 
-  // CAP-7: the App Intent banner owner rule and the generic text, pinned in the
+  // CAP-7: the App Intent banner wiring and the generic fallback text, pinned in the
   // source (the intent target is not importable from RunnerTests).
   func testNotifyV2OwnerRuleAndGenericTextAreWiredInTheIntent() throws {
     let root = URL(fileURLWithPath: #filePath)
@@ -1019,11 +1050,14 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(source.contains("response.pushAttempted ?? response.pushSent"))
     XCTAssertTrue(source.contains("json[\"push_attempted\"] as? Bool"))
     XCTAssertTrue(source.contains("\"New transaction captured\""))
-    let generic = try XCTUnwrap(source.range(of: "private func scheduleGenericCaptureNotification"))
-    let body = String(source[generic.lowerBound...].prefix(600))
-    for forbidden in ["amount", "merchant", "last4", "sender", "smsText", "PreviewParser"] {
-      XCTAssertFalse(body.contains(forbidden), "generic banner must not touch \(forbidden)")
+    let banner = try XCTUnwrap(source.range(of: "private func scheduleGenericCaptureNotification"))
+    let body = String(source[banner.lowerBound...].prefix(400))
+    XCTAssertTrue(body.contains("detailedCaptureNotification(aiDetail: aiDetail)"))
+    XCTAssertTrue(source.contains("aiDetail: response.aiDetail"))
+    for forbidden in ["sender", "response.notification"] {
+      XCTAssertFalse(body.contains(forbidden), "banner must not touch \(forbidden)")
     }
+    XCTAssertTrue(source.contains("await Self.removeDeliveredPushes(payloadID: payloadID)"))
   }
 
   // A1/A2 unbound recovery: hint, claim CAS preconditions, no mutation on failure.
@@ -1566,10 +1600,15 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(try egressState(ownerA), .uncertain)
     XCTAssertEqual(try egressState(ownerB), .uncertain, "an unreadable store denies every owner")
     XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
-    // A restrictive write repairs the corrupt file (a valid OFF in either store wins).
-    try SharedCaptureStore.setCloudEgressState(
-      state: "OFF", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 3)
-    XCTAssertEqual(try egressState(ownerA), .record(rec("OFF", 2)))
+    // Unknown version frontier: even restriction refuses repair and preserves
+    // both stores byte-for-byte. Admission remains fail-closed.
+    let before = try rawState()
+    XCTAssertThrowsError(try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 3))
+    XCTAssertEqual(try rawState(), before)
+    XCTAssertEqual(try egressState(ownerA), .uncertain)
+    XCTAssertEqual(SharedCaptureStore.authorizeUpload(payloadID: id), .localOnly)
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
   }
 
   // D5 (native): an UNREADABLE Keychain copy denies (never "treated as absent").
@@ -1922,6 +1961,164 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(published.egress.allSatisfy { $0.outcome == .verified && $0.state == "OFF" })
     XCTAssertEqual(try revokeLifetime(ownerA, op).status, .ownerMismatch)
     XCTAssertEqual(try finish(ownerA, op).status, .noBarrier)
+  }
+
+  func testFreshRestrictivePublicationAfterCounterResetIsStrictlyNewer() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    XCTAssertEqual(try finish(ownerA, op).status, .done)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+    let retiredGeneration = try XCTUnwrap(op.ownerGeneration)
+    // The app-group counter was reset (reinstall) while the Keychain survived.
+    appGroupDefaults.set(0, forKey: "capture_owner_generation_v1")
+    let published = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 4, expectedEpoch: try SharedCaptureStore.ownerEpoch())
+    XCTAssertEqual(published.status, .done)
+    let owner = try XCTUnwrap(published.owner)
+    XCTAssertGreaterThan(owner.generation, retiredGeneration)
+    XCTAssertEqual(appGroupDefaults.integer(forKey: "capture_owner_generation_v1"), owner.generation)
+    XCTAssertEqual(published.egress.count, 2)
+    XCTAssertTrue(published.egress.allSatisfy { $0.outcome == .verified && $0.state == "OFF" })
+    // Neither the old retirement nor the old enable completion touches the new lifetime.
+    let fileBefore = try Data(contentsOf: egressFileURL)
+    XCTAssertEqual(try revokeLifetime(ownerA, op).status, .ownerMismatch)
+    XCTAssertEqual(try finish(ownerA, op).status, .noBarrier)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), fileBefore)
+  }
+
+  func testRestrictivePublicationForAbsentRecordIsCompleteOffAndPendingConflicts() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let absent = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 1, expectedEpoch: try SharedCaptureStore.ownerEpoch())
+    XCTAssertEqual(absent.status, .done)
+    XCTAssertEqual(absent.egress.count, 2)
+    XCTAssertTrue(absent.egress.allSatisfy { $0.outcome == .verified && $0.state == "OFF" })
+    // A pending enable of the same owner is never acknowledged or cleared.
+    let op = try begin(ownerA, 3, 4)
+    let pending = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 4, expectedEpoch: try SharedCaptureStore.ownerEpoch())
+    XCTAssertEqual(pending.status, .conflict)
+    XCTAssertNil(pending.owner)
+    XCTAssertNotEqual(try finish(ownerA, op).status, .ownerMismatch)
+  }
+
+  func testRecoveryPublicationRequiresInspectedOffEvidenceAndNeverLowers() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    let first = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 2, expectedEpoch: epoch)
+    XCTAssertEqual(first.status, .done)
+    let lifetimeGeneration = try XCTUnwrap(first.owner?.generation)
+    let before = try Data(contentsOf: egressFileURL)
+    let kcBefore = SnapshotTestKeychain.read(forKey: egressKC).data
+    // A supplied version below the stored frontier is still refused (stale).
+    XCTAssertEqual(try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 1, expectedEpoch: epoch).status, .stale)
+    // The inspected evidence must match exactly and the version must be above it.
+    for (tg, rv, v, lg, le) in [
+      (0, 1, 3, lifetimeGeneration, epoch), (5, 2, 3, lifetimeGeneration, epoch),
+      (0, 2, 2, lifetimeGeneration, epoch),
+      (0, 2, 3, lifetimeGeneration + 1, epoch), (0, 2, 3, lifetimeGeneration, epoch + 1),
+    ] {
+      let refused = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+        uid: ownerA, version: v, expectedEpoch: epoch,
+        recover: (tg, rv, lg, le))
+      XCTAssertEqual(refused.status, .conflict, "\(tg) \(rv) \(v) \(lg) \(le)")
+      XCTAssertNil(refused.owner)
+    }
+    // An unbound expectation does not match a lifetime-bound record.
+    XCTAssertEqual(try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 3, expectedEpoch: epoch, recover: (0, 2, nil, nil)).status,
+      .conflict)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), before)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, kcBefore)
+    let recovered = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 3, expectedEpoch: epoch,
+      recover: (0, 2, lifetimeGeneration, epoch))
+    XCTAssertEqual(recovered.status, .done)
+    XCTAssertEqual(recovered.egress.count, 2)
+    XCTAssertTrue(recovered.egress.allSatisfy {
+      $0.outcome == .verified && $0.state == "OFF" && $0.reservedVersion == 3 })
+    XCTAssertEqual(try egressRecord(file: ownerA)?.reservedVersion, 3)
+    XCTAssertEqual(try egressRecord(keychain: ownerA)?.reservedVersion, 3)
+    // The old inspected frontier no longer holds: a replay changes nothing.
+    let after = try Data(contentsOf: egressFileURL)
+    XCTAssertEqual(try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 4, expectedEpoch: epoch,
+      recover: (0, 2, lifetimeGeneration, epoch)).status, .conflict)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), after)
+  }
+
+  func testRecoveryPublicationAcceptsAnAgreedUnboundLegacyRecord() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 20, reservedVersion: 2)
+    // A lifetime-bound expectation does not match the unbound record.
+    XCTAssertEqual(try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 3, expectedEpoch: epoch, recover: (20, 2, 1, epoch)).status,
+      .conflict)
+    let recovered = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 3, expectedEpoch: epoch, recover: (20, 2, nil, nil))
+    XCTAssertEqual(recovered.status, .done)
+    XCTAssertTrue(recovered.egress.allSatisfy {
+      $0.outcome == .verified && $0.state == "OFF" && $0.reservedVersion == 3
+        && $0.transitionGeneration == 20 }, "the transition generation is kept")
+  }
+
+  func testRecoveryPublicationRefusesLayersNamingDifferentLifetimes() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    let first = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 2, expectedEpoch: epoch)
+    let lifetimeGeneration = try XCTUnwrap(first.owner?.generation)
+    // The file layer names another lifetime than the keychain layer.
+    let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    var map = try JSONDecoder().decode(SharedCaptureStore.CloudEgressMap.self,
+      from: try Data(contentsOf: egressFileURL))
+    let held = try XCTUnwrap(map.owners[hash])
+    map.owners[hash] = SharedCaptureStore.CloudEgressRecord(
+      state: held.state, transitionGeneration: held.transitionGeneration,
+      reservedVersion: held.reservedVersion,
+      lifetimeOwnerGeneration: lifetimeGeneration + 7,
+      lifetimeOwnerEpoch: held.lifetimeOwnerEpoch)
+    try JSONEncoder().encode(map).write(to: egressFileURL)
+    let before = try Data(contentsOf: egressFileURL)
+    let kcBefore = SnapshotTestKeychain.read(forKey: egressKC).data
+    for lg in [lifetimeGeneration, lifetimeGeneration + 7] {
+      let refused = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+        uid: ownerA, version: 3, expectedEpoch: epoch, recover: (0, 2, lg, epoch))
+      XCTAssertEqual(refused.status, .conflict)
+    }
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), before)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, kcBefore)
+  }
+
+  func testRecoveryPublicationRefusesAPendingOperation() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    let first = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 2, expectedEpoch: epoch)
+    let lifetimeGeneration = try XCTUnwrap(first.owner?.generation)
+    _ = try begin(ownerA, 3, 4)
+    let before = try Data(contentsOf: egressFileURL)
+    XCTAssertEqual(try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 5, expectedEpoch: epoch,
+      recover: (0, 2, lifetimeGeneration, epoch)).status, .conflict)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), before)
   }
 
   // MARK: - Lifetime retirement covers every enable transition (Astra A1, section 2b)
@@ -2301,6 +2498,47 @@ class RunnerTests: XCTestCase {
       pendingFile: rawPending(file: true), pendingKeychain: rawPending(file: false),
       owner: try SharedCaptureStore.activeOwner(), epoch: try SharedCaptureStore.ownerEpoch(),
       generationCounter: appGroupDefaults.integer(forKey: "capture_owner_generation_v1"))
+  }
+
+  func testSnapshotFailureVocabularyAndReadOnlyStages() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let mappings: [(Error, String)] = [
+      (SharedCaptureStore.QueueError.keyUnavailable(errSecInteractionNotAllowed), "interaction_not_allowed"),
+      (SharedCaptureStore.QueueError.keyUnavailable(errSecMissingEntitlement), "missing_entitlement"),
+      (SharedCaptureStore.QueueError.keyUnavailable(errSecDecode), "decode"),
+      (SharedCaptureStore.QueueError.keyUnavailable(-99999), "key_other"),
+      (SharedCaptureStore.QueueError.unreadable, "unreadable"),
+      (SharedCaptureStore.QueueError.lockUnavailable, "lock_unavailable"),
+      (NSError(domain: "private", code: 123), "unexpected")
+    ]
+    for (error, category) in mappings {
+      for stage in [SharedCaptureStore.SnapshotStage.lock, .barrier, .activeowner,
+                    .hmac, .ownerlesshint, .inflight] {
+        XCTAssertEqual(SharedCaptureStore.SnapshotFailure(underlying: error, stage: stage).details,
+                       ["contract": "snapshot_v1", "stage": stage.rawValue, "category": category])
+      }
+    }
+    let before = try rawState()
+    SharedCaptureStore.lockUnavailableOverride = true
+    XCTAssertThrowsError(try SharedCaptureStore.diagnosticCloudEgressState(forUid: "")) {
+      XCTAssertEqual(($0 as? SharedCaptureStore.SnapshotFailure)?.details,
+                     ["contract": "snapshot_v1", "stage": "lock", "category": "lock_unavailable"])
+    }
+    XCTAssertThrowsError(try SharedCaptureStore.cloudEgressState(forUid: "")) {
+      guard case SharedCaptureStore.QueueError.lockUnavailable = $0 else {
+        return XCTFail("original throwing API changed")
+      }
+    }
+    SharedCaptureStore.lockUnavailableOverride = false
+    XCTAssertEqual(try rawState(), before)
+    SharedCaptureStore.ownerRecordReadOverride = { (errSecInteractionNotAllowed, nil) }
+    XCTAssertThrowsError(try SharedCaptureStore.diagnosticCloudEgressState(forUid: "")) {
+      XCTAssertEqual(($0 as? SharedCaptureStore.SnapshotFailure)?.details,
+                     ["contract": "snapshot_v1", "stage": "activeowner", "category": "interaction_not_allowed"])
+    }
+    SharedCaptureStore.ownerRecordReadOverride = nil
+    XCTAssertEqual(try rawState(), before)
   }
 
   /// Snapshot uncertain + native admission denied, with every raw store unchanged.
@@ -2941,6 +3179,82 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(unreadable.status, .uncertain)
     XCTAssertEqual(try Data(contentsOf: egressFileURL), garbage)
     XCTAssertNil(try egressRecord(keychain: ownerA))
+  }
+
+  func testGenericRestrictionPreservesHigherVersionInBothLegacyAndBoundLayers() throws {
+    for bound in [false, true] {
+      resetCapSeams()
+      defer { resetCapSeams() }
+      try ensureOwner(ownerA)
+      let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+      let owner = try XCTUnwrap(SharedCaptureStore.activeOwner())
+      let epoch = try SharedCaptureStore.ownerEpoch()
+      func entry(_ generation: Int, _ version: Int) -> SharedCaptureStore.CloudEgressRecord {
+        SharedCaptureStore.CloudEgressRecord(state: "ON", transitionGeneration: generation,
+          reservedVersion: version, lifetimeOwnerGeneration: bound ? owner.generation : nil,
+          lifetimeOwnerEpoch: bound ? epoch : nil)
+      }
+      try JSONEncoder().encode(SharedCaptureStore.CloudEgressMap(owners: [hash: entry(30, 3)]))
+        .write(to: egressFileURL)
+      let keychain = try JSONEncoder().encode(SharedCaptureStore.CloudEgressMap(owners: [hash: entry(20, 9)]))
+      XCTAssertEqual(SnapshotTestKeychain.writeData(keychain, forKey: egressKC), errSecSuccess)
+      try SharedCaptureStore.setCloudEgressState(state: "DISABLING", ownerUid: ownerA,
+        transitionGeneration: 31, reservedVersion: 1)
+      XCTAssertEqual(try egressRecord(file: ownerA)?.reservedVersion, 9)
+      XCTAssertEqual(try egressRecord(keychain: ownerA)?.reservedVersion, 9)
+      try SharedCaptureStore.setCloudEgressState(state: "OFF", ownerUid: ownerA,
+        transitionGeneration: 31, reservedVersion: 1)
+      XCTAssertEqual(try egressRecord(file: ownerA)?.state, "OFF")
+      XCTAssertEqual(try egressRecord(keychain: ownerA)?.state, "OFF")
+      XCTAssertEqual(try egressRecord(file: ownerA)?.reservedVersion, 9)
+      XCTAssertEqual(try egressRecord(keychain: ownerA)?.reservedVersion, 9)
+      let retired = try SharedCaptureStore.revokeCaptureAuthorizationLifetime(
+        ownerUid: ownerA, operationId: foreignOperationId, transitionGeneration: 31,
+        reservedVersion: 1, ownerGeneration: owner.generation, ownerEpoch: epoch)
+      XCTAssertEqual(retired.status, .done)
+      XCTAssertEqual(try egressRecord(file: ownerA)?.reservedVersion, 9)
+      XCTAssertEqual(try egressRecord(keychain: ownerA)?.reservedVersion, 9)
+    }
+  }
+
+  func testGenericBoundWriterChecksBothGenerationsBeforeAnyWrite() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try ensureOwner(ownerA)
+    let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    let owner = try XCTUnwrap(SharedCaptureStore.activeOwner())
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    func entry(_ generation: Int) -> SharedCaptureStore.CloudEgressRecord {
+      SharedCaptureStore.CloudEgressRecord(state: "ON", transitionGeneration: generation,
+        reservedVersion: 9, lifetimeOwnerGeneration: owner.generation, lifetimeOwnerEpoch: epoch)
+    }
+    try JSONEncoder().encode(SharedCaptureStore.CloudEgressMap(owners: [hash: entry(20)]))
+      .write(to: egressFileURL)
+    XCTAssertEqual(SnapshotTestKeychain.writeData(
+      try JSONEncoder().encode(SharedCaptureStore.CloudEgressMap(owners: [hash: entry(40)])),
+      forKey: egressKC), errSecSuccess)
+    let before = try rawState()
+    XCTAssertThrowsError(try SharedCaptureStore.setCloudEgressState(state: "OFF", ownerUid: ownerA,
+      transitionGeneration: 31, reservedVersion: 1))
+    XCTAssertEqual(try rawState(), before)
+  }
+
+  func testWriteOnRefusesOlderGenerationHigherVersionWithoutChangingBytes() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let op = try begin(ownerA, 30, 3)
+    let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    var map = SharedCaptureStore.CloudEgressMap()
+    map.owners[hash] = SharedCaptureStore.CloudEgressRecord(
+      state: "OFF", transitionGeneration: 20, reservedVersion: 9)
+    let bytes = try JSONEncoder().encode(map)
+    try bytes.write(to: egressFileURL)
+    XCTAssertEqual(SnapshotTestKeychain.writeData(bytes, forKey: egressKC), errSecSuccess)
+    let before = try rawState()
+    XCTAssertEqual(try writeOn(ownerA, op).status, .stale)
+    let after = try rawState()
+    XCTAssertEqual(after.egressFile, before.egressFile)
+    XCTAssertEqual(after.egressKeychain, before.egressKeychain)
   }
 
   // 10: mixed old OFF in one layer + the operation's ON in the other: only the
@@ -3867,4 +4181,42 @@ private enum SnapshotTestKeychain {
     add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     return SecItemAdd(add as CFDictionary, nil)
   }
+}
+
+private final class ChannelTestMessenger: NSObject, FlutterBinaryMessenger {
+  var handlers: [String: FlutterBinaryMessageHandler] = [:]
+  var registrations = 0
+  private var channels: [Int64: String] = [:]
+  func send(onChannel channel: String, message: Data?) {}
+  func send(onChannel channel: String, message: Data?, binaryReply callback: FlutterBinaryReply?) {
+    callback?(nil)
+  }
+  func setMessageHandlerOnChannel(_ channel: String,
+      binaryMessageHandler handler: FlutterBinaryMessageHandler?) -> FlutterBinaryMessengerConnection {
+    registrations += 1
+    let connection = Int64(registrations)
+    channels[connection] = channel
+    handlers[channel] = handler
+    return connection
+  }
+  func cleanUpConnection(_ connection: FlutterBinaryMessengerConnection) {
+    if let channel = channels.removeValue(forKey: connection) { handlers[channel] = nil }
+  }
+  func invoke(_ channel: String, method: String) throws -> Any? {
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    var reply: Data?
+    handlers[channel]?(codec.encode(FlutterMethodCall(methodName: method, arguments: nil))) {
+      reply = $0
+    }
+    return try codec.decodeEnvelope(XCTUnwrap(reply))
+  }
+}
+
+private final class ChannelTestController: FlutterViewController {
+  let messages = ChannelTestMessenger()
+  override var binaryMessenger: FlutterBinaryMessenger { messages }
+  init(name: String) {
+    super.init(project: nil, nibName: nil, bundle: nil)
+  }
+  required init(coder: NSCoder) { fatalError("Test controller has no storyboard") }
 }

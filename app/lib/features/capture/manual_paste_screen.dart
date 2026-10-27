@@ -244,7 +244,11 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
         ref.invalidate(dashboardDataProvider);
         await _openReview(
           addResult.transaction!.id,
-          feeNoticeFor(context, addResult.secondary),
+          [
+            pasteAnalysisNotice(context, addResult),
+            if (feeNoticeFor(context, addResult.secondary) case final notice?)
+              notice,
+          ].whereType<String>().join('\n'),
         );
       case AddTransactionOutcome.duplicate:
         refreshTransactions(ref);
@@ -278,10 +282,10 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
         }
       case AddTransactionOutcome.notTransaction:
         if (!SupabaseConfig.isConfigured) {
-          showTopError(context,
-              context.l10n.pasteAiOffline);
+          showTopError(context, context.l10n.pasteAiOffline);
         } else {
-          showTopError(context, _unreadableMessage(context, addResult.aiFailureReason));
+          showTopError(
+              context, _unreadableMessage(context, addResult.aiFailureReason));
         }
     }
   }
@@ -303,6 +307,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
       'message_ignored',
       'on_device_only',
     };
+    if (reason == 'consent_off') return context.l10n.pasteAiConsentOff;
     if (reason != null && notAttempted.contains(reason)) {
       // Local reading only — say so instead of blaming a service that was
       // never asked.
@@ -391,6 +396,9 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
             context.l10n.pasteHint,
             style: AppTypography.caption(c.textMuted),
           ),
+          const SizedBox(height: AppSpacing.s2),
+          Text(context.l10n.pasteAnalysisHowItWorks,
+              style: AppTypography.caption(c.textMuted)),
           const SizedBox(height: AppSpacing.s2),
           TextField(
             controller: _controller,
@@ -504,8 +512,9 @@ class _PasteBatchItem {
   String statusLabel(BuildContext context,
       {Set<String> confirmedIds = const {}}) {
     return switch (addResult.outcome) {
-      AddTransactionOutcome.added =>
-        needsReview(confirmedIds: confirmedIds) ? context.l10n.pasteNeedsReview : context.l10n.pasteAdded,
+      AddTransactionOutcome.added => needsReview(confirmedIds: confirmedIds)
+          ? context.l10n.pasteNeedsReview
+          : context.l10n.pasteAdded,
       AddTransactionOutcome.duplicate => context.l10n.pasteDuplicate,
       AddTransactionOutcome.suspiciousDuplicate => context.l10n.pasteSimilar,
       AddTransactionOutcome.notTransaction => context.l10n.pasteNotUnderstood,
@@ -593,7 +602,9 @@ class _BatchProgressCard extends StatelessWidget {
               const SizedBox(width: AppSpacing.s2),
               Expanded(
                 child: Text(
-                  busy ? context.l10n.pasteAnalysing(processed, total) : context.l10n.pasteSummary,
+                  busy
+                      ? context.l10n.pasteAnalysing(processed, total)
+                      : context.l10n.pasteSummary,
                   style: AppTypography.subhead(c.textMain),
                 ),
               ),
@@ -609,7 +620,8 @@ class _BatchProgressCard extends StatelessWidget {
           ] else ...[
             const SizedBox(height: AppSpacing.s2),
             Text(
-              context.l10n.pasteSummaryLine(summary.added, summary.duplicate, summary.review, summary.failed),
+              context.l10n.pasteSummaryLine(summary.added, summary.duplicate,
+                  summary.review, summary.failed),
               style: AppTypography.caption(c.textMuted),
             ),
           ],
@@ -722,7 +734,8 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
                               ),
                               const SizedBox(height: 2),
                               Text(
-                                context.l10n.pasteAnalysedCount(widget.items.length),
+                                context.l10n
+                                    .pasteAnalysedCount(widget.items.length),
                                 style: AppTypography.caption(c.textMuted),
                               ),
                             ],
@@ -863,16 +876,29 @@ class _BatchResultTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: AppTypography.caption(statusColor),
                 ),
+                if (pasteAnalysisNotice(context, item.addResult)
+                    case final notice?)
+                  Text(notice, style: AppTypography.caption(c.textMuted)),
               ],
             ),
           ),
           const SizedBox(width: AppSpacing.s2),
           TextButton(
             onPressed: canOpen ? onOpen : null,
-            child: Text(needsReview ? context.l10n.pasteReview : context.l10n.commonOpenImperative),
+            child: Text(needsReview
+                ? context.l10n.pasteReview
+                : context.l10n.commonOpenImperative),
           ),
         ],
       ),
     );
   }
+}
+
+/// A duplicate's stored source says nothing about this paste attempt.
+String? pasteAnalysisNotice(BuildContext context, AddTransactionResult result) {
+  if (result.outcome != AddTransactionOutcome.added) return null;
+  return result.transaction?.source == TransactionSourceEntity.aiParsed
+      ? context.l10n.pasteReadWithAi
+      : context.l10n.pasteReadOnDevice;
 }

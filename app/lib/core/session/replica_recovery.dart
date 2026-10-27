@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:crypto/crypto.dart';
+
 import '../../data/db/app_database.dart';
 import '../../data/db/sql_value_codec.dart';
 import '../sync/conflict_policy.dart';
@@ -91,12 +93,123 @@ class ReplicaRecovery {
 
   /// Copies the device-local settings row (consent, preferences) so the pull into
   /// the fresh replica runs under the consent the user already gave; without it
-  /// the consent-gated pull would not run at all.
+  /// the consent-gated pull would not run at all. The result is EXACTLY ONE
+  /// settings row: the fresh replica's pristine seed (a different id, no consent,
+  /// nothing synced) is updated in place to the device's row. An ambiguous source
+  /// (not exactly one row) or a populated/ambiguous target is refused, never
+  /// merged, deleted from or resolved by an unordered `LIMIT 1`. The device-local
+  /// consent version watermark travels with it (it only ever rises).
   Future<void> seedDeviceLocalState() async {
     final rows = await _select(old, 'SELECT * FROM user_settings');
+    if (rows.length != 1) throw const RecoveryIncompleteException(1);
+    final source = await _fit('user_settings', rows.single);
+    final sourceKeys = source.keys.toList()..sort();
+    final fingerprint = sha256
+        .convert(utf8.encode(
+            jsonEncode({for (final key in sourceKeys) key: source[key]})))
+        .toString();
     await fresh.transaction(() async {
-      for (final r in rows) {
-        await _put('user_settings', r, verb: 'INSERT OR REPLACE');
+      final marker = await _one(fresh,
+          'SELECT seed_source_fingerprint FROM consent_version_watermark WHERE id = 1');
+      final priorSeed = marker?['seed_source_fingerprint'];
+      if (priorSeed != null && priorSeed != fingerprint) {
+        throw const RecoveryIncompleteException(1);
+      }
+      final seeded = await _select(fresh, 'SELECT * FROM user_settings');
+      if (seeded.length > 1) throw const RecoveryIncompleteException(1);
+      if (seeded.isEmpty) {
+        await _put('user_settings', rows.single);
+      } else {
+        final target = seeded.single;
+        if (priorSeed == fingerprint && target['id'] == source['id']) {
+          // The durable source fingerprint proves our own earlier seed.
+          // A retry after a crash is a no-op, provided the
+          // device-local consent still matches: a pull never touches it, so any
+          // difference is something else and is refused.
+          for (final c in const [
+            'cloud_consent_state',
+            'ai_consent_state',
+            'cloud_consent_version',
+            'ai_consent_version',
+            'cloud_consent_at',
+            'ai_consent_at',
+            'cloud_processing_enabled',
+            'ai_consent_granted',
+          ]) {
+            if (target[c] != source[c]) throw const RecoveryIncompleteException(1);
+          }
+        } else {
+          // Anything else must be EXACTLY the fresh default seed: every
+          // preference at its default, no consent, nothing bound to a server.
+          if (target['id'] == source['id'] || priorSeed != null) {
+            throw const RecoveryIncompleteException(1);
+          }
+          final defaults = <String, Object?>{
+            'display_name': null,
+            'phone_number': null,
+            'avatar_path': null,
+            'date_of_birth': null,
+            'country': 'SA',
+            'currency': 'SAR',
+            'language': fresh.initialLanguage,
+            'theme': 'system',
+            'input_method': 'auto',
+            'notifications_json': kDefaultSettingsNotificationsJson,
+            'db_encryption_key_ref': '',
+            'privacy_mode_enabled': 0,
+            'ai_consent_granted': 0,
+            'cloud_processing_enabled': 0,
+            'ai_consent_state': null,
+            'cloud_consent_state': null,
+            'cloud_consent_version': 0,
+            'ai_consent_version': 0,
+            'cloud_consent_at': null,
+            'ai_consent_at': null,
+            'server_id': null,
+            'synced_at': null,
+            'server_updated_at': null,
+            'sync_status': null,
+            'server_revision': null,
+            'planning_cutover_state': 1,
+            'merchant_personalization_enabled': 0,
+          };
+          if (target.keys.any((key) =>
+              !const {'id', 'created_at', 'updated_at'}.contains(key) &&
+              !defaults.containsKey(key))) {
+            throw const RecoveryIncompleteException(1);
+          }
+          for (final e in defaults.entries) {
+            if (target.containsKey(e.key) && target[e.key] != e.value) {
+              throw const RecoveryIncompleteException(1);
+            }
+          }
+          final cols = source.keys.toList();
+          await fresh.customStatement(
+            'UPDATE user_settings SET ${cols.map((c) => '$c = ?').join(', ')} '
+            'WHERE id = ?;',
+            [for (final c in cols) source[c], target['id']],
+          );
+        }
+      }
+      await fresh.customStatement(
+          'INSERT INTO consent_version_watermark(id, seed_source_fingerprint) '
+          'VALUES (1, ?) ON CONFLICT(id) DO UPDATE SET seed_source_fingerprint = excluded.seed_source_fingerprint',
+          [fingerprint]);
+      List<Rec> marks;
+      try {
+        marks = await _select(old,
+            'SELECT watermark, reserved FROM consent_version_watermark WHERE id = 1');
+      } catch (_) {
+        marks = const []; // an older replica without the table
+      }
+      if (marks.isNotEmpty) {
+        await fresh.customStatement(
+          'INSERT INTO consent_version_watermark(id, watermark, reserved) '
+          'VALUES (1, ?, 0) ON CONFLICT(id) DO UPDATE SET '
+          'watermark = MAX(watermark, excluded.watermark);',
+          // The reservation belongs to the old replica's operation: not copied.
+          [marks.single['watermark']],
+        );
       }
     });
   }
@@ -628,6 +741,10 @@ class ReplicaRecovery {
         missing++;
       }
     }
+    // Exactly one authoritative settings row before any pull or swap.
+    final settingsRows =
+        await _one(fresh, 'SELECT COUNT(*) AS n FROM user_settings');
+    if ((settingsRows?['n'] as int?) != 1) missing++;
     if (missing > 0) throw RecoveryIncompleteException(missing);
   }
 }

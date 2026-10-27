@@ -1,6 +1,8 @@
+import 'widgets/onboarding_language_button.dart';
 import '../../core/session/admission_authority.dart';
 
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -16,7 +18,6 @@ import '../../core/privacy/consent_authority.dart' show ConsentAuthority;
 import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
-import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/premium_glass_container.dart';
@@ -25,14 +26,14 @@ import 'widgets/word_reveal_text.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 
-/// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
-/// `color: "#021B79"`) and the rest of the pre-dashboard onboarding sequence.
-const _authBlue = AppBrandBlue.brand;
-
-/// The deep navy the hand/jar hero art (`banner_onboarding_1.jpg`) fades into.
-/// The screen blends from this at the top to [_authBlue] at the buttons so the
-/// hero melts seamlessly into the background.
+/// The deep navy of the hero art's lower half (`banner_onboarding_1.jpg`),
+/// shown behind it while it loads.
 const _authDeepNavy = Color(0xFF031322);
+
+/// Pixel size of the full-page hero (`banner_onboarding_1.jpg`) and where its
+/// emblem's gold ring ends, as a fraction of its height.
+const _heroSize = Size(600, 1200);
+const _heroEmblemBottom = 0.58;
 
 /// Whether this platform can complete Sign in with Apple.
 ///
@@ -174,43 +175,45 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         backgroundColor: _authDeepNavy,
         body: Stack(
           children: [
-            // Navy gradient behind everything: the hero's own deep navy up top,
-            // landing on the brand navy where the buttons sit.
-            const Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [_authDeepNavy, _authBlue],
-                    stops: [0.42, 1.0],
-                  ),
-                ),
-              ),
-            ),
             Column(
               children: [
-                // Tight-cropped hand/jar hero (ends just below the emblem in the
-                // image's own deep navy). Fills the band above the content; its
-                // navy foot fades into the matching background so there's no
-                // seam and no empty navy gap.
+                // The band above the content. The full-page hero is drawn from
+                // here at full-screen size and overflows down behind the
+                // content (its lower half is plain navy); on a short screen it
+                // is lifted so the emblem always ends just above the title.
                 Expanded(
-                  child: ShaderMask(
-                    shaderCallback: (rect) => const LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      colors: [Colors.white, Colors.white, Colors.transparent],
-                      stops: [0.0, 0.9, 1.0],
-                    ).createShader(rect),
-                    blendMode: BlendMode.dstIn,
-                    child: const Image(
-                      image: AssetImage(AppAssets.authHero),
-                      fit: BoxFit.cover,
-                      alignment: Alignment.topCenter,
-                    ),
+                  child: LayoutBuilder(
+                    builder: (context, band) {
+                      final screen = MediaQuery.sizeOf(context);
+                      final scale = math.max(
+                        screen.width / _heroSize.width,
+                        screen.height / _heroSize.height,
+                      );
+                      final width = _heroSize.width * scale;
+                      final height = _heroSize.height * scale;
+                      final top = math.min(
+                        0.0,
+                        band.maxHeight - 12 - _heroEmblemBottom * height,
+                      );
+                      return Stack(
+                        clipBehavior: Clip.none,
+                        children: [
+                          Positioned(
+                            top: top,
+                            left: (screen.width - width) / 2,
+                            width: width,
+                            height: height,
+                            child: const Image(
+                              image: AssetImage(AppAssets.bannerOnboarding1),
+                              fit: BoxFit.fill,
+                            ),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
-                // Title + subtitle + sign-in card, in the navy below the hero.
+                // Title + subtitle + sign-in card, on the photo's navy half.
                 SafeArea(
                   top: false,
                   child: Padding(
@@ -254,47 +257,16 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
                             children: [
                               if (appleSignInSupported) _appleButton(),
                               const SizedBox(height: 24),
-                              Wrap(
-                                alignment: WrapAlignment.center,
-                                spacing: 4,
-                                runSpacing: 6,
-                                children: [
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        AppLucideIcons.shieldCheck,
-                                        size: 14,
-                                        color: Colors.white54,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        l10n.authTrustLocalEncryption,
-                                        style: AppTypography.micro(
-                                          Colors.white54,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(width: 12),
-                                  Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const Icon(
-                                        AppLucideIcons.smartphone,
-                                        size: 14,
-                                        color: Colors.white54,
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(
-                                        l10n.authTrustOnDevice,
-                                        style: AppTypography.micro(
-                                          Colors.white54,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ],
+                              // One centred line per promise: a Wrap with a
+                              // spacer child pushed the first line off-centre.
+                              _trustLine(
+                                AppLucideIcons.shieldCheck,
+                                l10n.authTrustLocalEncryption,
+                              ),
+                              const SizedBox(height: 6),
+                              _trustLine(
+                                AppLucideIcons.smartphone,
+                                l10n.authTrustOnDevice,
                               ),
                               const SizedBox(height: 16),
                               Text(
@@ -313,9 +285,55 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
                 ),
               ],
             ),
+            // Status-bar scrim: the photo runs under the status bar and the
+            // language button, which sit on its bright sky otherwise.
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: MediaQuery.paddingOf(context).top + 64,
+              child: const IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0x8C000000), Color(0x00000000)],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const PositionedDirectional(
+              top: 0,
+              end: AppSpacing.gutter,
+              child: SafeArea(
+                child: Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: OnboardingLanguageButton(),
+                ),
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _trustLine(IconData icon, String text) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Icon(icon, size: 14, color: Colors.white54),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            text,
+            textAlign: TextAlign.center,
+            style: AppTypography.micro(Colors.white54),
+          ),
+        ),
+      ],
     );
   }
 

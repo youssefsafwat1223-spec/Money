@@ -119,11 +119,20 @@ class _Admission {
 /// success.
 enum NativeLifecycleOutcome { confirmed, incomplete, unknown }
 
+/// The verified owner proof behind a consent capability, or why there is none:
+/// [reason] is `owner_publication/<proof>[/<detail>]` built only from allowlisted
+/// constants. Diagnostic text; it grants nothing.
+class OwnerLifetimeProof {
+  const OwnerLifetimeProof(this.binding, this.reason);
+  final CloudEgressEnableBinding? binding;
+  final String reason;
+}
+
 /// One native authorization lifetime this process is publishing or holds, bound
 /// to the exact admission (uid, epoch, database) it belongs to. [binding] stays
-/// null until a verified restrictive receipt came back; the revocation request
-/// identity inside it is allocated once, so every retry of its fence is the same
-/// request. Nothing here is ever read back from the current owner.
+/// null until a verified restrictive receipt or exact pending-resume proof is
+/// accepted; the revocation request identity is allocated once, so every retry
+/// of its fence is the same request.
 class _NativeLifetime {
   _NativeLifetime(this.uid, this.epoch, this.database);
   final String uid;
@@ -133,6 +142,10 @@ class _NativeLifetime {
 
   /// Set synchronously by the loss that retired this lifetime.
   bool lost = false;
+
+  /// Allowlisted constant naming why its publication did not confirm (never an
+  /// identifier, message or number). Diagnostic only.
+  String? reason;
 
   /// Completes, never with an error, when its publication has settled.
   final Completer<NativeLifecycleOutcome> published =
@@ -508,6 +521,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// retry (a later explicit recovery owns clearing it).
   bool _fenceIncomplete = false;
 
+  /// The lifetimes whose outgoing fence was not confirmed (their exact binding is
+  /// kept so an explicit retry is the SAME revocation request) and the allowlisted
+  /// reason of the last failure.
+  final List<_NativeLifetime> _unconfirmedFences = [];
+  String? _fenceReason;
+
   /// Longest an admission waits for its publication, and a fence for its receipt.
   static const Duration _kNativePublishTimeout = Duration(seconds: 2);
   static const Duration _kNativeFenceTimeout = Duration(seconds: 10);
@@ -770,6 +789,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
         Future<NativeLifecycleOutcome>.value(NativeLifecycleOutcome.unknown);
     _nativeJobs = 0;
     _fenceIncomplete = false;
+    _unconfirmedFences.clear();
+    _fenceReason = null;
     _consentSdkClient = null;
     _admittedUid = null;
     _localReadLocked = false;
@@ -817,6 +838,15 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// lifetime. It publishes nothing, links nothing and grants no authority; it
   /// reads proof the admission already obtained.
   Future<CloudEgressEnableBinding?> committedOwnerLifetime(
+          ConsentCapability capability) async =>
+      (await _awaitOwnerProof(capability)).binding;
+
+  String _proofReason(String proof, [String? detail]) =>
+      detail == null ? 'owner_publication/$proof' : 'owner_publication/$proof/$detail';
+
+  String _fenceDetail() => _fenceReason ?? 'fence_unconfirmed';
+
+  Future<OwnerLifetimeProof> _awaitOwnerProof(
       ConsentCapability capability) async {
     bool matches(_NativeLifetime? l) =>
         l != null &&
@@ -826,24 +856,184 @@ class AppSession extends ValueNotifier<SessionStatus> {
         (capability.database == null ||
             identical(l.database, capability.database));
     final lifetime = _nativeLifetime;
-    if (!matches(lifetime) || !capability.isCurrent || _fenceIncomplete) {
-      return null;
+    if (lifetime == null) {
+      return OwnerLifetimeProof(null, _proofReason('no_lifetime', 'not_attempted'));
+    }
+    if (lifetime.lost) return OwnerLifetimeProof(null, _proofReason('lifetime_lost'));
+    if (!matches(lifetime)) return OwnerLifetimeProof(null, _proofReason('mismatch'));
+    if (!capability.isCurrent) {
+      return OwnerLifetimeProof(null, _proofReason('not_current'));
+    }
+    if (_fenceIncomplete) {
+      return OwnerLifetimeProof(
+          null, _proofReason('fence_incomplete', _fenceDetail()));
     }
     NativeLifecycleOutcome outcome;
     try {
-      outcome = await lifetime!.published.future
+      outcome = await lifetime.published.future
           .timeout(_kNativePublishTimeout + _kNativeFenceTimeout);
     } catch (_) {
-      return null;
+      return OwnerLifetimeProof(null, _proofReason('wait_timeout'));
     }
-    if (outcome != NativeLifecycleOutcome.confirmed ||
-        !identical(_nativeLifetime, lifetime) ||
-        !matches(lifetime) ||
-        !capability.isCurrent ||
-        _fenceIncomplete) {
-      return null;
+    if (!identical(_nativeLifetime, lifetime)) {
+      return OwnerLifetimeProof(null, _proofReason('replaced'));
     }
-    return lifetime.binding;
+    if (!matches(lifetime)) {
+      return OwnerLifetimeProof(null, _proofReason('lifetime_lost'));
+    }
+    if (!capability.isCurrent) {
+      return OwnerLifetimeProof(null, _proofReason('not_current'));
+    }
+    if (_fenceIncomplete) {
+      return OwnerLifetimeProof(
+          null, _proofReason('fence_incomplete', _fenceDetail()));
+    }
+    if (outcome != NativeLifecycleOutcome.confirmed || lifetime.binding == null) {
+      return OwnerLifetimeProof(
+          null,
+          _proofReason('publication_incomplete',
+              lifetime.reason ?? 'not_attempted'));
+    }
+    return OwnerLifetimeProof(lifetime.binding, '');
+  }
+
+  /// Enable Phase 1's owner prerequisite. Like [committedOwnerLifetime], but when
+  /// this process holds no confirmed native proof for the capability's lifetime
+  /// (a returning same-marker admission publishes none) the explicit enable
+  /// authorizes ONE bounded restrictive publication for exactly that capability,
+  /// uid, writable scope and database. Existing confirmed proof is returned
+  /// unchanged. No admission or local-operation drain, no timer, no wait on the
+  /// calling enable. An unconfirmed outgoing fence is retried as the SAME local
+  /// revocation and only an exactly confirmed retirement (with no other
+  /// unresolved fence) reopens publication; otherwise it stays denied.
+  Future<OwnerLifetimeProof> ensureCommittedOwnerLifetime(
+      ConsentCapability capability,
+      {RestrictivePublishPlan? plan}) async {
+    final scope = _accountScope?.activeScope;
+    bool valid() {
+      final live = _accountScope?.activeScope;
+      return capability.isCurrent &&
+          scope != null &&
+          identical(live, scope) &&
+          !scope.isLocalRead &&
+          !scope.database.isReadOnly &&
+          scope.uid == capability.uid &&
+          (capability.database == null ||
+              identical(scope.database, capability.database)) &&
+          scope.database.lifecycleState == DatabaseLifecycleState.open &&
+          _sdkSessionFresh(capability.uid);
+    }
+
+    if (!valid()) return OwnerLifetimeProof(null, _proofReason('not_current'));
+    if (_fenceIncomplete) {
+      await _retryUnconfirmedFences();
+      if (!valid()) return OwnerLifetimeProof(null, _proofReason('not_current'));
+      if (_fenceIncomplete) {
+        return OwnerLifetimeProof(
+            null, _proofReason('fence_incomplete', _fenceDetail()));
+      }
+    }
+    final held = _nativeLifetime;
+    final heldUsable = held != null &&
+        !held.lost &&
+        held.uid == capability.uid &&
+        held.epoch == capability.epoch &&
+        identical(held.database, scope!.database) &&
+        (held.binding != null || !held.published.isCompleted);
+    if (!heldUsable) {
+      if (_publishCaptureOwner == null) {
+        return OwnerLifetimeProof(
+            null, _proofReason('publication_incomplete', 'hook_missing'));
+      }
+      final authority = _authorityAt(capability.epoch, capability.uid,
+          canCreate: false, sessionCurrent: valid);
+      if (!authority.isCurrent) {
+        return OwnerLifetimeProof(
+            null, _proofReason('publication_incomplete', 'authority'));
+      }
+      final before = _nativeLifetime;
+      _explicitPublish = plan == null ? null : (authority: authority, plan: plan);
+      try {
+        await _publishNativeLifetime(_Admission(capability.uid, authority));
+      } finally {
+        _explicitPublish = null;
+      }
+      if (!identical(_nativeLifetime, before) && _nativeLifetime == null) {
+        return OwnerLifetimeProof(null, _proofReason('lifetime_lost'));
+      }
+      if (identical(_nativeLifetime, before)) {
+        // Nothing was queued: the publication guard refused it before any job.
+        return OwnerLifetimeProof(
+            null, _proofReason('publication_incomplete', 'scope'));
+      }
+    }
+    return _awaitOwnerProof(capability);
+  }
+
+  /// Explicit enable only: restore fencing ownership of an already-live native
+  /// lifetime after a cold restart. Never publishes or clears a pending denial.
+  Future<OwnerLifetimeProof> resumeCommittedOwnerLifetime(
+      ConsentCapability capability, PendingEnableLifetimeProof proof) async {
+    final scope = _accountScope?.activeScope;
+    final before = _nativeLifetime;
+    bool valid() => capability.isCurrent && identical(_consentCapability, capability) &&
+        scope != null && identical(_accountScope?.activeScope, scope) &&
+        !scope.isLocalRead && !scope.database.isReadOnly &&
+        scope.uid == capability.uid && identical(capability.database, scope.database) &&
+        scope.database.lifecycleState == DatabaseLifecycleState.open &&
+        _sdkSessionFresh(capability.uid) && !_fenceIncomplete &&
+        _unconfirmedFences.isEmpty && _nativeJobs == 0 && identical(_nativeLifetime, before);
+    if (!valid()) return OwnerLifetimeProof(null, _proofReason('not_current'));
+    final b = proof.pending.binding;
+    if (b == null || (before != null && (before.lost || before.uid != capability.uid ||
+        before.epoch != capability.epoch || !identical(before.database, scope!.database) ||
+        before.binding?.ownerGeneration != b.ownerGeneration ||
+        before.binding?.ownerEpoch != b.ownerEpoch || !before.published.isCompleted))) {
+      return OwnerLifetimeProof(null, _proofReason('mismatch'));
+    }
+    try {
+      await proof.verify(capability);
+      if (!valid()) return OwnerLifetimeProof(null, _proofReason('not_current'));
+    } catch (_) {
+      return OwnerLifetimeProof(null, _proofReason('mismatch'));
+    }
+    if (before != null) return _awaitOwnerProof(capability);
+    final random = Random.secure();
+    final lifetime = _NativeLifetime(capability.uid, capability.epoch, scope!.database);
+    lifetime.binding = CloudEgressEnableBinding(
+        operationId: [for (var i = 0; i < 16; i++)
+          random.nextInt(256).toRadixString(16).padLeft(2, '0')].join(),
+        transitionGeneration: b.transitionGeneration, reservedVersion: b.reservedVersion,
+        ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch);
+    lifetime.published.complete(NativeLifecycleOutcome.confirmed);
+    _nativeLifetime = lifetime;
+    return OwnerLifetimeProof(lifetime.binding, '');
+  }
+
+  ({AdmissionAuthority authority, RestrictivePublishPlan plan})? _explicitPublish;
+
+  /// The publication plan of the explicit Cloud enable that is publishing under
+  /// exactly [authority] right now (null for every ordinary admission).
+  RestrictivePublishPlan? explicitPublishPlanFor(AdmissionAuthority authority) {
+    final held = _explicitPublish;
+    return held != null && identical(held.authority, authority)
+        ? held.plan
+        : null;
+  }
+
+  /// Retries each outgoing fence that was not confirmed, as the same revocation
+  /// request. The blocker clears only when none remains unresolved.
+  Future<void> _retryUnconfirmedFences() async {
+    if (_unconfirmedFences.isEmpty) return;
+    final gate = CloudEgressGate.instance;
+    for (final lifetime in List.of(_unconfirmedFences)) {
+      await _enqueueNative(() => _fenceLifetime(lifetime, gate));
+    }
+    if (_unconfirmedFences.isEmpty) {
+      _fenceIncomplete = false;
+      _fenceReason = null;
+      gate.releaseLifecycleDenial();
+    }
   }
 
   /// SYNCHRONOUS, before any await of any loss origin: ends the native lifetime
@@ -874,6 +1064,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       return NativeLifecycleOutcome.unknown;
     }
     var outcome = NativeLifecycleOutcome.incomplete;
+    var reason = 'fence_unconfirmed';
     try {
       final reply = await NativeCaptureBridge.revokeCaptureAuthorizationLifetime(
         ownerUid: lifetime.uid,
@@ -882,10 +1073,18 @@ class AppSession extends ValueNotifier<SessionStatus> {
       if (reply != null && reply.confirmsLifetimeRevoked(binding)) {
         outcome = NativeLifecycleOutcome.confirmed;
       }
+    } on TimeoutException {
+      reason = 'fence_timeout';
     } catch (_) {
-      // Failed, timed out or malformed: not a receipt.
+      // Failed or malformed: not a receipt.
     }
-    if (outcome != NativeLifecycleOutcome.confirmed) _fenceIncomplete = true;
+    if (outcome == NativeLifecycleOutcome.confirmed) {
+      _unconfirmedFences.remove(lifetime);
+    } else {
+      _fenceIncomplete = true;
+      _fenceReason = reason;
+      if (!_unconfirmedFences.contains(lifetime)) _unconfirmedFences.add(lifetime);
+    }
     if (!_fenceIncomplete) gate.releaseLifecycleDenial();
     return outcome;
   }
@@ -921,16 +1120,30 @@ class AppSession extends ValueNotifier<SessionStatus> {
       var outcome = NativeLifecycleOutcome.incomplete;
       if (_fenceIncomplete) {
         // An unconfirmed fence keeps every later publication closed.
+        lifetime.reason = _fenceDetail();
       } else if (lifetime.lost || !authority.isCurrent) {
         outcome = NativeLifecycleOutcome.unknown;
+        lifetime.reason = 'authority';
       } else {
         try {
           final Future<Object?> reply = publish(adm.uid, authority);
-          lifetime.binding = _lifetimeBinding(
-              adm.uid, await reply.timeout(_kNativePublishTimeout));
-          if (lifetime.binding != null) outcome = NativeLifecycleOutcome.confirmed;
+          final answer = await reply.timeout(_kNativePublishTimeout);
+          if (answer is RestrictiveOwnerRefusal) lifetime.reason = answer.reason;
+          lifetime.binding = _lifetimeBinding(adm.uid, answer);
+          if (lifetime.binding != null) {
+            outcome = NativeLifecycleOutcome.confirmed;
+          } else {
+            lifetime.reason ??= answer == null
+                ? 'receipt_null'
+                : answer is RestrictiveCaptureOwnerReceipt
+                    ? 'binding_rejected'
+                    : 'receipt_unconfirmed';
+          }
+        } on TimeoutException {
+          lifetime.reason = 'timeout';
         } catch (_) {
-          // Failed or timed out: no receipt, so no native proof is claimed.
+          // Failed: no receipt, so no native proof is claimed.
+          lifetime.reason = 'hook_error';
         }
       }
       if (outcome == NativeLifecycleOutcome.confirmed &&
@@ -3790,6 +4003,25 @@ class AppSession extends ValueNotifier<SessionStatus> {
         status == SessionStatus.authenticated;
   }
 
+  /// Capture before starting repository work, never when its error arrives.
+  /// A response for an older admission or credential cannot revoke its successor.
+  Future<void> Function() captureAuthRequiredFailure(
+    supabase.SupabaseClient? client,
+  ) {
+    final epoch = _admissionEpoch;
+    final sdk = client?.auth.currentSession;
+    return () async {
+      final actual = client?.auth.currentSession;
+      if (epoch != _admissionEpoch ||
+          _explicitAdmissionEpoch != null ||
+          actual?.user.id != sdk?.user.id ||
+          actual?.accessToken != sdk?.accessToken) {
+        return;
+      }
+      await handleAuthRequiredFailure();
+    };
+  }
+
   /// Called by a Supabase-primary repository consumer (see
   /// `RepoException`/`AuthRepoException`) when a call fails specifically
   /// because there is no valid authenticated session. Downgrades status to
@@ -3802,9 +4034,10 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<void> handleAuthRequiredFailure() async {
     if (isGuest || authMethod == null) return;
     // auth_required with an unknown cause is never read as harmless expiry.
-    await _denyLocalRead();
-    if (value == SessionStatus.sessionExpired) return;
+    // Publish loss before durable cleanup yields: cleanup must never resume
+    // later and invalidate a successful intervening admission.
     markSessionInvalid();
+    await _denyLocalRead();
   }
 
   /// Downgrades an authenticated (or unknown) status to [sessionExpired]

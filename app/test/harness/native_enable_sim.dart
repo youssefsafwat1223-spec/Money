@@ -51,7 +51,7 @@ class NativeEnableSim {
 
   /// Native creates the owner HMAC key lazily. Successful restrictive owner
   /// publication or a fresh `begin` establishes it; before either, inspection
-  /// reports no egress layers (see `cloudEgressPending`).
+  /// reports two physically absent egress layers (see `cloudEgressPending`).
   bool hashKeyExists = false;
 
   /// Inspection knobs: the pending entry exists in ONE layer only (status
@@ -210,13 +210,35 @@ class NativeEnableSim {
               }
             : null;
       case 'publishRestrictiveCaptureOwner':
+        final pubFault = _faulted('publishRestrictive', fault);
+        if (pubFault is! _NoFault) return pubFault;
         final a = _args(call);
-        publishedVersion = a['version'] as int;
+        final requested = a['version'] as int;
+        // Native never accepts a version below the stored frontier.
+        if (egressState != null && egressVersion > requested) {
+          return _reply('publishRestrictive', 'stale');
+        }
+        // Recovery mode: both layers must still hold exactly the inspected OFF.
+        final expectedGeneration = a['expectedTransitionGeneration'];
+        if (expectedGeneration != null &&
+            (egressState != 'OFF' ||
+                pending != null ||
+                egressGeneration != expectedGeneration ||
+                egressVersion != a['expectedReservedVersion'] ||
+                egressOwnerGeneration != a['expectedLifetimeOwnerGeneration'] ||
+                egressOwnerEpoch != a['expectedLifetimeOwnerEpoch'] ||
+                requested <= egressVersion)) {
+          return _reply('publishRestrictive', 'conflict');
+        }
+        publishedVersion = requested;
         ownerAlive = true; // a restrictive publication creates the owner
         // A successful receipt reports the physical OFF records it persisted.
         hashKeyExists = true;
         egressState = 'OFF';
-        egressGeneration = publishedTransitionGeneration;
+        // Native never lowers a transition generation.
+        if (egressGeneration < publishedTransitionGeneration) {
+          egressGeneration = publishedTransitionGeneration;
+        }
         egressVersion = publishedVersion;
         egressOwnerGeneration = ownerGeneration;
         egressOwnerEpoch = a['expectedEpoch'] as int;
@@ -238,7 +260,7 @@ class NativeEnableSim {
                 'layer': layer,
                 'outcome': 'verified',
                 'state': 'OFF',
-                'transitionGeneration': publishedTransitionGeneration,
+                'transitionGeneration': egressGeneration,
                 'reservedVersion': a['version'],
                 'ownerGeneration': ownerGeneration,
                 'ownerEpoch': a['expectedEpoch'],
@@ -246,6 +268,8 @@ class NativeEnableSim {
           ],
         };
       case 'revokeCaptureAuthorizationLifetime':
+        final revokeFault = _faulted('revoke', fault);
+        if (revokeFault is! _NoFault) return revokeFault;
         final a = _args(call);
         return {
           'contractVersion': 1,
@@ -335,9 +359,14 @@ class NativeEnableSim {
             (generation == egressGeneration && rank < _rank[held]!))) {
       throw PlatformException(code: 'stale_generation');
     }
+    final requestedVersion = a['reservedVersion'] as int;
+    if (rank == 0 && requestedVersion < egressVersion) {
+      throw PlatformException(code: 'stale_generation');
+    }
     egressState = state;
     egressGeneration = generation;
-    egressVersion = a['reservedVersion'] as int;
+    egressVersion = rank > 0 && egressVersion > requestedVersion
+        ? egressVersion : requestedVersion;
     hashKeyExists = true;
     return null;
   }
@@ -496,16 +525,14 @@ class NativeEnableSim {
   Object? _inspect(SimFault fault) {
     final f = _faulted('inspect', fault);
     if (f is! _NoFault) return f;
-    List<Map<String, Object?>> egress() => !hashKeyExists
-        ? const []
-        : egressState == null
-            ? _egressLayers('absent')
-            : _egressLayers('verified',
-                state: egressState,
-                generation: egressGeneration,
-                version: egressVersion,
-                ownerGeneration: egressOwnerGeneration,
-                ownerEpoch: egressOwnerEpoch);
+    List<Map<String, Object?>> egress() => egressState == null
+        ? _egressLayers('absent')
+        : _egressLayers('verified',
+            state: egressState,
+            generation: egressGeneration,
+            version: egressVersion,
+            ownerGeneration: egressOwnerGeneration,
+            ownerEpoch: egressOwnerEpoch);
     if (pending == null) {
       return _reply('inspect', 'noBarrier', egress: egress());
     }

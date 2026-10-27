@@ -31,6 +31,7 @@ enum SharedCaptureStore {
   private static let consentMirrorKey = "capture_consent_mirror_v1"
   private static let contractV2Key = "capture_contract_v2"
   private static let notifyV2Key = "capture_notify_v2"
+  private static let hideCaptureDetailsKey = "capture_hide_details"
   private static let expiredUnboundCountKey = "capture_unbound_expired_count_v1"
   private static let expiredUnboundLastKey = "capture_unbound_expired_last_v1"
   private static let legacyKey = "pending_bank_message_text"
@@ -641,6 +642,17 @@ enum SharedCaptureStore {
   static func setCaptureNotifyV2(_ enabled: Bool) {
     defaults?.set(enabled, forKey: notifyV2Key)
     defaults?.synchronize()
+  }
+
+  /// Mirrors the user's "hide lock-screen content" preference for the App
+  /// Intent's capture banners (default false, as in Flutter).
+  static func setHideCaptureDetails(_ hide: Bool) {
+    defaults?.set(hide, forKey: hideCaptureDetailsKey)
+    defaults?.synchronize()
+  }
+
+  static var hidesCaptureDetails: Bool {
+    defaults?.bool(forKey: hideCaptureDetailsKey) ?? false
   }
 
   /// The device secret from the shared Keychain. A legacy UserDefaults value is
@@ -1679,12 +1691,15 @@ enum SharedCaptureStore {
   }
 
   /// Called only under the flock. No owner, key, mirror, epoch or record is written.
-  private static func ownerlessEgressSnapshot() throws -> EgressSnapshot {
+  private static func ownerlessEgressSnapshot(stage: (SnapshotStage) -> Void) throws -> EgressSnapshot {
+    stage(.barrier)
     guard try readBarrier() == nil else { return unc("ownerless_barrier") }
+    stage(.activeowner)
     guard try readActiveOwner() == nil else { return unc("ownerless_active_owner") }
     guard let store = defaults else { return unc("defaults_nil") }
     guard let epoch = snapshotCounter(ownerEpochKey, in: store) else { return unc("epoch_missing") }
     guard let generation = snapshotCounter(ownerGenerationKey, in: store) else { return unc("generation_missing") }
+    stage(.hmac)
     let key = try existingUidHmacKey()
     let view = egressView()
     guard !view.uncertain else { return unc("egress_view_uncertain") }
@@ -1705,6 +1720,7 @@ enum SharedCaptureStore {
     if !records.isEmpty {
       guard view.maps.count == 2, view.maps[0] == view.maps[1] else { return unc("record_copies_differ") }
     }
+    stage(.ownerlesshint)
     let hintRead = SharedKeychain.read(forKey: lastAdmittedHashKC)
     let hint: String?
     switch hintRead.status {
@@ -1725,6 +1741,7 @@ enum SharedCaptureStore {
       }
     }
     let mirrors = store.dictionary(forKey: consentMirrorKey) ?? [:]
+    stage(.inflight)
     let inflight = try readInflightRaw()
     guard inflight.allSatisfy({ validSnapshotHash($0.ownerHash) && !$0.payloadId.isEmpty
       && $0.deadline.isFinite && $0.deadline <= egressNow().timeIntervalSince1970 }) else { return unc("inflight_invalid") }
@@ -1744,19 +1761,57 @@ enum SharedCaptureStore {
     return .uncertain
   }
 
-  /// The reconciled state of [uid] (C.5): a valid DISABLING/OFF entry in EITHER
-  /// store wins (most restrictive, then newest).
+  /// Closed vocabulary for getter-only thrown failures.
+  enum SnapshotStage: String {
+    case lock, barrier, activeowner, hmac, ownerlesshint, inflight
+  }
+
+  struct SnapshotFailure: Error {
+    let underlying: Error
+    let stage: SnapshotStage
+    var details: [String: String] {
+      ["contract": "snapshot_v1", "stage": stage.rawValue, "category": Self.category(underlying)]
+    }
+    static func category(_ error: Error) -> String {
+      switch error as? QueueError {
+      case .lockUnavailable?: return "lock_unavailable"
+      case .unreadable?: return "unreadable"
+      case .keyUnavailable(let status)?:
+        switch status {
+        case errSecInteractionNotAllowed: return "interaction_not_allowed"
+        case errSecMissingEntitlement: return "missing_entitlement"
+        case errSecDecode: return "decode"
+        default: return "key_other"
+        }
+      default: return "unexpected"
+      }
+    }
+  }
+
+  /// Getter-only failure evidence. No mutable global failure state or raw values.
+  static func diagnosticCloudEgressState(forUid uid: String) throws -> EgressSnapshot {
+    var stage = SnapshotStage.lock
+    do { return try cloudEgressState(forUid: uid, stage: { stage = $0 }) }
+    catch { throw SnapshotFailure(underlying: error, stage: stage) }
+  }
+
   static func cloudEgressState(forUid uid: String) throws -> EgressSnapshot {
+    try cloudEgressState(forUid: uid, stage: { _ in })
+  }
+
+  private static func cloudEgressState(forUid uid: String,
+      stage: (SnapshotStage) -> Void) throws -> EgressSnapshot {
     try withQueueLock {
       egressUncertainReason = ""
-      if uid.isEmpty { return try ownerlessEgressSnapshot() }
+      if uid.isEmpty { return try ownerlessEgressSnapshot(stage: stage) }
       let normalized = normalizedUID(uid)
       guard !normalized.isEmpty else { return unc("uid_empty_after_normalize") }
       let view = egressView()
+      stage(.hmac)
       guard let key = try existingUidHmacKey() else {
         // An untouched installation has no hash key yet. Inspect before treating
         // an absent per-owner record as unset; never manufacture the missing key.
-        let ownerless = try ownerlessEgressSnapshot()
+        let ownerless = try ownerlessEgressSnapshot(stage: stage)
         if case .ownerless = ownerless { return .unset }
         return unc("hmac_key_missing/" + egressUncertainReason)
       }
@@ -1779,10 +1834,12 @@ enum SharedCaptureStore {
       if pendingBarrier.holds(hash) { return unc("pending_held") }
       // Restrictive records above remain usable for the existing removal revoke.
       // ON/unset is trustworthy only with readable ownership and generation.
+      stage(.barrier)
       guard try readBarrier() == nil else { return unc("barrier_present") }
       guard let store = defaults else { return unc("defaults_nil") }
       guard let epoch = snapshotCounter(ownerEpochKey, in: store) else { return unc("epoch_missing") }
       guard let generation = snapshotCounter(ownerGenerationKey, in: store) else { return unc("generation_missing") }
+      stage(.activeowner)
       let activeOwner = try readActiveOwner()
       if let owner = activeOwner {
         let ownerUid = normalizedUID(owner.uid)
@@ -1820,13 +1877,13 @@ enum SharedCaptureStore {
     }
   }
 
-  /// Writes the OWNER's entry (only) to BOTH stores under the queue flock, keeping
-  /// every other owner's entry (merged from whichever stores are readable, so a
-  /// write also repairs a corrupt store). Refused when the generation is older than
-  /// the stored one for the same owner (or equal with a less restrictive state:
-  /// enable needs a strictly greater generation) and when an ON write finds no
-  /// readable store at all (corrupt: restrict first). A restrictive write succeeds
-  /// if at least ONE store took it (C.5); an ON write needs BOTH.
+  /// Writes the OWNER's entry to BOTH stores under the queue flock. Both
+  /// physical layers must be readable before any write: corruption has an
+  /// unknown version frontier and is never repaired by this generic writer.
+  /// Refuses older generations (or equal with a less restrictive state).
+  /// Restriction preserves the maximum stored version; ON refuses a lower
+  /// version. A restrictive legacy write succeeds if at least ONE store took it
+  /// (C.5); an ON write needs BOTH. Bound entries retain their lifetime metadata.
   static func setCloudEgressState(
     state: String, ownerUid: String, transitionGeneration: Int, reservedVersion: Int
   ) throws {
@@ -1846,6 +1903,20 @@ enum SharedCaptureStore {
         if pending.anyUnreadable || pending.holds(hash) { throw QueueError.egressDenied }
       }
       let view = egressView()
+      // Validate BOTH layers before any write, including the bound branch.
+      // Restriction carries the highest owner version; ON cannot adopt it.
+      guard !view.uncertain else { throw QueueError.egressDenied }
+      var version = reservedVersion
+      for map in view.maps {
+        if let stored = map.owners[hash] {
+          if transitionGeneration < stored.transitionGeneration
+            || (transitionGeneration == stored.transitionGeneration && rank < (egressRank(stored.state) ?? 0)) {
+            throw QueueError.staleGeneration
+          }
+          version = max(version, max(stored.reservedVersion, stored.retirement?.reservedVersion ?? 0))
+        }
+      }
+      if !restrictive && version > reservedVersion { throw QueueError.staleGeneration }
       if view.maps.contains(where: { $0.owners.values.contains(where: { $0.retirement != nil || $0.lifetimeOwnerGeneration != nil }) }) {
         guard !view.uncertain else { throw QueueError.egressDenied }
         if !restrictive && view.maps.contains(where: {
@@ -1864,7 +1935,7 @@ enum SharedCaptureStore {
             throw QueueError.staleGeneration
           }
           map.owners[hash] = CloudEgressRecord(state: state,
-            transitionGeneration: transitionGeneration, reservedVersion: reservedVersion,
+            transitionGeneration: transitionGeneration, reservedVersion: version,
             lifetimeOwnerGeneration: old?.lifetimeOwnerGeneration,
             lifetimeOwnerEpoch: old?.lifetimeOwnerEpoch, retirement: old?.retirement)
           guard let data = try? JSONEncoder().encode(map), writeStateLayer(.egress, layer, data),
@@ -1899,7 +1970,7 @@ enum SharedCaptureStore {
       }
       merged[hash] = CloudEgressRecord(
         state: state, transitionGeneration: transitionGeneration,
-        reservedVersion: reservedVersion)
+        reservedVersion: version)
       guard let data = try? JSONEncoder().encode(CloudEgressMap(owners: merged)) else {
         throw QueueError.encodingFailed
       }
@@ -2520,6 +2591,7 @@ enum SharedCaptureStore {
         // Older entries are replaced; a newer generation or a same-generation
         // record other than this exact ON blocks the write.
         if entry.transitionGeneration > transitionGeneration
+          || entry.reservedVersion > reservedVersion
           || (entry.transitionGeneration == transitionGeneration && entry != target) {
           return transition("writeOn", .stale, op: expected, barrier: barrier, egress: before)
         }
@@ -2633,8 +2705,18 @@ enum SharedCaptureStore {
   /// Explicit fresh restrictive publication; never clears a pending operation.
   /// A retired active same-UID owner obtains a NEW generation only after both
   /// existing egress layers verify restrictive lifetime evidence.
+  ///
+  /// `recover` (explicit Cloud enable over a version frontier ahead of the local
+  /// consent history): only when BOTH layers still hold exactly the inspected OFF
+  /// record (same transition generation, reserved version and lifetime
+  /// generation/epoch, or all unbound), no lifetime retirement, and `version` is strictly above that reserved version. Any other
+  /// state (ON, DISABLING, unbound ahead, a disagreeing or absent layer, a
+  /// changed frontier) is refused with nothing written. It never lowers a version
+  /// or a transition generation.
   static func publishRestrictiveCaptureOwner(
-    uid: String, version: Int, expectedEpoch: Int
+    uid: String, version: Int, expectedEpoch: Int,
+    recover: (transitionGeneration: Int, reservedVersion: Int,
+              lifetimeOwnerGeneration: Int?, lifetimeOwnerEpoch: Int?)? = nil
   ) throws -> RestrictiveOwnerPublication {
     let owner = normalizedUID(uid)
     guard !owner.isEmpty, version >= 0, expectedEpoch >= 0 else { throw QueueError.encodingFailed }
@@ -2666,12 +2748,33 @@ enum SharedCaptureStore {
         return RestrictiveOwnerPublication(status: .stale, owner: nil,
           ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
       }
+      if let recover {
+        let agreed = entries.count == StateLayer.allCases.count && entries.allSatisfy {
+          $0 != nil && $0!.state == "OFF" && $0!.retirement == nil
+            && $0!.transitionGeneration == recover.transitionGeneration
+            && $0!.reservedVersion == recover.reservedVersion
+            // The lifetime evidence must agree across the layers AND with the
+            // inspected record; both absent (the agreed unbound legacy record)
+            // is explicit, any disagreement is refused.
+            && $0!.lifetimeOwnerGeneration == recover.lifetimeOwnerGeneration
+            && $0!.lifetimeOwnerEpoch == recover.lifetimeOwnerEpoch
+        }
+        guard agreed, version > recover.reservedVersion else {
+          return RestrictiveOwnerPublication(status: .conflict, owner: nil,
+            ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
+        }
+      }
       let retired = entries.contains { $0?.retirement != nil }
       // Current live publication retries preserve generation. Retirement requires
       // a new lifetime; old pending completion is never acknowledged here.
-      let unfinishedGeneration = entries.compactMap { $0?.lifetimeOwnerGeneration }.max() ?? 0
+      let retiredGenerations = entries.compactMap { $0?.retirement?.ownerGeneration }
+      let unfinishedGeneration = (entries.compactMap { $0?.lifetimeOwnerGeneration } + retiredGenerations).max() ?? 0
+      // A genuinely NEW lifetime is allocated strictly above every generation the
+      // counter, the active owner and the durable lifetime/retirement evidence
+      // know (a reset counter must not hand out a retired generation again).
       let generation = (active != nil && !retired && unfinishedGeneration <= active!.generation)
-        ? active!.generation : max(lastGeneration + 1, unfinishedGeneration)
+        ? active!.generation
+        : max(lastGeneration, active?.generation ?? 0, unfinishedGeneration) + 1
       let transitionGeneration = entries.compactMap { $0?.transitionGeneration }.max() ?? 0
       let target = CloudEgressRecord(state: "OFF", transitionGeneration: transitionGeneration,
         reservedVersion: version, lifetimeOwnerGeneration: generation, lifetimeOwnerEpoch: expectedEpoch)
@@ -2709,7 +2812,8 @@ enum SharedCaptureStore {
       defaults.set(generation, forKey: ownerGenerationKey)
       defaults.synchronize()
       guard try readActiveOwner() == record,
-            snapshotCounter(ownerEpochKey, in: defaults) == expectedEpoch else {
+            snapshotCounter(ownerEpochKey, in: defaults) == expectedEpoch,
+            snapshotCounter(ownerGenerationKey, in: defaults) == generation else {
         return RestrictiveOwnerPublication(status: .incomplete, owner: nil,
           ownerEpoch: expectedEpoch, egress: reports)
       }
@@ -2937,6 +3041,13 @@ enum SharedCaptureStore {
         let status: TransitionStatus = view.anyUnreadable ? .uncertain : (view.holdsAny ? .conflict : .noBarrier)
         return transition("inspect", status, op: nil, barrier: StateLayer.allCases.map {
           pendingReport($0, view.layer($0).isUnreadable ? .unreadable : .absent, nil)
+        }, egress: StateLayer.allCases.map { layer in
+          switch egressLayerRead(layer) {
+          case .absent: return egressReport(layer, .absent, nil)
+          case .unreadable: return egressReport(layer, .unreadable, nil)
+          case let .value(map):
+            return egressReport(layer, map.owners.isEmpty ? .absent : .mismatch, nil)
+          }
         })
       }
       let view = pendingView()

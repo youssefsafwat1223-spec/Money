@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:postgrest/postgrest.dart';
-import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthException, AuthRetryableFetchException;
 
 /// أخطاء طبقة المستودعات (Repository) — تُستخدم لتمييز فشل الشبكة عن فشل
 /// التحقق عن رفض RLS عن تعارض القيم الفريدة، حتى تعرض الواجهة رسالة دقيقة
@@ -87,6 +87,9 @@ RepoException mapSupabaseError(Object error) {
     // PostgREST returns a plain 5xx-shaped PostgrestException for backend
     // failures with no SQLSTATE code attached.
     return ServerRepoException(error.message);
+  }
+  if (error is AuthRetryableFetchException) {
+    return NetworkRepoException(error.message);
   }
   if (error is AuthException) {
     return AuthRepoException(error.message);

@@ -349,14 +349,15 @@ class AccountsPullService {
         await _ensureOneDefaultAccount();
       }
     } else {
-      await _processRow(row, identity);
+      await _processRow(row, identity, allowRestore: true);
     }
   }
 
   Future<_AccountPullOutcome> _processRow(
     Map<String, dynamic> row,
-    _AccountIdentityIndex identity,
-  ) async {
+    _AccountIdentityIndex identity, {
+    bool allowRestore = false,
+  }) async {
     final serverId = row['id'] as String?;
     if (serverId == null) return _AccountPullOutcome.skipped;
 
@@ -367,6 +368,11 @@ class AccountsPullService {
     final now = dateTimeToSql(DateTime.now().toUtc());
 
     if (existing != null) {
+      // Tombstones survive ordinary pull regardless of queue/ACK state.
+      // Only the explicit keep-remote apply path may restore a deleted row.
+      if (existing.deletedAt != null && !allowRestore) {
+        return _AccountPullOutcome.skipped;
+      }
       final localId = existing.id;
       final syncStatus = existing.syncStatus;
       // F-021 — `pending` must NOT automatically mean `conflict`. A conflict
@@ -533,6 +539,7 @@ class AccountsPullService {
       id: localId,
       serverId: serverId,
       serverUpdatedAt: row['updated_at'] as String?,
+      deletedAt: deletedAt,
     );
     return true;
   }
@@ -554,7 +561,7 @@ class AccountsPullService {
     }
     final index = _AccountIdentityIndex();
     const columns =
-        'SELECT id, server_id, sync_status, server_updated_at FROM accounts';
+        'SELECT id, server_id, sync_status, server_updated_at, deleted_at FROM accounts';
     final byServerRows = await selectByIdChunks(
       _db,
       serverIds,
@@ -734,6 +741,7 @@ class _AccountMeta {
     required this.serverId,
     required this.syncStatus,
     required this.serverUpdatedAt,
+    this.deletedAt,
   });
 
   factory _AccountMeta.fromRow(QueryRow row) => _AccountMeta(
@@ -741,12 +749,14 @@ class _AccountMeta {
         serverId: row.readNullable<String>('server_id'),
         syncStatus: row.readNullable<String>('sync_status'),
         serverUpdatedAt: row.readNullable<String>('server_updated_at'),
+        deletedAt: row.readNullable<String>('deleted_at'),
       );
 
   final String id;
   final String? serverId;
   final String? syncStatus;
   final String? serverUpdatedAt;
+  final String? deletedAt;
 }
 
 /// Page-scoped resolver: server_id → meta and local id → meta. Rebuilt per page
@@ -778,12 +788,14 @@ class _AccountIdentityIndex {
     required String id,
     required String serverId,
     required String? serverUpdatedAt,
+    String? deletedAt,
   }) {
     final meta = _AccountMeta(
       id: id,
       serverId: serverId,
       syncStatus: 'synced',
       serverUpdatedAt: serverUpdatedAt,
+      deletedAt: deletedAt,
     );
     _byLocal[id] = meta;
     _byServer[serverId] = meta;

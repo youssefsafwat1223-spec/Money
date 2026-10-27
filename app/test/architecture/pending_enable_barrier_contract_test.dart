@@ -156,7 +156,7 @@ void main() {
 
   test('snapshot: a bound ON needs the requested active owner and two equal layers',
       () {
-    final snapshot = body(store, 'static func cloudEgressState(forUid uid: String)');
+    final snapshot = body(store, 'private static func cloudEgressState(forUid uid: String,');
     final restrictiveFirst = snapshot.indexOf(r'filter({ $0.state != "ON" })');
     final bound = snapshot.indexOf('// N-R1 bound-ON');
     final returnsOn = snapshot.indexOf('return .record(mine[0])');

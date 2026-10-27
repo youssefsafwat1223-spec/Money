@@ -1,3 +1,4 @@
+import 'budget_alert_commits.dart';
 import '../../../core/privacy/consent_authority.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
@@ -323,10 +324,11 @@ class CapturedMessageProcessor {
         await _autoDetectCard(db, result.addTransactionResult.transaction);
       }
 
-      if (showNotifications &&
-          result.addTransactionResult.outcome == AddTransactionOutcome.added) {
+      if (showNotifications) {
         await checkBudgetAlert(db, notificationPreferences,
-            lang: notificationLanguage);
+            lang: notificationLanguage,
+            committedTransactions:
+                newlyAddedTransactions(result.addTransactionResult));
       }
 
       // Points 4/5 — re-validate before the native acknowledgement / any
@@ -438,25 +440,39 @@ class CapturedMessageProcessor {
     AppDatabase db,
     NotificationPreferences prefs, {
     String lang = 'ar',
+    required Iterable<TransactionEntity> committedTransactions,
+    DateTime? now,
+    Future<void> Function(BudgetAlertContent content)? emit,
   }) async {
+    final transactions = committedTransactions.toList();
+    if (transactions.isEmpty) return;
+    final current = now ?? DateTime.now().toUtc();
     final progress = await BudgetProgressUseCase(
       budgetRepository: DriftBudgetRepository(db),
       transactionRepository: DriftTransactionRepository(db),
-    )();
+    )(now: current);
     if (progress.entries.isEmpty) return;
 
     final accountRepo = DriftAccountRepository(db);
-    final defaultAccount = await accountRepo.getDefault();
+    final excludedAccounts = {
+      for (final account in await accountRepo.getAll())
+        if (account.excludeFromTotals) account.id,
+    };
     const planner = BudgetAlertPlanner();
-    final now = DateTime.now().toUtc();
-
     for (final entry in progress.entries) {
+      if (!transactions.any((transaction) => budgetAlertAffectedBy(
+            entry,
+            transaction,
+            excludedAccountIds: excludedAccounts,
+          ))) {
+        continue;
+      }
       final budgetAccountId = entry.budget.accountId;
       final account = budgetAccountId == null
-          ? defaultAccount
+          ? null
           : await accountRepo.getById(budgetAccountId);
       final currencyLabel = Currency.labelFor(
-        account?.currency ?? defaultAccount?.currency ?? '',
+        entry.budget.currency,
         lang,
       );
       final categoryLabel = entry.budget.isAllExpenses
@@ -466,16 +482,20 @@ class CapturedMessageProcessor {
 
       final content = planner.plan(
         entry: entry,
-        now: now,
+        now: current,
         currencyLabel: currencyLabel,
         categoryLabel: categoryLabel,
         // UX-037 — the account was already resolved right here and never
         // reached the notification text.
-        accountLabel: account?.name ?? defaultAccount?.name,
+        accountLabel: account?.name,
         lang: lang,
       );
       if (content == null) continue;
 
+      if (emit != null) {
+        await emit(content);
+        continue;
+      }
       await LocalNotificationService.instance.showBudgetAlert(
         title: content.title,
         body: content.body,

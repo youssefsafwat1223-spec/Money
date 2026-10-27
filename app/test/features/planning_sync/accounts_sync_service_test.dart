@@ -1,4 +1,6 @@
 import '../capture/ledger_admission_fixture.dart';
+import 'package:money_companion/core/sync/pending_sync_reconciler.dart';
+import 'package:money_companion/features/capture/services/ledger_outbox_queue.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
@@ -22,6 +24,7 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
   int upserts = 0;
   int deletes = 0;
   bool throwConflict = false;
+  Future<void> Function()? beforeUpdateAck;
 
   @override
   Future<Map<String, dynamic>?> findAccountByLocalId(
@@ -128,6 +131,7 @@ class _FakeAccountsRemote implements AccountsRemoteSink, AccountsRemoteSource {
       'id': serverId,
       'updated_at': now,
     };
+    await beforeUpdateAck?.call();
     return {'id': serverId, 'updated_at': now};
   }
 
@@ -267,6 +271,144 @@ void main() {
 
     tearDown(() async {
       await admission.finish();
+    });
+
+
+    for (final oldAck in [false, true]) {
+      test('deleted account survives restart and stale pull; old ACK=$oldAck',
+          () async {
+        final remote = _FakeAccountsRemote();
+        var queue = _queue(db, enabled: true);
+        var repo = DriftAccountRepository(db, outboxQueue: queue);
+        await repo.create(_account('durable-delete').copyWith(name: 'حساب'));
+        AccountsPushService push() => AccountsPushService(
+          db: db, queue: queue, isEnabled: () => true,
+          getAuthUserId: () async => 'user-1', remoteSink: remote,
+          mayEgress: () async => true,
+        );
+        await push().push();
+        final stale = Map<String, dynamic>.from(
+            remote.rowsByLocalId['durable-delete']!);
+        Future<void> deleteWithoutIntent() async {
+          final noOwner = _queue(db, enabled: false, userId: null);
+          await DriftAccountRepository(db, outboxQueue: noOwner)
+              .delete('durable-delete');
+        }
+        if (oldAck) {
+          await repo.update((await repo.getById('durable-delete'))!
+              .copyWith(name: 'Before deletion'));
+          remote.beforeUpdateAck = deleteWithoutIntent;
+          await push().push();
+          remote.beforeUpdateAck = null;
+        } else {
+          await deleteWithoutIntent();
+        }
+        expect(await _outboxCount(db), 0);
+        db = await admission.restart();
+        repo = DriftAccountRepository(db);
+        queue = _queue(db, enabled: true);
+        final pull = AccountsPullService(
+          db: db, isEnabled: () => true,
+          getAuthUserId: () async => 'user-1',
+          remoteSource: _KeysetAccountsRemote([{
+            ...stale, 'updated_at': '2026-12-01T00:00:00.000Z',
+          }]), mayEgress: () async => true,
+        );
+        await pull.pull();
+        expect(await repo.getById('durable-delete'), isNull);
+        expect(await _accountSyncStatus(db, 'durable-delete'), 'pending');
+        final reconciler = PendingSyncReconciler(
+          db: db, planningQueue: queue,
+          ledgerQueue: LedgerOutboxQueue(db: db, isPushEnabled: () => true,
+              getAuthUserId: () async => 'user-1'),
+          getOwnerUid: () async => 'user-1',
+          getAuthUserId: () async => 'user-1',
+          mayEgress: () async => true,
+        );
+        expect(await reconciler.run(), 1);
+        await push().push();
+        expect(remote.deletes, 1);
+        expect(await _accountSyncStatus(db, 'durable-delete'), 'synced');
+        await pull.pull(from: const SyncCursor.epoch());
+        expect(await repo.getById('durable-delete'), isNull);
+        final resolver = UniversalConflictResolver(
+          db: db, reEnqueue: const {},
+          remoteSync: {'account': ConflictRemoteSync(
+            fetch: (_) async => {...stale,
+              'updated_at': '2026-12-02T00:00:00.000Z'},
+            apply: pull.applyServerRow,
+          )},
+        );
+        expect(await resolver.resolveKeepRemote('account', 'durable-delete'),
+            isTrue);
+        expect(await repo.getById('durable-delete'), isNotNull);
+      });
+    }
+
+    test('cloud OFF with retained owner queues deletion across restart',
+        () async {
+      final remote = _FakeAccountsRemote();
+      final queue = _queue(db, enabled: true);
+      final repo = DriftAccountRepository(db, outboxQueue: queue);
+      await repo.create(_account('retained-delete'));
+      await AccountsPushService(
+        db: db, queue: queue, isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSink: remote, mayEgress: () async => true,
+      ).push();
+      final retainedQueue = PlanningOutboxQueue(
+        db: db, isSyncEnabled: (_) => false,
+        getOwnerUid: () async => 'user-1',
+        getAuthUserId: () async => null,
+      );
+      await DriftAccountRepository(db, outboxQueue: retainedQueue)
+          .delete('retained-delete');
+      db = await admission.restart();
+      await AccountsPullService(
+        db: db, isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        remoteSource: remote, mayEgress: () async => true,
+      ).pull();
+      expect(await DriftAccountRepository(db).getById('retained-delete'),
+          isNull);
+      final intent = await db.customSelect(
+          "SELECT operation FROM planning_sync_outbox "
+          "WHERE entity_id = 'retained-delete';").getSingle();
+      expect(intent.data['operation'], 'delete');
+    });
+
+    test('remote tombstone cannot be revived by a live row in the same page',
+        () async {
+      final row = _remoteAccountRow(1);
+      final repo = DriftAccountRepository(db);
+      await repo.create(_account('account-001'));
+      final pull = AccountsPullService(
+        db: db, isEnabled: () => true,
+        getAuthUserId: () async => 'user-1',
+        mayEgress: () async => true,
+        remoteSource: _KeysetAccountsRemote([
+          {...row, 'deleted_at': '2026-07-10T00:00:00.000Z'},
+          {...row, 'updated_at': '2026-07-11T00:00:00.000Z'},
+        ]),
+      );
+      final result = await pull.pull();
+      expect(result.tombstoned, 1);
+      expect(await repo.getById('account-001'), isNull);
+    });
+
+    test('default repair never promotes a tombstone', () async {
+      final repo = DriftAccountRepository(db);
+      await repo.create(_account('repair-deleted'));
+      await repo.delete('repair-deleted');
+      await db.customStatement(
+          "UPDATE accounts SET is_default = 0, sort_order = 10;");
+      await db.customStatement(
+          "UPDATE accounts SET sort_order = -1 WHERE id = 'repair-deleted';");
+      await db.runPostRestoreSetup();
+      final rows = await db.customSelect(
+          'SELECT deleted_at FROM accounts WHERE is_default = 1;').get();
+      expect(rows, hasLength(1));
+      expect(rows.single.data['deleted_at'], isNull);
     });
 
     test('account pull request shape and exact nullable money decoding', () {

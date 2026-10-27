@@ -106,6 +106,7 @@ void main() {
     // Same precondition, now driven through the explicit command. This proves
     // the behaviour was MOVED, not deleted.
     final result = await AccountCurrencyRepairService(
+      database: db,
       accounts: DriftAccountRepository(
         db,
         outboxQueue: buildPlanningOutboxQueue(db),

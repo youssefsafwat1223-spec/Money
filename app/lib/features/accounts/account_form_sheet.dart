@@ -165,11 +165,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
   bool get _hasPersistedNonZeroBalance => _hasNonZeroBalance(widget.account);
 
   void _showCurrencyChangeBlocked() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(context.l10n.afCurrencyLockedInUse),
-      ),
-    );
+    AppToast.showError(context, context.l10n.afCurrencyLockedInUse);
   }
 
   Future<bool> _canChangePersistedCurrency(String submittedCurrency) async {
@@ -199,12 +195,9 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       return true;
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              context.l10n.afUsageCheckFailed,
-            ),
-          ),
+        AppToast.showError(
+          context,
+          context.l10n.afUsageCheckFailed,
         );
       }
       return false;
@@ -215,9 +208,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
     if (_busy) return;
     final name = _name.text.trim();
     if (name.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.afEnterAccountName)),
-      );
+      AppToast.showError(context, context.l10n.afEnterAccountName);
       return;
     }
     final dueDayText = _paymentDueDay.text.trim();
@@ -225,9 +216,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
     if (_type == AccountType.card &&
         dueDay != null &&
         (dueDay < 1 || dueDay > 31)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.afPaymentDayRange)),
-      );
+      AppToast.showError(context, context.l10n.afPaymentDayRange);
       return;
     }
     final submittedCurrency = _currency;
@@ -264,9 +253,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
           ? _parseMoney(_availableCredit, submittedCurrency)
           : null;
     } on Exception {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.bfInvalidAmount)),
-      );
+      AppToast.showError(context, context.l10n.bfInvalidAmount);
       return;
     }
 
@@ -326,14 +313,10 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       saved = true;
     } on RepoException catch (e) {
       if (!mounted) return;
-      AppToast.show(context, repoErrorMessage(context, e));
+      AppToast.showError(context, repoErrorMessage(context, e));
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.l10n.afSaveFailed),
-        ),
-      );
+      AppToast.showError(context, context.l10n.afSaveFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -354,9 +337,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
     // A-7: never start the delete flow for the only remaining account.
     if ((await ref.read(accountRepositoryProvider).getAll()).length <= 1) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.afCannotDeleteLast)),
-        );
+        AppToast.showError(context, context.l10n.afCannotDeleteLast);
       }
       return;
     }
@@ -398,9 +379,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.afDeletePrepFailed)),
-        );
+        AppToast.showError(context, context.l10n.afDeletePrepFailed);
       }
     }
 
@@ -414,27 +393,19 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       final result = await service.execute(request);
       deleted = true;
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_resultSummary(context, result))),
-        );
+        AppToast.show(context, _resultSummary(context, result));
       }
     } on StateError {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.afCannotDeleteLast)),
-        );
+        AppToast.showError(context, context.l10n.afCannotDeleteLast);
       }
     } on AccountDeletionBlocked {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(context.l10n.afNeedsExplicitDecision),
-          ),
-        );
+        AppToast.showError(context, context.l10n.afNeedsExplicitDecision);
       }
     } on RepoException catch (e) {
       if (mounted) {
-        AppToast.show(
+        AppToast.showError(
           context,
           e is ValidationRepoException && e.message.contains('last_account')
               ? context.l10n.afCannotDeleteLast
@@ -443,9 +414,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       }
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.afDeleteFailed)),
-        );
+        AppToast.showError(context, context.l10n.afDeleteFailed);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -460,7 +429,9 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
   String _impactSummary(BuildContext context, AccountDeletionImpact i) {
     final l10n = context.l10n;
     final parts = <String>[l10n.accWillDetachTx(i.transactionsToDetach)];
-    if (i.cardsToArchive > 0) parts.add(l10n.accWillArchiveCards(i.cardsToArchive));
+    if (i.cardsToArchive > 0) {
+      parts.add(l10n.accWillArchiveCards(i.cardsToArchive));
+    }
     if (i.budgetsToArchive > 0) {
       parts.add(l10n.accWillArchiveBudgets(i.budgetsToArchive));
     }
@@ -471,7 +442,9 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
     final l10n = context.l10n;
     final parts = <String>[l10n.accDetachedTx(r.transactionsDetached)];
     if (r.cardsArchived > 0) parts.add(l10n.accArchivedCards(r.cardsArchived));
-    if (r.goalsReassigned > 0) parts.add(l10n.accReassignedGoals(r.goalsReassigned));
+    if (r.goalsReassigned > 0) {
+      parts.add(l10n.accReassignedGoals(r.goalsReassigned));
+    }
     if (r.goalsArchived > 0) parts.add(l10n.accArchivedGoals(r.goalsArchived));
     if (r.subscriptionsReassigned > 0) {
       parts.add(l10n.accReassignedSubs(r.subscriptionsReassigned));
@@ -524,7 +497,8 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
               hint: context.l10n.afAccountNameHint,
             ),
             const SizedBox(height: AppSpacing.s3),
-            Text(context.l10n.txdType, style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.txdType,
+                style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             Wrap(
               spacing: 8,
@@ -542,7 +516,8 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
               ],
             ),
             const SizedBox(height: AppSpacing.s4),
-            Text(context.l10n.dtxCurrency, style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.dtxCurrency,
+                style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             DropdownButtonFormField<String>(
               key: const ValueKey('account-currency-field'),
@@ -617,7 +592,8 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
               TextButton.icon(
                 onPressed: _busy ? null : _delete,
                 icon: Icon(AppLucideIcons.trash2, color: c.danger),
-                label: Text(context.l10n.afDeleteAccount, style: AppTypography.body(c.danger)),
+                label: Text(context.l10n.afDeleteAccount,
+                    style: AppTypography.body(c.danger)),
               ),
             ],
           ],
@@ -669,7 +645,8 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
               label: context.l10n.afOpeningBalance,
               number: true),
           const SizedBox(height: AppSpacing.s3),
-          Text(context.l10n.afProvider, style: AppTypography.caption(c.textLight)),
+          Text(context.l10n.afProvider,
+              style: AppTypography.caption(c.textLight)),
           const SizedBox(height: AppSpacing.s2),
           DropdownButtonFormField<String?>(
             value: _walletProviders(context).containsKey(_walletProvider)
@@ -760,7 +737,8 @@ class _AdvancedSection extends StatelessWidget {
                     color: c.textLight,
                     size: 20),
                 const SizedBox(width: 6),
-                Text(context.l10n.afAdvancedOptions, style: AppTypography.body(c.textMain)),
+                Text(context.l10n.afAdvancedOptions,
+                    style: AppTypography.body(c.textMain)),
               ],
             ),
           ),

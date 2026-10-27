@@ -106,17 +106,14 @@ void main() {
             "reader's entire app into Arabic");
   });
 
-  test('Arabic is still the answer before anything is saved', () async {
-    // The fallback itself is deliberate and must survive: this is an
-    // Arabic-first app, and a first read with no stored preference is the one
-    // case where there is genuinely no previous answer to hold.
+  test('English is default and a saved Arabic choice is respected', () async {
     final completer = Completer<UserSettingsEntity>();
     final container = ProviderContainer(overrides: [
       userSettingsProvider.overrideWith((ref) => completer.future),
     ]);
     addTearDown(container.dispose);
 
-    expect(container.read(localeProvider), const Locale('ar'),
+    expect(container.read(localeProvider), const Locale('en'),
         reason: 'first frame, nothing loaded yet');
     completer.complete(_settings('ar'));
     await container.read(userSettingsProvider.future);

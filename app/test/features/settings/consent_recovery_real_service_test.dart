@@ -40,11 +40,8 @@ class _Spy extends DriftUserSettingsRepository {
   final AppDatabase database;
   int saved = 0;
   @override
-  Future<UserSettingsEntity> saveConsentChoice(
-      ConsentCapability capability, ConsentChoices choices) async {
-    final result = await super.saveConsentChoice(capability, choices);
+  void afterConsentChoice(ConsentCapability capability, ConsentChoices choices) {
     saved++;
-    return result;
   }
 }
 
@@ -259,6 +256,7 @@ void main() {
       await settle(tester);
       await tester.tap(find.byKey(const Key('initialConsentAccept')));
       await settle(tester);
+      await settle(tester); // the preflight/reservation adds local DB work
       expect(sim.of('finishCloudEgressEnable'), hasLength(1));
       expect(settings.saved, 1);
       expect(status(_en.consentStatusActive), findsOneWidget,

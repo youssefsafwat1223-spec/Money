@@ -3242,5 +3242,9 @@
   "deleteAccountUnconfirmedStale": "Your sign-in changed before we could confirm the result. Reopen this screen to check.",
   "deleteAccountAdminBlocked": "This is an admin account and can't be deleted until its admin access is removed. Contact the team to remove it first.",
   "deleteAccountRateLimited": "Too many attempts. Please wait a few minutes and try again.",
-  "deleteAccountLocalCleanupPending": "Your account was deleted from our servers, but we couldn't finish clearing this device. Close and reopen the app."
+  "deleteAccountLocalCleanupPending": "Your account was deleted from our servers, but we couldn't finish clearing this device. Close and reopen the app.",
+  "pasteAnalysisHowItWorks": "Messages are read on your device first. If needed, AI helps when Cloud and Smart Analysis are enabled.",
+  "pasteReadOnDevice": "Read on your device — AI was not needed.",
+  "pasteReadWithAi": "Read with AI.",
+  "pasteAiConsentOff": "This message could not be read on your device. Enable Cloud and Smart Analysis in Privacy to allow AI assistance."
 }

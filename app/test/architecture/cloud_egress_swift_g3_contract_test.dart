@@ -104,7 +104,7 @@ void main() {
       expect(denied, contains('if view.uncertain { return true }'));
       expect(denied, contains(r'$0.state != "ON"'));
       expect(denied, contains('mine[0] != mine[1]'));
-      final read = body(store, 'static func cloudEgressState(forUid');
+      final read = body(store, 'private static func cloudEgressState(forUid uid: String,');
       expect(read, contains(r'$0.owners[hash]'));
     });
 
@@ -118,7 +118,7 @@ void main() {
 
     test('a valid DISABLING/OFF in either store wins for the reconciled read',
         () {
-      final read = body(store, 'static func cloudEgressState(forUid');
+      final read = body(store, 'private static func cloudEgressState(forUid uid: String,');
       expect(read.indexOf(r'$0.state != "ON"'),
           lessThan(read.indexOf('view.uncertain')),
           reason: 'a restrictive entry wins before the uncertain verdict');
@@ -137,8 +137,13 @@ void main() {
     });
 
     test('the channel and bridge read per owner', () {
+      final plain = body(store, 'static func cloudEgressState(forUid uid: String)');
+      final diagnostic = body(store, 'static func diagnosticCloudEgressState(');
+      expect(plain, contains('try cloudEgressState(forUid: uid, stage:'));
+      expect(diagnostic, contains('try cloudEgressState(forUid: uid, stage:'));
+      expect(diagnostic, contains('SnapshotFailure(underlying: error, stage: stage)'));
       expect(appDelegate,
-          contains('SharedCaptureStore.cloudEgressState(forUid: ownerUid)'));
+          contains('SharedCaptureStore.diagnosticCloudEgressState(forUid: ownerUid)'));
       expect(
           bridge,
           contains(

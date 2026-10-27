@@ -234,9 +234,11 @@ class DriftAccountRepository implements AccountRepository {
               OutboxOperation.update, transactionFromRow(row));
         }
       }
+      // Record deletion independently of cloud admission/outbox availability.
+      // The reconciler can enqueue it after the next admitted restart.
       await _db.customStatement(
         'UPDATE accounts SET deleted_at = ${sqlString(dateTimeToSql(DateTime.now().toUtc()))}, '
-        'is_default = 0 WHERE id = ${sqlString(id)};',
+        "is_default = 0, sync_status = 'pending' WHERE id = ${sqlString(id)};",
       );
       if (account.isDefault) {
         await _db.customStatement(

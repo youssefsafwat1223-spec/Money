@@ -1856,6 +1856,314 @@ class CaptureDeviceRegistrationService {
     ].join();
   }
 
+  /// Phase 0 of [_enableCloudNative]: the preflight of a NEW explicit operation.
+  /// It has exactly three outcomes. A verified new operation (no pending
+  /// operation of the owner; both native egress layers absent, or agreeing on the
+  /// same OFF record with no barrier) reserves the consent version and returns
+  /// the publication plan, carrying the recovery expectation when native holds
+  /// that OFF record. An exact resume (the owner already has a pending operation
+  /// of its own) returns null: Phase 1 reconciles it before lifetime proof. Anything
+  /// else (native ON or DISABLING ahead of the local history, disagreeing or
+  /// unreadable layers, a barrier native holds that Dart does not, a failed
+  /// inspection) is REFUSED with an allowlisted reason; it never falls through to
+  /// an ordinary publication or an unverified local version.
+  Future<RestrictivePublishPlan?> _reserveEnableVersion(
+      ConsentCapability capability,
+      bool Function() current,
+      String operationId,
+      {PendingEnableRecord? cleanupPending, bool repaired = false}) async {
+    final String owner;
+    try {
+      owner = await _readReplicaOwnerUid() ?? '';
+    } catch (_) {
+      if (!current()) throw const StaleAdmissionException();
+      throw const CloudEnableIncompleteException('preflight_uncertain');
+    }
+    if (!current() || owner != capability.uid) {
+      throw const StaleAdmissionException();
+    }
+    final PendingReadout pendingReadout;
+    try {
+      pendingReadout = await _gate.readPending();
+    } catch (_) {
+      throw const CloudEnableIncompleteException('preflight_uncertain');
+    }
+    if (!current()) throw const StaleAdmissionException();
+    if (pendingReadout.unreadable) {
+      throw const CloudEnableIncompleteException('preflight_uncertain');
+    }
+    final pending =
+        pendingReadout.agreed(owner) ?? pendingReadout.partial(owner);
+    if (pending == null && pendingReadout.blocks(owner)) {
+      throw const CloudEnableIncompleteException('preflight_conflict');
+    }
+    final CloudEgressEnableResult inspected;
+    final ({List<CloudEgressRecord> records, bool uncertain}) dart;
+    try {
+      inspected =
+          (await NativeCaptureBridge.getCloudEgressPending(ownerUid: owner))!;
+      dart = await _gate.store.readDartOwnerLayers(owner);
+    } catch (_) {
+      if (!current()) throw const StaleAdmissionException();
+      throw const CloudEnableIncompleteException('preflight_uncertain');
+    }
+    if (!current()) throw const StaleAdmissionException();
+    bool physical(List<CloudEgressLayerReport> reports) =>
+        reports.length == 2 &&
+        reports[0].layer == 'file' &&
+        reports[1].layer == 'keychain';
+    final reports = inspected.egress;
+    if (dart.uncertain ||
+        inspected.operation != 'inspect' ||
+        !physical(reports) ||
+        !physical(inspected.barrier) ||
+        [...reports, ...inspected.barrier].any((r) =>
+            r.outcome != CloudEgressLayerOutcome.verified &&
+            r.outcome != CloudEgressLayerOutcome.absent)) {
+      throw const CloudEnableIncompleteException('preflight_uncertain');
+    }
+    for (final r in [...reports, ...inspected.barrier]) {
+      if (r.outcome == CloudEgressLayerOutcome.absent &&
+          (r.state != null ||
+              r.transitionGeneration != null ||
+              r.reservedVersion != null ||
+              r.operationId != null ||
+              r.ownerGeneration != null ||
+              r.ownerEpoch != null)) {
+        throw const CloudEnableIncompleteException('preflight_uncertain');
+      }
+    }
+    final held = reports
+        .where((r) => r.outcome == CloudEgressLayerOutcome.verified)
+        .toList();
+    if (held.any((r) =>
+        !const {'ON', 'OFF', 'DISABLING'}.contains(r.state) ||
+        r.transitionGeneration == null ||
+        r.transitionGeneration! < 0 ||
+        r.reservedVersion == null ||
+        r.reservedVersion! < 0 ||
+        r.operationId != null ||
+        (r.ownerGeneration == null) != (r.ownerEpoch == null))) {
+      throw const CloudEnableIncompleteException('preflight_uncertain');
+    }
+    var frontier = 0;
+    for (final v in [
+      ...dart.records.map((r) => r.reservedVersion),
+      ...held.map((r) => r.reservedVersion!)
+    ]) {
+      if (v > frontier) frontier = v;
+    }
+    final nativeBinding = inspected.binding;
+    final exactBarrier = pending != null &&
+        nativeBinding != null &&
+        (pending.binding == null || pending.binding == nativeBinding) &&
+        nativeBinding.transitionGeneration == pending.transitionGeneration &&
+        nativeBinding.reservedVersion == pending.reservedVersion &&
+        inspected.status == CloudEgressTransitionStatus.pending &&
+        inspected.barrier.every((r) =>
+            r.outcome == CloudEgressLayerOutcome.verified &&
+            r.operationId == nativeBinding.operationId &&
+            r.transitionGeneration == nativeBinding.transitionGeneration &&
+            r.reservedVersion == nativeBinding.reservedVersion &&
+            r.ownerGeneration == nativeBinding.ownerGeneration &&
+            r.ownerEpoch == nativeBinding.ownerEpoch);
+    bool ownOn(int generation, int version) =>
+        exactBarrier &&
+        generation == pending.transitionGeneration &&
+        version == pending.reservedVersion;
+    final dartAhead = [
+      for (final (i, r) in dart.records.indexed)
+        if (r.state != EgressState.off &&
+            !(r.state == EgressState.on &&
+                ownOn(r.transitionGeneration, r.reservedVersion)))
+          'd$i:${r.state.wire}',
+    ];
+    final nativeAhead = [
+      for (final r in held)
+        if (r.state != 'OFF' &&
+            !(r.state == 'ON' &&
+                ownOn(r.transitionGeneration!, r.reservedVersion!) &&
+                r.ownerGeneration == nativeBinding?.ownerGeneration &&
+                r.ownerEpoch == nativeBinding?.ownerEpoch))
+          '${r.layer}:${r.state}',
+    ];
+    final noBarrier =
+        inspected.status == CloudEgressTransitionStatus.noBarrier &&
+            inspected.barrier
+                .every((r) => r.outcome == CloudEgressLayerOutcome.absent);
+    if ((dartAhead.isNotEmpty || nativeAhead.isNotEmpty) &&
+        !repaired &&
+        pending == null &&
+        cleanupPending == null &&
+        noBarrier &&
+        await _storedCloudOff(current)) {
+      // A previous session of this owner left ON/DISABLING residue behind the
+      // OFF it was later restricted to (sign-out retires native to OFF but not
+      // the Dart layers), so every new enable would be refused forever. Cloud
+      // is stored OFF and no operation is pending: drive every layer to a
+      // verified OFF (never adopt the old ON), then rerun this preflight once
+      // from fresh evidence.
+      await _repairStaleEgressOff(owner, frontier, current);
+      return _reserveEnableVersion(capability, current, operationId,
+          repaired: true);
+    }
+    if (dartAhead.isNotEmpty || nativeAhead.isNotEmpty) {
+      // Which layer is ahead (layer label and state only), so a field report
+      // names the stale layer. TEMPORARY diagnostic suffix.
+      throw CloudEnableIncompleteException(
+        'preflight_on_ahead[${[...dartAhead, ...nativeAhead].join(',')}'
+        '|${inspected.status.name}]',
+      );
+    }
+    if (!noBarrier && !exactBarrier) {
+      throw const CloudEnableIncompleteException('preflight_conflict');
+    }
+    if (cleanupPending != null) {
+      if (pending != cleanupPending || pending?.binding != null || !noBarrier) {
+        throw const CloudEnableIncompleteException('preflight_conflict');
+      }
+      final liveOwner = await _readCaptureOwner();
+      final liveEpoch = await _readOwnerEpoch();
+      if (!current()) throw const StaleAdmissionException();
+      if (liveOwner == null || liveOwner.uid != owner || held.any((r) =>
+          r.ownerGeneration != null &&
+          (r.ownerGeneration != liveOwner.generation || r.ownerEpoch != liveEpoch))) {
+        throw const CloudEnableIncompleteException('preflight_conflict');
+      }
+    }
+    int? expectGeneration;
+    int? expectVersion;
+    int? expectLifetimeGeneration;
+    int? expectLifetimeEpoch;
+    if (pending != null) {
+      // An unbound denial with verified absent native barriers is cleaned in
+      // Phase 1, never resumed as ON. An older pending generation may coexist
+      // with a newer OFF publication; the next operation allocates afresh.
+      // Keep the version frontier and native agreement checks even for cleanup.
+      final deniedCleanup = pending.binding == null && noBarrier &&
+          (held.isEmpty || (held.length == 2 && held.every((r) =>
+              r.transitionGeneration == held.first.transitionGeneration &&
+              r.reservedVersion == held.first.reservedVersion &&
+              r.ownerGeneration == held.first.ownerGeneration &&
+              r.ownerEpoch == held.first.ownerEpoch)));
+      if ((pending.binding == null && noBarrier && !deniedCleanup) ||
+          frontier > pending.reservedVersion ||
+          (!deniedCleanup && dart.records.any(
+              (r) => r.transitionGeneration > pending.transitionGeneration)) ||
+          held.any((r) =>
+              (!deniedCleanup && r.transitionGeneration! > pending.transitionGeneration) ||
+              (nativeBinding != null &&
+                  r.ownerGeneration != null &&
+                  (r.ownerGeneration != nativeBinding.ownerGeneration ||
+                      r.ownerEpoch != nativeBinding.ownerEpoch)))) {
+        throw const CloudEnableIncompleteException('preflight_conflict');
+      }
+      return null; // Phase 1 reconciles pending before lifetime acquisition.
+    }
+    if (held.isNotEmpty) {
+      final first = held.first;
+      if (held.length != 2 ||
+          held.any((r) =>
+              r.transitionGeneration != first.transitionGeneration ||
+              r.reservedVersion != first.reservedVersion ||
+              r.ownerGeneration != first.ownerGeneration ||
+              r.ownerEpoch != first.ownerEpoch)) {
+        throw const CloudEnableIncompleteException('preflight_conflict');
+      }
+      expectGeneration = first.transitionGeneration;
+      expectVersion = first.reservedVersion;
+      expectLifetimeGeneration = first.ownerGeneration;
+      expectLifetimeEpoch = first.ownerEpoch;
+    }
+    final int version;
+    try {
+      version = await _settingsRepository.reserveConsentVersion(capability,
+          verifiedFrontier: frontier, operationId: operationId);
+    } on StaleAdmissionException {
+      rethrow;
+    } catch (_) {
+      throw const CloudEnableIncompleteException('preflight_uncertain');
+    }
+    if (!current()) throw const StaleAdmissionException();
+    return RestrictivePublishPlan(version,
+        expectedTransitionGeneration: expectGeneration,
+        expectedReservedVersion: expectVersion,
+        expectedLifetimeOwnerGeneration: expectLifetimeGeneration,
+        expectedLifetimeOwnerEpoch: expectLifetimeEpoch);
+  }
+
+  /// True only when the stored Cloud choice is not accepted (unset or
+  /// declined): the repair below never runs over a stored ON.
+  Future<bool> _storedCloudOff(bool Function() current) async {
+    try {
+      final settings = await _settingsRepository.getSettings();
+      if (!current()) throw const StaleAdmissionException();
+      return settings.cloudConsentState != ConsentState.accepted;
+    } on StaleAdmissionException {
+      rethrow;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Restrictive repair of stale ON/DISABLING layers of [owner] before a new
+  /// enable. Writes one allocated OFF to every layer (generation above every
+  /// verified layer, version never below [frontier]) and then requires EVERY
+  /// physical layer — Dart secure and file, native file and keychain — to read
+  /// back OFF (or absent) with no barrier. A merged OFF or a write reporting
+  /// "any" is not enough. Anything less keeps Cloud off and fails the enable
+  /// honestly; nothing here can make egress more permissive.
+  Future<void> _repairStaleEgressOff(
+      String owner, int frontier, bool Function() current) async {
+    Never incomplete() =>
+        throw const CloudEnableIncompleteException('preflight_repair_incomplete');
+    final EgressWriteResult? written;
+    try {
+      written = await _gate.alignOff(
+          CloudEgressRecord(
+            state: EgressState.off,
+            ownerUid: owner,
+            transitionGeneration: 0,
+            reservedVersion: frontier,
+          ),
+          isCurrent: current);
+    } on StaleAdmissionException {
+      rethrow;
+    } catch (_) {
+      incomplete();
+    }
+    if (!current()) throw const StaleAdmissionException();
+    // Null: an unverifiable layer, nothing written. A refused native write
+    // (it holds its own lifetime guards) is judged by the readback below: it
+    // passes only if native already reads OFF.
+    if (written == null) incomplete();
+    final CloudEgressEnableResult inspected;
+    final ({List<CloudEgressRecord> records, bool uncertain}) dart;
+    try {
+      inspected =
+          (await NativeCaptureBridge.getCloudEgressPending(ownerUid: owner))!;
+      dart = await _gate.store.readDartOwnerLayers(owner);
+    } catch (_) {
+      if (!current()) throw const StaleAdmissionException();
+      incomplete();
+    }
+    if (!current()) throw const StaleAdmissionException();
+    bool offOrAbsent(CloudEgressLayerReport r) =>
+        r.outcome == CloudEgressLayerOutcome.absent ||
+        (r.outcome == CloudEgressLayerOutcome.verified && r.state == 'OFF');
+    if (dart.uncertain ||
+        dart.records.length != 2 ||
+        dart.records.any((r) => r.state != EgressState.off) ||
+        inspected.operation != 'inspect' ||
+        inspected.status != CloudEgressTransitionStatus.noBarrier ||
+        inspected.egress.length != 2 ||
+        !inspected.egress.every(offOrAbsent) ||
+        !inspected.barrier
+            .every((r) => r.outcome == CloudEgressLayerOutcome.absent)) {
+      incomplete();
+    }
+  }
+
   /// Phases 1-6 of the ratified enable. Dart denies first; the native barrier is
   /// established; ON is written only under both barriers; the typed local choice
   /// is committed (the only work inside the consent local drain); native
@@ -1871,10 +2179,69 @@ class CaptureDeviceRegistrationService {
     // Phase 1 — owner prerequisite, BEFORE any freeze and before anything is
     // enabled: the committed identity's verified restrictive owner publication
     // and a native read-back of exactly that lifecycle.
-    final lifetime =
-        await AppSession.instance.committedOwnerLifetime(capability);
+    // Phase 0 — the version this explicit operation will commit at, reserved
+    // strictly above the device's local history AND the owner's verified native
+    // egress frontier (a replica reset to unset/v0 under native rv2 would
+    // otherwise publish a stale version). Allocation metadata only: no consent
+    // state changes here. Null when an unresolved operation of the owner exists.
+    final reservationOp = _randomOperationId();
+    var plan = await _reserveEnableVersion(capability, current, reservationOp);
     if (!current()) throw const StaleAdmissionException();
-    if (lifetime == null) incomplete('owner_publication');
+    PendingEnableLifetimeProof? resumeLifetime;
+    if (plan == null) {
+      final read = await _gate.readPending();
+      if (!current()) throw const StaleAdmissionException();
+      final pending = read.agreed(capability.uid) ?? read.partial(capability.uid);
+      if (pending != null) {
+        // Explicit repair is separate from proof minting; the proof itself is
+        // read-only and always requires both matching durable copies.
+        if (read.agreed(capability.uid) == null &&
+            !(await _gate.repairPendingEnable(pending)).all) {
+          incomplete('pending_unresolved');
+        }
+        if (!current()) throw const StaleAdmissionException();
+        try {
+          if (pending.binding != null) {
+            resumeLifetime = await _gate.provePendingEnableLifetime(capability, pending);
+          } else {
+            final inspected = await NativeCaptureBridge.getCloudEgressPending(
+                ownerUid: capability.uid);
+            if (!current()) throw const StaleAdmissionException();
+            if (inspected != null &&
+                inspected.status == CloudEgressTransitionStatus.pending &&
+                inspected.binding != null) {
+              resumeLifetime = await _gate.bindPendingEnableLifetime(
+                  capability, pending, inspected.binding!);
+            } else {
+              // A denied stage that never reached native begin must be cleared
+              // before publication. Reuse the physical frontier preflight and
+              // require a coherent live lifetime before clearing exact copies.
+              if (await _reserveEnableVersion(capability, current, reservationOp,
+                      cleanupPending: pending) != null ||
+                  (await _gate.readPending()).agreed(capability.uid) != pending) {
+                incomplete('pending_unresolved');
+              }
+              if (!current()) throw const StaleAdmissionException();
+              if (!(await _gate.clearPendingEnable(pending)).all) {
+                incomplete('pending_unresolved');
+              }
+              if (!current()) throw const StaleAdmissionException();
+              plan = await _reserveEnableVersion(capability, current, reservationOp);
+              if (plan == null) incomplete('pending_unresolved');
+            }
+          }
+        } catch (_) {
+          if (!current()) throw const StaleAdmissionException();
+          incomplete('pending_unresolved');
+        }
+      }
+    }
+    final proof = resumeLifetime == null
+        ? await AppSession.instance.ensureCommittedOwnerLifetime(capability, plan: plan)
+        : await AppSession.instance.resumeCommittedOwnerLifetime(capability, resumeLifetime);
+    if (!current()) throw const StaleAdmissionException();
+    final lifetime = proof.binding;
+    if (lifetime == null) incomplete(proof.reason);
     final String owner;
     final int nativeEpoch;
     final CaptureOwnerRecord? nativeOwner;
@@ -2123,12 +2490,19 @@ class CaptureDeviceRegistrationService {
         }
         await guard();
         generation = allocated;
-        reserved = settings.consentVersion + 1;
+        // The reservation of Phase 0 (strictly above the local history); the
+        // plain next local version when none could be made.
+        // A resumed-then-cleared operation has no Phase 0 plan: preflight now.
+        final newPlan = plan ??
+            await _reserveEnableVersion(capability, current, reservationOp);
+        await guard();
+        if (newPlan == null) incomplete('preflight_unavailable');
+        reserved = newPlan.version;
         final record = PendingEnableRecord(
           ownerUid: owner,
           transitionGeneration: generation,
           reservedVersion: reserved,
-          localOperationId: _randomOperationId(),
+          localOperationId: reservationOp,
         );
         pending = record;
         pendingShapes.add(record);
@@ -2219,15 +2593,26 @@ class CaptureDeviceRegistrationService {
           _cloudOn(latest) &&
           latest.consentVersion == reserved;
       if (!alreadyCommitted) {
-        if (resumed && latest.consentVersion + 1 != reserved) {
+        // The reservation must still be above the committed history.
+        if (resumed && latest.consentVersion >= reserved) {
           await abort('consent_version');
         }
         UserSettingsEntity saved;
         try {
+          // Commits at exactly the reserved version, only as the operation that
+          // owns the reservation (or the exact resume of its pending record).
+          final resumeProof = resumed
+              ? await _gate.provePendingEnableCommit(capability, pending!)
+              : null;
+          await guard();
           saved = await AppSession.instance.runConsentLocalOperation(
               capability,
-              () => _settingsRepository
-                  .saveConsentChoice(capability, write.choices));
+              () => _settingsRepository.saveReservedConsentChoice(
+                  capability, write.choices,
+                  version: reserved,
+                  operationId:
+                      resumed ? pending!.localOperationId : reservationOp,
+                  proof: resumeProof));
         } on StaleAdmissionException {
           await abort('consent_not_saved');
         } catch (_) {
@@ -2958,35 +3343,69 @@ extension RestrictiveOwnerPublication on CaptureDeviceRegistrationService {
   Future<RestrictiveCaptureOwnerReceipt?> publishRestrictiveOwner({
     required AdmissionAuthority admissionAuthority,
   }) async {
+    final result = await publishRestrictiveOwnerDetailed(
+        admissionAuthority: admissionAuthority);
+    return result is RestrictiveCaptureOwnerReceipt ? result : null;
+  }
+
+  /// [publishRestrictiveOwner], but a missing receipt is a
+  /// [RestrictiveOwnerRefusal] naming the allowlisted reason (diagnostics only).
+  Future<Object> publishRestrictiveOwnerDetailed({
+    required AdmissionAuthority admissionAuthority,
+    RestrictivePublishPlan? plan,
+  }) async {
     final current = _captureLifetime(
         requireAdmission: true, admissionAuthority: admissionAuthority);
-    if (!current() || !_isIos()) return null;
-    final session = _readSession();
-    if (session == null ||
-        await _readReplicaOwnerUid() != session.uid ||
-        !current()) {
-      return null;
+    if (!current() || !_isIos()) {
+      return RestrictiveOwnerRefusal(
+          admissionAuthority.isCurrent ? 'scope' : 'authority');
     }
+    final session = _readSession();
+    if (session == null) return const RestrictiveOwnerRefusal('scope');
+    if (await _readReplicaOwnerUid() != session.uid) {
+      return const RestrictiveOwnerRefusal('marker');
+    }
+    if (!current()) return const RestrictiveOwnerRefusal('hook_stale');
     final _Tx tx;
     try {
       tx = await _beginTx(lifetime: current);
     } on StaleAdmissionException {
-      return null;
+      return const RestrictiveOwnerRefusal('hook_stale');
     }
     // Read BEFORE the publication: a clear since then makes native refuse it.
     final epoch = await _readOwnerEpoch();
-    if (!current()) return null;
-    final version = (await _settingsRepository.getSettings()).consentVersion;
-    if (!await _holds(tx)) return null;
+    if (!current()) return const RestrictiveOwnerRefusal('hook_stale');
+    // Only the explicit Cloud enable carries a plan (its reserved version and the
+    // inspected OFF record); every ordinary admission publishes the local version.
+    final version = plan?.version ??
+        (await _settingsRepository.getSettings()).consentVersion;
+    if (!await _holds(tx)) {
+      return RestrictiveOwnerRefusal(
+          ConsentAuthority.egressFrozen ? 'hook_frozen' : 'hook_stale');
+    }
     final receipt = await NativeCaptureBridge.publishRestrictiveCaptureOwner(
       uid: session.uid,
       version: version,
       expectedEpoch: epoch,
+      expectedTransitionGeneration: plan?.expectedTransitionGeneration,
+      expectedReservedVersion: plan?.expectedReservedVersion,
+      expectedLifetimeOwnerGeneration: plan?.expectedLifetimeOwnerGeneration,
+      expectedLifetimeOwnerEpoch: plan?.expectedLifetimeOwnerEpoch,
     );
-    if (receipt == null ||
-        !receipt.confirms(
-            uid: session.uid, expectedEpoch: epoch, version: version)) {
-      return null;
+    if (receipt == null) return const RestrictiveOwnerRefusal('receipt_null');
+    if (!receipt.confirms(
+        uid: session.uid, expectedEpoch: epoch, version: version)) {
+      return RestrictiveOwnerRefusal(switch (receipt.phase.status) {
+        CloudEgressTransitionStatus.stale => 'native_stale',
+        CloudEgressTransitionStatus.conflict ||
+        CloudEgressTransitionStatus.pending =>
+          'native_pending',
+        CloudEgressTransitionStatus.uncertain => 'native_uncertain',
+        CloudEgressTransitionStatus.incomplete => 'native_incomplete',
+        CloudEgressTransitionStatus.noBarrier => 'native_barrier',
+        CloudEgressTransitionStatus.ownerMismatch => 'native_owner',
+        CloudEgressTransitionStatus.done => 'receipt_unconfirmed',
+      });
     }
     return receipt;
   }

@@ -19,13 +19,22 @@ import '../../features/settings/settings_providers.dart';
 /// correct and so was the widget; the locale underneath them was not.
 ///
 /// `valueOrNull` keeps the previous answer while the future is in flight, so a
-/// reload no longer changes the language. Arabic remains the fallback for the
-/// genuine first read, when there is no saved preference yet — this is an
-/// Arabic-first app, and that default is deliberate.
+/// reload no longer changes the language. English is the fallback for the
+/// first read when there is no saved preference; an explicit Arabic choice
+/// remains Arabic.
 final localeProvider = Provider<Locale>((ref) {
+  final chosen = ref.watch(preSignInLanguageProvider);
+  if (chosen != null) return Locale(chosen);
   final settings = ref.watch(userSettingsProvider).valueOrNull;
-  return settings?.language == 'en' ? const Locale('en') : const Locale('ar');
+  return settings?.language == 'ar' ? const Locale('ar') : const Locale('en');
 });
+
+/// A language picked on the sign-in screen when the settings row cannot be
+/// written there (a signed-out, read-only scope). It lives in this provider
+/// graph only, so the next account scope reads its own settings again; the
+/// choice also goes to the `LockPromptLanguage` mirror, which seeds a fresh
+/// account's settings.
+final preSignInLanguageProvider = StateProvider<String?>((ref) => null);
 
 /// Pushes the active language into the notification service.
 ///

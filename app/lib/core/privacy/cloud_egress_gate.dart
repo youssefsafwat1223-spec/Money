@@ -12,6 +12,7 @@ import '../../features/capture/services/native_capture_bridge.dart';
 import '../backend/supabase_config.dart';
 import '../security/secure_storage_options.dart';
 import '../session/admission_authority.dart';
+import '../session/consent_capability.dart';
 import 'consent_authority.dart';
 
 /// Astra G / C.4: the durable shared denial state and the ONE admission gate.
@@ -450,6 +451,106 @@ class PendingEnableRecord {
       reservedVersion, localOperationId, binding);
 }
 
+/// Read-only evidence for explicit cold-process pending-enable recovery only.
+/// Construction is private; a pending record or signed-in status is not proof.
+final class PendingEnableLifetimeProof {
+  PendingEnableLifetimeProof._(this.pending, this._capability, this._store,
+      {PendingEnableRecord? expectedPending})
+      : _expectedPending = expectedPending ?? pending;
+  final PendingEnableRecord _expectedPending;
+  final PendingEnableRecord pending;
+  final ConsentCapability _capability;
+  final CloudEgressStore _store;
+
+  Future<void> verify(ConsentCapability capability) async {
+    void check() {
+      capability.requireCurrent();
+      if (!identical(capability, _capability) || pending.ownerUid != capability.uid ||
+          pending.binding == null) {
+        throw const StaleAdmissionException();
+      }
+    }
+    check();
+    final b = pending.binding!;
+    final dartPending = await _store.readPending();
+    check();
+    final dart = await _store.readDartOwnerLayers(capability.uid);
+    check();
+    final inspected = await NativeCaptureBridge.getCloudEgressPending(ownerUid: capability.uid);
+    check();
+    final owner = await NativeCaptureBridge.getCaptureOwner();
+    check();
+    final epoch = await NativeCaptureBridge.captureOwnerEpoch();
+    check();
+    bool physical(List<CloudEgressLayerReport> layers) => layers.length == 2 &&
+        layers[0].layer == 'file' && layers[1].layer == 'keychain';
+    bool allowed(String state, int generation, int version) =>
+        version >= 0 && generation >= 0 &&
+        version <= b.reservedVersion && generation <= b.transitionGeneration &&
+        ((state == 'OFF' && generation < b.transitionGeneration) ||
+          (state == 'ON' && generation == b.transitionGeneration && version == b.reservedVersion));
+    if (dartPending.agreed(capability.uid) != _expectedPending || dart.uncertain ||
+        dart.records.any((r) => !allowed(r.state == EgressState.on ? 'ON' :
+            r.state == EgressState.off ? 'OFF' : 'DISABLING', r.transitionGeneration, r.reservedVersion)) ||
+        owner?.uid != capability.uid || owner?.generation != b.ownerGeneration || epoch != b.ownerEpoch ||
+        inspected == null || inspected.operation != 'inspect' ||
+        inspected.status != CloudEgressTransitionStatus.pending || inspected.binding != b ||
+        !physical(inspected.barrier) || !physical(inspected.egress) ||
+        inspected.barrier.any((r) => r.outcome != CloudEgressLayerOutcome.verified ||
+          r.operationId != b.operationId || r.transitionGeneration != b.transitionGeneration ||
+          r.reservedVersion != b.reservedVersion || r.ownerGeneration != b.ownerGeneration ||
+          r.ownerEpoch != b.ownerEpoch) || inspected.egress.any((r) {
+          if (r.outcome == CloudEgressLayerOutcome.absent) {
+            return r.state != null || r.transitionGeneration != null || r.reservedVersion != null ||
+                r.operationId != null || r.ownerGeneration != null || r.ownerEpoch != null;
+          }
+          return r.outcome != CloudEgressLayerOutcome.verified || r.operationId != null ||
+              r.state == null || r.transitionGeneration == null || r.reservedVersion == null ||
+              !allowed(r.state!, r.transitionGeneration!, r.reservedVersion!) ||
+              (r.ownerGeneration == null) != (r.ownerEpoch == null) ||
+              (r.ownerGeneration != null &&
+                (r.ownerGeneration != b.ownerGeneration || r.ownerEpoch != b.ownerEpoch)) ||
+              (r.state == 'ON' && r.ownerGeneration == null);
+        })) {
+      throw const StaleAdmissionException();
+    }
+    // Detect loss of durable denial during native reads as well.
+    final after = await _store.readPending();
+    check();
+    if (after.agreed(capability.uid) != _expectedPending) throw const StaleAdmissionException();
+  }
+}
+
+/// Issued only after physical pending/ON and live native lifetime inspection.
+/// A caller-supplied PendingEnableRecord alone cannot rebind a reservation.
+final class PendingEnableCommitProof {
+  PendingEnableCommitProof._(this.pending, this._capability, this._store);
+  final PendingEnableRecord pending;
+  final ConsentCapability _capability;
+  final CloudEgressStore _store;
+
+  /// SQL verifies the matching uid/op/version/watermark separately. This local
+  /// read runs inside that transaction; native inspection happened before it.
+  Future<void> verifyLocal(ConsentCapability capability) async {
+    capability.requireCurrent();
+    if (!identical(capability, _capability) || pending.ownerUid != capability.uid ||
+        pending.binding == null) {
+      throw const StaleAdmissionException();
+    }
+    final read = await _store.readPending();
+    capability.requireCurrent();
+    final layers = await _store.readDartOwnerLayers(capability.uid);
+    capability.requireCurrent();
+    if (read.agreed(capability.uid) != pending || layers.uncertain ||
+        layers.records.length != 2 || layers.records.any((r) =>
+          r.state != EgressState.on ||
+          r.transitionGeneration != pending.transitionGeneration ||
+          r.reservedVersion != pending.reservedVersion)) {
+      throw const StaleAdmissionException();
+    }
+  }
+}
+
 enum PendingLayerStatus { absent, held, corrupt, unreadable }
 
 /// One Dart pending layer as read: its status and the records it parsed.
@@ -680,8 +781,10 @@ class CloudEgressStore {
             if (rec != null) layers.add({rec.ownerUid: rec});
           }
         } catch (e) {
-          // Diagnostic detail only: a constant message or the exception type.
-          final detail = e is FormatException
+          // Diagnostic detail only: allowlisted queue evidence, never raw errors.
+          final detail = e is CaptureQueueException
+              ? e.safeDiagnostic
+              : e is FormatException
               ? e.message.replaceFirst('native_egress_uncertain:', '')
               : e.runtimeType.toString();
           problems.add('native:$detail');
@@ -875,6 +978,22 @@ class CloudEgressStore {
     }
   }
 
+  /// Unmerged physical Dart evidence. Verified absence is readable.
+  Future<({List<CloudEgressRecord> records, bool uncertain})>
+      readDartOwnerLayers(String owner) async {
+    final layers = [
+      await _readEgressLayer(_secure),
+      await _readEgressLayer(_file)
+    ];
+    return (
+      records: [
+        for (final layer in layers)
+          if (layer.records[owner] != null) layer.records[owner]!
+      ],
+      uncertain: layers.any((layer) => !layer.readable),
+    );
+  }
+
   static Future<bool> _swapEgress(DurableSlot slot, CloudEgressRecord next,
       bool Function(CloudEgressRecord? current) allowed,
       {bool Function()? isCurrent}) async {
@@ -898,7 +1017,9 @@ class CloudEgressStore {
   /// replaced (its write is a failure, never a lowering).
   Future<PendingWriteResult> writeDartLayers(CloudEgressRecord record) async {
     bool notNewer(CloudEgressRecord? c) =>
-        c == null || c.transitionGeneration <= record.transitionGeneration;
+        c == null ||
+        (c.transitionGeneration <= record.transitionGeneration &&
+            c.reservedVersion <= record.reservedVersion);
     return PendingWriteResult(
       await _swapEgress(_secure, record, notNewer),
       await _swapEgress(_file, record, notNewer),
@@ -991,12 +1112,18 @@ class CloudEgressStore {
     try {
       final collected = await _collect(record.ownerUid, verifyNative: true);
       if (collected.problems.isNotEmpty) return null;
+      var version = record.reservedVersion;
       for (final layer in collected.layers) {
         final held = layer[record.ownerUid];
+        if (held != null && held.reservedVersion > version) version = held.reservedVersion;
         if (held != null &&
             held.transitionGeneration > record.transitionGeneration) {
           return null;
         }
+      }
+      if (version > record.reservedVersion) {
+        if (!record.restrictive) return null;
+        record = record.copyWith(reservedVersion: version);
       }
     } catch (_) {
       return null;
@@ -1024,18 +1151,24 @@ class CloudEgressStore {
   Future<({CloudEgressRecord record, EgressWriteResult result})?> writeAllocated(
       String owner, CloudEgressRecord Function(int generation) build,
       {bool Function()? isCurrent}) async {
-    final CloudEgressRecord record;
+    CloudEgressRecord record;
     try {
       final collected = await _collect(owner, verifyNative: true);
       if (collected.problems.isNotEmpty) return null;
       var highest = 0;
+      var version = 0;
       for (final layer in collected.layers) {
         final held = layer[owner];
+        if (held != null && held.reservedVersion > version) version = held.reservedVersion;
         if (held != null && held.transitionGeneration > highest) {
           highest = held.transitionGeneration;
         }
       }
       record = build(highest + 1);
+      if (version > record.reservedVersion) {
+        if (!record.restrictive) return null;
+        record = record.copyWith(reservedVersion: version);
+      }
     } catch (_) {
       return null;
     }
@@ -1064,8 +1197,13 @@ class CloudEgressStore {
         if (!held.readable) continue;
         if (!notNewer(held.records[written.ownerUid])) {
           ok++;
-        } else if (await _swapEgress(slot, off, notNewer)) {
-          ok++;
+        } else {
+          final version = held.records[written.ownerUid]?.reservedVersion ?? 0;
+          final target = version > off.reservedVersion ? off.copyWith(reservedVersion: version) : off;
+          if (await _swapEgress(slot, target, (r) => notNewer(r) &&
+              (r == null || r.reservedVersion <= target.reservedVersion))) {
+            ok++;
+          }
         }
       } catch (_) {}
     }
@@ -1079,7 +1217,13 @@ class CloudEgressStore {
           // restrict an old copy beside a newer one; no mutation is attempted.
           if (!held.contains(written)) ok++;
         } else {
-          await native.write(off);
+          var target = off;
+          for (final r in held) {
+            if (r.reservedVersion > target.reservedVersion) {
+              target = target.copyWith(reservedVersion: r.reservedVersion);
+            }
+          }
+          await native.write(target);
           ok++;
         }
       } catch (_) {}
@@ -1094,9 +1238,12 @@ class CloudEgressStore {
   /// its independent generation guard; these slots are not a cross-process CAS.
   Future<EgressWriteResult> _dispatch(CloudEgressRecord record,
       {bool Function()? isCurrent}) async {
+    // Allocation/conditional preflight already carried the maximum version.
+    // A layer that advanced after that read is refused, never lowered.
     bool notNewer(CloudEgressRecord? held) =>
         held == null ||
-        held.transitionGeneration <= record.transitionGeneration;
+        (held.transitionGeneration <= record.transitionGeneration &&
+            held.reservedVersion <= record.reservedVersion);
     var ok = 0;
     var attempted = 2;
     if (await _swapEgress(_secure, record, notNewer,
@@ -1530,7 +1677,7 @@ class CloudEgressGate {
   void configureActiveOwner(Future<String?> Function() activeOwner) =>
       _activeOwner = activeOwner;
 
-  /// Whether a usable (present, unexpired) Supabase session exists. Wired by
+  /// Whether a fresh SDK session has committed application admission. Wired by
   /// bootstrap. Unwired answers true, i.e. no extra signed-out allowance.
   void configureSessionUsable(bool Function() usable) => _sessionUsable = usable;
   bool Function() _sessionUsable = () => true;
@@ -1984,7 +2131,7 @@ class CloudEgressGate {
         return DisableFreeze(
             owner: owner,
             transitionGeneration: allocated.record.transitionGeneration,
-            reservedVersion: reservedVersion);
+            reservedVersion: allocated.record.reservedVersion);
       });
 
   /// Re-writes DISABLING (a failed local OFF write must leave the marker). Under
@@ -2149,6 +2296,67 @@ class CloudEgressGate {
         }
         return highest + 1;
       });
+
+  /// Recover a lost native-begin reply before acquiring the process lifetime.
+  /// The candidate binding comes from inspect; full proof validation runs before
+  /// persisting it, and again over the two bound copies before issuing a proof.
+  Future<PendingEnableLifetimeProof> bindPendingEnableLifetime(
+      ConsentCapability capability, PendingEnableRecord pending,
+      CloudEgressEnableBinding binding) async {
+    if (pending.binding != null ||
+        binding.transitionGeneration != pending.transitionGeneration ||
+        binding.reservedVersion != pending.reservedVersion) {
+      throw const StaleAdmissionException();
+    }
+    final bound = pending.bound(binding);
+    await PendingEnableLifetimeProof._(bound, capability, store,
+        expectedPending: pending).verify(capability);
+    capability.requireCurrent();
+    if (!(await bindPendingEnable(from: pending, to: bound)).all) {
+      throw const StaleAdmissionException();
+    }
+    capability.requireCurrent();
+    return provePendingEnableLifetime(capability, bound);
+  }
+
+  Future<PendingEnableLifetimeProof> provePendingEnableLifetime(
+      ConsentCapability capability, PendingEnableRecord pending) async {
+    final proof = PendingEnableLifetimeProof._(pending, capability, store);
+    await proof.verify(capability);
+    return proof;
+  }
+
+  /// Proves the live operation before the consent-only SQL drain.
+  Future<PendingEnableCommitProof> provePendingEnableCommit(
+      ConsentCapability capability, PendingEnableRecord pending) async {
+    final proof = PendingEnableCommitProof._(pending, capability, store);
+    await proof.verifyLocal(capability);
+    final b = pending.binding!;
+    final owner = await NativeCaptureBridge.getCaptureOwner();
+    capability.requireCurrent();
+    final epoch = await NativeCaptureBridge.captureOwnerEpoch();
+    capability.requireCurrent();
+    final inspected = await NativeCaptureBridge.getCloudEgressPending(ownerUid: capability.uid);
+    capability.requireCurrent();
+    bool physical(List<CloudEgressLayerReport> layers) => layers.length == 2 &&
+        layers[0].layer == 'file' && layers[1].layer == 'keychain';
+    if (owner?.uid != capability.uid || owner?.generation != b.ownerGeneration ||
+        epoch != b.ownerEpoch || inspected == null || inspected.operation != 'inspect' ||
+        inspected.status != CloudEgressTransitionStatus.pending || inspected.binding != b ||
+        !physical(inspected.barrier) || !physical(inspected.egress) ||
+        inspected.barrier.any((r) => r.outcome != CloudEgressLayerOutcome.verified ||
+          r.operationId != b.operationId || r.transitionGeneration != b.transitionGeneration ||
+          r.reservedVersion != b.reservedVersion || r.ownerGeneration != b.ownerGeneration ||
+          r.ownerEpoch != b.ownerEpoch) ||
+        inspected.egress.any((r) => r.outcome != CloudEgressLayerOutcome.verified ||
+          r.state != 'ON' || r.operationId != null ||
+          r.transitionGeneration != b.transitionGeneration || r.reservedVersion != b.reservedVersion ||
+          r.ownerGeneration != b.ownerGeneration || r.ownerEpoch != b.ownerEpoch)) {
+      throw const StaleAdmissionException();
+    }
+    await proof.verifyLocal(capability);
+    return proof;
+  }
 
   /// Phase 2: persists [record] in BOTH Dart pending layers, each read back.
   Future<PendingWriteResult> beginPendingEnable(PendingEnableRecord record) =>

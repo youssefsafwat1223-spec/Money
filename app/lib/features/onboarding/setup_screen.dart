@@ -75,13 +75,13 @@ class _CountryChoice {
 /// Resolving by code keeps the SELECTION stable while the LABEL follows the
 /// language.
 List<_CountryChoice> _countriesIn(BuildContext context) => <_CountryChoice>[
-  _CountryChoice('SA', '🇸🇦', context.l10n.countrySA, 'SAR'),
-  _CountryChoice('AE', '🇦🇪', context.l10n.countryAE, 'AED'),
-  _CountryChoice('EG', '🇪🇬', context.l10n.countryEG, 'EGP'),
-  _CountryChoice('KW', '🇰🇼', context.l10n.countryKW, 'KWD'),
-  _CountryChoice('QA', '🇶🇦', context.l10n.countryQA, 'QAR'),
-  _CountryChoice('BH', '🇧🇭', context.l10n.countryBH, 'BHD'),
-  _CountryChoice('OM', '🇴🇲', context.l10n.countryOM, 'OMR'),
+      _CountryChoice('SA', '🇸🇦', context.l10n.countrySA, 'SAR'),
+      _CountryChoice('AE', '🇦🇪', context.l10n.countryAE, 'AED'),
+      _CountryChoice('EG', '🇪🇬', context.l10n.countryEG, 'EGP'),
+      _CountryChoice('KW', '🇰🇼', context.l10n.countryKW, 'KWD'),
+      _CountryChoice('QA', '🇶🇦', context.l10n.countryQA, 'QAR'),
+      _CountryChoice('BH', '🇧🇭', context.l10n.countryBH, 'BHD'),
+      _CountryChoice('OM', '🇴🇲', context.l10n.countryOM, 'OMR'),
       _CountryChoice('JO', '🇯🇴', context.l10n.countryJO, 'JOD'),
     ];
 
@@ -120,7 +120,8 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
         await ref.read(userSettingsRepositoryProvider).getSettings();
     if (!mounted) return;
     final currency = settings.currency.trim().toUpperCase();
-    final match = _countriesIn(context).where((item) => item.currency == currency);
+    final match =
+        _countriesIn(context).where((item) => item.currency == currency);
     if (match.isNotEmpty) {
       setState(() => _countryCode = match.first.code);
     }

@@ -34,10 +34,14 @@ class SceneDelegate: FlutterSceneDelegate {
       // later lifecycle call sites remain defence in depth without ever
       // installing a second handler — and a scene reconnect, which builds a NEW
       // controller, correctly rebinds instead of returning early.
-      appDelegate.configureNativeCaptureChannelIfNeeded()
+      // The connecting scene can have a controller before its window is key
+      // or the scene appears in UIApplication.connectedScenes. Use that exact
+      // controller rather than rediscovering only foreground/key windows.
+      let controller = window?.rootViewController as? FlutterViewController
+      appDelegate.configureNativeCaptureChannelIfNeeded(controller: controller)
       // Same window, same reasoning: Dart asks for the device zone during
       // bootstrap (notifications_init), before the first frame.
-      appDelegate.configureDeviceTimezoneChannelIfNeeded()
+      appDelegate.configureDeviceTimezoneChannelIfNeeded(controller: controller)
     }
   }
 

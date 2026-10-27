@@ -117,5 +117,8 @@ void main() {
 
     expect(repository.createCalls, 2);
     expect(repository.createdIds.toSet(), hasLength(1));
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('حدث خطأ غير متوقع'), findsNothing);
   });
 }

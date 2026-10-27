@@ -416,6 +416,10 @@ class BackupSnapshotBuilder {
     // WP-3a — which uid owns THIS database file. Restoring a backup must never
     // overwrite it (the file keeps its owner), and it is never exported.
     'replica_meta',
+    // Device-local consent VERSION allocation watermark: allocation metadata of
+    // THIS device, never consent. A backup must neither export it nor, on
+    // restore, replace it (another device's counter is not this device's).
+    'consent_version_watermark',
     'financial_import_runs',
     'notification_log_events',
     'catalog_metadata',

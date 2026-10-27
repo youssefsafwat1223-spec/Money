@@ -38,35 +38,37 @@ import 'secure_storage_options.dart';
 ///      a second device inherits a choice made on the first.
 ///   3. `RestoreBackupUseCase` — a backup snapshot carrying a language.
 ///
-/// ## The one case it does not cover
-///
-/// iOS keychain items outlive the app container, so a REINSTALL keeps the
-/// mirror while the database goes back to its default. A user who had chosen
-/// English and reinstalled would get an English prompt over an Arabic app until
-/// they set the language again. Seeding the mirror where the settings row is
-/// created would close it, but that is inside `AppDatabase`, which every unit
-/// test opens without a keychain — the fix would put a platform channel in the
-/// data layer's constructor path. The residual is one wrong-language prompt in
-/// a rare path, in the language the user last asked for; it is recorded rather
-/// than traded for that.
+/// Bootstrap also reads this mirror for fresh settings creation. Existing
+/// database preferences are never replaced by it; explicit onboarding changes
+/// update it through the same awaited save path as Settings.
 abstract final class LockPromptLanguage {
   static const FlutterSecureStorage _storage = SecureStorageOptions.storage;
   static const String _key = 'app_lock_prompt_language';
 
   /// The app default, and the value `user_settings.language` is created with.
-  static const String fallback = 'ar';
+  static const String fallback = 'en';
+
+  // Read once during bootstrap and updated only after a persisted choice.
+  // Seeding a fresh settings row must not introduce Keychain I/O into an
+  // account database open; lock prompts still read the durable mirror below.
+  static String _initialSettingsLanguage = fallback;
+  static String get initialSettingsLanguage => _initialSettingsLanguage;
 
   /// Mirrors [language] out of the settings row. Anything that is not a
   /// supported code is stored as [fallback] rather than rejected — a prompt in
   /// the wrong language is a defect; an exception thrown inside the lock is a
   /// lockout.
-  static Future<void> set(String language) =>
-      _storage.write(key: _key, value: language == 'en' ? 'en' : fallback);
+  static Future<void> set(String language) async {
+    final supported = language == 'ar' ? 'ar' : fallback;
+    await _storage.write(key: _key, value: supported);
+    _initialSettingsLanguage = supported;
+  }
 
   /// The mirrored language, or [fallback] when nothing has been mirrored yet —
-  /// which is the case for every install upgrading into this build, and is the
-  /// right answer for them: before Settings → Language shipped, no user could
-  /// hold anything but the default.
-  static Future<String> read() async =>
-      await _storage.read(key: _key) == 'en' ? 'en' : fallback;
+  /// which is the English default for a new or unset preference.
+  static Future<String> read() async {
+    final stored = await _storage.read(key: _key);
+    _initialSettingsLanguage = stored == 'ar' ? 'ar' : fallback;
+    return _initialSettingsLanguage;
+  }
 }

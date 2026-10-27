@@ -23,6 +23,49 @@ void main() {
     });
   }
 
+  test('snapshot diagnostics are strict, getter-only and preserve failure codes', () async {
+    const details = {'contract': 'snapshot_v1', 'stage': 'hmac', 'category': 'interaction_not_allowed'};
+    fake((_) async => throw PlatformException(
+        code: 'queue_unavailable', message: 'private raw message', details: details));
+    await expectLater(NativeCaptureBridge.getCloudEgressState(ownerUid: 'u-a'),
+        throwsA(isA<CaptureQueueException>()
+          .having((e) => e.code, 'code', 'queue_unavailable')
+          .having((e) => e.safeDiagnostic, 'safe', 'queue_unavailable/hmac/interaction_not_allowed')));
+    await expectLater(NativeCaptureBridge.getCaptureOwner(),
+        throwsA(isA<CaptureQueueException>()
+          .having((e) => e.diagnostic, 'non-getter diagnostic', isNull)
+          .having((e) => e.code, 'unchanged code', 'queue_unavailable')));
+    for (final raw in [null, 'private', {'stage': 'uid-secret', 'category': 'decode'},
+      {'stage': 'hmac', 'category': 'raw-secret'}, {...details, 'extra': 'private'},
+      {'stage': 1, 'category': 'decode'}]) {
+      fake((_) async => throw PlatformException(code: 'private-code',
+          message: 'private raw message', details: raw));
+      await expectLater(NativeCaptureBridge.getCloudEgressState(ownerUid: 'u-a'),
+          throwsA(isA<CaptureQueueException>()
+            .having((e) => e.diagnostic, 'ignored details', isNull)
+            .having((e) => e.safeDiagnostic, 'safe', 'unknown')));
+    }
+    for (final entry in {
+      'quota_exceeded': CaptureQueueFailure.quotaExceeded,
+      'removal_in_progress': CaptureQueueFailure.removalInProgress,
+      'owner_changed': CaptureQueueFailure.ownerChanged,
+      'queue_unavailable': CaptureQueueFailure.unavailable,
+      'stale_generation': CaptureQueueFailure.unavailable,
+      'egress_denied': CaptureQueueFailure.unavailable,
+      'bad_args': CaptureQueueFailure.unavailable,
+    }.entries) {
+      fake((_) async => throw PlatformException(code: entry.key, details: details));
+      await expectLater(NativeCaptureBridge.getCaptureOwner(),
+          throwsA(isA<CaptureQueueException>()
+            .having((e) => e.failure, 'unchanged classification', entry.value)
+            .having((e) => e.diagnostic, 'getter-only', isNull)));
+    }
+    fake((_) async => throw MissingPluginException('private'));
+    await expectLater(NativeCaptureBridge.getCloudEgressState(ownerUid: 'u-a'),
+        throwsA(isA<CaptureQueueException>()
+          .having((e) => e.safeDiagnostic, 'safe', 'channel_unavailable')));
+  });
+
   setUp(() => NativeCaptureBridge.debugTreatHostAsNative = true);
   tearDown(() {
     NativeCaptureBridge.debugTreatHostAsNative = false;

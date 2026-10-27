@@ -32,12 +32,14 @@ class _Spy extends DriftUserSettingsRepository {
   int saved = 0;
   bool failSaves = false;
   @override
-  Future<UserSettingsEntity> saveConsentChoice(
+  Future<void> beforeConsentChoice(
       ConsentCapability capability, ConsentChoices choices) async {
     if (failSaves) throw StateError('settings write failed');
-    final result = await super.saveConsentChoice(capability, choices);
+  }
+
+  @override
+  void afterConsentChoice(ConsentCapability capability, ConsentChoices choices) {
     saved++;
-    return result;
   }
 }
 
@@ -210,6 +212,40 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
     ConsentAuthority.egressFrozen = false;
     CloudEgressGate.instance = previousGate;
+  });
+
+  test('withdraw after recovery ON before local consent retains reserved v3', () async {
+    final capability = f.session.captureConsentCapability()!;
+    final version = await settings.reserveConsentVersion(capability,
+        verifiedFrontier: 2, operationId: 'crashed-recovery');
+    expect(version, 3);
+    expect((await stored()).consentVersion, 0);
+    final binding = CloudEgressEnableBinding(operationId: kSimOperationId,
+        transitionGeneration: 30, reservedVersion: version,
+        ownerGeneration: sim.ownerGeneration, ownerEpoch: sim.ownerEpoch);
+    await gate.beginPendingEnable(PendingEnableRecord(ownerUid: kRigOwner,
+        transitionGeneration: 30, reservedVersion: version,
+        localOperationId: 'crashed-recovery', binding: binding));
+    final on = rigRecord(EgressState.on, 30, version);
+    rig.secure.value = rigEnvelope(on);
+    rig.file.value = rigEnvelope(on);
+    sim..hashKeyExists = true..egressState = 'ON'..egressGeneration = 30
+      ..egressVersion = version..egressOwnerGeneration = sim.ownerGeneration
+      ..egressOwnerEpoch = sim.ownerEpoch;
+    sim.pending = {'operationId': kSimOperationId, 'transitionGeneration': 30,
+        'reservedVersion': version, 'ownerGeneration': sim.ownerGeneration,
+        'ownerEpoch': sim.ownerEpoch};
+    expect(await withdraw(service()), isNull);
+    expect((await stored()).cloudConsentState, ConsentState.declined);
+    expect(await pendingPresent(), isFalse);
+    final layers = await gate.store.readOwnerLayers(kRigOwner);
+    expect(layers.uncertain, isFalse);
+    expect(layers.records, isNotEmpty);
+    expect(layers.records.every((r) => r.state == EgressState.off && r.reservedVersion >= 3), isTrue);
+    for (final call in sim.of('setCloudEgressState')) {
+      expect((call.arguments as Map)['reservedVersion'] as int, greaterThanOrEqualTo(3));
+    }
+    expect(sim.egressVersion, greaterThanOrEqualTo(3));
   });
 
   group('R17 resumable versus unresolved', () {

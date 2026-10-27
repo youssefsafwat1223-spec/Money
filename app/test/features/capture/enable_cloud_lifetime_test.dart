@@ -57,11 +57,8 @@ class _PausingSettings extends DriftUserSettingsRepository {
   }
 
   @override
-  Future<UserSettingsEntity> saveConsentChoice(
-      ConsentCapability capability, ConsentChoices choices) async {
-    final result = await super.saveConsentChoice(capability, choices);
+  void afterConsentChoice(ConsentCapability capability, ConsentChoices choices) {
     saved++;
-    return result;
   }
 }
 

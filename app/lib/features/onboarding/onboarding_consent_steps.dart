@@ -33,11 +33,13 @@ class OnboardingConsentStep extends ConsumerStatefulWidget {
 class _OnboardingConsentStepState extends ConsumerState<OnboardingConsentStep> {
   @override
   Widget build(BuildContext context) => SingleChildScrollView(
-    padding: const EdgeInsets.fromLTRB(AppSpacing.gutter, AppSpacing.s6,
-        AppSpacing.gutter, AppSpacing.s4),
-    child: SmartAnalysisConsentPanel(
-      onDone: widget.onDone, onDark: true, privacyRoute: widget.privacyRoute),
-  );
+        padding: const EdgeInsets.fromLTRB(
+            AppSpacing.gutter, AppSpacing.s6, AppSpacing.gutter, AppSpacing.s4),
+        child: SmartAnalysisConsentPanel(
+            onDone: widget.onDone,
+            onDark: true,
+            privacyRoute: widget.privacyRoute),
+      );
 }
 
 /// Readiness step: live registration status when Cloud Sync is on. Never

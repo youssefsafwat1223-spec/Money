@@ -26,7 +26,8 @@ import '../../data/catalog/catalog_daos.dart';
 import '../../core/security/app_lock_service.dart';
 import '../../core/router/app_router.dart';
 import '../../core/session/app_session.dart';
-import '../../core/session/remove_data_flow.dart' show RemoveDataIncompleteException;
+import '../../core/session/remove_data_flow.dart'
+    show RemoveDataIncompleteException;
 import '../../core/session/unsynced_inventory.dart';
 import '../app/local_read_cleanup_notice.dart';
 import '../../core/theme/app_colors.dart';
@@ -889,6 +890,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     await ref
         .read(saveNotificationPreferencesUseCaseProvider)
         .call(preferences);
+    unawaited(NativeCaptureBridge.setHideCaptureDetails(
+        preferences.hideLockScreenContent));
     refreshNotificationPreferences(ref);
   }
 
@@ -1006,10 +1009,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final source = scoped.isEmpty ? currencies : scoped;
     return {
       for (final currency in source)
-        currency.code.toUpperCase():
-            '${currency.code.toUpperCase()}'
-                ' · ${_catalogName(currency.nameAr, currency.nameEn)}'
-                ' · ${currency.symbol}',
+        currency.code.toUpperCase(): '${currency.code.toUpperCase()}'
+            ' · ${_catalogName(currency.nameAr, currency.nameEn)}'
+            ' · ${currency.symbol}',
     };
   }
 
@@ -1233,7 +1235,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               AppSpacing.s6,
             ),
             children: [
-              Text(context.l10n.setCategories, style: AppTypography.sectionTitle(c.textMain)),
+              Text(context.l10n.setCategories,
+                  style: AppTypography.sectionTitle(c.textMain)),
               Text(
                 context.l10n.setCategoriesSheetIntro,
                 style: AppTypography.callout(c.textLight),
@@ -1330,7 +1333,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             child: ListView(
               children: [
                 Text(
-                  isEditing ? context.l10n.setEditCategory : context.l10n.setAddCategory,
+                  isEditing
+                      ? context.l10n.setEditCategory
+                      : context.l10n.setAddCategory,
                   style: AppTypography.sectionTitle(c.textMain),
                 ),
                 const SizedBox(height: AppSpacing.s3),
@@ -1404,7 +1409,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     final title = name.text.trim();
                     if (title.isEmpty) {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(context.l10n.setEnterCategoryName)),
+                        SnackBar(
+                            content: Text(context.l10n.setEnterCategoryName)),
                       );
                       return;
                     }
@@ -1432,7 +1438,9 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     _refreshCategoryDependents(ref);
                     if (context.mounted) Navigator.of(context).pop();
                   },
-                  child: Text(isEditing ? context.l10n.setSaveChanges : context.l10n.setAdd),
+                  child: Text(isEditing
+                      ? context.l10n.setSaveChanges
+                      : context.l10n.setAdd),
                 ),
               ],
             ),
@@ -1569,8 +1577,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _showInfoSheet(
       context,
       title: context.l10n.setAboutApp,
-      body:
-          context.l10n.setAboutBody,
+      body: context.l10n.setAboutBody,
       actionLabel: context.l10n.setOk,
     );
   }
@@ -1579,8 +1586,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _showInfoSheet(
       context,
       title: context.l10n.setContactUs,
-      body:
-          context.l10n.setSupportBody,
+      body: context.l10n.setSupportBody,
       actionLabel: context.l10n.setCopyEmail,
       onAction: () async {
         await Clipboard.setData(
@@ -2204,7 +2210,9 @@ class _SmsAutoCaptureTile extends ConsumerWidget {
     final caps = ref.watch(captureCapabilitiesProvider).valueOrNull;
     // Hidden until the platform confirms the build declares the permission.
     // iOS, and any future share-only Android build, never see this row.
-    if (caps == null || !caps.receiveSmsDeclared) return const SizedBox.shrink();
+    if (caps == null || !caps.receiveSmsDeclared) {
+      return const SizedBox.shrink();
+    }
 
     final enabled = caps.isAutomaticSmsCaptureEnabled;
     final blocked = !caps.hasReceiveSmsPermission && !enabled;

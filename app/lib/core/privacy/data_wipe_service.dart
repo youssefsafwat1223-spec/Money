@@ -99,6 +99,10 @@ class DataWipeService {
       for (final table in wipedTables) {
         await _db.customStatement('DELETE FROM $table;');
       }
+      // Recovery provenance belongs to the deleted settings, not the retained
+      // device version frontier.
+      await _db.customStatement('UPDATE consent_version_watermark '
+          'SET seed_source_fingerprint = NULL;');
       // Built-in categories are catalog data and remain available. Custom rows
       // belong to the signed-out user and must not leak into the next session.
       await _db.customStatement('''

@@ -1,3 +1,5 @@
+import '../../../domain/entities/transaction_entity.dart';
+import 'budget_alert_commits.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../data/db/ownership_guard.dart';
@@ -31,8 +33,12 @@ class CaptureImportItem {
     this.message,
     this.local,
     this.reviewTransactionId,
+    this.committedTransactions = const [],
   });
 
+  /// Newly committed rows only; receipt/ACK-only deliveries contribute none.
+  /// The budget checker applies expense, status and budget-scope eligibility.
+  final List<TransactionEntity> committedTransactions;
   final String id;
   final CaptureImportPath path;
   final SharedCapturedMessage? message;
@@ -414,13 +420,16 @@ class CaptureImportService {
     ProcessedCaptureDto dto,
     Set<String> acks,
   ) async {
-    final review =
-        await _sync.importServerCapture(dto, () => _requireOwner(owner));
+    final committed = <TransactionEntity>[];
+    final review = await _sync.importServerCapture(
+        dto, () => _requireOwner(owner),
+        onCommitted: committed.addAll);
     await _removeNative(owner, id);
     acks.add(id);
     return CaptureImportItem(
       id: id,
       path: CaptureImportPath.server,
+      committedTransactions: committed,
       message: item,
       reviewTransactionId: review,
     );
@@ -471,6 +480,8 @@ class CaptureImportService {
       path: CaptureImportPath.local,
       message: item,
       local: result,
+      committedTransactions:
+          newlyAddedTransactions(result.addTransactionResult),
     );
   }
 

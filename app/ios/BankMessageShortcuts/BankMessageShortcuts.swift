@@ -154,11 +154,15 @@ struct PostBankStatusIntent: AppIntent {
         _ = SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)
         SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
         if config.captureNotifyV2 {
-          // CAP-7 owner rule: the v2 response's push_attempted (legacy: pushSent)
-          // true means APNs owns this capture's alert and the intent shows
-          // nothing; otherwise the capturing phone shows the generic banner.
-          if !(response.pushAttempted ?? response.pushSent) {
-            await scheduleGenericCaptureNotification(payloadID: payloadID)
+          // The APNs alert is generic (Q3: no financial data leaves through
+          // Apple). The capturing phone shows the detailed banner itself and
+          // drops that generic push, so it never shows in its place.
+          let posted = await scheduleGenericCaptureNotification(
+            payloadID: payloadID,
+            aiDetail: response.aiDetail
+          )
+          if posted, response.pushAttempted ?? response.pushSent {
+            await Self.removeDeliveredPushes(payloadID: payloadID)
           }
         } else if !response.pushSent {
           await scheduleNotification(
@@ -253,12 +257,14 @@ struct PostBankStatusIntent: AppIntent {
   /// used `try?` and silently swallowed any failure — a dropped notification
   /// with no log, no retry, and no way to detect it. Now every outcome is
   /// recorded via SharedCaptureStore for Flutter to sync.
+  /// True when iOS accepted the notification.
+  @discardableResult
   private func scheduleNotification(
     _ notification: BackendNotification,
     payloadID: String,
     identifierPrefix: String,
     categoryIdentifier: String? = nil
-  ) async {
+  ) async -> Bool {
     let notificationLogId = UUID().uuidString.lowercased()
     SharedCaptureStore.enqueueNotificationLogEvent(
       notificationLogId: notificationLogId,
@@ -298,6 +304,7 @@ struct PostBankStatusIntent: AppIntent {
         relatedEntityType: "payload",
         relatedEntityId: payloadID
       )
+      return true
     } catch {
       SharedCaptureStore.enqueueNotificationLogEvent(
         notificationLogId: notificationLogId,
@@ -309,23 +316,100 @@ struct PostBankStatusIntent: AppIntent {
         errorCode: "\(type(of: error))",
         errorReason: "\(error)"
       )
+      return false
     }
   }
 
   /// CAP-7 (`capture_notify_v2`, X9): the one local banner of the notification
-  /// journey. Generic on every channel: no amount, merchant, card or sender ever
-  /// reaches the lock screen (Q3); the detail is shown only inside the app. The
-  /// identifier is deterministic per payloadId, so a replay replaces it.
-  private func scheduleGenericCaptureNotification(payloadID: String) async {
+  /// journey. Built on the device from the local parser (amount, merchant, card,
+  /// time), so nothing financial leaves the phone; generic when the parser is
+  /// not confident. The identifier is deterministic per payloadId, so a replay
+  /// replaces it.
+  @discardableResult
+  private func scheduleGenericCaptureNotification(
+    payloadID: String,
+    aiDetail: CaptureDetail? = nil
+  ) async -> Bool {
     await scheduleNotification(
-      BackendNotification(
-        title: "",
-        body: Self.genericCaptureBody(),
-        type: "new_transaction"
-      ),
+      detailedCaptureNotification(aiDetail: aiDetail)
+        ?? BackendNotification(
+          title: "",
+          body: Self.genericCaptureBody(),
+          type: "new_transaction"
+        ),
       payloadID: payloadID,
       identifierPrefix: "capture_generic"
     )
+  }
+
+  /// The detailed banner in the device language: from the server's AI reading
+  /// when there is one, else from the local parser; nil when neither read the
+  /// message with confidence.
+  private func detailedCaptureNotification(
+    aiDetail: CaptureDetail? = nil,
+    preferredLanguage: String? = Locale.preferredLanguages.first
+  ) -> BackendNotification? {
+    // The user's "hide lock-screen content" preference keeps it generic.
+    guard !SharedCaptureStore.hidesCaptureDetails,
+          let detail = aiDetail ?? localDetail() else { return nil }
+    let ar = (preferredLanguage ?? "").hasPrefix("ar")
+    let isCredit = detail.isCredit
+    let title: String
+    switch (isCredit, detail.kind) {
+    case (true, _): title = ar ? "تم رصد إيداع 💰" : "Deposit received 💰"
+    case (_, "withdrawal"): title = ar ? "تم رصد سحب نقدي 🏧" : "Cash withdrawal 🏧"
+    case (_, "transfer"): title = ar ? "تم رصد تحويل 🔁" : "Transfer sent 🔁"
+    case (_, "refund"): title = ar ? "تم رصد استرداد ↩️" : "Refund received ↩️"
+    default: title = ar ? "تم رصد عملية شراء 🛒" : "New purchase 🛒"
+    }
+    var lines = [ar
+      ? "المبلغ: \(detail.amount) \(detail.currency)"
+      : "Amount: \(detail.amount) \(detail.currency)"]
+    if let merchant = detail.merchant {
+      lines.append(ar
+        ? (isCredit ? "المصدر: \(merchant)" : "التاجر: \(merchant)")
+        : (isCredit ? "From: \(merchant)" : "Merchant: \(merchant)"))
+    }
+    if let last4 = detail.last4 {
+      lines.append(ar ? "البطاقة: ****\(last4)" : "Card: ****\(last4)")
+    }
+    let time = Self.timeLabel(for: dateReceived ?? Date(), arabic: ar)
+    lines.append(ar ? "الوقت: \(time)" : "Time: \(time)")
+    return BackendNotification(
+      title: title,
+      body: lines.joined(separator: "\n"),
+      type: "new_transaction"
+    )
+  }
+
+  private func localDetail() -> CaptureDetail? {
+    guard let parser = PreviewParser.shared else { return nil }
+    let result = parser.parse(smsText)
+    guard result.isHighConfidence, let amount = result.amount, let currency = result.currency else {
+      return nil
+    }
+    let isCredit = result.outcome == .credit
+    return CaptureDetail(
+      amount: PreviewParser.format(amount),
+      currency: currency,
+      merchant: result.merchant,
+      last4: result.last4,
+      kind: isCredit ? "income" : "payment",
+      isCredit: isCredit
+    )
+  }
+
+  /// Removes the generic APNs alert already delivered for [payloadID] (its
+  /// userInfo carries the same payloadId), leaving the detailed local banner.
+  private static func removeDeliveredPushes(payloadID: String) async {
+    let center = UNUserNotificationCenter.current()
+    let ids = await center.deliveredNotifications()
+      .filter {
+        $0.request.trigger is UNPushNotificationTrigger
+          && ($0.request.content.userInfo["payloadId"] as? String) == payloadID
+      }
+      .map(\.request.identifier)
+    if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
   }
 
   /// PROPOSED COPY, pending user approval. English mirrors the server push
@@ -374,16 +458,16 @@ struct PostBankStatusIntent: AppIntent {
   }
 
   /// "اليوم ٩:٤١ م" بأسلوب صريح: اليوم/أمس/د‏/‏ش — بتوقيت الجهاز.
-  private static func timeLabel(for date: Date) -> String {
+  private static func timeLabel(for date: Date, arabic: Bool = true) -> String {
     let calendar = Calendar.current
     let comps = calendar.dateComponents([.hour, .minute], from: date)
     let hour24 = comps.hour ?? 0
     let hour12 = hour24 % 12 == 0 ? 12 : hour24 % 12
     let minute = String(format: "%02d", comps.minute ?? 0)
-    let suffix = hour24 < 12 ? "ص" : "م"
+    let suffix = arabic ? (hour24 < 12 ? "ص" : "م") : (hour24 < 12 ? "AM" : "PM")
     let time = "\(hour12):\(minute) \(suffix)"
-    if calendar.isDateInToday(date) { return "اليوم \(time)" }
-    if calendar.isDateInYesterday(date) { return "أمس \(time)" }
+    if calendar.isDateInToday(date) { return arabic ? "اليوم \(time)" : "Today \(time)" }
+    if calendar.isDateInYesterday(date) { return arabic ? "أمس \(time)" : "Yesterday \(time)" }
     let dayComps = calendar.dateComponents([.day, .month], from: date)
     return "\(dayComps.day ?? 0)/\(dayComps.month ?? 0) \(time)"
   }
@@ -600,6 +684,20 @@ struct BackendCaptureResponse {
   let pushSent: Bool
   /// The v2 response's `push_attempted` (CAP-3); nil on the legacy response.
   let pushAttempted: Bool?
+  /// What the server's AI read from this message (`capture.parsed`), returned
+  /// to this phone over the same HTTPS reply; nil when it read no amount.
+  var aiDetail: CaptureDetail? = nil
+}
+
+/// The fields a capture banner shows, from the server's AI or the local parser.
+struct CaptureDetail {
+  let amount: String
+  let currency: String
+  let merchant: String?
+  let last4: String?
+  /// payment | withdrawal | transfer | income | refund | unknown
+  let kind: String
+  let isCredit: Bool
 }
 
 @available(iOS 16.0, *)
@@ -708,7 +806,28 @@ struct BackendCaptureClient {
       body: body,
       type: notification["type"] as? String ?? "received"
     ), pushSent: json["pushSent"] as? Bool ?? false,
-       pushAttempted: json["push_attempted"] as? Bool)
+       pushAttempted: json["push_attempted"] as? Bool,
+       aiDetail: Self.aiDetail(capture["parsed"] as? [String: Any]))
+  }
+
+  static func aiDetail(_ parsed: [String: Any]?) -> CaptureDetail? {
+    guard let parsed,
+          let amount = parsed["amount"] as? Double, amount > 0,
+          let currency = parsed["currency"] as? String, !currency.isEmpty
+    else { return nil }
+    func text(_ key: String) -> String? {
+      guard let value = parsed[key] as? String, !value.isEmpty else { return nil }
+      return value
+    }
+    let last4 = text("last4").flatMap { $0.count == 4 && $0.allSatisfy(\.isNumber) ? $0 : nil }
+    return CaptureDetail(
+      amount: PreviewParser.format(amount),
+      currency: currency,
+      merchant: text("merchant"),
+      last4: last4,
+      kind: text("type") ?? "unknown",
+      isCredit: text("direction") == "credit" || text("type") == "income"
+    )
   }
 
   private static func sanitize(_ text: String) throws -> String {

@@ -1,3 +1,4 @@
+import 'widgets/onboarding_language_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
@@ -58,6 +59,10 @@ class _OnboardingBrandScreenState extends State<OnboardingBrandScreen> {
           padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
           child: Column(
             children: [
+              const Align(
+                alignment: AlignmentDirectional.centerEnd,
+                child: OnboardingLanguageButton(),
+              ),
               Expanded(
                 child: Center(
                   child: Column(

@@ -27,6 +27,7 @@ void main() {
   late AppDatabase db;
 
   AccountCurrencyRepairService service() => AccountCurrencyRepairService(
+        database: db,
         accounts: DriftAccountRepository(
           db,
           outboxQueue: buildPlanningOutboxQueue(db),
@@ -41,10 +42,10 @@ void main() {
       (await db.customSelect(sql).getSingle()).read<int>('c');
 
   Future<int> accounts() => count('SELECT COUNT(*) AS c FROM accounts;');
-  Future<int> orphans() => count(
-      'SELECT COUNT(*) AS c FROM transactions WHERE account_id IS NULL;');
-  Future<int> outboxRows() => count(
-      'SELECT COUNT(*) AS c FROM ledger_sync_outbox;');
+  Future<int> orphans() =>
+      count('SELECT COUNT(*) AS c FROM transactions WHERE account_id IS NULL;');
+  Future<int> outboxRows() =>
+      count('SELECT COUNT(*) AS c FROM ledger_sync_outbox;');
 
   setUp(() async {
     db = await AppDatabase.open(
@@ -64,6 +65,7 @@ void main() {
         "'2026-08-01T00:00:00Z', '2026-08-01T00:00:00Z', NULL);",
       );
     }
+
     await insertOrphan('tx-egp', 'EGP');
     await insertOrphan('tx-sar', 'SAR');
     await db.customStatement('UPDATE transactions SET account_id = NULL;');
@@ -97,6 +99,59 @@ void main() {
         reason: 'a repeat boot must not enqueue duplicate sync intent');
   });
 
+  test('startup never recreates a deleted currency account with history',
+      () async {
+    await service().run(fallbackCurrency: 'EGP');
+    final repository = DriftAccountRepository(db);
+    final sar = (await repository.getAll())
+        .singleWhere((account) => account.currency == 'SAR');
+    await repository.delete(sar.id);
+    final rowsAfterDelete = await accounts();
+    final outboxAfterDelete = await outboxRows();
+
+    for (var boot = 0; boot < 3; boot++) {
+      final result = await service().run(fallbackCurrency: 'EGP');
+      expect(result.madeChanges, isFalse,
+          reason: 'deletion must survive a fresh startup repair');
+      expect(
+          (await repository.getAll()).any((a) => a.currency == 'SAR'), isFalse);
+      expect(await accounts(), rowsAfterDelete,
+          reason: 'a new SAR identity must not replace the deleted one');
+      expect(await outboxRows(), outboxAfterDelete);
+      final history = await db
+          .customSelect(
+              "SELECT account_id, amount_minor FROM transactions WHERE id = 'tx-sar';")
+          .getSingle();
+      expect(history.readNullable<String>('account_id'), isNull);
+      expect(history.read<int>('amount_minor'), 1000,
+          reason: 'deleting the account preserves transaction history');
+    }
+  });
+
+  test(
+      'startup preserves detached history when another same-currency account exists',
+      () async {
+    await service().run(fallbackCurrency: 'EGP');
+    final repository = DriftAccountRepository(db);
+    final sar = (await repository.getAll())
+        .singleWhere((account) => account.currency == 'SAR');
+    await repository.delete(sar.id);
+    final replacement = await repository.create(
+      sar.copyWith(id: 'explicit-sar', name: 'Chosen SAR'),
+    );
+
+    final result = await service().run(fallbackCurrency: 'EGP');
+
+    expect(result.madeChanges, isFalse);
+    expect(await repository.getById(replacement.id), isNotNull);
+    final history = await db
+        .customSelect(
+            "SELECT account_id FROM transactions WHERE id = 'tx-sar';")
+        .getSingle();
+    expect(history.readNullable<String>('account_id'), isNull,
+        reason: 'startup cannot undo the deletion choice by rehoming history');
+  });
+
   test('repeated boots never accumulate state', () async {
     await service().run(fallbackCurrency: 'EGP');
     final settled = (
@@ -122,7 +177,8 @@ void main() {
     // deliberately).
     await service().run(fallbackCurrency: 'EGP');
     final placed = await db
-        .customSelect("SELECT account_id FROM transactions WHERE id = 'tx-egp';")
+        .customSelect(
+            "SELECT account_id FROM transactions WHERE id = 'tx-egp';")
         .getSingle();
     final originalAccount = placed.read<String>('account_id');
 
@@ -135,10 +191,12 @@ void main() {
 
     expect(second.madeChanges, isFalse);
     final after = await db
-        .customSelect("SELECT account_id FROM transactions WHERE id = 'tx-egp';")
+        .customSelect(
+            "SELECT account_id FROM transactions WHERE id = 'tx-egp';")
         .getSingle();
     expect(after.read<String>('account_id'), 'manually-chosen',
-        reason: 'the repair must never re-home an already-assigned transaction');
+        reason:
+            'the repair must never re-home an already-assigned transaction');
     expect(originalAccount, isNot('manually-chosen'));
   });
 }

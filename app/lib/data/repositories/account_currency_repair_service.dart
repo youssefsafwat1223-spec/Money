@@ -1,4 +1,5 @@
 import '../capture/proof_correction_log.dart';
+import '../db/app_database.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../domain/entities/account_entity.dart';
@@ -25,15 +26,20 @@ import '../../domain/repositories/transaction_repository.dart';
 /// has no account, and only touches transactions whose `account_id` IS NULL.
 /// A second run therefore finds nothing to do, performs no write, and so
 /// enqueues no sync intent — which is what keeps repeated boots from queueing
-/// duplicate outbox rows. [AccountCurrencyRepairResult.madeChanges] reports
+/// duplicate outbox rows. Currency tombstones preserve deliberate deletion,
+/// including the unassigned history it leaves behind.
+/// [AccountCurrencyRepairResult.madeChanges] reports
 /// whether this run actually mutated anything.
 class AccountCurrencyRepairService {
   const AccountCurrencyRepairService({
+    required AppDatabase database,
     required AccountRepository accounts,
     required TransactionRepository transactions,
-  })  : _accounts = accounts,
+  })  : _database = database,
+        _accounts = accounts,
         _transactions = transactions;
 
+  final AppDatabase _database;
   final AccountRepository _accounts;
   final TransactionRepository _transactions;
 
@@ -49,6 +55,16 @@ class AccountCurrencyRepairService {
   Future<AccountCurrencyRepairResult> run({
     required String fallbackCurrency,
   }) async {
+    // Account deletion deliberately leaves historical transactions unassigned.
+    // A legacy startup migration must not recreate their deleted currency
+    // account, or silently attach that history to another account.
+    final deletedCurrencies = (await _database
+            .customSelect(
+              'SELECT DISTINCT currency FROM accounts WHERE deleted_at IS NOT NULL;',
+            )
+            .get())
+        .map((row) => _normalizeCurrency(row.read<String>('currency')))
+        .toSet();
     var accounts = await _accounts.getAll();
     final byCurrency = <String, AccountEntity>{
       for (final account in accounts)
@@ -84,7 +100,9 @@ class AccountCurrencyRepairService {
     // The bounded distinct-currency set (all-time), not the whole ledger.
     for (final raw in await _transactions.distinctCurrencies()) {
       final currency = _normalizeCurrency(raw);
-      if (currency.isNotEmpty && !byCurrency.containsKey(currency)) {
+      if (currency.isNotEmpty &&
+          !deletedCurrencies.contains(currency) &&
+          !byCurrency.containsKey(currency)) {
         await createAccount(currency);
       }
     }
@@ -104,7 +122,9 @@ class AccountCurrencyRepairService {
       );
       if (page.isEmpty) break;
       for (final tx in page) {
-        final account = byCurrency[_normalizeCurrency(tx.currency)];
+        final currency = _normalizeCurrency(tx.currency);
+        if (deletedCurrencies.contains(currency)) continue;
+        final account = byCurrency[currency];
         if (account == null) continue;
         try {
           // PHASE 11: this runs at EVERY BOOT and backfills orphaned rows with

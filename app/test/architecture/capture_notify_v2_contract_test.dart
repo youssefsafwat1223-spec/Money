@@ -54,16 +54,21 @@ void main() {
           .whereType<File>()
           .where((f) => f.path.endsWith('.dart'))) {
         if (f.path.endsWith('feature_flag_service.dart')) continue;
-        expect(f.readAsStringSync(), isNot(contains('capture_notify_shared_ids')),
+        expect(
+            f.readAsStringSync(), isNot(contains('capture_notify_shared_ids')),
             reason: f.path);
       }
       expect(intent, isNot(contains('capture_notify_shared_ids')));
     });
 
-    test('the shell reads the flag; OFF keeps the shipped per-item notification',
+    test(
+        'the shell reads the flag; OFF keeps the shipped per-item notification',
         () {
       expect(shell, contains("featureFlags.getBool('capture_notify_v2')"));
-      expect(shell, contains('if (!notifyV2 &&\n            CaptureNotificationAuthority.shouldShowLocalReview('));
+      expect(
+          shell,
+          contains(
+              'if (!notifyV2 &&\n            CaptureNotificationAuthority.shouldShowLocalReview('));
       expect(shell, contains('if (notifyV2) await _alertImportedV2('));
     });
   });
@@ -71,8 +76,10 @@ void main() {
   group('App Intent owner rule (T-D9)', () {
     test('the mirror is read from the shared store and defaults to false', () {
       expect(store, contains('var captureNotifyV2: Bool = false'));
-      expect(store,
-          contains('captureNotifyV2: defaults?.bool(forKey: notifyV2Key) ?? false'));
+      expect(
+          store,
+          contains(
+              'captureNotifyV2: defaults?.bool(forKey: notifyV2Key) ?? false'));
       expect(storeCopy, store, reason: 'both copies are byte-identical');
     });
 
@@ -89,11 +96,12 @@ void main() {
     test('every local banner site goes generic under the flag', () {
       final perform = body(intent, 'func perform()');
       expect(
-          RegExp(r'await scheduleGenericCaptureNotification\(payloadID: payloadID\)')
+          RegExp(r'await scheduleGenericCaptureNotification\(\s*payloadID: payloadID')
               .allMatches(perform)
               .length,
           4,
-          reason: 'localOnly, push_attempted=false, backend unreachable, cloud off');
+          reason:
+              'localOnly, push_attempted=false, backend unreachable, cloud off');
       expect(RegExp('if config.captureNotifyV2').allMatches(perform).length, 4);
     });
 
@@ -106,33 +114,59 @@ void main() {
   });
 
   group('generic text on every channel (X9)', () {
-    test('the generic banner touches no amount, merchant, card, sender or text',
+    test(
+        'the banner uses the AI reading or the local parser, never server text',
         () {
-      final fn = body(intent, 'private func scheduleGenericCaptureNotification');
+      final fn =
+          body(intent, 'private func scheduleGenericCaptureNotification');
+      final perform = body(intent, 'func perform()');
       for (final forbidden in [
-        'smsText',
         'senderName',
         'senderID',
-        'PreviewParser',
-        'merchant',
-        'amount',
-        'last4',
         'response.notification',
       ]) {
         expect(fn, isNot(contains(forbidden)), reason: forbidden);
       }
+      expect(fn, contains('detailedCaptureNotification(aiDetail: aiDetail)'));
+      expect(perform, contains('aiDetail: response.aiDetail'));
       expect(fn, contains('title: ""'));
       expect(fn, contains('identifierPrefix: "capture_generic"'));
       expect(intent, contains('"New transaction captured"'));
     });
 
-    test('Dart: the OS edge forces generic text for capture alerts under the flag',
+    test('the generic APNs alert is dropped once the detailed banner is shown',
         () {
-      final svc = read('lib/features/capture/services/local_notification_service.dart');
+      final perform = body(intent, 'func perform()');
+      expect(perform,
+          contains('await Self.removeDeliveredPushes(payloadID: payloadID)'));
+      final fn = body(intent, 'private static func removeDeliveredPushes');
+      expect(fn, contains('UNPushNotificationTrigger'));
+      expect(perform, contains('if posted, response.pushAttempted'),
+          reason: 'only after the detailed banner was accepted by iOS');
+    });
+
+    test('the hide-lock-screen preference keeps the banner generic', () {
+      final fn = body(intent, 'private func detailedCaptureNotification');
+      expect(fn, contains('!SharedCaptureStore.hidesCaptureDetails'));
+      expect(store, contains('static func setHideCaptureDetails'));
+      expect(storeCopy, store, reason: 'both copies are byte-identical');
+      expect(delegate, contains('case "setHideCaptureDetails":'));
+      expect(read('lib/features/settings/settings_screen.dart'),
+          contains('NativeCaptureBridge.setHideCaptureDetails('));
+      expect(read('lib/features/app/app_shell.dart'),
+          contains('NativeCaptureBridge.setHideCaptureDetails('));
+    });
+
+    test(
+        'Dart: the OS edge forces generic text for capture alerts under the flag',
+        () {
+      final svc =
+          read('lib/features/capture/services/local_notification_service.dart');
       final show = body(svc, 'Future<void> _show({');
       expect(show, contains('lockScreenContentFor('));
       expect(show, contains('captureNotifyV2: captureNotifyV2()'));
-      final bg = read('lib/features/capture/services/captured_message_processor.dart');
+      final bg =
+          read('lib/features/capture/services/captured_message_processor.dart');
       expect(bg, contains("featureFlags.getBool('capture_notify_v2')"));
     });
 
@@ -144,7 +178,8 @@ void main() {
 
   group('channel parity', () {
     test('AppDelegate implements every CAP-7 / A6 method Dart calls', () {
-      final bridge = read('lib/features/capture/services/native_capture_bridge.dart');
+      final bridge =
+          read('lib/features/capture/services/native_capture_bridge.dart');
       for (final m in [
         'peekLegacyCaptureItems',
         'setCaptureNotifyV2',
@@ -156,8 +191,13 @@ void main() {
     });
 
     test('the withdraw identifiers are the App Intent\'s own', () {
-      final fn = delegate.substring(delegate.indexOf('case "withdrawDeliveredCaptureAlert"'));
-      for (final prefix in ['capture_generic_', 'capture_fallback_', 'capture_backend_']) {
+      final fn = delegate
+          .substring(delegate.indexOf('case "withdrawDeliveredCaptureAlert"'));
+      for (final prefix in [
+        'capture_generic_',
+        'capture_fallback_',
+        'capture_backend_'
+      ]) {
         expect(fn.substring(0, 900), contains('"$prefix"'));
         expect(intent, contains('"${prefix.substring(0, prefix.length - 1)}"'));
       }
@@ -168,7 +208,8 @@ void main() {
     test('runs under the flock, is read-only and lists only unbound legacy_v2',
         () {
       final fn = body(store, 'static func peekLegacyCaptureItems()');
-      expect(fn.trimLeft().substring(1).trimLeft(), startsWith('try withQueueLock'));
+      expect(fn.trimLeft().substring(1).trimLeft(),
+          startsWith('try withQueueLock'));
       expect(fn, contains('item.origin == originLegacyV2'));
       expect(fn, contains('item.ownerState == ownerStateUnbound'));
       expect(fn, contains('loadQueue()'));
@@ -183,14 +224,16 @@ void main() {
       for (final sink in ['NSLog', 'print(', 'debugPrint', 'os_log']) {
         expect(fn, isNot(contains(sink)));
       }
-      final handler = delegate.substring(delegate.indexOf('case "peekLegacyCaptureItems"'),
+      final handler = delegate.substring(
+          delegate.indexOf('case "peekLegacyCaptureItems"'),
           delegate.indexOf('case "setCaptureNotifyV2"'));
       for (final sink in ['NSLog', 'print(', 'debugPrint', 'os_log']) {
         expect(handler, isNot(contains(sink)));
       }
     });
 
-    test('the resolver\'s legacyItems source is wired to the native listing', () {
+    test('the resolver\'s legacyItems source is wired to the native listing',
+        () {
       final providers = read('lib/core/di/app_providers.dart');
       final at = providers.indexOf('final legacyCaptureResolverProvider');
       final block = providers.substring(at, providers.indexOf('});', at));
@@ -199,7 +242,10 @@ void main() {
     });
 
     test('an XCTest covers the listing', () {
-      expect(xctest, contains('testPeekLegacyCaptureItemsListsOnlyUnboundLegacyAndChangesNothing'));
+      expect(
+          xctest,
+          contains(
+              'testPeekLegacyCaptureItemsListsOnlyUnboundLegacyAndChangesNothing'));
     });
   });
 }

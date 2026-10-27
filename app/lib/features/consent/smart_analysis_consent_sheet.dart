@@ -270,6 +270,19 @@ class SmartAnalysisConsentPanel extends ConsumerStatefulWidget {
       _SmartAnalysisConsentPanelState();
 }
 
+/// A short, non-sensitive reason code appended to a failed consent toast so a
+/// field report can be diagnosed: the incomplete-enable reason (an internal
+/// identifier) and, while egress is frozen, the freeze tag; otherwise only the
+/// exception type. Never a message, token, email or uid.
+@visibleForTesting
+String consentFailureCode(Object error) {
+  if (error is! CloudEnableIncompleteException) return error.runtimeType.toString();
+  final tag = ConsentAuthority.egressFreezeTag;
+  return ConsentAuthority.egressFrozen && tag.isNotEmpty
+      ? 'CloudEnableIncomplete:${error.reason}/$tag'
+      : 'CloudEnableIncomplete:${error.reason}';
+}
+
 class _SmartAnalysisConsentPanelState
     extends ConsumerState<SmartAnalysisConsentPanel> {
   bool _granting = false;
@@ -309,12 +322,14 @@ class _SmartAnalysisConsentPanelState
         AppToast.showError(
             context,
             error is CloudEnableIncompleteException
-                ? context.l10n.cloudEnableIncomplete
+                ? '${context.l10n.cloudEnableIncomplete} '
+                    '(E: ${consentFailureCode(error)})'
                 : error is CloudEnableWithdrawFirstException
                     ? context.l10n.cloudEnableWithdrawFirst
                     : error is ConsentChoiceNotPersistedException
                         ? context.l10n.cloudEnableChoiceNotSaved
-                        : context.l10n.setupSaveFailed);
+                        : '${context.l10n.setupSaveFailed} '
+                            '(E: ${consentFailureCode(error)})');
       }
       if (mounted) setState(() => _granting = false);
       return;

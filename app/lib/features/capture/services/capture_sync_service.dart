@@ -1,3 +1,4 @@
+import 'budget_alert_commits.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/backend/supabase_config.dart';
@@ -30,8 +31,12 @@ class CaptureSyncResult {
     required this.importedPayloadIds,
     required this.ackedPayloadIds,
     required this.needsReviewTransactionIds,
+    this.committedTransactions = const [],
   });
 
+  /// Newly committed rows only; receipt/ACK-only deliveries contribute none.
+  /// The budget checker applies expense, status and budget-scope eligibility.
+  final List<TransactionEntity> committedTransactions;
   final Set<String> importedPayloadIds;
   final Set<String> ackedPayloadIds;
   final List<String> needsReviewTransactionIds;
@@ -214,6 +219,7 @@ class CaptureSyncService {
     _currencyAccountCache = await _buildCurrencyAccountCache();
 
     final imported = <String>{};
+    final committedTransactions = <TransactionEntity>[];
     final needsReviewTransactionIds = <String>[];
     for (final capture in captures) {
       if (capture.payloadId.isEmpty) continue;
@@ -221,8 +227,9 @@ class CaptureSyncService {
         imported.add(capture.payloadId);
         continue;
       }
-      final needsReviewTransactionId =
-          await _importCapture(capture, requireCurrentAdmission);
+      final needsReviewTransactionId = await _importCapture(
+          capture, requireCurrentAdmission,
+          onCommitted: committedTransactions.addAll);
       if (needsReviewTransactionId != null) {
         needsReviewTransactionIds.add(needsReviewTransactionId);
       }
@@ -241,6 +248,7 @@ class CaptureSyncService {
     }
 
     return CaptureSyncResult(
+      committedTransactions: committedTransactions,
       importedPayloadIds: imported,
       ackedPayloadIds: imported,
       needsReviewTransactionIds: needsReviewTransactionIds,
@@ -450,6 +458,7 @@ class CaptureSyncService {
   Future<void> _persistBackendUnprocessableCapture(
     ProcessedCaptureDto capture,
     Future<void> Function() requireCurrentAdmission,
+    List<TransactionEntity> committed,
   ) async {
     final parsed = capture.parsed;
     final sanitizedText = capture.sanitizedText;
@@ -462,6 +471,7 @@ class CaptureSyncService {
     if ((capture.status == 'rejected' || capture.status == 'needs_review') &&
         await _recoverRejectedLocally(
           capture,
+          committed: committed,
           serverText: rawMessage,
           requireCurrentAdmission: requireCurrentAdmission,
         )) {
@@ -496,6 +506,7 @@ class CaptureSyncService {
   /// A [StaleOwnershipException] propagates (caller's transaction rolls back).
   Future<bool> _recoverRejectedLocally(
     ProcessedCaptureDto capture, {
+    required List<TransactionEntity> committed,
     required String serverText,
     required Future<void> Function() requireCurrentAdmission,
   }) async {
@@ -525,6 +536,7 @@ class CaptureSyncService {
       // Nested (savepoint) transaction: a declined result rolls back whatever
       // the ingest wrote (e.g. a suspected-duplicate row) without touching the
       // outer transaction; the outer one still owns the marker write.
+      final recovered = <TransactionEntity>[];
       final transactionId = await _dedupStore.runAtomically(() async {
         final result = await _recoverLocally!(message);
         final transaction = result.addTransactionResult.transaction;
@@ -532,6 +544,7 @@ class CaptureSyncService {
             result.addTransactionResult.outcome ==
                 AddTransactionOutcome.added &&
             transaction != null) {
+          recovered.addAll(newlyAddedTransactions(result.addTransactionResult));
           return transaction.id;
         }
         throw const _RecoveryDeclined();
@@ -541,6 +554,7 @@ class CaptureSyncService {
         payloadId: capture.payloadId,
         transactionId: transactionId,
       );
+      committed.addAll(recovered);
       if (kDebugMode) {
         debugPrint(
           '[Capture] backend rejected recovered on-device '
@@ -563,31 +577,39 @@ class CaptureSyncService {
   /// Returns the transaction id when the user should review it.
   Future<String?> importServerCapture(
     ProcessedCaptureDto capture,
-    Future<void> Function() requireCurrentAdmission,
-  ) =>
-      _importCapture(capture, requireCurrentAdmission);
+    Future<void> Function() requireCurrentAdmission, {
+    void Function(List<TransactionEntity>)? onCommitted,
+  }) =>
+      _importCapture(capture, requireCurrentAdmission,
+          onCommitted: onCommitted);
 
   Future<String?> _importCapture(
     ProcessedCaptureDto capture,
-    Future<void> Function() requireCurrentAdmission,
-  ) {
+    Future<void> Function() requireCurrentAdmission, {
+    void Function(List<TransactionEntity>)? onCommitted,
+  }) async {
+    final committed = <TransactionEntity>[];
     // One capture's account/review/transaction/dedup writes share a transaction.
     // The closing admission check is still inside that transaction, so an owner
     // change during any repository await rolls the complete capture back.
-    return _dedupStore.runAtomically(() async {
+    final imported = await _dedupStore.runAtomically(() async {
       await requireCurrentAdmission();
       final result = await _importCaptureAtomically(
         capture,
         requireCurrentAdmission,
+        committed,
       );
       await requireCurrentAdmission();
       return result;
     });
+    onCommitted?.call(committed);
+    return imported;
   }
 
   Future<String?> _importCaptureAtomically(
     ProcessedCaptureDto capture,
     Future<void> Function() requireCurrentAdmission,
+    List<TransactionEntity> committed,
   ) async {
     final parsed = capture.parsed;
     // `rejected` is the backend's explicit unprocessable outcome. Never infer
@@ -595,7 +617,7 @@ class CaptureSyncService {
     // path alone produces the separate `ignored` OTP/promo disposition.
     if (capture.status == 'rejected') {
       await _persistBackendUnprocessableCapture(
-          capture, requireCurrentAdmission);
+          capture, requireCurrentAdmission, committed);
       return null;
     }
     // Under local_auto_confirm_v2 a server `needs_review` capture is not a
@@ -603,7 +625,7 @@ class CaptureSyncService {
     // (valid => confirmed, otherwise Smart Inbox), never a pending row.
     if (capture.status == 'needs_review' && _localRecoveryEnabled()) {
       await _persistBackendUnprocessableCapture(
-          capture, requireCurrentAdmission);
+          capture, requireCurrentAdmission, committed);
       return null;
     }
     var duplicateOf = _string(parsed['possibleDuplicateOfTransactionId']);
@@ -673,7 +695,7 @@ class CaptureSyncService {
     final currency = _string(parsed['currency']);
     if ((amount == null && amountText == null) || currency == null) {
       await _persistBackendUnprocessableCapture(
-          capture, requireCurrentAdmission);
+          capture, requireCurrentAdmission, committed);
       return null;
     }
 
@@ -687,7 +709,7 @@ class CaptureSyncService {
       } on Exception {
         if (amount == null) {
           await _persistBackendUnprocessableCapture(
-              capture, requireCurrentAdmission);
+              capture, requireCurrentAdmission, committed);
           return null;
         }
         // LEGACY_LOSSY capture fallback (pending review).
@@ -793,6 +815,7 @@ class CaptureSyncService {
       payloadId: capture.payloadId,
       transactionId: saved.id,
     );
+    committed.add(saved);
     return legacyLossyReview ||
             capture.status == 'needs_review' ||
             capture.status == 'duplicate'

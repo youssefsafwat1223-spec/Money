@@ -165,8 +165,8 @@ class LocalNotificationService {
   /// no element tree and often no repository handle, so the language is pushed
   /// in once rather than pulled at every emit site. Bootstrap sets it from
   /// settings and Settings updates it when the user switches language.
-  /// Defaults to Arabic, which is what every caller got before this existed.
-  String notificationLanguage = 'ar';
+  /// Defaults to English until a saved language is loaded.
+  String notificationLanguage = 'en';
 
   /// ANDROID CHANNEL NAMING — why the ids below get a language suffix.
   ///
@@ -866,11 +866,11 @@ class LocalNotificationService {
     );
   }
 
-  /// What the OS shows (title, body). With `capture_notify_v2` on (CAP-7, X9) a
-  /// capture alert is generic whatever its caller passed; [genericContent] marks
-  /// text that is already generic (summary, correction) and is shown as given.
-  /// Otherwise the shipped MALI-019 redaction preference applies. Public so the
-  /// privacy guarantee is directly testable.
+  /// What the OS shows (title, body). A capture alert shows its details unless
+  /// the user turned on the MALI-019 "hide lock-screen content" preference; then
+  /// it is generic, with the CAP-7 copy when `capture_notify_v2` is on.
+  /// [genericContent] marks text that is already generic (summary, correction)
+  /// and is shown as given. Public so the privacy guarantee is directly testable.
   static (String, String) lockScreenContentFor({
     required NotificationType type,
     required String title,
@@ -882,7 +882,10 @@ class LocalNotificationService {
   }) {
     final isCaptureType = type == NotificationType.captureReview ||
         type == NotificationType.captureLight;
-    if (isCaptureType && !genericContent && captureNotifyV2) {
+    if (isCaptureType &&
+        !genericContent &&
+        captureNotifyV2 &&
+        hideLockScreenContent) {
       final generic = buildGenericCaptureContent(lang: languageCode);
       return (generic.title, generic.body);
     }

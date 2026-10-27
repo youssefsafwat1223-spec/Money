@@ -1,3 +1,4 @@
+import 'widgets/onboarding_language_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -224,7 +225,9 @@ class _StoryHeader extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 12),
+        const SizedBox(width: 8),
+        const OnboardingLanguageButton(compact: true),
+        const SizedBox(width: 8),
         PremiumGlassContainer(
           borderRadius: BorderRadius.circular(AppRadius.pill),
           blurSigma: 12,

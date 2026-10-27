@@ -56,7 +56,8 @@ final localReadSnapshotProvider =
           'ORDER BY sort_order, name;')
       .get();
   final txRows = await db
-      .customSelect('SELECT id, COALESCE(NULLIF(raw_merchant, \'\'), note, \'\') '
+      .customSelect(
+          'SELECT id, COALESCE(NULLIF(raw_merchant, \'\'), note, \'\') '
           'AS title, amount_minor AS a, currency, direction, occurred_at '
           'FROM transactions ORDER BY occurred_at DESC LIMIT 200;')
       .get();
@@ -83,8 +84,9 @@ final localReadSnapshotProvider =
 final _localReadLanguageProvider =
     FutureProvider.autoDispose<String?>((ref) async {
   final db = ref.watch(appDatabaseProvider);
-  final rows =
-      await db.customSelect('SELECT language FROM user_settings LIMIT 1;').get();
+  final rows = await db
+      .customSelect('SELECT language FROM user_settings LIMIT 1;')
+      .get();
   return rows.isEmpty ? null : rows.first.readNullable<String>('language');
 });
 
@@ -95,7 +97,7 @@ List<Override> localReadProviderOverrides(AccountScope scope) => [
       accountAccessModeProvider.overrideWithValue(AccountAccessMode.localRead),
       localeProvider.overrideWith((ref) {
         final language = ref.watch(_localReadLanguageProvider).valueOrNull;
-        return language == 'en' ? const Locale('en') : const Locale('ar');
+        return language == 'ar' ? const Locale('ar') : const Locale('en');
       }),
       // The ordinary one pushes the language into the notification service.
       notificationLanguageSyncProvider

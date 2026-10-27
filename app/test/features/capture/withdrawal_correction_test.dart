@@ -38,12 +38,9 @@ class _Spy extends DriftUserSettingsRepository {
   final List<String> trail;
   int saved = 0;
   @override
-  Future<UserSettingsEntity> saveConsentChoice(
-      ConsentCapability capability, ConsentChoices choices) async {
-    final result = await super.saveConsentChoice(capability, choices);
+  void afterConsentChoice(ConsentCapability capability, ConsentChoices choices) {
     saved++;
     trail.add(choices.cloud == ConsentState.accepted ? 'save_on' : 'local_off');
-    return result;
   }
 }
 

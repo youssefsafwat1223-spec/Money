@@ -7,6 +7,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
+import '../../core/backend/auth_client_provider.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_colors.dart';
@@ -97,14 +98,21 @@ class DashboardScreen extends ConsumerWidget {
               return true;
             }());
             if (error is AuthRepoException) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                AppSession.instance.handleAuthRequiredFailure();
-              });
+              final authFailure = AppSession.instance
+                  .captureAuthRequiredFailure(ref.read(authClientProvider));
+              Future<void> recover() async {
+                if (!context.mounted ||
+                    !identical(ref.read(dashboardDataProvider), async)) {
+                  return;
+                }
+                await authFailure();
+              }
+              WidgetsBinding.instance.addPostFrameCallback((_) => recover());
               return _errorList(
                 title: context.l10n.homeSessionExpiredTitle,
                 description: context.l10n.homeSessionExpiredBody,
                 retryLabel: context.l10n.homeSignIn,
-                onRetry: () => AppSession.instance.handleAuthRequiredFailure(),
+                onRetry: recover,
               );
             }
             return _errorList(

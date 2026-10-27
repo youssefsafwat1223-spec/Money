@@ -231,6 +231,9 @@ void main() {
       // WP-3a — file ownership, not user data. The wipe must never clear it;
       // it goes away only when the whole replica is removed.
       'replica_meta',
+      // Device-local consent version allocation metadata (not consent): kept so
+      // the same owner's next explicit choice still exceeds retained native state.
+      'consent_version_watermark',
     };
 
     final rows = await db

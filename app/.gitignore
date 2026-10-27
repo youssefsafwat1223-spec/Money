@@ -33,3 +33,6 @@ ios_backup_before_flutter_create/
 key.properties
 **/google-services.json
 **/GoogleService-Info.plist
+
+# Local development dart-defines (secrets; never committed)
+.dart_defines.local.json

@@ -168,8 +168,10 @@ class _ManualTransactionSheetState
 
     setState(() => _busy = true);
     try {
+      final TransactionEntity committedTransaction;
       if (_isEditing) {
-        await ref.read(transactionRepositoryProvider).updateTransaction(
+        committedTransaction =
+            await ref.read(transactionRepositoryProvider).updateTransaction(
               transactionId: widget.transaction!.id,
               amount: amount,
               currency: normalizedCurrency,
@@ -181,7 +183,8 @@ class _ManualTransactionSheetState
               accountId: _accountId,
             );
       } else {
-        await ref.read(saveManualTransactionUseCaseProvider)(
+        committedTransaction =
+            await ref.read(saveManualTransactionUseCaseProvider)(
           amount: amount,
           currency: normalizedCurrency,
           type: _type,
@@ -201,13 +204,14 @@ class _ManualTransactionSheetState
       refreshBudgets(ref);
       refreshAchievements(ref);
       ref.invalidate(dashboardDataProvider);
-      // Manually-added/edited transactions can cross a budget threshold just
+      // Added or edited transactions can cross a budget threshold just
       // like SMS-captured ones — reuse the same checker so both paths alert.
       final prefs =
           await ref.read(loadNotificationPreferencesUseCaseProvider)();
       await CapturedMessageProcessor.checkBudgetAlert(
         ref.read(appDatabaseProvider),
         prefs,
+        committedTransactions: [committedTransaction],
         lang: LocalNotificationService.instance.notificationLanguage,
       );
       if (!mounted) return;

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -136,6 +138,72 @@ void main() {
         createdAt: now,
         updatedAt: now,
       ));
+
+  test(
+      'financial card/account deletion preserves consent and owner across reopen',
+      () async {
+    final directory =
+        await Directory.systemTemp.createTemp('qirsh-financial-consent-');
+    final file = File('${directory.path}/replica.sqlite');
+    AppDatabase? disk;
+    try {
+      disk = await AppDatabase.open(
+          executor: NativeDatabase(file), keyStore: _MemoryKeyStore());
+      await seedTestAccount(disk);
+      final a = DriftAccountRepository(disk);
+      final c = DriftCardRepository(disk);
+      final first = (await a.getAll()).single;
+      await a.create(AccountEntity(
+          id: 'successor',
+          name: 'Successor',
+          currency: 'SAR',
+          type: AccountType.bank,
+          isDefault: false,
+          sortOrder: 1,
+          createdAt: now,
+          updatedAt: now,
+          initialBalanceMoney: Money(0, 'SAR'),
+          currentBalanceMoney: Money(0, 'SAR')));
+      await c.create(CardEntity(
+          id: 'card',
+          accountId: first.id,
+          last4: '4242',
+          network: CardNetwork.visa,
+          source: CardSource.manual,
+          createdAt: now,
+          updatedAt: now));
+      await disk.customStatement(
+          "UPDATE user_settings SET cloud_consent_state = 'accepted', "
+          "cloud_processing_enabled = 1, cloud_consent_version = 7, "
+          "ai_consent_state = 'accepted', ai_consent_granted = 1, ai_consent_version = 7;");
+      Future<List<Map<String, Object?>>> rows(
+              AppDatabase db, String table) async =>
+          [
+            for (final row
+                in await db.customSelect('SELECT * FROM $table').get())
+              row.data
+          ];
+      final settings = await rows(disk, 'user_settings');
+      final owner = await rows(disk, 'replica_meta');
+      final watermark = await rows(disk, 'consent_version_watermark');
+      await c.delete('card');
+      await a.delete(first.id);
+      expect(await rows(disk, 'user_settings'), settings);
+      expect(await rows(disk, 'replica_meta'), owner);
+      expect(await rows(disk, 'consent_version_watermark'), watermark);
+      await disk.close();
+      disk = await AppDatabase.open(
+          executor: NativeDatabase(file), keyStore: _MemoryKeyStore());
+      expect(await rows(disk, 'user_settings'), settings);
+      expect(await rows(disk, 'replica_meta'), owner);
+      expect(await rows(disk, 'consent_version_watermark'), watermark);
+      expect(
+          (await DriftAccountRepository(disk).getAll()).single.id, 'successor');
+    } finally {
+      await disk?.close();
+      await directory.delete(recursive: true);
+    }
+  });
 
   Future<void> budget(String id, String accountId) => budgets.save(BudgetEntity(
         id: id,

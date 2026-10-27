@@ -50,14 +50,14 @@ void main() {
   test('phases are ordered: prerequisite, freeze, pending, begin, bind, ON, '
       'save, complete, clear', () {
     final order = [
-      'committedOwnerLifetime(',
+      'ensureCommittedOwnerLifetime(',
       'freezeEnable(',
       'beginPendingEnable(',
       'NativeCaptureBridge.beginCloudEgressEnable(',
       'bindPendingEnable(',
       'writeDartOn(',
       'NativeCaptureBridge.writeCloudEgressEnableOn(',
-      'saveConsentChoice(',
+      'saveReservedConsentChoice(',
       'NativeCaptureBridge.finishCloudEgressEnable(',
       'clearPendingEnable(',
     ];
@@ -82,11 +82,11 @@ void main() {
   });
 
   test('the typed save is the only local-drain work of the flow', () {
-    expect('saveConsentChoice('.allMatches(flow).length, 1);
+    expect('saveReservedConsentChoice('.allMatches(flow).length, 1);
     expect('runConsentLocalOperation('.allMatches(flow).length, 1);
     final at = flow.indexOf('runConsentLocalOperation(');
     final after = flow.substring(at, at + 400);
-    expect(after, contains('saveConsentChoice('));
+    expect(after, contains('saveReservedConsentChoice('));
     expect(after, isNot(contains('NativeCaptureBridge')));
   });
 

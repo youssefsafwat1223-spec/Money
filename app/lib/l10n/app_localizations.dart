@@ -10824,6 +10824,30 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'تم حذف حسابك من خوادمنا، لكن تعذّر إنهاء مسح البيانات على هذا الجهاز. أغلق التطبيق وافتحه مجددًا.'**
   String get deleteAccountLocalCleanupPending;
+
+  /// No description provided for @pasteAnalysisHowItWorks.
+  ///
+  /// In ar, this message translates to:
+  /// **'تُقرأ الرسائل على جهازك أولًا. عند الحاجة، يساعد الذكاء الاصطناعي إذا كانت السحابة والتحليل الذكي مفعّلين.'**
+  String get pasteAnalysisHowItWorks;
+
+  /// No description provided for @pasteReadOnDevice.
+  ///
+  /// In ar, this message translates to:
+  /// **'قُرئت على جهازك — لم نحتج إلى الذكاء الاصطناعي.'**
+  String get pasteReadOnDevice;
+
+  /// No description provided for @pasteReadWithAi.
+  ///
+  /// In ar, this message translates to:
+  /// **'قُرئت باستخدام الذكاء الاصطناعي.'**
+  String get pasteReadWithAi;
+
+  /// No description provided for @pasteAiConsentOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّرت قراءة هذه الرسالة على جهازك. فعّل السحابة والتحليل الذكي من الخصوصية للسماح بمساعدة الذكاء الاصطناعي.'**
+  String get pasteAiConsentOff;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

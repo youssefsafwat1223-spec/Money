@@ -79,8 +79,7 @@ void main() {
 
   testWidgets('English persisted, app still in its default: prompt is English',
       (tester) async {
-    final reason =
-        await promptFor(tester, persisted: 'en', ambient: 'ar');
+    final reason = await promptFor(tester, persisted: 'en', ambient: 'ar');
     final en = await AppL10n.delegate.load(const Locale('en'));
     final ar = await AppL10n.delegate.load(const Locale('ar'));
     expect(reason, isNotNull,
@@ -90,8 +89,7 @@ void main() {
   });
 
   testWidgets('Arabic persisted: prompt is Arabic', (tester) async {
-    final reason =
-        await promptFor(tester, persisted: 'ar', ambient: 'ar');
+    final reason = await promptFor(tester, persisted: 'ar', ambient: 'ar');
     final ar = await AppL10n.delegate.load(const Locale('ar'));
     expect(reason, ar.lockPrompt);
   });
@@ -101,8 +99,7 @@ void main() {
     // The mirror is the source of truth, not a fallback for when the locale is
     // missing. An English app whose mirror says Arabic prompts in Arabic — the
     // case a reinstall can produce, recorded rather than hidden.
-    final reason =
-        await promptFor(tester, persisted: 'ar', ambient: 'en');
+    final reason = await promptFor(tester, persisted: 'ar', ambient: 'en');
     final ar = await AppL10n.delegate.load(const Locale('ar'));
     expect(reason, ar.lockPrompt);
   });

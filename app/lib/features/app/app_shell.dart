@@ -1,3 +1,5 @@
+import '../../domain/entities/transaction_entity.dart';
+import '../capture/services/budget_alert_commits.dart';
 import '../../core/backend/auth_client_provider.dart';
 import '../../core/sync/sync_health.dart';
 import '../../core/sync/outbox_failure.dart';
@@ -152,9 +154,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   bool _originIsMine(AdmissionAuthority origin) {
     if (!origin.isCurrent || !mounted) return false;
     final mine = AppSession.instance.captureLocalWorkAuthority();
-    return mine != null &&
-        mine.uid == origin.uid &&
-        mine.epoch == origin.epoch;
+    return mine != null && mine.uid == origin.uid && mine.epoch == origin.epoch;
   }
 
   /// Restart recovery for an immediate account deletion that was already sent
@@ -163,8 +163,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   /// request and no challenge, and the same egress/local-read gating as the
   /// Delete Account screen. Silent unless the deletion is confirmed complete.
   void _recoverImmediateDeletionAtStart() {
-    if (!mounted ||
-        AppSession.instance.status != SessionStatus.authenticated) {
+    if (!mounted || AppSession.instance.status != SessionStatus.authenticated) {
       return;
     }
     final ImmediateDeletionFlow flow;
@@ -233,8 +232,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     _confirmSubscription = CaptureRuntime.instance.confirmEvents.listen(
       (request) {
         if (!_originIsMine(request.origin)) return;
-        unawaited(_openConfirmSheet(request.transactionId,
-            origin: request.origin));
+        unawaited(
+            _openConfirmSheet(request.transactionId, origin: request.origin));
       },
     );
     _quickActionSubscription =
@@ -391,7 +390,7 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   /// Centralized reaction to any session-status change while this shell is
   /// mounted — covers both an explicit sign-out (Settings) and the
-  /// auth-required recovery path (`_handleAuthRequiredFailure`) in one place,
+  /// auth-required recovery path (`captureAuthRequiredFailure`) in one place,
   /// satisfying "financial providers invalidated" for either trigger without
   /// duplicating the provider list at each call site. The router redirects
   /// away from this shell on the same notification; invalidating here just
@@ -581,17 +580,6 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (synced) _remoteOnboardingCompletionSynced = true;
   }
 
-  /// The one centralized entry point for a Supabase-primary repository call
-  /// failing with `auth_required`. Never catch this and show a generic
-  /// dashboard/error message instead — always route through here so the user
-  /// ends up back at sign-in, not stuck on a screen that can never load.
-  Future<void> _handleAuthRequiredFailure() async {
-    if (kDebugMode) {
-      debugPrint('[AppShell] auth_required — triggering session recovery');
-    }
-    await AppSession.instance.handleAuthRequiredFailure();
-  }
-
   /// Financial-data providers that may hold stale results after a write that
   /// bypassed this shell's live `dbRevisionProvider` connection (background
   /// notification actions, a repaired dirty mirror, or a session change).
@@ -763,13 +751,17 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (work == null) return;
     final generation = _syncGate.generation;
     final notificationPhase = SyncPhaseBinding();
-    bool originalCurrent() => mounted && _syncGate.admits(generation) && work.current;
+    bool originalCurrent() =>
+        mounted && _syncGate.admits(generation) && work.current;
     notificationPhase.bind(_NotificationCallerLifecycle(work, originalCurrent));
     final startupPhase = SyncPhaseBinding();
     startupPhase.bind(_NotificationCallerLifecycle(work, originalCurrent));
     var stopped = false;
     Future<void> attempt(Future<void> Function() push) async {
-      if (stopped || !originalCurrent()) { stopped = true; return; }
+      if (stopped || !originalCurrent()) {
+        stopped = true;
+        return;
+      }
       try {
         await push();
       } on AccountFenceDeliveryCancellation {
@@ -809,10 +801,15 @@ class _AppShellState extends ConsumerState<AppShell> {
       await ref.read(smartInboxSyncServiceProvider).push();
     });
     await attempt(() async {
-      final outcome = await ref.read(notificationLogSyncServiceProvider).syncWithPhase(notificationPhase);
+      final outcome = await ref
+          .read(notificationLogSyncServiceProvider)
+          .syncWithPhase(notificationPhase);
       if (outcome == NotificationUploadOutcome.deferred) stopped = true;
     });
-    if (!originalCurrent() || (notificationPhase.isBound && !notificationPhase.isCurrent)) stopped = true;
+    if (!originalCurrent() ||
+        (notificationPhase.isBound && !notificationPhase.isCurrent)) {
+      stopped = true;
+    }
     await attempt(() async {
       await ref.read(senderBankMappingSyncServiceProvider)?.sync();
     });
@@ -1022,26 +1019,31 @@ class _AppShellState extends ConsumerState<AppShell> {
     try {
       final smartInbox = ref.read(smartInboxSyncServiceProvider);
       bool current() => currentInbox();
-      await health.runPhase(
-          SyncDomain.smartInbox, SyncDirection.push, () => smartInbox.pushWithPhase(phase),
+      await health.runPhase(SyncDomain.smartInbox, SyncDirection.push,
+          () => smartInbox.pushWithPhase(phase),
           binding: phase, rethrowErrors: true);
       if (!current()) return;
       final pullPhase = phase.forNextPhase();
       final domain = smartInboxReconcileDomain(smartInbox);
       final inbox = await reconcileOrPull(
         reconciler: reconciler,
-        domain: ReconcileDomain(name: domain.name, entities: domain.entities,
-          isEnabled: () => current() && domain.isEnabled(),
-          runFromEpoch: ({required dirtyEntities, required isAdmitted}) {
-            if (!current() || !isAdmitted()) {
-              throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
-            }
-            return domain.runFromEpoch(dirtyEntities: dirtyEntities,
-                isAdmitted: () => current() && isAdmitted());
-          }),
+        domain: ReconcileDomain(
+            name: domain.name,
+            entities: domain.entities,
+            isEnabled: () => current() && domain.isEnabled(),
+            runFromEpoch: ({required dirtyEntities, required isAdmitted}) {
+              if (!current() || !isAdmitted()) {
+                throw const SmartInboxDeliveryStopped(
+                    SmartInboxDeliveryStopReason.stale);
+              }
+              return domain.runFromEpoch(
+                  dirtyEntities: dirtyEntities,
+                  isAdmitted: () => current() && isAdmitted());
+            }),
         normalPull: (admitted) async {
           if (!current() || !admitted()) {
-            throw const SmartInboxDeliveryStopped(SmartInboxDeliveryStopReason.stale);
+            throw const SmartInboxDeliveryStopped(
+                SmartInboxDeliveryStopReason.stale);
           }
           await health.runPhase(SyncDomain.smartInbox, SyncDirection.pull,
               () => smartInbox.pull(isAdmitted: () => current() && admitted()),
@@ -1069,11 +1071,17 @@ class _AppShellState extends ConsumerState<AppShell> {
     // once), then pull the acknowledged server aggregate (MALI-024 — the client
     // never uploads a total).
     final engagementPhase = SyncPhaseBinding();
-    bool currentEngagement() => mounted && _syncGate.admits(gen) && engagementPhase.isCurrent;
+    bool currentEngagement() =>
+        mounted && _syncGate.admits(gen) && engagementPhase.isCurrent;
     try {
-      await health.runPhase(SyncDomain.engagement, SyncDirection.push,
-          () => ref.read(engagementEventServiceProvider).pushWithPhase(engagementPhase),
-          binding: engagementPhase, rethrowErrors: true);
+      await health.runPhase(
+          SyncDomain.engagement,
+          SyncDirection.push,
+          () => ref
+              .read(engagementEventServiceProvider)
+              .pushWithPhase(engagementPhase),
+          binding: engagementPhase,
+          rethrowErrors: true);
     } on AccountFenceDeliveryCancellation {
       return;
     } catch (error) {
@@ -1118,6 +1126,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (ReplicaFreeze.instance.frozen) return;
     if (_isConsumingSharedInput) return;
     _isConsumingSharedInput = true;
+    final authFailure = AppSession.instance
+        .captureAuthRequiredFailure(ref.read(authClientProvider));
     try {
       // §4.7: queue hygiene after adoption; independent of the import flag.
       try {
@@ -1126,6 +1136,12 @@ class _AppShellState extends ConsumerState<AppShell> {
       // CAP-7: keep the App Intent's flag mirror current (iOS; best-effort).
       unawaited(
           NativeCaptureBridge.setCaptureNotifyV2(_captureNotifyV2Enabled()));
+      unawaited(ref
+          .read(loadNotificationPreferencesUseCaseProvider)
+          .call()
+          .then((p) => NativeCaptureBridge.setHideCaptureDetails(
+              p.hideLockScreenContent))
+          .catchError((Object _) {}));
       if (_captureImportV3Enabled()) {
         await _runCaptureImportV3();
         return;
@@ -1137,11 +1153,13 @@ class _AppShellState extends ConsumerState<AppShell> {
       final admissionToken = await ownershipGuard.capture();
       Future<bool> isOwnerCurrent() => ownershipGuard.isCurrent(admissionToken);
 
+      final budgetCommits = <TransactionEntity>[];
       CaptureSyncResult? backendSync;
       try {
         backendSync = await ref.read(captureSyncServiceProvider).sync();
+        budgetCommits.addAll(backendSync.committedTransactions);
       } on AuthRepoException {
-        await _handleAuthRequiredFailure();
+        await authFailure();
         return;
       } catch (error) {
         if (kDebugMode) {
@@ -1211,6 +1229,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             final sent = await captureSync.retryPendingSend(message);
             if (sent) {
               backendSync = await captureSync.sync();
+              budgetCommits.addAll(backendSync.committedTransactions);
               if (message.id != null &&
                   (backendSync.importedPayloadIds.contains(message.id) ||
                       await captureSync.isPayloadImported(message.id!))) {
@@ -1290,6 +1309,8 @@ class _AppShellState extends ConsumerState<AppShell> {
                     .read(captureSyncServiceProvider)
                     .captureCommitFor(payloadId),
           );
+          budgetCommits
+              .addAll(newlyAddedTransactions(result.addTransactionResult));
           if (kDebugMode) {
             debugPrint(
               '[Capture] disposition=${result.disposition} '
@@ -1348,7 +1369,7 @@ class _AppShellState extends ConsumerState<AppShell> {
           // stop draining. Nothing was deleted from the native queue (peek,
           // not consume), so this message AND the whole remainder stay leased
           // and are retried after the centralized recovery re-auths.
-          await _handleAuthRequiredFailure();
+          await authFailure();
           break;
         } on StaleOwnershipException {
           // The account admission changed while this drain was in flight.
@@ -1374,12 +1395,12 @@ class _AppShellState extends ConsumerState<AppShell> {
       // import and the foreground shared-message ingest both add transactions
       // without going through CapturedMessageProcessor, so its budget check
       // never ran for them — budgets crossed 75%/90%/100% silently on iOS.
-      if (backendSync?.importedPayloadIds.isNotEmpty == true ||
-          messages.isNotEmpty) {
+      if (budgetCommits.isNotEmpty) {
         try {
           await CapturedMessageProcessor.checkBudgetAlert(
             ref.read(appDatabaseProvider),
             notificationPreferences,
+            committedTransactions: budgetCommits,
             lang: LocalNotificationService.instance.notificationLanguage,
           );
         } catch (error) {
@@ -1451,10 +1472,12 @@ class _AppShellState extends ConsumerState<AppShell> {
 
   Future<void> _importAndNotifyV3() async {
     final CaptureImportReport report;
+    final authFailure = AppSession.instance
+        .captureAuthRequiredFailure(ref.read(authClientProvider));
     try {
       report = await ref.read(captureImportServiceProvider).run();
     } on AuthRepoException {
-      await _handleAuthRequiredFailure();
+      await authFailure();
       return;
     }
     if (!mounted || report.imported.isEmpty) return;
@@ -1498,6 +1521,9 @@ class _AppShellState extends ConsumerState<AppShell> {
       await CapturedMessageProcessor.checkBudgetAlert(
         ref.read(appDatabaseProvider),
         preferences,
+        committedTransactions: report.imported
+            .where((item) => item.path != CaptureImportPath.alreadyImported)
+            .expand((item) => item.committedTransactions),
         lang: LocalNotificationService.instance.notificationLanguage,
       );
     } catch (_) {}
@@ -1660,17 +1686,23 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (work == null || !work.current) return false;
     final generation = _syncGate.generation;
     final phase = SyncPhaseBinding();
-    bool rawCurrent() => mounted && _syncGate.admits(generation) && work.current;
+    bool rawCurrent() =>
+        mounted && _syncGate.admits(generation) && work.current;
     phase.bind(_NotificationCallerLifecycle(work, rawCurrent));
-    bool current() => rawCurrent() && phase.isCurrent && identical(phase.database, work.database);
+    bool current() =>
+        rawCurrent() &&
+        phase.isCurrent &&
+        identical(phase.database, work.database);
     _syncEngagementInFlight = true;
+    final authFailure = AppSession.instance
+        .captureAuthRequiredFailure(ref.read(authClientProvider));
     try {
       return await _syncEngagementBody(work, current, phase) && current();
     } on AccountFenceDeliveryCancellation {
       return false;
     } on AuthRepoException {
       if (!current()) return false;
-      await _handleAuthRequiredFailure();
+      await authFailure();
       return false;
     } on StateError {
       if (current()) rethrow;
@@ -1755,11 +1787,17 @@ class _AppShellState extends ConsumerState<AppShell> {
     // Same disposal race as below: an await preceded this.
     if (!current()) return false;
     try {
-      final outcome = await ref.read(notificationLogSyncServiceProvider).syncWithPhase(phase);
-      if (!current() || outcome == NotificationUploadOutcome.deferred) return false;
-    } on AccountFenceDeliveryCancellation { rethrow; }
-    on AuthRepoException { rethrow; }
-    catch (_) {
+      final outcome = await ref
+          .read(notificationLogSyncServiceProvider)
+          .syncWithPhase(phase);
+      if (!current() || outcome == NotificationUploadOutcome.deferred) {
+        return false;
+      }
+    } on AccountFenceDeliveryCancellation {
+      rethrow;
+    } on AuthRepoException {
+      rethrow;
+    } catch (_) {
       // Current ordinary upload failure remains best effort; stale work stops.
       if (!current()) return false;
     }

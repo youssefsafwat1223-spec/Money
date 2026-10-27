@@ -1,3 +1,5 @@
+import 'package:drift/native.dart';
+import '../security/lock_prompt_language.dart';
 import '../sync/pending_sync_reconciler.dart';
 import '../sync/sync_health.dart';
 import '../sync/outbox_failure.dart';
@@ -44,8 +46,6 @@ import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/capture/capture_runtime.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
-import '../../features/capture/services/native_capture_bridge.dart'
-    show RestrictiveCaptureOwnerReceipt;
 import '../../features/capture/services/pending_notification_actions.dart';
 import '../../features/capture/services/local_notification_service.dart';
 import '../../features/app/app_boot_loader.dart';
@@ -203,6 +203,7 @@ class BootstrapRunner {
       return false;
     }
   }
+
   final AuthInitEventBuffer _initEvents = AuthInitEventBuffer();
 
   /// The startup provenance buffer, for tests that drive it through the debug
@@ -259,7 +260,8 @@ class BootstrapRunner {
   }) =>
       uid == null
           ? () async => false
-          : () => ConsentAuthority(settings).allows(EgressClass.profileAndSettings);
+          : () =>
+              ConsentAuthority(settings).allows(EgressClass.profileAndSettings);
 
   /// Name of the step that was running when the most recent [run] call
   /// failed (or is currently running). `'database_open'` specifically means
@@ -300,15 +302,17 @@ class BootstrapRunner {
     // silently proceeding into stub auth / no cloud (MALI-003).
     _assertRuntimeConfig();
 
+    await _loadInitialSettingsLanguage();
+
     // O: the inert coordinator exists before any recovery, session load or
     // Drift opener below. It authorizes nothing by existing.
     _ensureCoordinator();
-    AppSession.instance.configureLocalRead(
-        LocalReadAuthority(store: SecureLocalReadStore()));
+    AppSession.instance
+        .configureLocalRead(LocalReadAuthority(store: SecureLocalReadStore()));
     // O-LC-1a: this startup's identity for late classifications, captured once
     // per runner before any SDK initialization can classify anything.
-    final binding = _lrBinding ??=
-        await AppSession.instance.beginLocalReadStartupBinding();
+    final binding =
+        _lrBinding ??= await AppSession.instance.beginLocalReadStartupBinding();
 
     // Astra G (P1): the ONE admission gate. The owner it judges is the admitted
     // replica's owner marker; background token auto-refresh follows the gate
@@ -318,7 +322,14 @@ class BootstrapRunner {
       ..configureSessionUsable(() {
         if (!_supabaseInitialized) return false;
         final s = Supabase.instance.client.auth.currentSession;
-        return s != null && !s.isExpired;
+        // A retained SDK token is not committed application admission.
+        // Explicit auth recovery remains available if launch could not admit
+        // this identity; ordinary egress is still governed by the frozen gate.
+        final admitted = AppSession.instance.captureConsentCapability();
+        return s != null &&
+            !s.isExpired &&
+            admitted != null &&
+            admitted.uid == s.user.id;
       })
       // D6: under a verified local-read scope the gate admits only an explicit
       // account-control exchange, whatever Cloud/AI state was saved.
@@ -361,12 +372,14 @@ class BootstrapRunner {
     // reconcile, no replica opened or admitted, nothing routed as authenticated —
     // the signed-out scope is opened and that is all. A stale owner marker of a
     // removed uid is cleared, not opened.
-    var launchBlocked = !await _step('account_fence_readiness',
-        AccountFenceAuthority.shared.initialize);
+    var launchBlocked = !await _step(
+        'account_fence_readiness', AccountFenceAuthority.shared.initialize);
     await _step('removal_recovery', () async {
       _registerRemoveData();
       await AppSession.instance.load();
-      launchBlocked = (await AppSession.instance.prepareLaunchAdmission()).blocked || launchBlocked;
+      launchBlocked =
+          (await AppSession.instance.prepareLaunchAdmission()).blocked ||
+              launchBlocked;
     });
 
     // SDK initialization restores the persisted session from local storage, and
@@ -488,7 +501,8 @@ class BootstrapRunner {
             // empty or valid. The null/expired session is then a LOSS (or an
             // unknown cause), never plain absence or ordinary expiry:
             // restrictive, durably denied.
-            await AppSession.instance.denyLocalReadAfterInitializationLoss(host);
+            await AppSession.instance
+                .denyLocalReadAfterInitializationLoss(host);
           } else {
             // R10.1: the event buffer is also the publication fence: a loss
             // observed at ANY await of the restoration refuses publication.
@@ -579,10 +593,11 @@ class BootstrapRunner {
     // account database. Settings alignment, pending-disable completion and the
     // owner-generation repair wait for the authorized writable reconcile.
     if (!egressGate.isResolved) {
-      await _step('egress_resolution', () => egressGate.resolveRestrictively(
-          egressGate.beginResolution(),
-          owner: scope.uid,
-          freezeTag: scope.isLocalRead ? null : 'startup_unresolved'));
+      await _step(
+          'egress_resolution',
+          () => egressGate.resolveRestrictively(egressGate.beginResolution(),
+              owner: scope.uid,
+              freezeTag: scope.isLocalRead ? null : 'startup_unresolved'));
     }
     final database = _database = scope.database;
     hasLocalData = scope.hasLocalData;
@@ -681,8 +696,9 @@ class BootstrapRunner {
     await _step('seed_catalog', () async {
       await const SeedLoader().seedIfEmpty(database);
       _bindNotificationHistory(database);
-      LocalNotificationService.instance.logService =
-          NotificationLogService(database, isCurrentScope: () =>
+      LocalNotificationService.instance.logService = NotificationLogService(
+          database,
+          isCurrentScope: () =>
               _host?.current?.uid == uid &&
               identical(_host?.current?.database, database));
       await _registerBrandLogos();
@@ -727,8 +743,8 @@ class BootstrapRunner {
         settings: () => DriftUserSettingsRepository(database).getSettings(),
       ));
       if (uid != null) {
-        _observeBootstrapWork(() =>
-          captureRegistration.syncBackendState().catchError((_) {
+        _observeBootstrapWork(
+          () => captureRegistration.syncBackendState().catchError((_) {
             // Capture backend registration is optional; local fallback remains active.
           }),
         );
@@ -815,6 +831,7 @@ class BootstrapRunner {
                   DriftUserSettingsRepository(database))
               .call();
           await AccountCurrencyRepairService(
+            database: database,
             accounts: DriftAccountRepository(
               database,
               outboxQueue: buildPlanningOutboxQueue(database,
@@ -919,13 +936,16 @@ class BootstrapRunner {
         if (!_senderShutdown) {
           final client = Supabase.instance.client;
           const boundary = AuthStreamBoundary('senderBankMapping');
-          _senderBankAuthSubscription = client.auth.onAuthStateChange.listen((state) {
+          _senderBankAuthSubscription =
+              client.auth.onAuthStateChange.listen((state) {
             switch (state.event) {
               case AuthChangeEvent.initialSession:
               case AuthChangeEvent.signedIn:
               case AuthChangeEvent.tokenRefreshed:
               case AuthChangeEvent.userUpdated:
-                if (identical(_host?.current?.database, database)) _receiveSenderBankMapping();
+                if (identical(_host?.current?.database, database)) {
+                  _receiveSenderBankMapping();
+                }
                 return;
               case AuthChangeEvent.signedOut:
               case AuthChangeEvent.userDeleted:
@@ -952,8 +972,11 @@ class BootstrapRunner {
 
   /// The service installed above, with the exact database and uid it was built
   /// for (the admission-recovery callback must not act through another's).
-  ({CaptureDeviceRegistrationService service, AppDatabase database, String? uid})?
-      _captureRegistrationBinding;
+  ({
+    CaptureDeviceRegistrationService service,
+    AppDatabase database,
+    String? uid
+  })? _captureRegistrationBinding;
 
   /// WP-3b: account transitions RELEASE the capture owner (never purge waiting
   /// items, §4.2); the queue is purged only by the Remove-data barrier. Also
@@ -988,12 +1011,15 @@ class BootstrapRunner {
     // Cloud is OFF; widening the mirror stays with the existing link triggers
     // (resume, sync) and the enable phase. No registration service or a receipt
     // that does not verify is null, which the session treats as not published.
-    Future<RestrictiveCaptureOwnerReceipt?> publishRestrictiveOwner(
+    Future<Object?> publishRestrictiveOwner(
         String uid, AdmissionAuthority authority) async {
       // Enqueue only: the receiver drains admissions outside this hook.
       _receiveSenderBankMapping(uid: uid, received: authority);
-      return _captureRegistration
-          ?.publishRestrictiveOwner(admissionAuthority: authority);
+      final registration = _captureRegistration;
+      if (registration == null) return null;
+      return registration.publishRestrictiveOwnerDetailed(
+          admissionAuthority: authority,
+          plan: AppSession.instance.explicitPublishPlanFor(authority));
     }
 
     AppSession.instance.configureCaptureOwnerPublish(publishRestrictiveOwner);
@@ -1034,6 +1060,15 @@ class BootstrapRunner {
       };
   }
 
+  Future<void> _loadInitialSettingsLanguage() async {
+    try {
+      await LockPromptLanguage.read();
+    } catch (_) {
+      // An optional preference cannot block startup. Keep the last loaded
+      // choice, or English if no choice has been loaded in this process.
+    }
+  }
+
   AccountScopeHost _buildAccountScopeHost() {
     final store = _replicaStore = ReplicaStore(
       debugAfterAdoptionStep: (step) async =>
@@ -1065,6 +1100,7 @@ class BootstrapRunner {
           location: location,
           runMigrations: runMigrations,
           creation: creation,
+          initialLanguage: LockPromptLanguage.initialSettingsLanguage,
         );
       },
     );
@@ -1077,9 +1113,14 @@ class BootstrapRunner {
     return AccountScopeHost(
       store: store,
       initialize: _initializeAccount,
+      openSignedOut: () async => AppDatabase.open(
+        executor: NativeDatabase.memory(),
+        initialLanguage: LockPromptLanguage.initialSettingsLanguage,
+      ),
       prepareLocation: (location) =>
           AppDatabase.initProcessLiveness(location: location),
-      afterWithdraw: debugAfterWithdraw ?? (() => WidgetsBinding.instance.endOfFrame),
+      afterWithdraw:
+          debugAfterWithdraw ?? (() => WidgetsBinding.instance.endOfFrame),
       coordinator: coordinator,
       reconcileReusedScope: _reconcileReusedScope,
     );
@@ -1130,9 +1171,11 @@ class BootstrapRunner {
       _pendingBootstrapWork.remove(terminal.future);
       terminal.complete();
     }
+
     try {
       final actual = start();
-      unawaited(actual.then<void>((_) => settled(), onError: (Object error, StackTrace stack) {
+      unawaited(actual.then<void>((_) => settled(),
+          onError: (Object error, StackTrace stack) {
         _unexpectedBootstrapWork.add((error, stack));
         settled();
       }));
@@ -1149,13 +1192,15 @@ class BootstrapRunner {
       await Future.wait(_pendingBootstrapWork.toList());
     }
     if (_unexpectedBootstrapWork.isNotEmpty) {
-      Error.throwWithStackTrace(_unexpectedBootstrapWork.first.$1,
-          _unexpectedBootstrapWork.first.$2);
+      Error.throwWithStackTrace(
+          _unexpectedBootstrapWork.first.$1, _unexpectedBootstrapWork.first.$2);
     }
   }
 
   void _installSenderObservers() {
-    if (_senderShutdown || _senderObserversInstalled || !SupabaseConfig.isConfigured) {
+    if (_senderShutdown ||
+        _senderObserversInstalled ||
+        !SupabaseConfig.isConfigured) {
       return;
     }
     _senderObserversInstalled = true;
@@ -1168,12 +1213,16 @@ class BootstrapRunner {
     final session = AppSession.instance;
     final scope = _host?.current;
     final ordinary = session.captureLocalWorkAuthority();
-    if (session.status != SessionStatus.authenticated || scope == null ||
-        ordinary == null || !ordinary.isCurrent || ordinary.uid != scope.uid) {
+    if (session.status != SessionStatus.authenticated ||
+        scope == null ||
+        ordinary == null ||
+        !ordinary.isCurrent ||
+        ordinary.uid != scope.uid) {
       _senderSessionReadyKey = null;
       return;
     }
-    final key = (scope, ordinary.uid, ordinary.epoch, CloudEgressGate.instance.epoch);
+    final key =
+        (scope, ordinary.uid, ordinary.epoch, CloudEgressGate.instance.epoch);
     if (_senderSessionReadyKey == key) {
       return;
     }
@@ -1182,19 +1231,27 @@ class BootstrapRunner {
   }
 
   void _receiveSenderBankMapping({String? uid, AdmissionAuthority? received}) {
-    if (_senderShutdown || !SupabaseConfig.isConfigured ||
+    if (_senderShutdown ||
+        !SupabaseConfig.isConfigured ||
         AppSession.instance.localReadEgressDenied) {
       return;
     }
     final host = _host;
     final scope = host?.current;
-    if (host == null || scope == null || scope.uid == null ||
-        !identical(AppSession.instance.accountFenceHostForDatabase(scope.database), host)) {
+    if (host == null ||
+        scope == null ||
+        scope.uid == null ||
+        !identical(
+            AppSession.instance.accountFenceHostForDatabase(scope.database),
+            host)) {
       return;
     }
-    final original = received ?? AppSession.instance.captureLocalWorkAuthority();
-    if (original == null || original.uid != scope.uid ||
-        (uid != null && uid != scope.uid) || !original.isCurrent) {
+    final original =
+        received ?? AppSession.instance.captureLocalWorkAuthority();
+    if (original == null ||
+        original.uid != scope.uid ||
+        (uid != null && uid != scope.uid) ||
+        !original.isCurrent) {
       return;
     }
     final egressEpoch = CloudEgressGate.instance.epoch;
@@ -1202,9 +1259,12 @@ class BootstrapRunner {
     if (!_senderReceiving.add(key)) return;
     final completion = Completer<void>();
     _senderJobs.add(completion.future); // Reserve before invoking any work.
-    bool receivingCurrent() => !_senderShutdown && !AppSession.instance.localReadEgressDenied &&
+    bool receivingCurrent() =>
+        !_senderShutdown &&
+        !AppSession.instance.localReadEgressDenied &&
         identical(host.current, scope) &&
-        host.generation == scope.generation && original.isCurrent &&
+        host.generation == scope.generation &&
+        original.isCurrent &&
         CloudEgressGate.instance.epoch == egressEpoch;
     unawaited(Future<void>.microtask(() async {
       try {
@@ -1215,7 +1275,9 @@ class BootstrapRunner {
         await Future<void>.value();
         if (!receivingCurrent()) return;
         final ordinary = AppSession.instance.captureLocalWorkAuthority();
-        if (ordinary == null || !ordinary.isCurrent || ordinary.uid != original.uid ||
+        if (ordinary == null ||
+            !ordinary.isCurrent ||
+            ordinary.uid != original.uid ||
             ordinary.epoch != original.epoch) {
           return;
         }
@@ -1225,19 +1287,27 @@ class BootstrapRunner {
         _senderSessionReadyKey = key;
         // A successor epoch can legitimately keep the same DB. It owns a fresh
         // service instance, rather than being dropped by an old busy instance.
-        final service = SenderBankMappingSyncService(db: scope.database,
-          remoteStore: SupabaseSenderBankMappingRemoteStore(client),
-          currentUserId: () => client.auth.currentUser?.id,
-          mayEgress: () => ConsentAuthority(() => DriftUserSettingsRepository(scope.database)
-              .getSettings()).allows(EgressClass.senderBankMappings),
-          health: SyncHealth.shared,
-          seqGate: SeqPullGate(db: scope.database,
-            capability: ServerCapabilitiesService(getAuthUserId: () async => client.auth.currentUser?.id,
-              getClient: () => client,
-              mayEgress: () => ConsentAuthority(() => DriftUserSettingsRepository(scope.database)
-                  .getSettings()).allows(EgressClass.financialSync),
-              health: SyncHealth.shared).syncSeq));
-        await service.syncWithPhase(SyncPhaseBinding(), originalAuthority: original);
+        final service = SenderBankMappingSyncService(
+            db: scope.database,
+            remoteStore: SupabaseSenderBankMappingRemoteStore(client),
+            currentUserId: () => client.auth.currentUser?.id,
+            mayEgress: () => ConsentAuthority(() =>
+                    DriftUserSettingsRepository(scope.database).getSettings())
+                .allows(EgressClass.senderBankMappings),
+            health: SyncHealth.shared,
+            seqGate: SeqPullGate(
+                db: scope.database,
+                capability: ServerCapabilitiesService(
+                        getAuthUserId: () async => client.auth.currentUser?.id,
+                        getClient: () => client,
+                        mayEgress: () => ConsentAuthority(() =>
+                                DriftUserSettingsRepository(scope.database)
+                                    .getSettings())
+                            .allows(EgressClass.financialSync),
+                        health: SyncHealth.shared)
+                    .syncSeq));
+        await service.syncWithPhase(SyncPhaseBinding(),
+            originalAuthority: original);
       } on AccountFenceDeliveryCancellation {
         // Expected old-lifetime refusal, not an ordinary sync failure.
       } on StaleAdmissionException {
@@ -1259,7 +1329,8 @@ class BootstrapRunner {
       await Future.wait(_senderJobs.toList());
     }
     if (_senderUnexpected.isNotEmpty) {
-      Error.throwWithStackTrace(_senderUnexpected.first.$1, _senderUnexpected.first.$2);
+      Error.throwWithStackTrace(
+          _senderUnexpected.first.$1, _senderUnexpected.first.$2);
     }
   }
 
@@ -1279,14 +1350,25 @@ class BootstrapRunner {
     final done = Completer<void>();
     _senderShutdownCompletion = done.future;
     unawaited(() async {
-      Object? cancellationError; StackTrace? cancellationStack;
-      try { await subscription?.cancel(); }
-      catch (error, stack) { cancellationError = error; cancellationStack = stack; }
-      while (_senderJobs.isNotEmpty) { await Future.wait(_senderJobs.toList()); }
-      if (cancellationError != null) { done.completeError(cancellationError, cancellationStack); }
-      else if (_senderUnexpected.isNotEmpty) {
-        done.completeError(_senderUnexpected.first.$1, _senderUnexpected.first.$2);
-      } else { done.complete(); }
+      Object? cancellationError;
+      StackTrace? cancellationStack;
+      try {
+        await subscription?.cancel();
+      } catch (error, stack) {
+        cancellationError = error;
+        cancellationStack = stack;
+      }
+      while (_senderJobs.isNotEmpty) {
+        await Future.wait(_senderJobs.toList());
+      }
+      if (cancellationError != null) {
+        done.completeError(cancellationError, cancellationStack);
+      } else if (_senderUnexpected.isNotEmpty) {
+        done.completeError(
+            _senderUnexpected.first.$1, _senderUnexpected.first.$2);
+      } else {
+        done.complete();
+      }
     }());
     return done.future;
   }
@@ -1390,7 +1472,8 @@ StreamSubscription<AuthState> _startSenderBankMappingSync(
   SupabaseClient client, {
   bool Function()? egressDenied,
 }) {
-  final denied = egressDenied ?? () => AppSession.instance.localReadEgressDenied;
+  final denied =
+      egressDenied ?? () => AppSession.instance.localReadEgressDenied;
   unawaited(SyncHealth.shared.attach(database));
   final service = SenderBankMappingSyncService(
     db: database,
@@ -1557,7 +1640,8 @@ class AuthInitEventBuffer {
 class ObservingAuthLocalStorage extends LocalStorage {
   ObservingAuthLocalStorage(this._buffer, String url, {LocalStorage? inner})
       : _inner = inner ??
-            SharedPreferencesLocalStorage(persistSessionKey: sdkStorageKey(url));
+            SharedPreferencesLocalStorage(
+                persistSessionKey: sdkStorageKey(url));
 
   /// The SDK's own default key derivation (supabase_flutter `Supabase.initialize`).
   static String sdkStorageKey(String url) =>

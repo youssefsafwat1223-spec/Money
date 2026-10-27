@@ -275,7 +275,7 @@ void main() {
         lessThan(_anchor(saveTx, 'UPDATE user_settings')),
         reason: 'before the first mutation');
     expect(RegExp(r'checkpoint\?\.call\(\)').allMatches(saveTx).length, 3);
-    final typed = _body(repository, 'Future<UserSettingsEntity> saveConsentChoice(');
+    final typed = _body(repository, 'Future<UserSettingsEntity> _saveConsentChoice(');
     expect(typed, contains('SELECT owner_uid FROM replica_meta'));
     expect(typed, contains('identical(capability.database, _db)'));
     _anchor(typed, 'capability.requireCurrent();');

@@ -19,7 +19,12 @@ import 'sql_value_codec.dart';
 
 // v28 (MALI-014 Batch-5 closure): adds the durable `restore_operations` journal
 // (created idempotently by _createSchema on both fresh install and upgrade).
-const int _targetSchemaVersion = 41;
+const int _targetSchemaVersion = 42;
+
+/// The notification preferences of the seeded default settings row. Shared so a
+/// recovery can tell the pristine seed from a row the user has edited.
+const String kDefaultSettingsNotificationsJson =
+    '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursEnabled":false,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}';
 
 /// MALI-027 — the on-disk database was created by a NEWER build than this one
 /// (its `user_version` exceeds [_targetSchemaVersion]). Initialization fails
@@ -207,10 +212,14 @@ class AppDatabase extends GeneratedDatabase {
     required this.keyStore,
     required this.isEncrypted,
     this.isReadOnly = false,
+    this.initialLanguage = 'en',
   }) : super.connect(connection);
 
   final DatabaseKeyStore keyStore;
   final bool isEncrypted;
+
+  /// Used only when creating the settings row. Existing choices are untouched.
+  final String initialLanguage;
 
   /// True for the offline local-read connection ([openReadOnlyExisting]): SQLite
   /// itself opened the file read-only, and [initialize] refuses to run.
@@ -254,6 +263,7 @@ class AppDatabase extends GeneratedDatabase {
     // from two connections. The MAIN application open (the sole migration owner)
     // uses the default true. See [openSecondary].
     bool runMigrations = true,
+    String initialLanguage = 'en',
     // WP-3a — which database file/key to open. Null = the legacy shared
     // `money_companion.sqlite` in the app-support directory (today's behaviour).
     ReplicaLocation? location,
@@ -302,6 +312,7 @@ class AppDatabase extends GeneratedDatabase {
         connection,
         keyStore: resolvedKeyStore,
         isEncrypted: false,
+        initialLanguage: initialLanguage == 'ar' ? 'ar' : 'en',
       )..debugFailAtPhase = debugFailInit;
       return _finishOpen(db, runMigrations);
     }
@@ -325,6 +336,7 @@ class AppDatabase extends GeneratedDatabase {
       encryptedConnection,
       keyStore: resolvedKeyStore,
       isEncrypted: true,
+      initialLanguage: initialLanguage == 'ar' ? 'ar' : 'en',
     );
     return _finishOpen(db, runMigrations);
   }
@@ -846,7 +858,61 @@ class AppDatabase extends GeneratedDatabase {
       apply: _applyV41SyncConflicts,
       postcondition: _verifyV41SyncConflicts,
     ),
+    // Device-local consent VERSION allocation watermark. ADDITIVE: one
+    // single-row table. It is allocation metadata only (the highest version this
+    // device has reserved or committed), never a consent state, boolean or
+    // timestamp, and it is never synced. The recovery seed fingerprint is local
+    // provenance only; wipe clears it while retaining the version frontier.
+    // Rows are written by explicit operations, never by the migration.
+    _SchemaMigration(
+      from: 41,
+      to: 42,
+      apply: _applyV42ConsentVersionWatermark,
+      postcondition: _verifyV42ConsentVersionWatermark,
+    ),
   ];
+
+  static Future<void> _applyV42ConsentVersionWatermark(AppDatabase db) =>
+      db._createConsentVersionWatermarkTable();
+
+  static Future<bool> _verifyV42ConsentVersionWatermark(AppDatabase db) async {
+    final cols = (await db
+            .customSelect(
+                "SELECT name FROM pragma_table_info('consent_version_watermark');")
+            .get())
+        .map((r) => r.read<String>('name'))
+        .toSet();
+    final sql = (await db
+            .customSelect("SELECT sql FROM sqlite_master WHERE type='table' "
+                "AND name='consent_version_watermark';")
+            .getSingleOrNull())
+        ?.read<String?>('sql');
+    // The columns the allocation needs and the singleton constraint.
+    return cols.containsAll(const {
+          'id',
+          'watermark',
+          'reserved',
+          'reserved_uid',
+          'reserved_epoch',
+          'reserved_op',
+          'seed_source_fingerprint',
+        }) &&
+        (sql?.contains('CHECK (id = 1)') ?? false);
+  }
+
+  Future<void> _createConsentVersionWatermarkTable() async {
+    await customStatement('''
+      CREATE TABLE IF NOT EXISTS consent_version_watermark (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        watermark INTEGER NOT NULL DEFAULT 0,
+        reserved INTEGER NOT NULL DEFAULT 0,
+        reserved_uid TEXT NULL,
+        reserved_epoch INTEGER NULL,
+        reserved_op TEXT NULL,
+        seed_source_fingerprint TEXT NULL
+      );
+    ''');
+  }
 
   static Future<void> _applyV41SyncConflicts(AppDatabase db) async {
     await db._ensureOutboxCasColumns();
@@ -2393,6 +2459,7 @@ class AppDatabase extends GeneratedDatabase {
     await _createProofCorrectionEventsTable();
     await _createReplicaMetaTable();
     await _createSyncConflictsTable();
+    await _createConsentVersionWatermarkTable();
 
     // v34 (COUPONS PHASE 1): the merchant catalog cache. Unconditional for the
     // same reason as the two above — a version gate would skip these on a
@@ -3777,10 +3844,12 @@ class AppDatabase extends GeneratedDatabase {
           INSERT INTO user_settings(
             id, country, currency, language, theme, input_method, notifications_json, db_encryption_key_ref, privacy_mode_enabled
           )
-          VALUES (?, 'SA', 'SAR', 'ar', 'system', 'auto', '{"captureReview":true,"captureLight":true,"budgetWarning":true,"budgetOver":true,"achievements":true,"weeklyReport":true,"subscriptionReminder":true,"goalMilestone":true,"quietHoursEnabled":false,"quietHoursStartHour":23,"quietHoursEndHour":8,"notifiedGoalMilestones":{}}', '', 0);
+          VALUES (?, 'SA', 'SAR', ?, 'system', 'auto', ?, '', 0);
         ''',
         variables: [
           Variable.withString(IdGenerator.next()),
+          Variable.withString(initialLanguage),
+          Variable.withString(kDefaultSettingsNotificationsJson),
         ],
       );
     }
@@ -3828,13 +3897,13 @@ class AppDatabase extends GeneratedDatabase {
     if (await count('accounts') > 0) {
       // اضمن وجود حساب افتراضي واحد على الأقل.
       final defaults = await customSelect(
-        'SELECT id FROM accounts WHERE is_default = 1 LIMIT 1;',
+        'SELECT id FROM accounts WHERE is_default = 1 AND deleted_at IS NULL LIMIT 1;',
       ).get();
       if (defaults.isEmpty) {
         await customStatement(
           'UPDATE accounts SET is_default = 1, '
           '$kMarkPendingIfServerBacked WHERE id = '
-          '(SELECT id FROM accounts ORDER BY sort_order ASC LIMIT 1);',
+          '(SELECT id FROM accounts WHERE deleted_at IS NULL ORDER BY sort_order ASC LIMIT 1);',
         );
       }
     }

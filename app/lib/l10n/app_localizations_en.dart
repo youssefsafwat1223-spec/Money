@@ -6403,4 +6403,18 @@ class AppL10nEn extends AppL10n {
   @override
   String get deleteAccountLocalCleanupPending =>
       'Your account was deleted from our servers, but we couldn\'t finish clearing this device. Close and reopen the app.';
+
+  @override
+  String get pasteAnalysisHowItWorks =>
+      'Messages are read on your device first. If needed, AI helps when Cloud and Smart Analysis are enabled.';
+
+  @override
+  String get pasteReadOnDevice => 'Read on your device — AI was not needed.';
+
+  @override
+  String get pasteReadWithAi => 'Read with AI.';
+
+  @override
+  String get pasteAiConsentOff =>
+      'This message could not be read on your device. Enable Cloud and Smart Analysis in Privacy to allow AI assistance.';
 }

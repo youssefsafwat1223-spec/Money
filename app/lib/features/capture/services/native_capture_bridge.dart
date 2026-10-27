@@ -84,25 +84,59 @@ class RestrictiveCaptureOwnerReceipt {
     final copy = Map<Object?, Object?>.from(raw);
     final ownerRaw = copy.remove('owner');
     final phase = CloudEgressEnableResult.tryParse(copy);
-    final owner = ownerRaw == null ? null : CaptureOwnerRecord.tryParse(ownerRaw);
-    if (phase == null || phase.operation != 'publishRestrictive' ||
+    final owner =
+        ownerRaw == null ? null : CaptureOwnerRecord.tryParse(ownerRaw);
+    if (phase == null ||
+        phase.operation != 'publishRestrictive' ||
         (ownerRaw != null && owner == null)) {
       return null;
     }
     return RestrictiveCaptureOwnerReceipt(owner, phase);
   }
 
-  bool confirms({required String uid, required int expectedEpoch, required int version}) {
+  bool confirms(
+      {required String uid, required int expectedEpoch, required int version}) {
     final value = owner;
-    return value != null && value.uid == uid && value.uidHash.length == 64 &&
-        RegExp(r'^[0-9a-f]{64}$').hasMatch(value.uidHash) && value.generation > 0 &&
+    return value != null &&
+        value.uid == uid &&
+        value.uidHash.length == 64 &&
+        RegExp(r'^[0-9a-f]{64}$').hasMatch(value.uidHash) &&
+        value.generation > 0 &&
         phase.status == CloudEgressTransitionStatus.done &&
-        phase.ownerGeneration == value.generation && phase.ownerEpoch == expectedEpoch &&
-        phase.egress.length == 2 && phase.egress.every((r) =>
-          r.outcome == CloudEgressLayerOutcome.verified && r.state == 'OFF' &&
-          r.ownerGeneration == value.generation && r.ownerEpoch == expectedEpoch &&
-          r.reservedVersion == version);
+        phase.ownerGeneration == value.generation &&
+        phase.ownerEpoch == expectedEpoch &&
+        phase.egress.length == 2 &&
+        phase.egress.every((r) =>
+            r.outcome == CloudEgressLayerOutcome.verified &&
+            r.state == 'OFF' &&
+            r.ownerGeneration == value.generation &&
+            r.ownerEpoch == expectedEpoch &&
+            r.reservedVersion == version);
   }
+}
+
+/// How the explicit Cloud enable asks for its restrictive owner publication: the
+/// reserved [version] and, when the owner's two native egress layers were
+/// inspected as agreeing OFF, that exact record (native then refuses if it moved).
+/// Used only for the one publication the explicit operation authorizes.
+class RestrictivePublishPlan {
+  const RestrictivePublishPlan(this.version,
+      {this.expectedTransitionGeneration,
+      this.expectedReservedVersion,
+      this.expectedLifetimeOwnerGeneration,
+      this.expectedLifetimeOwnerEpoch});
+  final int version;
+  final int? expectedTransitionGeneration;
+  final int? expectedReservedVersion;
+  final int? expectedLifetimeOwnerGeneration;
+  final int? expectedLifetimeOwnerEpoch;
+}
+
+/// Why a restrictive owner publication produced no receipt. An allowlisted
+/// constant (never a uid, hash, version, message or token); diagnostic only.
+class RestrictiveOwnerRefusal {
+  const RestrictiveOwnerRefusal(this.reason);
+  final String reason;
 }
 
 /// The reconciled native `cloud_egress_state` (C.4 / C.5).
@@ -144,21 +178,26 @@ class CloudEgressSnapshot {
         final epoch = raw['ownerEpoch'];
         final generation = raw['ownerGeneration'];
         final contract = raw['contractVersion'];
-        if (contract is! int || contract != 1 || epoch is! int || epoch < 0 ||
-            generation is! int || generation < 0 || raw.length != 4) {
+        if (contract is! int ||
+            contract != 1 ||
+            epoch is! int ||
+            epoch < 0 ||
+            generation is! int ||
+            generation < 0 ||
+            raw.length != 4) {
           return null;
         }
         return CloudEgressSnapshot(CloudEgressStatus.ownerless,
-          ownerEpoch: epoch, ownerGeneration: generation);
+            ownerEpoch: epoch, ownerGeneration: generation);
       case 'unset':
         return const CloudEgressSnapshot(CloudEgressStatus.unset);
       case 'uncertain':
         final reason = raw['reason'];
         return CloudEgressSnapshot(CloudEgressStatus.uncertain,
-            uncertainReason: reason is String &&
-                    RegExp(r'^[a-z_/]{1,64}$').hasMatch(reason)
-                ? reason
-                : null);
+            uncertainReason:
+                reason is String && RegExp(r'^[a-z_/]{1,64}$').hasMatch(reason)
+                    ? reason
+                    : null);
       case 'record':
         final state = raw['state'];
         final uid = raw['ownerUid'];
@@ -291,16 +330,36 @@ class CloudEgressEnableResult {
   });
 
   static const _operations = {
-    'begin', 'writeOn', 'restrict', 'complete', 'abandon', 'inspect', 'revoke', 'publishRestrictive',
+    'begin',
+    'writeOn',
+    'restrict',
+    'complete',
+    'abandon',
+    'inspect',
+    'revoke',
+    'publishRestrictive',
   };
   static const _topKeys = {
-    'contractVersion', 'operation', 'status', 'operationId',
-    'transitionGeneration', 'reservedVersion', 'ownerGeneration', 'ownerEpoch',
-    'barrier', 'egress',
+    'contractVersion',
+    'operation',
+    'status',
+    'operationId',
+    'transitionGeneration',
+    'reservedVersion',
+    'ownerGeneration',
+    'ownerEpoch',
+    'barrier',
+    'egress',
   };
   static const _layerKeys = {
-    'layer', 'outcome', 'state', 'transitionGeneration', 'reservedVersion',
-    'operationId', 'ownerGeneration', 'ownerEpoch',
+    'layer',
+    'outcome',
+    'state',
+    'transitionGeneration',
+    'reservedVersion',
+    'operationId',
+    'ownerGeneration',
+    'ownerEpoch',
   };
   static const _layerNames = ['file', 'keychain'];
   static final _operationIdPattern = RegExp(r'^[0-9a-f]{32}$');
@@ -372,7 +431,8 @@ class CloudEgressEnableResult {
     }
     final state = raw['state'];
     if (raw.containsKey('state') &&
-        !(state is String && const {'ON', 'DISABLING', 'OFF'}.contains(state))) {
+        !(state is String &&
+            const {'ON', 'DISABLING', 'OFF'}.contains(state))) {
       return null;
     }
     final generation = _optionalInt(raw, 'transitionGeneration');
@@ -416,7 +476,8 @@ class CloudEgressEnableResult {
   static CloudEgressEnableResult? tryParse(Object? raw) {
     if (raw is! Map || !raw.keys.every(_topKeys.contains)) return null;
     final operation = raw['operation'];
-    final status = _enumByName(CloudEgressTransitionStatus.values, raw['status']);
+    final status =
+        _enumByName(CloudEgressTransitionStatus.values, raw['status']);
     if (raw['contractVersion'] != 1 ||
         operation is! String ||
         !_operations.contains(operation) ||
@@ -482,14 +543,18 @@ class CloudEgressEnableResult {
   /// N: absent pending is never evidence of revocation. BOTH existing egress
   /// layers must contain the exact outgoing lifecycle retirement, read back.
   bool confirmsLifetimeRevoked(CloudEgressEnableBinding expected) =>
-      operation == 'revoke' && _isDone && _boundTo(expected) &&
-      egress.length == 2 && egress.every((r) =>
-        r.outcome == CloudEgressLayerOutcome.verified && r.state == 'OFF' &&
-        r.operationId == expected.operationId &&
-        r.ownerGeneration == expected.ownerGeneration &&
-        r.ownerEpoch == expected.ownerEpoch &&
-        r.transitionGeneration == expected.transitionGeneration &&
-        r.reservedVersion == expected.reservedVersion);
+      operation == 'revoke' &&
+      _isDone &&
+      _boundTo(expected) &&
+      egress.length == 2 &&
+      egress.every((r) =>
+          r.outcome == CloudEgressLayerOutcome.verified &&
+          r.state == 'OFF' &&
+          r.operationId == expected.operationId &&
+          r.ownerGeneration == expected.ownerGeneration &&
+          r.ownerEpoch == expected.ownerEpoch &&
+          r.transitionGeneration == expected.transitionGeneration &&
+          r.reservedVersion == expected.reservedVersion);
 
   /// `begin` achieved: the barrier for exactly this generation and version, bound
   /// to a native owner lifecycle, is read back from BOTH layers. A resume passes
@@ -747,13 +812,13 @@ enum CaptureRemovalBarrierPresence { absent, present, malformed }
 
 class CaptureRemovalBarrierRead {
   const CaptureRemovalBarrierRead.absent()
-    : presence = CaptureRemovalBarrierPresence.absent,
-      barrier = null;
+      : presence = CaptureRemovalBarrierPresence.absent,
+        barrier = null;
   const CaptureRemovalBarrierRead._present(CaptureRemovalBarrier this.barrier)
-    : presence = CaptureRemovalBarrierPresence.present;
+      : presence = CaptureRemovalBarrierPresence.present;
   const CaptureRemovalBarrierRead.malformed()
-    : presence = CaptureRemovalBarrierPresence.malformed,
-      barrier = null;
+      : presence = CaptureRemovalBarrierPresence.malformed,
+        barrier = null;
 
   final CaptureRemovalBarrierPresence presence;
   final CaptureRemovalBarrier? barrier;
@@ -786,8 +851,59 @@ enum CaptureQueueFailure {
 /// Thrown by the owner / claim / barrier calls when the native layer refuses.
 /// Callers MUST treat it as "the operation did not happen" and fail closed.
 /// The native `cloud_egress_state` of one owner.
+/// Strict getter-only diagnostic vocabulary; never carries native error text.
+final class CaptureSnapshotDiagnostic {
+  const CaptureSnapshotDiagnostic._(this.stage, this.category);
+  final String stage;
+  final String category;
+  static CaptureSnapshotDiagnostic? parse(Object? raw) {
+    if (raw is! Map ||
+        raw.length != 3 ||
+        raw['contract'] != 'snapshot_v1' ||
+        !const {
+          'lock',
+          'barrier',
+          'activeowner',
+          'hmac',
+          'ownerlesshint',
+          'inflight'
+        }.contains(raw['stage']) ||
+        !const {
+          'lock_unavailable',
+          'interaction_not_allowed',
+          'missing_entitlement',
+          'decode',
+          'key_other',
+          'unreadable',
+          'unexpected'
+        }.contains(raw['category'])) {
+      return null;
+    }
+    return CaptureSnapshotDiagnostic._(
+        raw['stage'] as String, raw['category'] as String);
+  }
+}
+
 class CaptureQueueException implements Exception {
-  const CaptureQueueException(this.code, [this.message]);
+  const CaptureQueueException(this.code, [this.message, this.diagnostic]);
+  final CaptureSnapshotDiagnostic? diagnostic;
+
+  String get safeDiagnostic {
+    final safeCode = const {
+      'queue_unavailable',
+      'quota_exceeded',
+      'removal_in_progress',
+      'owner_changed',
+      'stale_generation',
+      'egress_denied',
+      'bad_args',
+      'channel_unavailable',
+    }.contains(code)
+        ? code
+        : 'unknown';
+    final d = diagnostic;
+    return d == null ? safeCode : '$safeCode/${d.stage}/${d.category}';
+  }
 
   /// `queue_unavailable`, `quota_exceeded`, `removal_in_progress`,
   /// `owner_changed`, `stale_generation` (P4: the write carried an older
@@ -1267,7 +1383,12 @@ class NativeCaptureBridge {
     try {
       return await _channel.invokeMethod<T>(method, arguments);
     } on PlatformException catch (e) {
-      throw CaptureQueueException(e.code, e.message);
+      throw CaptureQueueException(
+          e.code,
+          e.message,
+          method == 'getCloudEgressState'
+              ? CaptureSnapshotDiagnostic.parse(e.details)
+              : null);
     } on MissingPluginException {
       throw const CaptureQueueException('channel_unavailable');
     }
@@ -1309,30 +1430,51 @@ class NativeCaptureBridge {
       {required String uid}) async {
     if (!_hasNativeQueue) return null;
     try {
-      return CaptureOwnerRecord.tryParse(
-          await _queueCall<Object?>('repairActiveOwnerGeneration', {'uid': uid}));
+      return CaptureOwnerRecord.tryParse(await _queueCall<Object?>(
+          'repairActiveOwnerGeneration', {'uid': uid}));
     } catch (_) {
       return null;
     }
   }
 
   /// N: a restrictive local publication receipt; no backend linking is performed.
-  static Future<RestrictiveCaptureOwnerReceipt?> publishRestrictiveCaptureOwner({
-    required String uid, required int version, required int expectedEpoch,
+  static Future<RestrictiveCaptureOwnerReceipt?>
+      publishRestrictiveCaptureOwner({
+    required String uid,
+    required int version,
+    required int expectedEpoch,
+    int? expectedTransitionGeneration,
+    int? expectedReservedVersion,
+    int? expectedLifetimeOwnerGeneration,
+    int? expectedLifetimeOwnerEpoch,
   }) async {
     if (!_hasNativeQueue) return null;
     return RestrictiveCaptureOwnerReceipt.tryParse(
-      await _queueCall<Object?>('publishRestrictiveCaptureOwner', {
-        'uid': uid, 'version': version, 'expectedEpoch': expectedEpoch,
-      }));
+        await _queueCall<Object?>('publishRestrictiveCaptureOwner', {
+      'uid': uid, 'version': version, 'expectedEpoch': expectedEpoch,
+      // Recovery mode: native writes only while BOTH layers still hold exactly
+      // this inspected OFF record, and `version` is strictly above it.
+      if (expectedTransitionGeneration != null &&
+          expectedReservedVersion != null) ...{
+        'expectedTransitionGeneration': expectedTransitionGeneration,
+        'expectedReservedVersion': expectedReservedVersion,
+        // Absent means the agreed UNBOUND legacy record (no lifetime evidence).
+        if (expectedLifetimeOwnerGeneration != null)
+          'expectedLifetimeOwnerGeneration': expectedLifetimeOwnerGeneration,
+        if (expectedLifetimeOwnerEpoch != null)
+          'expectedLifetimeOwnerEpoch': expectedLifetimeOwnerEpoch,
+      },
+    }));
   }
 
   static Future<CloudEgressEnableResult?> revokeCaptureAuthorizationLifetime({
-    required String ownerUid, required CloudEgressEnableBinding binding,
+    required String ownerUid,
+    required CloudEgressEnableBinding binding,
   }) async {
     if (!_hasNativeQueue) return null;
     return CloudEgressEnableResult.tryParse(await _queueCall<Object?>(
-      'revokeCaptureAuthorizationLifetime', _phaseArguments(ownerUid, binding)));
+        'revokeCaptureAuthorizationLifetime',
+        _phaseArguments(ownerUid, binding)));
   }
 
   /// The owner epoch, bumped natively by every owner clear. 0 off iOS.
@@ -1576,7 +1718,8 @@ class NativeCaptureBridge {
     if (!_hasNativeQueue) return null;
     return _enableResult(
       'inspect',
-      await _queueCall<Object?>('getCloudEgressPending', {'ownerUid': ownerUid}),
+      await _queueCall<Object?>(
+          'getCloudEgressPending', {'ownerUid': ownerUid}),
     );
   }
 
@@ -1739,6 +1882,20 @@ class NativeCaptureBridge {
     try {
       await _channel
           .invokeMethod<void>('setCaptureNotifyV2', {'enabled': enabled});
+    } on PlatformException {
+      return;
+    } on MissingPluginException {
+      return;
+    }
+  }
+
+  /// Mirrors the user's "hide lock-screen content" preference for the App
+  /// Intent, which builds capture banners without Flutter. Best-effort.
+  static Future<void> setHideCaptureDetails(bool hide) async {
+    if (!_hasNativeQueue) return;
+    try {
+      await _channel
+          .invokeMethod<void>('setHideCaptureDetails', {'hide': hide});
     } on PlatformException {
       return;
     } on MissingPluginException {
@@ -2094,14 +2251,16 @@ class NativeCaptureBridge {
   /// events (created/sent/failed) recorded via SharedCaptureStore. Returns
   /// an empty list on Android or when nothing is pending.
   static Future<List<NativeNotificationLogEvent>>
-      consumePendingNotificationLogEvents({String? ownerUid, int? ownerGeneration}) async {
+      consumePendingNotificationLogEvents(
+          {String? ownerUid, int? ownerGeneration}) async {
     if (!Platform.isIOS) return const [];
     final String? json;
     try {
       json = await _channel
           .invokeMethod<String>('consumePendingNotificationLogEvents', {
-            'ownerUid': ownerUid, 'ownerGeneration': ownerGeneration,
-          });
+        'ownerUid': ownerUid,
+        'ownerGeneration': ownerGeneration,
+      });
     } on MissingPluginException {
       return const [];
     }
@@ -2141,13 +2300,19 @@ class NativeCaptureBridge {
   }
 
   static Future<bool> acknowledgeNotificationLogEvent({
-    required String eventId, required String ownerUid, required int ownerGeneration,
+    required String eventId,
+    required String ownerUid,
+    required int ownerGeneration,
   }) async {
     if (!Platform.isIOS) return false;
     try {
-      return await _channel.invokeMethod<bool>('acknowledgeNotificationLogEvent', {
-        'eventId': eventId, 'ownerUid': ownerUid, 'ownerGeneration': ownerGeneration,
-      }) ?? false;
+      return await _channel
+              .invokeMethod<bool>('acknowledgeNotificationLogEvent', {
+            'eventId': eventId,
+            'ownerUid': ownerUid,
+            'ownerGeneration': ownerGeneration,
+          }) ??
+          false;
     } on MissingPluginException {
       return false;
     }

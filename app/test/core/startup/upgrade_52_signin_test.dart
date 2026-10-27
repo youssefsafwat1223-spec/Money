@@ -15,6 +15,7 @@ import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
 import 'package:money_companion/core/privacy/consent_authority.dart';
 import 'package:money_companion/core/session/app_session.dart';
 import 'package:money_companion/core/session/capture_queue.dart';
+import 'package:money_companion/core/session/consent_capability.dart';
 import 'package:money_companion/core/session/local_read_authority.dart';
 import 'package:money_companion/core/session/remove_data_flow.dart';
 import 'package:money_companion/core/startup/bootstrap_runner.dart';
@@ -24,12 +25,14 @@ import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/data/db/replica_store.dart';
 import 'package:money_companion/features/capture/services/capture_device_registration_service.dart';
 import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
-import 'package:money_companion/features/onboarding/auth_screen.dart' show signInFailureCode;
+import 'package:money_companion/features/onboarding/auth_screen.dart'
+    show signInFailureCode;
 import 'package:path/path.dart' as p;
 // ignore: depend_on_referenced_packages
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
+import '../../harness/native_enable_sim.dart';
 import '../session/f2_fixture.dart';
 import '../session/recording_secure_storage.dart';
 
@@ -43,7 +46,8 @@ import '../session/recording_secure_storage.dart';
 class _SpyNotifications extends FlutterLocalNotificationsPlatform {
   static int initCalls = 0;
   @override
-  Future<NotificationAppLaunchDetails?> getNotificationAppLaunchDetails() async {
+  Future<NotificationAppLaunchDetails?>
+      getNotificationAppLaunchDetails() async {
     initCalls++;
     return null;
   }
@@ -69,6 +73,7 @@ class _Queue implements CaptureQueueBridge {
     clearCalls++;
     return true;
   }
+
   @override
   Future<void> publishCaptureOwner({
     required String uid,
@@ -157,9 +162,9 @@ void main() {
     final c = SupabaseClient('http://127.0.0.1:55321', 'synthetic-anon',
         authOptions: const AuthClientOptions(autoRefreshToken: false),
         httpClient: MockClient((_) async {
-          httpRequests++;
-          return http.Response('{}', 200);
-        }));
+      httpRequests++;
+      return http.Response('{}', 200);
+    }));
     clients.add(c);
     return c;
   }
@@ -168,16 +173,16 @@ void main() {
     final c = SupabaseClient('http://127.0.0.1:55321', 'synthetic-anon',
         authOptions: const AuthClientOptions(autoRefreshToken: false),
         httpClient: MockClient((request) async {
-          httpRequests++;
-          return http.Response(
-            jsonEncode({
-              'access_token': _jwt(uid, 1),
-              'token_type': 'bearer',
-              'refresh_token': 'synthetic-refresh',
-              'user': {'id': uid, 'email': '$uid@example.com'},
-            }),
-            200);
-        }));
+      httpRequests++;
+      return http.Response(
+          jsonEncode({
+            'access_token': _jwt(uid, 1),
+            'token_type': 'bearer',
+            'refresh_token': 'synthetic-refresh',
+            'user': {'id': uid, 'email': '$uid@example.com'},
+          }),
+          200);
+    }));
     await c.auth
         .signInWithPassword(email: '$uid@example.com', password: 'synthetic');
     clients.add(c);
@@ -211,7 +216,8 @@ void main() {
         "created_at, updated_at, raw_merchant, direction) VALUES "
         "('tx-1', 125.5, 12550, 'SAR', 'payment', 'manual', '$now', '', 1, "
         "'confirmed', '$now', '$now', 'Coffee Corner', 'debit');");
-    final repo = DriftUserSettingsRepository(first.accountScope.current!.database);
+    final repo =
+        DriftUserSettingsRepository(first.accountScope.current!.database);
     await repo.saveSettings((await repo.getSettings())
         .copyWith(cloudConsentState: ConsentState.accepted));
     await first.accountScope.detach();
@@ -221,7 +227,6 @@ void main() {
     session.configureRemoveData(null);
     session.configureAccountScope(null);
   }
-
 
   // Build 52 never wrote any of these 53-only keys.
   void asBuild52Left() {
@@ -258,7 +263,8 @@ void main() {
     return gate;
   }
 
-  test('upgrade 52 -> 53: expired build-52 session, Apple id_token exchange '
+  test(
+      'upgrade 52 -> 53: expired build-52 session, Apple id_token exchange '
       'reaches POST /auth/v1/token?grant_type=id_token', () async {
     const url = 'https://example.supabase.co';
     CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
@@ -270,26 +276,26 @@ void main() {
     final live = SupabaseClient(url, 'synthetic-anon',
         authOptions: const AuthClientOptions(autoRefreshToken: false),
         httpClient: GatedHttpClient(MockClient((request) async {
-          reached.add(request);
-          return http.Response(
-              jsonEncode({
-                'access_token': _jwt(uid, 4102444800),
-                'token_type': 'bearer',
-                'expires_in': 3600,
-                'expires_at': 4102444800,
-                'refresh_token': 'r',
-                'user': {
-                  'id': uid,
-                  'aud': 'authenticated',
-                  'email': '$uid@example.com',
-                  'created_at': '2026-01-01T00:00:00Z',
-                  'app_metadata': <String, dynamic>{},
-                  'user_metadata': <String, dynamic>{},
-                },
-              }),
-              200,
-              headers: {'content-type': 'application/json'});
-        })));
+      reached.add(request);
+      return http.Response(
+          jsonEncode({
+            'access_token': _jwt(uid, 4102444800),
+            'token_type': 'bearer',
+            'expires_in': 3600,
+            'expires_at': 4102444800,
+            'refresh_token': 'r',
+            'user': {
+              'id': uid,
+              'aud': 'authenticated',
+              'email': '$uid@example.com',
+              'created_at': '2026-01-01T00:00:00Z',
+              'app_metadata': <String, dynamic>{},
+              'user_metadata': <String, dynamic>{},
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'});
+    })));
     clients.add(live);
 
     final runner = await boot(await expiredClient());
@@ -308,7 +314,8 @@ void main() {
     } catch (e) {
       failure = e;
     }
-    expect(failure, isNull, reason: 'sign-in must not be refused before network');
+    expect(failure, isNull,
+        reason: 'sign-in must not be refused before network');
     expect(
         reached.where((r) =>
             r.method == 'POST' &&
@@ -317,7 +324,8 @@ void main() {
         hasLength(1));
   });
 
-  test('upgrade 52 -> 54: signed-out Dart with a surviving native active owner '
+  test(
+      'upgrade 52 -> 54: signed-out Dart with a surviving native active owner '
       'must still admit the Apple id_token exchange (no EgressDenied:frozen)',
       () async {
     const url = 'https://example.supabase.co';
@@ -353,26 +361,26 @@ void main() {
     final live = SupabaseClient(url, 'synthetic-anon',
         authOptions: const AuthClientOptions(autoRefreshToken: false),
         httpClient: GatedHttpClient(MockClient((request) async {
-          reached.add(request);
-          return http.Response(
-              jsonEncode({
-                'access_token': _jwt(uid, 4102444800),
-                'token_type': 'bearer',
-                'expires_in': 3600,
-                'expires_at': 4102444800,
-                'refresh_token': 'r',
-                'user': {
-                  'id': uid,
-                  'aud': 'authenticated',
-                  'email': '$uid@example.com',
-                  'created_at': '2026-01-01T00:00:00Z',
-                  'app_metadata': <String, dynamic>{},
-                  'user_metadata': <String, dynamic>{},
-                },
-              }),
-              200,
-              headers: {'content-type': 'application/json'});
-        })));
+      reached.add(request);
+      return http.Response(
+          jsonEncode({
+            'access_token': _jwt(uid, 4102444800),
+            'token_type': 'bearer',
+            'expires_in': 3600,
+            'expires_at': 4102444800,
+            'refresh_token': 'r',
+            'user': {
+              'id': uid,
+              'aud': 'authenticated',
+              'email': '$uid@example.com',
+              'created_at': '2026-01-01T00:00:00Z',
+              'app_metadata': <String, dynamic>{},
+              'user_metadata': <String, dynamic>{},
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'});
+    })));
     clients.add(live);
 
     // Dart side: no owner marker, no session (what the upgraded device shows).
@@ -399,8 +407,7 @@ void main() {
             r.url.queryParameters['grant_type'] == 'id_token'),
         hasLength(1));
     // Privacy: ordinary egress stays denied while the state is uncertain.
-    await expectLater(
-        live.rest.from('transactions').select(),
+    await expectLater(live.rest.from('transactions').select(),
         throwsA(isA<EgressDeniedException>()));
     expect(reached.where((r) => r.url.path.startsWith('/rest/')), isEmpty);
 
@@ -420,7 +427,8 @@ void main() {
     expect(ConsentAuthority.egressFrozen, isFalse);
   });
 
-  test('upgrade 52 -> 53 over the REAL Supabase.initialize wiring: the Apple '
+  test(
+      'upgrade 52 -> 53 over the REAL Supabase.initialize wiring: the Apple '
       'id_token exchange reaches the network', () async {
     const url = 'https://abcdefghij.supabase.co';
     SharedPreferences.setMockInitialValues({});
@@ -445,34 +453,34 @@ void main() {
     });
     final runner = BootstrapRunner(
         debugSdk: BootstrapSdkTestConfig(
-          url: url,
-          innerStorage: _Store(expired),
-          innerHttp: MockClient((request) async {
-            reached.add(request);
-            final exp = DateTime.now()
-                    .add(const Duration(hours: 1))
-                    .millisecondsSinceEpoch ~/
-                1000;
-            return http.Response(
-                jsonEncode({
-                  'access_token': _jwt(uid, exp),
-                  'token_type': 'bearer',
-                  'expires_in': 3600,
-                  'expires_at': exp,
-                  'refresh_token': 'r',
-                  'user': {
-                    'id': uid,
-                    'aud': 'authenticated',
-                    'email': '$uid@example.com',
-                    'created_at': '2026-01-01T00:00:00Z',
-                    'app_metadata': <String, dynamic>{},
-                    'user_metadata': <String, dynamic>{},
-                  },
-                }),
-                200,
-                headers: {'content-type': 'application/json'});
-          }),
-        ))
+      url: url,
+      innerStorage: _Store(expired),
+      innerHttp: MockClient((request) async {
+        reached.add(request);
+        final exp = DateTime.now()
+                .add(const Duration(hours: 1))
+                .millisecondsSinceEpoch ~/
+            1000;
+        return http.Response(
+            jsonEncode({
+              'access_token': _jwt(uid, exp),
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'expires_at': exp,
+              'refresh_token': 'r',
+              'user': {
+                'id': uid,
+                'aud': 'authenticated',
+                'email': '$uid@example.com',
+                'created_at': '2026-01-01T00:00:00Z',
+                'app_metadata': <String, dynamic>{},
+                'user_metadata': <String, dynamic>{},
+              },
+            }),
+            200,
+            headers: {'content-type': 'application/json'});
+      }),
+    ))
       ..captureQueue = queue;
     runners.add(runner);
     await runner.run();
@@ -489,7 +497,8 @@ void main() {
       failure = e;
     }
     expect(failure, isNull);
-    expect(reached.where((r) => r.url.queryParameters['grant_type'] == 'id_token'),
+    expect(
+        reached.where((r) => r.url.queryParameters['grant_type'] == 'id_token'),
         hasLength(1));
     await Supabase.instance.dispose();
     CloudEgressGate.instance = CloudEgressGate();
@@ -498,153 +507,185 @@ void main() {
   // access token is expired, and native cannot vouch for the NAMED owner. The
   // launch reconcile freezes (reconcile_uncertain), which stops the token
   // refresh, so the app is signed out with the owner marker still set.
-  for (final nat in ['uncertain', 'null', 'throw', 'ownerless']) {
-    test('upgrade 52 -> 55: marker=uid, native=$nat, expired SDK session: '
-        'launch freezes, sign-in still admitted, ordinary egress denied',
-        () async {
-      const url = 'https://abcdefghij.supabase.co';
-      const channel = MethodChannel('money_companion/native_capture');
-      final messenger =
-          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
-      var nativeClean = false;
-      NativeCaptureBridge.debugTreatHostAsNative = true;
-      messenger.setMockMethodCallHandler(channel, (call) async {
-        if (call.method != 'getCloudEgressState') return null;
-        final owner = (call.arguments as Map)['ownerUid'] as String;
-        if (nativeClean && owner.isNotEmpty) {
-          return {
-            'status': 'record',
-            'state': 'ON',
-            'ownerUid': owner,
-            'transitionGeneration': 1,
-            'reservedVersion': 1,
-          };
-        }
-        if (owner.isEmpty) return {'status': 'uncertain'};
-        if (nat == 'uncertain') {
-          return {'status': 'uncertain', 'reason': 'epoch_missing'};
-        }
-        if (nat == 'null') return null;
-        if (nat == 'throw') throw PlatformException(code: 'x');
-        return {'status': 'ownerless', 'ownerEpoch': 1, 'ownerGeneration': 1};
-      });
-      addTearDown(() {
-        NativeCaptureBridge.debugTreatHostAsNative = false;
+  for (final retainedValidSession in [false, true]) {
+    for (final nat in ['uncertain', 'null', 'throw', 'ownerless']) {
+      test(
+          'upgrade 52 -> 55: marker=uid, native=$nat, valid SDK=$retainedValidSession: '
+          'launch freezes, sign-in still admitted, ordinary egress denied',
+          () async {
+        const url = 'https://abcdefghij.supabase.co';
+        const channel = MethodChannel('money_companion/native_capture');
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        var nativeClean = false;
+        NativeCaptureBridge.debugTreatHostAsNative = true;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          if (call.method != 'getCloudEgressState') return null;
+          final owner = (call.arguments as Map)['ownerUid'] as String;
+          if (nativeClean && owner.isNotEmpty) {
+            return {
+              'status': 'record',
+              'state': 'ON',
+              'ownerUid': owner,
+              'transitionGeneration': 1,
+              'reservedVersion': 1,
+            };
+          }
+          if (owner.isEmpty) return {'status': 'uncertain'};
+          if (nat == 'uncertain') {
+            return {'status': 'uncertain', 'reason': 'epoch_missing'};
+          }
+          if (nat == 'null') return null;
+          if (nat == 'throw') throw PlatformException(code: 'x');
+          return {'status': 'ownerless', 'ownerEpoch': 1, 'ownerGeneration': 1};
+        });
+        addTearDown(() {
+          NativeCaptureBridge.debugTreatHostAsNative = false;
+          ConsentAuthority.egressFrozen = false;
+          ConsentAuthority.egressFreezeTag = '';
+          messenger.setMockMethodCallHandler(channel, null);
+        });
         ConsentAuthority.egressFrozen = false;
-        ConsentAuthority.egressFreezeTag = '';
-        messenger.setMockMethodCallHandler(channel, null);
-      });
-      ConsentAuthority.egressFrozen = false;
-      SharedPreferences.setMockInitialValues({});
-      CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
-      await accountThenKill();
-      asBuild52Left();
-      freshProcess(url);
-      expect(storage.data['local_data_owner_uid'], uid);
-      final reached = <http.BaseRequest>[];
-      String session(int exp) => jsonEncode({
-            'access_token': _jwt(uid, exp),
-            'token_type': 'bearer',
-            'expires_in': 3600,
-            'expires_at': exp,
-            'refresh_token': 'synthetic-refresh',
-            'user': {
-              'id': uid,
-              'app_metadata': <String, Object>{},
-              'user_metadata': <String, Object>{},
-              'aud': 'authenticated',
-              'created_at': '2024-01-01T00:00:00.000Z',
-              'email': '$uid@example.com',
-            },
-          });
-      final runner = BootstrapRunner(
-          debugSdk: BootstrapSdkTestConfig(
-            url: url,
-            innerStorage: _Store(session(1)),
-            innerHttp: MockClient((request) async {
-              reached.add(request);
-              return http.Response(
-                  session(DateTime.now()
-                          .add(const Duration(hours: 1))
-                          .millisecondsSinceEpoch ~/
-                      1000),
-                  200,
-                  headers: {'content-type': 'application/json'});
-            }),
-          ))
-        ..captureQueue = queue;
-      runners.add(runner);
-      await runner.run();
-      final auth = Supabase.instance.client.auth;
-      final gate = CloudEgressGate.instance;
+        SharedPreferences.setMockInitialValues({});
+        CloudEgressGate.instance = CloudEgressGate(supabaseUrl: () => url);
+        await accountThenKill();
+        asBuild52Left();
+        freshProcess(url);
+        expect(storage.data['local_data_owner_uid'], uid);
+        final reached = <http.BaseRequest>[];
+        String session(int exp) => jsonEncode({
+              'access_token': _jwt(uid, exp),
+              'token_type': 'bearer',
+              'expires_in': 3600,
+              'expires_at': exp,
+              'refresh_token': 'synthetic-refresh',
+              'user': {
+                'id': uid,
+                'app_metadata': <String, Object>{},
+                'user_metadata': <String, Object>{},
+                'aud': 'authenticated',
+                'created_at': '2024-01-01T00:00:00.000Z',
+                'email': '$uid@example.com',
+              },
+            });
+        final runner = BootstrapRunner(
+            debugSdk: BootstrapSdkTestConfig(
+          url: url,
+          innerStorage: _Store(session(retainedValidSession
+              ? DateTime.now()
+                      .add(const Duration(hours: 1))
+                      .millisecondsSinceEpoch ~/
+                  1000
+              : 1)),
+          innerHttp: MockClient((request) async {
+            reached.add(request);
+            return http.Response(
+                session(DateTime.now()
+                        .add(const Duration(hours: 1))
+                        .millisecondsSinceEpoch ~/
+                    1000),
+                200,
+                headers: {'content-type': 'application/json'});
+          }),
+        ))
+          ..captureQueue = queue;
+        runners.add(runner);
+        await runner.run();
+        final sdk = Supabase.instance;
+        addTearDown(() => sdk.dispose());
+        final auth = sdk.client.auth;
+        final gate = CloudEgressGate.instance;
+        if (retainedValidSession) {
+          // Model the real launch-invalid origin while the SDK retains its token.
+          // This revokes committed application authority without deleting identity.
+          AppSession.instance.markSessionInvalid();
+          expect(AppSession.instance.captureConsentCapability(), isNull);
+          expect(auth.currentSession?.isExpired, isFalse);
+        }
 
-      // The chain: frozen at launch, no refresh, expired session = signed out.
-      expect(ConsentAuthority.egressFrozen, isTrue);
-      expect(ConsentAuthority.egressFreezeTag, 'reconcile_uncertain:native:${{
-        'uncertain': 'epoch_missing',
-        'null': 'unknown',
-        'throw': 'CaptureQueueException',
-        'ownerless': 'unknown',
-      }[nat]}');
-      expect(reached, isEmpty, reason: 'token refresh was blocked');
-      expect(auth.currentSession?.isExpired, isTrue);
-      expect(storage.data['local_data_owner_uid'], uid);
-      expect(await gate.permits(), isFalse);
+        // The chain: frozen at launch, no refresh, expired session = signed out.
+        expect(ConsentAuthority.egressFrozen, isTrue);
+        expect(
+            ConsentAuthority.egressFreezeTag,
+            'reconcile_uncertain:native:${{
+              'uncertain': 'epoch_missing',
+              'null': 'unknown',
+              'throw': 'unknown',
+              'ownerless': 'unknown',
+            }[nat]}');
+        expect(reached, isEmpty, reason: 'token refresh was blocked');
+        expect(auth.currentSession?.isExpired, !retainedValidSession);
+        expect(storage.data['local_data_owner_uid'], uid);
+        expect(await gate.permits(), isFalse);
 
-      // Interactive Apple sign-in must be admitted (it was EgressDenied:frozen).
-      Object? failure;
-      try {
-        await gate.runAccountControl(
-            AccountControlOp.signIn,
-            () => auth.signInWithIdToken(
-                provider: OAuthProvider.apple,
-                idToken: 'apple-id-token',
-                nonce: 'raw-nonce'));
-      } catch (e) {
-        failure = e;
-      }
-      expect(failure, isNull, reason: 'sign-in refused: $failure');
-      expect(
-          reached.where((r) =>
-              r.url.path == '/auth/v1/token' &&
-              r.url.queryParameters['grant_type'] == 'id_token'),
-          hasLength(1));
-      // Privacy: ordinary egress stays denied while frozen, and the diagnostic
-      // names the site.
-      expect(ConsentAuthority.egressFrozen, isTrue);
-      await expectLater(Supabase.instance.client.rest.from('transactions').select(),
-          throwsA(isA<EgressDeniedException>()));
-      expect(reached.where((r) => r.url.path.startsWith('/rest/')), isEmpty);
-      expect(signInFailureCode(EgressDeniedException('frozen')),
-          'EgressDenied:frozen/${ConsentAuthority.egressFreezeTag}');
-
-      // Now signed in with a usable session: a second sign-in grant no longer
-      // passes the freeze (the allowance is for a signed-out context only).
-      await expectLater(
-          gate.runAccountControl(
+        // Interactive Apple sign-in must be admitted (it was EgressDenied:frozen).
+        Object? failure;
+        try {
+          await gate.runAccountControl(
               AccountControlOp.signIn,
               () => auth.signInWithIdToken(
                   provider: OAuthProvider.apple,
                   idToken: 'apple-id-token',
-                  nonce: 'raw-nonce')),
-          throwsA(predicate((e) => '$e'.contains('egress_denied:frozen'))));
+                  nonce: 'raw-nonce'));
+        } catch (e) {
+          failure = e;
+        }
+        expect(failure, isNull, reason: 'sign-in refused: $failure');
+        expect(
+            reached.where((r) =>
+                r.url.path == '/auth/v1/token' &&
+                r.url.queryParameters['grant_type'] == 'id_token'),
+            hasLength(1));
+        // Privacy: ordinary egress stays denied while frozen, and the diagnostic
+        // names the site.
+        expect(ConsentAuthority.egressFrozen, isTrue);
+        await expectLater(
+            Supabase.instance.client.rest.from('transactions').select(),
+            throwsA(isA<EgressDeniedException>()));
+        expect(reached.where((r) => r.url.path.startsWith('/rest/')), isEmpty);
+        expect(signInFailureCode(EgressDeniedException('frozen')),
+            'EgressDenied:frozen/${ConsentAuthority.egressFreezeTag}');
 
-      // Once native can vouch for the owner, the per-owner reconcile lifts it.
-      nativeClean = true;
-      final db = runner.accountScope.current!.database;
-      final repo = DriftUserSettingsRepository(db);
-      await repo.saveSettings((await repo.getSettings())
-          .copyWith(cloudConsentState: ConsentState.accepted));
-      await CaptureDeviceRegistrationService(
-        settingsRepository: repo,
-        gate: gate,
-        readReplicaOwnerUid: () async => uid,
-        readSession: () => null,
-      ).resolvePendingDisable();
-      expect(ConsentAuthority.egressFrozen, isFalse);
-      await Supabase.instance.dispose();
-      CloudEgressGate.instance = CloudEgressGate();
-    });
+        // SDK exchange alone is not committed application admission. While the
+        // native evidence still blocks admission, explicit recovery stays usable.
+        if (AppSession.instance.captureConsentCapability() == null) {
+          await gate.runAccountControl(
+              AccountControlOp.signIn,
+              () => auth.signInWithIdToken(
+                  provider: OAuthProvider.apple,
+                  idToken: 'apple-id-token',
+                  nonce: 'raw-nonce'));
+          expect(ConsentAuthority.egressFrozen, isTrue);
+          await expectLater(
+              Supabase.instance.client.rest.from('transactions').select(),
+              throwsA(isA<EgressDeniedException>()));
+        } else {
+          await expectLater(
+              gate.runAccountControl(
+                  AccountControlOp.signIn,
+                  () => auth.signInWithIdToken(
+                      provider: OAuthProvider.apple,
+                      idToken: 'apple-id-token',
+                      nonce: 'raw-nonce')),
+              throwsA(predicate((e) => '$e'.contains('egress_denied:frozen'))));
+        }
+
+        // Once native can vouch for the owner, the per-owner reconcile lifts it.
+        nativeClean = true;
+        final db = runner.accountScope.current!.database;
+        final repo = DriftUserSettingsRepository(db);
+        await repo.saveSettings((await repo.getSettings())
+            .copyWith(cloudConsentState: ConsentState.accepted));
+        await CaptureDeviceRegistrationService(
+          settingsRepository: repo,
+          gate: gate,
+          readReplicaOwnerUid: () async => uid,
+          readSession: () => null,
+        ).resolvePendingDisable();
+        expect(ConsentAuthority.egressFrozen, isFalse);
+        CloudEgressGate.instance = CloudEgressGate();
+      });
+    }
   }
 
   test(
@@ -847,6 +888,14 @@ void main() {
       }
       repairs = 0;
       mismatch = true;
+      // The consent capability's identity evidence is the bound SDK client.
+      session.configureConsentSdkClient(() {
+        try {
+          return Supabase.instance.client;
+        } catch (_) {
+          return null; // no SDK bound yet (the fixture process)
+        }
+      });
       return freshProcess(url);
     }
 
@@ -915,6 +964,45 @@ void main() {
       expect(rows.read<int>('c'), 1, reason: 'no data was deleted');
     }
 
+    /// The explicit Cloud enable (what the consent sheet runs) against a realistic
+    /// native side: the restrictive publication returns an exact receipt and the
+    /// pending-enable protocol is answered. Returns the simulated native side.
+    Future<NativeEnableSim> enableCloudEndToEnd(BootstrapRunner r) async {
+      final sim = NativeEnableSim(uid: uid)
+        ..ownerEpoch = 0
+        ..ownerGeneration = 9;
+      messenger.setMockMethodCallHandler(channel, sim.handle);
+      final db = r.accountScope.current!.database;
+      // The user turns Cloud on from Off: the build-56 ON fixture is cleared.
+      final repo = DriftUserSettingsRepository(db);
+      await repo.saveSettings((await repo.getSettings()).copyWith(
+          cloudConsentState: ConsentState.unset,
+          aiConsentState: ConsentState.unset));
+      storage.data.remove(CloudEgressStore.kSecureKey);
+      final egressFile = File(p.join(support.path, CloudEgressStore.kFileName));
+      if (egressFile.existsSync()) egressFile.deleteSync();
+      final service = CaptureDeviceRegistrationService(
+        settingsRepository: DriftUserSettingsRepository(db),
+        isIos: () => true,
+        isBackendConfigured: () => true,
+        isCurrentScope: () => identical(r.accountScope.current?.database, db),
+      );
+      // The host platform is not iOS: the production hook (the runner's own
+      // service) would refuse, so the same publication runs through this one.
+      session.configureCaptureOwnerPublish((u, a) =>
+          service.publishRestrictiveOwnerDetailed(admissionAuthority: a));
+      await service.enableCloud(
+          write: ConsentWrite(
+              session.captureConsentCapability()!,
+              const ConsentChoices(
+                  cloud: ConsentState.accepted, ai: ConsentState.accepted)));
+      expect(sim.of('publishRestrictiveCaptureOwner'), hasLength(1),
+          reason: 'the returning process published its own proof');
+      expect(sim.egressState, 'ON');
+      expect(await CloudEgressGate.instance.permits(), isTrue);
+      return sim;
+    }
+
     int idTokenRequests() => reached
         .where((r) =>
             r.url.path == '/auth/v1/token' &&
@@ -933,7 +1021,8 @@ void main() {
       await expectLater(
           gate.runAccountControl(
               AccountControlOp.signIn,
-              () => Supabase.instance.client.rest.from('transactions').select()),
+              () =>
+                  Supabase.instance.client.rest.from('transactions').select()),
           throwsA(anything));
       expect(reached.length, before, reason: 'no ordinary egress reached it');
     }
@@ -957,7 +1046,8 @@ void main() {
       await expectReconciledAfterSignIn(r1, gate, repairsExpected: 1);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
-    test('2. the session disappears after the repair committed, before its '
+    test(
+        '2. the session disappears after the repair committed, before its '
         'reply', () async {
       final gate = await prepare();
       repairGate = Completer<void>();
@@ -979,7 +1069,8 @@ void main() {
       await expectReconciledAfterSignIn(r2, gate, repairsExpected: 1);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
-    test('3. the session is already absent: the repair is skipped, sign-in is '
+    test(
+        '3. the session is already absent: the repair is skipped, sign-in is '
         'not refused as unresolved', () async {
       final gate = await prepare();
       final r = BootstrapRunner(
@@ -1007,7 +1098,8 @@ void main() {
       await expectReconciledAfterSignIn(r, gate, repairsExpected: 1);
     }, timeout: const Timeout(Duration(minutes: 3)));
 
-    test('4. a local-read grant survives the prior process: a fresh gate '
+    test(
+        '4. a local-read grant survives the prior process: a fresh gate '
         'resolves through the dedicated path, no writable initialization',
         () async {
       final gate = await prepare(keepGrant: true);
@@ -1030,7 +1122,8 @@ void main() {
     // The launch scope is already a WRITABLE scope for the uid, so sign-in's
     // `activate` reuses it without re-initializing; the admission hook
     // (`reconcileReusedScope`) is what repairs and thaws.
-    test('5. same-uid writable launch scope: the post-sign-in writable reconcile '
+    test(
+        '5. same-uid writable launch scope: the post-sign-in writable reconcile '
         'repairs and thaws', () async {
       final gate = await prepare();
       holdNext = Completer<void>();
@@ -1047,6 +1140,41 @@ void main() {
       expect(identical(r5.accountScope.current, before), isTrue,
           reason: 'the scope was reused, not re-initialized');
       await expectReconciledAfterSignIn(r5, gate, repairsExpected: 1);
+      // The explicit sign-in's own publication got no receipt from this native
+      // mock; the explicit enable publishes the proof it needs and completes.
+      await enableCloudEndToEnd(r5);
+    }, timeout: const Timeout(Duration(minutes: 3)));
+
+    test(
+        '6. returning process, same marker, fresh restored session: no '
+        'process lifetime, the explicit enable still publishes and succeeds',
+        () async {
+      final gate = await prepare();
+      mismatch = false; // a consistent native side
+      final r6 = BootstrapRunner(
+          debugSdk: BootstrapSdkTestConfig(
+        url: url,
+        innerStorage: _Store(sessionJson(DateTime.now()
+                .add(const Duration(hours: 1))
+                .millisecondsSinceEpoch ~/
+            1000)),
+        innerHttp: MockClient((request) async {
+          reached.add(request);
+          return http.Response('{}', 200);
+        }),
+      ))
+        ..captureQueue = queue;
+      runners.add(r6);
+      await r6.run();
+      // An automatic fresh-session admission of the published scope (resume /
+      // token refresh) is what issues the returning user's capability.
+      await session.bindSupabaseAuth(Supabase.instance.client);
+      expect(r6.accountScope.current!.uid, uid);
+      expect(ConsentAuthority.egressFrozen, isFalse);
+      expect(session.captureConsentCapability(), isNotNull,
+          reason: 'the automatic admission issued a capability');
+      await enableCloudEndToEnd(r6);
+      expect(gate.isResolved, isTrue);
     }, timeout: const Timeout(Duration(minutes: 3)));
   });
 }

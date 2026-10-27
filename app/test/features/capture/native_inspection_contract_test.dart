@@ -33,11 +33,8 @@ class _Spy extends DriftUserSettingsRepository {
   final AppDatabase database;
   int saved = 0;
   @override
-  Future<UserSettingsEntity> saveConsentChoice(
-      ConsentCapability capability, ConsentChoices choices) async {
-    final result = await super.saveConsentChoice(capability, choices);
+  void afterConsentChoice(ConsentCapability capability, ConsentChoices choices) {
     saved++;
-    return result;
   }
 }
 
@@ -290,7 +287,7 @@ void main() {
             _absent('file'),
             {'layer': 'keychain', 'outcome': 'unreadable'}
           ]),
-      'no egress layers (no hash key yet)': () => completed(egress: const []),
+      'missing physical egress reports': () => completed(egress: const []),
       'one egress layer absent': () => completed(egress: [
             _absent('file'),
             completed()['egress']! is List
@@ -338,6 +335,35 @@ void main() {
   });
 
   group('R16 explicit retry over an unbound pending reads noBarrier', () {
+    test('empty native egress evidence refuses cleanup without changing state',
+        () async {
+      sim.fault('beginCloudEgressEnable', SimFault.nullReply);
+      expect(await accept(service()), isA<CloudEnableIncompleteException>());
+      final before = (rig.pendingSecure.value, rig.pendingFile.value,
+          rig.secure.value, rig.file.value);
+      final begins = sim.of('beginCloudEgressEnable').length;
+      final writes = sim.of('writeCloudEgressEnableOn').length;
+      final publishes = sim.of('publishRestrictiveCaptureOwner').length;
+      inspectReply = () => {
+            'contractVersion': 1,
+            'operation': 'inspect',
+            'status': 'noBarrier',
+            'barrier': [_absent('file'), _absent('keychain')],
+            'egress': const <Object?>[],
+          };
+      final err = await accept(service());
+      expect(err, isA<CloudEnableIncompleteException>());
+      expect((err as CloudEnableIncompleteException).reason, 'preflight_uncertain');
+      expect((rig.pendingSecure.value, rig.pendingFile.value,
+          rig.secure.value, rig.file.value), before);
+      expect(sim.of('beginCloudEgressEnable').length, begins);
+      expect(sim.of('writeCloudEgressEnableOn').length, writes);
+      expect(sim.of('publishRestrictiveCaptureOwner').length, publishes);
+      expect(settings.saved, 0);
+      expect(net.calls, 0);
+      expect((await rig.gate.readPending()).blocks('uid-x'), isTrue);
+    });
+
     test('native noBarrier with no ON: the denied-stage pending is cleared and '
         'a fresh enable completes', () async {
       sim.fault('beginCloudEgressEnable', SimFault.nullReply);
@@ -348,7 +374,7 @@ void main() {
             'operation': 'inspect',
             'status': 'noBarrier',
             'barrier': [_absent('file'), _absent('keychain')],
-            'egress': const <Object?>[],
+            'egress': [_absent('file'), _absent('keychain')],
           };
       final err = await accept(service());
       expect(err, isNull);

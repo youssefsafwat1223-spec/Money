@@ -206,7 +206,7 @@ class BudgetsCard extends StatelessWidget {
                   Text(
                     privacyMode
                         ? '••••'
-                        : '${over ? 'تجاوز' : context.l10n.bdgRemaining} ${formatMoney(left)}',
+                        : '${over ? context.l10n.bdgOver : context.l10n.bdgRemaining} ${formatMoney(left)}',
                     style: AppTypography.custom(
                       size: 12,
                       weight: FontWeight.w600,

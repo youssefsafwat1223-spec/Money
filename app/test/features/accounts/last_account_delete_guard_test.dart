@@ -46,5 +46,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('You cannot delete your last account.'), findsOneWidget);
     expect(find.byType(AlertDialog), findsNothing);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('You cannot delete your last account.'), findsNothing);
   });
 }

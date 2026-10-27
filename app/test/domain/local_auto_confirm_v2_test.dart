@@ -1,3 +1,4 @@
+import 'package:money_companion/domain/entities/captured_message.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/capture/proof_commit_gate.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
@@ -64,6 +65,40 @@ AddTransactionUseCase _useCase({
 void main() {
   setUp(() => AiSenderFailureTracker.instance.resetForTest());
 
+  for (final local in [true, false]) {
+    test(
+        'manual paste uses ${local ? 'local parsing' : 'AI fallback'} and reports its source',
+        () async {
+      final ai = CountingAiClient(const AiParseResponse(
+        amount: 42,
+        amountText: '42.00',
+        currency: 'SAR',
+        type: 'payment',
+        merchantName: 'STARBUCKS',
+      ));
+      final ingest = IngestCapturedMessageUseCase(_useCase(
+        repo: StoringTransactionRepo(),
+        parse: local
+            ? ParseResult.success(_txn(), catalogAmountCorroborated: true)
+            : ParseResult.notTransaction(),
+        flag: () => true,
+        ai: ai,
+      ));
+      final result = await ingest.fromCapturedMessage(CapturedMessage(
+        text: _raw,
+        source: CapturedMessageSource.manualPaste,
+        receivedAt: DateTime.utc(2026, 10, 27),
+      ));
+      expect(ai.callCount, local ? 0 : 1);
+      expect(result.addTransactionResult.outcome, AddTransactionOutcome.added);
+      expect(
+          result.addTransactionResult.transaction!.source,
+          local
+              ? TransactionSourceEntity.card
+              : TransactionSourceEntity.aiParsed);
+    });
+  }
+
   group('flag OFF / rollback switch', () {
     test('absent, false and throwing flag all keep today\'s pending outcome',
         () async {
@@ -85,8 +120,7 @@ void main() {
     });
 
     test('the flag is actually read: true changes the outcome', () async {
-      Future<AddTransactionResult> run(bool on) =>
-          _useCase(
+      Future<AddTransactionResult> run(bool on) => _useCase(
             repo: StoringTransactionRepo(),
             parse: ParseResult.success(_txn(confidence: 0.75)),
             flag: () => on,
@@ -200,8 +234,7 @@ void main() {
           parse: ParseResult.success(
               _txn(confidence: entry.value.$1, merchant: entry.value.$2)),
           flag: () => true,
-        ))
-            .call(rawMessage: _raw, senderId: 'SNB');
+        )).call(rawMessage: _raw, senderId: 'SNB');
         expect(disposition.disposition, CapturedMessageDisposition.notifyOnly);
       });
     }
@@ -225,10 +258,7 @@ void main() {
         ParseResult.success(_txn(amountText: '1.234', amount: 1.234)),
         'Purchase SAR 1.234 At STARBUCKS'
       ),
-      'unknown type': (
-        ParseResult.success(_txn(), typeUndetected: true),
-        _raw
-      ),
+      'unknown type': (ParseResult.success(_txn(), typeUndetected: true), _raw),
       'direction contradiction': (
         ParseResult.success(_txn()),
         'Deposit SAR 42.00 salary'
@@ -322,7 +352,8 @@ void main() {
   });
 
   group('flag ON: foreign unpriced is confirmed with awaitingFx pricing', () {
-    const raw = 'شراء إنترنت\nمبلغ:99 USD\nالرسوم/الضريبة:SAR 7.44\nمن:APPLE.CO';
+    const raw =
+        'شراء إنترنت\nمبلغ:99 USD\nالرسوم/الضريبة:SAR 7.44\nمن:APPLE.CO';
     Future<(AddTransactionResult, StoringTransactionRepo)> run(
         {bool on = true}) async {
       final repo = StoringTransactionRepo();
@@ -356,8 +387,10 @@ void main() {
       final (result, _) = await run();
       final tx = result.transaction!;
       // transaction_details_screen shows the prompt on exactly this predicate.
-      expect(tx.pricingState == TransactionPricingState.awaitingFx &&
-          tx.foreignCurrency != null, isTrue);
+      expect(
+          tx.pricingState == TransactionPricingState.awaitingFx &&
+              tx.foreignCurrency != null,
+          isTrue);
       final priced = tx.copyWith(amountMoney: Money.parse('370.00', 'SAR'));
       expect(priced.pricingState, TransactionPricingState.priced);
     });
@@ -409,8 +442,8 @@ void main() {
       )(rawMessage: 'Purchase SAR 77.00 At NEW SHOP', senderId: 'SNB');
 
       expect(repo.byId[legacy.transaction!.id], same(before));
-      expect(repo.byId[legacy.transaction!.id]!.status,
-          TransactionStatus.pending);
+      expect(
+          repo.byId[legacy.transaction!.id]!.status, TransactionStatus.pending);
       expect(repo.saveCount, 2);
     });
   });

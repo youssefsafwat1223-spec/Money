@@ -370,6 +370,7 @@ void main() {
       expect(queue.acked, [_id(1)]);
       expect(server.acks.single, [_id(1)]);
       expect(report.imported.single.path, CaptureImportPath.alreadyImported);
+      expect(report.imported.single.committedTransactions, isEmpty);
     });
 
     test('transaction with id == capture_id exists (no receipt): consumed',
@@ -508,6 +509,8 @@ void main() {
       final report = await buildService().run();
 
       expect(report.imported.single.path, CaptureImportPath.server);
+      expect(report.imported.single.committedTransactions.map((tx) => tx.id),
+          [_id(1)]);
       expect(ingestCalls, 0);
       expect(await txIds(), [_id(1)]);
       expect(
@@ -551,6 +554,8 @@ void main() {
         final report = await buildService().run();
 
         expect(report.imported.single.path, CaptureImportPath.local);
+        expect(report.imported.single.committedTransactions.map((tx) => tx.id),
+            [_id(1)]);
         expect(await txIds(), [_id(1)]);
         expect(
             (await txRepo.getById(_id(1)))!.status, TransactionStatus.confirmed,

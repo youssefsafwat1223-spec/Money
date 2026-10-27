@@ -131,7 +131,10 @@ void main() {
     expect(RegExp(r'_senderJobs\.add\(completion\.future\);[\s\S]*?'
         r'unawaited\(Future<void>\.microtask').hasMatch(receiver), isTrue,
         reason: 'the owned completion must be registered before starting the deferred receiver');
-    expect(receiver, contains('await service.syncWithPhase(SyncPhaseBinding(), originalAuthority: original);'));
+    expect(
+      receiver,
+      matches(RegExp(r'await\s+service\.syncWithPhase\(\s*SyncPhaseBinding\(\),\s*originalAuthority:\s*original\s*\);')),
+    );
     expect(RegExp(r'on AccountFenceDeliveryCancellation\s*\{[\s\S]*?'
         r'on StaleAdmissionException\s*\{[\s\S]*?'
         r'catch \(error, stack\)\s*\{\s*'

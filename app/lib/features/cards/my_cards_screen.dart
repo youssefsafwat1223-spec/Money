@@ -147,7 +147,8 @@ class MyCardsScreen extends ConsumerWidget {
               icon: Icon(AppLucideIcons.arrowLeft, color: c.textMain, size: 20),
               onPressed: () => Navigator.of(context).maybePop(),
             ),
-            Text(context.l10n.cardAllCards, style: AppTypography.title1(c.textMain)),
+            Text(context.l10n.cardAllCards,
+                style: AppTypography.title1(c.textMain)),
             const Spacer(),
             IconButton(
               icon: Icon(AppLucideIcons.plus, color: c.cta, size: 24),
@@ -182,7 +183,8 @@ class MyCardsScreen extends ConsumerWidget {
           children: [
             Icon(AppLucideIcons.creditCard, size: 48, color: c.textLight),
             const SizedBox(height: AppSpacing.s4),
-            Text(context.l10n.cardEmptyTitle, style: AppTypography.title2(c.textMain)),
+            Text(context.l10n.cardEmptyTitle,
+                style: AppTypography.title2(c.textMain)),
             const SizedBox(height: AppSpacing.s2),
             Text(
               context.l10n.cardEmptyBody,
@@ -309,14 +311,18 @@ class _CardRow extends ConsumerWidget {
                 // فمساحة ثابتة + Spacer كانت بتطفح خارج الكارت.
                 Row(
                   children: [
-                    Expanded(child: _flow(context, context.l10n.cardIn, card.totalIn, c.success)),
+                    Expanded(
+                        child: _flow(context, context.l10n.cardIn, card.totalIn,
+                            c.success)),
                     const SizedBox(width: AppSpacing.s3),
                     Expanded(
                       child: _flow(context, context.l10n.cardOut, card.totalOut,
                           Colors.white.withValues(alpha: 0.95)),
                     ),
                     const SizedBox(width: AppSpacing.s3),
-                    Expanded(child: _flow(context, context.l10n.rptNet, net, Colors.white)),
+                    Expanded(
+                        child: _flow(
+                            context, context.l10n.rptNet, net, Colors.white)),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.s4),
@@ -528,7 +534,9 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                               final tx = items[i];
                               final linked = tx.cardLast4 == last4;
                               return ListTile(
-                                title: Text(tx.rawMerchant ?? context.l10n.txnTransactionWord,
+                                title: Text(
+                                    tx.rawMerchant ??
+                                        context.l10n.txnTransactionWord,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: AppTypography.body(c.textMain)),
@@ -551,8 +559,8 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                                               );
                                         } on RepoException catch (e) {
                                           if (!context.mounted) return;
-                                          AppToast.show(
-                                              context, repoErrorMessage(context, e));
+                                          AppToast.showError(context,
+                                              repoErrorMessage(context, e));
                                           return;
                                         }
                                         ref.invalidate(cardSummariesProvider);
@@ -564,8 +572,10 @@ class _AttachExistingSheetState extends ConsumerState<_AttachExistingSheet> {
                                             cardTransactionsProvider(last4));
                                         if (context.mounted) {
                                           Navigator.of(context).pop();
-                                          AppToast.show(context,
-                                              context.l10n.cardTxLinkedTo(last4));
+                                          AppToast.show(
+                                              context,
+                                              context.l10n
+                                                  .cardTxLinkedTo(last4));
                                         }
                                       },
                               );

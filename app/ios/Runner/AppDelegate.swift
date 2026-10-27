@@ -207,8 +207,8 @@ enum ApnsEnvironment {
   /// controller instead of against "a channel object exists", so a scene
   /// reconnect rebinds rather than stranding the channel on a dead messenger.
   /// A separate channel from the capture drain, but not a weaker one.
-  func configureDeviceTimezoneChannelIfNeeded() {
-    guard let controller = rootFlutterViewController() else {
+  func configureDeviceTimezoneChannelIfNeeded(controller: FlutterViewController? = nil) {
+    guard let controller = controller ?? rootFlutterViewController() else {
       return
     }
     // Idempotent against the CURRENT controller, not against "a channel exists".
@@ -247,8 +247,8 @@ enum ApnsEnvironment {
     removePrivacySnapshotView()
   }
 
-  func configureNativeCaptureChannelIfNeeded() {
-    guard let controller = rootFlutterViewController() else {
+  func configureNativeCaptureChannelIfNeeded(controller: FlutterViewController? = nil) {
+    guard let controller = controller ?? rootFlutterViewController() else {
       return
     }
     // Idempotent against the CURRENT controller, not against "a channel exists".
@@ -268,10 +268,12 @@ enum ApnsEnvironment {
     // reaches Dart as a FlutterError — never a crash, never an "empty queue".
     // CAP-6: a refused write carries its own code (quota_exceeded,
     // removal_in_progress, owner_changed) so Dart can tell it from a failure.
-    func queueResult(_ result: FlutterResult, _ body: () throws -> Any?) {
+    func queueResult(_ result: FlutterResult, snapshotDiagnostic: Bool = false, _ body: () throws -> Any?) {
       do {
         result(try body())
       } catch {
+        let snapshot = snapshotDiagnostic ? error as? SharedCaptureStore.SnapshotFailure : nil
+        let error = snapshot?.underlying ?? error
         var code = "queue_unavailable"
         switch error as? SharedCaptureStore.QueueError {
         case .quotaExceeded?: code = "quota_exceeded"
@@ -281,7 +283,7 @@ enum ApnsEnvironment {
         case .egressDenied?: code = "egress_denied"
         default: break
         }
-        result(FlutterError(code: code, message: "\(error)", details: nil))
+        result(FlutterError(code: code, message: snapshot == nil ? "\(error)" : "snapshot_unavailable", details: snapshot?.details))
       }
     }
     func ownerMap(_ record: SharedCaptureStore.OwnerRecord?) -> [String: Any]? {
@@ -509,8 +511,15 @@ enum ApnsEnvironment {
           return
         }
         queueResult(result) {
+          var recover: (transitionGeneration: Int, reservedVersion: Int,
+                        lifetimeOwnerGeneration: Int?, lifetimeOwnerEpoch: Int?)? = nil
+          if let tg = args["expectedTransitionGeneration"] as? Int,
+             let rv = args["expectedReservedVersion"] as? Int {
+            recover = (tg, rv, args["expectedLifetimeOwnerGeneration"] as? Int,
+                       args["expectedLifetimeOwnerEpoch"] as? Int)
+          }
           let receipt = try SharedCaptureStore.publishRestrictiveCaptureOwner(
-            uid: uid, version: version, expectedEpoch: expectedEpoch)
+            uid: uid, version: version, expectedEpoch: expectedEpoch, recover: recover)
           var map = transitionMap(SharedCaptureStore.EnableTransitionResult(
             operation: "publishRestrictive", status: receipt.status, operationId: nil,
             transitionGeneration: nil, reservedVersion: nil,
@@ -625,8 +634,8 @@ enum ApnsEnvironment {
           result(FlutterError(code: "bad_args", message: "Expected ownerUid.", details: nil))
           return
         }
-        queueResult(result) {
-          switch try SharedCaptureStore.cloudEgressState(forUid: ownerUid) {
+        queueResult(result, snapshotDiagnostic: true) {
+          switch try SharedCaptureStore.diagnosticCloudEgressState(forUid: ownerUid) {
           case .unset:
             return ["status": "unset"]
           case let .ownerless(epoch, generation):
@@ -764,6 +773,11 @@ enum ApnsEnvironment {
         // CAP-7: mirrors the `capture_notify_v2` flag for the App Intent.
         SharedCaptureStore.setCaptureNotifyV2(
           (call.arguments as? [String: Any])?["enabled"] as? Bool ?? false
+        )
+        result(nil)
+      case "setHideCaptureDetails":
+        SharedCaptureStore.setHideCaptureDetails(
+          (call.arguments as? [String: Any])?["hide"] as? Bool ?? false
         )
         result(nil)
       case "withdrawDeliveredCaptureAlert":

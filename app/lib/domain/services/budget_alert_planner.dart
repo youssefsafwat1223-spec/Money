@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:crypto/crypto.dart';
 
 import '../entities/budget_entity.dart';
+import '../entities/transaction_entity.dart';
 import '../entities/engagement_entities.dart';
 import '../finance/money.dart';
 
@@ -244,4 +245,27 @@ String _percentIn(int percent, bool english) {
   final digits =
       percent.toString().split('').map((d) => eastern[int.parse(d)]).join();
   return '$digits٪';
+}
+
+/// Event eligibility mirrors canonical budget consumption. Refunds reduce spend
+/// and do not trigger expense alerts. Exclusion applies only to global budgets.
+bool budgetAlertAffectedBy(
+  BudgetProgressEntry entry,
+  TransactionEntity transaction, {
+  required Set<String> excludedAccountIds,
+}) {
+  final budget = entry.budget;
+  return budget.isActive &&
+      transaction.status == TransactionStatus.confirmed &&
+      (transaction.type == TransactionTypeEntity.payment ||
+          transaction.type == TransactionTypeEntity.withdrawal) &&
+      transaction.amountMoney.minorUnits > 0 &&
+      transaction.currency.trim().toUpperCase() ==
+          budget.currency.trim().toUpperCase() &&
+      (budget.accountId == null
+          ? !excludedAccountIds.contains(transaction.accountId)
+          : transaction.accountId == budget.accountId) &&
+      (budget.isAllExpenses || transaction.categoryId == budget.categoryId) &&
+      !transaction.occurredAt.isBefore(entry.periodStart) &&
+      transaction.occurredAt.isBefore(entry.periodEnd);
 }

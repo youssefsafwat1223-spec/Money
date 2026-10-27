@@ -101,7 +101,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
     if (_busy) return;
     final last4 = normalizeLast4(_last4.text);
     if (last4 == null) {
-      AppToast.show(context, context.l10n.cfEnterValidLast4);
+      AppToast.showError(context, context.l10n.cfEnterValidLast4);
       return;
     }
     setState(() => _busy = true);
@@ -143,7 +143,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
       ok = true;
     } on RepoException catch (e) {
       if (!mounted) return;
-      AppToast.show(
+      AppToast.showError(
         context,
         e is ValidationRepoException && e.message == 'duplicate_card'
             ? context.l10n.cfDuplicateCard
@@ -151,7 +151,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
       );
     } catch (_) {
       if (!mounted) return;
-      AppToast.show(context, context.l10n.cfSaveFailed);
+      AppToast.showError(context, context.l10n.cfSaveFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -183,7 +183,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
     } catch (_) {
       if (mounted) {
         setState(() => _busy = false);
-        AppToast.show(context, context.l10n.cfDeleteFailed);
+        AppToast.showError(context, context.l10n.cfDeleteFailed);
       }
       return;
     }
@@ -247,7 +247,8 @@ class _CardFormState extends ConsumerState<_CardForm> {
               ),
             ),
             const SizedBox(height: AppSpacing.s3),
-            Text(context.l10n.cfNetwork, style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.cfNetwork,
+                style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             DropdownButtonFormField<CardNetwork>(
               value: _network,
@@ -261,7 +262,8 @@ class _CardFormState extends ConsumerState<_CardForm> {
                   : (v) => setState(() => _network = v ?? CardNetwork.unknown),
             ),
             const SizedBox(height: AppSpacing.s4),
-            Text(context.l10n.cfDesign, style: AppTypography.caption(c.textLight)),
+            Text(context.l10n.cfDesign,
+                style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
             _themeRow(),
             const SizedBox(height: AppSpacing.s3),
@@ -271,7 +273,8 @@ class _CardFormState extends ConsumerState<_CardForm> {
             _accentRow(),
             if (accounts.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.s4),
-              Text(context.l10n.cfLinkedAccount, style: AppTypography.caption(c.textLight)),
+              Text(context.l10n.cfLinkedAccount,
+                  style: AppTypography.caption(c.textLight)),
               const SizedBox(height: AppSpacing.s2),
               _accountField(accounts),
             ],
@@ -295,7 +298,8 @@ class _CardFormState extends ConsumerState<_CardForm> {
               TextButton.icon(
                 onPressed: _busy ? null : _delete,
                 icon: Icon(AppLucideIcons.trash2, color: c.danger),
-                label: Text(context.l10n.cfDeleteCard, style: AppTypography.body(c.danger)),
+                label: Text(context.l10n.cfDeleteCard,
+                    style: AppTypography.body(c.danger)),
               ),
             ],
           ],

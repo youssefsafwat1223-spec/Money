@@ -775,6 +775,8 @@ class AccountsPushService {
   /// A-2 (G3): ACK [item] and persist the server row identity in ONE local
   /// transaction; the account is `synced` only when no outbox row remains for
   /// it (an edit folded in while the push was in flight keeps it pending).
+  /// A later local tombstone stays pending even if cloud admission prevented
+  /// recording its delete in the outbox while this live write was in flight.
   Future<void> _attachServerId(
     String localId,
     String serverId,
@@ -795,7 +797,8 @@ class AccountsPushService {
             synced_at = ${sqlString(now)},
             server_updated_at = ${sqlNullableString(serverUpdatedAt)},
             ${serverRevision != null ? 'server_revision = $serverRevision,' : ''}
-            sync_status = CASE WHEN ${_outboxRowExists(localId)}
+            sync_status = CASE WHEN deleted_at IS NOT NULL THEN 'pending'
+              WHEN ${_outboxRowExists(localId)}
               THEN sync_status ELSE 'synced' END
         WHERE id = ${sqlString(localId)};
       ''');

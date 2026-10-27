@@ -13,17 +13,16 @@ void main() {
 
   group('the mirror', () {
     test('nothing mirrored yet reads as the app default', () async {
-      // Every install upgrading into this build is in this state, and Arabic is
-      // the right answer for them: before Settings → Language shipped, no user
-      // could hold anything else.
-      expect(await LockPromptLanguage.read(), 'ar');
+      expect(await LockPromptLanguage.read(), 'en');
     });
 
     test('round-trips both supported languages', () async {
       await LockPromptLanguage.set('en');
+      expect(LockPromptLanguage.initialSettingsLanguage, 'en');
       expect(await LockPromptLanguage.read(), 'en');
       await LockPromptLanguage.set('ar');
       expect(await LockPromptLanguage.read(), 'ar');
+      expect(LockPromptLanguage.initialSettingsLanguage, 'ar');
     });
 
     test('an unsupported code degrades to the default, it does not throw',
@@ -31,7 +30,7 @@ void main() {
       // This value is read from inside the lock. A prompt in the wrong language
       // is a defect; an exception there is a lockout.
       await LockPromptLanguage.set('fr');
-      expect(await LockPromptLanguage.read(), 'ar');
+      expect(await LockPromptLanguage.read(), 'en');
     });
   });
 
@@ -54,6 +53,10 @@ void main() {
       'lib/core/backup/restore_backup_usecase.dart':
           'a backup snapshot carrying a language (mirrored post-commit, so a '
               'rolled-back restore leaves the mirror alone)',
+      'lib/features/onboarding/widgets/onboarding_language_button.dart':
+          'sign-in screen under a read-only signed-out scope: no settings row '
+              'can be written, so the mirror alone holds the choice (it seeds '
+              'a fresh account\'s settings)',
     };
     // Files that merely READ or carry the column: entity copyWith, row
     // decoding, the DAO that defines it, and the seed INSERT (see the class
@@ -104,7 +107,8 @@ void main() {
           reason: '${entry.key} is declared a writer but no longer exists');
       expect(File(entry.key).readAsStringSync(),
           contains('LockPromptLanguage.set('),
-          reason: '${entry.key} stopped mirroring the language (${entry.value})');
+          reason:
+              '${entry.key} stopped mirroring the language (${entry.value})');
     }
   });
 }

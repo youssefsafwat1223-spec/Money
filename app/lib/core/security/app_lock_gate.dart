@@ -62,11 +62,21 @@ class _AppLockGateState extends State<AppLockGate> with WidgetsBindingObserver {
     if (_authenticating || !mounted) return;
     final enabled = await AppLockService.instance.isEnabled();
     if (!mounted) return;
-    if (!enabled || !forceLock) {
+    if (!enabled) {
       setState(() {
         _checking = false;
         _locked = false;
       });
+      return;
+    }
+    // Already locked (the prompt was cancelled or failed): only a successful
+    // authentication may open it. A short trip to the background must not.
+    if (_locked) {
+      await _unlock();
+      return;
+    }
+    if (!forceLock) {
+      setState(() => _checking = false);
       return;
     }
     if (AppLockService.instance.wasRecentlyAuthenticated(

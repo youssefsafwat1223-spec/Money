@@ -144,6 +144,9 @@ void main() {
     await tester.pump();
     expect(find.text('Please enter an account name'), findsOneWidget);
     expect(accountRepo.createCalls, isEmpty);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
+    expect(find.text('Please enter an account name'), findsNothing);
   });
 
   testWidgets('Account Setup: create goes through the repository, a failed '
@@ -175,6 +178,8 @@ void main() {
     expect(accountRepo.accounts.single.currency, 'EGP');
     expect(accountRepo.accounts.single.type, AccountType.bank);
     expect(find.text('Step 5 of 6'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 3));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('an existing account is shown; user may continue or add another',

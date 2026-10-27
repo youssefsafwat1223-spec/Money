@@ -253,6 +253,9 @@ void main() {
       expect(persisted!.read<String>('currency'), 'KWD');
       expect(persisted.read<int?>('current_balance_minor'), 0,
           reason: 'the rejected save must not write a wrong-scale row');
+      await tester.pump(const Duration(seconds: 3));
+      await tester.pumpAndSettle();
+      expect(find.text('لا يمكن تغيير عملة حساب يحتوي على رصيد أو عمليات.'), findsNothing);
     } finally {
       await tester.pumpWidget(const SizedBox.shrink());
       await tester.pump();

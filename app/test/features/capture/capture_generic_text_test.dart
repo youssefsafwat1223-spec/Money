@@ -1,6 +1,7 @@
-// CAP-7 (`capture_notify_v2`, manifest Q3 / X9): the lock-screen text of a
-// capture alert never carries an amount, merchant, card or sender, on any
-// channel, in both languages. Flag OFF keeps the shipped behaviour.
+// CAP-7 (`capture_notify_v2`, manifest Q3 / X9): a capture alert shows its
+// details by default; with the user's "hide lock-screen content" preference on
+// it never carries an amount, merchant, card or sender, in both languages.
+// Flag OFF keeps the shipped behaviour.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/domain/entities/engagement_entities.dart';
 import 'package:money_companion/features/capture/services/capture_notification_content.dart';
@@ -29,26 +30,33 @@ void main() {
 
   final digits = RegExp(r'[0-9٠-٩]');
 
-  group('flag ON: generic for every capture alert type', () {
+  group('flag ON + hide preference: generic for every capture alert type', () {
     for (final type in [
       NotificationType.captureReview,
       NotificationType.captureLight,
     ]) {
       for (final lang in ['en', 'ar']) {
-        for (final hide in [false, true]) {
-          test('$type / $lang / hideLockScreenContent=$hide', () {
-            final (title, body) = shown(type: type, hide: hide, v2: true, lang: lang);
-            final expected = buildGenericCaptureContent(lang: lang);
-            expect(title, expected.title);
-            expect(body, expected.body);
-            for (final leaked in ['NETFLIX', '4521', '45', 'SAR', 'المبلغ']) {
-              expect('$title $body', isNot(contains(leaked)));
-            }
-            expect(digits.hasMatch('$title$body'), isFalse);
-          });
-        }
+        test('$type / $lang', () {
+          final (title, body) = shown(type: type, hide: true, v2: true, lang: lang);
+          final expected = buildGenericCaptureContent(lang: lang);
+          expect(title, expected.title);
+          expect(body, expected.body);
+          for (final leaked in ['NETFLIX', '4521', '45', 'SAR', 'المبلغ']) {
+            expect('$title $body', isNot(contains(leaked)));
+          }
+          expect(digits.hasMatch('$title$body'), isFalse);
+        });
       }
     }
+
+    test('details are shown when the hide preference is off', () {
+      for (final type in [
+        NotificationType.captureReview,
+        NotificationType.captureLight,
+      ]) {
+        expect(shown(type: type, v2: true), (detailedTitle, detailedBody));
+      }
+    });
 
     test('English wording mirrors the server push (GENERIC_CAPTURE_PUSH)', () {
       expect(buildGenericCaptureContent(lang: 'en').body,

@@ -215,19 +215,27 @@ void main() {
       () async {
     await removedX();
     final pendingHook = Completer<void>();
+    final hookEntered = Completer<void>();
     session.configureCaptureOwnerPublish((uid, authority) {
       publications.add(uid);
+      hookEntered.complete();
       return pendingHook.future;
     });
+    final identity = session.setIdentity(
+        method: 'google', email: 'uid-x@example.com', userId: 'uid-x');
+    // Observe failures immediately, even while waiting for publication to begin.
+    final settled = identity.then<Object?>((_) => null, onError: (Object e) => e);
     try {
-      await session
-          .setIdentity(
-              method: 'google', email: 'uid-x@example.com', userId: 'uid-x')
-          .timeout(const Duration(seconds: 3));
+      await hookEntered.future;
       expect(publications, ['uid-x']);
       expect(session.status, SessionStatus.authenticated);
+      expect(pendingHook.isCompleted, isFalse);
+      // Bound the delayed publication itself; replica/database setup is unrelated.
+      expect(await settled.timeout(const Duration(seconds: 3)), isNull);
+      expect(pendingHook.isCompleted, isFalse);
     } finally {
       pendingHook.complete();
+      await settled;
     }
   });
 }

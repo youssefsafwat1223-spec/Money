@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:money_companion/features/capture/services/native_capture_bridge.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -36,6 +38,68 @@ void main() {
       return e.reason;
     }
   }
+
+  test('native queue failures retain only safe diagnostics in readout and freeze', () async {
+    for (final error in [
+      const CaptureQueueException('private-code', 'secret-message'),
+      const CaptureQueueException('channel_unavailable', 'secret-message'),
+      CaptureQueueException('queue_unavailable', 'secret-message',
+          CaptureSnapshotDiagnostic.parse({'contract': 'snapshot_v1', 'stage': 'activeowner', 'category': 'decode'})),
+    ]) {
+      egress = TestEgress(native: NativeEgressSlot(
+          read: (_) async => throw error, write: (_) async {})).install();
+      gate = egress.gate;
+      final read = await gate.store.read();
+      expect(read.uncertain, isTrue);
+      expect(read.problems, ['native:${error.safeDiagnostic}']);
+      expect(read.problems.join(), isNot(contains('secret')));
+      expect(read.problems.join(), isNot(contains('private')));
+      expect(await admitError(), 'state_uncertain');
+    }
+  });
+
+  test('ON refuses an older-generation higher version without changing bytes',
+      () async {
+    const older = CloudEgressRecord(
+        state: EgressState.off,
+        ownerUid: 'uid-a',
+        transitionGeneration: 20,
+        reservedVersion: 9);
+    final bytes = jsonEncode({
+      'v': 1,
+      'records': {'uid-a': older.toJson()}
+    });
+    egress.secure.value = bytes;
+    egress.file.value = bytes;
+    final result = await gate.store.writeDartLayers(const CloudEgressRecord(
+        state: EgressState.on,
+        ownerUid: 'uid-a',
+        transitionGeneration: 31,
+        reservedVersion: 3));
+    expect(result.all, isFalse);
+    expect(egress.secure.value, bytes);
+    expect(egress.file.value, bytes);
+    expect(egress.secure.writes + egress.file.writes, 0);
+  });
+
+  test('restriction and compensation retain the maximum physical version', () async {
+    CloudEgressRecord record(EgressState state, int gen, int version) => CloudEgressRecord(
+        state: state, ownerUid: 'uid-a', transitionGeneration: gen, reservedVersion: version);
+    String bytes(CloudEgressRecord r) => jsonEncode({'v': 1, 'records': {'uid-a': r.toJson()}});
+    egress.secure.value = bytes(record(EgressState.on, 30, 3));
+    egress.file.value = bytes(record(EgressState.off, 20, 9));
+    final freeze = await gate.beginDisabling(owner: 'uid-a', reservedVersion: 1);
+    expect(freeze.reservedVersion, 9);
+    var layers = await gate.store.readDartOwnerLayers('uid-a');
+    expect(layers.records.every((r) => r.state == EgressState.disabling && r.reservedVersion == 9), isTrue);
+    final compensated = await gate.store.restrictOwnerLayers(record(EgressState.on, freeze.transitionGeneration, 1));
+    expect(compensated.all, isTrue);
+    layers = await gate.store.readDartOwnerLayers('uid-a');
+    expect(layers.records.every((r) => r.state == EgressState.off && r.reservedVersion == 9), isTrue);
+    final off = await gate.store.writeUnlessNewer(record(EgressState.off, freeze.transitionGeneration + 1, 0));
+    expect(off!.all, isTrue);
+    expect((await gate.store.readDartOwnerLayers('uid-a')).records.every((r) => r.reservedVersion == 9), isTrue);
+  });
 
   group('admission', () {
     test('no record (never enabled) and OFF deny automatic traffic', () async {

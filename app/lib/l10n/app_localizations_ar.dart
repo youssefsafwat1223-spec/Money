@@ -6407,4 +6407,19 @@ class AppL10nAr extends AppL10n {
   @override
   String get deleteAccountLocalCleanupPending =>
       'تم حذف حسابك من خوادمنا، لكن تعذّر إنهاء مسح البيانات على هذا الجهاز. أغلق التطبيق وافتحه مجددًا.';
+
+  @override
+  String get pasteAnalysisHowItWorks =>
+      'تُقرأ الرسائل على جهازك أولًا. عند الحاجة، يساعد الذكاء الاصطناعي إذا كانت السحابة والتحليل الذكي مفعّلين.';
+
+  @override
+  String get pasteReadOnDevice =>
+      'قُرئت على جهازك — لم نحتج إلى الذكاء الاصطناعي.';
+
+  @override
+  String get pasteReadWithAi => 'قُرئت باستخدام الذكاء الاصطناعي.';
+
+  @override
+  String get pasteAiConsentOff =>
+      'تعذّرت قراءة هذه الرسالة على جهازك. فعّل السحابة والتحليل الذكي من الخصوصية للسماح بمساعدة الذكاء الاصطناعي.';
 }

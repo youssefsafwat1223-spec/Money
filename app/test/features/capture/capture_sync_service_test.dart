@@ -352,6 +352,19 @@ void main() {
         reason: 'needs_review keeps its existing pending-transaction path');
   });
 
+  test('budget event report excludes already-imported relay deliveries',
+      () async {
+    final client = _FakeCaptureBackendClient([
+      _capture(payloadId: 'budget-redelivery', status: 'processed'),
+    ]);
+    final syncService = service(client);
+    final first = await syncService.sync();
+    expect(
+        first.committedTransactions.map((tx) => tx.id), ['budget-redelivery']);
+    final second = await syncService.sync();
+    expect(second.committedTransactions, isEmpty);
+  });
+
   test('processed capture is not recorded for review', () async {
     final client = _FakeCaptureBackendClient([
       _capture(payloadId: 'payload-processed', status: 'processed'),
@@ -361,6 +374,8 @@ void main() {
 
     expect(result.needsReviewTransactionIds, isEmpty);
     expect(client.ackedPayloadIds, ['payload-processed']);
+    expect(
+        result.committedTransactions.map((tx) => tx.id), ['payload-processed']);
     final transactions = await DriftTransactionRepository(db).getAll();
     expect(transactions.single.amountMoney, Money.parse('42', 'SAR'));
     expect(transactions.single.status, TransactionStatus.confirmed);
