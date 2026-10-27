@@ -134,6 +134,14 @@ class BankProfile {
 
 /// سجل البنوك المدعومة في الـ MVP (السعودية — P0).
 class BankProfiles {
+  /// Sender-prefix matching also recognises wallets (e.g. Orange Money).
+  /// It must not turn a purchase at Orange - Home Internet into an ATM debit.
+  static bool isBankMerchant(String merchant) {
+    return all.any((bank) =>
+        bank.defaultSource != TransactionSource.wallet &&
+        bank.matchesSender(merchant));
+  }
+
   BankProfiles._();
 
   static const List<BankProfile> all = [

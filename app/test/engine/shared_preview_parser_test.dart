@@ -18,6 +18,15 @@ void main() {
   final parser = SharedPreviewParser.fromJsonString(jsonString);
   final examples = (rules['examples'] as List).cast<Map<String, dynamic>>();
 
+  test('closed-app preview reads Orange merchant without a space after @', () {
+    final result = parser.parse('Your Debit Card **5398 had a Successful transaction '
+        'of EGP 56.78 @Orange - Home Internet, your available bal. is hidden.');
+    expect(result.isHighConfidence, isTrue);
+    expect(result.amount, 56.78);
+    expect(result.currency, 'EGP');
+    expect(result.merchant, 'Orange - Home Internet');
+  });
+
   test('rules file has the expected schema and version', () {
     expect(rules['version'], 1);
     for (final key in [

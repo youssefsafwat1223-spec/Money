@@ -3,7 +3,6 @@ import { extractCaptureAmount } from './money.ts';
 import {
   type AiCandidate,
   CURRENCY_CODES,
-  directionContradictsWording,
   last4Grounded,
   type LocalCandidate,
   merchantGrounded,
@@ -95,12 +94,8 @@ function isIgnoredText(lower: string): boolean {
 }
 
 /**
- * Binary capture parse. AI confidence never decides anything:
- *  - ignored            -> no AI call, rejected
- *  - RESOLVED           -> no AI call, accepted (deterministic)
- *  - unresolved, no AI  -> no AI call, rejected
- *  - unresolved + AI    -> exactly one AI call, deterministic validator, then
- *                          accepted (AI may only FILL missing fields) or rejected
+ * Every non-ignored, consented capture consults AI. Validated AI type and
+ * category win; grounded local money remains the fallback if AI cannot help.
  */
 export async function parseSms(input: {
   text: string;
@@ -121,17 +116,17 @@ export async function parseSms(input: {
     parserSource: 'deterministic',
   };
   if (isIgnoredText(normalize(input.text).toLowerCase())) return { parsed: fallback, accepted: false };
-  if (isResolved(deterministic)) return { parsed: fallback, accepted: true };
-  if (!input.allowAi) return { parsed: fallback, accepted: false };
+  const localAccepted = isResolved(deterministic);
+  if (!input.allowAi) return { parsed: fallback, accepted: localAccepted };
 
   if (input.beforeAi && !(await input.beforeAi())) {
     return { parsed: fallback, accepted: false, aiDenied: true };
   }
   const ai = await aiParse(input.text);
   if (ai === 'transient') {
-    return { parsed: fallback, accepted: false, aiInvoked: true, aiTransientFailure: true };
+    return { parsed: fallback, accepted: localAccepted, aiInvoked: true, aiTransientFailure: !localAccepted };
   }
-  if (!ai) return { parsed: fallback, accepted: false, aiInvoked: true };
+  if (!ai) return { parsed: fallback, accepted: localAccepted, aiInvoked: true };
 
   // HYBRID when the deterministic parse already had amount+currency, else AI-only.
   const hasLocalMoney = !!deterministic.amount && deterministic.amount > 0 && !!deterministic.currency;
@@ -150,9 +145,9 @@ export async function parseSms(input: {
     receivedAt: input.receivedAt,
     local,
   });
-  if (!validation.accepted) return { parsed: fallback, accepted: false, aiInvoked: true };
+  if (!validation.accepted) return { parsed: fallback, accepted: localAccepted, aiInvoked: true };
 
-  // Fill-only merge: a deterministic value is never overridden.
+  // Money must agree; validated AI owns classification.
   const amount = hasLocalMoney ? deterministic.amount! : Number(validation.amountText);
   const amount_text = hasLocalMoney ? deterministic.amount_text : validation.amountText;
   const currency = validation.currency;
@@ -162,31 +157,17 @@ export async function parseSms(input: {
   const last4 = deterministic.last4 ?? (last4Grounded(ai.last4, input.text) ? ai.last4 : undefined);
 
   const detKnown = deterministic.direction === 'debit' || deterministic.direction === 'credit';
-  let direction = deterministic.direction;
-  let type = deterministic.type;
-  if (!detKnown) {
-    const aiDir = ai.direction === 'credit' || ai.direction === 'debit' ? ai.direction : undefined;
-    const aiType = AI_TYPES.includes(ai.type ?? '') ? ai.type : undefined;
-    const typeDir = aiType === 'income' || aiType === 'refund'
-      ? 'credit'
-      : aiType === 'payment' || aiType === 'withdrawal'
-      ? 'debit'
-      : undefined;
-    const filled = aiDir ?? typeDir;
-    // Already checked by the validator; re-asserted so a fill can never contradict.
-    if (filled && !directionContradictsWording(input.text, aiType, filled)) {
-      direction = filled;
-      type = aiType && aiType !== 'unknown' ? aiType : filled === 'credit' ? 'income' : 'payment';
-    } else if (aiType === 'transfer') {
-      type = 'transfer';
-    }
-  }
-
-  // Category is enrichment: only the catch-all/missing deterministic value yields.
+  const aiType = AI_TYPES.includes(ai.type ?? '') ? ai.type : undefined;
+  const direction = ai.direction === 'credit' || ai.direction === 'debit'
+    ? ai.direction
+    : aiType === 'income' || aiType === 'refund' ? 'credit'
+    : aiType === 'payment' || aiType === 'withdrawal' ? 'debit'
+    : deterministic.direction;
+  const type = aiType && aiType !== 'unknown' ? aiType
+    : deterministic.type && deterministic.type !== 'unknown' ? deterministic.type
+    : direction === 'credit' ? 'income' : direction === 'debit' ? 'payment' : 'unknown';
   const aiCategory = AI_CATEGORIES.includes(ai.category ?? '') ? ai.category : undefined;
-  const category = deterministic.category && deterministic.category !== 'other'
-    ? deterministic.category
-    : (aiCategory ?? deterministic.category);
+  const category = aiCategory ?? deterministic.category;
 
   const aiTimestamp = validation.occurredAt
     ? trustedSmsTimestamp(validation.occurredAt, input.receivedAt, input.tzOffsetMinutes)

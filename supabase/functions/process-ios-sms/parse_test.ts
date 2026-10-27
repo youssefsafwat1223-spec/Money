@@ -77,19 +77,19 @@ Deno.test('deterministic fixtures have the intended shape', () => {
   assertEquals([aiOnly.amount, aiOnly.currency], [undefined, undefined]);
 });
 
-Deno.test('RESOLVED => zero AI calls + accepted (even with AI allowed)', async () => {
+Deno.test('RESOLVED => consult AI; reject mismatched AI and keep local', async () => {
   const r = await run(RESOLVED_SMS, true, GOOD_AI);
-  assertEquals(r.calls, 0);
+  assertEquals(r.calls, 1);
   assertEquals(r.accepted, true);
   assertEquals(r.parsed.parserSource, 'deterministic');
   assertEquals(r.parsed.amount, 250);
 });
 
-Deno.test('clean card/ATM SMS (no merchant) => RESOLVED: zero AI calls + accepted, AI allowed or not', async () => {
+Deno.test('clean card/ATM SMS (no merchant) => RESOLVED: consult AI only with consent', async () => {
   for (const text of CLEAN_SMS) {
     for (const allowAi of [true, false]) {
       const r = await run(text, allowAi, GOOD_AI);
-      assertEquals(r.calls, 0, text);
+      assertEquals(r.calls, allowAi ? 1 : 0, text);
       assertEquals(r.accepted, true, text);
       assertEquals(r.parsed.parserSource, 'deterministic');
       assertEquals(r.parsed.direction, 'debit');
@@ -199,8 +199,7 @@ Deno.test('contradictory AI amount/currency never replace deterministic values',
 });
 
 Deno.test('contradictory AI merchant never replaces a deterministic merchant', async () => {
-  // Resolved never reaches the AI; to exercise the merge use a parse that has a
-  // merchant but lacks direction.
+  // An ungrounded AI merchant must not replace the local merchant.
   const text = 'Transaction of EGP 60.00 at CARREFOUR';
   const det = deterministicParse(text, RECEIVED, 180);
   assertEquals(det.merchant, 'CARREFOUR');
@@ -312,4 +311,50 @@ Deno.test('AI date outside the window is dropped, inside is kept', async () => {
   assertEquals(outside.accepted, true);
   assertEquals(outside.parsed.comparisonTimestampSource, 'received_at');
   assertNotEquals(outside.parsed.comparisonTimestamp, '2026-01-01T10:00:00.000Z');
+});
+
+Deno.test('resolved unknown sender: validated AI type and category override local', async () => {
+  const text = 'Purchase of EGP 56.78 at Orange - Home Internet with card ending 5398';
+  const stub = stubGemini({ amount: 56.78, amount_text: '56.78', currency: 'EGP',
+    merchant: 'Orange - Home Internet', type: 'payment', direction: 'debit', category: 'bills' });
+  try {
+    let gates = 0;
+    const result = await parseSms({ text, rawText: text, sender: '', receivedAt: RECEIVED,
+      tzOffsetMinutes: null, locale: 'en', allowAi: true,
+      beforeAi: () => { gates++; return Promise.resolve(true); } });
+    assertEquals([stub.calls, gates], [1, 1]);
+    assertEquals(result.accepted, true);
+    assertEquals(result.parsed.category, 'bills');
+    assertEquals(result.parsed.type, 'payment');
+    assertEquals(result.parsed.parserSource, 'ai_hybrid');
+  } finally { stub.restore(); }
+});
+
+Deno.test('resolved capture cannot bypass a revoked dispatch gate', async () => {
+  const stub = stubGemini(GOOD_AI);
+  try {
+    const result = await parseSms({ text: RESOLVED_SMS, rawText: RESOLVED_SMS,
+      sender: 'unknown', receivedAt: RECEIVED, tzOffsetMinutes: null, locale: 'en',
+      allowAi: true, beforeAi: () => Promise.resolve(false) });
+    assertEquals(stub.calls, 0);
+    assertEquals(result.aiDenied, true);
+    assertEquals(result.accepted, false);
+  } finally { stub.restore(); }
+});
+
+Deno.test('AI unavailable preserves a resolved local capture', async () => {
+  const result = await run(RESOLVED_SMS, true, null);
+  assertEquals(result.calls, 1);
+  assertEquals(result.accepted, true);
+  assertEquals(result.parsed.parserSource, 'deterministic');
+});
+
+Deno.test('validated AI replaces a specific local category and type', async () => {
+  const text = 'ATM withdrawal of EGP 56.78 at CARREFOUR';
+  const local = deterministicParse(text, RECEIVED, null);
+  assertEquals([local.type, local.category], ['payment', 'groceries']);
+  const result = await run(text, true, { amount: 56.78, amount_text: '56.78',
+    currency: 'EGP', type: 'withdrawal', direction: 'debit', category: 'cash' });
+  assertEquals(result.accepted, true);
+  assertEquals([result.parsed.type, result.parsed.category], ['withdrawal', 'cash']);
 });

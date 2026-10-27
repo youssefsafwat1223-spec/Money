@@ -153,23 +153,23 @@ struct PostBankStatusIntent: AppIntent {
         // notification, so no duplicate banner is shown.
         _ = SharedCaptureStore.updateStatus(payloadID: payloadID, status: .sent)
         SharedCaptureStore.notifyPendingCaptureUpdateAvailable()
-        if config.captureNotifyV2 {
-          // The APNs alert is generic (Q3: no financial data leaves through
-          // Apple). The capturing phone shows the detailed banner itself and
-          // drops that generic push, so it never shows in its place.
-          let posted = await scheduleGenericCaptureNotification(
+        // The intent has the parsed result now; Flutter may never be launched.
+        // Only a saved capture gets the transaction banner; a duplicate or an
+        // unread message keeps the server's own wording.
+        let savedCapture = response.notification.type == "new_transaction"
+          || response.notification.type == "needs_review"
+        let posted = savedCapture
+          ? await scheduleGenericCaptureNotification(
             payloadID: payloadID,
             aiDetail: response.aiDetail
           )
-          if posted, response.pushAttempted ?? response.pushSent {
-            await Self.removeDeliveredPushes(payloadID: payloadID)
-          }
-        } else if !response.pushSent {
-          await scheduleNotification(
+          : await scheduleNotification(
             response.notification,
             payloadID: payloadID,
             identifierPrefix: "capture_backend"
           )
+        if posted, response.pushAttempted ?? response.pushSent {
+          await Self.removeDeliveredPushes(payloadID: payloadID)
         }
         return .result()
       }
@@ -370,6 +370,10 @@ struct PostBankStatusIntent: AppIntent {
         ? (isCredit ? "المصدر: \(merchant)" : "التاجر: \(merchant)")
         : (isCredit ? "From: \(merchant)" : "Merchant: \(merchant)"))
     }
+    if let category = detail.category {
+      lines.append(ar ? "التصنيف: \(Self.categoryLabel(category, arabic: true))"
+        : "Category: \(Self.categoryLabel(category, arabic: false))")
+    }
     if let last4 = detail.last4 {
       lines.append(ar ? "البطاقة: ****\(last4)" : "Card: ****\(last4)")
     }
@@ -380,6 +384,26 @@ struct PostBankStatusIntent: AppIntent {
       body: lines.joined(separator: "\n"),
       type: "new_transaction"
     )
+  }
+
+  static func categoryLabel(_ key: String, arabic: Bool) -> String {
+    let labels: [String: (String, String)] = [
+      "restaurants": ("Restaurants", "مطاعم"), "cafes": ("Cafés", "مقاهي"),
+      "groceries": ("Groceries", "بقالة"), "transport": ("Transport", "مواصلات"),
+      "fuel": ("Fuel", "وقود"), "bills": ("Bills", "فواتير"),
+      "shopping": ("Shopping", "تسوق"), "health": ("Health", "صحة"),
+      "education": ("Education", "تعليم"), "entertainment": ("Entertainment", "ترفيه"),
+      "subscriptions": ("Subscriptions", "اشتراكات"), "transfers": ("Transfers", "تحويل"),
+      "cash": ("Cash", "كاش"), "travel": ("Travel", "سفر"),
+      "gifts": ("Gifts", "هدايا"), "kids": ("Kids", "أطفال"),
+      "home": ("Home", "منزل"), "maintenance": ("Maintenance", "صيانة"),
+      "fitness": ("Fitness", "رياضة"), "beauty": ("Beauty", "جمال"),
+      "charity": ("Charity", "خيرية"), "pets": ("Pets", "حيوانات"),
+      "insurance": ("Insurance", "تأمين"), "income": ("Income", "دخل"),
+      "other": ("Other", "أخرى"),
+    ]
+    guard let label = labels[key] else { return key }
+    return arabic ? label.1 : label.0
   }
 
   private func localDetail() -> CaptureDetail? {
@@ -426,6 +450,10 @@ struct PostBankStatusIntent: AppIntent {
     payloadID: String,
     offersSmartAnalysis: Bool = false
   ) async {
+    if SharedCaptureStore.hidesCaptureDetails {
+      await scheduleGenericCaptureNotification(payloadID: payloadID)
+      return
+    }
     if let parser = PreviewParser.shared {
       let result = parser.parse(smsText)
       if result.isHighConfidence, let amount = result.amount, let currency = result.currency {
@@ -698,6 +726,7 @@ struct CaptureDetail {
   /// payment | withdrawal | transfer | income | refund | unknown
   let kind: String
   let isCredit: Bool
+  var category: String? = nil
 }
 
 @available(iOS 16.0, *)
@@ -758,6 +787,7 @@ struct BackendCaptureClient {
       "tzOffsetMinutes": TimeZone.current.secondsFromGMT() / 60,
       "locale": request.localeIdentifier ?? Locale.autoupdatingCurrent.identifier,
       "source": "ios_shortcut",
+      "localNotification": true,
       // The owner's consent mirror is the only source (A-12-min R2): there is no
       // install-level fallback, so an upload never carries a wider AI grant.
       "allowAi": allowAi
@@ -821,12 +851,13 @@ struct BackendCaptureClient {
     }
     let last4 = text("last4").flatMap { $0.count == 4 && $0.allSatisfy(\.isNumber) ? $0 : nil }
     return CaptureDetail(
-      amount: PreviewParser.format(amount),
+      amount: text("amount_text") ?? PreviewParser.format(amount),
       currency: currency,
       merchant: text("merchant"),
       last4: last4,
       kind: text("type") ?? "unknown",
-      isCredit: text("direction") == "credit" || text("type") == "income"
+      isCredit: text("direction") == "credit" || text("type") == "income",
+      category: text("category")
     )
   }
 

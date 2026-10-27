@@ -157,6 +157,25 @@ Amount SAR 50.00
       expect(t.parseConfidence, lessThan(0.92));
     });
 
+    test('Orange telecom merchant is not an ATM even with wallet catalog alias', () {
+      const sms = 'Your Debit Card **5398 had a Successful transaction of EGP 56.78 '
+          '@Orange - Home Internet, your available bal. is hidden.';
+      const orange = BankProfile(
+        bankKey: 'orange_money', displayName: 'Orange Money',
+        keywords: ['Orange Money'], senderIds: ['Orange Money', 'Orange'],
+      );
+      expect(BankProfiles.detect('', senderId: 'Orange - Home Internet',
+          extraProfiles: [orange])?.bankKey, 'orange_money');
+      for (final sender in ['CIB', 'QNB', 'UNKNOWN']) {
+        final tx = engine.parse(sms, senderId: sender, bankProfiles: [orange]).transaction!;
+        expect(tx.type, TransactionType.payment);
+        expect(tx.amountText, '56.78');
+        expect(tx.currency, 'EGP');
+        expect(tx.cardLast4, '5398');
+        expect(Categorizer().categorize(tx).categoryKey, Categories.bills.key);
+      }
+    });
+
     test('BDC ATM debit-card abbreviation becomes cash category', () {
       const sms =
           'Your Debit Card **5398 had a Successful transaction of EGP 200.00 '

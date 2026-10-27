@@ -88,9 +88,12 @@ void main() {
       final perform = body(intent, 'func perform()');
       expect(perform, contains('if config.captureNotifyV2 {'));
       expect(perform, contains('response.pushAttempted ?? response.pushSent'));
-      // OFF: the shipped rule is still there, unchanged.
-      expect(perform, contains('} else if !response.pushSent {'));
-      expect(perform, contains('identifierPrefix: "capture_backend"'));
+      final success = perform.substring(perform.indexOf('if let response = attempt.response'),
+          perform.indexOf('// Backend unreachable'));
+      expect(success, isNot(contains('if config.captureNotifyV2')));
+      expect(success, isNot(contains('else if !response.pushSent')));
+      expect(intent, contains('"localNotification": true'));
+      expect(intent, contains('category: text("category")'));
     });
 
     test('every local banner site goes generic under the flag', () {
@@ -102,7 +105,7 @@ void main() {
           4,
           reason:
               'localOnly, push_attempted=false, backend unreachable, cloud off');
-      expect(RegExp('if config.captureNotifyV2').allMatches(perform).length, 4);
+      expect(RegExp('if config.captureNotifyV2').allMatches(perform).length, 3);
     });
 
     test('the waiting item shows no banner (not this owner\'s to alert)', () {
@@ -199,7 +202,10 @@ void main() {
         'capture_backend_'
       ]) {
         expect(fn.substring(0, 900), contains('"$prefix"'));
-        expect(intent, contains('"${prefix.substring(0, prefix.length - 1)}"'));
+        // The retired backend identifier remains removable after an upgrade.
+        if (prefix != 'capture_backend_') {
+          expect(intent, contains('"${prefix.substring(0, prefix.length - 1)}"'));
+        }
       }
     });
   });

@@ -1060,6 +1060,28 @@ class RunnerTests: XCTestCase {
     XCTAssertTrue(source.contains("await Self.removeDeliveredPushes(payloadID: payloadID)"))
   }
 
+  func testCaptureDetailsPreferenceDefaultsOffAndMirrorsExplicitHide() {
+    SharedCaptureStore.setHideCaptureDetails(false)
+    defer { SharedCaptureStore.setHideCaptureDetails(false) }
+    XCTAssertFalse(SharedCaptureStore.hidesCaptureDetails)
+    SharedCaptureStore.setHideCaptureDetails(true)
+    XCTAssertTrue(SharedCaptureStore.hidesCaptureDetails)
+  }
+
+  func testNativeCaptureDetailsAreIndependentOfRolloutAndCarryCategory() throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let source = try String(contentsOf: root.appendingPathComponent("BankMessageShortcuts/BankMessageShortcuts.swift"))
+    let start = try XCTUnwrap(source.range(of: "if let response = attempt.response"))
+    let end = try XCTUnwrap(source.range(of: "// Backend unreachable", range: start.upperBound..<source.endIndex))
+    let success = String(source[start.lowerBound..<end.lowerBound])
+    XCTAssertFalse(success.contains("if config.captureNotifyV2"))
+    XCTAssertFalse(success.contains("else if !response.pushSent"))
+    XCTAssertTrue(success.contains("aiDetail: response.aiDetail"))
+    XCTAssertTrue(source.contains("\"localNotification\": true"))
+    XCTAssertTrue(source.contains("category: text(\"category\")"))
+    XCTAssertTrue(source.contains("!SharedCaptureStore.hidesCaptureDetails"))
+  }
+
   // A1/A2 unbound recovery: hint, claim CAS preconditions, no mutation on failure.
   func testUnboundHintAndClaimCAS() throws {
     resetCapSeams()

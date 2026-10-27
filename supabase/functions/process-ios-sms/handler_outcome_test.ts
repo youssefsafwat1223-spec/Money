@@ -10,11 +10,11 @@ import { fakeCapture } from './capture_rpc_fake.ts';
 // The capture_* RPCs are modelled by capture_rpc_fake.ts (SQL proofs: supabase/tests/
 // capture_state_machine_p1.sql). `captures` = stored processed_captures rows,
 // `state.inserts` = claims that created/re-claimed a lease.
-function fakeSupabase(opts: { aiConsent?: boolean; duplicateOf?: string } = {}) {
+function fakeSupabase(opts: { aiConsent?: boolean; duplicateOf?: string; apnsToken?: string } = {}) {
   // H1: an ownerless (build-50) upload is only eligible for an install with proven single-owner history.
   const OWNER = '00000000-0000-0000-0000-00000000a001';
   const fake = fakeCapture({
-    device: { user_id: OWNER, consent_owner_uid: OWNER, ai: opts.aiConsent ?? true },
+    device: { user_id: OWNER, consent_owner_uid: OWNER, ai: opts.aiConsent ?? true, apns_token: opts.apnsToken ?? null },
     duplicateOf: opts.duplicateOf,
   });
   return {
@@ -95,15 +95,15 @@ const GOOD_AI = {
   direction: 'debit',
 };
 
-Deno.test('resolved capture: processed, zero AI calls', async () => {
+Deno.test('resolved capture: processed after consulting AI', async () => {
   const fake = fakeSupabase();
   const r = await call(fake, { payloadId: 'p1', sanitizedText: RESOLVED, allowAi: true }, GOOD_AI);
-  assertEquals(r.calls, 0);
+  assertEquals(r.calls, 1);
   assertEquals(r.json.capture.status, 'processed');
   assertEquals(r.json.capture.parsed.amount, 250);
 });
 
-Deno.test('clean card/ATM SMS without merchant: processed, zero AI calls, AI allowed or not', async () => {
+Deno.test('clean card/ATM SMS without merchant: processed, consult AI only with consent', async () => {
   const texts = [
     'Debited SAR 50.00 from card ending 1234',
     'ATM withdrawal of SAR 500.00 card 1234',
@@ -112,7 +112,7 @@ Deno.test('clean card/ATM SMS without merchant: processed, zero AI calls, AI all
   for (const [i, text] of texts.entries()) {
     for (const allowAi of [true, false]) {
       const r = await call(fakeSupabase(), { payloadId: `c${i}${allowAi}`, sanitizedText: text, allowAi }, GOOD_AI);
-      assertEquals(r.calls, 0, text);
+      assertEquals(r.calls, allowAi ? 1 : 0, text);
       assertEquals(r.json.capture.status, 'processed', text);
     }
   }
@@ -286,4 +286,19 @@ Deno.test('old-client request (snake_case, no allowAi/tz/locale): response shape
     assert(known.has(key), `unexpected parsed key ${key}`);
   }
   assertEquals(r.json.capture.status, 'processed');
+});
+
+Deno.test('native banner ownership persists and suppresses APNs and retries, including replay', async () => {
+  const fake = fakeSupabase({ apnsToken: 'test-token' });
+  const input = { payloadId: 'native-banner', sanitizedText: RESOLVED, localNotification: true };
+  const first = await call(fake, input);
+  assertEquals(first.status, 200);
+  assertEquals(first.calls, 0); // no AI consent request and no APNs fetch
+  assertEquals(first.json.pushSent, false);
+  assertEquals(first.json.capture.notification.localDelivery, true);
+  const replay = await call(fake, { ...input, localNotification: false });
+  assertEquals(replay.json.idempotent, true);
+  assertEquals(replay.calls, 0);
+  assertEquals(replay.json.pushSent, false);
+  assertEquals(replay.json.capture.notification.localDelivery, true);
 });

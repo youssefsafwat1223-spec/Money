@@ -718,18 +718,16 @@ class AddTransactionUseCase {
         ? ParseResult.notTransaction(bankKey: parseResult.bankKey)
         : parseResult;
 
-    // Local parser first: AI is consulted ONLY when the local parser produced
-    // no (valid) transaction. A local transaction never triggers an AI call.
+    // Every egress-eligible capture consults consented AI, even when local
+    // parsing succeeded. Local money still constrains the candidate validator.
     final aiFirstAttempt = wasIgnored || onDeviceOnly
         ? _AiFirstAttempt.skipped(
             wasIgnored ? 'message_ignored' : 'on_device_only',
           )
-        : localAccepted
-            ? const _AiFirstAttempt.skipped('local_transaction')
-            : await _tryAiParseFirst(
-                rawMessage: rawMessage,
-                senderId: senderId,
-              );
+        : await _tryAiParseFirst(
+            rawMessage: rawMessage,
+            senderId: senderId,
+          );
 
     // A "no transaction" result is acked away silently UNLESS it is surfaced to
     // the Smart Inbox. It is surfaced when the sender looks like a bank, OR the
@@ -773,9 +771,8 @@ class AddTransactionUseCase {
     ParsedTransaction parsed;
     String? aiCategoryKey;
     TransactionDirectionEntity? aiDirection;
-    // AI ran only because local produced nothing; if the deterministic
-    // validator accepted its candidate the transaction is CONFIRMED.
-    final aiValidated = aiParsed != null && localParsed == null;
+    // Acceptance comes from deterministic grounding, including local agreement.
+    final aiValidated = aiParsed != null;
     if (aiParsed != null) {
       parsed = aiParsed.transaction;
       aiCategoryKey = aiParsed.categoryKey;
@@ -945,12 +942,15 @@ class AddTransactionUseCase {
       );
     } else if (effectiveParsed.type == TransactionType.income) {
       effectiveParsed = _replaceMerchant(effectiveParsed, null);
-      effectiveCategory = CategoryResult(
-        Categories.income.key,
-        CategorySource.typeRule,
-        0.95,
-      );
-    } else if (effectiveParsed.type == TransactionType.withdrawal) {
+      if (!hasAiCategory) {
+        effectiveCategory = CategoryResult(
+          Categories.income.key,
+          CategorySource.typeRule,
+          0.95,
+        );
+      }
+    } else if (effectiveParsed.type == TransactionType.withdrawal &&
+        !hasAiCategory) {
       effectiveCategory = CategoryResult(
         Categories.cash.key,
         CategorySource.typeRule,
@@ -980,7 +980,8 @@ class AddTransactionUseCase {
     final isBusinessMerchant =
         effectiveParsed.type == TransactionType.payment ||
             effectiveParsed.type == TransactionType.refund;
-    if (effectiveCategory.source == CategorySource.fallback &&
+    if (!hasAiCategory &&
+        effectiveCategory.source == CategorySource.fallback &&
         effectiveParsed.rawMerchant != null &&
         isBusinessMerchant) {
       final normalized =
@@ -1016,7 +1017,8 @@ class AddTransactionUseCase {
         }
       }
     }
-    if (effectiveCategory.categoryKey == Categories.cash.key &&
+    if (!aiValidated &&
+        effectiveCategory.categoryKey == Categories.cash.key &&
         effectiveParsed.type == TransactionType.payment &&
         _looksLikeBankAtmCardTransaction(
           rawMessage,
@@ -1231,7 +1233,11 @@ class AddTransactionUseCase {
         );
       }
 
-      if (aiValidated && saved.status == TransactionStatus.confirmed) {
+      // Only an AI-only read teaches a sender->bank mapping; a local parse
+      // that AI merely enriched never does.
+      if (aiValidated &&
+          localParsed == null &&
+          saved.status == TransactionStatus.confirmed) {
         await _persistAiSenderMapping(senderId: senderId, discovery: discovery);
       }
 
@@ -1586,9 +1592,6 @@ class AddTransactionUseCase {
     final consent = await _loadAiConsent?.call() ?? false;
     if (!consent) return const _AiFirstAttempt.skipped('consent_off');
     final sid = senderId ?? '';
-    if (AiSenderFailureTracker.instance.isSuppressed(sid)) {
-      return const _AiFirstAttempt.skipped('sender_suppressed');
-    }
 
     final sanitized = SmsSanitizer.sanitize(
       rawMessage,
@@ -1708,14 +1711,6 @@ class AddTransactionUseCase {
     final isTransferCategory = categoryKey == Categories.transfers.key;
     if (isTransferCategory || _looksLikeTransferMessage(rawMessage)) {
       return TransactionType.transfer;
-    }
-    if (categoryKey == Categories.cash.key &&
-        fallback == TransactionType.payment &&
-        _looksLikeBankAtmCardTransaction(
-          rawMessage,
-          merchantName: merchantName,
-        )) {
-      return TransactionType.withdrawal;
     }
     return fallback;
   }
@@ -1999,7 +1994,7 @@ class AddTransactionUseCase {
     final hasGenericTransaction = lower.contains('successful transaction') ||
         lower.contains('transaction of');
     if (!hasDebitCard || !hasGenericTransaction) return false;
-    return BankProfiles.detect('', senderId: merchantName) != null;
+    return BankProfiles.isBankMerchant(merchantName);
   }
 
   static TransactionType? _parseTypeFromString(String? raw) {

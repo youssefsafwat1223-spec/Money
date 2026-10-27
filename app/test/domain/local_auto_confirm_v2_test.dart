@@ -67,7 +67,7 @@ void main() {
 
   for (final local in [true, false]) {
     test(
-        'manual paste uses ${local ? 'local parsing' : 'AI fallback'} and reports its source',
+        'manual paste always consults AI (${local ? 'with' : 'without'} a local parse) and reports AI as its source',
         () async {
       final ai = CountingAiClient(const AiParseResponse(
         amount: 42,
@@ -89,13 +89,10 @@ void main() {
         source: CapturedMessageSource.manualPaste,
         receivedAt: DateTime.utc(2026, 10, 27),
       ));
-      expect(ai.callCount, local ? 0 : 1);
+      expect(ai.callCount, 1);
       expect(result.addTransactionResult.outcome, AddTransactionOutcome.added);
-      expect(
-          result.addTransactionResult.transaction!.source,
-          local
-              ? TransactionSourceEntity.card
-              : TransactionSourceEntity.aiParsed);
+      expect(result.addTransactionResult.transaction!.source,
+          TransactionSourceEntity.aiParsed);
     });
   }
 
@@ -228,7 +225,8 @@ void main() {
         expect(result.transaction!.status, TransactionStatus.confirmed);
         expect(result.requiresConfirmation, isFalse);
         expect(result.isNewMerchant, isFalse);
-        expect(ai.callCount, 0);
+        // AI is always consulted; a null AI answer keeps the local parse.
+        expect(ai.callCount, 1);
         final disposition = await IngestCapturedMessageUseCase(_useCase(
           repo: StoringTransactionRepo(),
           parse: ParseResult.success(

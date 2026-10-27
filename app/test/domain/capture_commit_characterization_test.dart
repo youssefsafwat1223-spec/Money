@@ -362,7 +362,7 @@ void main() {
           reason: 'the local parse still produces the row');
     });
 
-    test('6. AI is NOT called when consent is ON but local parse is confident',
+    test('6. AI is called when consent is ON even if local parse is confident',
         () async {
       final repo = _RecordingRepo();
       final ai = _CountingAiClient();
@@ -379,9 +379,9 @@ void main() {
 
       await useCase(rawMessage: 'شراء 125.75 ر.س', senderId: 'AlRajhi');
 
-      expect(ai.callCount, 0,
-          reason: 'local-first: a confident local parse with a resolved bank '
-              'never reaches the AI');
+      expect(ai.callCount, 1,
+          reason: 'every consented capture consults AI for amount and '
+              'category, even after a confident local parse');
     });
 
     test('7. an AI failure degrades to the local parse without losing the row',

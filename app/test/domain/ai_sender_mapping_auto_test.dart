@@ -551,7 +551,7 @@ void main() {
       expect(await mapping(), isNull);
     });
 
-    test('local parse (no AI) -> nothing saved', () async {
+    test('local parse (AI consulted too) -> nothing saved', () async {
       final parsed = ParsedTransaction(
         amountText: '150.00',
         amount: 150.0,
@@ -569,7 +569,8 @@ void main() {
           aiClient: aiClient,
           flag: () => true);
       await useCase(rawMessage: _sms, senderId: _sender);
-      expect(aiClient.calls, 0);
+      // AI is always consulted, but a local parse still creates no mapping.
+      expect(aiClient.calls, 1);
       expect(await mapping(), isNull);
     });
 

@@ -218,7 +218,6 @@ class ParserEngine {
         _looksLikeBankAtmCardTransaction(
           lower,
           merchant: merchant,
-          extraProfiles: bankProfiles,
         )) {
       type = TransactionType.withdrawal;
     }
@@ -366,7 +365,6 @@ class ParserEngine {
   bool _looksLikeBankAtmCardTransaction(
     String lower, {
     required String? merchant,
-    required List<BankProfile> extraProfiles,
   }) {
     if (merchant == null || merchant.trim().isEmpty) return false;
     final hasDebitCard = lower.contains('debit card');
@@ -375,12 +373,7 @@ class ParserEngine {
       'transaction of',
     ]);
     if (!hasDebitCard || !hasGenericTransaction) return false;
-    return BankProfiles.detect(
-          '',
-          senderId: merchant,
-          extraProfiles: extraProfiles,
-        ) !=
-        null;
+    return BankProfiles.isBankMerchant(merchant);
   }
 
   _AmountExtraction _extractAmounts(

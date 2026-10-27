@@ -25,6 +25,7 @@ export type { ParsedCapture };
 
 export type CaptureStatus = 'processed' | 'needs_review' | 'duplicate' | 'rejected';
 type NotificationPayload = {
+  localDelivery?: boolean;
   title: string;
   body: string;
   type: 'new_transaction' | 'needs_review' | 'suspicious_duplicate' | 'received';
@@ -305,6 +306,7 @@ export async function handleProcessIosSms(
   }
 
   const notification = buildNotification(status, parsed, sender, receivedAt, tzOffsetMinutes);
+  if (body.localNotification === true) notification.localDelivery = true;
   const transient = outcome.aiTransientFailure === true;
   const fin = await finalize({
     state: transient ? 'retryable' : status === 'rejected' ? 'rejected' : 'processed',
@@ -685,6 +687,17 @@ async function sendFinalizedPush(
   notification: NotificationPayload,
   parsed: ParsedCapture,
 ): Promise<boolean> {
+  // The capturing intent owns the banner, including when Flutter is closed.
+  // Persisted in notification JSON so idempotent replay cannot send a late
+  // generic push or enqueue a retry over the detailed local notification.
+  if (notification.localDelivery === true) {
+    await markApnsLogFailed(supabase, push.notification_log_id, {
+      errorCode: 'native_notification_owner',
+      errorReason: 'Capture banner is delivered locally by the intent',
+      retryCount: 0,
+    });
+    return false;
+  }
   const notificationLogId = push.notification_log_id;
   const environment = push.apns_environment;
   console.log(JSON.stringify({
