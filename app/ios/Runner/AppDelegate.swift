@@ -116,6 +116,7 @@ enum ApnsEnvironment {
   private weak var captureChannelController: FlutterViewController?
   private var exportProtectionChannel: FlutterMethodChannel?
   private var nativeGlassChannel: FlutterMethodChannel?
+  private weak var nativeGlassChannelController: FlutterViewController?
   private var deviceTimezoneChannel: FlutterMethodChannel?
 
   /// The controller [deviceTimezoneChannel] is bound to — weak, and identity
@@ -137,6 +138,10 @@ enum ApnsEnvironment {
       registrar.register(
         NativeGlassViewFactory(),
         withId: "mali_glass_native"
+      )
+      registrar.register(
+        NativeTabBarViewFactory(messenger: registrar.messenger()),
+        withId: "mali_native_tab_bar"
       )
     }
     let didFinish = super.application(application, didFinishLaunchingWithOptions: launchOptions)
@@ -162,11 +167,20 @@ enum ApnsEnvironment {
 
   /// Answers the one question Dart needs before building glass surfaces:
   /// does this device have the real iOS 26 Liquid Glass material?
-  func configureNativeGlassChannelIfNeeded() {
-    guard nativeGlassChannel == nil,
-          let controller = rootFlutterViewController() else {
+  ///
+  /// Under the UIScene lifecycle there is no root controller during
+  /// `didFinishLaunching` and `applicationDidBecomeActive` never fires, so
+  /// SceneDelegate binds this from `scene(_:willConnectTo:)` with the exact
+  /// controller (same pattern as the timezone channel). Without that the probe
+  /// got MissingPluginException and every device fell back to Flutter glass.
+  func configureNativeGlassChannelIfNeeded(controller: FlutterViewController? = nil) {
+    guard let controller = controller ?? rootFlutterViewController() else {
       return
     }
+    if nativeGlassChannel != nil, nativeGlassChannelController === controller {
+      return
+    }
+    nativeGlassChannel?.setMethodCallHandler(nil)
 
     let channel = FlutterMethodChannel(
       name: "mali/native_glass",
@@ -181,6 +195,7 @@ enum ApnsEnvironment {
       }
     }
     nativeGlassChannel = channel
+    nativeGlassChannelController = controller
   }
 
   /// The device's IANA timezone identifier, for scheduling local notifications

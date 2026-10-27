@@ -30,6 +30,7 @@ import 'subscriptions_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class BillDetailsSheet extends ConsumerWidget {
   const BillDetailsSheet({super.key, required this.bill});
@@ -330,7 +331,7 @@ class BillDetailsSheet extends ConsumerWidget {
       builder: (context) => StatefulBuilder(
         builder: (context, setDialogState) => PopScope(
           canPop: !busy,
-          child: AlertDialog(
+          child: GlassAlertDialog(
             title: Text(isInstallment ? context.l10n.bdsRecordInstalmentPayment : context.l10n.bdsRecordPayment),
             content: Column(
               mainAxisSize: MainAxisSize.min,
@@ -514,7 +515,7 @@ class BillDetailsSheet extends ConsumerWidget {
       BuildContext context, WidgetRef ref, BillEntity bill) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(context.l10n.bdsDeleteBillTitle),
         content: Text(context.l10n.bdsDeleteBody(bill.name)),
         actions: [
@@ -588,7 +589,7 @@ class _BillPaymentRow extends ConsumerWidget {
   Future<void> _delete(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(context.l10n.bdsDeletePaymentTitle),
         content: Text(context.l10n.bdsDeletePaymentBody),
         actions: [

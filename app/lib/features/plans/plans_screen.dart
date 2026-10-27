@@ -27,6 +27,7 @@ import 'plan_form_sheet.dart';
 import 'plans_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class PlansScreen extends ConsumerWidget {
   const PlansScreen({super.key});
@@ -311,7 +312,7 @@ class _PlanCard extends ConsumerWidget {
   Future<void> _confirmDelete(BuildContext context, WidgetRef ref) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(context.l10n.plDeleteTitle),
         content: Text(
             context.l10n.plDeleteBody(progress.plan.name)),

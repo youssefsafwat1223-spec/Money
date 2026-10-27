@@ -42,6 +42,8 @@ class SceneDelegate: FlutterSceneDelegate {
       // Same window, same reasoning: Dart asks for the device zone during
       // bootstrap (notifications_init), before the first frame.
       appDelegate.configureDeviceTimezoneChannelIfNeeded(controller: controller)
+      // Dart probes for native Liquid Glass right before runApp.
+      appDelegate.configureNativeGlassChannelIfNeeded(controller: controller)
     }
   }
 
@@ -52,6 +54,7 @@ class SceneDelegate: FlutterSceneDelegate {
     if let appDelegate = UIApplication.shared.delegate as? AppDelegate {
       appDelegate.configureNativeCaptureChannelIfNeeded()
       appDelegate.configureDeviceTimezoneChannelIfNeeded()
+      appDelegate.configureNativeGlassChannelIfNeeded()
     }
   }
 

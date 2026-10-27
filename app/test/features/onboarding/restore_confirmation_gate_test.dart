@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
+import 'package:money_companion/core/theme/widgets/glass_dialog.dart';
 import 'package:money_companion/core/backup/backup_service.dart';
 import 'package:money_companion/core/backup/restore_controller.dart';
 import 'package:money_companion/core/backup/restore_plan.dart';
@@ -146,7 +147,7 @@ void main() {
     await _startRestore(tester);
     await tester.tap(
       find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(GlassAlertDialog),
         matching: find.text('استعادة'),
       ),
     );

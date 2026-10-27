@@ -26,6 +26,7 @@ class AccountDeletionSheet extends StatefulWidget {
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      showDragHandle: true,
       builder: (_) => AccountDeletionSheet(impact: impact),
     );
   }

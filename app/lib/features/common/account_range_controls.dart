@@ -15,6 +15,7 @@ import '../../core/utils/formatters.dart';
 import '../../domain/entities/account_entity.dart';
 import '../transactions/transactions_providers.dart';
 import 'app_sheet_scaffold.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
 
 class AccountRangeControls extends ConsumerWidget {
   const AccountRangeControls({
@@ -84,10 +85,9 @@ class _AccountPicker extends ConsumerWidget {
     final container = ProviderScope.containerOf(context, listen: false);
     final accounts =
         ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
-    return showModalBottomSheet<void>(
+    return showGlassSheet<void>(
       context: context,
       showDragHandle: true,
-      backgroundColor: c.surface,
       builder: (context) => navySheetTheme(Directionality(
         textDirection: Directionality.of(context),
         child: Padding(

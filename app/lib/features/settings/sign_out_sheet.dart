@@ -6,6 +6,8 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 /// What the person chose in the sign-out sheet (SYNC-Q8).
 enum SignOutChoice {
@@ -52,7 +54,7 @@ Future<SignOutChoice?> showSignOutSheet(
   final c = context.colors;
   final l10n = context.l10n;
   final unsynced = pending != null && pending.hasPendingUserData;
-  return showModalBottomSheet<SignOutChoice>(
+  return showGlassSheet<SignOutChoice>(
     context: context,
     showDragHandle: true,
     isScrollControlled: true,
@@ -119,7 +121,7 @@ Future<bool> confirmRemoveData(
   final unsynced = pending != null && pending.hasPendingUserData;
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (ctx) => AlertDialog(
+    builder: (ctx) => GlassAlertDialog(
       title: Text(l10n.removeDataTitle),
       content: Text(
         unsynced

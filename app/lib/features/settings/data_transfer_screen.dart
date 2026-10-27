@@ -24,6 +24,7 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import 'import_issue_messages.dart';
 import '../../core/privacy/consent_authority.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class DataTransferScreen extends ConsumerStatefulWidget {
   const DataTransferScreen({super.key, this.initialAction});
@@ -387,7 +388,7 @@ class _ReplaceConfirmationDialogState
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return GlassAlertDialog(
       title: Text(context.l10n.dtxConfirmReplace),
       content: Column(
         mainAxisSize: MainAxisSize.min,

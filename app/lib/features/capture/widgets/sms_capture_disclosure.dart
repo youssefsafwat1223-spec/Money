@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/utils/l10n_ext.dart';
+import '../../../core/theme/widgets/glass_dialog.dart';
 
 /// MALI-013 — the prominent disclosure shown immediately before the Android
 /// RECEIVE_SMS runtime dialog.
@@ -59,9 +60,7 @@ class _SmsCaptureDisclosureDialog extends StatelessWidget {
           ),
         );
 
-    return AlertDialog(
-      backgroundColor: c.surfaceCard,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+    return GlassAlertDialog(
       title: Text(
         l10n.smsDisclosureTitle,
         style: text.titleLarge?.copyWith(fontWeight: FontWeight.w700),

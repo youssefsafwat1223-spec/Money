@@ -19,6 +19,8 @@ import 'cards_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
 import 'card_theme_labels.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 /// شيت إضافة/تعديل بطاقة. [accountId] اختياري: مرَّره لربط مبدئي بحساب، أو
 /// اتركه null للإضافة من صفحة البطاقات (يختار المستخدم الحساب أو «بدون»).
@@ -32,7 +34,7 @@ Future<void> showCardForm(
   String? initialLast4,
   CardNetwork? initialNetwork,
 }) {
-  return showModalBottomSheet<void>(
+  return showGlassSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -163,7 +165,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
   Future<void> _delete() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (_) => AlertDialog(
+      builder: (_) => GlassAlertDialog(
         title: Text(context.l10n.cfDeleteTitle),
         content: Text(context.l10n.cfDeleteCardBody),
         actions: [

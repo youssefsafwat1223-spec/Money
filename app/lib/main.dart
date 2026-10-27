@@ -20,6 +20,7 @@ import 'core/utils/app_lucide_icons.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'l10n/app_localizations.dart';
 import 'core/utils/l10n_ext.dart';
+import 'core/theme/widgets/native_glass.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -36,6 +37,9 @@ Future<void> main() async {
   // consent is open — never before bootstrap resolved the gate, never while
   // Cloud is OFF. `attach` only wires the listeners.
   if (SentryConfig.isConfigured) SentryLifecycle.attach();
+  // One cached channel call: lets explicit native hosts (sheets, dialogs,
+  // toasts, nav) use Apple's real Liquid Glass on iOS 26+.
+  unawaited(NativeGlassSupport.probe());
   runApp(const StartupApp());
 }
 

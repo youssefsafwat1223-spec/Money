@@ -95,6 +95,9 @@ import 'celebration_runtime.dart';
 import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/i18n/locale_provider.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/native_glass.dart';
+import '../../core/theme/widgets/native_tab_bar.dart';
 
 final shellIndexProvider = StateProvider<int>((ref) => 0);
 
@@ -1587,7 +1590,7 @@ class _AppShellState extends ConsumerState<AppShell> {
       final l = context.l10n;
       final add = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
+        builder: (ctx) => GlassAlertDialog(
           title: Text(l.captureUnboundTitle),
           content: Text([
             l.captureUnboundBody(offer.count),
@@ -2247,8 +2250,46 @@ class _BottomNavBar extends StatelessWidget {
   /// ارتفاع صف الأيقونات جوّه الكبسولة.
   static const double _slotHeight = 52;
 
+  /// SF Symbols for Apple's native tab bar, by page.
+  static String _symbolFor(int page) => switch (page) {
+        0 => 'house',
+        1 => 'list.bullet.rectangle',
+        2 => 'banknote',
+        3 => 'gearshape',
+        4 => 'chart.pie',
+        _ => 'circle',
+      };
+
   @override
   Widget build(BuildContext context) {
+    // iOS 26+: Apple's own UITabBar, so the bar is the real system Liquid
+    // Glass. Everywhere else: the Flutter capsule below.
+    return ValueListenableBuilder<bool>(
+      valueListenable: NativeGlassSupport.supported,
+      builder: (context, native, _) {
+        if (!native || MediaQuery.highContrastOf(context)) {
+          return _flutterBar(context);
+        }
+        final selectedSlot = _items.indexWhere((i) => i.page == currentIndex);
+        return NativeTabBar(
+          items: [
+            for (final item in _items)
+              NativeTabBarItem(
+                symbol: _symbolFor(item.page),
+                title: item.label(context),
+              ),
+          ],
+          selectedIndex: selectedSlot,
+          onSelect: (slot) => onSelect(_items[slot].page),
+          dark: Theme.of(context).brightness == Brightness.dark,
+          rtl: Directionality.of(context) == TextDirection.rtl,
+          tint: context.colors.primary,
+        );
+      },
+    );
+  }
+
+  Widget _flutterBar(BuildContext context) {
     final c = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final safeBottom = MediaQuery.paddingOf(context).bottom;
@@ -2278,6 +2319,7 @@ class _BottomNavBar extends StatelessWidget {
             variant: MaliGlassVariant.navigation,
             radius: 999,
             padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
+            nativeMaterial: true,
             child: expanded
                 ? _expandedRow(context, c, isDark, selectedSlot)
                 : _collapsedPill(context, c, isDark, active),

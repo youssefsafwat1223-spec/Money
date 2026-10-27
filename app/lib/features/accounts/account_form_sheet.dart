@@ -20,6 +20,8 @@ import 'account_deletion_sheet.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 String accountTypeLabel(BuildContext context, AccountType type) =>
     switch (type) {
@@ -53,7 +55,7 @@ Future<void> showAccountForm(
   WidgetRef ref, {
   AccountEntity? account,
 }) {
-  return showModalBottomSheet<void>(
+  return showGlassSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
@@ -358,7 +360,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       } else {
         final confirmed = await showDialog<bool>(
           context: context,
-          builder: (ctx) => AlertDialog(
+          builder: (ctx) => GlassAlertDialog(
             title: Text(context.l10n.afDeleteAccount),
             content: Text(_impactSummary(context, impact)),
             actions: [

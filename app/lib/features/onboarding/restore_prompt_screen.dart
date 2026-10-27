@@ -19,6 +19,7 @@ import 'widgets/neon_illustration.dart';
 import 'widgets/premium_ui.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../backup/backup_error_messages.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class RestorePromptScreen extends ConsumerStatefulWidget {
   const RestorePromptScreen({super.key, required this.onboardingFlow});
@@ -113,7 +114,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (dialogContext) => AlertDialog(
+      builder: (dialogContext) => GlassAlertDialog(
         title: Text(context.l10n.rpConfirmTitle),
         content: Text(context.l10n.rpConfirmBody),
         actions: [

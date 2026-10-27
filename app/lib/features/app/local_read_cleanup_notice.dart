@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/session/app_session.dart';
 import '../../l10n/app_localizations.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 /// Honest outcome of an incomplete logout: the device IS signed out and the
 /// process stays locked, but the durable offline lock could not be written, so a
@@ -20,7 +21,7 @@ Future<void> showSignOutIncompleteNotice(
       var message = l10n.signOutCleanupIncompleteMessage;
       var busy = false;
       return StatefulBuilder(
-        builder: (context, setState) => AlertDialog(
+        builder: (context, setState) => GlassAlertDialog(
           key: const Key('sign_out_incomplete_notice'),
           content: Text(message, key: const Key('sign_out_incomplete_message')),
           actions: [

@@ -112,7 +112,10 @@ class AppTheme {
         backgroundColor: sheetSurface,
         modalBackgroundColor: sheetSurface,
         surfaceTintColor: Colors.transparent,
-        showDragHandle: true,
+        // Off by default: transparent glass sheets (AppSheetScaffold,
+        // GlassSheetSurface) draw their own handle, so a themed one floated
+        // above the glass as a second handle. Opaque sheets opt in.
+        showDragHandle: false,
         dragHandleColor: c.textSecondary,
         clipBehavior: Clip.antiAlias,
         shape: const RoundedRectangleBorder(
@@ -190,6 +193,28 @@ class AppTheme {
       // Component themes for the stock Material widgets the app still uses
       // directly (settings tiles, confirm dialogs) — without these they render
       // raw M3 defaults that ignore the Qirsh palette and radii.
+      // Floating, rounded, frosted bars with the glass rim — the snackbar
+      // counterpart of the MaliGlass toasts (SnackBar cannot host a blur).
+      snackBarTheme: SnackBarThemeData(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: c.surface.withValues(alpha: 0.94),
+        contentTextStyle: AppTypography.bodyStrong(c.textPrimary),
+        actionTextColor: c.primary,
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          side: BorderSide(color: c.border),
+        ),
+      ),
+      popupMenuTheme: PopupMenuThemeData(
+        color: c.surface.withValues(alpha: 0.94),
+        surfaceTintColor: Colors.transparent,
+        elevation: 6,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(AppRadius.md),
+          side: BorderSide(color: c.border),
+        ),
+      ),
       dialogTheme: DialogThemeData(
         backgroundColor: c.surface,
         surfaceTintColor: Colors.transparent,

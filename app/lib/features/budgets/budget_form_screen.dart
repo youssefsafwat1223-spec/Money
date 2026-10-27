@@ -24,6 +24,7 @@ import '../../core/theme/widgets/app_toast.dart';
 import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -438,8 +439,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     final c = context.colors;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: c.surface,
+      builder: (context) => GlassAlertDialog(
         title: Text(context.l10n.bdgDeleteTitle,
             style: _alex(18, FontWeight.w700, 1.2, c.textMain)),
         content: Text(context.l10n.bfsDeleteBody,

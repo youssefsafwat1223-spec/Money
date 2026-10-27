@@ -6,6 +6,7 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 /// V1 guidance, Layer A (charter: REQUIRED_PRODUCT_CHANGE_5).
 ///
@@ -79,15 +80,13 @@ class _CoachMarkTourState extends State<_CoachMarkTour> {
     final mark = widget.marks[_index];
     final isLast = _index == widget.marks.length - 1;
 
-    return AlertDialog(
+    return GlassAlertDialog(
       // AlertDialog rather than a bare Dialog: Dialog passes an unbounded width
       // down to its own Material, so any content that cannot size itself
       // intrinsically — a Spacer, an Expanded, a long unconstrained Text —
       // throws "BoxConstraints forces an infinite width" during layout.
       // AlertDialog handles the intrinsic sizing, and its actions row is
       // exactly what this tour needs.
-      backgroundColor: c.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
       title: Row(
         children: [
           Icon(mark.icon, color: c.primary, size: 22),

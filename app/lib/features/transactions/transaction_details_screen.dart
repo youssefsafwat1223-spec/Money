@@ -34,6 +34,7 @@ import '../common/motion.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class TransactionDetailsScreen extends ConsumerWidget {
   const TransactionDetailsScreen({super.key, required this.transactionId});
@@ -545,7 +546,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
       BuildContext context, WidgetRef ref, String id) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(context.l10n.txdDeleteTitle),
         content: Text(context.l10n.txdDeleteBody),
         actions: [
@@ -630,7 +631,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
     final controller = TextEditingController();
     final value = await showDialog<Money>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(context.l10n.txdValueIn(Currency.label(context, tx.currency))),
         content: TextField(
           controller: controller,

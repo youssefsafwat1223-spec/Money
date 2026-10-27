@@ -33,6 +33,7 @@ import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
 import '../capture/services/local_notification_service.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class ManualTransactionSheet extends ConsumerStatefulWidget {
   const ManualTransactionSheet({
@@ -231,7 +232,7 @@ class _ManualTransactionSheetState
     if (tx == null || _busy) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(context.l10n.txdDeleteTitle),
         content: Text(context.l10n.mtDeleteBody),
         actions: [

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
 import '../app_colors.dart';
-import '../app_shadows.dart';
 import '../app_spacing.dart';
 import '../app_typography.dart';
 import '../../utils/app_lucide_icons.dart';
+import 'mali_glass.dart';
 
 /// Shows a message anchored to the TOP of the screen (below the status bar),
 /// instead of the default bottom [SnackBar] — the app-wide replacement for
@@ -142,7 +142,12 @@ class _TopBannerWidgetState extends State<_TopBannerWidget>
             position: _slide,
             child: FadeTransition(
               opacity: _fade,
-              child: Material(
+              // Liquid Glass with the banner's colour tinted over it.
+              child: MaliGlass(
+                radius: AppRadius.md,
+                padding: EdgeInsets.zero,
+                nativeMaterial: true,
+                child: Material(
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(AppRadius.md),
@@ -151,9 +156,8 @@ class _TopBannerWidgetState extends State<_TopBannerWidget>
                     padding: const EdgeInsets.symmetric(
                         horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
                     decoration: BoxDecoration(
-                      color: bg,
+                      color: bg.withValues(alpha: 0.78),
                       borderRadius: BorderRadius.circular(AppRadius.md),
-                      boxShadow: AppShadows.elevatedCard,
                     ),
                     child: Row(
                       children: [
@@ -171,6 +175,7 @@ class _TopBannerWidgetState extends State<_TopBannerWidget>
                     ),
                   ),
                 ),
+              ),
               ),
             ),
           ),

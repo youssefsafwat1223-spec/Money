@@ -13,6 +13,7 @@ import '../services/report_generation_controller.dart';
 import '../../common/app_header.dart';
 import 'report_preview_screen.dart';
 import '../../../core/utils/app_lucide_icons.dart';
+import '../../../core/theme/widgets/glass_dialog.dart';
 
 enum _PeriodKind { weekly, monthly, yearly, custom }
 
@@ -292,7 +293,7 @@ class _ProgressDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
+    return GlassAlertDialog(
       content: ValueListenableBuilder<ReportProgress>(
         valueListenable: progress,
         builder: (context, value, _) => Column(

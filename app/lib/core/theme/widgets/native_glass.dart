@@ -29,9 +29,14 @@ class NativeGlassSupport {
   static set debugOverride(bool? value) {
     _supported = value;
     _probe = null;
+    supported.value = value ?? false;
   }
 
   static bool get isSupported => _supported ?? false;
+
+  /// Rebuild hook: surfaces built before [probe] resolved switch to the
+  /// native material once the answer arrives.
+  static final ValueNotifier<bool> supported = ValueNotifier<bool>(false);
 
   static Future<bool> probe() {
     final known = _supported;
@@ -42,7 +47,9 @@ class NativeGlassSupport {
     }
     return _probe ??=
         _channel.invokeMethod<bool>('isSupported').then<bool>((value) {
-      return _supported = value ?? false;
+      _supported = value ?? false;
+      supported.value = _supported!;
+      return _supported!;
     }).catchError((Object _) {
       // Channel absent (tests, stale host) → no native glass.
       return _supported = false;

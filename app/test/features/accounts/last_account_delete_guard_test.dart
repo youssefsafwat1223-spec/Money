@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/theme/widgets/glass_dialog.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
@@ -45,7 +46,7 @@ void main() {
     await tester.tap(find.text('Delete account'));
     await tester.pumpAndSettle();
     expect(find.text('You cannot delete your last account.'), findsOneWidget);
-    expect(find.byType(AlertDialog), findsNothing);
+    expect(find.byType(GlassAlertDialog), findsNothing);
     await tester.pump(const Duration(seconds: 3));
     await tester.pumpAndSettle();
     expect(find.text('You cannot delete your last account.'), findsNothing);

@@ -19,6 +19,7 @@ import '../../domain/entities/supporting_entities.dart';
 import '../../domain/repositories/user_settings_repository.dart';
 import '../capture/services/capture_device_registration_service.dart';
 import '../settings/settings_providers.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
 
 /// One disclosed initial choice for Cloud Sync and Smart Analysis. Nothing is
 /// pre-selected: Accept grants both; local use persists both denials. Dismissal
@@ -36,7 +37,7 @@ Future<bool> showSmartAnalysisConsentSheet(
   bool management = false,
 }) async {
   final scope = work ?? ref.read(consentLocalWorkProvider)();
-  final granted = await showModalBottomSheet<bool>(
+  final granted = await showGlassSheet<bool>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,

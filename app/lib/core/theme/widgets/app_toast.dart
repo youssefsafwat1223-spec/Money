@@ -7,6 +7,7 @@ import '../app_colors.dart';
 import '../app_spacing.dart';
 import '../app_typography.dart';
 import '../../utils/app_lucide_icons.dart';
+import 'mali_glass.dart';
 
 /// A premium top-floating toast notification system.
 class AppToast {
@@ -145,20 +146,17 @@ class _ToastWidgetState extends State<_ToastWidget>
                 _dismiss();
               }
             },
-            child: Material(
-              color: Colors.transparent,
-              elevation: 8,
-              shadowColor: Colors.black.withValues(alpha: 0.25),
-              borderRadius: BorderRadius.circular(100),
+            // Liquid Glass pill; an error adds a red wash over the glass.
+            child: MaliGlass(
+              variant: MaliGlassVariant.pill,
+              padding: EdgeInsets.zero,
+              nativeMaterial: true,
               child: DecoratedBox(
                 decoration: BoxDecoration(
-                  // سطح صلب — من غير زجاج؛ حالة الخطأ بغسلة حمرا فوقه.
                   color: widget.isError
-                      ? Color.alphaBlend(
-                          Colors.red.withValues(alpha: 0.14), c.surface)
-                      : c.surface,
+                      ? Colors.red.withValues(alpha: 0.14)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(100),
-                  border: Border.all(color: c.divider),
                 ),
                 child: Padding(
                   padding:

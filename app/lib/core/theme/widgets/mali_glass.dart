@@ -9,6 +9,7 @@ import '../app_spacing.dart';
 import '../mali_tokens.dart';
 import 'liquid_glass/shader_utils.dart';
 import 'mali_glass_advanced.dart';
+import 'native_glass.dart';
 
 /// MaliGlass — the Liquid Glass material (pilot).
 ///
@@ -59,6 +60,7 @@ class MaliGlass extends StatefulWidget {
     this.enabled = true,
     this.refractive,
     this.advancedRefraction = false,
+    this.nativeMaterial = false,
   });
 
   final Widget child;
@@ -88,6 +90,13 @@ class MaliGlass extends StatefulWidget {
   /// pinned strip capsules). Falls back to Qirsh frost when the runtime has
   /// no shader support; high contrast always wins with the opaque surface.
   final bool advancedRefraction;
+
+  /// EXPLICIT NATIVE HOST: render Apple's real Liquid Glass (`UIGlassEffect`
+  /// platform view) when the device supports it. Opt-in only, for chrome that
+  /// is on screen one or two at a time (sheets, dialogs, toasts, the nav bar)
+  /// — never list items, since every platform view adds compositing cost.
+  /// Unsupported devices and high contrast keep the Flutter tiers.
+  final bool nativeMaterial;
 
   @override
   State<MaliGlass> createState() => _MaliGlassState();
@@ -131,12 +140,22 @@ class _MaliGlassState extends State<MaliGlass> {
   void initState() {
     super.initState();
     _maybeLoadShader();
+    if (widget.nativeMaterial) {
+      NativeGlassSupport.supported.addListener(_onNativeSupport);
+    }
   }
+
+  void _onNativeSupport() {
+    if (mounted) setState(() {});
+  }
+
+
 
   /// Resolved Tier 3 intent: explicit override, else on for everything but
   /// `sheet` (largest surface; refraction there is cost without payoff).
   bool get _wantsRefraction =>
-      widget.refractive ?? widget.variant != MaliGlassVariant.sheet;
+      !(widget.nativeMaterial && NativeGlassSupport.isSupported) &&
+      (widget.refractive ?? widget.variant != MaliGlassVariant.sheet);
 
   @override
   void didUpdateWidget(MaliGlass oldWidget) {
@@ -149,6 +168,7 @@ class _MaliGlassState extends State<MaliGlass> {
 
   @override
   void dispose() {
+    NativeGlassSupport.supported.removeListener(_onNativeSupport);
     _shader?.dispose();
     super.dispose();
   }
@@ -192,8 +212,11 @@ class _MaliGlassState extends State<MaliGlass> {
   @override
   Widget build(BuildContext context) {
     final t = MaliTokens.of(context);
-    final c = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Glass can open over a route whose theme lacks the app palette (e.g. a
+    // dialog under a bare ThemeData): fall back instead of throwing.
+    final c = Theme.of(context).extension<AppColors>() ??
+        (isDark ? AppColors.dark : AppColors.light);
     final media = MediaQuery.maybeOf(context);
     final reduceMotion = media?.disableAnimations ?? false;
     final spec = _MaliGlassSpec.resolve(widget.variant, isDark);
@@ -240,18 +263,39 @@ class _MaliGlassState extends State<MaliGlass> {
         : content;
 
     // Generic MaliGlass NEVER self-selects the native platform-view tier:
-    // native UIGlassEffect ownership lives with explicit native hosts only
-    // (today: the pre-existing iOS 26 bottom-navigation host outside this
-    // widget). Generic surfaces resolve: opaque → advanced → frost.
+    // native UIGlassEffect is used only when the caller is an explicit native
+    // host ([nativeMaterial]). Generic surfaces resolve: opaque → advanced →
+    // frost.
     Widget surface;
-    if (resolveGlassTier(
-          advancedRequested: widget.advancedRefraction && !isSheet,
-          shaderSupported: advancedShaderSupported,
-          platformAllowed: advancedTierAllowedOnPlatform,
-          highContrast: highContrast,
-          nativeGlassActive: false,
-        ) ==
-        GlassTier.advanced) {
+    final tier = resolveGlassTier(
+      advancedRequested: widget.advancedRefraction && !isSheet,
+      shaderSupported: advancedShaderSupported,
+      platformAllowed: advancedTierAllowedOnPlatform,
+      highContrast: highContrast,
+      nativeGlassActive:
+          widget.nativeMaterial && NativeGlassSupport.isSupported,
+    );
+    if (tier == GlassTier.native) {
+      // NATIVE TIER: Apple's own material (blur, refraction, rim, adaptive
+      // tint) behind the Flutter content. Sheets add a light body wash so
+      // forms stay legible over busy pages.
+      surface = Stack(
+        children: [
+          Positioned.fill(
+            child: NativeGlassBackdrop(radius: _maxCorner(br), dark: isDark),
+          ),
+          if (isSheet)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: ColoredBox(
+                  color: t.glassSheetFill.withValues(alpha: 0.35),
+                ),
+              ),
+            ),
+          layered,
+        ],
+      );
+    } else if (tier == GlassTier.advanced) {
       // ADVANCED TIER: package-backed refraction (pilot surfaces only).
       // The package renders body + lighting; Qirsh keeps the token rim,
       // press affordances, semantics, and every fallback decision.

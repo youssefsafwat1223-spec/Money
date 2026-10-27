@@ -50,6 +50,8 @@ import 'transaction_details_screen.dart';
 import 'transactions_providers.dart';
 import 'widgets/change_category_sheet.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class TransactionsScreen extends ConsumerWidget {
   const TransactionsScreen({super.key});
@@ -462,7 +464,7 @@ class TransactionsScreen extends ConsumerWidget {
     if (pending.isEmpty) return;
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(context.l10n.txnConfirmAllTitle),
         content: Text(context.l10n.txnConfirmAllBody(pending.length)),
         actions: [
@@ -525,10 +527,9 @@ class _ActiveAccountPicker extends ConsumerWidget {
     final container = ProviderScope.containerOf(context, listen: false);
     final accounts =
         ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
-    return showModalBottomSheet<void>(
+    return showGlassSheet<void>(
       context: context,
       showDragHandle: true,
-      backgroundColor: c.surface,
       builder: (context) => navySheetTheme(Directionality(
         textDirection: Directionality.of(context),
         child: Padding(
@@ -1218,7 +1219,7 @@ class _BillsTabState extends State<_BillsTab> {
 
   void _showBillsHelp(BuildContext context, BillType type) {
     final c = context.colors;
-    showModalBottomSheet<void>(
+    showGlassSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => navySheetTheme(Directionality(
@@ -2131,10 +2132,9 @@ class _SuspectedDuplicatesBanner extends ConsumerWidget {
 
 Future<void> showSuspectedDuplicateReviewSheet(
     BuildContext context, SuspectedDuplicateEntity dupe) {
-  return showModalBottomSheet<void>(
+  return showGlassSheet<void>(
     context: context,
     showDragHandle: true,
-    backgroundColor: context.colors.surface,
     builder: (_) => navySheetTheme(Directionality(
       textDirection: Directionality.of(context),
       child: Padding(
@@ -2195,7 +2195,7 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
                   onPressed: () async {
                     final proceed = await showDialog<bool>(
                       context: context,
-                      builder: (ctx) => AlertDialog(
+                      builder: (ctx) => GlassAlertDialog(
                         title: Text(ctx.l10n.txnDismissNAlerts(dupes.length)),
                         content: Text(ctx.l10n.txnDismissAllDupesBody),
                         actions: [

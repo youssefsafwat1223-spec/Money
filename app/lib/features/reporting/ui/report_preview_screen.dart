@@ -8,6 +8,7 @@ import '../../../core/exporting/managed_export_store.dart';
 import '../services/report_file_service.dart';
 import '../../common/app_header.dart';
 import '../../../core/utils/app_lucide_icons.dart';
+import '../../../core/theme/widgets/glass_dialog.dart';
 
 /// Previews a generated report before sharing. The PDF is rendered with
 /// `printing`'s [PdfPreview]; sharing is gated by a privacy warning when the
@@ -89,7 +90,7 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
     if (widget.containsSensitive) {
       final confirmed = await showDialog<bool>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
+        builder: (dialogContext) => GlassAlertDialog(
           title: Text(isAr ? context.l10n.rpShareFinancialData : 'Share financial data'),
           content: Text(isAr
               ? context.l10n.rpShareWarning

@@ -241,6 +241,51 @@ void main() {
     }
   });
 
+  testWidgets(
+      'an explicit native host (nativeMaterial) renders Apple glass when '
+      'supported, and the Flutter frost when not', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    addTearDown(() => NativeGlassSupport.debugOverride = null);
+    try {
+      NativeGlassSupport.debugOverride = true;
+      await tester.pumpWidget(harness(const MaliGlass(
+        variant: MaliGlassVariant.sheet,
+        nativeMaterial: true,
+        child: Text('x'),
+      )));
+      expect(find.byType(NativeGlassBackdrop), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsNothing);
+      expect(find.text('x'), findsOneWidget);
+
+      NativeGlassSupport.debugOverride = false;
+      await tester.pumpWidget(harness(const MaliGlass(
+        key: ValueKey('unsupported'),
+        variant: MaliGlassVariant.sheet,
+        nativeMaterial: true,
+        child: Text('x'),
+      )));
+      expect(find.byType(NativeGlassBackdrop), findsNothing);
+      expect(find.byType(BackdropFilter), findsOneWidget);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('high contrast keeps an explicit native host opaque',
+      (tester) async {
+    NativeGlassSupport.debugOverride = true;
+    addTearDown(() => NativeGlassSupport.debugOverride = null);
+    await tester.pumpWidget(MediaQuery(
+      data: const MediaQueryData(highContrast: true),
+      child: harness(const MaliGlass(
+        variant: MaliGlassVariant.pill,
+        nativeMaterial: true,
+        child: Text('x'),
+      )),
+    ));
+    expect(find.byType(NativeGlassBackdrop), findsNothing);
+  });
+
   testWidgets('high contrast renders opaque with no backdrop blur',
       (tester) async {
     await tester.pumpWidget(

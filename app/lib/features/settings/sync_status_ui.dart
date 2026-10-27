@@ -13,6 +13,7 @@ import '../../core/utils/formatters.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../common/app_avatar.dart';
 import 'sync_status_providers.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
 
 /// A-5: the single compact "did my data reach the cloud?" row. Quiet by design —
 /// it only reports; it never banners or toasts on a change. Tapping opens
@@ -68,7 +69,7 @@ String syncStatusLabel(BuildContext context, SyncStatus status) {
 }
 
 Future<void> showSyncStatusSheet(BuildContext context) {
-  return showModalBottomSheet<void>(
+  return showGlassSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,

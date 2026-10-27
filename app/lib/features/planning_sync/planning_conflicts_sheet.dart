@@ -8,6 +8,7 @@ import '../../core/sync/conflict_resolver.dart';
 import '../../core/sync/conflict_fields.dart';
 import '../../core/sync/conflict_policy.dart';
 import '../../core/sync/sync_conflict_store.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
 
 /// MALI-022 part 2 — the visible conflict-resolution surface. Lists planning
 /// rows stuck in `sync_status='conflict'` (a real two-device edit collision)
@@ -17,7 +18,7 @@ class PlanningConflictsSheet extends ConsumerWidget {
   const PlanningConflictsSheet({super.key});
 
   static Future<void> show(BuildContext context) {
-    return showModalBottomSheet<void>(
+    return showGlassSheet<void>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,

@@ -19,6 +19,7 @@
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
 		A00100000000000000000001 /* SharedCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000001 /* SharedCaptureStore.swift */; };
 		A00100000000000000000021 /* NativeGlassView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000021 /* NativeGlassView.swift */; };
+		A00100000000000000000077 /* NativeTabBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000077 /* NativeTabBarView.swift */; };
 		A00100000000000000000002 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000002 /* ShareViewController.swift */; };
 		A00100000000000000000003 /* SharedCaptureStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000003 /* SharedCaptureStore.swift */; };
 		A00100000000000000000031 /* SharedOfferIntentStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A00200000000000000000031 /* SharedOfferIntentStore.swift */; };
@@ -92,6 +93,7 @@
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A00200000000000000000001 /* SharedCaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedCaptureStore.swift; sourceTree = "<group>"; };
 		A00200000000000000000021 /* NativeGlassView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeGlassView.swift; sourceTree = "<group>"; };
+		A00200000000000000000077 /* NativeTabBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NativeTabBarView.swift; sourceTree = "<group>"; };
 		A00200000000000000000002 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
 		A00200000000000000000003 /* SharedCaptureStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedCaptureStore.swift; sourceTree = "<group>"; };
 		A00200000000000000000031 /* SharedOfferIntentStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedOfferIntentStore.swift; sourceTree = "<group>"; };
@@ -223,6 +225,7 @@
 				A00200000000000000000001 /* SharedCaptureStore.swift */,
 				A00200000000000000000031 /* SharedOfferIntentStore.swift */,
 				A00200000000000000000021 /* NativeGlassView.swift */,
+				A00200000000000000000077 /* NativeTabBarView.swift */,
 				A00200000000000000000008 /* Runner.entitlements */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
 				A00200000000000000000004 /* BankMessageShortcuts.swift */,
@@ -530,6 +533,7 @@
 				A00100000000000000000001 /* SharedCaptureStore.swift in Sources */,
 				A00100000000000000000031 /* SharedOfferIntentStore.swift in Sources */,
 				A00100000000000000000021 /* NativeGlassView.swift in Sources */,
+				A00100000000000000000077 /* NativeTabBarView.swift in Sources */,
 				A00100000000000000000011 /* BankMessageShortcuts.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,

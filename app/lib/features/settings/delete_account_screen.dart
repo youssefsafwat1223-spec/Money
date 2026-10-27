@@ -10,6 +10,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 enum _Phase {
   idle,
@@ -138,7 +139,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
     setState(() => _phase = _Phase.idle);
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(l10n.deleteAccountConfirmTitle),
         content: Text(l10n.deleteAccountConfirmBody),
         actions: [

@@ -40,6 +40,7 @@ import 'budgets_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class BudgetsScreen extends ConsumerWidget {
   const BudgetsScreen({super.key});
@@ -379,7 +380,7 @@ class BudgetsScreen extends ConsumerWidget {
   ) async {
     final ok = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(context.l10n.bdgDeleteTitle),
         content: Text(context.l10n.bdgDeleteBody),
         actions: [

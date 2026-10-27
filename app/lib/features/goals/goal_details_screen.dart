@@ -24,6 +24,7 @@ import 'goals_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class GoalDetailsScreen extends ConsumerWidget {
   const GoalDetailsScreen({super.key, required this.goalId});
@@ -290,7 +291,7 @@ Future<void> _confirmDeleteGoal(
 ) async {
   final confirmed = await showDialog<bool>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (context) => GlassAlertDialog(
       title: Text(context.l10n.gdDeleteTitle),
       content: Text(context.l10n.gdDeleteBody),
       actions: [

@@ -95,6 +95,12 @@ void main() {
       successorCandidates: [acc('keep', 'SAR')],
     );
 
+    // Phone-sized surface: the sheet carries the system drag handle, which
+    // pushes the confirm button below the default 800x600 test viewport.
+    tester.view.physicalSize = const Size(1170, 2532);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+
     AccountDeletionRequest? request;
     await tester.pumpWidget(MaterialApp(
         localizationsDelegates: AppL10n.localizationsDelegates,

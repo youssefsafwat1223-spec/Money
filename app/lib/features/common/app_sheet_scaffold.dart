@@ -53,6 +53,7 @@ class AppSheetScaffold extends StatelessWidget {
     // blur, with the translucent band + specular sheen at the top edge.
     return MaliGlass(
       variant: MaliGlassVariant.sheet,
+      nativeMaterial: true,
       child: Material(
         color: Colors.transparent,
         child: Padding(

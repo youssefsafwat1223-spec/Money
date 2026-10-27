@@ -25,6 +25,7 @@ import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 class PrivacyScreen extends ConsumerWidget {
   const PrivacyScreen({super.key});
@@ -291,7 +292,7 @@ class PrivacyScreen extends ConsumerWidget {
       BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(context.l10n.privCancelDeleteTitle),
         content: Text(context.l10n.privCancelDeleteBody),
         actions: [
@@ -373,7 +374,7 @@ class _ConsentManagementCardState
     final l10n = context.l10n;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(l10n.consentWithdrawTitle),
         content: Text(l10n.consentWithdrawBody),
         actions: [

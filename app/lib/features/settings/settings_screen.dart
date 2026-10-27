@@ -57,6 +57,8 @@ import '../transactions/transactions_providers.dart';
 import 'settings_providers.dart';
 import 'sync_status_ui.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 /// maybeWhen that keeps rendering the last loaded value during a reload, so the
 /// frequent `user_settings` writes (sync, notification history, journey) don't
@@ -1080,7 +1082,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   }) async {
     final c = context.colors;
     final controller = TextEditingController(text: initialValue);
-    await showModalBottomSheet<void>(
+    await showGlassSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1151,7 +1153,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Future<void> Function(String value)? save,
   }) {
     final c = context.colors;
-    return showModalBottomSheet<void>(
+    return showGlassSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => navySheetTheme(Directionality(
@@ -1217,7 +1219,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             item.key != 'transfers' &&
             item.key != 'all_expenses')
         .toList();
-    showModalBottomSheet<void>(
+    showGlassSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1316,7 +1318,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       '#FB8C00',
     ];
 
-    await showModalBottomSheet<void>(
+    await showGlassSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -1459,7 +1461,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     if (item.entity.sort < 0) return;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (context) => GlassAlertDialog(
         title: Text(context.l10n.setDeleteCategoryQ),
         content: Text(
           context.l10n.setDeleteCategoryBody,
@@ -1496,7 +1498,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final c = context.colors;
     var start = preferences.quietHoursStartHour;
     var end = preferences.quietHoursEndHour;
-    return showModalBottomSheet<void>(
+    return showGlassSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => navySheetTheme(StatefulBuilder(
@@ -1604,7 +1606,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     Future<void> Function()? onAction,
   }) {
     final c = context.colors;
-    showModalBottomSheet<void>(
+    showGlassSheet<void>(
       context: context,
       showDragHandle: true,
       builder: (context) => navySheetTheme(Directionality(
@@ -1654,7 +1656,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   Future<void> _confirmReset(BuildContext context, WidgetRef ref) async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
+      builder: (ctx) => GlassAlertDialog(
         title: Text(context.l10n.setEraseAllQ),
         content: Text(context.l10n.setEraseAllBody),
         actions: [
@@ -2249,7 +2251,7 @@ class _SmsAutoCaptureTile extends ConsumerWidget {
           // be a button that silently does nothing.
           final go = await showDialog<bool>(
             context: context,
-            builder: (dialogContext) => AlertDialog(
+            builder: (dialogContext) => GlassAlertDialog(
               title: Text(l10n.smsAutoCaptureDeniedTitle),
               content: Text(l10n.smsAutoCaptureDeniedBody),
               actions: [

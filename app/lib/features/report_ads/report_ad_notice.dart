@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../../core/theme/widgets/glass_dialog.dart';
 
 /// The pre-ad notice shown immediately before a report-export interstitial.
 ///
@@ -19,7 +20,7 @@ Future<bool> showReportAdNotice(BuildContext context) async {
     context: context,
     // A stray barrier tap must not be read as consent; it maps to cancel below.
     barrierDismissible: true,
-    builder: (dialogContext) => AlertDialog(
+    builder: (dialogContext) => GlassAlertDialog(
       title: Text(isAr ? context.l10n.adNoticeTitle : 'Ad before your report'),
       content: Text(
         isAr
