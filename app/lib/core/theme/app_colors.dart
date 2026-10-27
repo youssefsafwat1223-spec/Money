@@ -279,7 +279,15 @@ class AppColors extends ThemeExtension<AppColors> {
     // same family as the brand, and white on it measures 18.85:1 against the
     // 14.63:1 the rejected treatment had. The finding's actual constraints
     // (contrast, hierarchy, light/dark behaviour) are all satisfied.
-    ink: Color(0xFF0B1024),
+    //
+    // SUPERSEDED again, 2026-10-28: the owner rejected the black/white ink as
+    // not belonging to the blue system and chose the iOS 26 treatment — the
+    // primary action is TINTED with the app blue (as iOS tints its controls),
+    // and selection in segmented pills is a glass lens, not an ink fill (see
+    // AppPillTabBar). [AppBrandBlue.mid] in both themes: the light CTA blue,
+    // brighter than the header's base where these controls sit, and white on
+    // it is ~5.9:1 (WCAG AA).
+    ink: AppBrandBlue.mid,
     onInk: Color(0xFFFFFFFF),
     accent: Color(0xFFE4BA41),
     income: Color(0xFF12855C),
@@ -331,13 +339,11 @@ class AppColors extends ThemeExtension<AppColors> {
     cta: AppBrandBlue.bright,
     onCta: Color(0xFFFFFFFF),
     ctaSoft: Color(0xFF15233F),
-    // Dark theme keeps the INVERTED treatment: on a dark page a near-white
-    // chip is the high-contrast "selected" signal, and it was never the
-    // black-surface defect UX-002 recorded. Painting it brand-navy here would
-    // put a dark surface on a dark background and lose the contrast the light
-    // theme is gaining.
-    ink: Color(0xFFF2F4F8),
-    onInk: Color(0xFF0B0C0F),
+    // The same tinted blue as light (2026-10-28, see the light theme): the
+    // inverted near-white ink read as a white slab on the blue header. The
+    // mid blue stays distinct from the dark page and the dark header stops.
+    ink: AppBrandBlue.mid,
+    onInk: Color(0xFFFFFFFF),
     accent: Color(0xFFFBC926),
     income: Color(0xFF22C55E),
     expense: Color(0xFFEF4444),

@@ -129,9 +129,8 @@ class AppTheme {
         linearTrackColor: c.surfaceMuted,
         circularTrackColor: c.surfaceMuted,
       ),
-      // The primary filled action is the ink surface system-wide (black in
-      // light, near-white in dark) — cta blue stays the accent, never the
-      // default button fill.
+      // The primary filled action is the ink surface system-wide — the
+      // app's tint blue in both themes (iOS 26 tinted primary action).
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: c.ink,

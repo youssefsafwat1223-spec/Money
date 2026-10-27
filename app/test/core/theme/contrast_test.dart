@@ -64,7 +64,10 @@ void main() {
       'dark textPrimary on surface': [dark.textPrimary, dark.surface],
       'dark textPrimary on bg': [dark.textPrimary, dark.bg],
       'dark textMuted on surface': [dark.textMuted, dark.surface],
-      'dark ink on surface': [dark.ink, dark.surface],
+      // ink is a fill, not text, since 2026-10-28 — its rendered pair is
+      // white onInk on it.
+      'dark onInk on ink': [dark.onInk, dark.ink],
+      'light onInk on ink': [light.onInk, light.ink],
     };
 
     pairs.forEach((name, cs) {

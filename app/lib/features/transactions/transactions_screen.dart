@@ -1271,21 +1271,10 @@ class _BillsHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final isSubscription = type == BillType.subscription;
-    // سطح ink زي زرار «إضافة اشتراك» — الأزرق محفوظ للهيدر والأكسنت.
-    return Container(
+    // زجاج iOS 26 — مش سطح ink أسود/أبيض؛ الأزرق للزرار الأساسي بس.
+    return MaliGlass(
+      radius: AppRadius.card,
       padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.ink,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.onInk.withValues(alpha: 0.12)),
-        boxShadow: [
-          BoxShadow(
-            color: c.ink.withValues(alpha: 0.20),
-            blurRadius: 16,
-            offset: const Offset(0, 8),
-          ),
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -1295,12 +1284,12 @@ class _BillsHero extends StatelessWidget {
                 isSubscription
                     ? context.l10n.txnTotalMonthlySubs
                     : context.l10n.txnTotalMonthlyInst,
-                style: AppTypography.caption(c.onInk.withValues(alpha: 0.72)),
+                style: AppTypography.caption(c.textSecondary),
               ),
               const Spacer(),
               Icon(
                 isSubscription ? AppLucideIcons.repeat : AppLucideIcons.receipt,
-                color: c.onInk.withValues(alpha: 0.72),
+                color: c.textSecondary,
                 size: 18,
               ),
             ],
@@ -1308,7 +1297,7 @@ class _BillsHero extends StatelessWidget {
           const SizedBox(height: 6),
           Text(
             '${Formatters.amount(monthlyTotal)} $currencyLabel',
-            style: AppTypography.title1(c.onInk)
+            style: AppTypography.title1(c.textPrimary)
                 .copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -1317,14 +1306,14 @@ class _BillsHero extends StatelessWidget {
                 horizontal: AppSpacing.s3, vertical: 8),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.onInk.withValues(alpha: 0.18)),
+              border: Border.all(color: c.divider),
             ),
             child: Row(
               children: [
                 Expanded(
                   child: _HeroMetric(value: '$activeCount', label: context.l10n.txnActive),
                 ),
-                _Divider(color: c.onInk.withValues(alpha: 0.25)),
+                _Divider(color: c.divider),
                 Expanded(
                   child: _HeroMetric(
                     value:
@@ -1333,7 +1322,7 @@ class _BillsHero extends StatelessWidget {
                   ),
                 ),
                 if (isSubscription) ...[
-                  _Divider(color: c.onInk.withValues(alpha: 0.25)),
+                  _Divider(color: c.divider),
                   Expanded(
                     child: _HeroMetric(
                         value: '$nextThisWeek', label: context.l10n.txnRangeThisWeek),
@@ -1359,11 +1348,11 @@ class _HeroMetric extends StatelessWidget {
     final c = context.colors;
     return Column(
       children: [
-        Text(value, style: AppTypography.bodyStrong(c.onInk)),
+        Text(value, style: AppTypography.bodyStrong(c.textPrimary)),
         const SizedBox(height: 2),
         Text(
           label,
-          style: AppTypography.caption(c.onInk.withValues(alpha: 0.72)),
+          style: AppTypography.caption(c.textSecondary),
         ),
       ],
     );

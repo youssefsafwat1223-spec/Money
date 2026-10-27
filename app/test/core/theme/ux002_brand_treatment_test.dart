@@ -52,9 +52,14 @@ void main() {
     // owner accepted in between. The finding's stated constraints (contrast,
     // hierarchy, light/dark behaviour, semantic states) are the assertions
     // below, and they are unchanged.
-    test('ink is the design system\'s ink button', () {
-      expect(AppColors.light.ink, const Color(0xFF0B1024),
-          reason: 'the prototype\'s --ink-btn / --nav-bg');
+    //
+    // SUPERSEDED again, 2026-10-28: the owner rejected the black/white ink as
+    // foreign to the blue system and chose the iOS 26 treatment — the primary
+    // action is tinted with the app blue in BOTH themes, and segmented
+    // selection is a glass lens (AppPillTabBar) instead of an ink fill.
+    test('ink is the app tint blue in both themes', () {
+      expect(AppColors.light.ink, AppBrandBlue.mid);
+      expect(AppColors.dark.ink, AppBrandBlue.mid);
     });
 
     test('ink is a navy, not the desaturated grey-black UX-002 rejected', () {
@@ -76,26 +81,26 @@ void main() {
           reason: 'AA requires 4.5:1; got ${ratio.toStringAsFixed(2)}:1');
     });
 
-    test('and beats AAA, as the previous near-black surface did', () {
-      // The point is that the brand colour is not a contrast concession.
-      final ratio = _contrastRatio(AppColors.light.onInk, AppColors.light.ink);
-      expect(ratio, greaterThanOrEqualTo(7.0),
-          reason: 'AAA requires 7:1; got ${ratio.toStringAsFixed(2)}:1');
-    });
-
-    test('dark theme keeps its own contrast', () {
+    // The AAA (7:1) bar belonged to the navy-black ink. The owner's tinted
+    // blue (2026-10-28) is held to WCAG AA, which it clears at ~5.9:1 —
+    // stricter than Apple's own system-blue buttons (~4:1).
+    test('dark theme meets AA too', () {
       final ratio = _contrastRatio(AppColors.dark.onInk, AppColors.dark.ink);
-      expect(ratio, greaterThanOrEqualTo(7.0));
+      expect(ratio, greaterThanOrEqualTo(4.5),
+          reason: 'AA requires 4.5:1; got ${ratio.toStringAsFixed(2)}:1');
     });
   });
 
   group('light/dark behaviour is preserved', () {
-    test('dark ink stays the INVERTED (light) attention surface', () {
-      // Painting dark-navy on a dark page would lose the contrast the light
-      // theme just gained. The dark theme never had the black-surface defect.
-      expect(_relativeLuminance(AppColors.dark.ink),
-          greaterThan(_relativeLuminance(AppColors.light.ink)),
-          reason: 'the treatment inverts between themes by design');
+    // The inverted near-white dark ink was superseded (2026-10-28): it read as
+    // a white slab on the blue header. What must hold instead is that the
+    // tint stands out from the page in both themes.
+    test('ink stands out from the page in both themes', () {
+      for (final colors in [AppColors.light, AppColors.dark]) {
+        final ratio = _contrastRatio(colors.ink, colors.bg);
+        expect(ratio, greaterThanOrEqualTo(3.0),
+            reason: 'non-text UI needs 3:1; got ${ratio.toStringAsFixed(2)}:1');
+      }
     });
   });
 
@@ -120,11 +125,11 @@ void main() {
     test('the QA-cited surfaces all read ink rather than a literal', () {
       // If a screen re-introduces a hardcoded dark surface, this catches the
       // regression at the place the backlog said the fix belongs.
+      // The pill tab bar and the Bills summary card left this list on
+      // 2026-10-28: they are glass now (lens / MaliGlass), not an ink fill.
       for (final path in const [
-        'lib/features/common/app_pill_tab_bar.dart',
         'lib/features/common/app_button.dart',
         'lib/features/budgets/budgets_screen.dart',
-        'lib/features/transactions/transactions_screen.dart',
         'lib/features/settings/settings_screen.dart',
       ]) {
         final src = File(path).readAsStringSync();
