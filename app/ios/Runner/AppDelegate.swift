@@ -115,6 +115,7 @@ enum ApnsEnvironment {
   /// view controller in memory.
   private weak var captureChannelController: FlutterViewController?
   private var exportProtectionChannel: FlutterMethodChannel?
+  private weak var exportProtectionChannelController: FlutterViewController?
   private var nativeGlassChannel: FlutterMethodChannel?
   private weak var nativeGlassChannelController: FlutterViewController?
   private var deviceTimezoneChannel: FlutterMethodChannel?
@@ -847,11 +848,19 @@ enum ApnsEnvironment {
   /// MALI-065n — applies at-rest protection to a managed export temp file:
   /// NSFileProtectionComplete (unreadable while the device is locked) and
   /// exclusion from iCloud/iTunes backup. Best-effort from Dart's side.
-  func configureExportProtectionChannelIfNeeded() {
-    guard exportProtectionChannel == nil,
-          let controller = rootFlutterViewController() else {
+  ///
+  /// Bound by SceneDelegate with the connecting controller: under the UIScene
+  /// lifecycle the AppDelegate call sites never find one, and Dart swallows
+  /// the MissingPluginException, so exports silently went unprotected.
+  func configureExportProtectionChannelIfNeeded(controller: FlutterViewController? = nil) {
+    guard let controller = controller ?? rootFlutterViewController() else {
       return
     }
+    if exportProtectionChannel != nil,
+       exportProtectionChannelController === controller {
+      return
+    }
+    exportProtectionChannel?.setMethodCallHandler(nil)
 
     let channel = FlutterMethodChannel(
       name: "mali/export_protection",
@@ -891,6 +900,7 @@ enum ApnsEnvironment {
       }
     }
     exportProtectionChannel = channel
+    exportProtectionChannelController = controller
   }
 
   override func application(

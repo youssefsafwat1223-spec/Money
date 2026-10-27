@@ -44,6 +44,8 @@ class SceneDelegate: FlutterSceneDelegate {
       appDelegate.configureDeviceTimezoneChannelIfNeeded(controller: controller)
       // Dart probes for native Liquid Glass right before runApp.
       appDelegate.configureNativeGlassChannelIfNeeded(controller: controller)
+      // Exports protect their temp files through this channel.
+      appDelegate.configureExportProtectionChannelIfNeeded(controller: controller)
     }
   }
 
@@ -55,6 +57,7 @@ class SceneDelegate: FlutterSceneDelegate {
       appDelegate.configureNativeCaptureChannelIfNeeded()
       appDelegate.configureDeviceTimezoneChannelIfNeeded()
       appDelegate.configureNativeGlassChannelIfNeeded()
+      appDelegate.configureExportProtectionChannelIfNeeded()
     }
   }
 
