@@ -898,7 +898,15 @@ class _BatchResultTile extends StatelessWidget {
 /// A duplicate's stored source says nothing about this paste attempt.
 String? pasteAnalysisNotice(BuildContext context, AddTransactionResult result) {
   if (result.outcome != AddTransactionOutcome.added) return null;
-  return result.transaction?.source == TransactionSourceEntity.aiParsed
-      ? context.l10n.pasteReadWithAi
-      : context.l10n.pasteReadOnDevice;
+  if (result.transaction?.source == TransactionSourceEntity.aiParsed) {
+    return context.l10n.pasteReadWithAi;
+  }
+  final l10n = context.l10n;
+  return switch (result.aiFailureReason) {
+    'consent_off' => l10n.pasteAiOff,
+    'no_ai_client' => l10n.pasteAiUnavailable,
+    'ai_response_rejected_by_grounding' => l10n.pasteAiMismatch,
+    null || 'message_ignored' || 'on_device_only' => l10n.pasteReadOnDevice,
+    final code => l10n.pasteAiFailed(code),
+  };
 }

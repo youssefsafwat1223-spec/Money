@@ -88,13 +88,16 @@ class AddTransactionResult {
 
   const AddTransactionResult.added(
       TransactionEntity transaction, ParseResult parseResult,
-      {bool isNewMerchant = false, AddTransactionResult? secondary})
+      {bool isNewMerchant = false,
+      AddTransactionResult? secondary,
+      String? aiFailureReason})
       : this._(
           outcome: AddTransactionOutcome.added,
           transaction: transaction,
           parseResult: parseResult,
           isNewMerchant: isNewMerchant,
           secondary: secondary,
+          aiFailureReason: aiFailureReason,
         );
 
   const AddTransactionResult.duplicate(TransactionEntity transaction,
@@ -1290,6 +1293,13 @@ class AddTransactionUseCase {
       // the confirm sheet through `requiresConfirmation`.
       isNewMerchant: aiValidated || localV2 ? false : isNewMerchant,
       secondary: secondary,
+      // Why AI did not read this one (a reason code, never content).
+      aiFailureReason: aiParsed != null
+          ? null
+          : aiFirstAttempt.failureReason ??
+              (aiFirstAttempt.response != null
+                  ? 'ai_response_rejected_by_grounding'
+                  : 'ai_no_answer'),
     );
   }
 

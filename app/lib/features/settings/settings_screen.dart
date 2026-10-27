@@ -697,7 +697,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     iconColor: c.textMuted,
                     title: context.l10n.setQuietHours,
                     subtitle: prefs.quietHoursEnabled
-                        ? '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00'
+                        ? '${Formatters.hourOfDay(prefs.quietHoursStartHour, context)} - ${Formatters.hourOfDay(prefs.quietHoursEndHour, context)}'
                         : context.l10n.setDisabled,
                     value: prefs.quietHoursEnabled,
                     onChanged: (value) => _savePrefs(
@@ -710,7 +710,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       icon: AppLucideIcons.clock,
                       title: context.l10n.setEditQuietHours,
                       subtitle:
-                          '${prefs.quietHoursStartHour}:00 - ${prefs.quietHoursEndHour}:00',
+                          '${Formatters.hourOfDay(prefs.quietHoursStartHour, context)} - ${Formatters.hourOfDay(prefs.quietHoursEndHour, context)}',
                       onTap: () => _showQuietHoursSheet(context, ref, prefs),
                     ),
                 ],
@@ -2462,7 +2462,7 @@ class _HourPicker extends StatelessWidget {
             for (var hour = 0; hour < 24; hour++)
               DropdownMenuItem(
                 value: hour,
-                child: Text('${hour.toString().padLeft(2, '0')}:00'),
+                child: Text(Formatters.hourOfDay(hour, context)),
               ),
           ],
           onChanged: (value) {

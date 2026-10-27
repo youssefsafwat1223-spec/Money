@@ -1,6 +1,7 @@
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import '../../core/utils/formatters.dart';
 import '../../core/utils/l10n_ext.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -478,7 +479,7 @@ class _ManualTransactionSheetState
           onPressed: _pickDateTime,
           icon: const Icon(AppLucideIcons.calendar),
           label: Text(
-            '${_occurredAt.year}/${_occurredAt.month.toString().padLeft(2, '0')}/${_occurredAt.day.toString().padLeft(2, '0')} · ${_occurredAt.hour.toString().padLeft(2, '0')}:${_occurredAt.minute.toString().padLeft(2, '0')}',
+            '${_occurredAt.year}/${_occurredAt.month.toString().padLeft(2, '0')}/${_occurredAt.day.toString().padLeft(2, '0')} · ${Formatters.time(_occurredAt, context)}',
           ),
         ),
         const SizedBox(height: AppSpacing.s3),

@@ -144,7 +144,7 @@ class TransactionRow extends StatelessWidget {
                       ),
                       const SizedBox(height: 4),
                       Text(
-                        '${category?.name ?? '—'} · ${Formatters.time(transaction.occurredAt)}',
+                        '${category?.name ?? '—'} · ${Formatters.time(transaction.occurredAt, context)}',
                         style: AppTypography.caption(c.textMuted),
                       ),
                     ],

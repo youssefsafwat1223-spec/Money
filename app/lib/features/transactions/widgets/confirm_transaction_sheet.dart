@@ -311,7 +311,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                 const SizedBox(width: AppSpacing.s2),
                 Expanded(
                   child: Text(
-                    '${Formatters.dateWithWeekday(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
+                    '${Formatters.dateWithWeekday(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt, context)}',
                     style: AppTypography.caption(c.textMain),
                   ),
                 ),

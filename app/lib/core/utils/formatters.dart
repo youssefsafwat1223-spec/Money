@@ -144,11 +144,20 @@ class Formatters {
     return '${_arMonths[d.month - 1]} ${d.year}';
   }
 
-  /// "12:45"
-  static String time(DateTime dt) {
+  /// 12-hour clock: "1:05 PM" or "1:05 م".
+  static String time(DateTime dt, BuildContext context) {
     final d = dt.toLocal();
-    return '${_two(d.hour)}:${_two(d.minute)}';
+    final hour12 = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final am = d.hour < 12;
+    final suffix = Localizations.localeOf(context).languageCode == 'en'
+        ? (am ? 'AM' : 'PM')
+        : (am ? 'ص' : 'م');
+    return '$hour12:${_two(d.minute)} $suffix';
   }
+
+  /// A whole hour of the day on the 12-hour clock: "10:00 PM" / "10:00 م".
+  static String hourOfDay(int hour, BuildContext context) =>
+      time(DateTime(2000, 1, 1, hour), context);
 
   /// عنوان مجموعة التاريخ: اليوم / أمس / "8 أبريل".
   static String dateGroupLabel(DateTime dt, BuildContext context) {

@@ -158,7 +158,7 @@ class _EnabledView extends ConsumerWidget {
               ? context.l10n.bkNoBackupYet
               : context.l10n.bkLastBackup(
                     Formatters.fullDate(status.lastBackupAt!, context),
-                    Formatters.time(status.lastBackupAt!)),
+                    Formatters.time(status.lastBackupAt!, context)),
           style: AppTypography.body(c.textLight),
         ),
         const SizedBox(height: AppSpacing.s5),

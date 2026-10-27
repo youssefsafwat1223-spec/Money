@@ -149,7 +149,7 @@ class _SyncStatusSheetState extends ConsumerState<SyncStatusSheet> {
                 ? l10n.syncSheetNeverSynced
                 : l10n.syncSheetLastSync(
                     '${Formatters.fullDate(last, context)} '
-                    '${Formatters.time(last)}'),
+                    '${Formatters.time(last, context)}'),
             style: AppTypography.caption(c.textLight),
           ),
           if (status != null && status.canRetry) ...[

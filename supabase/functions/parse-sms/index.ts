@@ -297,7 +297,9 @@ Deno.serve(async (req) => {
   // previous version consulted a shared module for the accept/refuse decision
   // only and then used GEMINI_API_KEY unconditionally at the call site, which
   // is a defect no amount of gate testing can see.
-  const contract = readString(body, 'contract');
+  // `readString` returns '' for an absent field; absent means v1 (the shipping
+  // app never sends a contract), so it must reach the router as null.
+  const contract = readString(body, 'contract') || null;
   const route = resolveGeminiRoute(contract, {
     productionKey: GEMINI_API_KEY,
     shadowKey: GEMINI_SHADOW_API_KEY,

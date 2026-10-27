@@ -802,7 +802,9 @@ class _CategoryLegendTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '%${(slice.percent * 100).round()} ${slice.category.name}',
+                Localizations.localeOf(context).languageCode == 'en'
+                    ? '${(slice.percent * 100).round()}% ${slice.category.name}'
+                    : '%${(slice.percent * 100).round()} ${slice.category.name}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.subhead(c.textMain),
@@ -813,8 +815,8 @@ class _CategoryLegendTile extends StatelessWidget {
               // without changing the contract that produced it.
               Text(
                 '${_money(slice.total, currencyLabel: currencyLabel, privacyMode: privacyMode)}'
-                '${slice.count > 0 ? ' · ${slice.count} عملية' : ''}'
-                '${slice.hasRefunds && !privacyMode ? ' · شامل مرتجع ${formatMoney(slice.refunds!)}' : ''}',
+                '${slice.count > 0 ? ' · ${context.l10n.rptMerchantTxCount(slice.count)}' : ''}'
+                '${slice.hasRefunds && !privacyMode ? '${context.l10n.rptIncludesRefund}${formatMoney(slice.refunds!)}' : ''}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: AppTypography.caption(c.textLight),

@@ -91,7 +91,7 @@ class TransactionsScreen extends ConsumerWidget {
               amount: tx.amount,
               currency: Currency.label(context, tx.currency),
               subtitle:
-                  '${Formatters.time(tx.occurredAt)} · ${category?.name ?? 'غير مصنّفة'}',
+                  '${Formatters.time(tx.occurredAt, context)} · ${category?.name ?? context.l10n.homeUncategorised}',
               categoryIconName: category?.iconName,
               categoryColor: category?.color,
               brandLogoUrl: BrandMark.logoFor(title, logos),
@@ -2298,7 +2298,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
             merchant: dupe.rawMerchant ?? context.l10n.txnNoClearMerchant,
             amount: '${Formatters.amount(dupe.amount)} ${dupe.currency}',
             time:
-                '${Formatters.dateWithWeekday(timestamp, context)} · ${Formatters.time(timestamp)}',
+                '${Formatters.dateWithWeekday(timestamp, context)} · ${Formatters.time(timestamp, context)}',
           ),
           if (existing != null) ...[
             const SizedBox(height: AppSpacing.s2),
@@ -2308,7 +2308,7 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
               amount:
                   '${Formatters.amount(existing.amount)} ${existing.currency}',
               time:
-                  '${Formatters.dateWithWeekday(existing.comparisonTimestamp ?? existing.occurredAt, context)} · ${Formatters.time(existing.comparisonTimestamp ?? existing.occurredAt)}',
+                  '${Formatters.dateWithWeekday(existing.comparisonTimestamp ?? existing.occurredAt, context)} · ${Formatters.time(existing.comparisonTimestamp ?? existing.occurredAt, context)}',
             ),
           ],
           const SizedBox(height: AppSpacing.s2),

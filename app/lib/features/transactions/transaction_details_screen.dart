@@ -191,7 +191,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     ),
                     const SizedBox(height: AppSpacing.s2),
                     Text(
-                      '${Formatters.dateWithWeekday(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt)}',
+                      '${Formatters.dateWithWeekday(tx.occurredAt, context)} · ${Formatters.time(tx.occurredAt, context)}',
                       textAlign: TextAlign.center,
                       style: AppTypography.caption(c.textSecondary),
                     ),

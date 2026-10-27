@@ -6420,6 +6420,23 @@ class AppL10nAr extends AppL10n {
   String get pasteReadWithAi => 'قُرئت باستخدام الذكاء الاصطناعي.';
 
   @override
+  String get pasteAiOff =>
+      'قُرئت على جهازك — الذكاء الاصطناعي متوقف. فعّل السحابة وتحليل الذكاء الاصطناعي من الإعدادات.';
+
+  @override
+  String get pasteAiUnavailable =>
+      'قُرئت على جهازك — الذكاء الاصطناعي غير متاح في هذه النسخة.';
+
+  @override
+  String get pasteAiMismatch =>
+      'قُرئت على جهازك — إجابة الذكاء الاصطناعي لم تطابق الرسالة فلم تُستخدم.';
+
+  @override
+  String pasteAiFailed(String code) {
+    return 'قُرئت على جهازك — تعذّر الوصول إلى الذكاء الاصطناعي ($code).';
+  }
+
+  @override
   String get pasteAiConsentOff =>
       'تعذّرت قراءة هذه الرسالة على جهازك. فعّل السحابة والتحليل الذكي من الخصوصية للسماح بمساعدة الذكاء الاصطناعي.';
 }

@@ -10843,6 +10843,30 @@ abstract class AppL10n {
   /// **'قُرئت باستخدام الذكاء الاصطناعي.'**
   String get pasteReadWithAi;
 
+  /// No description provided for @pasteAiOff.
+  ///
+  /// In ar, this message translates to:
+  /// **'قُرئت على جهازك — الذكاء الاصطناعي متوقف. فعّل السحابة وتحليل الذكاء الاصطناعي من الإعدادات.'**
+  String get pasteAiOff;
+
+  /// No description provided for @pasteAiUnavailable.
+  ///
+  /// In ar, this message translates to:
+  /// **'قُرئت على جهازك — الذكاء الاصطناعي غير متاح في هذه النسخة.'**
+  String get pasteAiUnavailable;
+
+  /// No description provided for @pasteAiMismatch.
+  ///
+  /// In ar, this message translates to:
+  /// **'قُرئت على جهازك — إجابة الذكاء الاصطناعي لم تطابق الرسالة فلم تُستخدم.'**
+  String get pasteAiMismatch;
+
+  /// No description provided for @pasteAiFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'قُرئت على جهازك — تعذّر الوصول إلى الذكاء الاصطناعي ({code}).'**
+  String pasteAiFailed(String code);
+
   /// No description provided for @pasteAiConsentOff.
   ///
   /// In ar, this message translates to:

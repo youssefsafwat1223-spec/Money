@@ -166,7 +166,7 @@ class TransactionsPanel extends StatelessWidget {
       amount: tx.amount,
       currency: Currency.label(context, tx.currency),
       subtitle:
-          '${Formatters.time(tx.occurredAt)} · ${category?.name ?? context.l10n.homeUncategorised}',
+          '${Formatters.time(tx.occurredAt, context)} · ${category?.name ?? context.l10n.homeUncategorised}',
       categoryIconName: category?.iconName,
       categoryColor: category?.color,
       brandLogoUrl: BrandMark.logoFor(title, merchantLogos),

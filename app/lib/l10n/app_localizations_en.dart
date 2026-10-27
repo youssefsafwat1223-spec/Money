@@ -6415,6 +6415,23 @@ class AppL10nEn extends AppL10n {
   String get pasteReadWithAi => 'Read with AI.';
 
   @override
+  String get pasteAiOff =>
+      'Read on your device — AI is off. Turn on Cloud and AI analysis in Settings.';
+
+  @override
+  String get pasteAiUnavailable =>
+      'Read on your device — AI is not available in this build.';
+
+  @override
+  String get pasteAiMismatch =>
+      'Read on your device — AI\'s answer didn\'t match the message, so it was not used.';
+
+  @override
+  String pasteAiFailed(String code) {
+    return 'Read on your device — AI could not be reached ($code).';
+  }
+
+  @override
   String get pasteAiConsentOff =>
       'This message could not be read on your device. Enable Cloud and Smart Analysis in Privacy to allow AI assistance.';
 }
