@@ -21,6 +21,7 @@ import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../../domain/usecases/ingest_captured_message_usecase.dart';
 import '../../../engine/privacy/sms_sanitizer.dart';
 import '../../../engine/parser/capture_money.dart';
+import '../../../engine/parser/merchant_sanity.dart';
 import 'capture_backend_client.dart';
 import 'capture_device_registration_service.dart';
 import 'native_capture_bridge.dart';
@@ -670,7 +671,10 @@ class CaptureSyncService {
           existingTransactionId: duplicateOf,
           amountMoney: duplicateAmountMoney,
           currency: duplicateCurrency,
-          rawMerchant: _string(parsed['merchant']),
+          rawMerchant: MerchantSanity.forMessage(
+            _string(parsed['merchant']),
+            _string(parsed['rawMessage']) ?? capture.sanitizedText ?? '',
+          ),
           occurredAt: _date(parsed['occurredAt']) ??
               capture.createdAt ??
               DateTime.now().toUtc(),
@@ -785,7 +789,10 @@ class CaptureSyncService {
           : TransactionStatus.confirmed,
       createdAt: now,
       updatedAt: now,
-      rawMerchant: _string(parsed['merchant']),
+      rawMerchant: MerchantSanity.forMessage(
+        _string(parsed['merchant']),
+        rawMessage,
+      ),
       cardLast4: _string(parsed['last4']),
       direction: direction,
       transactionTimeFromSms:

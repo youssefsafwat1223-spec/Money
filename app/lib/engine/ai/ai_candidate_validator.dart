@@ -2,6 +2,7 @@ import '../models/parsed_transaction.dart';
 import '../models/transaction_type.dart';
 import '../parser/capture_money.dart';
 import '../parser/direction_signal.dart';
+import '../parser/merchant_sanity.dart';
 import '../parser/normalizer.dart';
 import 'ai_parser_client.dart';
 import 'grounding_check.dart';
@@ -144,7 +145,11 @@ class AiCandidateValidator {
   }
 
   static bool _merchantGrounded(String? merchant, String text) {
-    if (merchant == null) return false;
+    // "01" is a substring of almost any SMS; a time/date/reference is never
+    // a grounded merchant.
+    if (merchant == null || MerchantSanity.isNumericOnly(merchant)) {
+      return false;
+    }
     final needle = _collapse(merchant);
     if (needle.isEmpty) return false;
     return _collapse(text).contains(needle);

@@ -358,3 +358,33 @@ Deno.test('validated AI replaces a specific local category and type', async () =
   assertEquals(result.accepted, true);
   assertEquals([result.parsed.type, result.parsed.category], ['withdrawal', 'cash']);
 });
+
+// Phone report: every InstaPay transfer showed its HOUR ("01", "10", "12") as
+// the merchant, because "(?:at|@)\s+(...)" captured "01" from "at 01:43 AM".
+Deno.test('IPN/InstaPay transfers name InstaPay, never the time, as merchant', () => {
+  const texts = [
+    'IPN transfer sent with amount of EGP 1.00 from 1938 on 28/10 at 01:43 AM. Ref# 22762b03. For more details call 16607',
+    'IPN transfer sent with amount of EGP 100.00 from 1938 on 05/10 at 10:37 AM. Ref# 1a2b3c4d',
+    'Your account was credited by EGP 2000 on 14-06 23:10 IPN REF# 998877',
+    'تم تحويل مبلغ 1.00 جنيه عبر انستاباي يوم 04/10 الساعة 12:42',
+  ];
+  for (const text of texts) {
+    assertEquals(deterministicParse(text, RECEIVED, 180).merchant, 'InstaPay', text);
+  }
+});
+
+Deno.test('a time, date or reference after "at" is never a merchant', () => {
+  for (const text of [
+    'Debited EGP 50.00 from card ending 1234 at 01:43 AM',
+    'Purchase of EGP 50.00 at 10:37 with card ending 1234',
+    'Purchase of EGP 50.00 at 28/10 with card ending 1234',
+  ]) {
+    assertEquals(deterministicParse(text, RECEIVED, 180).merchant, undefined, text);
+  }
+  // A real merchant after "at" still parses, and "at" inside a word does not.
+  assertEquals(deterministicParse(RESOLVED_SMS, RECEIVED, 180).merchant, 'CARREFOUR');
+  assertNotEquals(
+    deterministicParse('Purchase of EGP 50.00 combat 12 with card ending 1234', RECEIVED, 180).merchant,
+    '12',
+  );
+});

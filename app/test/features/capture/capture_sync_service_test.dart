@@ -352,6 +352,38 @@ void main() {
         reason: 'needs_review keeps its existing pending-transaction path');
   });
 
+  test(
+      'a backend merchant that is the SMS hour ("01") is never stored; '
+      'an IPN/InstaPay transfer is named InstaPay', () async {
+    const ipn = 'IPN transfer sent with amount of EGP 1.00 from 1938 on '
+        '28/10 at 01:43 AM. Ref# 22762b03. For more details call 16607';
+    final client = _FakeCaptureBackendClient([
+      _capture(
+          payloadId: 'ipn-hour',
+          status: 'processed',
+          currency: 'EGP',
+          type: 'transfer',
+          direction: 'debit', // outgoing: stored as a payment, merchant kept
+          rawMessage: ipn,
+          merchant: '01'),
+      _capture(
+          payloadId: 'card-hour',
+          status: 'processed',
+          rawMessage: 'Debited SAR 42 from card ending 1234 at 10:37 AM',
+          merchant: '10'),
+      _capture(payloadId: 'real-merchant', status: 'processed'),
+    ]);
+
+    await service(client).sync();
+
+    final byId = {
+      for (final tx in await DriftTransactionRepository(db).getAll()) tx.id: tx
+    };
+    expect(byId['ipn-hour']!.rawMerchant, 'InstaPay');
+    expect(byId['card-hour']!.rawMerchant, isNull);
+    expect(byId['real-merchant']!.rawMerchant, 'Coffee');
+  });
+
   test('budget event report excludes already-imported relay deliveries',
       () async {
     final client = _FakeCaptureBackendClient([
@@ -1122,6 +1154,7 @@ ProcessedCaptureDto _capture({
   bool includeAmountText = true,
   String amountText = '42',
   num numericAmount = 42,
+  String? merchant = 'Coffee',
 }) {
   return ProcessedCaptureDto(
     payloadId: payloadId,
@@ -1138,7 +1171,7 @@ ProcessedCaptureDto _capture({
         'possibleDuplicateOfPayloadId': duplicateOfPayloadId,
       },
       'rawMessage': rawMessage ?? 'Paid $currency 42 at Coffee',
-      'merchant': 'Coffee',
+      if (merchant != null) 'merchant': merchant,
       'occurredAt': DateTime.utc(2026, 7, 5, 10).toIso8601String(),
     },
     notification: const {},

@@ -205,7 +205,7 @@ Amount SAR 50.00
       expect(tx.amount, 31.43);
       expect(tx.currency, 'EGP');
       expect(tx.type, TransactionType.transfer);
-      expect(tx.rawMerchant, isNull);
+      expect(tx.rawMerchant, 'InstaPay');
       expect(tx.occurredAt, DateTime(DateTime.now().year, 3, 15, 14, 18));
       expect(category.categoryKey, Categories.transfers.key);
     });
