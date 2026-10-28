@@ -24,6 +24,7 @@ import '../manual_transaction_sheet.dart';
 import '../transactions_providers.dart';
 import '../../../core/theme/widgets/app_toast.dart';
 import '../../common/repo_error_messages.dart';
+import '../../../core/theme/widgets/glass_dropdown_field.dart';
 
 Future<void> showConfirmTransactionSheet(
   BuildContext context,
@@ -336,7 +337,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                       : accounts.first.id;
                   return Padding(
                     padding: const EdgeInsets.only(top: AppSpacing.s3),
-                    child: DropdownButtonFormField<String>(
+                    child: GlassDropdownField<String>(
                       value: value,
                       isExpanded: true,
                       decoration: InputDecoration(

@@ -146,39 +146,32 @@ class _ToastWidgetState extends State<_ToastWidget>
                 _dismiss();
               }
             },
-            // Liquid Glass pill; an error adds a red wash over the glass.
+            // Liquid Glass pill; an error tints the glass red.
             child: MaliGlass(
               variant: MaliGlassVariant.pill,
               padding: EdgeInsets.zero,
               nativeMaterial: true,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  color: widget.isError
-                      ? Colors.red.withValues(alpha: 0.14)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(100),
-                ),
-                child: Padding(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
-                  child: Row(
-                    children: [
-                      Icon(
-                        widget.isError
-                            ? AppLucideIcons.alertCircle
-                            : AppLucideIcons.checkCircle,
-                        color: widget.isError ? Colors.redAccent : c.success,
-                        size: 22,
+              tint: widget.isError ? Colors.red.withValues(alpha: 0.14) : null,
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+                child: Row(
+                  children: [
+                    Icon(
+                      widget.isError
+                          ? AppLucideIcons.alertCircle
+                          : AppLucideIcons.checkCircle,
+                      color: widget.isError ? Colors.redAccent : c.success,
+                      size: 22,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        widget.message,
+                        style: AppTypography.bodyStrong(c.textMain),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          widget.message,
-                          style: AppTypography.bodyStrong(c.textMain),
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),

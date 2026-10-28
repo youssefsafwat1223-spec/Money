@@ -2263,11 +2263,12 @@ class _BottomNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // iOS 26+: Apple's own UITabBar, so the bar is the real system Liquid
-    // Glass. Everywhere else: the Flutter capsule below.
+    // Glass — including its own Increase Contrast / Reduce Transparency
+    // treatment. Everywhere else: the Flutter capsule below.
     return ValueListenableBuilder<bool>(
       valueListenable: NativeGlassSupport.supported,
       builder: (context, native, _) {
-        if (!native || MediaQuery.highContrastOf(context)) {
+        if (!native) {
           return _flutterBar(context);
         }
         final selectedSlot = _items.indexWhere((i) => i.page == currentIndex);

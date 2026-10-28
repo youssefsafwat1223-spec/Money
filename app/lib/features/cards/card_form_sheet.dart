@@ -21,6 +21,7 @@ import '../common/repo_error_messages.dart';
 import 'card_theme_labels.dart';
 import '../../core/theme/widgets/glass_sheet.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 /// شيت إضافة/تعديل بطاقة. [accountId] اختياري: مرَّره لربط مبدئي بحساب، أو
 /// اتركه null للإضافة من صفحة البطاقات (يختار المستخدم الحساب أو «بدون»).
@@ -252,7 +253,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
             Text(context.l10n.cfNetwork,
                 style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
-            DropdownButtonFormField<CardNetwork>(
+            GlassDropdownField<CardNetwork>(
               value: _network,
               items: [
                 for (final n in CardNetwork.values)
@@ -474,7 +475,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
   // ── اختيار الحساب (يشمل «بدون حساب») ────────────────────────────────────
   Widget _accountField(List<AccountEntity> accounts) {
     final valid = accounts.any((a) => a.id == _accountId) ? _accountId : null;
-    return DropdownButtonFormField<String?>(
+    return GlassDropdownField<String?>(
       value: valid,
       items: [
         DropdownMenuItem<String?>(

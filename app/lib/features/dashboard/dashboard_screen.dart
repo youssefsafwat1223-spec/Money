@@ -62,6 +62,7 @@ import 'widgets/daily_spend_card.dart';
 import 'widgets/monthly_spend_card.dart';
 import 'widgets/obligations_card.dart';
 import 'widgets/transactions_panel.dart';
+import '../../core/theme/widgets/glass_pickers.dart';
 
 /// Home — the Calm Capital flagship dashboard (docs/MALI_DESIGN_SYSTEM.md).
 ///
@@ -505,7 +506,7 @@ class _HomeBody extends ConsumerWidget {
                             subtitle: Text(Formatters.fullDate(from, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
-                              final picked = await showDatePicker(
+                              final picked = await showGlassDatePicker(
                                 context: context,
                                 initialDate: from,
                                 firstDate: DateTime(2020),
@@ -523,7 +524,7 @@ class _HomeBody extends ConsumerWidget {
                             subtitle: Text(Formatters.fullDate(to, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
-                              final picked = await showDatePicker(
+                              final picked = await showGlassDatePicker(
                                 context: context,
                                 initialDate: to,
                                 firstDate: DateTime(2020),

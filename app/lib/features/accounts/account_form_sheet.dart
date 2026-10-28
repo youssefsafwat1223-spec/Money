@@ -22,6 +22,7 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
 import '../../core/theme/widgets/glass_sheet.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 String accountTypeLabel(BuildContext context, AccountType type) =>
     switch (type) {
@@ -521,7 +522,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
             Text(context.l10n.dtxCurrency,
                 style: AppTypography.caption(c.textLight)),
             const SizedBox(height: AppSpacing.s2),
-            DropdownButtonFormField<String>(
+            GlassDropdownField<String>(
               key: const ValueKey('account-currency-field'),
               value: _currency,
               isExpanded: true,
@@ -650,7 +651,7 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
           Text(context.l10n.afProvider,
               style: AppTypography.caption(c.textLight)),
           const SizedBox(height: AppSpacing.s2),
-          DropdownButtonFormField<String?>(
+          GlassDropdownField<String?>(
             value: _walletProviders(context).containsKey(_walletProvider)
                 ? _walletProvider
                 : null,

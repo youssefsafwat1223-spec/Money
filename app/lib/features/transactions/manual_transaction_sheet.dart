@@ -34,6 +34,8 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
 import '../capture/services/local_notification_service.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_pickers.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 class ManualTransactionSheet extends ConsumerStatefulWidget {
   const ManualTransactionSheet({
@@ -124,14 +126,14 @@ class _ManualTransactionSheetState
   }
 
   Future<void> _pickDateTime() async {
-    final date = await showDatePicker(
+    final date = await showGlassDatePicker(
       context: context,
       initialDate: _occurredAt,
       firstDate: DateTime(DateTime.now().year - 5),
       lastDate: DateTime.now().add(const Duration(days: 1)),
     );
     if (date == null || !mounted) return;
-    final time = await showTimePicker(
+    final time = await showGlassTimePicker(
       context: context,
       initialTime: TimeOfDay.fromDateTime(_occurredAt),
     );
@@ -389,7 +391,7 @@ class _ManualTransactionSheetState
                 final value = accounts.any((a) => a.id == _accountId)
                     ? _accountId
                     : accounts.first.id;
-                return DropdownButtonFormField<String>(
+                return GlassDropdownField<String>(
                   value: value,
                   isExpanded: true,
                   decoration: InputDecoration(
@@ -439,7 +441,7 @@ class _ManualTransactionSheetState
               orElse: () => const SizedBox.shrink(),
             ),
         const SizedBox(height: AppSpacing.s3),
-        DropdownButtonFormField<String>(
+        GlassDropdownField<String>(
           value: _categoryKey ?? catalog.byId(_categoryId)?.key,
           decoration: InputDecoration(
             labelText: context.l10n.txnCategory,

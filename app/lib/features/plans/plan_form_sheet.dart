@@ -20,6 +20,7 @@ import '../dashboard/dashboard_providers.dart';
 import 'plans_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_pickers.dart';
 
 /// Create or edit a plan/envelope (travel, wedding, Ramadan…).
 class PlanFormSheet extends ConsumerStatefulWidget {
@@ -73,7 +74,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
   }
 
   Future<void> _pickDate({required bool isStart}) async {
-    final picked = await showDatePicker(
+    final picked = await showGlassDatePicker(
       context: context,
       initialDate: isStart ? _start : _end,
       firstDate: DateTime(2020),

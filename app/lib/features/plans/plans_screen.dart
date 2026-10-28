@@ -28,6 +28,7 @@ import 'plans_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../common/repo_error_messages.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_actions.dart';
 
 class PlansScreen extends ConsumerWidget {
   const PlansScreen({super.key});
@@ -213,24 +214,29 @@ class _PlanCard extends ConsumerWidget {
               // publishing a force-update): the destructive action is the
               // easiest one to reach. Edit now leads; delete is one level in and
               // still confirmed.
-              PopupMenuButton<String>(
+              IconButton(
                 tooltip: context.l10n.plPlanOptions,
                 icon: Icon(AppLucideIcons.moreVertical,
                     color: c.textLight, size: 20),
-                onSelected: (value) {
+                onPressed: () async {
+                  final value = await showGlassActions<String>(
+                    context: context,
+                    actions: [
+                      GlassAction(value: 'edit', label: context.l10n.cardEdit),
+                      GlassAction(
+                        value: 'delete',
+                        label: context.l10n.setDelete,
+                        destructive: true,
+                      ),
+                    ],
+                  );
+                  if (!context.mounted) return;
                   if (value == 'edit') {
                     PlanFormSheet.show(context, existing: plan);
                   } else if (value == 'delete') {
                     _confirmDelete(context, ref);
                   }
                 },
-                itemBuilder: (context) => [
-                  PopupMenuItem(value: 'edit', child: Text(context.l10n.cardEdit)),
-                  PopupMenuItem(
-                    value: 'delete',
-                    child: Text(context.l10n.setDelete, style: TextStyle(color: c.danger)),
-                  ),
-                ],
               ),
             ],
           ),

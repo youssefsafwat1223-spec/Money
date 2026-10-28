@@ -118,6 +118,7 @@ enum ApnsEnvironment {
   private weak var exportProtectionChannelController: FlutterViewController?
   private var nativeGlassChannel: FlutterMethodChannel?
   private weak var nativeGlassChannelController: FlutterViewController?
+  private var reduceTransparencyObserver: NSObjectProtocol?
   private var deviceTimezoneChannel: FlutterMethodChannel?
 
   /// The controller [deviceTimezoneChannel] is bound to — weak, and identity
@@ -191,12 +192,30 @@ enum ApnsEnvironment {
       switch call.method {
       case "isSupported":
         result(NativeGlass.isSupported)
+      case "reduceTransparency":
+        // Public accessibility state Flutter's MediaQuery does not carry; the
+        // Dart-drawn glass tiers turn opaque with it. Native UIGlassEffect
+        // views adapt to it on their own.
+        result(UIAccessibility.isReduceTransparencyEnabled)
       default:
         result(FlutterMethodNotImplemented)
       }
     }
     nativeGlassChannel = channel
     nativeGlassChannelController = controller
+
+    if reduceTransparencyObserver == nil {
+      reduceTransparencyObserver = NotificationCenter.default.addObserver(
+        forName: UIAccessibility.reduceTransparencyStatusDidChangeNotification,
+        object: nil,
+        queue: .main
+      ) { [weak self] _ in
+        self?.nativeGlassChannel?.invokeMethod(
+          "reduceTransparencyChanged",
+          arguments: UIAccessibility.isReduceTransparencyEnabled
+        )
+      }
+    }
   }
 
   /// The device's IANA timezone identifier, for scheduling local notifications

@@ -14,6 +14,7 @@ import 'planning_currency_repair_providers.dart';
 import 'planning_server_repair_section.dart';
 import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 class PlanningCurrencyRepairScreen extends ConsumerStatefulWidget {
   const PlanningCurrencyRepairScreen({super.key});
@@ -555,7 +556,7 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
             style: AppTypography.caption(c.textSecondary),
           ),
           const SizedBox(height: AppSpacing.s3),
-          DropdownButtonFormField<String>(
+          GlassDropdownField<String>(
             key: ValueKey('repair-currency-${row.id}'),
             value: currency,
             isExpanded: true,

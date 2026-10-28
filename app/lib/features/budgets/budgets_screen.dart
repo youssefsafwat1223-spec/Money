@@ -41,6 +41,7 @@ import '../../core/theme/widgets/app_toast.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import '../common/repo_error_messages.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_actions.dart';
 
 class BudgetsScreen extends ConsumerWidget {
   const BudgetsScreen({super.key});
@@ -755,26 +756,25 @@ class _BudgetCard extends StatelessWidget {
                 ),
               ),
               if (onDelete != null)
-                PopupMenuButton<String>(
+                IconButton(
                   icon: Icon(AppLucideIcons.moreVertical,
                       color: c.textLight, size: 20),
-                  onSelected: (value) {
-                    if (value == 'delete') onDelete?.call();
-                  },
-                  itemBuilder: (context) => [
-                    if (onDelete != null)
-                      PopupMenuItem(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(AppLucideIcons.trash2,
-                                size: 18, color: c.danger),
-                            const SizedBox(width: 8),
-                            Text(context.l10n.setDelete, style: TextStyle(color: c.danger)),
-                          ],
-                        ),
-                      ),
-                  ],
+                  onPressed: onDelete == null
+                      ? null
+                      : () async {
+                          final value = await showGlassActions<String>(
+                            context: context,
+                            actions: [
+                              GlassAction(
+                                value: 'delete',
+                                label: context.l10n.setDelete,
+                                icon: AppLucideIcons.trash2,
+                                destructive: true,
+                              ),
+                            ],
+                          );
+                          if (value == 'delete') onDelete?.call();
+                        },
                 ),
             ],
           ),

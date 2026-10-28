@@ -21,6 +21,7 @@ import '../dashboard/dashboard_providers.dart';
 import '../goals/goals_providers.dart';
 import 'budgets_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 /// Suggested monthly split by category (stable keys). Sums to ~67%, leaving the
 /// rest as savings/buffer. Just a starting point — the user edits freely.
@@ -354,7 +355,7 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                       style: AppTypography.caption(c.textLight),
                     )
                   else
-                    DropdownButtonFormField<String>(
+                    GlassDropdownField<String>(
                       value: _savingsGoalId,
                       isExpanded: true,
                       decoration: InputDecoration(

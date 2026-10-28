@@ -44,6 +44,7 @@ void main() {
     bool platformAllowed = true,
     bool highContrast = false,
     bool nativeGlassActive = false,
+    bool reduceTransparency = false,
   }) =>
       resolveGlassTier(
         advancedRequested: advancedRequested,
@@ -51,14 +52,23 @@ void main() {
         platformAllowed: platformAllowed,
         highContrast: highContrast,
         nativeGlassActive: nativeGlassActive,
+        reduceTransparency: reduceTransparency,
       );
 
   group(
       'resolveGlassTier matrix — the package is never reached outside the '
       'approved window', () {
-    test('high contrast always wins with opaque', () {
+    test('high contrast / reduce transparency make Dart-drawn glass opaque',
+        () {
+      expect(resolve(highContrast: true), GlassTier.opaque);
+      expect(resolve(reduceTransparency: true), GlassTier.opaque);
+    });
+
+    test('native glass adapts to accessibility itself and stays native', () {
       expect(resolve(highContrast: true, nativeGlassActive: true),
-          GlassTier.opaque);
+          GlassTier.native);
+      expect(resolve(reduceTransparency: true, nativeGlassActive: true),
+          GlassTier.native);
     });
 
     test('explicit native host wins over advanced', () {

@@ -72,6 +72,7 @@ class _GoalDetailsSheet extends StatelessWidget {
         ),
         child: MaliGlass(
           variant: MaliGlassVariant.sheet,
+          nativeMaterial: true,
           child: Material(
             color: Colors.transparent,
             child: SizedBox(
@@ -394,6 +395,7 @@ Future<void> _showAddContributionSheet(
                   const BorderRadius.vertical(top: Radius.circular(28)),
               child: MaliGlass(
                 variant: MaliGlassVariant.sheet,
+                nativeMaterial: true,
                 child: Padding(
                   padding: EdgeInsets.only(
                     left: AppSpacing.gutter,

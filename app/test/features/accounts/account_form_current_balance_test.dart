@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/theme/widgets/glass_dropdown_field.dart';
 import 'package:money_companion/data/catalog/catalog_daos.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
@@ -104,8 +105,8 @@ Future<void> _waitForSave(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
-DropdownButtonFormField<String> _currencyField(WidgetTester tester) =>
-    tester.widget<DropdownButtonFormField<String>>(
+GlassDropdownField<String> _currencyField(WidgetTester tester) =>
+    tester.widget<GlassDropdownField<String>>(
       find.byKey(const ValueKey('account-currency-field')),
     );
 

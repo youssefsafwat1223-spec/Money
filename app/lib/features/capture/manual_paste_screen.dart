@@ -69,6 +69,7 @@ class _ManualPasteSheet extends StatelessWidget {
         ),
         child: MaliGlass(
           variant: MaliGlassVariant.sheet,
+          nativeMaterial: true,
           child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.78,
             child: Column(
@@ -685,6 +686,7 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: MaliGlass(
           variant: MaliGlassVariant.sheet,
+          nativeMaterial: true,
           child: SizedBox(
             height: MediaQuery.sizeOf(context).height * 0.72,
             child: SafeArea(

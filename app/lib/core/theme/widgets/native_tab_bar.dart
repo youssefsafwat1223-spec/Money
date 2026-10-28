@@ -34,7 +34,9 @@ class NativeTabBar extends StatefulWidget {
   final bool rtl;
   final Color tint;
 
-  /// The system tab bar's content height above the home indicator.
+  /// Placeholder content height above the home indicator until the native
+  /// bar reports its own `sizeThatFits` height (which changes across iOS
+  /// releases and Dynamic Type), so the slot never hard-codes the metric.
   static const double barHeight = 49;
 
   @override
@@ -43,6 +45,7 @@ class NativeTabBar extends StatefulWidget {
 
 class _NativeTabBarState extends State<NativeTabBar> {
   MethodChannel? _channel;
+  double _height = NativeTabBar.barHeight;
 
   Map<String, Object> get _state => {
         'selected': widget.selectedIndex,
@@ -56,6 +59,9 @@ class _NativeTabBarState extends State<NativeTabBar> {
       ..setMethodCallHandler((call) async {
         if (call.method == 'select' && call.arguments is int) {
           widget.onSelect(call.arguments as int);
+        } else if (call.method == 'height' && call.arguments is double) {
+          final height = call.arguments as double;
+          if (mounted && height != _height) setState(() => _height = height);
         }
       });
   }
@@ -81,7 +87,7 @@ class _NativeTabBarState extends State<NativeTabBar> {
   Widget build(BuildContext context) {
     final safeBottom = MediaQuery.paddingOf(context).bottom;
     return SizedBox(
-      height: NativeTabBar.barHeight + safeBottom,
+      height: _height + safeBottom,
       child: UiKitView(
         // Titles are creation-time only: a language change recreates the bar.
         key: ValueKey(widget.items.map((i) => i.title).join('|')),

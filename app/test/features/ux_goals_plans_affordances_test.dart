@@ -53,7 +53,7 @@ void main() {
         File('lib/features/plans/plans_screen.dart').readAsStringSync();
 
     test('the card offers edit, not just delete', () {
-      expect(screen, contains('PopupMenuButton<String>'));
+      expect(screen, contains('showGlassActions<String>'));
       expect(screen, contains("value: 'edit'"));
       expect(screen, contains('PlanFormSheet.show(context, existing: plan)'));
     });

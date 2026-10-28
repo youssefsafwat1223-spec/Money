@@ -25,6 +25,7 @@ import '../../core/theme/widgets/directional_chevron.dart';
 import 'import_issue_messages.dart';
 import '../../core/privacy/consent_authority.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 class DataTransferScreen extends ConsumerStatefulWidget {
   const DataTransferScreen({super.key, this.initialAction});
@@ -517,7 +518,7 @@ class _PreviewPanel extends StatelessWidget {
                 ),
               ),
               if (accounts.isNotEmpty)
-                DropdownButtonFormField<String>(
+                GlassDropdownField<String>(
                   value: preview.defaultAccountId,
                   decoration:
                       InputDecoration(labelText: context.l10n.dtxDefaultAccount),
@@ -589,7 +590,7 @@ class _PreviewPanel extends StatelessWidget {
                     remapped(spec.$3(value)),
                   ),
                 ),
-              DropdownButtonFormField<ImportDateFormat>(
+              GlassDropdownField<ImportDateFormat>(
                 value: preview.mapping!.dateFormat,
                 decoration: InputDecoration(labelText: context.l10n.dtxDateFormat),
                 items: [
@@ -700,7 +701,7 @@ class _MappingField extends StatelessWidget {
   final ValueChanged<String> onChanged;
 
   @override
-  Widget build(BuildContext context) => DropdownButtonFormField<String>(
+  Widget build(BuildContext context) => GlassDropdownField<String>(
         value: value,
         decoration: InputDecoration(labelText: label),
         items: [
@@ -727,7 +728,7 @@ class _OptionalMappingField extends StatelessWidget {
   final ValueChanged<String> onChanged;
 
   @override
-  Widget build(BuildContext context) => DropdownButtonFormField<String>(
+  Widget build(BuildContext context) => GlassDropdownField<String>(
         value: headers.contains(value) ? value : null,
         decoration: InputDecoration(labelText: label),
         items: [

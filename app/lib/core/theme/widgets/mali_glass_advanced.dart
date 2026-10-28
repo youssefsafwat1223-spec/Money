@@ -62,11 +62,11 @@ bool get advancedTierAllowedOnPlatform {
 
 enum GlassTier {
   /// Native UIGlassEffect platform view. NOT selected by generic MaliGlass:
-  /// native ownership belongs to explicit native hosts only (today: the
-  /// pre-existing iOS 26 bottom-navigation host outside MaliGlass). The
-  /// tier exists in the resolver so an explicit host can declare itself via
+  /// only explicit native hosts (`MaliGlass.nativeMaterial`) declare it via
   /// [resolveGlassTier]'s `nativeGlassActive` — generic surfaces always
-  /// pass false, regardless of OS version.
+  /// pass false, regardless of OS version. Wins over the accessibility
+  /// fallbacks because Apple's material adapts to Increase Contrast and
+  /// Reduce Transparency itself (HIG › Materials › Liquid Glass).
   native,
 
   /// Package-backed refraction (pilot surfaces only).
@@ -75,7 +75,8 @@ enum GlassTier {
   /// Qirsh frost (blur + saturation + token fill) — the safe default.
   frost,
 
-  /// Opaque token surface (high contrast).
+  /// Opaque token surface (Increase Contrast / Reduce Transparency on a
+  /// Dart-drawn surface).
   opaque,
 }
 
@@ -88,9 +89,10 @@ GlassTier resolveGlassTier({
   required bool platformAllowed,
   required bool highContrast,
   required bool nativeGlassActive,
+  bool reduceTransparency = false,
 }) {
-  if (highContrast) return GlassTier.opaque;
   if (nativeGlassActive) return GlassTier.native;
+  if (highContrast || reduceTransparency) return GlassTier.opaque;
   if (advancedRequested && shaderSupported && platformAllowed) {
     return GlassTier.advanced;
   }

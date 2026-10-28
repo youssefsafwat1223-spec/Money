@@ -16,6 +16,7 @@ import '../../domain/entities/account_entity.dart';
 import '../transactions/transactions_providers.dart';
 import 'app_sheet_scaffold.dart';
 import '../../core/theme/widgets/glass_sheet.dart';
+import '../../core/theme/widgets/glass_pickers.dart';
 
 class AccountRangeControls extends ConsumerWidget {
   const AccountRangeControls({
@@ -247,7 +248,7 @@ class _DateRangeChips extends ConsumerWidget {
                             subtitle: Text(Formatters.fullDate(from, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
-                              final picked = await showDatePicker(
+                              final picked = await showGlassDatePicker(
                                 context: context,
                                 initialDate: from,
                                 firstDate: DateTime(2020),
@@ -263,7 +264,7 @@ class _DateRangeChips extends ConsumerWidget {
                             subtitle: Text(Formatters.fullDate(to, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
-                              final picked = await showDatePicker(
+                              final picked = await showGlassDatePicker(
                                 context: context,
                                 initialDate: to,
                                 firstDate: DateTime(2020),

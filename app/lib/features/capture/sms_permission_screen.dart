@@ -45,6 +45,7 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
         ),
         child: MaliGlass(
           variant: MaliGlassVariant.sheet,
+          nativeMaterial: true,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.gutter,

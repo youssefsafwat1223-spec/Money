@@ -38,6 +38,89 @@ class RunnerTests: XCTestCase {
     XCTAssertFalse((try next.messages.invoke(timezone, method: "getLocalTimezone") as? String ?? "").isEmpty)
   }
 
+  // MARK: - Native Liquid Glass
+
+  func testNativeGlassIsTheUnmodifiedSystemRegularMaterial() throws {
+    guard #available(iOS 26.0, *) else { throw XCTSkip("UIGlassEffect needs iOS 26") }
+    XCTAssertTrue(NativeGlass.isSupported)
+    let platformView = NativeGlassPlatformView(
+      frame: CGRect(x: 0, y: 0, width: 240, height: 56),
+      args: ["radius": 16, "dark": true])
+    let view = try XCTUnwrap(platformView.view() as? UIVisualEffectView)
+    let effect = try XCTUnwrap(view.effect as? UIGlassEffect)
+    XCTAssertNil(effect.tintColor, "no custom tint unless the caller asks for one")
+    XCTAssertFalse(effect.isInteractive)
+    XCTAssertEqual(view.overrideUserInterfaceStyle, .dark)
+    // Nothing that would fight the system material's own adaptation.
+    XCTAssertEqual(view.alpha, 1)
+    XCTAssertNil(view.backgroundColor)
+    XCTAssertTrue(view.contentView.subviews.isEmpty)
+    XCTAssertFalse(view.isUserInteractionEnabled)
+
+    let light = NativeGlassPlatformView(frame: .zero, args: ["radius": 16, "dark": false])
+    XCTAssertEqual(light.view().overrideUserInterfaceStyle, .light)
+  }
+
+  func testNativeGlassTintIsTheSystemTintColor() throws {
+    guard #available(iOS 26.0, *) else { throw XCTSkip("UIGlassEffect needs iOS 26") }
+    let platformView = NativeGlassPlatformView(
+      frame: .zero, args: ["radius": 22, "dark": false, "tint": NSNumber(value: UInt32(0x24FF_0000))])
+    let view = try XCTUnwrap(platformView.view() as? UIVisualEffectView)
+    let tint = try XCTUnwrap((view.effect as? UIGlassEffect)?.tintColor)
+    var red: CGFloat = 0, green: CGFloat = 0, blue: CGFloat = 0, alpha: CGFloat = 0
+    XCTAssertTrue(tint.getRed(&red, green: &green, blue: &blue, alpha: &alpha))
+    XCTAssertEqual(red, 1, accuracy: 0.01)
+    XCTAssertEqual(green, 0, accuracy: 0.01)
+    XCTAssertEqual(blue, 0, accuracy: 0.01)
+    XCTAssertEqual(alpha, CGFloat(0x24) / 255, accuracy: 0.01)
+  }
+
+  func testNativeGlassChannelReportsSupportAndReduceTransparency() throws {
+    let delegate = AppDelegate()
+    let controller = ChannelTestController(name: "native-glass-channel-test")
+    delegate.configureNativeGlassChannelIfNeeded(controller: controller)
+    let channel = "mali/native_glass"
+    XCTAssertEqual(try controller.messages.invoke(channel, method: "isSupported") as? Bool,
+                   NativeGlass.isSupported)
+    XCTAssertEqual(try controller.messages.invoke(channel, method: "reduceTransparency") as? Bool,
+                   UIAccessibility.isReduceTransparencyEnabled)
+    // A Reduce Transparency change is pushed to Dart live.
+    NotificationCenter.default.post(
+      name: UIAccessibility.reduceTransparencyStatusDidChangeNotification, object: nil)
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let pushed = controller.messages.sent
+      .filter { $0.channel == channel }
+      .compactMap { $0.message.map { codec.decodeMethodCall($0) } }
+    XCTAssertEqual(pushed.map(\.method), ["reduceTransparencyChanged"])
+    XCTAssertEqual(pushed.first?.arguments as? Bool, UIAccessibility.isReduceTransparencyEnabled)
+  }
+
+  func testNativeTabBarReportsItsSystemHeight() throws {
+    let messenger = ChannelTestMessenger()
+    let platformView = NativeTabBarPlatformView(
+      frame: CGRect(x: 0, y: 0, width: 390, height: 120),
+      viewId: 7,
+      args: ["items": [["symbol": "house", "title": "Home"], ["symbol": "gearshape", "title": "Settings"]],
+             "selected": 0, "dark": false, "rtl": false],
+      messenger: messenger)
+    let container = platformView.view()
+    container.setNeedsLayout()
+    container.layoutIfNeeded()
+    let codec = FlutterStandardMethodCodec.sharedInstance()
+    let heights = messenger.sent
+      .filter { $0.channel == "mali/native_tab_bar_7" }
+      .compactMap { $0.message.map { codec.decodeMethodCall($0) } }
+      .filter { $0.method == "height" }
+      .compactMap { $0.arguments as? Double }
+    let height = try XCTUnwrap(heights.first, "the bar must report its own height")
+    print("NativeTabBar system height: \(height)")
+    XCTAssertGreaterThan(height, 0)
+    // Re-layout with the same width does not re-send (no resize loop).
+    container.setNeedsLayout()
+    container.layoutIfNeeded()
+    XCTAssertEqual(messenger.sent.filter { $0.channel == "mali/native_tab_bar_7" }.count, 1)
+  }
+
   func testNotificationLogConsumePreservesForeignLegacyAndUnboundOrigins() throws {
     resetSnapshotState()
     defer { resetSnapshotState() }
@@ -4208,9 +4291,13 @@ private enum SnapshotTestKeychain {
 private final class ChannelTestMessenger: NSObject, FlutterBinaryMessenger {
   var handlers: [String: FlutterBinaryMessageHandler] = [:]
   var registrations = 0
+  var sent: [(channel: String, message: Data?)] = []
   private var channels: [Int64: String] = [:]
-  func send(onChannel channel: String, message: Data?) {}
+  func send(onChannel channel: String, message: Data?) {
+    sent.append((channel, message))
+  }
   func send(onChannel channel: String, message: Data?, binaryReply callback: FlutterBinaryReply?) {
+    sent.append((channel, message))
     callback?(nil)
   }
   func setMessageHandlerOnChannel(_ channel: String,

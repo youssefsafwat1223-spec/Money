@@ -142,40 +142,38 @@ class _TopBannerWidgetState extends State<_TopBannerWidget>
             position: _slide,
             child: FadeTransition(
               opacity: _fade,
-              // Liquid Glass with the banner's colour tinted over it.
+              // Liquid Glass tinted with the banner's colour (native:
+              // UIGlassEffect.tintColor; Flutter tiers: a 78% wash).
               child: MaliGlass(
                 radius: AppRadius.md,
                 padding: EdgeInsets.zero,
                 nativeMaterial: true,
+                tint: bg.withValues(alpha: 0.78),
                 child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                  onTap: _dismiss,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
-                    decoration: BoxDecoration(
-                      color: bg.withValues(alpha: 0.78),
-                      borderRadius: BorderRadius.circular(AppRadius.md),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(icon, color: fg, size: 20),
-                        const SizedBox(width: AppSpacing.s3),
-                        Expanded(
-                          child: Text(
-                            widget.message,
-                            style: AppTypography.bodyStrong(fg),
-                            maxLines: 3,
-                            overflow: TextOverflow.ellipsis,
+                  color: Colors.transparent,
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(AppRadius.md),
+                    onTap: _dismiss,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: AppSpacing.s4, vertical: AppSpacing.s3),
+                      child: Row(
+                        children: [
+                          Icon(icon, color: fg, size: 20),
+                          const SizedBox(width: AppSpacing.s3),
+                          Expanded(
+                            child: Text(
+                              widget.message,
+                              style: AppTypography.bodyStrong(fg),
+                              maxLines: 3,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
               ),
             ),
           ),

@@ -59,6 +59,7 @@ import 'sync_status_ui.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import '../../core/theme/widgets/glass_sheet.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 /// maybeWhen that keeps rendering the last loaded value during a reload, so the
 /// frequent `user_settings` writes (sync, notification history, journey) don't
@@ -1356,7 +1357,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   title: Text(context.l10n.setIncomeCategory),
                 ),
                 const SizedBox(height: AppSpacing.s3),
-                DropdownButtonFormField<String>(
+                GlassDropdownField<String>(
                   value: icon,
                   decoration: InputDecoration(
                     labelText: context.l10n.setIcon,
@@ -1380,7 +1381,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   onChanged: (value) => setState(() => icon = value ?? icon),
                 ),
                 const SizedBox(height: AppSpacing.s3),
-                DropdownButtonFormField<String>(
+                GlassDropdownField<String>(
                   value: color,
                   decoration: InputDecoration(
                     labelText: context.l10n.setColor,
@@ -2446,7 +2447,7 @@ class _HourPicker extends StatelessWidget {
       children: [
         Text(label, style: AppTypography.subhead(c.textLight)),
         const SizedBox(height: AppSpacing.s2),
-        DropdownButtonFormField<int>(
+        GlassDropdownField<int>(
           value: value,
           decoration: InputDecoration(
             filled: true,

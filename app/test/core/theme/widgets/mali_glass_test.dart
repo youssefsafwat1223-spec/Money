@@ -271,19 +271,133 @@ void main() {
     }
   });
 
-  testWidgets('high contrast keeps an explicit native host opaque',
-      (tester) async {
+  testWidgets(
+      'Increase Contrast keeps an explicit native host on Apple glass — '
+      'the system material adapts itself', (tester) async {
     NativeGlassSupport.debugOverride = true;
     addTearDown(() => NativeGlassSupport.debugOverride = null);
-    await tester.pumpWidget(MediaQuery(
-      data: const MediaQueryData(highContrast: true),
-      child: harness(const MaliGlass(
+    await tester.pumpWidget(harness(
+      const MaliGlass(
         variant: MaliGlassVariant.pill,
         nativeMaterial: true,
         child: Text('x'),
-      )),
+      ),
+      mediaQuery: (data) => data.copyWith(highContrast: true),
     ));
-    expect(find.byType(NativeGlassBackdrop), findsNothing);
+    expect(find.byType(NativeGlassBackdrop), findsOneWidget);
+    expect(find.byType(BackdropFilter), findsNothing);
+  });
+
+  testWidgets(
+      'Reduce Transparency turns Dart-drawn glass opaque and leaves native '
+      'glass to the system', (tester) async {
+    addTearDown(() => NativeGlassSupport.debugOverride = null);
+    NativeGlassSupport.debugOverride = false;
+    NativeGlassSupport.reduceTransparency.value = true;
+    await tester.pumpWidget(harness(const MaliGlass(
+      variant: MaliGlassVariant.card,
+      nativeMaterial: true,
+      child: Text('x'),
+    )));
+    expect(find.byType(BackdropFilter), findsNothing);
+    expect(fillDecoration(tester), isNull);
+
+    // Live: switching it off restores the translucent material, no restart.
+    NativeGlassSupport.reduceTransparency.value = false;
+    await tester.pump();
+    expect(find.byType(BackdropFilter), findsOneWidget);
+
+    NativeGlassSupport.debugOverride = true;
+    NativeGlassSupport.reduceTransparency.value = true;
+    await tester.pumpWidget(harness(const MaliGlass(
+      key: ValueKey('native'),
+      variant: MaliGlassVariant.card,
+      nativeMaterial: true,
+      child: Text('x'),
+    )));
+    expect(find.byType(NativeGlassBackdrop), findsOneWidget);
+  });
+
+  testWidgets(
+      'native tier paints nothing over Apple glass; tint goes to the '
+      'material', (tester) async {
+    NativeGlassSupport.debugOverride = true;
+    addTearDown(() => NativeGlassSupport.debugOverride = null);
+    const tint = Color(0x24FF0000);
+    await tester.pumpWidget(harness(const MaliGlass(
+      variant: MaliGlassVariant.sheet,
+      nativeMaterial: true,
+      tint: tint,
+      child: Text('x'),
+    )));
+    final backdrop =
+        tester.widget<NativeGlassBackdrop>(find.byType(NativeGlassBackdrop));
+    expect(backdrop.tint, tint);
+    // No Dart-drawn wash, gradient fill or tint layer above the platform view.
+    expect(
+      find.descendant(
+        of: find.byType(MaliGlass),
+        matching: find.byType(ColoredBox),
+      ),
+      findsNothing,
+    );
+    expect(fillDecoration(tester), isNull);
+    for (final box in tester.widgetList<DecoratedBox>(
+      find.descendant(
+        of: find.byType(MaliGlass),
+        matching: find.byType(DecoratedBox),
+      ),
+    )) {
+      expect((box.decoration as BoxDecoration).color, isNot(tint));
+    }
+  });
+
+  testWidgets('frost tiers paint the tint as a wash', (tester) async {
+    NativeGlassSupport.debugOverride = false;
+    addTearDown(() => NativeGlassSupport.debugOverride = null);
+    const tint = Color(0x24FF0000);
+    await tester.pumpWidget(harness(const MaliGlass(
+      nativeMaterial: true,
+      tint: tint,
+      child: Text('x'),
+    )));
+    expect(
+      tester.widgetList<DecoratedBox>(find.byType(DecoratedBox)).any((b) =>
+          b.decoration is BoxDecoration &&
+          (b.decoration as BoxDecoration).color == tint),
+      isTrue,
+    );
+  });
+
+  testWidgets(
+      'the native backdrop follows a theme switch without a restart '
+      '(re-keyed platform view)', (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.iOS;
+    NativeGlassSupport.debugOverride = true;
+    addTearDown(() => NativeGlassSupport.debugOverride = null);
+    try {
+      Key? keyFor(ThemeData theme) =>
+          tester.widget<UiKitView>(find.byType(UiKitView)).key;
+
+      const glass = MaliGlass(nativeMaterial: true, child: Text('x'));
+      await tester.pumpWidget(harness(glass, theme: AppTheme.light));
+      final lightKey = keyFor(AppTheme.light);
+      expect(
+        (tester.widget<UiKitView>(find.byType(UiKitView)).creationParams
+            as Map)['dark'],
+        isFalse,
+      );
+      await tester.pumpWidget(harness(glass, theme: AppTheme.dark));
+      await tester.pumpAndSettle(); // MaterialApp animates the theme change.
+      expect(keyFor(AppTheme.dark), isNot(lightKey));
+      expect(
+        (tester.widget<UiKitView>(find.byType(UiKitView)).creationParams
+            as Map)['dark'],
+        isTrue,
+      );
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
   });
 
   testWidgets('high contrast renders opaque with no backdrop blur',

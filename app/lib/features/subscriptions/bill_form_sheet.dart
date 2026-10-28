@@ -23,6 +23,8 @@ import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_pickers.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 class BillFormSheet extends ConsumerStatefulWidget {
   const BillFormSheet({
@@ -226,7 +228,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     final initialDate = _nextDueDate.isBefore(todayStart)
         ? todayStart
         : DateTime(_nextDueDate.year, _nextDueDate.month, _nextDueDate.day);
-    final picked = await showDatePicker(
+    final picked = await showGlassDatePicker(
       context: context,
       initialDate: initialDate,
       firstDate: todayStart,
@@ -489,7 +491,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                     final value = accounts.any((a) => a.id == _accountId)
                         ? _accountId
                         : accounts.first.id;
-                    return DropdownButtonFormField<String>(
+                    return GlassDropdownField<String>(
                       value: value,
                       isExpanded: true,
                       decoration: InputDecoration(
@@ -598,7 +600,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               ),
               const SizedBox(height: AppSpacing.s3),
             ],
-            DropdownButtonFormField<BillFrequency>(
+            GlassDropdownField<BillFrequency>(
               value: _frequency,
               decoration: InputDecoration(labelText: context.l10n.bfHowOften),
               items: BillFrequency.values

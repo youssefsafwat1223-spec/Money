@@ -93,6 +93,7 @@ class _BankDiscoveryConfirmationSheetState
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: MaliGlass(
           variant: MaliGlassVariant.sheet,
+          nativeMaterial: true,
           child: Material(
             color: Colors.transparent,
             child: SafeArea(

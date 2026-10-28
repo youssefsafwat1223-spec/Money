@@ -52,6 +52,7 @@ import 'widgets/change_category_sheet.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import '../../core/theme/widgets/glass_sheet.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_pickers.dart';
 
 class TransactionsScreen extends ConsumerWidget {
   const TransactionsScreen({super.key});
@@ -769,7 +770,7 @@ class _DateRangeChips extends ConsumerWidget {
                             subtitle: Text(Formatters.fullDate(from, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
-                              final picked = await showDatePicker(
+                              final picked = await showGlassDatePicker(
                                 context: context,
                                 initialDate: from,
                                 firstDate: DateTime(2020),
@@ -785,7 +786,7 @@ class _DateRangeChips extends ConsumerWidget {
                             subtitle: Text(Formatters.fullDate(to, context)),
                             trailing: const Icon(AppLucideIcons.calendarDays),
                             onTap: () async {
-                              final picked = await showDatePicker(
+                              final picked = await showGlassDatePicker(
                                 context: context,
                                 initialDate: to,
                                 firstDate: DateTime(2020),

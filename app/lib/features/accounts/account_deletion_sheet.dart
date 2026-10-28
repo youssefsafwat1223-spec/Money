@@ -4,6 +4,7 @@ import '../../domain/entities/account_entity.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../domain/usecases/account_deletion.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 /// MALI-016 — the dependency-aware account-deletion confirmation.
 ///
@@ -193,7 +194,7 @@ class _DependentDecision extends StatelessWidget {
         children: [
           Text(dependent.name, style: Theme.of(context).textTheme.bodyMedium),
           const SizedBox(height: 4),
-          DropdownButtonFormField<String>(
+          GlassDropdownField<String>(
             key: ValueKey('decision-${dependent.id}'),
             initialValue: value,
             isExpanded: true,

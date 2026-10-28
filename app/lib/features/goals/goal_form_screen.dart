@@ -24,6 +24,8 @@ import '../../core/theme/widgets/app_toast.dart';
 import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
+import '../../core/theme/widgets/glass_pickers.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -84,6 +86,7 @@ class _GoalFormSheet extends StatelessWidget {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: MaliGlass(
           variant: MaliGlassVariant.sheet,
+          nativeMaterial: true,
           child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.82,
             child: Column(
@@ -355,7 +358,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
                       ),
                       const SizedBox(width: AppSpacing.s3),
                       Expanded(
-                        child: DropdownButtonFormField<String>(
+                        child: GlassDropdownField<String>(
                           value: _autoSavePeriod,
                           isDense: true,
                           decoration: InputDecoration(
@@ -426,21 +429,11 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
   }
 
   Future<void> _pickDeadline() async {
-    final picked = await showDatePicker(
+    final picked = await showGlassDatePicker(
       context: context,
       initialDate: DateTime.now().add(const Duration(days: 90)),
       firstDate: DateTime.now(),
       lastDate: DateTime.now().add(const Duration(days: 3650)),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: Theme.of(context).colorScheme.copyWith(
-                  primary: context.colors.primary,
-                ),
-          ),
-          child: child!,
-        );
-      },
     );
     if (picked != null) {
       setState(() => _deadline = picked);

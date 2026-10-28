@@ -2,21 +2,21 @@ import Flutter
 import UIKit
 
 /// Real Apple Liquid Glass (iOS 26 `UIGlassEffect`) exposed to Flutter as a
-/// platform view, following callstack/liquid-glass: runtime-guarded class +
-/// selector checks so early-beta SDKs degrade safely. Below iOS 26 the view
-/// renders a system thin material blur instead; Dart additionally gates on
-/// `isSupported` so unsupported devices never create this view at all.
+/// platform view. Below iOS 26 the view renders a system thin material blur
+/// instead; Dart additionally gates on `isSupported` so unsupported devices
+/// never create this view at all.
+///
+/// The material is left to the system: `.regular` style, no custom opacity or
+/// blur, so the user's Liquid Glass look (Settings > Display & Brightness),
+/// Reduce Transparency and Increase Contrast all apply automatically. The
+/// only inputs are the app's light/dark choice and an optional semantic
+/// `tintColor`.
 enum NativeGlass {
   static var isSupported: Bool {
     #if compiler(>=6.2)
-    guard #available(iOS 26.0, *) else { return false }
-    guard let cls = NSClassFromString("UIGlassEffect") as? NSObject.Type else {
-      return false
-    }
-    return cls.responds(to: Selector(("effectWithStyle:")))
-    #else
-    return false
+    if #available(iOS 26.0, *) { return true }
     #endif
+    return false
   }
 }
 
@@ -74,26 +74,40 @@ final class NativeGlassPlatformView: NSObject, FlutterPlatformView {
     effectView.isUserInteractionEnabled = false
 
     // Keep the material in the app's theme even when it diverges from the
-    // system theme (in-app theme setting / gallery toggle).
+    // system theme (in-app theme setting / gallery toggle). Creation-time:
+    // Dart keys the view on `dark`, so a theme switch rebuilds it.
     if let dark = (args?["dark"] as? NSNumber)?.boolValue {
       effectView.overrideUserInterfaceStyle = dark ? .dark : .light
     }
 
     let clear = (args?["clear"] as? NSNumber)?.boolValue ?? false
-    effectView.effect = Self.makeEffect(clear: clear)
+    let tint = (args?["tint"] as? NSNumber).map { Self.color(argb: $0.uint32Value) }
+    effectView.effect = Self.makeEffect(clear: clear, tint: tint)
   }
 
-  private static func makeEffect(clear: Bool) -> UIVisualEffect {
+  static func makeEffect(clear: Bool, tint: UIColor?) -> UIVisualEffect {
     #if compiler(>=6.2)
-    if #available(iOS 26.0, *), NativeGlass.isSupported {
+    if #available(iOS 26.0, *) {
       let effect = UIGlassEffect(style: clear ? .clear : .regular)
       // Apple's interactive shimmer needs native touches, which never reach
       // this view (Flutter content sits above) — leave it off.
       effect.isInteractive = false
+      // Semantic tint only (e.g. a status banner) — the system decides how
+      // strongly it shows under the user's glass and accessibility settings.
+      effect.tintColor = tint
       return effect
     }
     #endif
     return UIBlurEffect(style: .systemUltraThinMaterial)
+  }
+
+  private static func color(argb: UInt32) -> UIColor {
+    UIColor(
+      red: CGFloat((argb >> 16) & 0xFF) / 255,
+      green: CGFloat((argb >> 8) & 0xFF) / 255,
+      blue: CGFloat(argb & 0xFF) / 255,
+      alpha: CGFloat((argb >> 24) & 0xFF) / 255
+    )
   }
 
   func view() -> UIView { effectView }

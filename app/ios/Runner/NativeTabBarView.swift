@@ -31,10 +31,22 @@ final class NativeTabBarViewFactory: NSObject, FlutterPlatformViewFactory {
   }
 }
 
+/// Reports every layout pass, so the bar's system height can be sent to
+/// Flutter instead of a hard-coded metric.
+private final class TabBarContainer: UIView {
+  var onLayout: (() -> Void)?
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    onLayout?()
+  }
+}
+
 final class NativeTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDelegate {
-  private let container: UIView
+  private let container: TabBarContainer
   private let tabBar = UITabBar()
   private let channel: FlutterMethodChannel
+  private var reportedHeight: CGFloat = 0
 
   init(
     frame: CGRect,
@@ -42,7 +54,7 @@ final class NativeTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDel
     args: [String: Any],
     messenger: FlutterBinaryMessenger
   ) {
-    container = UIView(frame: frame)
+    container = TabBarContainer(frame: frame)
     channel = FlutterMethodChannel(
       name: "mali/native_tab_bar_\(viewId)",
       binaryMessenger: messenger
@@ -73,6 +85,7 @@ final class NativeTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDel
       return tabItem
     }
     apply(args)
+    container.onLayout = { [weak self] in self?.reportHeight() }
 
     channel.setMethodCallHandler { [weak self] call, result in
       guard let self else { return result(nil) }
@@ -105,6 +118,21 @@ final class NativeTabBarPlatformView: NSObject, FlutterPlatformView, UITabBarDel
         alpha: CGFloat((tint >> 24) & 0xFF) / 255
       )
     }
+  }
+
+  /// The bar's own content height for this width, above the home indicator
+  /// (`sizeThatFits` includes the bottom safe area, which Flutter adds back).
+  /// Sent only on change, so Flutter's resize cannot loop.
+  private func reportHeight() {
+    let width = container.bounds.width
+    guard width > 0 else { return }
+    let fitted = tabBar.sizeThatFits(
+      CGSize(width: width, height: .greatestFiniteMagnitude)
+    ).height
+    let height = fitted - tabBar.safeAreaInsets.bottom
+    guard height > 0, abs(height - reportedHeight) > 0.5 else { return }
+    reportedHeight = height
+    channel.invokeMethod("height", arguments: Double(height))
   }
 
   func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {

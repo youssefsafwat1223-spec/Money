@@ -25,6 +25,7 @@ import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/glass_dropdown_field.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -84,6 +85,7 @@ class _BudgetFormSheet extends StatelessWidget {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
         child: MaliGlass(
           variant: MaliGlassVariant.sheet,
+          nativeMaterial: true,
           child: SizedBox(
             height: MediaQuery.of(context).size.height * 0.85,
             child: Column(
@@ -192,7 +194,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.gutter, vertical: 8),
                 children: [
-                  DropdownButtonFormField<String>(
+                  GlassDropdownField<String>(
                     value: _categoryId,
                     items: [
                       DropdownMenuItem<String>(
@@ -292,7 +294,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                   ),
                   if (accounts.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.s4),
-                    DropdownButtonFormField<String>(
+                    GlassDropdownField<String>(
                       value: selectedAccount?.id,
                       style: _alex(14, FontWeight.w700, 1.2, c.textMain),
                       decoration: InputDecoration(

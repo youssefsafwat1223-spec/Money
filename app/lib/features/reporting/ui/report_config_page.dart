@@ -14,6 +14,7 @@ import '../../common/app_header.dart';
 import 'report_preview_screen.dart';
 import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/theme/widgets/glass_dialog.dart';
+import '../../../core/theme/widgets/glass_dropdown_field.dart';
 
 enum _PeriodKind { weekly, monthly, yearly, custom }
 
@@ -152,7 +153,7 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
               onChanged: (v) => setState(() => _allAccounts = v),
             ),
             if (!_allAccounts && accounts.isNotEmpty)
-              DropdownButton<String>(
+              GlassDropdownField<String>(
                 isExpanded: true,
                 value: _accountId ?? accounts.first.id,
                 items: <DropdownMenuItem<String>>[

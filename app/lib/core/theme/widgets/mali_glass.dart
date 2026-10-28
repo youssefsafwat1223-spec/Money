@@ -35,9 +35,11 @@ import 'native_glass.dart';
 ///     program loads, or if loading fails. The program is loaded lazily on
 ///     first refractive use — never at app startup.
 ///
-/// Accessibility: under `MediaQuery.highContrast` the surface drops blur and
-/// translucency entirely and renders an opaque token fill with a full-contrast
-/// border, so legibility never depends on what is behind the glass.
+/// Accessibility: under `MediaQuery.highContrast` (iOS Increase Contrast) or
+/// iOS Reduce Transparency the Dart-drawn tiers drop blur and translucency
+/// entirely and render an opaque token fill with a full-contrast border, so
+/// legibility never depends on what is behind the glass. The native tier is
+/// exempt: Apple's material adapts to both settings itself.
 ///
 /// Design-system rules (see the placement report): glass is *chrome* material —
 /// navigation, pinned strips, small floating controls. Never inside repeating
@@ -61,6 +63,7 @@ class MaliGlass extends StatefulWidget {
     this.refractive,
     this.advancedRefraction = false,
     this.nativeMaterial = false,
+    this.tint,
   });
 
   final Widget child;
@@ -97,6 +100,12 @@ class MaliGlass extends StatefulWidget {
   /// — never list items, since every platform view adds compositing cost.
   /// Unsupported devices and high contrast keep the Flutter tiers.
   final bool nativeMaterial;
+
+  /// Semantic colour (status banners, error toasts). On the native tier it
+  /// is `UIGlassEffect.tintColor` — the system blends it into the material
+  /// under the user's glass and accessibility settings; the Dart-drawn tiers
+  /// paint it as a wash over the fill.
+  final Color? tint;
 
   @override
   State<MaliGlass> createState() => _MaliGlassState();
@@ -143,13 +152,12 @@ class _MaliGlassState extends State<MaliGlass> {
     if (widget.nativeMaterial) {
       NativeGlassSupport.supported.addListener(_onNativeSupport);
     }
+    NativeGlassSupport.reduceTransparency.addListener(_onNativeSupport);
   }
 
   void _onNativeSupport() {
     if (mounted) setState(() {});
   }
-
-
 
   /// Resolved Tier 3 intent: explicit override, else on for everything but
   /// `sheet` (largest surface; refraction there is cost without payoff).
@@ -169,6 +177,7 @@ class _MaliGlassState extends State<MaliGlass> {
   @override
   void dispose() {
     NativeGlassSupport.supported.removeListener(_onNativeSupport);
+    NativeGlassSupport.reduceTransparency.removeListener(_onNativeSupport);
     _shader?.dispose();
     super.dispose();
   }
@@ -223,7 +232,13 @@ class _MaliGlassState extends State<MaliGlass> {
     // headerAction sits on the opaque blue header: contrast is guaranteed by
     // the header itself, and the opaque fallback would hide its white icons.
     final onAccent = widget.variant == MaliGlassVariant.headerAction;
-    final highContrast = !onAccent && (media?.highContrast ?? false);
+    final nativeActive =
+        widget.nativeMaterial && NativeGlassSupport.isSupported;
+    // Opaque fallback for the Dart-drawn tiers (native adapts by itself).
+    final highContrast = !onAccent &&
+        !nativeActive &&
+        ((media?.highContrast ?? false) ||
+            NativeGlassSupport.reduceTransparency.value);
     final sheen = spec.sheen ?? t.glassSheen;
     final br = widget.radius != null
         ? BorderRadius.circular(widget.radius!)
@@ -235,6 +250,13 @@ class _MaliGlassState extends State<MaliGlass> {
       padding: widget.padding ?? spec.padding,
       child: widget.child,
     );
+    final tint = widget.tint;
+    if (tint != null && !nativeActive) {
+      content = DecoratedBox(
+        decoration: BoxDecoration(color: tint, borderRadius: br),
+        child: content,
+      );
+    }
 
     if (interactive) {
       content = Material(
@@ -251,6 +273,9 @@ class _MaliGlassState extends State<MaliGlass> {
 
     final Widget layered = interactive
         ? Stack(
+            // Centred: content shorter than the 44pt minimum touch target
+            // (below) would otherwise stick to the top-start corner.
+            alignment: Alignment.center,
             children: [
               content,
               Positioned.fill(
@@ -272,28 +297,31 @@ class _MaliGlassState extends State<MaliGlass> {
       shaderSupported: advancedShaderSupported,
       platformAllowed: advancedTierAllowedOnPlatform,
       highContrast: highContrast,
-      nativeGlassActive:
-          widget.nativeMaterial && NativeGlassSupport.isSupported,
+      nativeGlassActive: nativeActive,
     );
     if (tier == GlassTier.native) {
-      // NATIVE TIER: Apple's own material (blur, refraction, rim, adaptive
-      // tint) behind the Flutter content. Sheets add a light body wash so
-      // forms stay legible over busy pages.
-      surface = Stack(
-        children: [
-          Positioned.fill(
-            child: NativeGlassBackdrop(radius: _maxCorner(br), dark: isDark),
-          ),
-          if (isSheet)
+      // NATIVE TIER: Apple's own material (blur, refraction, rim, shadow,
+      // adaptive tint) behind the Flutter content — nothing Dart-drawn on
+      // top of it, so the user's Liquid Glass look and accessibility
+      // settings reach the pixels unaltered. The regular variant is Apple's
+      // choice for text-heavy surfaces (alerts, popovers), forms included.
+      // Only the Flutter content is clipped: an ancestor clip would mask
+      // the platform view, and the native view rounds its own corners.
+      return _wrapInteractive(
+        Stack(
+          children: [
             Positioned.fill(
-              child: IgnorePointer(
-                child: ColoredBox(
-                  color: t.glassSheetFill.withValues(alpha: 0.35),
-                ),
+              child: NativeGlassBackdrop(
+                radius: _maxCorner(br),
+                dark: isDark,
+                tint: tint,
               ),
             ),
-          layered,
-        ],
+            ClipRRect(borderRadius: br, child: layered),
+          ],
+        ),
+        interactive: interactive,
+        reduceMotion: reduceMotion,
       );
     } else if (tier == GlassTier.advanced) {
       // ADVANCED TIER: package-backed refraction (pilot surfaces only).
@@ -369,6 +397,20 @@ class _MaliGlassState extends State<MaliGlass> {
       child: ClipRRect(borderRadius: br, child: surface),
     );
 
+    return _wrapInteractive(
+      surface,
+      interactive: interactive,
+      reduceMotion: reduceMotion,
+    );
+  }
+
+  /// Touch target, press scale and button semantics for interactive
+  /// surfaces; shared by every tier.
+  Widget _wrapInteractive(
+    Widget surface, {
+    required bool interactive,
+    required bool reduceMotion,
+  }) {
     if (interactive) {
       surface = ConstrainedBox(
         constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
