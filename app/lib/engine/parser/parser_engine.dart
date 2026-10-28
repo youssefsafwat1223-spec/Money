@@ -5,6 +5,7 @@ import '../models/transaction_type.dart';
 import 'amount_candidate.dart';
 import 'bank_profile.dart';
 import 'catalog_rule_matcher.dart';
+import 'merchant_sanity.dart';
 import 'normalizer.dart';
 import 'parse_result.dart';
 
@@ -273,7 +274,7 @@ class ParserEngine {
       currency: currency,
       type: type == TransactionType.unknown ? TransactionType.payment : type,
       source: source,
-      rawMerchant: merchant,
+      rawMerchant: MerchantSanity.forMessage(merchant, text),
       cardLast4: last4,
       accountNumber: accountNumber,
       balanceAfterText: ruleBalance != null

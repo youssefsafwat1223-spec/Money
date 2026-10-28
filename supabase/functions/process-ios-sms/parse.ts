@@ -339,7 +339,14 @@ function normalizeCurrencyCode(value?: string): string | undefined {
   return CURRENCY_CODES.includes(normalized) ? normalized : undefined;
 }
 
+// IPN/InstaPay transfers name the payment rail, never the counterparty: the
+// person is not a merchant, and "... on 28/10 at 01:43 AM" must not turn the
+// hour into a merchant called "01".
+const INSTAPAY_TEXT = /\bipn\b|instapay|إنستا ?باي|انستا ?باي/i;
+const NUMERIC_ONLY = /^[\d\s:./\-]+(?:\s*(?:am|pm|ص|م))?$/i;
+
 function extractMerchant(text: string): string | undefined {
+  if (INSTAPAY_TEXT.test(text)) return 'InstaPay';
   const raw = extractFirstGroup(text, rules.merchantPatterns as string[]);
   if (!raw) return undefined;
   const stop = new RegExp(rules.merchantStopPattern as string, 'i');
@@ -348,7 +355,9 @@ function extractMerchant(text: string): string | undefined {
     .replace(/^[\s.,:;؛*\-]+/g, '')
     .replace(/[\s.,:;؛*\-]+$/g, '')
     .trim();
-  return merchant || undefined;
+  // A time, date or reference number is never a merchant.
+  if (!merchant || NUMERIC_ONLY.test(merchant)) return undefined;
+  return merchant;
 }
 
 function extractFirstGroup(text: string, patterns: string[]): string | undefined {
@@ -396,6 +405,7 @@ function inferCategory(merchant: string | undefined, type: string): string {
     ['ADNOC', 'fuel'],
     ['SHELL', 'fuel'],
     ['NETFLIX', 'subscriptions'],
+    ['INSTAPAY', 'transfers'],
   ];
   for (const [needle, category] of rulesByMerchant) {
     if (value.includes(needle)) return category;
