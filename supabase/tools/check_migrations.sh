@@ -45,51 +45,57 @@ sd_funcs=$(for f in "$MIG_DIR"/*.sql; do
 done | sort -u)
 
 # REVOKE statements may span lines (multi-function lists) and end at ';', so
-# parse whole statements rather than grepping lines. A function counts as
+# parse statements incrementally rather than splitting a whole migration at
+# once. A function counts as
 # revoked only if the statement revokes EXECUTE or ALL on FUNCTION(s) and its
 # FROM clause names at least `public`. Names are normalized exactly like the
 # definer list: lowercase, `public.` stripped, other schemas kept, no spaces.
 revoked=$(for f in "$MIG_DIR"/*.sql; do
   awk '
-    { sub(/--.*/, ""); buf = buf " " $0 }
-    END {
-      buf = tolower(buf)
-      n = split(buf, stmts, ";")
-      for (i = 1; i <= n; i++) {
-        s = stmts[i]
-        gsub(/[ \t\r]+/, " ", s)
-        sub(/^ /, "", s)
-        if (s !~ /^revoke /) continue
-        # REVOKE GRANT OPTION FOR only removes the right to re-grant; it does not revoke EXECUTE itself.
-        if (s ~ /^revoke grant option for /) continue
-        if (!match(s, / on functions? /)) continue
-        privs = substr(s, 1, RSTART)
-        rest = substr(s, RSTART + RLENGTH)
-        if (privs !~ /(^| |,)(all|execute)( |,|$)/) continue
-        # FROM clause = after the last " from " (arg types never contain it).
-        p = 0; q = 0
-        while ((q = index(substr(rest, p + 1), " from ")) > 0) p = p + q
-        if (p == 0) continue
-        roles = substr(rest, p + 6)
-        list = substr(rest, 1, p - 1)
-        if (roles !~ /(^|[ ,])public([ ,]|$)/) continue
-        # Split list on top-level commas, dropping the (argument types).
-        depth = 0; name = ""
-        for (k = 1; k <= length(list) + 1; k++) {
-          c = (k <= length(list)) ? substr(list, k, 1) : ","
-          if (c == "(") { depth++; continue }
-          if (c == ")") { depth--; continue }
-          if (depth > 0) continue
-          if (c == ",") {
-            gsub(/[ \t]/, "", name); sub(/^public\./, "", name)
-            if (name != "") print name
-            name = ""
-          } else name = name c
-        }
+    function collect(s, privs, rest, p, q, roles, list, depth, name, k, c) {
+      s = tolower(s)
+      gsub(/[ \t\r]+/, " ", s)
+      sub(/^ /, "", s)
+      if (s !~ /^revoke /) return
+      # REVOKE GRANT OPTION FOR only removes the right to re-grant; it does not revoke EXECUTE itself.
+      if (s ~ /^revoke grant option for /) return
+      if (!match(s, / on functions? /)) return
+      privs = substr(s, 1, RSTART)
+      rest = substr(s, RSTART + RLENGTH)
+      if (privs !~ /(^| |,)(all|execute)( |,|$)/) return
+      # FROM clause = after the last " from " (arg types never contain it).
+      p = 0; q = 0
+      while ((q = index(substr(rest, p + 1), " from ")) > 0) p = p + q
+      if (p == 0) return
+      roles = substr(rest, p + 6)
+      list = substr(rest, 1, p - 1)
+      if (roles !~ /(^|[ ,])public([ ,]|$)/) return
+      # Split list on top-level commas, dropping the (argument types).
+      depth = 0; name = ""
+      for (k = 1; k <= length(list) + 1; k++) {
+        c = (k <= length(list)) ? substr(list, k, 1) : ","
+        if (c == "(") { depth++; continue }
+        if (c == ")") { depth--; continue }
+        if (depth > 0) continue
+        if (c == ",") {
+          gsub(/[ \t]/, "", name); sub(/^public\./, "", name)
+          if (name != "") print name
+          name = ""
+        } else name = name c
       }
     }
-  ' "$f"
-done | sort -u || true)
+    {
+      sub(/--.*/, "")
+      n = split($0, parts, ";")
+      for (i = 1; i < n; i++) {
+        collect(buf " " parts[i])
+        buf = ""
+      }
+      if (n > 0) buf = buf " " parts[n]
+    }
+    END { collect(buf) }
+  ' "$f" || exit 1
+done | sort -u)
 # Trigger-bound functions: `execute function|procedure [schema.]name`.
 trigger_bound=$(grep -rhoiE "execute (function|procedure) +([a-z0-9_]+\.)?[a-z0-9_]+" "$MIG_DIR" \
   | tr '[:upper:]' '[:lower:]' \

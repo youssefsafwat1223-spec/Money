@@ -355,7 +355,12 @@ void main() {
         runner: runner,
         externalOverrides: [authClientProvider.overrideWithValue(client)]));
     await _until(tester, () => find.byType(LocalReadShell).evaluate().isNotEmpty);
-    await _until(tester, () => find.text('Coffee Corner').evaluate().isNotEmpty);
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(LocalReadShell)), listen: false);
+    await _until(tester,
+        () => container.read(localReadSnapshotProvider).hasValue);
+    await tester.scrollUntilVisible(find.text('Coffee Corner'), 200,
+        scrollable: find.byType(Scrollable).first);
     // The language is read from the database a moment after the first frame.
     await _until(
         tester,
@@ -557,7 +562,12 @@ void main() {
         externalObservers: [created],
         externalOverrides: [authClientProvider.overrideWithValue(counted)]));
     await _until(tester, () => find.byType(LocalReadShell).evaluate().isNotEmpty);
-    await _until(tester, () => find.text('Coffee Corner').evaluate().isNotEmpty);
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(LocalReadShell)), listen: false);
+    await _until(tester,
+        () => container.read(localReadSnapshotProvider).hasValue);
+    await tester.scrollUntilVisible(find.text('Coffee Corner'), 200,
+        scrollable: find.byType(Scrollable).first);
 
     // Resume listeners (app lock, SDK, shell): background then foreground.
     for (final state in [
