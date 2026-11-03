@@ -63,7 +63,7 @@ class BudgetsCard extends StatelessWidget {
     }
 
     return MaliCard(
-      style: MaliSurfaceStyle.floating,
+      style: MaliSurfaceStyle.raised,
       padding: EdgeInsets.zero,
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -73,10 +73,14 @@ class BudgetsCard extends StatelessWidget {
           Divider(height: 1, color: t.strokeSoft),
           ConstrainedBox(
             constraints: BoxConstraints(maxHeight: maxHeight),
-            child: ListView.builder(
+            child: ListView.separated(
               shrinkWrap: true,
               padding: const EdgeInsets.symmetric(vertical: 4),
               itemCount: entries.length,
+              separatorBuilder: (context, index) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s3),
+                child: Divider(height: 1, color: t.strokeSoft),
+              ),
               itemBuilder: (context, i) => _row(context, t, entries[i]),
             ),
           ),
@@ -123,8 +127,7 @@ class BudgetsCard extends StatelessWidget {
             ),
             const SizedBox(height: 3),
             Text(label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
                 style: AppTypography.micro(t.textOnCanvasMuted)),
           ],
         ),
@@ -163,8 +166,9 @@ class BudgetsCard extends StatelessWidget {
               children: [
                 RingProgress(
                   value: ratio?.clamp(0.0, 1.0),
-                  size: 44,
-                  strokeWidth: 5,
+                  size: 40,
+                  strokeWidth: 4,
+                  trackColor: t.ringTrackNeutral,
                   color: tone,
                   child: Text(
                     ratio == null ? '—' : '${(ratio * 100).round()}%',

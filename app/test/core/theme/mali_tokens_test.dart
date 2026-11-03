@@ -17,10 +17,10 @@ void main() {
     });
 
     test('text-on-canvas contrast decreases: primary > secondary > muted', () {
-      expect(MaliTokens.dark.textOnCanvasPrimary.a,
-          greaterThan(MaliTokens.dark.textOnCanvasSecondary.a));
-      expect(MaliTokens.dark.textOnCanvasSecondary.a,
-          greaterThan(MaliTokens.dark.textOnCanvasMuted.a));
+      expect(MaliTokens.dark.textOnCanvasPrimary.computeLuminance(),
+          greaterThan(MaliTokens.dark.textOnCanvasSecondary.computeLuminance()));
+      expect(MaliTokens.dark.textOnCanvasSecondary.computeLuminance(),
+          greaterThan(MaliTokens.dark.textOnCanvasMuted.computeLuminance()));
     });
 
     test('ring indeterminate state is muted, not a real value color', () {

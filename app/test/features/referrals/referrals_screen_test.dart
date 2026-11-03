@@ -229,6 +229,10 @@ void main() {
     ));
     await tester.pump();
     expect(find.byType(TextField), findsNothing);
+    await tester.scrollUntilVisible(
+      find.text('تم تفعيل رمز دعوة على حسابك.'), 160,
+      scrollable: find.byType(Scrollable).first,
+    );
     expect(find.text('تم تفعيل رمز دعوة على حسابك.'), findsOneWidget);
   });
 

@@ -28,6 +28,8 @@ enum SharedCaptureStore {
   // A-12-min R4: bumped by every owner clear (sign-out, transition, removal), so
   // a publish that started before the clear can never land after it.
   private static let ownerEpochKey = "capture_owner_epoch_v1"
+  /// ASR §7.1: changes on every protected native write (never `max`-merged).
+  private static let egressMutationCounterKey = "capture_egress_mutation_counter_v1"
   private static let consentMirrorKey = "capture_consent_mirror_v1"
   private static let contractV2Key = "capture_contract_v2"
   private static let notifyV2Key = "capture_notify_v2"
@@ -1051,6 +1053,7 @@ enum SharedCaptureStore {
     return queue
   }
 
+  #if CAPTURE_STATE_WRITER
   /// MALI-054n / MALI-031: removes ALL user-owned capture residue from the App
   /// Group AND invalidates the device secret + queue-encryption key, so a
   /// previous account's bank messages can never surface under a new identity and
@@ -1063,7 +1066,7 @@ enum SharedCaptureStore {
   @discardableResult
   static func purgeUserOwnedState() -> Bool {
     do {
-      try withQueueLock {
+      try withProtectedWriteLock {
         try removeQueueFile()
         defaults?.removeObject(forKey: queueKey)
         defaults?.removeObject(forKey: migratedKey)
@@ -1088,6 +1091,7 @@ enum SharedCaptureStore {
     }
     return true
   }
+  #endif
 
   /// CAP-0: the body NEVER runs without the exclusive lock. If the container,
   /// the lock file or the flock itself is unavailable this throws instead.
@@ -1110,6 +1114,45 @@ enum SharedCaptureStore {
     defer { flock(fd, LOCK_UN) }
     return try body()
   }
+
+  #if CAPTURE_STATE_WRITER
+  /// ASR §7.1/§7.4: every write to protected native state (egress state,
+  /// pending enable, removal barrier, active owner, consent mirror) runs under
+  /// this lock, which advances `egressMutationCounter` BEFORE the body runs —
+  /// also when the body then refuses, so the counter can only over-report a
+  /// change (an ASR evidence confirmation then fails closed).
+  private static func withProtectedWriteLock<T>(_ body: () throws -> T) throws -> T {
+    try withQueueLock {
+      bumpEgressMutationCounter()
+      return try body()
+    }
+  }
+  #endif
+
+  #if CAPTURE_STATE_WRITER
+  /// [withProtectedWriteLock] that hands the body the counter as it was BEFORE
+  /// this write's own bump, for ASR transitions bound to an earlier receipt.
+  private static func withProtectedWriteLockCounted<T>(_ body: (Int?) throws -> T) throws -> T {
+    try withQueueLock {
+      let prior = egressMutationCounter()
+      bumpEgressMutationCounter()
+      return try body(prior)
+    }
+  }
+  #endif
+
+  /// The counter as read under a lock already held (nil only without defaults).
+  private static func egressMutationCounter() -> Int? {
+    guard let store = defaults else { return nil }
+    return store.integer(forKey: egressMutationCounterKey)
+  }
+
+  #if CAPTURE_STATE_WRITER
+  private static func bumpEgressMutationCounter() {
+    let next = (defaults?.integer(forKey: egressMutationCounterKey) ?? 0) &+ 1
+    defaults?.set(next, forKey: egressMutationCounterKey)
+  }
+  #endif
 
   private static func saveQueue(_ queue: [Payload], notifyHost: Bool = true) throws {
     if queue.isEmpty {
@@ -1239,9 +1282,11 @@ enum SharedCaptureStore {
     try withQueueLock { defaults?.integer(forKey: ownerEpochKey) ?? 0 }
   }
 
+  #if CAPTURE_STATE_WRITER
   private static func bumpOwnerEpoch() {
     defaults?.set((defaults?.integer(forKey: ownerEpochKey) ?? 0) + 1, forKey: ownerEpochKey)
   }
+  #endif
 
   /// The consent a publish writes together with the owner (A-12-min R4).
   struct ConsentMirrorValue: Equatable {
@@ -1250,6 +1295,7 @@ enum SharedCaptureStore {
     let version: Int
   }
 
+  #if CAPTURE_STATE_WRITER
   /// Publishes `{uid, uidHash, generation}` as the active owner, writing the
   /// owner's consent mirror FIRST and the owner record second, in ONE flock
   /// (A-12-min R4): an owner is never visible without its mirror. It compares
@@ -1267,7 +1313,7 @@ enum SharedCaptureStore {
     transitionGeneration: Int? = nil,
     repairGeneration: Bool = false
   ) throws -> OwnerRecord {
-    try withQueueLock {
+    try withProtectedWriteLock {
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
       guard (defaults?.integer(forKey: ownerEpochKey) ?? 0) == expectedEpoch else {
         throw QueueError.ownerChanged
@@ -1308,7 +1354,9 @@ enum SharedCaptureStore {
       return record
     }
   }
+  #endif
 
+  #if CAPTURE_STATE_WRITER
   /// Re-claims the CURRENT active owner with a fresh, monotonic generation when
   /// the ONLY inconsistency is the app-group generation counter (missing, reset
   /// or different from the Keychain record: Keychain items survive an app
@@ -1336,25 +1384,29 @@ enum SharedCaptureStore {
     return try publishActiveOwner(
       uid: normalized, mirror: state.mirror, expectedEpoch: state.epoch, repairGeneration: true)
   }
+  #endif
 
+  #if CAPTURE_STATE_WRITER
   /// Clears the owner record (sign-out, or the start of an account transition).
   /// [clearHint] true at a transition: captures during it are `unbound` with NO
   /// hint. At a plain sign-out the hint stays so the same uid can recover them.
   static func clearActiveOwner(clearHint: Bool) throws {
-    try withQueueLock {
+    try withProtectedWriteLock {
       try removeKeychain(forKey: activeOwnerKC)
       if clearHint { try removeKeychain(forKey: lastAdmittedHashKC) }
       bumpOwnerEpoch()
       defaults?.synchronize()
     }
   }
+  #endif
 
+  #if CAPTURE_STATE_WRITER
   /// Per-owner consent mirror (advisory; read by the intent for the stamped
   /// owner only). Keyed by uidHash; deleted by the Remove-data sweep.
   static func setConsentMirror(
     uid: String, cloud: Bool, ai: Bool, version: Int, transitionGeneration: Int? = nil
   ) throws {
-    try withQueueLock {
+    try withProtectedWriteLock {
       // A-12-min R4: refused while a Remove-data barrier is in force.
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
       let mirror = ConsentMirrorValue(cloud: cloud, ai: ai, version: version)
@@ -1363,6 +1415,7 @@ enum SharedCaptureStore {
       writeConsentMirrorEntry(hash: try uidHash(uid), mirror: mirror)
     }
   }
+  #endif
 
   /// P4: callers hold the flock. Stale generation or a widening mirror under a
   /// denial throws before anything is written.
@@ -1377,6 +1430,7 @@ enum SharedCaptureStore {
     }
   }
 
+  #if CAPTURE_STATE_WRITER
   /// Writes one mirror entry. Callers hold the queue flock.
   private static func writeConsentMirrorEntry(hash: String, mirror: ConsentMirrorValue) {
     var entries = defaults?.dictionary(forKey: consentMirrorKey) ?? [:]
@@ -1384,6 +1438,7 @@ enum SharedCaptureStore {
     defaults?.set(entries, forKey: consentMirrorKey)
     defaults?.synchronize()
   }
+  #endif
 
   private static func consentMirror(forHash hash: String) -> (cloud: Bool, ai: Bool)? {
     guard let entry = defaults?.dictionary(forKey: consentMirrorKey)?[hash] as? [String: Any],
@@ -1472,17 +1527,36 @@ enum SharedCaptureStore {
     let lifetimeOwnerGeneration: Int?
     let lifetimeOwnerEpoch: Int?
     let retirement: PendingEnable?
+    /// ASR §7.2: present only on an OFF written by the conditional expiry mint.
+    /// Every other writer constructs records without it, which invalidates it
+    /// (§7.3). Absent from the encoding when nil, so older records round-trip.
+    let expiryEvidence: ExpiryEvidence?
+    /// ASR §7.5 SE1: the evidence id a successor OFF lifetime consumed. Like
+    /// [expiryEvidence], dropped by every other writer.
+    let successorOfExpiry: String?
 
     init(state: String, transitionGeneration: Int, reservedVersion: Int,
          lifetimeOwnerGeneration: Int? = nil, lifetimeOwnerEpoch: Int? = nil,
-         retirement: PendingEnable? = nil) {
+         retirement: PendingEnable? = nil, expiryEvidence: ExpiryEvidence? = nil,
+         successorOfExpiry: String? = nil) {
       self.state = state
       self.transitionGeneration = transitionGeneration
       self.reservedVersion = reservedVersion
       self.lifetimeOwnerGeneration = lifetimeOwnerGeneration
       self.lifetimeOwnerEpoch = lifetimeOwnerEpoch
       self.retirement = retirement
+      self.expiryEvidence = expiryEvidence
+      self.successorOfExpiry = successorOfExpiry
     }
+  }
+
+  /// ASR §7.2: the expired session lifetime an OFF record retired, bound to the
+  /// native owner lifetime and to the session store lifecycle that expired.
+  struct ExpiryEvidence: Codable, Equatable {
+    let evidenceId: String
+    let ownerGeneration: Int
+    let ownerEpoch: Int
+    let sessionLifecycle: Int
   }
 
   /// `cloud_egress_state` as stored (identically) in the Keychain item and the
@@ -1877,6 +1951,7 @@ enum SharedCaptureStore {
     }
   }
 
+  #if CAPTURE_STATE_WRITER
   /// Writes the OWNER's entry to BOTH stores under the queue flock. Both
   /// physical layers must be readable before any write: corruption has an
   /// unknown version frontier and is never repaired by this generic writer.
@@ -1893,7 +1968,7 @@ enum SharedCaptureStore {
       throw QueueError.encodingFailed
     }
     let restrictive = rank > 0
-    try withQueueLock {
+    try withProtectedWriteLock {
       let hash = try uidHash(owner)
       // The legacy writer can never open a pending explicit enable: only
       // [writeCloudEgressEnableOn] under the exact operation writes that ON, and
@@ -1986,6 +2061,7 @@ enum SharedCaptureStore {
       }
     }
   }
+  #endif
 
   // MARK: Pending enable barrier (consent-security amendment)
   //
@@ -2154,6 +2230,10 @@ enum SharedCaptureStore {
     let ownerEpoch: Int?
     let barrier: [LayerReport]
     let egress: [LayerReport]
+    /// ASR §7.2: the evidence both layers hold after an expiry revoke, if any.
+    var expiryEvidence: ExpiryEvidence? = nil
+    /// ASR §7.4: `egressMutationCounter` read under the same lock (receipts).
+    var mutationCounter: Int? = nil
   }
 
   private enum StateStore: String { case egress, pending }
@@ -2224,6 +2304,7 @@ enum SharedCaptureStore {
     stateLayerWriteFault?(store.rawValue, layer.rawValue) ?? .none
   }
 
+  #if CAPTURE_STATE_WRITER
   /// True when the write CALL reported success. Never proof: read the layer back.
   private static func writeStateLayer(_ store: StateStore, _ layer: StateLayer, _ data: Data) -> Bool {
     switch layerWriteFault(store, layer) {
@@ -2241,7 +2322,9 @@ enum SharedCaptureStore {
         data, forKey: store == .egress ? egressStateKC : pendingStateKC) == errSecSuccess
     }
   }
+  #endif
 
+  #if CAPTURE_STATE_WRITER
   private static func removeStateLayer(_ store: StateStore, _ layer: StateLayer) -> Bool {
     switch layerWriteFault(store, layer) {
     case .fail: return false
@@ -2258,6 +2341,7 @@ enum SharedCaptureStore {
       return status == errSecSuccess || status == errSecItemNotFound
     }
   }
+  #endif
 
   private static func egressLayerRead(_ layer: StateLayer) -> LayerRead<CloudEgressMap> {
     readStateLayer(.egress, layer, decode: decodeEgressMap)
@@ -2428,21 +2512,30 @@ enum SharedCaptureStore {
     }
   }
 
+  #if CAPTURE_STATE_WRITER
   /// Phase 1. See "PHASES" above. Writes ONLY the pending barrier, each layer from
   /// its own content. A fresh begin never adopts an existing operation; [resume…]
   /// names the original operation (its id AND its original owner epoch) to repair.
+  ///
+  /// ASR §7.5 SE2 `successor`: a fresh begin only, when the counter is unchanged
+  /// since the SE1 receipt and both egress layers hold exactly SE1's OFF lifetime
+  /// (marker [successor.evidenceId], bound to the live owner) with no reserved
+  /// version above [reservedVersion]. No consent version is reserved here.
   static func beginCloudEgressEnable(
     ownerUid: String, transitionGeneration: Int, reservedVersion: Int,
-    resumeOperationId: String? = nil, resumeOwnerEpoch: Int? = nil
+    resumeOperationId: String? = nil, resumeOwnerEpoch: Int? = nil,
+    successor: (evidenceId: String, expectedCounter: Int)? = nil
   ) throws -> EnableTransitionResult {
     let owner = normalizedUID(ownerUid)
     guard !owner.isEmpty, transitionGeneration > 0, reservedVersion >= 0,
           (resumeOperationId == nil) == (resumeOwnerEpoch == nil),
           resumeOperationId.map(validOperationId) ?? true,
-          (resumeOwnerEpoch ?? 0) >= 0 else {
+          (resumeOwnerEpoch ?? 0) >= 0,
+          successor == nil || resumeOperationId == nil,
+          successor.map({ validOperationId($0.evidenceId) }) ?? true else {
       throw QueueError.encodingFailed
     }
-    return try withQueueLock {
+    return try withProtectedWriteLockCounted { prior in
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
       guard let hash = try keyedOwnerHash(owner) else {
         return transition("begin", .ownerMismatch, op: nil, barrier: absentBarrier())
@@ -2454,6 +2547,19 @@ enum SharedCaptureStore {
       // never mint the owner here.
       guard let live = try liveOwner(matching: owner) else {
         return transition("begin", .ownerMismatch, op: nil, barrier: barrier)
+      }
+      if let successor {
+        let entries = StateLayer.allCases.map { layer -> CloudEgressRecord? in
+          if case let .value(map) = egressLayerRead(layer) { return map.owners[hash] }
+          return nil
+        }
+        guard prior == successor.expectedCounter, !view.holdsAny, !view.anyUnreadable,
+              let first = entries[0], entries.allSatisfy({ $0 == first }), first.state == "OFF",
+              first.successorOfExpiry == successor.evidenceId, first.retirement == nil,
+              first.lifetimeOwnerGeneration == live.generation, first.lifetimeOwnerEpoch == live.epoch,
+              first.reservedVersion <= reservedVersion else {
+          return transition("begin", .conflict, op: nil, barrier: barrier, egress: inspectEgress(hash))
+        }
       }
       // An unreadable layer can hide another owner's barrier or a newer
       // operation, and is never reconstructed: nothing is judged or written.
@@ -2525,22 +2631,32 @@ enum SharedCaptureStore {
         }
       }
       let verified = reports.allSatisfy { $0.outcome == .verified }
-      return transition("begin", verified ? .done : .incomplete, op: op, barrier: reports, egress: inspectEgress(hash))
+      var reply = transition("begin", verified ? .done : .incomplete, op: op, barrier: reports, egress: inspectEgress(hash))
+      reply.mutationCounter = egressMutationCounter()
+      return reply
     }
   }
+  #endif
 
+  #if CAPTURE_STATE_WRITER
   /// Phase 2. Writes ON(generation, version) into each egress layer under the
   /// exact pending operation while its owner lifecycle is still the live one,
   /// then reads each layer back. The barrier stays.
+  ///
+  /// ASR §7.5 SE3/SE4: with [expectedCounter] (writeOn and complete) the phase
+  /// also requires the counter unchanged since the caller's previous receipt.
   static func writeCloudEgressEnableOn(
     ownerUid: String, operationId: String, transitionGeneration: Int, reservedVersion: Int,
-    ownerGeneration: Int, ownerEpoch: Int
+    ownerGeneration: Int, ownerEpoch: Int, expectedCounter: Int? = nil
   ) throws -> EnableTransitionResult {
     let (owner, expected) = try boundOperation(
       ownerUid: ownerUid, operationId: operationId,
       generation: transitionGeneration, version: reservedVersion,
       ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
-    return try withQueueLock {
+    return try withProtectedWriteLockCounted { prior in
+      guard expectedCounter == nil || prior == expectedCounter else {
+        return transition("writeOn", .conflict, op: expected, barrier: absentBarrier())
+      }
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
       guard let hash = try keyedOwnerHash(owner) else {
         return transition("writeOn", .noBarrier, op: expected, barrier: absentBarrier())
@@ -2617,20 +2733,30 @@ enum SharedCaptureStore {
         }
       }
       let verified = reports.allSatisfy { $0.outcome == .verified }
-      return transition("writeOn", verified ? .done : .incomplete, op: expected, barrier: barrier, egress: reports)
+      var reply = transition("writeOn", verified ? .done : .incomplete, op: expected, barrier: barrier, egress: reports)
+      reply.mutationCounter = egressMutationCounter()
+      return reply
     }
   }
+  #endif
 
+  #if CAPTURE_STATE_WRITER
   /// N: retires an outgoing lifetime even AFTER pending completion cleared.
   /// Ordered against finish/admission by the same flock; no transport is awaited.
+  ///
+  /// ASR §7.2: with [expirySessionLifecycle] (cause `sessionExpiry`) the OFF also
+  /// carries expiry evidence, but ONLY when, before writing, both layers agree on
+  /// an ON with no retirement bound to exactly this owner generation/epoch, with
+  /// no pending enable and no removal barrier. An identical repeat is a no-op.
+  /// Any other prior state revokes exactly as without the argument.
   static func revokeCaptureAuthorizationLifetime(
     ownerUid: String, operationId: String, transitionGeneration: Int, reservedVersion: Int,
-    ownerGeneration: Int, ownerEpoch: Int
+    ownerGeneration: Int, ownerEpoch: Int, expirySessionLifecycle: Int? = nil
   ) throws -> EnableTransitionResult {
     let (owner, expected) = try boundOperation(ownerUid: ownerUid, operationId: operationId,
       generation: transitionGeneration, version: reservedVersion,
       ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
-    return try withQueueLock {
+    return try withProtectedWriteLock {
       guard let hash = try keyedOwnerHash(owner) else {
         return transition("revoke", .ownerMismatch, op: expected, barrier: absentBarrier())
       }
@@ -2665,6 +2791,29 @@ enum SharedCaptureStore {
           }
         }
       }
+      var evidence: ExpiryEvidence?
+      if let lifecycle = expirySessionLifecycle {
+        let entries = reads.map { read -> CloudEgressRecord? in
+          if case let .value(map) = read { return map.owners[hash] }
+          return nil
+        }
+        if let first = entries[0], entries.allSatisfy({ $0 == first }),
+           first.retirement == expected, let held = first.expiryEvidence,
+           held.ownerGeneration == ownerGeneration, held.ownerEpoch == ownerEpoch,
+           held.sessionLifecycle == lifecycle {
+          var reply = transition("revoke", .done, op: expected, barrier: barrier, egress: before)
+          reply.expiryEvidence = held
+          reply.mutationCounter = egressMutationCounter()
+          return reply
+        }
+        if let first = entries[0], entries.allSatisfy({ $0 == first }),
+           first.state == "ON", first.retirement == nil,
+           first.lifetimeOwnerGeneration == ownerGeneration, first.lifetimeOwnerEpoch == ownerEpoch,
+           !pending.holds(hash), try readBarrier() == nil {
+          evidence = ExpiryEvidence(evidenceId: try newOperationId(), ownerGeneration: ownerGeneration,
+            ownerEpoch: ownerEpoch, sessionLifecycle: lifecycle)
+        }
+      }
       var targets: [StateLayer: CloudEgressMap] = [:]
       var writes: [StateLayer: Bool] = [:]
       for (layer, read) in zip(StateLayer.allCases, reads) {
@@ -2675,7 +2824,7 @@ enum SharedCaptureStore {
           transitionGeneration: max(old?.transitionGeneration ?? 0, transitionGeneration),
           reservedVersion: max(old?.reservedVersion ?? 0, reservedVersion),
           lifetimeOwnerGeneration: ownerGeneration, lifetimeOwnerEpoch: ownerEpoch,
-          retirement: expected)
+          retirement: expected, expiryEvidence: evidence)
         targets[layer] = map
         guard let data = try? JSONEncoder().encode(map) else { throw QueueError.encodingFailed }
         writes[layer] = writeStateLayer(.egress, layer, data)
@@ -2690,18 +2839,25 @@ enum SharedCaptureStore {
         case .unreadable: return egressReport(layer, .unreadable, nil)
         }
       }
-      return transition("revoke", reports.allSatisfy { $0.outcome == .verified } ? .done : .incomplete,
+      var reply = transition("revoke", reports.allSatisfy { $0.outcome == .verified } ? .done : .incomplete,
         op: expected, barrier: barrier, egress: reports)
+      if reply.status == .done { reply.expiryEvidence = evidence }
+      reply.mutationCounter = egressMutationCounter()
+      return reply
     }
   }
+  #endif
 
   struct RestrictiveOwnerPublication {
     let status: TransitionStatus
     let owner: OwnerRecord?
     let ownerEpoch: Int
     let egress: [LayerReport]
+    /// ASR §7.4: the counter after this write (SE1 receipts).
+    var mutationCounter: Int? = nil
   }
 
+  #if CAPTURE_STATE_WRITER
   /// Explicit fresh restrictive publication; never clears a pending operation.
   /// A retired active same-UID owner obtains a NEW generation only after both
   /// existing egress layers verify restrictive lifetime evidence.
@@ -2713,14 +2869,24 @@ enum SharedCaptureStore {
   /// state (ON, DISABLING, unbound ahead, a disagreeing or absent layer, a
   /// changed frontier) is refused with nothing written. It never lowers a version
   /// or a transition generation.
+  ///
+  /// ASR §7.5 SE1 `successorOf`: only when the counter is unchanged since the
+  /// caller's evidence read, the same uid is the active owner, and both layers
+  /// hold exactly that expiry evidence bound to the active owner generation and
+  /// [expectedEpoch]. The new OFF lifetime records the consumed evidence id.
   static func publishRestrictiveCaptureOwner(
     uid: String, version: Int, expectedEpoch: Int,
     recover: (transitionGeneration: Int, reservedVersion: Int,
-              lifetimeOwnerGeneration: Int?, lifetimeOwnerEpoch: Int?)? = nil
+              lifetimeOwnerGeneration: Int?, lifetimeOwnerEpoch: Int?)? = nil,
+    successorOf: (evidenceId: String, expectedCounter: Int)? = nil
   ) throws -> RestrictiveOwnerPublication {
     let owner = normalizedUID(uid)
-    guard !owner.isEmpty, version >= 0, expectedEpoch >= 0 else { throw QueueError.encodingFailed }
-    return try withQueueLock {
+    guard !owner.isEmpty, version >= 0, expectedEpoch >= 0,
+          recover == nil || successorOf == nil,
+          successorOf.map({ validOperationId($0.evidenceId) }) ?? true else {
+      throw QueueError.encodingFailed
+    }
+    return try withProtectedWriteLockCounted { prior in
       guard try readBarrier() == nil else { throw QueueError.barrierActive }
       guard let defaults, snapshotCounter(ownerEpochKey, in: defaults) == expectedEpoch,
             let lastGeneration = snapshotCounter(ownerGenerationKey, in: defaults) else {
@@ -2747,6 +2913,15 @@ enum SharedCaptureStore {
       if entries.contains(where: { ($0?.reservedVersion ?? 0) > version }) {
         return RestrictiveOwnerPublication(status: .stale, owner: nil,
           ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
+      }
+      if let successorOf {
+        guard prior == successorOf.expectedCounter, let active, active.uid == owner,
+              let first = entries[0], entries.allSatisfy({ $0 == first }), first.state == "OFF",
+              let evidence = first.expiryEvidence, evidence.evidenceId == successorOf.evidenceId,
+              evidence.ownerGeneration == active.generation, evidence.ownerEpoch == expectedEpoch else {
+          return RestrictiveOwnerPublication(status: .conflict, owner: nil,
+            ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
+        }
       }
       if let recover {
         let agreed = entries.count == StateLayer.allCases.count && entries.allSatisfy {
@@ -2777,7 +2952,8 @@ enum SharedCaptureStore {
         : max(lastGeneration, active?.generation ?? 0, unfinishedGeneration) + 1
       let transitionGeneration = entries.compactMap { $0?.transitionGeneration }.max() ?? 0
       let target = CloudEgressRecord(state: "OFF", transitionGeneration: transitionGeneration,
-        reservedVersion: version, lifetimeOwnerGeneration: generation, lifetimeOwnerEpoch: expectedEpoch)
+        reservedVersion: version, lifetimeOwnerGeneration: generation, lifetimeOwnerEpoch: expectedEpoch,
+        successorOfExpiry: successorOf?.evidenceId)
       var targets: [StateLayer: CloudEgressMap] = [:]
       var writes: [StateLayer: Bool] = [:]
       for (layer, read) in zip(StateLayer.allCases, reads) {
@@ -2818,10 +2994,12 @@ enum SharedCaptureStore {
           ownerEpoch: expectedEpoch, egress: reports)
       }
       return RestrictiveOwnerPublication(status: .done, owner: record,
-        ownerEpoch: expectedEpoch, egress: reports)
+        ownerEpoch: expectedEpoch, egress: reports, mutationCounter: egressMutationCounter())
     }
   }
+  #endif
 
+  #if CAPTURE_STATE_WRITER
   /// Phase 3. Conditional, per-layer compensation of an operation the barrier
   /// PROVES. Missing, unreadable or conflicting barrier evidence is never
   /// permission to write, and the proof is per layer: an egress layer is rewritten
@@ -2838,7 +3016,7 @@ enum SharedCaptureStore {
       ownerUid: ownerUid, operationId: operationId,
       generation: transitionGeneration, version: reservedVersion,
       ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
-    return try withQueueLock {
+    return try withProtectedWriteLock {
       guard let hash = try keyedOwnerHash(owner) else {
         return transition("restrict", .noBarrier, op: expected, barrier: absentBarrier())
       }
@@ -2916,22 +3094,28 @@ enum SharedCaptureStore {
       return transition("restrict", clean ? .done : .incomplete, op: expected, barrier: barrier, egress: reports)
     }
   }
+  #endif
 
+  #if CAPTURE_STATE_WRITER
   /// Phase 4. `complete` (needs verified ON in both layers and the operation's
   /// owner lifecycle still live) or `abandon` (needs NO ON for the owner in
   /// either layer): the only ways the barrier is lifted, and only by the
   /// operation's full binding.
   static func finishCloudEgressEnable(
     ownerUid: String, operationId: String, transitionGeneration: Int, reservedVersion: Int,
-    ownerGeneration: Int, ownerEpoch: Int, abandon: Bool
+    ownerGeneration: Int, ownerEpoch: Int, abandon: Bool, expectedCounter: Int? = nil
   ) throws -> EnableTransitionResult {
     let (owner, expected) = try boundOperation(
       ownerUid: ownerUid, operationId: operationId,
       generation: transitionGeneration, version: reservedVersion,
       ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
     let name = abandon ? "abandon" : "complete"
+    guard expectedCounter == nil || !abandon else { throw QueueError.encodingFailed }
     beforeLifetimeFinishLock?()
-    return try withQueueLock {
+    return try withProtectedWriteLockCounted { prior in
+      guard expectedCounter == nil || prior == expectedCounter else {
+        return transition(name, .conflict, op: expected, barrier: absentBarrier())
+      }
       // Re-read under the flock: a Remove-data barrier and the live owner.
       if !abandon { guard try readBarrier() == nil else { throw QueueError.barrierActive } }
       guard let hash = try keyedOwnerHash(owner) else {
@@ -3024,7 +3208,299 @@ enum SharedCaptureStore {
           return pendingReport(layer, wrote ? .unreadable : .writeFailed, nil)
         }
       }
-      return transition(name, cleared ? .done : .incomplete, op: expected, barrier: reports, egress: egress)
+      var reply = transition(name, cleared ? .done : .incomplete, op: expected, barrier: reports, egress: egress)
+      reply.mutationCounter = egressMutationCounter()
+      return reply
+    }
+  }
+  #endif
+
+  // MARK: Automatic session recovery evidence (ASR §7.2–§7.5)
+
+  /// One locked, read-only snapshot of everything ASR's native predicate needs.
+  /// [kind] is `expiryEvidence` (E2-a), `liveOn` (E2-b) or `none`; the session
+  /// lifecycle comparison is Dart's. No uid, key or content appears here.
+  struct RecoveryEvidenceSnapshot: Equatable {
+    let kind: String
+    let ownerGeneration: Int?
+    let ownerEpoch: Int?
+    let record: CloudEgressRecord?
+    let mutationCounter: Int?
+  }
+
+  static func inspectRecoveryEvidence(ownerUid: String) throws -> RecoveryEvidenceSnapshot {
+    let owner = normalizedUID(ownerUid)
+    guard !owner.isEmpty else { throw QueueError.encodingFailed }
+    return try withQueueLock {
+      let counter = egressMutationCounter()
+      func none(_ generation: Int? = nil, _ epoch: Int? = nil, _ record: CloudEgressRecord? = nil)
+        -> RecoveryEvidenceSnapshot {
+        RecoveryEvidenceSnapshot(kind: "none", ownerGeneration: generation, ownerEpoch: epoch,
+          record: record, mutationCounter: counter)
+      }
+      guard let hash = try keyedOwnerHash(owner), let store = defaults,
+            let epoch = snapshotCounter(ownerEpochKey, in: store),
+            let active = try readActiveOwner(), active.uid == owner,
+            barrierProvenAbsent() else { return none() }
+      let pending = pendingView()
+      let entries = StateLayer.allCases.map { layer -> CloudEgressRecord?? in
+        switch egressLayerRead(layer) {
+        case let .value(map): return .some(map.owners[hash])
+        case .absent: return .some(nil)
+        case .unreadable: return nil
+        }
+      }
+      guard !pending.anyUnreadable, !pending.holdsAny,
+            let file = entries[0], let record = file, entries.allSatisfy({ $0 == .some(record) }) else {
+        return none(active.generation, epoch)
+      }
+      if record.state == "OFF", record.retirement != nil, let evidence = record.expiryEvidence,
+         evidence.ownerGeneration == active.generation, evidence.ownerEpoch == epoch {
+        return RecoveryEvidenceSnapshot(kind: "expiryEvidence", ownerGeneration: active.generation,
+          ownerEpoch: epoch, record: record, mutationCounter: counter)
+      }
+      if record.state == "ON", record.retirement == nil,
+         record.lifetimeOwnerGeneration == active.generation, record.lifetimeOwnerEpoch == epoch {
+        return RecoveryEvidenceSnapshot(kind: "liveOn", ownerGeneration: active.generation,
+          ownerEpoch: epoch, record: record, mutationCounter: counter)
+      }
+      return none(active.generation, epoch, record)
+    }
+  }
+
+  /// A removal barrier that cannot be read is NOT absent.
+  private static func barrierProvenAbsent() -> Bool {
+    do { return try readBarrier() == nil } catch { return false }
+  }
+
+  /// §7.4: true only when no protected native write happened since [expectedCounter].
+  static func confirmRecoveryEvidence(expectedCounter: Int) throws -> Bool {
+    try withQueueLock { egressMutationCounter() == expectedCounter }
+  }
+
+  #if CAPTURE_STATE_WRITER
+  /// Writes [target] for [hash] into each layer (other owners untouched) and
+  /// reports the read-back. Used only by the ASR transitions below.
+  private static func writeEgressRecord(
+    _ hash: String, _ reads: [LayerRead<CloudEgressMap>], _ target: CloudEgressRecord
+  ) throws -> [LayerReport] {
+    var targets: [StateLayer: CloudEgressMap] = [:]
+    var writes: [StateLayer: Bool] = [:]
+    for (layer, read) in zip(StateLayer.allCases, reads) {
+      var map = CloudEgressMap()
+      if case let .value(existing) = read { map = existing }
+      map.owners[hash] = target
+      targets[layer] = map
+      guard let data = try? JSONEncoder().encode(map) else { throw QueueError.encodingFailed }
+      writes[layer] = writeStateLayer(.egress, layer, data)
+    }
+    return StateLayer.allCases.map { layer -> LayerReport in
+      switch egressLayerRead(layer) {
+      case let .value(map) where map == targets[layer]: return egressReport(layer, .verified, target)
+      case let .value(map): return egressReport(layer, writes[layer] == true ? .mismatch : .writeFailed, map.owners[hash])
+      case .absent: return egressReport(layer, .writeFailed, nil)
+      case .unreadable: return egressReport(layer, .unreadable, nil)
+      }
+    }
+  }
+  #endif
+
+  #if CAPTURE_STATE_WRITER
+  /// §7.6 E2-b: the conditional expiry retirement of a still-ON lifetime left by
+  /// a previous process. Only when the counter is unchanged since the caller's
+  /// inspection and both layers hold exactly that ON bound to the live owner,
+  /// with no pending enable and no removal barrier. Writes OFF + retirement +
+  /// expiry evidence; any other state writes nothing.
+  static func mintExpiryEvidenceForLiveOn(
+    ownerUid: String, ownerGeneration: Int, ownerEpoch: Int, transitionGeneration: Int,
+    reservedVersion: Int, sessionLifecycle: Int, expectedCounter: Int
+  ) throws -> EnableTransitionResult {
+    let owner = normalizedUID(ownerUid)
+    guard !owner.isEmpty, ownerGeneration > 0, ownerEpoch >= 0, transitionGeneration >= 0,
+          reservedVersion >= 0, sessionLifecycle >= 0 else { throw QueueError.encodingFailed }
+    return try withProtectedWriteLockCounted { prior in
+      guard let hash = try keyedOwnerHash(owner) else {
+        return transition("mintExpiry", .ownerMismatch, op: nil, barrier: absentBarrier())
+      }
+      let pending = pendingView()
+      let barrier = inspectBarrier(pending, hash)
+      let before = inspectEgress(hash)
+      guard prior == expectedCounter else {
+        return transition("mintExpiry", .conflict, op: nil, barrier: barrier, egress: before)
+      }
+      guard let active = try readActiveOwner(), active.uid == owner, active.generation == ownerGeneration,
+            let store = defaults, snapshotCounter(ownerEpochKey, in: store) == ownerEpoch else {
+        return transition("mintExpiry", .ownerMismatch, op: nil, barrier: barrier, egress: before)
+      }
+      let reads = StateLayer.allCases.map { egressLayerRead($0) }
+      if pending.anyUnreadable || reads.contains(where: { $0.isUnreadable }) {
+        return transition("mintExpiry", .uncertain, op: nil, barrier: barrier, egress: before)
+      }
+      let expected = CloudEgressRecord(state: "ON", transitionGeneration: transitionGeneration,
+        reservedVersion: reservedVersion, lifetimeOwnerGeneration: ownerGeneration,
+        lifetimeOwnerEpoch: ownerEpoch)
+      let entries = reads.map { read -> CloudEgressRecord? in
+        if case let .value(map) = read { return map.owners[hash] }
+        return nil
+      }
+      guard try readBarrier() == nil, !pending.holds(hash),
+            entries.allSatisfy({ $0 == expected }) else {
+        return transition("mintExpiry", .conflict, op: nil, barrier: barrier, egress: before)
+      }
+      let op = PendingEnable(operationId: try newOperationId(), transitionGeneration: transitionGeneration,
+        reservedVersion: reservedVersion, ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch)
+      let evidence = ExpiryEvidence(evidenceId: try newOperationId(), ownerGeneration: ownerGeneration,
+        ownerEpoch: ownerEpoch, sessionLifecycle: sessionLifecycle)
+      let reports = try writeEgressRecord(hash, reads, CloudEgressRecord(state: "OFF",
+        transitionGeneration: transitionGeneration, reservedVersion: reservedVersion,
+        lifetimeOwnerGeneration: ownerGeneration, lifetimeOwnerEpoch: ownerEpoch,
+        retirement: op, expiryEvidence: evidence))
+      let done = reports.allSatisfy { $0.outcome == .verified }
+      var reply = transition("mintExpiry", done ? .done : .incomplete, op: op, barrier: barrier, egress: reports)
+      if done { reply.expiryEvidence = evidence }
+      reply.mutationCounter = egressMutationCounter()
+      return reply
+    }
+  }
+  #endif
+
+  #if CAPTURE_STATE_WRITER
+  /// §7.7: removes exactly [evidenceId] from every layer that holds it (the
+  /// record is otherwise unchanged). The counter changes in every case, so an
+  /// earlier inspection can no longer be confirmed.
+  static func invalidateExpiryEvidence(ownerUid: String, evidenceId: String) throws -> EnableTransitionResult {
+    let owner = normalizedUID(ownerUid)
+    guard !owner.isEmpty, validOperationId(evidenceId) else { throw QueueError.encodingFailed }
+    return try withProtectedWriteLock {
+      guard let hash = try keyedOwnerHash(owner) else {
+        var reply = transition("invalidateExpiry", .done, op: nil, barrier: absentBarrier())
+        reply.mutationCounter = egressMutationCounter()
+        return reply
+      }
+      let reads = StateLayer.allCases.map { egressLayerRead($0) }
+      var clean = true
+      for (layer, read) in zip(StateLayer.allCases, reads) {
+        switch read {
+        case .unreadable: clean = false
+        case .absent: continue
+        case let .value(map):
+          guard let entry = map.owners[hash], entry.expiryEvidence?.evidenceId == evidenceId else { continue }
+          var next = map
+          next.owners[hash] = CloudEgressRecord(state: entry.state,
+            transitionGeneration: entry.transitionGeneration, reservedVersion: entry.reservedVersion,
+            lifetimeOwnerGeneration: entry.lifetimeOwnerGeneration,
+            lifetimeOwnerEpoch: entry.lifetimeOwnerEpoch, retirement: entry.retirement)
+          guard let data = try? JSONEncoder().encode(next) else { throw QueueError.encodingFailed }
+          _ = writeStateLayer(.egress, layer, data)
+          if case let .value(back) = egressLayerRead(layer), back == next { continue }
+          clean = false
+        }
+      }
+      var reply = transition("invalidateExpiry", clean ? .done : .incomplete, op: nil,
+        barrier: absentBarrier(), egress: inspectEgress(hash))
+      reply.mutationCounter = egressMutationCounter()
+      return reply
+    }
+  }
+  #endif
+
+  #if CAPTURE_STATE_WRITER
+  /// §7.5 exact successor retirement, bound to lifetime G' (not to pending state):
+  /// if G' is the active lifetime, writes OFF + retirement for G' in both layers
+  /// and removes [operationId]'s pending entry if present. A superseded G' (the
+  /// active owner or a layer is bound elsewhere) is `stale` with nothing written.
+  static func retireSuccessor(
+    ownerUid: String, successorGeneration: Int, ownerEpoch: Int, operationId: String
+  ) throws -> EnableTransitionResult {
+    let owner = normalizedUID(ownerUid)
+    guard !owner.isEmpty, successorGeneration > 0, ownerEpoch >= 0,
+          validOperationId(operationId) else { throw QueueError.encodingFailed }
+    return try withProtectedWriteLock {
+      guard let hash = try keyedOwnerHash(owner) else {
+        return transition("retireSuccessor", .stale, op: nil, barrier: absentBarrier())
+      }
+      let pending = pendingView()
+      let barrier = inspectBarrier(pending, hash)
+      let before = inspectEgress(hash)
+      guard let active = try readActiveOwner(), active.uid == owner,
+            active.generation == successorGeneration,
+            let store = defaults, snapshotCounter(ownerEpochKey, in: store) == ownerEpoch else {
+        return transition("retireSuccessor", .stale, op: nil, barrier: barrier, egress: before)
+      }
+      let reads = StateLayer.allCases.map { egressLayerRead($0) }
+      if pending.anyUnreadable || reads.contains(where: { $0.isUnreadable }) {
+        return transition("retireSuccessor", .uncertain, op: nil, barrier: barrier, egress: before)
+      }
+      let entries = reads.compactMap { read -> CloudEgressRecord? in
+        if case let .value(map) = read { return map.owners[hash] }
+        return nil
+      }
+      if entries.contains(where: {
+        $0.lifetimeOwnerGeneration != successorGeneration || $0.lifetimeOwnerEpoch != ownerEpoch
+      }) {
+        return transition("retireSuccessor", .stale, op: nil, barrier: barrier, egress: before)
+      }
+      let own = StateLayer.allCases.compactMap { pending.entry(hash, in: $0) }
+        .first { $0.operationId == operationId }
+      let op = own ?? PendingEnable(operationId: operationId,
+        transitionGeneration: entries.map(\.transitionGeneration).max() ?? 0,
+        reservedVersion: entries.map(\.reservedVersion).max() ?? 0,
+        ownerGeneration: successorGeneration, ownerEpoch: ownerEpoch)
+      let reports = try writeEgressRecord(hash, reads, CloudEgressRecord(state: "OFF",
+        transitionGeneration: op.transitionGeneration, reservedVersion: op.reservedVersion,
+        lifetimeOwnerGeneration: successorGeneration, lifetimeOwnerEpoch: ownerEpoch, retirement: op))
+      var clean = reports.allSatisfy { $0.outcome == .verified }
+      // The pending barrier is the remaining protection while OFF is not
+      // verified in both layers: it is removed only after that verification.
+      for layer in StateLayer.allCases where clean {
+        guard case let .value(map) = pending.layer(layer), map.owners[hash]?.operationId == operationId else {
+          continue
+        }
+        var remaining = map
+        remaining.owners.removeValue(forKey: hash)
+        if remaining.owners.isEmpty {
+          _ = removeStateLayer(.pending, layer)
+        } else if let data = try? JSONEncoder().encode(remaining) {
+          _ = writeStateLayer(.pending, layer, data)
+        }
+        switch pendingLayerRead(layer) {
+        case .absent where remaining.owners.isEmpty: break
+        case let .value(back) where back == remaining: break
+        default: clean = false
+        }
+      }
+      return transition("retireSuccessor", clean ? .done : .incomplete, op: op,
+        barrier: inspectBarrier(pendingView(), hash), egress: reports)
+    }
+  }
+  #endif
+
+  /// §7.5.1 read-only reconciliation of a dispatched successor finish: `finished`
+  /// (G' ON in both layers, no pending for the owner), `behindBarrier` (G' ON in
+  /// both layers behind exactly [operationId]'s pending) or `other`.
+  static func inspectSuccessor(
+    ownerUid: String, successorGeneration: Int, ownerEpoch: Int, operationId: String
+  ) throws -> String {
+    let owner = normalizedUID(ownerUid)
+    guard !owner.isEmpty, validOperationId(operationId) else { throw QueueError.encodingFailed }
+    return try withQueueLock {
+      guard let hash = try keyedOwnerHash(owner),
+            let active = try readActiveOwner(), active.uid == owner,
+            active.generation == successorGeneration,
+            let store = defaults, snapshotCounter(ownerEpochKey, in: store) == ownerEpoch else { return "other" }
+      let pending = pendingView()
+      let entries = StateLayer.allCases.map { layer -> CloudEgressRecord? in
+        if case let .value(map) = egressLayerRead(layer) { return map.owners[hash] }
+        return nil
+      }
+      guard !pending.anyUnreadable, entries.allSatisfy({
+        $0 != nil && $0!.state == "ON" && $0!.retirement == nil
+          && $0!.lifetimeOwnerGeneration == successorGeneration && $0!.lifetimeOwnerEpoch == ownerEpoch
+      }) else { return "other" }
+      let own = StateLayer.allCases.map { pending.entry(hash, in: $0) }
+      if own.allSatisfy({ $0 == nil }) { return "finished" }
+      if own.allSatisfy({ $0?.operationId == operationId }) { return "behindBarrier" }
+      return "other"
     }
   }
 
@@ -3308,13 +3784,14 @@ enum SharedCaptureStore {
 
   // MARK: Legacy v2 provenance (§4.7)
 
+  #if CAPTURE_STATE_WRITER
   /// Dart's adopted-replica verdict on migrated items: [consumedIds] (receipt
   /// `capture_payload:<id>` or tx.id == capture_id) are removed; [suspectedIds]
   /// (fingerprint match) get the non-financial `suspected_already_imported`
   /// annotation. Only `legacy_v2` unbound items are touched; nothing is bound.
   @discardableResult
   static func resolveLegacyItems(consumedIds: [String], suspectedIds: [String]) throws -> Int {
-    try withQueueLock {
+    try withProtectedWriteLock {
       var queue = try loadQueue()
       let consumed = Set(consumedIds)
       let suspected = Set(suspectedIds)
@@ -3331,6 +3808,7 @@ enum SharedCaptureStore {
       return before - queue.count
     }
   }
+  #endif
 
   /// One migrated v2 item as the legacy resolver needs it for the A6
   /// fingerprint check. Content-bearing: never log it.
@@ -3369,11 +3847,12 @@ enum SharedCaptureStore {
     return barrier
   }
 
+  #if CAPTURE_STATE_WRITER
   /// Step 1 of Remove data for [uid]: under the flock, persist the barrier and
   /// clear the owner record if it is [uid]'s. From now on the intent fails
   /// visibly instead of persisting. Idempotent for the same uid (a resumed removal).
   static func beginRemoval(uid: String) throws -> RemovalBarrier {
-    try withQueueLock {
+    try withProtectedWriteLock {
       let target = normalizedUID(uid)
       let hash = try uidHash(target)
       let barrier: RemovalBarrier
@@ -3405,6 +3884,7 @@ enum SharedCaptureStore {
       return barrier
     }
   }
+  #endif
 
   /// The barrier in force, if any. A launch that finds one resumes the removal
   /// from step 2 (replica teardown), then calls `finishRemoval`.
@@ -3412,6 +3892,7 @@ enum SharedCaptureStore {
     try withQueueLock { try readBarrier() }
   }
 
+  #if CAPTURE_STATE_WRITER
   /// Step 5 of Remove data: the final sweep under the flock. Deletes every item
   /// owned by, hinted to, or created at/after the barrier start of [uid]'s
   /// removal (or tagged with its nonce), drops the uid's consent mirror and
@@ -3419,7 +3900,7 @@ enum SharedCaptureStore {
   /// idempotently. Returns the number of items deleted.
   @discardableResult
   static func finishRemoval(uid: String) throws -> Int {
-    try withQueueLock {
+    try withProtectedWriteLock {
       guard let barrier = try readBarrier() else { return 0 }
       let target = normalizedUID(uid)
       let hash = try uidHash(target)
@@ -3456,6 +3937,7 @@ enum SharedCaptureStore {
       return before - queue.count
     }
   }
+  #endif
 
   // MARK: Queue stats (diagnostics, content-free)
 

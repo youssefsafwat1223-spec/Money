@@ -6,6 +6,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/finance/money_format.dart';
 import '../../domain/finance/money.dart';
@@ -89,11 +90,25 @@ class _CardDetailsContent extends ConsumerWidget {
               child: Padding(
                   padding: EdgeInsets.all(AppSpacing.cardPadding),
                   child: CircularProgressIndicator())),
-          error: (e, _) => Text(context.l10n.txnError),
+          error: (e, _) => AppErrorState(
+            title: context.l10n.txnError,
+            description: context.l10n.annTryAgainSoon,
+            retryLabel: context.l10n.startRetry,
+            onRetry: () => ref.invalidate(cardTransactionsProvider(last4)),
+          ),
           data: (txns) {
             if (txns.isEmpty) {
-              return Text(context.l10n.cdNoTxYet,
-                  style: AppTypography.callout(c.textLight));
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const QirshIllustration(
+                      name: 'emptyTx', width: 160, height: 120),
+                  const SizedBox(height: AppSpacing.s2),
+                  Text(context.l10n.cdNoTxYet,
+                      textAlign: TextAlign.center,
+                      style: AppTypography.callout(c.textLight)),
+                ],
+              );
             }
             return Column(
               children: [
@@ -170,9 +185,9 @@ class _CardHeader extends StatelessWidget {
           const SizedBox(height: AppSpacing.s5),
           Row(
             children: [
-              _flow(context, context.l10n.cardIn, totalIn, c.success),
-              const SizedBox(width: AppSpacing.s6),
-              _flow(context, context.l10n.cardOut, totalOut, Colors.white),
+              Expanded(child: _flow(context, context.l10n.cardIn, totalIn, c.success)),
+              const SizedBox(width: AppSpacing.s4),
+              Expanded(child: _flow(context, context.l10n.cardOut, totalOut, Colors.white)),
             ],
           ),
         ],
@@ -190,11 +205,18 @@ class _CardHeader extends StatelessWidget {
                 fontSize: 12,
                 fontWeight: FontWeight.w600)),
         const SizedBox(height: 2),
-        Text(
-            '${formatMoneyAmount(value.toDouble(), currency)} '
-            '${Currency.label(context, currency)}',
-            style: TextStyle(
-                color: color, fontSize: 17, fontWeight: FontWeight.w700)),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: AlignmentDirectional.centerStart,
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: Text(
+                '${formatMoney(value)} '
+                '${Currency.label(context, currency)}',
+                style: AppTypography.custom(size: 17,
+                    weight: FontWeight.w700, height: 1.3, color: color)),
+          ),
+        ),
       ],
     );
   }

@@ -61,8 +61,8 @@ class CategorySlice {
   final int count;
 
   /// The same category's total over the immediately preceding window of equal
-  /// length. Null when that window was not measured (Reports builds slices
-  /// without it), which is why [changeRatio] is nullable rather than zero.
+  /// length. Null when that window was not measured. A measured zero still
+  /// has no meaningful percentage baseline, so [changeRatio] is nullable.
   final Money? previousTotal;
 
   /// Change against [previousTotal], as a ratio. Null when there is nothing to
@@ -120,6 +120,8 @@ class DashboardData {
     required this.rangeExpense,
     required this.rangeIncome,
     this.activeGoal,
+    this.monthDailySpend = const <DailySpend>[],
+    this.hasAnyTransactions = true,
   });
 
   final Money savedThisMonth;
@@ -148,6 +150,16 @@ class DashboardData {
   /// with a single bar. The window is now a rolling seven days, and the name
   /// says so.
   final List<DailySpend> lastSevenDays;
+
+  /// Net spend per day of the CALENDAR month so far, whatever range is
+  /// selected — the source of the hero's month pace line. Days without spend
+  /// are absent, not zero.
+  final List<DailySpend> monthDailySpend;
+
+  /// False only when the selected account has never had a transaction. That
+  /// is a first-run Home, which is a different screen from "this period is
+  /// empty" — [isEmpty] answers the second question, not this one.
+  final bool hasAnyTransactions;
 
   /// Today's rows, newest first — the source for «أعلى ٣ النهاردة».
   ///
@@ -499,6 +511,12 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     accountId: accountId,
   );
   final recentFuture = txRepo.getRecent(limit: 50, accountId: accountId);
+  final monthDailyFuture = txRepo.dailyExpenseTotals(
+    from: DateTime(now.year, now.month),
+    to: now,
+    currency: displayCurrency,
+    accountId: accountId,
+  );
   final streakFuture = gamificationRepo.getStreak();
   final subscriptionsFuture = txRepo.recurringCandidates(accountId: accountId);
   final goalsFuture = goalRepo.getAll();
@@ -516,6 +534,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       goals,
     ),
     previousBreakdown,
+    monthDailyRows,
   ) = await (
     (
       allBudgetsFuture,
@@ -529,6 +548,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
       goalsFuture,
     ).wait,
     previousBreakdownFuture,
+    monthDailyFuture,
   ).wait;
   final activeBudgets = allBudgets.where((budget) {
     if (!budget.isActive) return false;
@@ -741,5 +761,7 @@ final dashboardDataProvider = FutureProvider<DashboardData>((ref) async {
     activeGoal: activeGoal,
     rangeExpense: rangeExpense,
     rangeIncome: rangeIncome,
+    monthDailySpend: monthDailyRows,
+    hasAnyTransactions: recentRows.isNotEmpty,
   );
 });

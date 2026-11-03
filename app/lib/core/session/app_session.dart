@@ -15,6 +15,12 @@ import '../../data/db/ownership_guard.dart' show StaleOwnershipException;
 import '../../features/capture/services/native_capture_bridge.dart';
 import '../backend/supabase_config.dart';
 import '../privacy/cloud_egress_gate.dart';
+import '../auth/auth_coordinator.dart';
+import '../auth/auth_diagnostics.dart';
+import '../auth/session_record.dart' show AdmissionDisposition;
+import '../privacy/consent_authority.dart';
+import '../startup/asr_storage_reads.dart';
+import '../startup/automatic_session_recovery.dart';
 import '../tracking/user_activity_service.dart';
 import '../security/secure_storage_options.dart';
 import '../sync/sync_wakeup.dart' show AuthSessionValid;
@@ -32,6 +38,12 @@ import 'remove_data_flow.dart';
 /// clear onboarding completion for this case (see `AppSession.signOut` for
 /// the separate, intentional full-reset path).
 enum SessionStatus { unknown, needsOnboarding, authenticated, sessionExpired }
+
+/// Why a session judgment was lost (ASR §7.3/§7.7). Only a plain expiry keeps
+/// the native expiry evidence; [awaitingAdoption] is ASR's own wait for a
+/// committed `requiresAdoption` record (not a loss); everything else is
+/// [other] and durably bars automatic recovery of the lifecycle.
+enum SessionLossCause { sessionExpiry, awaitingAdoption, other }
 
 /// Only the original local operation; never an account-deletion certificate.
 enum PreparedOriginalLocalRemovalOutcome {
@@ -97,8 +109,15 @@ enum LocalDataOwnership {
 /// authentication attempt (the only kind that may lift a removal revocation).
 class _Admission {
   _Admission(this.uid, this.authority,
-      {this.explicit = false, this.sessionCurrent});
+      {this.explicit = false, this.sessionCurrent, this.asrCause});
   final bool Function()? sessionCurrent;
+
+  /// ASR §9.7 adoption of the same owner: its expiry fence retired the native
+  /// lifetime, so the reconcile must publish SE1 (`successorOf`) again. The
+  /// op's authority: the scope initialization this admission opens is its own
+  /// transition (§11.2).
+  final Object? asrCause;
+  bool get asrSuccessor => asrCause != null;
   final String uid;
 
   /// Replaced (never mutated) when an automatic admission switches the device to
@@ -142,6 +161,10 @@ class _NativeLifetime {
 
   /// Set synchronously by the loss that retired this lifetime.
   bool lost = false;
+
+  /// ASR §7.2: the session lifecycle when that loss was a plain expiry (the
+  /// fence may then mint expiry evidence); null for every other loss.
+  int? expiryLifecycle;
 
   /// Allowlisted constant naming why its publication did not confirm (never an
   /// identifier, message or number). Diagnostic only.
@@ -631,12 +654,18 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// is still current when it completes can authorize (re)creating a removed
   /// uid's data.
   AuthAttempt beginAuthAttempt() {
+    // ASR §4.4/§11.3: the intent is registered synchronously; its cause is
+    // IDENTITY for an in-flight ASR op (POLICY for the other kinds).
+    final intent = AuthCoordinator.active?.registerAttemptIntent() ?? 0;
+    AutomaticSessionRecovery.active?.yieldToExplicitAttempt();
     // Reauthentication may reuse the same open replica and skip bootstrap.
     // Retire older request responses before the explicit provider exchange.
     if (!_admissionClosed && !(_removeData?.isRunning ?? false)) {
-      CloudEgressGate.instance.advanceEpoch();
+      CloudEgressGate.instance.advanceEpoch(EpochCause.explicitAttempt);
+    } else if (intent != 0) {
+      CloudEgressGate.instance.noteCause(EpochCause.explicitAttempt);
     }
-    return AuthAttempt(_admissionEpoch);
+    return AuthAttempt(_admissionEpoch, intent);
   }
 
   AccountFenceAuthority get _accountFence => AccountFenceAuthority.shared;
@@ -709,7 +738,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _authLossSeq++;
     _revokeDatabasePublication();
     _revokeConsentProof();
-    CloudEgressGate.instance.advanceEpoch();
+    CloudEgressGate.instance.advanceEpoch(EpochCause.consentLoss);
     return Future.wait(_inflightAdmissions.toList()).then<void>((_) {});
   }
 
@@ -806,10 +835,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
 
   /// Drops the consent proof SYNCHRONOUSLY and advances the loss generation, so
   /// every admission that captured the earlier generation is barred from issuing.
-  void _revokeConsentProof() {
+  void _revokeConsentProof({bool expiry = false}) {
     _consentCapability = null;
     _consentLossSeq++;
-    _retireNativeLifetime();
+    _retireNativeLifetime(
+        expiryLifecycle:
+            expiry ? AuthCoordinator.active?.store.committed?.lifecycle : null);
   }
 
   /// Runs [job] after every earlier native lifecycle job. A job maps every failure
@@ -1041,12 +1072,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// fence of exactly that captured lifetime. Idempotent: a lifetime is retired
   /// once, so repeated loss events never mint a second fence operation. A
   /// publication that already failed has nothing native to fence.
-  void _retireNativeLifetime() {
+  void _retireNativeLifetime({int? expiryLifecycle}) {
     final lifetime = _nativeLifetime;
     if (lifetime == null) return;
     _nativeLifetime = null;
     if (lifetime.published.isCompleted && lifetime.binding == null) return;
     lifetime.lost = true;
+    lifetime.expiryLifecycle = expiryLifecycle;
     final gate = CloudEgressGate.instance;
     gate.denyForLifecycleLoss();
     unawaited(_enqueueNative(() => _fenceLifetime(lifetime, gate)));
@@ -1069,9 +1101,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
       final reply = await NativeCaptureBridge.revokeCaptureAuthorizationLifetime(
         ownerUid: lifetime.uid,
         binding: binding,
+        expirySessionLifecycle: lifetime.expiryLifecycle,
       ).timeout(_kNativeFenceTimeout);
       if (reply != null && reply.confirmsLifetimeRevoked(binding)) {
         outcome = NativeLifecycleOutcome.confirmed;
+        final evidence = reply.expiryEvidence;
+        if (evidence != null) {
+          _expiryEvidence = (owner: lifetime.uid, evidenceId: evidence.evidenceId);
+        }
       }
     } on TimeoutException {
       reason = 'fence_timeout';
@@ -1130,6 +1167,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
           final answer = await reply.timeout(_kNativePublishTimeout);
           if (answer is RestrictiveOwnerRefusal) lifetime.reason = answer.reason;
           lifetime.binding = _lifetimeBinding(adm.uid, answer);
+          _noteAsrSuccessorReceipt(adm.uid, lifetime, answer);
           if (lifetime.binding != null) {
             outcome = NativeLifecycleOutcome.confirmed;
           } else {
@@ -1503,8 +1541,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final client = _databaseIssuerClient ?? _clientForConsent();
     if (client == null || client.auth.currentSession?.user.id != target) return;
     try {
-      await client.auth
-          .signOut(scope: supabase.SignOutScope.local)
+      // ASR §4.9: with a coordinator the removal is durable (store tombstone)
+      // before the same server revocation `signOut(local)` sends.
+      await (AuthCoordinator.active != null
+              ? AuthCoordinator.logout(client.auth)
+              : client.auth.signOut(scope: supabase.SignOutScope.local))
           .timeout(const Duration(seconds: 4));
     } catch (_) {}
   }
@@ -1718,6 +1759,20 @@ class AppSession extends ValueNotifier<SessionStatus> {
       return LocalDataOwnership.revoked;
     }
     final removal = _removeData;
+    // ASR Phase 4c B1: the adoption never runs removal recovery or any other
+    // generic maintenance. A removal running, pending or completed for this uid
+    // is a refusal (its strict storage probe re-reads the barrier and the
+    // revoked set inside the admission section); the barrier stays owned by the
+    // removal workflow.
+    if (adm.asrSuccessor) {
+      if (removal?.isRunning ?? false) return LocalDataOwnership.revoked;
+      try {
+        return await _admissionOp(() => _resolveAsrAdmitted(uid, adm),
+            current: () => adm.current);
+      } on StaleAdmissionException {
+        return LocalDataOwnership.revoked;
+      }
+    }
     if (removal != null) {
       // A removal this process is executing is NEVER waited on: it drains
       // admission work first, so waiting here would deadlock. It blocks admission.
@@ -1757,6 +1812,44 @@ class AppSession extends ValueNotifier<SessionStatus> {
       await _rollbackFreshAdmission(adm);
     }
     return outcome;
+  }
+
+  /// ASR §9.7 (Phase 4 B1): the adoption's restricted ownership step. It
+  /// admits only the exact existing state local read was verified against —
+  /// owner marker and owner generation confirmed by status-preserving reads,
+  /// no unresolved or pending owner conflict, every §12 storage predicate
+  /// (registry entry active and settled, no removal, fence, deletion or
+  /// pending enable) re-confirmed — and opens that existing replica. It never
+  /// claims, repairs, mints, migrates or switches: anything else refuses with
+  /// the data untouched.
+  Future<LocalDataOwnership> _resolveAsrAdmitted(
+      String uid, _Admission adm) async {
+    final keychain = AuthCoordinator.active?.store.keychain;
+    final probe = _asrStorageDenial;
+    if (keychain == null ||
+        probe == null ||
+        _pendingOwnerConflictUid != null ||
+        _unresolvedOwnerUid != null) {
+      return LocalDataOwnership.revoked;
+    }
+    final reads = AsrStrictReads(keychain);
+    final String? marker;
+    final String? generation;
+    try {
+      marker = await reads.read(_kLocalDataOwnerUid);
+      generation = await reads.read(_kLocalDataOwnerGeneration);
+      if (await probe(uid) != null) return LocalDataOwnership.revoked;
+    } catch (_) {
+      return LocalDataOwnership.revoked;
+    }
+    if (!adm.current ||
+        marker != uid ||
+        generation == null ||
+        generation.isEmpty) {
+      return LocalDataOwnership.revoked;
+    }
+    _accountFenceOwner = (uid, generation, adm.authority.epoch);
+    return _admitReplica(uid, adm, publishOwner: true);
   }
 
   /// Undoes a failed fresh admission of [uid] through the same durable removal
@@ -1831,6 +1924,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     String uid,
     _Admission adm,
   ) async {
+    if (adm.asrSuccessor) return _resolveAsrAdmitted(uid, adm);
     final String? existing;
     try {
       existing = await _storage.read(key: _kLocalDataOwnerUid);
@@ -1852,8 +1946,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
       await _mintOwnerGenerationIfAbsent(adm);
       if (!adm.current) return LocalDataOwnership.revoked;
       // An idempotent reconcile of the same account publishes nothing again: it
-      // would re-publish OFF over an already confirmed ON.
-      return _admitReplica(uid, adm, publishOwner: false);
+      // would re-publish OFF over an already confirmed ON. An ASR adoption is
+      // not idempotent: its lifetime was retired at expiry and SE1 is required.
+      return _admitReplica(uid, adm, publishOwner: adm.asrSuccessor);
     }
 
     if (existing == null) {
@@ -1941,6 +2036,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
     // admission turn, after the attempt / fresh SDK and removal / ownership
     // policy were validated and before the scope layer can open anything.
     var authority = adm.authority;
+    final asrCause = adm.asrCause;
+    if (asrCause != null) authority = authority.withCauseAuthority(asrCause);
     DatabaseOpenReservation? reservation;
     final coordinator = _databaseCoordinator;
     if (coordinator != null) {
@@ -2057,7 +2154,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       // Keep its exact identity for same-host re-verification and keep every
       // ordinary presentation/egress path restrictive until close completes.
       _localReadHandoffProof = proof;
-      CloudEgressGate.instance.advanceEpoch();
+      CloudEgressGate.instance.advanceEpoch(EpochCause.localRead);
       notifyListeners();
     }
   }
@@ -2195,18 +2292,24 @@ class AppSession extends ValueNotifier<SessionStatus> {
       {_FailedAttemptBinding? failedAttempt,
       bool Function()? provenanceIntact,
       LocalReadStartupBinding? binding}) async {
+    bool denied(String reason) {
+      // Local Beta 1 evidence only. Call sites pass constants or enum names,
+      // never an owner, replica, credential or exception message.
+      AuthDiagnostics.add('local_read_restore $reason');
+      return false;
+    }
     final afterFailedReconnect = failedAttempt != null;
     final auth = _localRead;
     final host = hostArg ?? (_accountScope is AccountScopeHost
         ? _accountScope as AccountScopeHost
         : null);
-    if (auth == null || host == null) return false;
+    if (auth == null || host == null) return denied('unwired');
     bool blocked() =>
         _localReadLocked ||
         _explicitAdmissionEpoch != null ||
         _admissionClosed ||
         (_removeData?.isRunning ?? false);
-    if (blocked()) return false;
+    if (blocked()) return denied('process_blocked');
     if (localReadActive) return true;
     final epoch = _admissionEpoch;
     String? fencedUid;
@@ -2220,14 +2323,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
         _admissionEpoch == epoch &&
         (fencedUid == null || _accountFence.permits(fencedUid)) &&
         (provenanceIntact?.call() ?? true);
-    if (!stillValid()) return false;
+    if (!stillValid()) return denied('not_current');
 
     // B1/C1: no coordinator, no local read. The exclusion below is the only
     // source of a candidate reservation.
     final coordinator = _databaseCoordinator;
     if (coordinator == null ||
         !identical(host.localReadCoordinator, coordinator)) {
-      return false;
+      return denied('coordinator');
     }
 
     // D3: a recovery queued by a FAILED reconnect is bound to that attempt: it
@@ -2237,32 +2340,34 @@ class AppSession extends ValueNotifier<SessionStatus> {
     bool attemptStillBound() =>
         failedAttempt == null ||
         failedAttempt.holds(_admissionEpoch, host.current);
-    if (!attemptStillBound()) return false;
+    if (!attemptStillBound()) return denied('attempt_superseded');
 
     final LocalReadGrantRecord? record;
     try {
       record = await auth.peekRecord();
     } catch (_) {
-      return false;
+      return denied('grant_unreadable');
     }
     if (record == null || record.state != LocalReadGrantState.committed) {
-      return false;
+      return denied('grant_absent_or_uncommitted');
     }
     try {
       await _accountFence.guard(record.uid, current: stillValid);
     } on AccountFenceDeniedException {
-      return false;
+      return denied('fence');
     } on StaleAdmissionException {
-      return false;
+      return denied('fence_superseded');
     }
     fencedUid = record.uid;
     // O8-3: a record whose own denial is still outstanding is not a grant; refuse
     // before the writable scope is touched (the authority refuses it again).
     if (auth.pendingOperationDenials.containsKey(record.operationId)) {
-      return false;
+      return denied('operation_denial');
     }
     await debugLocalReadAwaitPoint?.call('record_read');
-    if (!stillValid() || !attemptStillBound()) return false;
+    if (!stillValid() || !attemptStillBound()) {
+      return denied('record_superseded');
+    }
     final current = host.current;
     if (current != null) {
       // Only the SAME uid's writable scope is replaced; any other scope (the
@@ -2282,16 +2387,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
           handoff.capability.operationId == record.operationId;
       if (!staleAfterFailure && !staleAfterHandoff &&
           (current.isLocalRead || current.uid != record.uid)) {
-        return false;
+        return denied('scope_mismatch');
       }
       _localReadTransitionFence = true;
       await drainAdmissions();
       if (!stillValid() || !attemptStillBound()) {
         _localReadTransitionFence = false;
-        return false;
+        return denied('drain_superseded');
       }
     } else if (host.swapInProgress) {
-      return false;
+      return denied('scope_swap');
     }
 
     // B2: ONE atomic quiescing transition. From here every old job, reservation
@@ -2303,7 +2408,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       exclusion = coordinator.beginLocalReadExclusion();
     } on DatabaseAccessUnavailable {
       _localReadTransitionFence = false;
-      return false;
+      return denied('exclusion');
     }
     var suspended = false;
     AccountScope? published;
@@ -2339,10 +2444,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
       await debugLocalReadAwaitPoint?.call('restore_returned');
       if (verified.isGranted) {
         published = await host.restoreLocalRead(verified, stillValid: stillValid);
+      } else {
+        AuthDiagnostics.add('local_read_restore authority_'
+            '${verified.denial?.name ?? 'unknown'}/'
+            '${verified.replicaDenial?.name ?? 'none'}');
       }
     } on StaleLocalReadException {
+      AuthDiagnostics.add('local_read_restore stale_open');
       published = null;
     } catch (_) {
+      AuthDiagnostics.add('local_read_restore open_exception');
       published = null;
     } finally {
       exclusion.release(published: published != null);
@@ -2350,7 +2461,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     if (published == null) {
       _localReadEgressHold = false;
       if (suspended) await host.ensureScopePublished();
-      return false;
+      return denied('not_published');
     }
     if (!identical(_localReadHostListening, host)) {
       _localReadHostListening?.removeListener(_onLocalReadHostChanged);
@@ -2363,9 +2474,10 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _localReadEgressHold = false;
     // D6: whatever was admitted for the writable session is now stale, and the
     // gate's synchronous mirror (auto-refresh, diagnostics, images) re-reads.
-    CloudEgressGate.instance.advanceEpoch();
+    CloudEgressGate.instance.advanceEpoch(EpochCause.localRead);
     unawaited(CloudEgressGate.instance.refresh().catchError((Object _) {}));
     notifyListeners();
+    AuthDiagnostics.add('local_read_restore granted');
     return true;
   }
 
@@ -2648,6 +2760,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
             await auth.beginIssue(uid: p.uid, replicaId: replicaId);
         await auth.commit(issue,
             proof: LocalReadIssueProof(uid: p.uid, isCurrent: current));
+        AuthDiagnostics.add('local_read_issue committed');
       } catch (_) {
         // No grant: offline viewing simply is not available until the next
         // explicit sign-in.
@@ -2823,6 +2936,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
         probe: probe,
       );
     } catch (_) {
+      // ASR §4.6: a refused admission aligns SDK memory and releases the
+      // attempt's exclusion (a no-op when it was committed or never set).
+      final intent = attempt?.intent ?? 0;
+      if (intent != 0) {
+        await AuthCoordinator.active?.abandonExplicit(intent);
+      }
       // Strict reconnect: the outgoing local-read proof was retired when the
       // transition began and is NEVER reinstated. The only way back is a fresh
       // two-phase restore from the durable grant (new reservation, new proof);
@@ -2851,7 +2970,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
     // Also retire refreshes started while the provider exchange was pending.
     // This runs only after the successful response and attempt are validated.
-    CloudEgressGate.instance.advanceEpoch();
+    CloudEgressGate.instance.advanceEpoch(EpochCause.localRead);
     final epoch = ++_admissionEpoch;
     _localReadLifecycle++;
     probe.epoch = epoch;
@@ -2945,6 +3064,16 @@ class AppSession extends ValueNotifier<SessionStatus> {
             userId: userId,
             live: live,
           );
+          // ASR §4.2: ExplicitCommit — the attempt's SDK session becomes the
+          // committed record (lifecycle L+1, ordinary) before publication.
+          final coord = AuthCoordinator.active;
+          if (coord != null && auth.intent != 0 && userId != null) {
+            final committed =
+                await coord.commitExplicit(auth.intent, attemptCurrent: live);
+            if (committed == null || committed.owner != userId) {
+              throw const StaleAdmissionException();
+            }
+          }
           if (adm != null &&
               adm.wasRevoked &&
               ownership == LocalDataOwnership.owned) {
@@ -3223,7 +3352,21 @@ class AppSession extends ValueNotifier<SessionStatus> {
   Future<bool> reconcileAccountOnboarding(
     supabase.SupabaseClient client,
   ) async {
+    final firstGrant = _pendingFirstGrant;
     await _reconcileSupabaseSession(client.auth.currentSession, client: client);
+    // The auth screen skips finishOnboarding when a returning account's
+    // completion is learned here. Complete only the proof retained by this
+    // process's explicit admission; ordinary restores have no such proof.
+    if (firstGrant != null &&
+        identical(_pendingFirstGrant, firstGrant) &&
+        identical(firstGrant.client, client) &&
+        _onboardingDone &&
+        status == SessionStatus.authenticated &&
+        captureDatabaseHostAdmission() != null &&
+        _grantProofCurrent(firstGrant)) {
+      _pendingFirstGrant = null;
+      await _issueLocalReadGrant(firstGrant);
+    }
     return _onboardingDone;
   }
 
@@ -3998,6 +4141,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
         status != SessionStatus.authenticated) {
       return false;
     }
+    // ASR §8 warm resume: refresh first (when due and the gate permits, under a
+    // 5 s foreground bound; the op itself keeps custody past it).
+    final coord = AuthCoordinator.active;
+    if (client != null && coord != null) {
+      try {
+        await coord.refreshIfDue().timeout(const Duration(seconds: 5));
+      } catch (_) {}
+    }
     if (client != null) await revalidateSupabaseSessionOnResume(client);
     return _explicitAdmissionEpoch == null &&
         status == SessionStatus.authenticated;
@@ -4043,7 +4194,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// Downgrades an authenticated (or unknown) status to [sessionExpired]
   /// without touching onboarding completion, the stored identity, or any
   /// unrelated local preference — only the *live* session judgment changes.
-  void markSessionInvalid() {
+  void markSessionInvalid({SessionLossCause cause = SessionLossCause.other}) {
+    // ASR §7.7: every loss that is not a plain expiry (or ASR's own wait for
+    // adoption) durably bars automatic recovery of this lifecycle and
+    // invalidates the expiry evidence, before anything else can run.
+    if (cause == SessionLossCause.other) _invalidateAsrEvidence();
     _revokeDatabasePublication();
     // The consent proof is dropped HERE, synchronously, at the origin of the
     // loss and before any early return, and the loss generation advances with it:
@@ -4059,6 +4214,273 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
   }
 
+  // ── Automatic Session Recovery host (design v7.2 §8–§11) ─────────────────
+
+  /// The expiry evidence the last expiry fence of this process minted.
+  ({String owner, String evidenceId})? _expiryEvidence;
+
+  /// §7.7: `autoAdmissionBlocked = L` (the coordinator also holds it in
+  /// process) and native `invalidateExpiryEvidence`. Synchronous start; the
+  /// durable writes run behind it and are best-effort (the in-process bar
+  /// holds when they cannot be confirmed).
+  void _invalidateAsrEvidence() {
+    final coord = AuthCoordinator.active;
+    final owner = coord?.store.committed?.owner;
+    final lifecycle = coord?.blockAutoAdmission();
+    final known = _expiryEvidence;
+    _expiryEvidence = null;
+    if (coord == null && known == null) return;
+    unawaited(() async {
+      try {
+        if (lifecycle != null) {
+          await coord?.markAutoAdmissionBlocked(lifecycle: lifecycle);
+        }
+      } catch (_) {}
+      final target = known?.owner ?? owner;
+      if (target == null) return;
+      try {
+        final id = known?.evidenceId ??
+            (await NativeCaptureBridge.inspectRecoveryEvidence(
+                    ownerUid: target))
+                ?.expiryEvidence
+                ?.evidenceId;
+        if (id != null) {
+          await NativeCaptureBridge.invalidateExpiryEvidence(
+              ownerUid: target, evidenceId: id);
+        }
+      } catch (_) {}
+    }());
+  }
+
+  AsrAdoptionContext? _asrAdoption;
+  bool _asrSuccessorRequested = false;
+  Future<String?> Function(String owner)? _asrStorageDenial;
+
+  /// E5/E6/E10/E11 storage reads (status-preserving), wired by bootstrap.
+  /// Null denies every ASR attempt.
+  void configureAsrEligibility(Future<String?> Function(String owner)? probe) {
+    _asrStorageDenial = probe;
+  }
+
+  /// The owner of the verified, active local-read scope, or null.
+  String? get asrLocalReadOwner =>
+      localReadActive ? _localReadProof?.capability.uid : null;
+
+  /// E8 (and the process part of E3/E5): synchronous. Before installation
+  /// ([adopting] false) it also requires the active local read of [owner], no
+  /// hold and no freeze; afterwards those are ASR's own and foreign changes
+  /// arrive as causes.
+  String? asrProcessDenial(String owner, {required bool adopting}) {
+    final gate = CloudEgressGate.instance;
+    final coord = AuthCoordinator.active;
+    if (!adopting) {
+      if (asrLocalReadOwner != owner) return 'local_read';
+      if (gate.holdActive) return 'hold';
+      if (ConsentAuthority.egressFrozen) return 'frozen';
+    }
+    if (_localReadLocked || localReadCleanupIncomplete) return 'local_read_lock';
+    if (_explicitAdmissionEpoch != null) return 'explicit';
+    if (_admissionClosed || (_removeData?.isRunning ?? false)) return 'closing';
+    if (_logoutIncomplete) return 'logout_incomplete';
+    if (_accountSwitchEpoch != null) return 'account_switch';
+    if (_unresolvedOwnerUid != null || _pendingOwnerConflictUid != null) {
+      return 'owner_unresolved';
+    }
+    if (_fenceIncomplete) return 'fence';
+    if (gate.terminalDenied) return 'terminal';
+    if (coord == null || coord.unattributedMutation) return 'unattributed';
+    return null;
+  }
+
+  /// E3–E11 (read-only). Null when [owner] is eligible.
+  Future<String?> asrEligibilityDenial(String owner) async {
+    final process = asrProcessDenial(owner, adopting: false);
+    if (process != null) return process;
+    final probe = _asrStorageDenial;
+    if (probe == null) return 'unwired';
+    // E7: the durable grant is exactly the live capability's.
+    final proof = _localReadProof;
+    final auth = _localRead;
+    if (proof == null || auth == null) return 'local_read';
+    try {
+      final record = await auth.peekRecordStrict();
+      if (record == null ||
+          record.state != LocalReadGrantState.committed ||
+          record.uid != owner ||
+          record.operationId != proof.capability.operationId ||
+          record.replicaId != proof.capability.replicaId) {
+        return 'grant';
+      }
+    } catch (_) {
+      return 'grant';
+    }
+    final String? storage;
+    try {
+      storage = await probe(owner);
+    } catch (_) {
+      return 'storage';
+    }
+    if (storage != null) return storage;
+    // E5: no removal in progress and [owner] not removed since its last
+    // explicit admission (an unreadable record denies).
+    final removal = _removeData;
+    if (removal == null) return 'removal';
+    try {
+      if (await removal.hasPending() ||
+          (await removal.revokedUids()).contains(owner)) {
+        return 'removal';
+      }
+    } catch (_) {
+      return 'removal';
+    }
+    // E3 Dart: no pending enable of anyone, confirmed.
+    try {
+      final pending = await CloudEgressGate.instance.readPending();
+      if (pending.unreadable || pending.blocks(owner)) return 'pending';
+    } catch (_) {
+      return 'pending';
+    }
+    return asrProcessDenial(owner, adopting: false);
+  }
+
+  /// SE1 (§7.5): the successor publication is requested once, by the
+  /// restrictive owner publication of the ASR adoption of [authority]'s uid.
+  /// A session-only adoption (Cloud OFF) has no [evidenceId]: its publication
+  /// is the plain restrictive one, still attributed to the op.
+  ({String? evidenceId, int expectedCounter, Object causeAuthority})?
+      asrSuccessorFor(
+      AdmissionAuthority authority) {
+    final ctx = _asrAdoption;
+    if (ctx == null ||
+        _asrSuccessorRequested ||
+        authority.uid != ctx.owner ||
+        !authority.isCurrent ||
+        !ctx.mayProceed()) {
+      return null;
+    }
+    _asrSuccessorRequested = true;
+    return (
+      evidenceId: ctx.evidence.evidence?.evidenceId,
+      expectedCounter: ctx.evidence.counter,
+      causeAuthority: ctx.authority,
+    );
+  }
+
+  void _noteAsrSuccessorReceipt(
+      String uid, _NativeLifetime lifetime, Object? answer) {
+    final ctx = _asrAdoption;
+    if (ctx == null ||
+        !_asrSuccessorRequested ||
+        ctx.successorGeneration != null ||
+        uid != ctx.owner ||
+        lifetime.binding == null ||
+        answer is! RestrictiveCaptureOwnerReceipt) {
+      return;
+    }
+    final counter = answer.phase.mutationCounter;
+    final generation = answer.phase.ownerGeneration;
+    final epoch = answer.phase.ownerEpoch;
+    if (counter == null || generation == null || epoch == null) return;
+    ctx
+      ..successorGeneration = generation
+      ..successorOwnerEpoch = epoch;
+    ctx.evidence.counter = counter;
+  }
+
+  /// §7.5 SE3: the native lifetime this process fences is now the successor's
+  /// enable transition; a later fence names exactly it (and stays idempotent
+  /// against `retireSuccessor`, which retires under the same operation).
+  bool asrRebindNativeLifetime(String owner, CloudEgressEnableBinding binding) {
+    final lifetime = _nativeLifetime;
+    final held = lifetime?.binding;
+    if (lifetime == null ||
+        held == null ||
+        lifetime.lost ||
+        lifetime.uid != owner ||
+        held.ownerGeneration != binding.ownerGeneration ||
+        held.ownerEpoch != binding.ownerEpoch) {
+      return false;
+    }
+    lifetime.binding = binding;
+    return true;
+  }
+
+  /// §9.7/§9.8: withdraws local read and admits [ctx.owner] writable through
+  /// the automatic admission route, exempted only for this op.
+  Future<AsrAdoptResult> asrAdopt(
+      AsrAdoptionContext ctx, supabase.SupabaseClient client) async {
+    if (!ctx.mayProceed() || asrLocalReadOwner != ctx.owner) {
+      return AsrAdoptResult.notWithdrawn;
+    }
+    _asrAdoption = ctx;
+    _asrSuccessorRequested = false;
+    try {
+      await _reconcileSupabaseSession(client.auth.currentSession,
+          client: client, asr: ctx);
+    } finally {
+      _asrAdoption = null;
+      _asrSuccessorRequested = false;
+    }
+    final scope = _accountScope?.activeScope;
+    if (ctx.published &&
+        ctx.mayProceed() &&
+        value == SessionStatus.authenticated &&
+        scope != null &&
+        !scope.isLocalRead &&
+        scope.uid == ctx.owner) {
+      return AsrAdoptResult.published;
+    }
+    return asrLocalReadOwner == ctx.owner
+        ? AsrAdoptResult.notWithdrawn
+        : AsrAdoptResult.failedAfterWithdrawal;
+  }
+
+  /// §11.4 step 2: sign-in screen, data preserved — the replica is locked and
+  /// local read durably denied (never wiped); the gate resolves signed out.
+  Future<void> asrFailAfterWithdrawal(String owner) async {
+    final host = _accountScope is AccountScopeHost
+        ? _accountScope as AccountScopeHost
+        : null;
+    final adopted = host?.current;
+    _authLossSeq++;
+    markSessionInvalid(cause: SessionLossCause.other);
+    try {
+      await _denyLocalRead(uid: owner);
+    } catch (_) {}
+    // Phase 4 B1: a scope the adoption already opened writable is locked
+    // (registry `locked`) and closed, and the signed-out scope published —
+    // exactly that scope, nothing deleted. A local-read scope was locked above.
+    if (host != null &&
+        adopted != null &&
+        adopted.uid == owner &&
+        !adopted.isLocalRead) {
+      try {
+        await host.lockIfCurrent(adopted);
+      } catch (_) {}
+    }
+    await CloudEgressGate.instance.resolveSignedOut();
+  }
+
+  /// Whether the onboarding completion of [session]'s account is known on
+  /// this device (the condition under which no network read is needed).
+  bool _onboardingKnownLocally(supabase.Session session) {
+    final method = authMethod;
+    if (method == null) return false;
+    final remoteEmail = session.user.email;
+    final accountKey = _accountKey(
+        method: method,
+        email: remoteEmail ?? email,
+        userId: session.user.id);
+    final fallbackKey = _identityKey(method, email);
+    final sameIdentity = remoteEmail != null &&
+        email != null &&
+        remoteEmail.trim().toLowerCase() == email!.trim().toLowerCase();
+    return _completedAccountKeys.contains(accountKey) ||
+        (sameIdentity &&
+            fallbackKey != null &&
+            _completedAccountKeys.contains(fallbackKey));
+  }
+
   @visibleForTesting
   void Function(supabase.AuthChangeEvent event)? debugAuthEventCompleted;
 
@@ -4067,6 +4489,31 @@ class AppSession extends ValueNotifier<SessionStatus> {
     supabase.SupabaseClient client,
   ) async {
     try {
+      // ASR §4.7: no admission from any event. The coordinator's own explicit,
+      // install and alignment mutations are handled by the operation that made
+      // them; an unattributed session-bearing mutation is restrictive.
+      final coord = AuthCoordinator.active;
+      if (coord != null) {
+        final tag = coord.tagOf(state);
+        switch (tag?.kind) {
+          case AuthTagKind.explicit:
+          case AuthTagKind.install:
+          case AuthTagKind.alignment:
+            return;
+          case AuthTagKind.init:
+            break;
+          case AuthTagKind.unattributed:
+          case null:
+            if (state.session != null) {
+              _authLossSeq++;
+              _revokeDatabasePublication();
+              _revokeConsentProof();
+              if (_onboardingDone) markSessionInvalid();
+              _scheduleLocalReadTransition();
+              return;
+            }
+        }
+      }
       switch (state.event) {
         case supabase.AuthChangeEvent.signedOut:
         case supabase.AuthChangeEvent.userDeleted:
@@ -4107,6 +4554,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     supabase.Session? session, {
     required supabase.SupabaseClient client,
     AdmissionAuthority? authority,
+    AsrAdoptionContext? asr,
   }) async {
     final databaseLoss = _databaseLossGeneration;
     if (isGuest || authMethod == null) return;
@@ -4128,8 +4576,11 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
     if (session != null && session.isExpired) {
       _revokeDatabasePublication();
-      _revokeConsentProof(); // an expired SDK session proves nothing
-      if (_onboardingDone) markSessionInvalid();
+      // A plain expiry (§7.2): native keeps its expiry evidence.
+      _revokeConsentProof(expiry: true); // an expired SDK session proves nothing
+      if (_onboardingDone) {
+        markSessionInvalid(cause: SessionLossCause.sessionExpiry);
+      }
       _scheduleLocalReadTransition();
       return;
     }
@@ -4144,7 +4595,57 @@ class AppSession extends ValueNotifier<SessionStatus> {
       // onboarding/account metadata is NOT sufficient by itself to grant
       // access — downgrade to sessionExpired so the router sends the user
       // back to sign-in, without erasing onboarding completion.
-      if (_onboardingDone) markSessionInvalid();
+      // ASR §6.8/§9.9: a loaded `requiresAdoption` record serves nothing; that
+      // null is ASR's wait, not a loss.
+      if (_onboardingDone) {
+        markSessionInvalid(
+            cause: AuthCoordinator.active?.store.committed?.admission ==
+                    AdmissionDisposition.requiresAdoption
+                ? SessionLossCause.awaitingAdoption
+                : SessionLossCause.other);
+      }
+      _scheduleLocalReadTransition();
+      return;
+    }
+    // ASR §4.7: every automatic admission route also requires the committed
+    // record to be valid, ordinary and equal to SDK memory, with no explicit or
+    // ASR exclusion. An exclusion only defers (the operation holding it
+    // decides); anything else takes the existing no-session branch.
+    final coord = AuthCoordinator.active;
+    // ASR §9.7: only the adoption of the op holding the exclusion may admit its
+    // own `requiresAdoption` record (and keep it through finalization).
+    // The exemption lasts only while this op holds the exclusion: afterwards
+    // (ordinary established, or AdoptionFailed) the ordinary rule decides.
+    String? coordinatorDenial() {
+      final ordinary = coord?.automaticAdmissionDenial();
+      if (asr == null ||
+          ordinary == null ||
+          coord?.asrExclusion != asr.receipt.opId) {
+        return ordinary;
+      }
+      return asr.mayProceed() ? coord?.asrAdoptionDenial(asr.receipt) : 'asr';
+    }
+
+    final denial = coordinatorDenial();
+    if (denial == 'explicit_exclusion' || denial == 'asr_exclusion') return;
+    if (denial == AuthCoordinator.custodySuccessor) {
+      // B10: the coordinator's own routine successor in custody, never an SDK
+      // mutation and never a loss. The routine continuation installs it (under
+      // the routine policy); its SDK event reconciles again.
+      unawaited(coord?.refreshIfDue().catchError((Object _) => null));
+      return;
+    }
+    if (denial != null) {
+      _revokeDatabasePublication();
+      _revokeConsentProof();
+      // Only `requiresAdoption` is ASR's wait (§4.7); every other denial is a
+      // loss.
+      if (_onboardingDone) {
+        markSessionInvalid(
+            cause: denial == 'requires_adoption'
+                ? SessionLossCause.awaitingAdoption
+                : SessionLossCause.other);
+      }
       _scheduleLocalReadTransition();
       return;
     }
@@ -4156,6 +4657,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final lossSeq = _authLossSeq;
     final consentLossSeq = _consentLossSeq;
     final uid = session.user.id;
+    // ASR publishes only a returning user whose completion is known locally
+    // (no network under the hold); anything else stays in local read.
+    if (asr != null &&
+        (uid != asr.owner || !_onboardingKnownLocally(session))) {
+      return;
+    }
     // An automatic reconcile holds an open-existing authority captured NOW (or a
     // rebootstrap's maintenance authority); it never holds explicit authority.
     // Freshness remains part of the capability through every ownership await.
@@ -4166,6 +4673,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
           actual?.user.id == uid &&
           actual?.accessToken == session.accessToken &&
           _explicitAdmissionEpoch == null &&
+          coordinatorDenial() == null &&
           (authority == null || (authority.uid == uid && authority.isCurrent));
     }
 
@@ -4181,7 +4689,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final guarded = AdmissionAuthority(
         uid, () => base.uid == uid && base.isCurrent && fresh(),
         canCreate: base.canCreate, epoch: base.epoch);
-    final adm = _Admission(uid, guarded, sessionCurrent: fresh);
+    final adm = _Admission(uid, guarded,
+        sessionCurrent: fresh, asrCause: asr?.authority);
     final ownership = await _ensureLocalDataOwnedBy(uid, adm);
     if (lossSeq != _authLossSeq || !adm.current) return; // lost or superseded
     if (ownership == LocalDataOwnership.revoked) return;
@@ -4190,6 +4699,14 @@ class AppSession extends ValueNotifier<SessionStatus> {
       // Fail closed: local data is preserved but must not be shown to an
       // identity whose ownership could not be verified. Route to sign-in.
       markSessionInvalid();
+      return;
+    }
+    // ASR §11.2: SE2/SE3 and P_publish between SE1 (the owner publication
+    // above) and writable publication.
+    if (asr != null &&
+        (!await asr.beforePublication() ||
+            lossSeq != _authLossSeq ||
+            !adm.current)) {
       return;
     }
     final remoteEmail = session.user.email;
@@ -4207,7 +4724,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
         (sameIdentity &&
             fallbackKey != null &&
             _completedAccountKeys.contains(fallbackKey));
-    if (!completed) {
+    if (!completed && asr == null) {
       // Network: read BEFORE the admission operation below, which a Remove data
       // drains and which must never wait on the network.
       completed = await _readRemoteOnboardingCompletion(
@@ -4222,7 +4739,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
         bool live() =>
             lossSeq == _authLossSeq &&
             adm.current &&
-            _explicitAdmissionEpoch == null;
+            _explicitAdmissionEpoch == null &&
+            (asr?.mayProceed() ?? true);
         if (!live()) return;
         await _storage.write(key: _kCurrentAccount, value: accountKey);
         if (!live()) return;
@@ -4258,6 +4776,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
         notifyListeners();
         if (!live()) return;
         _recordDatabaseIdentityPublication(databaseLoss);
+        asr?.published = completed;
         // The committed, guarded automatic publication is the other place a
         // consent proof is issued (a returning, already-authenticated user): the
         // evidence is the REAL SDK session of this client for exactly this uid.

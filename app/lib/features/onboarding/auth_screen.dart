@@ -10,6 +10,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../../core/auth/auth_coordinator.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/auth/supabase_auth_service.dart' show AuthCancelledException;
 import '../../core/backend/supabase_config.dart';
@@ -91,9 +92,11 @@ class OnboardingAuthScreen extends ConsumerStatefulWidget {
 }
 
 class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
-  bool _busyApple = false;
+  // Publishing the admitted account can remount this screen before routing.
+  // Keep the Apple button busy until that same attempt hands off to setup.
+  static final _appleSignInPending = ValueNotifier<bool>(false);
 
-  bool get _busy => _busyApple;
+  bool get _busy => _appleSignInPending.value;
 
   @override
   void didChangeDependencies() {
@@ -105,13 +108,16 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
   Future<void> _signIn(Future<AuthIdentity> Function() method) async {
     if (_busy) return;
     HapticFeedback.lightImpact();
-    setState(() => _busyApple = true);
+    _appleSignInPending.value = true;
     // F2: the attempt is captured BEFORE the provider is awaited. If Remove data
     // is accepted while the provider sheet is open, this attempt is stale and
     // cannot authorize (re)creating anything once it completes.
     final attempt = AppSession.instance.beginAuthAttempt();
     try {
-      final identity = await method();
+      // ASR §4.4: the exchange carries this attempt's intent.
+      final identity = attempt.intent == 0
+          ? await method()
+          : await AuthAttemptZone.run(attempt.intent, method);
       if (SupabaseConfig.isConfigured && identity.isCurrent == null) {
         throw const StaleAdmissionException();
       }
@@ -137,6 +143,11 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
 
       appRouter.go('/onboarding/setup');
     } catch (error, stackTrace) {
+      // ASR §4.6: an exchange that never reached its commit releases the
+      // exclusion after aligning SDK memory (no-op otherwise).
+      if (attempt.intent != 0) {
+        await AuthCoordinator.active?.abandonExplicit(attempt.intent);
+      }
       if (kDebugMode) {
         debugPrint(
           '[Auth] interactive sign-in failed: '
@@ -158,11 +169,7 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
         }
       }
     } finally {
-      if (mounted) {
-        setState(() {
-          _busyApple = false;
-        });
-      }
+      _appleSignInPending.value = false;
     }
   }
 
@@ -338,31 +345,38 @@ class _OnboardingAuthScreenState extends ConsumerState<OnboardingAuthScreen> {
   }
 
   Widget _appleButton() {
-    return SizedBox(
-      width: double.infinity,
-      child: FilledButton.icon(
-        onPressed: _busy
-            ? null
-            : () => _signIn(ref.read(authServiceProvider).signInWithApple),
-        style: FilledButton.styleFrom(
-          backgroundColor: Colors.white,
-          foregroundColor: Colors.black,
-          minimumSize: const Size.fromHeight(54),
-          shape: const StadiumBorder(),
-        ),
-        icon: _busyApple
-            ? const SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  color: Colors.black,
-                ),
-              )
-            : const Icon(Icons.apple, size: 24),
-        label: Text(
-          context.l10n.authAppleCta,
-          style: AppTypography.bodyStrong(Colors.black),
+    return ValueListenableBuilder<bool>(
+      valueListenable: _appleSignInPending,
+      builder: (context, busy, _) => SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: busy
+              ? null
+              : () => _signIn(ref.read(authServiceProvider).signInWithApple),
+          style: FilledButton.styleFrom(
+            backgroundColor: Colors.white,
+            disabledBackgroundColor:
+                Theme.of(context).brightness == Brightness.dark
+                    ? Colors.white.withValues(alpha: 0.75)
+                    : null,
+            foregroundColor: Colors.black,
+            minimumSize: const Size.fromHeight(54),
+            shape: const StadiumBorder(),
+          ),
+          icon: busy
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.black,
+                  ),
+                )
+              : const Icon(Icons.apple, size: 24),
+          label: Text(
+            busy ? context.l10n.startPreparing : context.l10n.authAppleCta,
+            style: AppTypography.bodyStrong(Colors.black),
+          ),
         ),
       ),
     );

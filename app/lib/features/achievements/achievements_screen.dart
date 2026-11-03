@@ -6,11 +6,13 @@ import '../../domain/entities/achievement_catalog.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../ads/ad_placement.dart';
 import '../ads/qirsh_ad_banner.dart';
 import '../common/app_card.dart';
 import '../common/premium_loading.dart';
+import '../common/app_error_state.dart';
+import '../common/app_header.dart';
 import 'achievements_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
 
@@ -21,10 +23,22 @@ class AchievementsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final async = ref.watch(achievementsViewProvider);
     return Scaffold(
+      appBar: AppHeader(title: context.l10n.achTitle),
       body: async.when(
         skipLoadingOnReload: true,
-        loading: () => const SkeletonList(rows: 5),
-        error: (error, _) => Center(child: Text(context.l10n.txnError)),
+        loading: () => const Column(children: [
+          _AchievementsHeader(),
+          Expanded(child: SkeletonList(rows: 5)),
+        ]),
+        error: (error, _) => ListView(padding: EdgeInsets.zero, children: [
+          const _AchievementsHeader(),
+          AppErrorState(
+            title: context.l10n.txnError,
+            description: context.l10n.annTryAgainSoon,
+            retryLabel: context.l10n.startRetry,
+            onRetry: () => ref.invalidate(achievementsViewProvider),
+          ),
+        ]),
         data: (data) {
           final c = context.colors;
           final nextThreshold = data.nextLevelThreshold;
@@ -36,11 +50,8 @@ class AchievementsScreen extends ConsumerWidget {
             child: ListView(
               padding: EdgeInsets.zero,
               children: [
-                _AchievementsHeader(
-                  level: data.xpLevel.level,
-                  xp: data.xpLevel.totalXp,
-                  streak: data.streak.currentStreak,
-                ),
+                const _AchievementsHeader(),
+                const QirshPhotoBanner(photo: QirshPhoto.milestone),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.gutter),
                   child: Column(
@@ -55,18 +66,31 @@ class AchievementsScreen extends ConsumerWidget {
                       // its background — WCAG AA wants 4.5:1. Every other
                       // screen puts a card in the melt zone, which is why none
                       // of them has the problem; this one had bare text.
+                      //
+                      // The header hero names the level and its tiles carry XP
+                      // and the streak, so this card is only the progress to
+                      // the next level.
                       AppCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(context.l10n.achCurrentLevel,
-                                style: AppTypography.callout(c.textLight)),
-                            const SizedBox(height: AppSpacing.s1),
-                            Text(
-                              _levelName(context, data.xpLevel.levelKey),
-                              style: AppTypography.title2(c.textMain),
-                            ),
-                            const SizedBox(height: AppSpacing.s3),
+                            Row(children: [
+                              Expanded(child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('${context.l10n.achLevel} ${data.xpLevel.level}',
+                                    style: AppTypography.caption(c.textMuted)),
+                                  Text(_levelName(context, data.xpLevel.levelKey),
+                                    style: AppTypography.title2(c.textPrimary)),
+                                ],
+                              )),
+                              Container(padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(color: c.warningBg,
+                                  borderRadius: BorderRadius.circular(999)),
+                                child: Text(context.l10n.achStreakDays(data.streak.currentStreak),
+                                  style: AppTypography.caption(c.warning))),
+                            ]),
+                            const SizedBox(height: 12),
                             ClipRRect(
                               borderRadius:
                                   BorderRadius.circular(AppRadius.pill),
@@ -84,42 +108,47 @@ class AchievementsScreen extends ConsumerWidget {
                                   : '${data.xpLevel.totalXp.toString()}/$nextThreshold XP',
                               style: AppTypography.subhead(c.textMain),
                             ),
-                            const SizedBox(height: AppSpacing.s3),
-                            Text(
-                              context.l10n
-                                  .achCurrentStreak(data.streak.currentStreak),
-                              style: AppTypography.bodyStrong(c.textMain),
-                            ),
                           ],
                         ),
                       ),
                       const SizedBox(height: AppSpacing.s5),
+                      Text(context.l10n.achBadges,
+                        style: AppTypography.title2(c.textPrimary)),
+                      const SizedBox(height: 4),
+                      Text(context.l10n.achEarnedCount(
+                        data.achievements.where((a) => a.unlockedAt != null).length,
+                        data.achievements.length),
+                        style: AppTypography.caption(c.textMuted)),
+                      const SizedBox(height: 12),
                       GridView.builder(
+                        // Explicit, or the grid inherits the status-bar inset
+                        // as top padding and opens a ~60pt gap above itself.
+                        padding: EdgeInsets.zero,
                         shrinkWrap: true,
                         physics: const NeverScrollableScrollPhysics(),
                         gridDelegate:
-                            const SliverGridDelegateWithFixedCrossAxisCount(
-                          crossAxisCount: 2,
+                            SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: MediaQuery.sizeOf(context).width < 360 ? 2 : 3,
                           crossAxisSpacing: AppSpacing.s3,
                           mainAxisSpacing: AppSpacing.s3,
-                          childAspectRatio: 1.3,
+                          mainAxisExtent: 164 * MediaQuery.textScalerOf(context).scale(1),
                         ),
                         itemCount: data.achievements.length,
                         itemBuilder: (context, index) {
                           final item = data.achievements[index];
                           final unlocked = item.unlockedAt != null;
                           return Container(
-                            padding: const EdgeInsets.all(AppSpacing.s4),
+                            padding: const EdgeInsets.all(AppSpacing.s3),
                             decoration: BoxDecoration(
                               color: unlocked
                                   ? c.primary.withValues(alpha: 0.08)
-                                  : c.surface.withValues(alpha: 0.45),
+                                  : c.surface,
                               borderRadius:
                                   BorderRadius.circular(AppRadius.card),
                               border: Border.all(
                                 color: unlocked
                                     ? c.primary.withValues(alpha: 0.4)
-                                    : c.border.withValues(alpha: 0.15),
+                                    : c.border,
                                 width: unlocked ? 1.5 : 1,
                               ),
                               boxShadow: unlocked
@@ -258,30 +287,14 @@ class AchievementsScreen extends ConsumerWidget {
 }
 
 class _AchievementsHeader extends StatelessWidget {
-  const _AchievementsHeader({
-    required this.level,
-    required this.xp,
-    required this.streak,
-  });
-
-  final int level;
-  final int xp;
-  final int streak;
+  const _AchievementsHeader();
 
   @override
   Widget build(BuildContext context) {
-    return CalmPageHeader(
-      title: context.l10n.achTitle,
-      subtitle: context.l10n.achSubtitle,
-      leading: Navigator.of(context).canPop()
-          ? const BackButton(color: Colors.white)
-          : null,
-      amount: '$level',
-      currency: context.l10n.achLevel,
-      metrics: [
-        CalmMetric(label: context.l10n.achTotalXp, value: '$xp'),
-        CalmMetric(label: context.l10n.achStreak, value: context.l10n.achStreakDays(streak)),
-      ],
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.gutter, 8, AppSpacing.gutter, 12),
+      child: Text(context.l10n.achSubtitle,
+          style: AppTypography.caption(context.colors.textSecondary)),
     );
   }
 }

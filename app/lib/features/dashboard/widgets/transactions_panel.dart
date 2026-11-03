@@ -28,14 +28,13 @@ class TransactionDay {
 List<TransactionDay> groupByDay(List<TransactionEntity> rows) {
   final byDay = <DateTime, List<TransactionEntity>>{};
   for (final tx in rows) {
-    final key = DateTime(
-        tx.occurredAt.year, tx.occurredAt.month, tx.occurredAt.day);
+    final key =
+        DateTime(tx.occurredAt.year, tx.occurredAt.month, tx.occurredAt.day);
     (byDay[key] ??= <TransactionEntity>[]).add(tx);
   }
   final days = byDay.keys.toList()..sort((a, b) => b.compareTo(a));
   return [
-    for (final day in days)
-      TransactionDay(day: day, transactions: byDay[day]!),
+    for (final day in days) TransactionDay(day: day, transactions: byDay[day]!),
   ];
 }
 
@@ -57,6 +56,7 @@ class TransactionsPanel extends StatelessWidget {
     required this.privacyMode,
     this.merchantLogos = const <String, String>{},
     this.maxHeight = 352,
+    this.compact = false,
     this.onTap,
   });
 
@@ -65,6 +65,7 @@ class TransactionsPanel extends StatelessWidget {
   final bool privacyMode;
   final Map<String, String> merchantLogos;
   final double maxHeight;
+  final bool compact;
   final void Function(TransactionEntity tx)? onTap;
 
   @override
@@ -84,8 +85,27 @@ class TransactionsPanel extends StatelessWidget {
       );
     }
 
+    if (compact) {
+      final rows = days.expand((day) => day.transactions).toList();
+      return MaliCard(
+        style: MaliSurfaceStyle.raised,
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            for (var i = 0; i < rows.length; i++) ...[
+              if (i > 0)
+                Divider(
+                    height: 1, indent: 14, endIndent: 14, color: t.strokeSoft),
+              _row(context, rows[i]),
+            ],
+          ],
+        ),
+      );
+    }
+
     return MaliCard(
-      style: MaliSurfaceStyle.floating,
+      style: MaliSurfaceStyle.raised,
       padding: EdgeInsets.zero,
       child: Column(
         mainAxisSize: MainAxisSize.min,
@@ -99,7 +119,8 @@ class TransactionsPanel extends StatelessWidget {
               itemBuilder: (context, i) => _daySection(context, t, days[i]),
             ),
           ),
-          _hint(context, t),
+          if (days.expand((day) => day.transactions).length > 1)
+            _hint(context, t),
         ],
       ),
     );
@@ -125,13 +146,11 @@ class TransactionsPanel extends StatelessWidget {
     var net = Money.zero(currency);
     for (final tx in day.transactions) {
       if (tx.amountMoney.currency != currency) continue;
-      net = transactionIsDebit(tx)
-          ? net - tx.amountMoney
-          : net + tx.amountMoney;
+      net =
+          transactionIsDebit(tx) ? net - tx.amountMoney : net + tx.amountMoney;
     }
     return Container(
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
-      color: t.surfaceFloating,
       child: Row(
         children: [
           Expanded(
@@ -160,13 +179,15 @@ class TransactionsPanel extends StatelessWidget {
 
   Widget _row(BuildContext context, TransactionEntity tx) {
     final category = catalog.byId(tx.categoryId);
-    final title = tx.rawMerchant ?? category?.name ?? context.l10n.txnTransactionWord;
+    final title =
+        tx.rawMerchant ?? category?.name ?? context.l10n.txnTransactionWord;
     return AppTransactionRow(
       title: title,
       amount: tx.amount,
+      amountMoney: tx.amountMoney,
       currency: Currency.label(context, tx.currency),
       subtitle:
-          '${Formatters.time(tx.occurredAt, context)} · ${category?.name ?? context.l10n.homeUncategorised}',
+          '${compact ? '${MaterialLocalizations.of(context).formatShortDate(tx.occurredAt.toLocal())} · ' : ''}${Formatters.time(tx.occurredAt, context)} · ${category?.name ?? context.l10n.homeUncategorised}',
       categoryIconName: category?.iconName,
       categoryColor: category?.color,
       brandLogoUrl: BrandMark.logoFor(title, merchantLogos),
@@ -191,11 +212,15 @@ class TransactionsPanel extends StatelessWidget {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(AppLucideIcons.arrowDown, size: 13, color: t.textOnCanvasMuted),
+            Icon(AppLucideIcons.arrowDown,
+                size: 13, color: t.textOnCanvasMuted),
             const SizedBox(width: 6),
-            Text(
-              context.l10n.homeSwipeForMore,
-              style: AppTypography.micro(t.textOnCanvasMuted),
+            Flexible(
+              child: Text(
+                context.l10n.homeSwipeForMore,
+                textAlign: TextAlign.center,
+                style: AppTypography.micro(t.textOnCanvasMuted),
+              ),
             ),
           ],
         ),

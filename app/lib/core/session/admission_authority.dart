@@ -29,6 +29,7 @@ class AdmissionAuthority {
     this.canCreate = false,
     this.epoch = 0,
     this.openReservation,
+    this.causeAuthority,
   });
 
   /// An always-current authority for tests that exercise storage in isolation.
@@ -36,7 +37,8 @@ class AdmissionAuthority {
   const AdmissionAuthority.forTest(this.uid, {this.canCreate = true})
       : _isCurrent = _always,
         epoch = 0,
-        openReservation = null;
+        openReservation = null,
+        causeAuthority = null;
 
   static bool _always() => true;
 
@@ -52,10 +54,26 @@ class AdmissionAuthority {
   /// bookkeeping only: it adds no authority this authority did not carry.
   final DatabaseOpenReservation? openReservation;
 
+  /// ASR §11.2: the op this admission is the adoption of (null otherwise). The
+  /// causes of the scope it opens belong to that op. Bookkeeping only: it adds
+  /// no authority.
+  final Object? causeAuthority;
+
   /// This same authority (same uid, epoch, currency) carrying [reservation].
   AdmissionAuthority withOpenReservation(DatabaseOpenReservation reservation) =>
       AdmissionAuthority(uid, _isCurrent,
-          canCreate: canCreate, epoch: epoch, openReservation: reservation);
+          canCreate: canCreate,
+          epoch: epoch,
+          openReservation: reservation,
+          causeAuthority: causeAuthority);
+
+  /// This same authority carrying [authority] as its cause authority.
+  AdmissionAuthority withCauseAuthority(Object authority) =>
+      AdmissionAuthority(uid, _isCurrent,
+          canCreate: canCreate,
+          epoch: epoch,
+          openReservation: openReservation,
+          causeAuthority: authority);
 
   bool get isCurrent => _isCurrent();
 
@@ -76,8 +94,12 @@ class AdmissionAuthority {
 /// (re)creating a removed uid's data.
 @immutable
 class AuthAttempt {
-  const AuthAttempt(this.epoch);
+  const AuthAttempt(this.epoch, [this.intent = 0]);
   final int epoch;
+
+  /// ASR §4.1: the AuthCoordinator intent registered at the attempt start (0
+  /// without a coordinator). The explicit exchange and commit carry it.
+  final int intent;
 }
 
 /// The authority was revoked (Remove data accepted, or admission closed) before

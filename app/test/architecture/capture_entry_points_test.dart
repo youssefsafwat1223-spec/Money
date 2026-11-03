@@ -24,21 +24,20 @@ void main() {
         .listSync(recursive: true)
         .whereType<File>()
         .where((f) => f.path.endsWith('.kt')),
-    ...Directory('ios')
-        .listSync(recursive: true)
-        .whereType<File>()
-        .where((f) =>
-            f.path.endsWith('.swift') && !f.path.contains('/ephemeral/')),
+    ...Directory('ios').listSync(recursive: true).whereType<File>().where(
+        (f) => f.path.endsWith('.swift') && !f.path.contains('/ephemeral/')),
   ];
 
   group('capture entry points', () {
     test('the ONLY capture channel is money_companion/native_capture', () {
       final bridge =
           read('lib/features/capture/services/native_capture_bridge.dart');
-      expect(bridge, contains("MethodChannel('money_companion/native_capture')"));
+      expect(
+          bridge, contains("MethodChannel('money_companion/native_capture')"));
 
       final dartChannels = RegExp(r"MethodChannel\('([^']+)'\)")
-          .allMatches(read('lib/features/capture/services/native_capture_bridge.dart'))
+          .allMatches(
+              read('lib/features/capture/services/native_capture_bridge.dart'))
           .map((m) => m.group(1))
           .toSet();
       expect(dartChannels, {'money_companion/native_capture'},
@@ -165,14 +164,16 @@ void main() {
           reason: 'notifyOnly/requestConfirmation/duplicate promise a row');
     });
 
-    test('the drain re-ingests on device only unless the AI fallback rule holds',
+    test(
+        'the drain re-ingests on device only unless the AI fallback rule holds',
         () {
       final shell = read('lib/features/app/app_shell.dart');
       expect(shell, contains('onDeviceOnly: !nativeCaptureMayUseAiFallback('),
           reason: 'a later drain must never re-send an SMS to AI/enrichment '
               'except a backend-failed `sent` capture, behind consent + flag');
       expect(shell, contains('EgressClass.aiProcessing'),
-          reason: 'consent is read fresh per message so revocation never re-sends');
+          reason:
+              'consent is read fresh per message so revocation never re-sends');
       expect(shell, contains("'capture_ai_fallback_enabled'"));
     });
   });
@@ -196,7 +197,8 @@ void main() {
       expect(paste.contains(r'فشل الذكاء الاصطناعي: $reason'), isFalse,
           reason: 'consent_off is an internal identifier, not user copy');
       expect(paste, contains("'consent_off'"),
-          reason: 'the skip reasons must still be classified, just not printed');
+          reason:
+              'the skip reasons must still be classified, just not printed');
     });
   });
 
@@ -210,9 +212,8 @@ void main() {
     final shell = File('lib/features/app/app_shell.dart').readAsStringSync();
     final start = shell.indexOf('Future<void> _consumeSharedInput');
     expect(start, isNonNegative, reason: '_consumeSharedInput missing');
-    final peek =
-        shell.indexOf('await NativeCaptureBridge.peekPendingSharedMessages()',
-            start);
+    final peek = shell.indexOf(
+        'await NativeCaptureBridge.peekPendingSharedMessages()', start);
     expect(peek, isNonNegative, reason: 'the peek await moved');
     final nextRef = shell.indexOf('ref.read(', peek);
     final guard = shell.indexOf('if (!mounted) return;', peek);
@@ -255,8 +256,9 @@ void main() {
       final start = shell.indexOf('Future<void> $method() async {');
       expect(start, isNonNegative, reason: '$method missing');
       final asyncAt = shell.indexOf(') async {', start);
-      final open =
-          asyncAt >= 0 ? asyncAt + ') async '.length : shell.indexOf('{', start);
+      final open = asyncAt >= 0
+          ? asyncAt + ') async '.length
+          : shell.indexOf('{', start);
       var depth = 0;
       for (var i = open; i < shell.length; i++) {
         if (shell[i] == '{') depth++;
@@ -271,7 +273,12 @@ void main() {
     // takes the shell's WidgetRef, so it is the same hazard one call deeper.
     final providers = File('lib/core/di/app_providers.dart').readAsStringSync();
     String bodyIn(String src, String signature) {
-      final start = src.indexOf(signature);
+      final signaturePattern = RegExp(signature
+          .trim()
+          .split(RegExp(r'\s+'))
+          .map(RegExp.escape)
+          .join(r'\s+'));
+      final start = signaturePattern.firstMatch(src)?.start ?? -1;
       expect(start, isNonNegative, reason: '$signature missing');
       // Anchor on `async {`, not the first `{`: a method declaring NAMED
       // parameters opens a brace in its parameter list, and starting there
@@ -294,6 +301,7 @@ void main() {
       }
       fail('$signature: unbalanced braces');
     }
+
     final engagementBody = bodyIn(shell,
         'Future<bool> _syncEngagementBody(AdmittedLocalWork work, bool Function() current, SyncPhaseBinding phase) async {');
     final engagementWrapper = bodyIn(shell,
@@ -303,20 +311,25 @@ void main() {
     // Only these paired regions may use current() as a disposal guard. Pin
     // its original work/generation, mounted state, bound phase and exact DB
     // before allowing that spelling in the per-await scan below.
-    expect(wrapper, contains(
-        'if (_syncEngagementInFlight || !mounted) return false; '
-        'final work = originalWork ?? AdmittedLocalWork.capture(ref); '
-        'if (work == null || !work.current) return false; '
-        'final generation = _syncGate.generation; '
-        'final phase = SyncPhaseBinding(); '
-        'bool rawCurrent() => mounted && _syncGate.admits(generation) && work.current; '
-        'phase.bind(_NotificationCallerLifecycle(work, rawCurrent)); '
-        'bool current() => rawCurrent() && phase.isCurrent && identical(phase.database, work.database);'));
-    expect(wrapper, contains(
-        'return await _syncEngagementBody(work, current, phase) && current();'));
-    expect(wrapper, contains(
-        '} on StateError { if (current()) rethrow; return false; } catch (_) { '
-        'if (!current()) return false; rethrow; } finally {'));
+    expect(
+        wrapper,
+        contains('if (_syncEngagementInFlight || !mounted) return false; '
+            'final work = originalWork ?? AdmittedLocalWork.capture(ref); '
+            'if (work == null || !work.current) return false; '
+            'final generation = _syncGate.generation; '
+            'final phase = SyncPhaseBinding(); '
+            'bool rawCurrent() => mounted && _syncGate.admits(generation) && work.current; '
+            'phase.bind(_NotificationCallerLifecycle(work, rawCurrent)); '
+            'bool current() => rawCurrent() && phase.isCurrent && identical(phase.database, work.database);'));
+    expect(
+        wrapper,
+        contains(
+            'return await _syncEngagementBody(work, current, phase) && current();'));
+    expect(
+        wrapper,
+        contains(
+            '} on StateError { if (current()) rethrow; return false; } catch (_) { '
+            'if (!current()) return false; rethrow; } finally {'));
     final targets = <String, String>{
       // initState's cold-start closure is the same hazard: a long await chain
       // that can outlive the shell. It threw from `initState.<anonymous
@@ -334,7 +347,8 @@ void main() {
     for (final entry in targets.entries) {
       final method = entry.key;
       final src = entry.value;
-      if (src.contains('on StateError catch') && src.contains('if (mounted) rethrow;')) {
+      if (src.contains('on StateError catch') &&
+          src.contains('if (mounted) rethrow;')) {
         continue; // whole-body discipline: any post-dispose ref use is caught
       }
       // Method ENTRY counts as a suspension point: every one of these is
@@ -343,7 +357,8 @@ void main() {
       // _syncEngagementBody kept failing with a guard already in the body.
       var awaited = method != 'initState';
       // `ref` at end of line with `.read(` on the next is one use, not none.
-      final lines = src.replaceAll(RegExp(r'\bref\s*\n\s*\.'), 'ref.').split('\n');
+      final lines =
+          src.replaceAll(RegExp(r'\bref\s*\n\s*\.'), 'ref.').split('\n');
       for (var i = 0; i < lines.length; i++) {
         final l = lines[i].trim();
         if (l.startsWith('//')) continue;
@@ -357,7 +372,8 @@ void main() {
         // StateError, so uses inside it are not unguarded. Narrow this if a
         // `try` ever appears here with only typed `on X catch` clauses.
         if (l == 'try {') awaited = false;
-        final usesRef = RegExp(r'\bref\.(read|watch|invalidate|listen)\(|\bsyncCatalog\(ref\)')
+        final usesRef = RegExp(
+                r'\bref\.(read|watch|invalidate|listen)\(|\bsyncCatalog\(ref\)')
             .hasMatch(l);
         if (awaited && usesRef) offenders.add('$method: line ${i + 1}: $l');
         if (l.contains('await ')) awaited = true;

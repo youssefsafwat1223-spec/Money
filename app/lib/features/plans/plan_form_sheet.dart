@@ -60,8 +60,8 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
     // silently rewrote the plan budget on an untouched Save.
     _budgetController = TextEditingController(
         text: e == null ? '' : e.budgetAmountMoney.toDecimalString());
-    _start = e?.startDate ?? DateTime.now();
-    _end = e?.endDate ?? DateTime.now().add(const Duration(days: 7));
+    _start = e?.startDate.toLocal() ?? DateTime.now();
+    _end = e?.endDate.toLocal() ?? DateTime.now().add(const Duration(days: 7));
     _accountIds = {...?e?.accountIds};
     _cards = {...?e?.cardLast4s};
   }
@@ -74,10 +74,11 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
   }
 
   Future<void> _pickDate({required bool isStart}) async {
+    final firstDate = isStart ? DateTime(2020) : DateUtils.dateOnly(_start);
     final picked = await showGlassDatePicker(
       context: context,
-      initialDate: isStart ? _start : _end,
-      firstDate: DateTime(2020),
+      initialDate: isStart ? _start : (_end.isBefore(firstDate) ? firstDate : _end),
+      firstDate: firstDate,
       lastDate: DateTime.now().add(const Duration(days: 366 * 3)),
     );
     if (picked == null) return;
@@ -92,8 +93,12 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     final name = _nameController.text.trim();
-    if (name.isEmpty || _saving) return;
+    if (name.isEmpty) {
+      AppToast.showError(context, context.l10n.bfEnterName);
+      return;
+    }
     final currency = widget.existing?.currency ??
         (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
     // Exact localized parse — ambiguous / over-precision input fails validation
@@ -103,13 +108,14 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
       budgetMoney = parseLocalizedMoney(_budgetController.text.trim(), currency);
     } on Exception {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(context.l10n.bfInvalidAmount)),
-        );
+        AppToast.showError(context, context.l10n.bfInvalidAmount);
       }
       return;
     }
-    if (budgetMoney.minorUnits <= 0) return;
+    if (budgetMoney.minorUnits <= 0) {
+      AppToast.showError(context, context.l10n.bfAmountAboveZero);
+      return;
+    }
     setState(() => _saving = true);
 
     final existing = widget.existing;
@@ -118,12 +124,21 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
       name: name,
       budgetAmountMoney: budgetMoney,
       currency: existing?.currency ?? currency,
-      startDate: DateTime(_start.year, _start.month, _start.day),
-      endDate: DateTime(_end.year, _end.month, _end.day, 23, 59, 59),
+      // An unrelated edit must not change existing instants (including DST
+      // offsets or a legacy midnight end). Normalize only a newly chosen day.
+      startDate: existing != null &&
+              DateUtils.isSameDay(_start, existing.startDate.toLocal())
+          ? existing.startDate
+          : DateTime(_start.year, _start.month, _start.day),
+      endDate: existing != null &&
+              DateUtils.isSameDay(_end, existing.endDate.toLocal())
+          ? existing.endDate
+          : DateTime(_end.year, _end.month, _end.day, 23, 59, 59),
       accountIds: _accountIds.toList(),
       cardLast4s: _cards.toList(),
       status: existing?.status ?? PlanStatus.active,
       createdAt: existing?.createdAt ?? DateTime.now().toUtc(),
+      icon: existing?.icon,
     );
     try {
       await ref.read(planRepositoryProvider).save(plan);
@@ -138,7 +153,7 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
       final message = error is RepoException
           ? repoErrorMessage(context, error)
           : context.l10n.bfSaveFailed;
-      AppToast.show(context, message);
+      AppToast.showError(context, message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -170,7 +185,8 @@ class _PlanFormSheetState extends ConsumerState<PlanFormSheet> {
       title: widget.existing == null ? context.l10n.homeNewPlan : context.l10n.pfEditPlan,
       subtitle: context.l10n.pfSubtitle,
       scrollable: true,
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.gutter, AppSpacing.s2, AppSpacing.gutter, 0),
       bottomAction: FilledButton(
         onPressed: _saving ? null : _save,
         style: FilledButton.styleFrom(

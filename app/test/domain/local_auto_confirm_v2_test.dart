@@ -445,4 +445,30 @@ void main() {
       expect(repo.saveCount, 2);
     });
   });
+
+  group('an SMS date with no clock time', () {
+    Future<DateTime> occurredAt(DateTime fromSms, DateTime receivedAt) async {
+      final parsed = _txn().copyWith(occurredAt: fromSms);
+      final result = await _useCase(
+        repo: StoringTransactionRepo(),
+        parse: ParseResult.success(parsed),
+        flag: () => true,
+      )(rawMessage: _raw, senderId: 'SNB', smsReceivedAt: receivedAt);
+      return result.transaction!.occurredAt;
+    }
+
+    test('keeps the received time on the received day, not 12:00 AM', () async {
+      final received = DateTime(2026, 10, 29, 14, 37).toUtc();
+      expect(await occurredAt(DateTime(2026, 10, 29), received), received);
+    });
+
+    test('keeps the SMS date on another day, and a written time as is',
+        () async {
+      final received = DateTime(2026, 10, 29, 14, 37).toUtc();
+      expect(await occurredAt(DateTime(2026, 10, 25), received),
+          DateTime(2026, 10, 25).toUtc());
+      expect(await occurredAt(DateTime(2026, 10, 29, 0, 2), received),
+          DateTime(2026, 10, 29, 0, 2).toUtc());
+    });
+  });
 }

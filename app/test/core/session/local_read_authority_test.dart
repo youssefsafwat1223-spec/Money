@@ -303,6 +303,45 @@ void main() {
     });
   });
 
+  group('ASR E7 strict peek (§12)', () {
+    test('keeps the read status: confirmed absence is null, failure throws',
+        () async {
+      String? raw;
+      Object? failure;
+      final strict = LocalReadAuthority(
+        store: store,
+        strictRead: () async {
+          if (failure != null) throw failure;
+          return raw;
+        },
+        newOperationId: () => 'op-${++nonce}',
+      );
+      expect(await strict.peekRecordStrict(), isNull);
+      failure = StateError('keychain');
+      await expectLater(strict.peekRecordStrict(), throwsA(isA<StateError>()));
+      // The ordinary peek still maps any failure to null (unchanged).
+      store.failReads = true;
+      expect(await strict.peekRecord(), isNull);
+    });
+
+    test('runs in the same lane, behind a write in flight', () async {
+      final issue = await authority.beginIssue(uid: _uid, replicaId: _replica);
+      final release = Completer<void>();
+      store.onWrite = (r) async {
+        if (r.state == LocalReadGrantState.committed) await release.future;
+      };
+      final commit = authority.commit(issue, proof: proof());
+      final peek = authority.peekRecordStrict();
+      var done = false;
+      unawaited(peek.then((_) => done = true));
+      await pumpEventQueue();
+      expect(done, isFalse);
+      release.complete();
+      await commit;
+      expect((await peek)!.state, LocalReadGrantState.committed);
+    });
+  });
+
   group('serialization', () {
     test(
         'a revoke while the commit write is dispatched waits for it, then '

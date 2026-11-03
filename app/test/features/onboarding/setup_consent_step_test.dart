@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
@@ -210,6 +212,46 @@ void main() {
     expect(accountRepo.createCalls, isEmpty);
   });
 
+  testWidgets('notifications completion advances to the shortcut and leaves '
+      'its Installed confirmation required', (tester) async {
+    // Exercise the actual six-step UI with the existing fake local repositories.
+    // Only the notification platform boundary is stubbed; no session authority
+    // or consent decision is manufactured by this test.
+    AndroidFlutterLocalNotificationsPlugin.registerWith();
+    const timezoneChannel = MethodChannel('mali/device_timezone');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        timezoneChannel, (_) async => 'Africa/Cairo');
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(timezoneChannel, null));
+    const channel = MethodChannel('dexterous.com/flutter/local_notifications');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel,
+      (call) async => call.method == 'getNotificationAppLaunchDetails'
+          ? <String, dynamic>{'notificationLaunchedApp': false} : true);
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(channel, null));
+    await pumpSetup(tester);
+    await tester.tap(find.byKey(const Key('initialConsentDecline')));
+    await advance(tester);
+    await tester.tap(find.text('Continue'));
+    await advance(tester);
+    await tester.enterText(
+        find.byKey(const ValueKey('account-name-field')), 'Notification test account');
+    await tester.tap(find.byKey(const ValueKey('account-save-button')));
+    await advance(tester);
+    expect(find.text('Step 5 of 6'), findsOneWidget);
+    await tester.tap(find.text('Enable'));
+    await advance(tester);
+    await advance(tester);
+    expect(find.text('Step 6 of 6'), findsOneWidget);
+    expect(find.text('Installed'), findsOneWidget,
+        reason: 'notification permission must never confirm shortcut installation');
+    final finish = tester.widget<FilledButton>(
+        find.ancestor(of: find.text('Start'), matching: find.byType(FilledButton)));
+    expect(finish.onPressed, isNull,
+        reason: 'the separate Installed action remains an explicit user decision');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('finish is blocked without an account', (tester) async {
     await pumpSetup(tester, entry: OnboardingSetupEntry.captureGuide);
     await tester.tap(find.text('Installed'));
@@ -220,6 +262,9 @@ void main() {
     expect(find.text('Add an account to finish setup.'), findsOneWidget);
     expect(find.text('Step 4 of 6'), findsOneWidget,
         reason: 'sent back to Account Setup');
+    expect(find.byType(SnackBar), findsNothing);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
   });
 }
 

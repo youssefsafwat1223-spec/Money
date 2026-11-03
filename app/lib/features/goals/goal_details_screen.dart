@@ -17,7 +17,15 @@ import '../../domain/entities/goal_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../budgets/budgets_providers.dart';
 import '../common/app_header.dart';
-import '../common/vault_widget.dart';
+import '../common/app_sheet_scaffold.dart';
+import '../common/app_error_state.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_format.dart';
+import '../common/money_text.dart';
+import '../common/app_card.dart';
+import '../common/app_missing_record_state.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
+import '../../core/theme/widgets/ring_progress.dart';
 import '../dashboard/dashboard_providers.dart';
 import 'goal_form_screen.dart';
 import 'goals_providers.dart';
@@ -44,24 +52,33 @@ class GoalDetailsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Scaffold(
-      appBar: AppHeader(title: context.l10n.gdTitle),
+      appBar: AppHeader(
+        title: ref.watch(goalDetailsProvider(goalId)).valueOrNull?.goal.name ??
+            context.l10n.gdTitle,
+      ),
       body: _GoalDetailsContent(goalId: goalId),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddContributionSheet(context, ref, goalId),
-        label: Text(context.l10n.gdAddToGoal),
-        icon: const Icon(AppLucideIcons.plus),
+      bottomNavigationBar: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.gutter),
+          child: FilledButton.icon(
+            onPressed: () => _showAddContributionSheet(context, ref, goalId),
+            label: Text(context.l10n.gdAddToGoal),
+            icon: const Icon(AppLucideIcons.plus),
+          ),
+        ),
       ),
     );
   }
 }
 
-class _GoalDetailsSheet extends StatelessWidget {
+class _GoalDetailsSheet extends ConsumerWidget {
   const _GoalDetailsSheet({required this.goalId});
 
   final String goalId;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
     final media = MediaQuery.of(context);
     return Directionality(
@@ -97,9 +114,13 @@ class _GoalDetailsSheet extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        Text(context.l10n.gdTitle,
-                            style: AppTypography.sectionTitle(c.textMain)),
-                        const Spacer(),
+                        Expanded(
+                          child: Text(ref.watch(goalDetailsProvider(goalId)).valueOrNull?.goal.name ??
+                              context.l10n.gdTitle,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: AppTypography.sectionTitle(c.textMain)),
+                        ),
                         IconButton(
                           onPressed: () => Navigator.of(context).pop(),
                           icon: const Icon(AppLucideIcons.x),
@@ -138,17 +159,23 @@ class _GoalDetailsContent extends ConsumerWidget {
     return async.when(
       skipLoadingOnReload: true,
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text(context.l10n.txnError)),
+      error: (error, _) => SingleChildScrollView(child: AppErrorState(
+        title: context.l10n.txnError,
+        description: context.l10n.annTryAgainSoon,
+        retryLabel: context.l10n.startRetry,
+        onRetry: () => ref.invalidate(goalDetailsProvider(goalId)),
+      )),
       data: (data) {
         if (data == null) {
-          return Center(child: Text(context.l10n.gdNotFound));
+          return Center(child: SingleChildScrollView(child: AppMissingRecordState(
+            message: context.l10n.gdNotFound, illustration: 'savings')));
         }
         final c = context.colors;
         // `arabicLabel`, not `label(context, …)` — so an English reader saw
         // "Saved 12,750 of 15,000 ريال". Found by capturing this screen, which
         // has no route without an id and had therefore never been walked.
         final cur = Currency.label(
-            context, ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+            context, data.goal.currency);
         return ListView(
           padding: const EdgeInsets.fromLTRB(
             AppSpacing.gutter,
@@ -157,42 +184,102 @@ class _GoalDetailsContent extends ConsumerWidget {
             140,
           ),
           children: [
-            Center(child: VaultWidget(progress: data.progress, size: 220)),
-            const SizedBox(height: AppSpacing.s4),
-            Center(
-              child: Text(
-                '${(data.progress * 100).round()}%',
-                style: AppTypography.bodyStrong(c.textMain),
+            QirshPhotoBanner(
+              photo: qirshGoalPhoto(data.goal.vaultSkin),
+              margin: const EdgeInsets.only(bottom: 14),
+            ),
+            AppCard(
+              child: Row(
+                children: [
+                  RingProgress(
+                    value: data.progress,
+                    size: 76,
+                    strokeWidth: 7,
+                    color: c.income,
+                    trackColor: c.surface2,
+                    child: Center(
+                      child: Text('${(data.progress * 100).round()}%',
+                          style: AppTypography.caption(c.textMain)
+                              .copyWith(fontWeight: FontWeight.w700)),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(context.l10n.gdSavedLabel,
+                            style: AppTypography.caption(c.textLight)),
+                        const SizedBox(height: 3),
+                        Wrap(
+                          spacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            MoneyText(data.goal.savedMoney,
+                                style: AppTypography.custom(
+                                    size: 26, weight: FontWeight.w700,
+                                    height: 1.25, color: c.textMain)),
+                            Text('/ ${formatMoney(data.goal.targetMoney)} $cur',
+                                textDirection: TextDirection.ltr,
+                                style: AppTypography.caption(c.textLight)),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          context.l10n.gdRecommendedDaily(
+                              formatMoney(data.recommendedDailyAmount), cur),
+                          style: AppTypography.caption(c.textLight),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
             ),
-            const SizedBox(height: AppSpacing.s2),
-            Center(
-              child: Text(
-                context.l10n.gdSavedOfTarget(Formatters.integer(data.goal.savedAmount),
-                    Formatters.integer(data.goal.targetAmount), cur),
-                style: AppTypography.subhead(c.textMain),
-              ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: _GoalDetailMetric(
+                    label: context.l10n.gfDeadline,
+                    value: data.goal.deadline == null
+                        ? context.l10n.gfOptional
+                        : Formatters.fullDate(data.goal.deadline!, context),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _GoalDetailMetric(
+                    label: context.l10n.bdgRemaining,
+                    value: '${formatMoney(data.remainingAmount)} $cur',
+                    valueTextDirection: TextDirection.ltr,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _GoalDetailMetric(
+                    label: context.l10n.txdStatus,
+                    value: data.remainingAmount.minorUnits <= 0
+                        ? context.l10n.bdgGoalDone
+                        : (data.daysRemaining != null && data.daysRemaining! < 0)
+                            ? context.l10n.goalOverdue
+                            : context.l10n.txnActive,
+                    tone: (data.daysRemaining != null && data.daysRemaining! < 0)
+                        ? c.warning : c.income,
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: AppSpacing.s1),
-            Center(
-              child: Text(
-                data.daysRemaining == null
-                    ? context.l10n.gdRemaining(
-                        Formatters.integer(data.remainingAmount.toDouble()), cur)
-                    : context.l10n.gdRemainingWithDays(
-                        Formatters.integer(data.remainingAmount.toDouble()),
-                        data.daysRemaining!),
-                style: AppTypography.callout(c.textLight),
+            if (data.daysRemaining != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                context.l10n.gdRemainingWithDays(
+                    formatMoney(data.remainingAmount),
+                    data.daysRemaining!),
+                style: AppTypography.caption(c.textLight),
               ),
-            ),
-            const SizedBox(height: AppSpacing.s2),
-            Center(
-              child: Text(
-                context.l10n.gdRecommendedDaily(
-                    Formatters.integer(data.recommendedDailyAmount.toDouble()), cur),
-                style: AppTypography.bodyStrong(c.primary),
-              ),
-            ),
+            ],
             // Add is gated on sheet mode because the full screen already has a
             // FloatingActionButton for it; EDIT and DELETE are not, and used to
             // be. `/goals/:id` builds this screen with the default
@@ -270,7 +357,8 @@ class _GoalDetailsContent extends ConsumerWidget {
                 ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(
-                    '${Formatters.integer(contribution.amount)} $cur',
+                    '${formatMoney(contribution.amountMoney)} $cur',
+                    textDirection: TextDirection.ltr,
                     style: AppTypography.subhead(c.textMain),
                   ),
                   subtitle: Text(
@@ -281,6 +369,40 @@ class _GoalDetailsContent extends ConsumerWidget {
           ],
         );
       },
+    );
+  }
+}
+
+class _GoalDetailMetric extends StatelessWidget {
+  const _GoalDetailMetric({
+    required this.label,
+    required this.value,
+    this.tone,
+    this.valueTextDirection,
+  });
+
+  final String label;
+  final String value;
+  final Color? tone;
+  final TextDirection? valueTextDirection;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return AppCard(
+      radius: 16,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: AppTypography.caption(c.textLight)),
+          const SizedBox(height: 5),
+          Text(value,
+              textDirection: valueTextDirection,
+              style: AppTypography.custom(size: 14, weight: FontWeight.w700,
+                  height: 1.35, color: tone ?? c.textMain)),
+        ],
+      ),
     );
   }
 }
@@ -302,6 +424,8 @@ Future<void> _confirmDeleteGoal(
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
+          style: FilledButton.styleFrom(backgroundColor: context.colors.danger,
+              foregroundColor: context.colors.onDanger),
           child: Text(context.l10n.setDelete),
         ),
       ],
@@ -346,8 +470,15 @@ Future<void> _showAddContributionSheet(
         builder: (context, setSheetState) {
           Future<void> saveContribution() async {
             if (saving) return;
-            final amount = double.tryParse(controller.text);
-            if (amount == null || amount <= 0) {
+            final Money amount;
+            try {
+              amount = parseLocalizedMoney(controller.text, goalCurrency);
+            } on Exception {
+              AppToast.showError(context, context.l10n.bfInvalidAmount);
+              return;
+            }
+            if (amount.minorUnits <= 0) {
+              AppToast.showError(context, context.l10n.bfInvalidAmount);
               return;
             }
             setSheetState(() => saving = true);
@@ -356,8 +487,7 @@ Future<void> _showAddContributionSheet(
                     GoalContributionEntity(
                       id: IdGenerator.next(),
                       goalId: goalId,
-                      amountMoney:
-                          parseLocalizedMoney(controller.text, goalCurrency),
+                      amountMoney: amount,
                       createdAt: DateTime.now().toUtc(),
                       note: noteController.text.isEmpty
                           ? null
@@ -376,11 +506,7 @@ Future<void> _showAddContributionSheet(
               AppToast.showError(context, repoErrorMessage(context, error));
             } catch (_) {
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  content: Text(context.l10n.gdSaveFailed),
-                ),
-              );
+              AppToast.showError(context, context.l10n.gdSaveFailed);
             } finally {
               if (context.mounted) {
                 setSheetState(() => saving = false);
@@ -388,131 +514,114 @@ Future<void> _showAddContributionSheet(
             }
           }
 
-          return Directionality(
-            textDirection: Directionality.of(context),
-            child: ClipRRect(
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(28)),
-              child: MaliGlass(
-                variant: MaliGlassVariant.sheet,
-                nativeMaterial: true,
-                child: Padding(
-                  padding: EdgeInsets.only(
-                    left: AppSpacing.gutter,
-                    right: AppSpacing.gutter,
-                    top: AppSpacing.s3,
-                    bottom: MediaQuery.of(context).viewInsets.bottom +
-                        AppSpacing.s5,
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Container(
-                        width: 44,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: c.textLight.withValues(alpha: 0.3),
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                      ),
-                      Padding(
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        child: Row(
-                          children: [
-                            Text(context.l10n.gdAddContribution,
-                                style: AppTypography.sectionTitle(c.textMain)),
-                            const Spacer(),
-                            IconButton(
-                              tooltip: context.l10n.annClose,
-                              onPressed: () => Navigator.of(context).pop(),
-                              icon: const Icon(AppLucideIcons.x),
-                              style: IconButton.styleFrom(
-                                backgroundColor:
-                                    c.surface.withValues(alpha: 0.4),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      TextField(
-                        controller: controller,
-                        keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true),
-                        style: AppTypography.body(c.textMain),
-                        decoration: InputDecoration(
-                          labelText: context.l10n.bdgAmount,
-                          suffixText: cur,
-                          filled: true,
-                          fillColor: isDark
-                              ? Colors.white.withValues(alpha: 0.05)
-                              : c.surface2.withValues(alpha: 0.5),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: c.border),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(
-                                color: c.border.withValues(alpha: 0.5)),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: c.primary, width: 2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.s3),
-                      TextField(
-                        controller: noteController,
-                        style: AppTypography.body(c.textMain),
-                        decoration: InputDecoration(
-                          labelText: context.l10n.txdNote,
-                          filled: true,
-                          fillColor: isDark
-                              ? Colors.white.withValues(alpha: 0.05)
-                              : c.surface2.withValues(alpha: 0.5),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: c.border),
-                          ),
-                          enabledBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(
-                                color: c.border.withValues(alpha: 0.5)),
-                          ),
-                          focusedBorder: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(16),
-                            borderSide: BorderSide(color: c.primary, width: 2),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: AppSpacing.s4),
-                      SizedBox(
-                        height: AppSpacing.buttonHeight,
-                        width: double.infinity,
-                        child: FilledButton(
-                          onPressed: saving ? null : saveContribution,
-                          style: FilledButton.styleFrom(
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(16),
-                            ),
-                          ),
-                          child: saving
-                              ? SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2.5,
-                                    color: c.onInk,
-                                  ),
-                                )
-                              : Text(context.l10n.gdSaveContribution,
-                                  style: AppTypography.bodyStrong(c.onInk)),
-                        ),
-                      ),
-                    ],
+          return AppSheetScaffold(
+            title: context.l10n.gdAddContribution,
+            scrollable: true,
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+            body: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const QirshPhotoBanner(
+                  photo: QirshPhoto.jar,
+                  height: 132,
+                  margin: EdgeInsets.only(bottom: 14),
+                ),
+                TextField(
+                  controller: controller,
+                  onChanged: (_) => setSheetState(() {}),
+                  keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true),
+                  style: AppTypography.body(c.textMain),
+                  decoration: InputDecoration(
+                    labelText: context.l10n.bdgAmount,
+                    suffixText: cur,
+                    filled: true,
+                    fillColor: isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : c.surface2.withValues(alpha: 0.5),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: c.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(
+                          color: c.border.withValues(alpha: 0.5)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: c.primary, width: 2),
+                    ),
                   ),
                 ),
+                const SizedBox(height: AppSpacing.s3),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 4,
+                  alignment: WrapAlignment.center,
+                  children: [
+                    for (final amount in [250, 500, 1000, 2000])
+                      ChoiceChip(
+                        key: ValueKey('goal-contribution-preset-$amount'),
+                        label: Text('$amount'),
+                        selected: controller.text ==
+                            Money.parse('$amount', goalCurrency).toDecimalString(),
+                        onSelected: saving ? null : (_) => setSheetState(() {
+                          controller.text = Money.parse('$amount', goalCurrency)
+                              .toDecimalString();
+                        }),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.s3),
+                TextField(
+                  controller: noteController,
+                  style: AppTypography.body(c.textMain),
+                  decoration: InputDecoration(
+                    labelText: context.l10n.txdNote,
+                    filled: true,
+                    fillColor: isDark
+                        ? Colors.white.withValues(alpha: 0.05)
+                        : c.surface2.withValues(alpha: 0.5),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: c.border),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(
+                          color: c.border.withValues(alpha: 0.5)),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(16),
+                      borderSide: BorderSide(color: c.primary, width: 2),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            bottomAction: SizedBox(
+              height: AppSpacing.buttonHeight,
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: saving ? null : saveContribution,
+                style: FilledButton.styleFrom(
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                ),
+                child: saving
+                    ? SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.5,
+                          color: c.onInk,
+                        ),
+                      )
+                    : Text(context.l10n.gdSaveContribution,
+                        style: AppTypography.bodyStrong(c.onInk)),
               ),
             ),
           );

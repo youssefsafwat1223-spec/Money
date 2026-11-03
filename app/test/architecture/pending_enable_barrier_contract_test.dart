@@ -68,7 +68,7 @@ void main() {
     expect(store, contains('"cloud_egress_pending_v1"'));
     expect(store, contains('"cloud_egress_pending_v1.json"'));
     for (final phase in [begin, writeOn, restrict, finish]) {
-      expect(phase, contains('withQueueLock'));
+      expect(phase, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
     }
     final purge = body(store, 'static func purgeUserOwnedState()');
     expect(purge, isNot(contains('pendingStateKC')));
@@ -93,7 +93,7 @@ void main() {
   });
 
   test('restrictive publication is a separate flock operation, never called by phases', () {
-    expect(restrictivePublication, contains('withQueueLock'));
+    expect(restrictivePublication, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
     expect(restrictivePublication, contains('ownerGenerationKey'));
     expect(restrictivePublication, contains('writeStateLayer(.egress'));
     expect(restrictivePublication, contains('egressLayerRead(layer)'));

@@ -12,6 +12,7 @@ import '../../core/sync/sync_wakeup.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/utils/l10n_ext.dart';
 import '../../data/sync/exact_transport_capability.dart';
 import '../capture/services/capture_import_ports.dart'
     show NativeCaptureImportQueue;
@@ -19,6 +20,8 @@ import '../capture/services/native_capture_bridge.dart'
     show NativeCaptureBridge;
 import 'sync_status_providers.dart' show currentAuthUid;
 import 'settings_providers.dart';
+import '../common/app_header.dart';
+import '../common/app_error_state.dart';
 
 /// A-5: the QA sync diagnostics surface exists ONLY in debug builds, reached
 /// through the existing debug-only "Developer" group in Settings. The router
@@ -95,10 +98,15 @@ class SyncDiagnosticsScreen extends ConsumerWidget {
     final c = context.colors;
     final async = ref.watch(syncDiagnosticsProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Sync diagnostics')),
+      appBar: const AppHeader(title: 'Sync diagnostics'),
       body: async.when(
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text('Unavailable: ${e.runtimeType}')),
+        error: (e, _) => SingleChildScrollView(child: AppErrorState(
+          title: context.l10n.txnError,
+          description: 'Unavailable: ${e.runtimeType}',
+          retryLabel: context.l10n.startRetry,
+          onRetry: () => ref.invalidate(syncDiagnosticsProvider),
+        )),
         data: (d) => ListView(
           padding: const EdgeInsets.all(AppSpacing.gutter),
           children: [

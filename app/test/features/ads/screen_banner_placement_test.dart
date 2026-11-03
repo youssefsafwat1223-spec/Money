@@ -123,6 +123,30 @@ Future<void> _scrollToBottom(WidgetTester tester) async {
   }
 }
 
+/// Goals' banner follows the first card. Stop at that placement instead of
+/// scrolling to the list's foot, where a lazy list may have evicted it.
+Future<void> _revealGoalsBanner(WidgetTester tester) async {
+  final banner = find.byType(QirshAdBanner);
+  final scrollable = find.byType(Scrollable).first;
+  for (var i = 0; i < 20 && banner.evaluate().isEmpty; i++) {
+    await tester.drag(scrollable, const Offset(0, -150));
+    await _settle(tester);
+  }
+  expect(banner, findsOneWidget);
+  final firstGoal = find.text('هدف 0');
+  if (firstGoal.evaluate().isNotEmpty) {
+    expect(tester.getBottomLeft(firstGoal).dy, lessThan(tester.getTopLeft(banner).dy),
+        reason: 'the banner must follow the first meaningful goal card');
+  }
+  await tester.ensureVisible(banner);
+  await _settle(tester);
+  final bounds = tester.getRect(banner);
+  final viewport = Offset.zero &
+      (tester.view.physicalSize / tester.view.devicePixelRatio);
+  expect(bounds.top, greaterThanOrEqualTo(viewport.top));
+  expect(bounds.bottom, lessThanOrEqualTo(viewport.bottom));
+}
+
 AchievementsView _achievementsView({int badges = 8}) => AchievementsView(
       achievements: [
         for (var i = 0; i < badges; i++)
@@ -272,7 +296,7 @@ void main() {
       // does not require scrolling to the foot of the page.
       await tester.pumpWidget(_host(const GoalsScreen(), deps(4)));
       await _settle(tester);
-      await _scrollToBottom(tester);
+      await _revealGoalsBanner(tester);
 
       expect(find.byType(QirshAdBanner), findsOneWidget);
       expect(_SpyLoader.loadCalls, 1);
@@ -309,6 +333,10 @@ void main() {
       // boundary must not leave the other behind.
       await tester.pumpWidget(_host(const GoalsScreen(), deps(0)));
       await _settle(tester);
+      // The original illustration/header makes this list tall enough for the
+      // direct sliver child to stay lazy until visible, just like the populated
+      // branch. Reach the placement before asserting its unique mount.
+      await _scrollToBottom(tester);
       expect(find.byType(QirshAdBanner), findsOneWidget);
 
       await tester.pumpWidget(_host(const GoalsScreen(), deps(3)));
@@ -333,10 +361,13 @@ void main() {
     testWidgets('a rebuild does not buy a second ad', (tester) async {
       await tester.pumpWidget(_host(const GoalsScreen(), deps(4)));
       await _settle(tester);
-      await _scrollToBottom(tester);
+      await _revealGoalsBanner(tester);
       expect(_SpyLoader.loadCalls, 1);
 
+      ProviderScope.containerOf(tester.element(find.byType(GoalsScreen)))
+          .invalidate(goalsListProvider);
       await _settle(tester);
+      await _revealGoalsBanner(tester);
       expect(_SpyLoader.loadCalls, 1);
       expect(find.byType(QirshAdBanner), findsOneWidget);
     });

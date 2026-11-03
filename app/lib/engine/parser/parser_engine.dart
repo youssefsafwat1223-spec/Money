@@ -8,6 +8,7 @@ import 'catalog_rule_matcher.dart';
 import 'merchant_sanity.dart';
 import 'normalizer.dart';
 import 'parse_result.dart';
+import 'transaction_timestamp_extractor.dart';
 
 /// محرّك تحليل رسائل البنك → [ParsedTransaction].
 ///
@@ -39,16 +40,24 @@ class ParserEngine {
   );
   static final RegExp _last4Ending =
       RegExp(r'(?:ending|تنتهي\s*بـ?)\s*([0-9]{4})', caseSensitive: false);
-  static final RegExp _dateTime =
-      RegExp(r'([0-9]{4})-([0-9]{2})-([0-9]{2})(?:[ T]([0-9]{2}):([0-9]{2}))?');
+  static final RegExp _dateTime = RegExp(
+    r'([0-9]{4})-([0-9]{2})-([0-9]{2})(?:[ T]([0-9]{2}):([0-9]{2})'
+    '${TransactionTimestampExtractor.meridiem}'
+    r')?',
+    caseSensitive: false,
+  );
   static final RegExp _dateTimeDmy = RegExp(
-    r'\b([0-9]{1,2})[/-]([0-9]{1,2})[/-]([0-9]{2,4})(?:\s+(?:at\s*)?([0-9]{1,2}):([0-9]{2})\s*(am|pm)?)?\b',
+    r'\b([0-9]{1,2})[/-]([0-9]{1,2})[/-]([0-9]{2,4})(?:\s+(?:at\s*)?([0-9]{1,2}):([0-9]{2})'
+    '${TransactionTimestampExtractor.meridiem}'
+    r')?(?![0-9a-z_])',
     caseSensitive: false,
   );
   // DD/MM with no year (e.g. "14/03 الساعه 22:29") — assumes current year.
   static final RegExp _dateDmNoYear = RegExp(
     r'\b([0-9]{1,2})/([0-9]{1,2})\b'
-    r'(?:[^\d]{1,20}([0-9]{1,2}):([0-9]{2})\s*(am|pm)?)?',
+    r'(?:[^\d]{1,20}([0-9]{1,2}):([0-9]{2})'
+    '${TransactionTimestampExtractor.meridiem}'
+    r')?',
     caseSensitive: false,
   );
   static final RegExp _dateYmdShort =
@@ -875,7 +884,9 @@ class ParserEngine {
       final year = int.parse(m.group(1)!);
       final month = int.parse(m.group(2)!);
       final day = int.parse(m.group(3)!);
-      final hour = m.group(4) != null ? int.parse(m.group(4)!) : 0;
+      final hour = m.group(4) != null
+          ? _hourWithMeridiem(int.parse(m.group(4)!), m.group(6))
+          : 0;
       final minute = m.group(5) != null ? int.parse(m.group(5)!) : 0;
       return (
         date: _safeDate(year, month, day, hour, minute),
@@ -1126,12 +1137,8 @@ class ParserEngine {
     return year >= 70 ? 1900 + year : 2000 + year;
   }
 
-  int _hourWithMeridiem(int hour, String? meridiem) {
-    final normalized = meridiem?.toLowerCase();
-    if (normalized == 'pm' && hour < 12) return hour + 12;
-    if (normalized == 'am' && hour == 12) return 0;
-    return hour;
-  }
+  int _hourWithMeridiem(int hour, String? meridiem) =>
+      TransactionTimestampExtractor.hourWithMeridiem(hour, meridiem);
 
   DateTime? _safeDate(int year, int month, int day, int hour, int minute) {
     try {

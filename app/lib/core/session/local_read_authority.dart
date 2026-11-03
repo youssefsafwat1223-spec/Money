@@ -264,13 +264,19 @@ class _LocalReadStorageLane {
 class LocalReadAuthority {
   LocalReadAuthority({
     required LocalReadDurableStore store,
+    Future<String?> Function()? strictRead,
     @visibleForTesting String Function()? newOperationId,
   })  : _store = store,
+        _strictRead = strictRead,
         _newOperationId = newOperationId ?? _randomOperationId {
     _lane.selected = this;
   }
 
   final LocalReadDurableStore _store;
+
+  /// ASR §12 E7: a status-preserving read of the same record (confirmed
+  /// absence → null, any other failure throws). Null uses [_store]'s read.
+  final Future<String?> Function()? _strictRead;
   final String Function() _newOperationId;
 
   _LocalReadStorageLane _lane = _LocalReadStorageLane();
@@ -700,6 +706,14 @@ class LocalReadAuthority {
   /// The stored record, whatever its state (null when missing or malformed).
   /// Read behind any write in flight; creates and changes nothing.
   Future<LocalReadGrantRecord?> peekRecord() => _enqueue(_readRecord);
+
+  /// [peekRecord] for ASR eligibility (§12 E7), in the same lane: null only
+  /// when storage confirmed the record absent (or it is malformed); a read
+  /// that did not complete throws, so the caller denies on the real status.
+  Future<LocalReadGrantRecord?> peekRecordStrict() => _enqueue(() async {
+        final raw = await (_strictRead ?? _store.read)();
+        return raw == null ? null : LocalReadGrantRecord.tryDecode(raw);
+      });
 
   /// Cold-start restoration. Reads the stored record (behind any write in
   /// flight) and accepts it only if it is `committed`; then

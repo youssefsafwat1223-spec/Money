@@ -18,11 +18,13 @@ class OnboardingConsentStep extends ConsumerStatefulWidget {
     super.key,
     required this.kind,
     required this.onDone,
+    this.onDark = true,
     this.privacyRoute = '/onboarding/privacy',
   });
 
   final OnboardingConsentKind kind;
   final ValueChanged<bool> onDone;
+  final bool onDark;
   final String privacyRoute;
 
   @override
@@ -37,7 +39,7 @@ class _OnboardingConsentStepState extends ConsumerState<OnboardingConsentStep> {
             AppSpacing.gutter, AppSpacing.s6, AppSpacing.gutter, AppSpacing.s4),
         child: SmartAnalysisConsentPanel(
             onDone: widget.onDone,
-            onDark: true,
+            onDark: widget.onDark,
             privacyRoute: widget.privacyRoute),
       );
 }
@@ -45,13 +47,17 @@ class _OnboardingConsentStepState extends ConsumerState<OnboardingConsentStep> {
 /// Readiness step: live registration status when Cloud Sync is on. Never
 /// blocks — Continue is always available.
 class OnboardingReadinessStep extends ConsumerWidget {
-  const OnboardingReadinessStep({super.key, required this.onDone});
+  const OnboardingReadinessStep({super.key, required this.onDone, this.onDark = true});
 
   final VoidCallback onDone;
+  final bool onDark;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
+    final c = context.colors;
+    final fg = onDark ? Colors.white : c.textPrimary;
+    final muted = onDark ? Colors.white.withValues(alpha: .72) : c.textSecondary;
     final cloudOn =
         ref.watch(userSettingsProvider).valueOrNull?.cloudProcessingEnabled ??
             false;
@@ -62,15 +68,15 @@ class OnboardingReadinessStep extends ConsumerWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(l10n.onbReadyTitle,
-              style: AppTypography.sectionTitle(Colors.white)),
+              style: AppTypography.sectionTitle(fg)),
           const SizedBox(height: AppSpacing.s3),
           Text(
             cloudOn ? l10n.onbReadyBodyOn : l10n.onbReadyBodyOff,
-            style: AppTypography.body(Colors.white.withValues(alpha: 0.72)),
+            style: AppTypography.body(muted),
           ),
           if (cloudOn) ...[
             const SizedBox(height: AppSpacing.s4),
-            const SmartAnalysisRegistrationStatus(onDark: true),
+            SmartAnalysisRegistrationStatus(onDark: onDark),
           ],
           const SizedBox(height: AppSpacing.s5),
           SizedBox(
@@ -78,8 +84,8 @@ class OnboardingReadinessStep extends ConsumerWidget {
             child: FilledButton(
               onPressed: onDone,
               style: FilledButton.styleFrom(
-                backgroundColor: Colors.white,
-                foregroundColor: AppBrandBlue.brand,
+                backgroundColor: onDark ? Colors.white : c.cta,
+                foregroundColor: onDark ? AppBrandBlue.brand : c.onCta,
               ),
               child: Text(l10n.setupCloudCta),
             ),

@@ -79,6 +79,13 @@ class _StartupAppState extends State<StartupApp> {
   Object? _error;
   bool _bootstrapping = false;
 
+  /// ASR §6.7: while auth is deferred (protected data locked) the loading
+  /// screen stays up and bootstrap re-runs when protected data becomes
+  /// available, on the next foreground, or after a short backoff.
+  Timer? _deferredRetry;
+  StreamSubscription<void>? _deferredAvailable;
+  AppLifecycleListener? _deferredResume;
+
   @override
   void initState() {
     super.initState();
@@ -109,7 +116,30 @@ class _StartupAppState extends State<StartupApp> {
   @override
   void dispose() {
     _accountScope?.removeListener(_onAccountScopeChanged);
+    _clearDeferredRetry();
     super.dispose();
+  }
+
+  void _clearDeferredRetry() {
+    _deferredRetry?.cancel();
+    _deferredRetry = null;
+    _deferredAvailable?.cancel();
+    _deferredAvailable = null;
+    _deferredResume?.dispose();
+    _deferredResume = null;
+  }
+
+  void _scheduleDeferredRetry() {
+    _clearDeferredRetry();
+    void retry() {
+      _clearDeferredRetry();
+      if (mounted) _attempt();
+    }
+
+    _deferredRetry = Timer(const Duration(seconds: 3), retry);
+    _deferredAvailable =
+        _runner.protectedDataAvailableEvents?.listen((_) => retry());
+    _deferredResume = AppLifecycleListener(onResume: retry);
   }
 
   Future<void> _runBootstrap() async {
@@ -125,6 +155,11 @@ class _StartupAppState extends State<StartupApp> {
       setState(() => _accountScope = host);
     } catch (error) {
       if (!mounted) return;
+      if (error is BootstrapAuthDeferred) {
+        // Not a failure: nothing was initialized or published. Keep loading.
+        _scheduleDeferredRetry();
+        return;
+      }
       setState(() => _error = error);
     } finally {
       _bootstrapping = false;

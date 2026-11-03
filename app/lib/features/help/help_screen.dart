@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../../core/theme/widgets/glass_sheet.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../common/app_header.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/session/app_session.dart';
 import '../../core/utils/l10n_ext.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
+import '../../core/theme/widgets/app_toast.dart';
 import '../common/app_card.dart';
 import '../common/app_screen_scaffold.dart';
 
@@ -58,74 +63,94 @@ class HelpScreen extends StatelessWidget {
     ];
 
     return AppScreenScaffold(
-      header: Padding(
-        padding: const EdgeInsets.fromLTRB(
-            AppSpacing.gutter, AppSpacing.s3, AppSpacing.gutter, AppSpacing.s2),
-        child: Row(
-          children: [
-            Expanded(
+      header: AppHeader(title: l10n.helpTitle),
+      body: ListView(
+        children: [
+          const Center(
+            child: QirshIllustration(name: 'help', width: 220, height: 165),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(bottom: AppSpacing.s3),
+            child: Text(l10n.helpSubtitle,
+                textAlign: TextAlign.center,
+                style: AppTypography.callout(c.textMuted)),
+          ),
+          for (final section in sections) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
+              child: Text(section.title,
+                  style: AppTypography.caption(c.textMuted)
+                      .copyWith(fontWeight: FontWeight.w700)),
+            ),
+            AppCard(
+              padding: EdgeInsets.zero,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    l10n.helpTitle,
-                    style: AppTypography.calmTitle(c.textPrimary)
-                        .copyWith(fontSize: 24, letterSpacing: -0.5),
-                  ),
-                  const SizedBox(height: AppSpacing.s1),
-                  Text(
-                    l10n.helpSubtitle,
-                    style: AppTypography.caption(c.textMuted),
-                  ),
+                  for (final entry in section.entries) ...[
+                    if (entry != section.entries.first)
+                      Divider(height: 1, color: c.border, indent: 16, endIndent: 16),
+                    ExpansionTile(
+                      initiallyExpanded: entry == sections.first.entries.first,
+                      maintainState: true,
+                      shape: const Border(),
+                      collapsedShape: const Border(),
+                      iconColor: c.textMuted,
+                      collapsedIconColor: c.textMuted,
+                      tilePadding: const EdgeInsets.symmetric(horizontal: 16),
+                      childrenPadding: const EdgeInsetsDirectional.fromSTEB(
+                          16, 0, 16, 16),
+                      title: Text(entry.title,
+                          style: AppTypography.custom(size: 14,
+                              weight: FontWeight.w500, height: 1.4,
+                              color: c.textPrimary)),
+                      children: [
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: Text(entry.body,
+                              style: AppTypography.custom(size: 13,
+                                  weight: FontWeight.w400, height: 1.7,
+                                  color: c.textMuted)),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
-            IconButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(AppLucideIcons.x),
-              tooltip: MaterialLocalizations.of(context).closeButtonTooltip,
-            ),
           ],
-        ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-      body: ListView(
-        children: [
-          for (final section in sections) ...[
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.s1, AppSpacing.s4, AppSpacing.s1, AppSpacing.s2),
-              child: Text(
-                section.title,
-                style: AppTypography.sectionTitle(c.textMain),
-              ),
-            ),
-            for (final entry in section.entries)
-              Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.s2),
-                child: AppCard(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(entry.icon, size: 20, color: c.primary),
-                      const SizedBox(width: AppSpacing.s3),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(entry.title,
-                                style: AppTypography.bodyStrong(c.textMain)),
-                            const SizedBox(height: AppSpacing.s1),
-                            Text(entry.body,
-                                style: AppTypography.caption(c.textLight)),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+          const SizedBox(height: 14),
+          FilledButton.tonalIcon(
+            style: FilledButton.styleFrom(minimumSize: const Size.fromHeight(44)),
+            icon: const Icon(AppLucideIcons.messageSquare, size: 18),
+            label: Text(l10n.setContactUs),
+            onPressed: () => showGlassSheet<void>(
+              context: context,
+              showDragHandle: true,
+              builder: (sheetContext) => Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Text(l10n.setContactUs,
+                        style: AppTypography.sectionTitle(c.textPrimary)),
+                    const SizedBox(height: 12),
+                    Text(l10n.setSupportBody,
+                        style: AppTypography.callout(c.textSecondary)),
+                    const SizedBox(height: 16),
+                    FilledButton(
+                      onPressed: () async {
+                        await Clipboard.setData(const ClipboardData(
+                            text: 'support@money-companion.app'));
+                        if (sheetContext.mounted) Navigator.of(sheetContext).pop();
+                      },
+                      child: Text(l10n.setCopyEmail),
+                    ),
+                  ],
                 ),
               ),
-          ],
+            ),
+          ),
           const SizedBox(height: AppSpacing.s4),
           // Someone who dismissed the first-use tour should not be locked out
           // of it forever — this is the only way back to Layer A.
@@ -133,9 +158,7 @@ class HelpScreen extends StatelessWidget {
             onTap: () async {
               await AppSession.instance.resetCoachMarks();
               if (!context.mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text(l10n.helpReplayTourDone)),
-              );
+              AppToast.show(context, l10n.helpReplayTourDone);
             },
             child: Row(
               children: [

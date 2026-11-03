@@ -12,6 +12,7 @@ import 'report_l10n.dart';
 import 'report_money_formatter.dart';
 import 'report_view_model.dart';
 import '../../../domain/entities/budget_entity.dart';
+import '../../../engine/categorization/category.dart';
 
 /// Turns an immutable [ReportDataSnapshot] into a render-ready [ReportViewModel]
 /// using the pure calculators. Runs on the main isolate (it may format via
@@ -129,7 +130,7 @@ class ReportComposer {
                 ? merchant
                 : (category.isNotEmpty ? category : str.transaction),
             category: category,
-            amount: fmt.signedMoney(t.amount, t.currency, isExpense: !isIncome),
+            amount: fmt.signedMoneyExact(t.amountMoney, isExpense: !isIncome),
             isDebit: !isIncome,
           );
         }(),
@@ -238,7 +239,9 @@ class ReportComposer {
   String? _categoryLabel(ReportDataSnapshot s, String lang, String id) {
     final meta = s.categoryMeta[id];
     if (meta == null) return null; // deleted → folds into "Other"
-    return lang == 'ar' ? meta.name : _titleCase(meta.key);
+    if (lang == 'ar') return meta.name;
+    final known = Categories.all.where((category) => category.key == meta.key);
+    return known.isEmpty ? meta.name : known.first.enName;
   }
 
   ReportCategoryVM _categoryVM(
@@ -321,7 +324,7 @@ class ReportComposer {
     final merchant = (showMerchant ? txn.rawMerchant : null)?.trim();
     final categoryName = txn.categoryId == null
         ? null
-        : snapshot.categoryMeta[txn.categoryId]?.name;
+        : _categoryLabel(snapshot, snapshot.request.languageCode, txn.categoryId!);
     final date = _dateLabel(txn.occurredAt.toLocal(), str);
     final subtitle = <String?>[categoryName, date]
         .where((s) => s != null && s.isNotEmpty)
@@ -332,7 +335,7 @@ class ReportComposer {
     return AmountRowVM(
       title: title,
       subtitle: subtitle,
-      value: fmt.signedMoney(txn.amount, txn.currency, isExpense: true),
+      value: fmt.signedMoneyExact(txn.amountMoney, isExpense: true),
       colorArgb: _expenseColor,
     );
   }
@@ -537,9 +540,6 @@ class ReportComposer {
     final template = pct < 0 ? str.verdictLess : str.verdictMore;
     return template.replaceAll('{p}', fmt.percent1(pct));
   }
-
-  static String _titleCase(String value) =>
-      value.isEmpty ? value : value[0].toUpperCase() + value.substring(1);
 
   static int _hexToArgb(String? hex) {
     if (hex == null || hex.isEmpty) return _otherColor;

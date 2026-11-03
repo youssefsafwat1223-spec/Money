@@ -4329,3 +4329,360 @@ private final class ChannelTestController: FlutterViewController {
   }
   required init(coder: NSCoder) { fatalError("Test controller has no storyboard") }
 }
+
+// MARK: - ASR v7.2 WP6: native expiry evidence, mutation counter, successor enable
+
+extension RunnerTests {
+  private var mutationCounter: Int {
+    appGroupDefaults.integer(forKey: "capture_egress_mutation_counter_v1")
+  }
+
+  private func revokeExpiry(_ uid: String, _ op: Phase, lifecycle: Int?) throws -> Phase {
+    let b = try bound(op)
+    return try SharedCaptureStore.revokeCaptureAuthorizationLifetime(
+      ownerUid: uid, operationId: b.id, transitionGeneration: b.generation,
+      reservedVersion: b.version, ownerGeneration: b.ownerGeneration, ownerEpoch: b.ownerEpoch,
+      expirySessionLifecycle: lifecycle)
+  }
+
+  /// A completed explicit enable: both layers ON, bound to the live owner.
+  private func liveOn(_ uid: String) throws -> Phase {
+    let op = try begin(uid, 3, 4)
+    XCTAssertEqual(try writeOn(uid, op).status, .done)
+    XCTAssertEqual(try finish(uid, op).status, .done)
+    return op
+  }
+
+  // §7.1/§7.4: every protected write advances the counter; reads never do.
+  func testAsrMutationCounterAdvancesOnProtectedWritesOnly() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    var last = mutationCounter
+    func advanced(_ what: String, line: UInt = #line) {
+      XCTAssertGreaterThan(mutationCounter, last, what, line: line)
+      last = mutationCounter
+    }
+    try publish(ownerA, cloud: false); advanced("publishActiveOwner")
+    try SharedCaptureStore.setConsentMirror(uid: ownerA, cloud: false, ai: false, version: 1)
+    advanced("setConsentMirror")
+    let op = try begin(ownerA, 3, 4); advanced("begin")
+    _ = try writeOn(ownerA, op); advanced("writeOn")
+    _ = try finish(ownerA, op); advanced("finish")
+    _ = try SharedCaptureStore.activeOwner()
+    _ = try inspect(ownerA)
+    _ = try? SharedCaptureStore.cloudEgressState(forUid: ownerA)
+    _ = try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA)
+    XCTAssertEqual(mutationCounter, last, "reads do not advance the counter")
+    XCTAssertTrue(try SharedCaptureStore.confirmRecoveryEvidence(expectedCounter: last))
+    _ = try revokeLifetime(ownerA, op); advanced("revoke")
+    XCTAssertFalse(try SharedCaptureStore.confirmRecoveryEvidence(expectedCounter: last - 1))
+    try SharedCaptureStore.clearActiveOwner(clearHint: false); advanced("clearActiveOwner")
+    _ = try SharedCaptureStore.beginRemoval(uid: ownerA); advanced("beginRemoval")
+    _ = try SharedCaptureStore.finishRemoval(uid: ownerA); advanced("finishRemoval")
+    XCTAssertTrue(SharedCaptureStore.purgeUserOwnedState()); advanced("purgeUserOwnedState")
+  }
+
+  // §7.2/§7.3: evidence only from an agreed live ON; identical repeat is a no-op;
+  // a non-expiry revoke drops it; an OFF is never upgraded.
+  func testAsrExpiryRevokeMintsEvidenceOnlyFromAgreedLiveOn() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let op = try liveOn(ownerA)
+    let revoked = try revokeExpiry(ownerA, op, lifecycle: 7)
+    XCTAssertEqual(revoked.status, .done)
+    let evidence = try XCTUnwrap(revoked.expiryEvidence)
+    XCTAssertEqual(evidence.sessionLifecycle, 7)
+    XCTAssertEqual(evidence.ownerGeneration, op.ownerGeneration)
+    XCTAssertEqual(evidence.ownerEpoch, op.ownerEpoch)
+    XCTAssertEqual(try egressRecord(file: ownerA)?.expiryEvidence, evidence)
+    XCTAssertEqual(try egressRecord(keychain: ownerA)?.expiryEvidence, evidence)
+    XCTAssertEqual(revoked.mutationCounter, mutationCounter)
+    let snap = try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA)
+    XCTAssertEqual(snap.kind, "expiryEvidence")
+    XCTAssertEqual(snap.record?.expiryEvidence, evidence)
+    XCTAssertEqual(snap.mutationCounter, mutationCounter)
+    XCTAssertEqual(try revokeExpiry(ownerA, op, lifecycle: 7).expiryEvidence, evidence, "identical repeat")
+    XCTAssertEqual(try egressRecord(file: ownerA)?.expiryEvidence, evidence)
+    XCTAssertNil(try revokeExpiry(ownerA, op, lifecycle: 8).expiryEvidence,
+                 "another lifecycle is not the identical repeat")
+    XCTAssertNil(try egressRecord(file: ownerA)?.expiryEvidence)
+    XCTAssertNil(try egressRecord(keychain: ownerA)?.expiryEvidence)
+    XCTAssertEqual(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).kind, "none")
+    let again = try revokeExpiry(ownerA, op, lifecycle: 7)
+    XCTAssertEqual(again.status, .done)
+    XCTAssertNil(again.expiryEvidence, "an OFF is never upgraded")
+  }
+
+  func testAsrExpiryRevokeWithPendingEnableOrBarrierWritesNoEvidence() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let op = try begin(ownerA, 3, 4)
+    XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+    let behindBarrier = try revokeExpiry(ownerA, op, lifecycle: 7)
+    XCTAssertEqual(behindBarrier.status, .done)
+    XCTAssertNil(behindBarrier.expiryEvidence)
+    XCTAssertNil(try egressRecord(file: ownerA)?.expiryEvidence)
+    resetCapSeams()
+    let live = try liveOn(ownerA)
+    XCTAssertNil(try revokeExpiry(ownerA, live, lifecycle: nil).expiryEvidence, "non-expiry cause")
+  }
+
+  func testAsrInvalidateExpiryEvidenceRemovesExactlyThatEvidence() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let op = try liveOn(ownerA)
+    let evidence = try XCTUnwrap(try revokeExpiry(ownerA, op, lifecycle: 2).expiryEvidence)
+    let before = mutationCounter
+    let other = try SharedCaptureStore.invalidateExpiryEvidence(
+      ownerUid: ownerA, evidenceId: String(repeating: "a", count: 32))
+    XCTAssertEqual(other.status, .done)
+    XCTAssertGreaterThan(mutationCounter, before, "the counter changes in every case")
+    XCTAssertEqual(try egressRecord(file: ownerA)?.expiryEvidence, evidence)
+    XCTAssertEqual(try SharedCaptureStore.invalidateExpiryEvidence(
+      ownerUid: ownerA, evidenceId: evidence.evidenceId).status, .done)
+    XCTAssertNil(try egressRecord(file: ownerA)?.expiryEvidence)
+    XCTAssertNil(try egressRecord(keychain: ownerA)?.expiryEvidence)
+    XCTAssertEqual(try egressRecord(file: ownerA)?.retirement?.operationId, op.operationId,
+                   "the retirement itself stays")
+    XCTAssertEqual(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).kind, "none")
+  }
+
+  // Session-only refresh (Cloud OFF): the inspection carries a record only for
+  // readable, agreeing layers with no pending; the restrictive getter is not
+  // that proof (Astra, Cloud OFF delta).
+  func testRecoveryInspectionReportsOffOnlyForReadableAgreedLayersWithoutPending() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    try publish(ownerA, cloud: false)
+    try SharedCaptureStore.setCloudEgressState(
+      state: "OFF", ownerUid: ownerA, transitionGeneration: 2, reservedVersion: 3)
+    let agreed = try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA)
+    XCTAssertEqual(agreed.kind, "none")
+    XCTAssertEqual(agreed.record?.state, "OFF")
+    XCTAssertNotNil(agreed.ownerGeneration)
+
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecInteractionNotAllowed, nil) }
+    XCTAssertNil(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).record,
+                 "OFF file plus an unreadable Keychain copy")
+    let on = try egressJSON([(ownerA, "ON", 2)])
+    SharedCaptureStore.egressKeychainReadOverride = { (errSecSuccess, on) }
+    XCTAssertNil(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).record,
+                 "OFF/ON disagreement")
+    SharedCaptureStore.egressKeychainReadOverride = nil
+    XCTAssertEqual(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).record?.state, "OFF")
+
+    _ = try begin(ownerA, 3, 4)
+    XCTAssertNil(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).record,
+                 "a native-only pending enable")
+  }
+
+  // §7.6 E2-b: the cold-start mint is bound to the inspected counter.
+  func testAsrLiveOnMintRequiresTheInspectedCounter() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try liveOn(ownerA)
+    let snap = try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA)
+    XCTAssertEqual(snap.kind, "liveOn")
+    let rec = try XCTUnwrap(snap.record)
+    let generation = try XCTUnwrap(snap.ownerGeneration)
+    let epoch = try XCTUnwrap(snap.ownerEpoch)
+    func mint(_ counter: Int) throws -> Phase {
+      try SharedCaptureStore.mintExpiryEvidenceForLiveOn(
+        ownerUid: ownerA, ownerGeneration: generation, ownerEpoch: epoch,
+        transitionGeneration: rec.transitionGeneration, reservedVersion: rec.reservedVersion,
+        sessionLifecycle: 5, expectedCounter: counter)
+    }
+    XCTAssertEqual(try mint(try XCTUnwrap(snap.mutationCounter) - 1).status, .conflict)
+    XCTAssertEqual(try egressRecord(file: ownerA)?.state, "ON", "nothing written")
+    // The refused attempt itself advanced the counter: the old inspection is spent.
+    XCTAssertEqual(try mint(try XCTUnwrap(snap.mutationCounter)).status, .conflict)
+    let fresh = try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA)
+    let minted = try mint(try XCTUnwrap(fresh.mutationCounter))
+    XCTAssertEqual(minted.status, .done)
+    let evidence = try XCTUnwrap(minted.expiryEvidence)
+    XCTAssertEqual(evidence.sessionLifecycle, 5)
+    XCTAssertEqual(try egressRecord(file: ownerA)?.state, "OFF")
+    XCTAssertEqual(try egressRecord(keychain: ownerA)?.expiryEvidence, evidence)
+    XCTAssertEqual(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).kind, "expiryEvidence")
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+  }
+
+  // §7.5: SE1–SE4 with receipts; a stale counter at SE4 leaves only compensation.
+  func testAsrSuccessorChainBehindBarrierFinishOrRetire() throws {
+    for staleFinish in [false, true] {
+      resetCapSeams()
+      let op = try liveOn(ownerA)
+      let evidence = try XCTUnwrap(try revokeExpiry(ownerA, op, lifecycle: 9).expiryEvidence)
+      let epoch = try SharedCaptureStore.ownerEpoch()
+      let c0 = try XCTUnwrap(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).mutationCounter)
+      let refused = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+        uid: ownerA, version: 4, expectedEpoch: epoch, successorOf: (evidence.evidenceId, c0 - 1))
+      XCTAssertEqual(refused.status, .conflict)
+      XCTAssertEqual(try egressRecord(file: ownerA)?.expiryEvidence, evidence, "nothing written")
+      let c0b = try XCTUnwrap(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).mutationCounter)
+      let se1 = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+        uid: ownerA, version: 4, expectedEpoch: epoch, successorOf: (evidence.evidenceId, c0b))
+      XCTAssertEqual(se1.status, .done)
+      let successor = try XCTUnwrap(se1.owner)
+      XCTAssertGreaterThan(successor.generation, try XCTUnwrap(op.ownerGeneration))
+      XCTAssertEqual(try egressRecord(file: ownerA)?.successorOfExpiry, evidence.evidenceId)
+      XCTAssertNil(try egressRecord(keychain: ownerA)?.expiryEvidence, "evidence consumed")
+      XCTAssertEqual(try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerA).kind, "none")
+      let se2 = try SharedCaptureStore.beginCloudEgressEnable(
+        ownerUid: ownerA, transitionGeneration: 4, reservedVersion: 4,
+        successor: (evidence.evidenceId, try XCTUnwrap(se1.mutationCounter)))
+      XCTAssertEqual(se2.status, .done)
+      let opId = try XCTUnwrap(se2.operationId)
+      XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+      let se3 = try SharedCaptureStore.writeCloudEgressEnableOn(
+        ownerUid: ownerA, operationId: opId, transitionGeneration: 4, reservedVersion: 4,
+        ownerGeneration: successor.generation, ownerEpoch: epoch,
+        expectedCounter: try XCTUnwrap(se2.mutationCounter))
+      XCTAssertEqual(se3.status, .done)
+      XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest(), "ON stays behind the barrier")
+      XCTAssertEqual(try SharedCaptureStore.inspectSuccessor(
+        ownerUid: ownerA, successorGeneration: successor.generation, ownerEpoch: epoch,
+        operationId: opId), "behindBarrier")
+      let c3 = try XCTUnwrap(se3.mutationCounter)
+      func complete(_ counter: Int) throws -> Phase {
+        try SharedCaptureStore.finishCloudEgressEnable(
+          ownerUid: ownerA, operationId: opId, transitionGeneration: 4, reservedVersion: 4,
+          ownerGeneration: successor.generation, ownerEpoch: epoch, abandon: false,
+          expectedCounter: counter)
+      }
+      if staleFinish {
+        XCTAssertEqual(try complete(c3 - 1).status, .conflict)
+        XCTAssertEqual(try complete(c3).status, .conflict, "the refused attempt spent c3")
+        XCTAssertEqual(try SharedCaptureStore.inspectSuccessor(
+          ownerUid: ownerA, successorGeneration: successor.generation, ownerEpoch: epoch,
+          operationId: opId), "behindBarrier")
+        XCTAssertEqual(try SharedCaptureStore.retireSuccessor(
+          ownerUid: ownerA, successorGeneration: successor.generation + 1, ownerEpoch: epoch,
+          operationId: opId).status, .stale, "another lifetime is never touched")
+        // Phase 4 B3: OFF not verified in either layer → the pending barrier stays.
+        SharedCaptureStore.stateLayerWriteFault = { s, _ in s == "egress" ? .fail : .none }
+        XCTAssertEqual(try SharedCaptureStore.retireSuccessor(
+          ownerUid: ownerA, successorGeneration: successor.generation, ownerEpoch: epoch,
+          operationId: opId).status, .incomplete)
+        SharedCaptureStore.stateLayerWriteFault = nil
+        XCTAssertEqual(try SharedCaptureStore.inspectSuccessor(
+          ownerUid: ownerA, successorGeneration: successor.generation, ownerEpoch: epoch,
+          operationId: opId), "behindBarrier", "G' must not be ON without its barrier")
+        XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+        let retired = try SharedCaptureStore.retireSuccessor(
+          ownerUid: ownerA, successorGeneration: successor.generation, ownerEpoch: epoch,
+          operationId: opId)
+        XCTAssertEqual(retired.status, .done)
+        XCTAssertEqual(try egressRecord(file: ownerA)?.state, "OFF")
+        XCTAssertEqual(try egressRecord(keychain: ownerA)?.retirement?.operationId, opId)
+        XCTAssertEqual(try inspect(ownerA).barrier.map(\.outcome), [.absent, .absent])
+        XCTAssertEqual(try SharedCaptureStore.inspectSuccessor(
+          ownerUid: ownerA, successorGeneration: successor.generation, ownerEpoch: epoch,
+          operationId: opId), "other")
+        XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+      } else {
+        XCTAssertEqual(try complete(c3).status, .done)
+        XCTAssertEqual(try SharedCaptureStore.inspectSuccessor(
+          ownerUid: ownerA, successorGeneration: successor.generation, ownerEpoch: epoch,
+          operationId: opId), "finished")
+        let retired = try SharedCaptureStore.retireSuccessor(
+          ownerUid: ownerA, successorGeneration: successor.generation, ownerEpoch: epoch,
+          operationId: opId)
+        XCTAssertEqual(retired.status, .done, "a confirmed finish followed by a loss retires G'")
+        XCTAssertEqual(try egressRecord(file: ownerA)?.state, "OFF")
+      }
+    }
+    resetCapSeams()
+  }
+
+  // SE2 refuses anything but exactly SE1's lifetime.
+  func testAsrSuccessorBeginRefusesWithoutSE1Marker() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    let op = try liveOn(ownerA)
+    let evidence = try XCTUnwrap(try revokeExpiry(ownerA, op, lifecycle: 1).expiryEvidence)
+    let counter = mutationCounter
+    let refused = try SharedCaptureStore.beginCloudEgressEnable(
+      ownerUid: ownerA, transitionGeneration: 4, reservedVersion: 4,
+      successor: (evidence.evidenceId, counter))
+    XCTAssertNotEqual(refused.status, .done, "no SE1 publication yet")
+    XCTAssertEqual(try inspect(ownerA).barrier.map(\.outcome), [.absent, .absent])
+  }
+
+  // §7.4 enforcement: compile flag only on Runner, identical copies, writers only
+  // reachable from the Runner channel, every writer under the counted lock.
+  func testAsrCaptureStateWriterFlagAndCallSiteAudit() throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+    let runner = try Data(contentsOf: root.appendingPathComponent("Runner/SharedCaptureStore.swift"))
+    let share = try Data(contentsOf: root.appendingPathComponent("ShareBankMessage/SharedCaptureStore.swift"))
+    XCTAssertEqual(runner, share, "the two physical copies must be byte-identical")
+    let project = try String(contentsOf: root.appendingPathComponent("Runner.xcodeproj/project.pbxproj"))
+    var runnerConfigs = 0
+    var shareConfigs = 0
+    for block in project.components(separatedBy: "isa = XCBuildConfiguration;").dropFirst() {
+      let settings = block.components(separatedBy: "name = ").first ?? block
+      if settings.contains("INFOPLIST_FILE = Runner/Info.plist;") {
+        runnerConfigs += 1
+        XCTAssertTrue(settings.contains("CAPTURE_STATE_WRITER"))
+      } else {
+        if settings.contains("INFOPLIST_FILE = ShareBankMessage/Info.plist;") { shareConfigs += 1 }
+        XCTAssertFalse(settings.contains("CAPTURE_STATE_WRITER"))
+      }
+    }
+    XCTAssertEqual(runnerConfigs, 3)
+    XCTAssertEqual(shareConfigs, 3)
+    // The writer set is DERIVED from the `#if CAPTURE_STATE_WRITER` regions
+    // (never a hand-kept list), and every counted-lock use sits inside one.
+    let store = String(decoding: runner, as: UTF8.self)
+    var writers: [String] = []
+    var stack: [Bool] = []
+    for (index, line) in store.components(separatedBy: "\n").enumerated() {
+      let trimmed = line.trimmingCharacters(in: .whitespaces)
+      if trimmed.hasPrefix("#if") { stack.append(trimmed.contains("CAPTURE_STATE_WRITER")); continue }
+      if trimmed.hasPrefix("#endif") { _ = stack.popLast(); continue }
+      let inWriter = stack.contains(true)
+      if inWriter, let r = line.range(of: "static func ") {
+        let name = line[r.upperBound...].prefix { $0.isLetter || $0.isNumber || $0 == "_" }
+        writers.append(String(name))
+      }
+      if line.contains("withProtectedWriteLock") && !line.contains("func ") {
+        XCTAssertTrue(inWriter, "counted lock outside a writer region at line \(index + 1)")
+      }
+    }
+    XCTAssertTrue(writers.contains("retireSuccessor"))
+    XCTAssertTrue(writers.contains("publishActiveOwner"))
+    // No Swift source other than the store copies and the Runner channel
+    // handler reaches a writer (any target, any helper file).
+    let iosRoot = root
+    let files = FileManager.default.enumerator(at: iosRoot, includingPropertiesForKeys: nil)!
+      .compactMap { $0 as? URL }
+      .filter { $0.pathExtension == "swift" }
+      .filter { url in
+        let p = url.path
+        return !p.contains("/Pods/") && !p.contains("/Flutter/") && !p.contains("/RunnerTests/")
+          && !p.contains("/build/") && url.lastPathComponent != "SharedCaptureStore.swift"
+          && !p.hasSuffix("/Runner/AppDelegate.swift")
+      }
+    XCTAssertTrue(files.contains { $0.lastPathComponent == "ShareViewController.swift" })
+    XCTAssertTrue(files.contains { $0.lastPathComponent == "BankMessageShortcuts.swift" })
+    for url in files {
+      let source = try String(contentsOf: url)
+      for writer in writers {
+        XCTAssertFalse(source.contains("SharedCaptureStore.\(writer)("), "\(url.lastPathComponent) calls \(writer)")
+      }
+    }
+    // Every public entry point takes the counted lock (or delegates to one).
+    let entryPoints = writers.filter { name in
+      store.contains("  static func \(name)(") && !store.contains("private static func \(name)(")
+    }
+    XCTAssertFalse(entryPoints.isEmpty)
+    for writer in entryPoints {
+      let def = try XCTUnwrap(store.range(of: "static func \(writer)("), writer)
+      let rest = store[def.upperBound...]
+      let end = try XCTUnwrap(rest.range(of: "\n  }\n"), writer)
+      let body = rest[..<end.lowerBound]
+      XCTAssertTrue(body.contains("withProtectedWriteLock") || body.contains("publishActiveOwner("),
+                    "\(writer) does not advance the mutation counter")
+    }
+  }
+}

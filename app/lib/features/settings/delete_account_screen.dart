@@ -11,6 +11,9 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
+import '../common/app_card.dart';
+import '../common/app_header.dart';
 
 enum _Phase {
   idle,
@@ -361,19 +364,23 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
     return Scaffold(
       backgroundColor: c.bg,
-      appBar: AppBar(
-        backgroundColor: c.bg,
-        foregroundColor: c.textMain,
-        title: Text(l10n.deleteAccountTitle),
-      ),
+      appBar: AppHeader(title: l10n.deleteAccountTitle),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.gutter),
         children: [
-          Text(l10n.deleteAccountIntro, style: AppTypography.body(c.textMain)),
+          AppCard(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Center(child: QirshIllustration(name: 'privacy', width: 112, height: 84)),
+              const SizedBox(height: AppSpacing.s3),
+              Text(l10n.deleteAccountIntro, style: AppTypography.body(c.textMain)),
+            ],
+          )),
           const SizedBox(height: AppSpacing.s4),
           FilledButton(
             key: const Key('deleteAccountAction'),
-            style: FilledButton.styleFrom(backgroundColor: c.danger),
+            style: FilledButton.styleFrom(
+                backgroundColor: c.danger, foregroundColor: c.onDanger),
             onPressed: busy ? null : _confirmAndStart,
             child: Text(l10n.deleteAccountAction),
           ),

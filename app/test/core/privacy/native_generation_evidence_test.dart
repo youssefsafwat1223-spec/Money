@@ -85,6 +85,32 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
   });
 
+  test('inactive owner lifetime mismatch does not poison active owner read',
+      () async {
+    const previous = 'previous-owner';
+    rig.file.value = jsonEncode({
+      'v': 1,
+      'records': {
+        previous: const CloudEgressRecord(
+          state: EgressState.on,
+          ownerUid: previous,
+          transitionGeneration: 9,
+          reservedVersion: 1,
+        ).toJson(),
+      },
+    });
+    String failingOwner = previous;
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      final args = call.arguments as Map;
+      return args['ownerUid'] == failingOwner
+          ? {'status': 'uncertain', 'reason': 'lifetime_fields_unbound'}
+          : admission;
+    });
+    expect((await rig.gate.store.read(owner: _owner)).uncertain, isFalse);
+    failingOwner = _owner;
+    expect((await rig.gate.store.read(owner: _owner)).uncertain, isTrue);
+  });
+
   for (final entry in ['disable', 'enable', 'align']) {
     Future<void> transition() async {
       if (entry == 'disable') {

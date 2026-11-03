@@ -17,9 +17,14 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../common/app_header.dart';
+import '../common/app_card.dart';
+import '../report_ads/report_ad_notice.dart';
+import '../report_ads/report_ads_providers.dart';
+import '../reporting/ui/report_config_page.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
 import 'import_issue_messages.dart';
@@ -269,6 +274,16 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
     }());
   }
 
+  Future<void> _openPdfReport() async {
+    final request = await showReportConfigPage(context);
+    if (request == null || !mounted) return;
+    await ref.read(reportExportCoordinatorProvider).run(() async {
+      if (!mounted) return;
+      await runReportGeneration(context, ref, request);
+    }, confirmAdNotice: () async =>
+        mounted && await showReportAdNotice(context));
+  }
+
   /// The failure in the reader's language, falling back to the exception's own
   /// Arabic message for any throw site that has no code yet.
   String _portabilityMessage(DataPortabilityException e) =>
@@ -276,7 +291,7 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
 
   void _message(String text) {
     if (!mounted) return;
-    AppToast.show(context, text);
+    AppToast.showError(context, text);
   }
 
   @override
@@ -290,36 +305,67 @@ class _DataTransferScreenState extends ConsumerState<DataTransferScreen> {
           ListView(
             padding: const EdgeInsets.all(AppSpacing.gutter),
             children: [
+              const Center(
+                child: QirshIllustration(
+                  name: 'dataTransfer', width: 230, height: 172.5,
+                ),
+              ),
               Text(
                 context.l10n.dtxSubtitle,
                 style: AppTypography.body(colors.textSecondary),
               ),
               const SizedBox(height: AppSpacing.s5),
-              _ActionTile(
-                icon: AppLucideIcons.folderOpen,
-                title: context.l10n.dtxImportFile,
-                subtitle: context.l10n.dtxImportFileSub,
-                onTap: _pickFile,
+              _TransferSectionLabel(context.l10n.dtxExportSection),
+              AppCard(
+                padding: EdgeInsets.zero,
+                child: Column(children: [
+                  _ActionTile(
+                    icon: AppLucideIcons.fileText,
+                    accent: const Color(0xFFC4362C),
+                    title: context.l10n.dtxPdfReport,
+                    subtitle: context.l10n.dtxPdfReportSub,
+                    onTap: _openPdfReport,
+                  ),
+                  Divider(height: 1, indent: 64, endIndent: 16, color: colors.border),
+                  _ActionTile(
+                    icon: AppLucideIcons.table,
+                    accent: const Color(0xFF16A37F),
+                    title: context.l10n.dtxExportCsv,
+                    subtitle: context.l10n.dtxExportCsvSub,
+                    onTap: () => _export(fullPackage: false),
+                  ),
+                  Divider(height: 1, indent: 64, endIndent: 16, color: colors.border),
+                  _ActionTile(
+                    icon: AppLucideIcons.archive,
+                    accent: const Color(0xFF1653F3),
+                    title: context.l10n.dtxExportZip,
+                    subtitle: context.l10n.dtxExportZipSub,
+                    onTap: () => _export(fullPackage: true),
+                  ),
+                  if (_legacyBackupExists) ...[
+                    Divider(height: 1, indent: 64, endIndent: 16, color: colors.border),
+                    _ActionTile(
+                      icon: AppLucideIcons.rotateCcw,
+                      accent: const Color(0xFF1653F3),
+                      title: context.l10n.dtxRestoreOld,
+                      subtitle: context.l10n.dtxRestoreOldSub,
+                      onTap: () => context.push('/backup/restore'),
+                    ),
+                  ],
+                ]),
               ),
-              _ActionTile(
-                icon: AppLucideIcons.table,
-                title: context.l10n.dtxExportCsv,
-                subtitle: context.l10n.dtxExportCsvSub,
-                onTap: () => _export(fullPackage: false),
-              ),
-              _ActionTile(
-                icon: AppLucideIcons.archive,
-                title: context.l10n.dtxExportZip,
-                subtitle: context.l10n.dtxExportZipSub,
-                onTap: () => _export(fullPackage: true),
-              ),
-              if (_legacyBackupExists)
-                _ActionTile(
-                  icon: AppLucideIcons.rotateCcw,
-                  title: context.l10n.dtxRestoreOld,
-                  subtitle: context.l10n.dtxRestoreOldSub,
-                  onTap: () => context.push('/backup/restore'),
+              const SizedBox(height: 20),
+              _TransferSectionLabel(context.l10n.dtxImportSection),
+              AppCard(
+                padding: EdgeInsets.zero,
+                child: _ActionTile(
+                  icon: AppLucideIcons.folderOpen,
+                  accent: const Color(0xFFE08A00),
+                  title: context.l10n.dtxImportFile,
+                  subtitle: context.l10n.dtxImportFileSub,
+                  onTap: _pickFile,
                 ),
+              ),
               if (_preview != null) ...[
                 const SizedBox(height: AppSpacing.s6),
                 _PreviewPanel(
@@ -391,23 +437,25 @@ class _ReplaceConfirmationDialogState
   Widget build(BuildContext context) {
     return GlassAlertDialog(
       title: Text(context.l10n.dtxConfirmReplace),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            context.l10n.dtxReplaceBody(context.l10n.dtxReplace),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _controller,
-            autofocus: true,
-            textInputAction: TextInputAction.done,
-            onSubmitted: (_) => _confirm(),
-            decoration: InputDecoration(
-                labelText: context.l10n.dtxTypeReplace(context.l10n.dtxReplace)),
-          ),
-        ],
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              context.l10n.dtxReplaceBody(context.l10n.dtxReplace),
+            ),
+            const SizedBox(height: 16),
+            TextField(
+              controller: _controller,
+              autofocus: true,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => _confirm(),
+              decoration: InputDecoration(
+                  labelText: context.l10n.dtxTypeReplace(context.l10n.dtxReplace)),
+            ),
+          ],
+        ),
       ),
       actions: [
         TextButton(
@@ -415,6 +463,10 @@ class _ReplaceConfirmationDialogState
           child: Text(context.l10n.commonCancel),
         ),
         FilledButton(
+          style: FilledButton.styleFrom(
+            backgroundColor: context.colors.danger,
+            foregroundColor: context.colors.onDanger,
+          ),
           onPressed: _confirm,
           child: Text(context.l10n.txnConfirm),
         ),
@@ -423,14 +475,28 @@ class _ReplaceConfirmationDialogState
   }
 }
 
+class _TransferSectionLabel extends StatelessWidget {
+  const _TransferSectionLabel(this.label);
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsetsDirectional.fromSTEB(4, 0, 4, 8),
+    child: Text(label, style: AppTypography.caption(context.colors.textMuted)
+        .copyWith(fontWeight: FontWeight.w700)),
+  );
+}
+
 class _ActionTile extends StatelessWidget {
   const _ActionTile({
     required this.icon,
     required this.title,
     required this.subtitle,
     required this.onTap,
+    required this.accent,
   });
 
+  final Color accent;
   final IconData icon;
   final String title;
   final String subtitle;
@@ -438,10 +504,20 @@ class _ActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListTile(
-        contentPadding: const EdgeInsets.symmetric(vertical: 4),
-        leading: Icon(icon),
-        title: Text(title),
-        subtitle: Text(subtitle),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        leading: Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color: accent.withValues(alpha:
+                Theme.of(context).brightness == Brightness.dark ? 0.22 : 0.12),
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Icon(icon, size: 18, color: accent),
+        ),
+        title: Text(title, style: AppTypography.custom(size: 14.5,
+            weight: FontWeight.w500, height: 1.4,
+            color: context.colors.textPrimary)),
+        subtitle: Text(subtitle, style: AppTypography.caption(context.colors.textMuted)),
         trailing: const DirectionalChevron(),
         onTap: onTap,
       );
@@ -473,215 +549,208 @@ class _PreviewPanel extends StatelessWidget {
               .where((issue) => issue.severity == ImportIssueSeverity.warning)
               .toList(growable: false),
         );
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colors.border),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.s4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Text(context.l10n.dtxImportPreview,
-                style: AppTypography.headline(colors.textMain)),
+    return AppCard(
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(context.l10n.dtxImportPreview,
+              style: AppTypography.headline(colors.textMain)),
+          const SizedBox(height: 8),
+          Text(
+              context.l10n.dtxPreviewRows(
+                  preview.totalRows,
+                  preview.format == ImportFormat.qirshPackage
+                      ? context.l10n.dtxQirshPackage
+                      : 'CSV')),
+          if (preview.format == ImportFormat.qirshPackage) ...[
             const SizedBox(height: 8),
-            Text(
-                context.l10n.dtxPreviewRows(
-                    preview.totalRows,
-                    preview.format == ImportFormat.qirshPackage
-                        ? context.l10n.dtxQirshPackage
-                        : 'CSV')),
-            if (preview.format == ImportFormat.qirshPackage) ...[
-              const SizedBox(height: 8),
-              for (final entry in preview.tableCounts.entries)
-                Text('${entry.key}: ${entry.value}'),
-            ],
-            if (preview.format == ImportFormat.genericCsv &&
-                preview.mapping != null) ...[
-              const SizedBox(height: 16),
-              _MappingField(
-                label: context.l10n.dtxColDate,
-                value: preview.mapping!.dateColumn,
-                headers: preview.headers,
-                onChanged: (value) => onPreviewChanged(
-                  remapped(preview.mapping!.copyWith(dateColumn: value)),
-                ),
-              ),
-              _MappingField(
-                label: context.l10n.dtxColAmount,
-                value: preview.mapping!.amountColumn,
-                headers: preview.headers,
-                onChanged: (value) => onPreviewChanged(
-                  remapped(preview.mapping!.copyWith(amountColumn: value)),
-                ),
-              ),
-              if (accounts.isNotEmpty)
-                GlassDropdownField<String>(
-                  value: preview.defaultAccountId,
-                  decoration:
-                      InputDecoration(labelText: context.l10n.dtxDefaultAccount),
-                  items: [
-                    for (final account in accounts)
-                      DropdownMenuItem<String>(
-                        value: account.id,
-                        child: Text('${account.name} • ${account.currency}'),
-                      ),
-                  ],
-                  onChanged: (value) => onPreviewChanged(
-                    preview.copyWith(defaultAccountId: value),
-                  ),
-                ),
-              _OptionalMappingField(
-                label: context.l10n.dtxDebit,
-                value: preview.mapping!.debitColumn,
-                headers: preview.headers,
-                onChanged: (value) => onPreviewChanged(
-                  remapped(preview.mapping!.copyWith(debitColumn: value)),
-                ),
-              ),
-              _OptionalMappingField(
-                label: context.l10n.dtxCredit,
-                value: preview.mapping!.creditColumn,
-                headers: preview.headers,
-                onChanged: (value) => onPreviewChanged(
-                  remapped(preview.mapping!.copyWith(creditColumn: value)),
-                ),
-              ),
-              for (final spec
-                  in <(String, String?, CsvColumnMapping Function(String))>[
-                (
-                  context.l10n.dtxCurrency,
-                  preview.mapping!.currencyColumn,
-                  (value) => preview.mapping!.copyWith(currencyColumn: value)
-                ),
-                (
-                  context.l10n.commonAccountDefinite,
-                  preview.mapping!.accountColumn,
-                  (value) => preview.mapping!.copyWith(accountColumn: value)
-                ),
-                (
-                  context.l10n.dtxMerchantDesc,
-                  preview.mapping!.merchantColumn,
-                  (value) => preview.mapping!.copyWith(merchantColumn: value)
-                ),
-                (
-                  context.l10n.txnCategory,
-                  preview.mapping!.categoryColumn,
-                  (value) => preview.mapping!.copyWith(categoryColumn: value)
-                ),
-                (
-                  context.l10n.dtxNotes,
-                  preview.mapping!.noteColumn,
-                  (value) => preview.mapping!.copyWith(noteColumn: value)
-                ),
-                (
-                  context.l10n.dtxTxType,
-                  preview.mapping!.typeColumn,
-                  (value) => preview.mapping!.copyWith(typeColumn: value)
-                ),
-              ])
-                _OptionalMappingField(
-                  label: spec.$1,
-                  value: spec.$2,
-                  headers: preview.headers,
-                  onChanged: (value) => onPreviewChanged(
-                    remapped(spec.$3(value)),
-                  ),
-                ),
-              GlassDropdownField<ImportDateFormat>(
-                value: preview.mapping!.dateFormat,
-                decoration: InputDecoration(labelText: context.l10n.dtxDateFormat),
-                items: [
-                  DropdownMenuItem(
-                      value: ImportDateFormat.automatic,
-                      child: Text(context.l10n.dtxDateAuto)),
-                  DropdownMenuItem(
-                      value: ImportDateFormat.dayMonthYear,
-                      child: Text(context.l10n.dtxDateDMY)),
-                  DropdownMenuItem(
-                      value: ImportDateFormat.monthDayYear,
-                      child: Text(context.l10n.dtxDateMDY)),
-                  DropdownMenuItem(
-                      value: ImportDateFormat.yearMonthDay,
-                      child: Text(context.l10n.dtxDateYMD)),
-                  const DropdownMenuItem(
-                      value: ImportDateFormat.iso8601, child: Text('ISO-8601')),
-                ],
-                onChanged: (value) {
-                  if (value == null) return;
-                  onPreviewChanged(remapped(
-                    preview.mapping!.copyWith(dateFormat: value),
-                  ));
-                },
-              ),
-              if (preview.mapping!.accountColumn != null ||
-                  preview.mapping!.categoryColumn != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 12),
-                  child: Text(
-                    context.l10n.dtxWillCreate,
-                    style: AppTypography.caption(colors.textSecondary),
-                  ),
-                ),
-              if (preview.duplicateRecordIds.isNotEmpty)
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: Text(
-                      context.l10n.dtxImportDupesAsNew(
-                          preview.duplicateRecordIds.length)),
-                  value: preview.confirmedDuplicateRecordIds.length ==
-                      preview.duplicateRecordIds.length,
-                  onChanged: (enabled) => onPreviewChanged(preview.copyWith(
-                    confirmedDuplicateRecordIds:
-                        enabled ? preview.duplicateRecordIds : const {},
-                  )),
-                ),
-            ],
-            if (preview.canReplace) ...[
-              const SizedBox(height: 16),
-              SegmentedButton<ImportMode>(
-                segments: [
-                  ButtonSegment(value: ImportMode.merge, label: Text(context.l10n.dtxMerge)),
-                  ButtonSegment(
-                      value: ImportMode.replace, label: Text(context.l10n.dtxReplace)),
-                ],
-                selected: {mode},
-                onSelectionChanged: (value) => onModeChanged(value.first),
-              ),
-            ],
-            if (!preview.canReplace &&
-                preview.format == ImportFormat.qirshPackage) ...[
-              const SizedBox(height: 12),
-              Text(
-                context.l10n.dtxReplaceGuestOnly,
-                style: AppTypography.caption(colors.textSecondary),
-              ),
-            ],
-            if (preview.issues.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              for (final issue in preview.issues.take(8))
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    importIssueLine(context, issue),
-                    style: AppTypography.caption(
-                      issue.severity == ImportIssueSeverity.error
-                          ? colors.danger
-                          : colors.textSecondary,
-                    ),
-                  ),
-                ),
-            ],
+            for (final entry in preview.tableCounts.entries)
+              Text('${entry.key}: ${entry.value}'),
+          ],
+          if (preview.format == ImportFormat.genericCsv &&
+              preview.mapping != null) ...[
             const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: preview.hasErrors ? null : onImport,
-              icon: const Icon(AppLucideIcons.download),
-              label: Text(context.l10n.dtxConfirmImport),
+            _MappingField(
+              label: context.l10n.dtxColDate,
+              value: preview.mapping!.dateColumn,
+              headers: preview.headers,
+              onChanged: (value) => onPreviewChanged(
+                remapped(preview.mapping!.copyWith(dateColumn: value)),
+              ),
+            ),
+            _MappingField(
+              label: context.l10n.dtxColAmount,
+              value: preview.mapping!.amountColumn,
+              headers: preview.headers,
+              onChanged: (value) => onPreviewChanged(
+                remapped(preview.mapping!.copyWith(amountColumn: value)),
+              ),
+            ),
+            if (accounts.isNotEmpty)
+              GlassDropdownField<String>(
+                value: preview.defaultAccountId,
+                decoration:
+                    InputDecoration(labelText: context.l10n.dtxDefaultAccount),
+                items: [
+                  for (final account in accounts)
+                    DropdownMenuItem<String>(
+                      value: account.id,
+                      child: Text('${account.name} • ${account.currency}'),
+                    ),
+                ],
+                onChanged: (value) => onPreviewChanged(
+                  preview.copyWith(defaultAccountId: value),
+                ),
+              ),
+            _OptionalMappingField(
+              label: context.l10n.dtxDebit,
+              value: preview.mapping!.debitColumn,
+              headers: preview.headers,
+              onChanged: (value) => onPreviewChanged(
+                remapped(preview.mapping!.copyWith(debitColumn: value)),
+              ),
+            ),
+            _OptionalMappingField(
+              label: context.l10n.dtxCredit,
+              value: preview.mapping!.creditColumn,
+              headers: preview.headers,
+              onChanged: (value) => onPreviewChanged(
+                remapped(preview.mapping!.copyWith(creditColumn: value)),
+              ),
+            ),
+            for (final spec
+                in <(String, String?, CsvColumnMapping Function(String))>[
+              (
+                context.l10n.dtxCurrency,
+                preview.mapping!.currencyColumn,
+                (value) => preview.mapping!.copyWith(currencyColumn: value)
+              ),
+              (
+                context.l10n.commonAccountDefinite,
+                preview.mapping!.accountColumn,
+                (value) => preview.mapping!.copyWith(accountColumn: value)
+              ),
+              (
+                context.l10n.dtxMerchantDesc,
+                preview.mapping!.merchantColumn,
+                (value) => preview.mapping!.copyWith(merchantColumn: value)
+              ),
+              (
+                context.l10n.txnCategory,
+                preview.mapping!.categoryColumn,
+                (value) => preview.mapping!.copyWith(categoryColumn: value)
+              ),
+              (
+                context.l10n.dtxNotes,
+                preview.mapping!.noteColumn,
+                (value) => preview.mapping!.copyWith(noteColumn: value)
+              ),
+              (
+                context.l10n.dtxTxType,
+                preview.mapping!.typeColumn,
+                (value) => preview.mapping!.copyWith(typeColumn: value)
+              ),
+            ])
+              _OptionalMappingField(
+                label: spec.$1,
+                value: spec.$2,
+                headers: preview.headers,
+                onChanged: (value) => onPreviewChanged(
+                  remapped(spec.$3(value)),
+                ),
+              ),
+            GlassDropdownField<ImportDateFormat>(
+              value: preview.mapping!.dateFormat,
+              decoration: InputDecoration(labelText: context.l10n.dtxDateFormat),
+              items: [
+                DropdownMenuItem(
+                    value: ImportDateFormat.automatic,
+                    child: Text(context.l10n.dtxDateAuto)),
+                DropdownMenuItem(
+                    value: ImportDateFormat.dayMonthYear,
+                    child: Text(context.l10n.dtxDateDMY)),
+                DropdownMenuItem(
+                    value: ImportDateFormat.monthDayYear,
+                    child: Text(context.l10n.dtxDateMDY)),
+                DropdownMenuItem(
+                    value: ImportDateFormat.yearMonthDay,
+                    child: Text(context.l10n.dtxDateYMD)),
+                const DropdownMenuItem(
+                    value: ImportDateFormat.iso8601, child: Text('ISO-8601')),
+              ],
+              onChanged: (value) {
+                if (value == null) return;
+                onPreviewChanged(remapped(
+                  preview.mapping!.copyWith(dateFormat: value),
+                ));
+              },
+            ),
+            if (preview.mapping!.accountColumn != null ||
+                preview.mapping!.categoryColumn != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  context.l10n.dtxWillCreate,
+                  style: AppTypography.caption(colors.textSecondary),
+                ),
+              ),
+            if (preview.duplicateRecordIds.isNotEmpty)
+              SwitchListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                    context.l10n.dtxImportDupesAsNew(
+                        preview.duplicateRecordIds.length)),
+                value: preview.confirmedDuplicateRecordIds.length ==
+                    preview.duplicateRecordIds.length,
+                onChanged: (enabled) => onPreviewChanged(preview.copyWith(
+                  confirmedDuplicateRecordIds:
+                      enabled ? preview.duplicateRecordIds : const {},
+                )),
+              ),
+          ],
+          if (preview.canReplace) ...[
+            const SizedBox(height: 16),
+            SegmentedButton<ImportMode>(
+              segments: [
+                ButtonSegment(value: ImportMode.merge, label: Text(context.l10n.dtxMerge)),
+                ButtonSegment(
+                    value: ImportMode.replace, label: Text(context.l10n.dtxReplace)),
+              ],
+              selected: {mode},
+              onSelectionChanged: (value) => onModeChanged(value.first),
             ),
           ],
-        ),
+          if (!preview.canReplace &&
+              preview.format == ImportFormat.qirshPackage) ...[
+            const SizedBox(height: 12),
+            Text(
+              context.l10n.dtxReplaceGuestOnly,
+              style: AppTypography.caption(colors.textSecondary),
+            ),
+          ],
+          if (preview.issues.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            for (final issue in preview.issues.take(8))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Text(
+                  importIssueLine(context, issue),
+                  style: AppTypography.caption(
+                    issue.severity == ImportIssueSeverity.error
+                        ? colors.danger
+                        : colors.textSecondary,
+                  ),
+                ),
+              ),
+          ],
+          const SizedBox(height: 16),
+          FilledButton.icon(
+            onPressed: preview.hasErrors ? null : onImport,
+            icon: const Icon(AppLucideIcons.download),
+            label: Text(context.l10n.dtxConfirmImport),
+          ),
+        ],
       ),
     );
   }

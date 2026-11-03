@@ -16,6 +16,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
+import '../../core/auth/auth_coordinator.dart';
 import '../../core/auth/auth_service.dart';
 import '../../core/backend/supabase_config.dart';
 import '../../core/di/app_providers.dart';
@@ -35,8 +36,10 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/theme_mode_controller.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
+import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../referrals/referrals_providers.dart';
+import '../achievements/achievements_providers.dart';
 import '../report_ads/report_ads_providers.dart';
 import '../../core/utils/category_glyph.dart';
 import '../../core/utils/formatters.dart';
@@ -49,6 +52,7 @@ import '../plans/plans_screen.dart';
 import '../common/app_avatar.dart';
 import '../common/category_catalog.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../common/motion.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../capture/services/local_notification_service.dart';
@@ -60,6 +64,68 @@ import '../../core/theme/widgets/directional_chevron.dart';
 import '../../core/theme/widgets/glass_sheet.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
 import '../../core/theme/widgets/glass_dropdown_field.dart';
+
+class _ProfileTextSheet extends StatefulWidget {
+  const _ProfileTextSheet({required this.title, required this.label,
+    required this.initialValue, required this.keyboardType, required this.onSave});
+  final String title;
+  final String label;
+  final String initialValue;
+  final TextInputType keyboardType;
+  final Future<void> Function(String value) onSave;
+  @override
+  State<_ProfileTextSheet> createState() => _ProfileTextSheetState();
+}
+
+class _ProfileTextSheetState extends State<_ProfileTextSheet> {
+  late final TextEditingController _controller = TextEditingController(text: widget.initialValue);
+  bool _busy = false;
+  @override
+  void dispose() { _controller.dispose(); super.dispose(); }
+
+  Future<void> _save() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await widget.onSave(_controller.text);
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) AppToast.showError(context, context.l10n.setupSaveFailed);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Directionality(
+    textDirection: Directionality.of(context),
+    child: Padding(
+      padding: EdgeInsets.fromLTRB(AppSpacing.gutter, AppSpacing.s2,
+        AppSpacing.gutter, MediaQuery.of(context).viewInsets.bottom + AppSpacing.s6),
+      child: Column(mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(widget.title, style: AppTypography.sectionTitle(context.colors.textMain)),
+          const SizedBox(height: AppSpacing.s3),
+          TextField(controller: _controller, enabled: !_busy, autofocus: true,
+            keyboardType: widget.keyboardType,
+            decoration: InputDecoration(labelText: widget.label,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(AppRadius.md)))),
+          const SizedBox(height: AppSpacing.s3),
+          SizedBox(height: AppSpacing.buttonHeight,
+            child: FilledButton(onPressed: _busy ? null : _save,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                if (_busy) ...[
+                  SizedBox(width: 18, height: 18, child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: .38))),
+                  const SizedBox(width: AppSpacing.s2),
+                ],
+                Text(context.l10n.setSave),
+              ]))),
+        ]),
+    ),
+  );
+}
 
 /// maybeWhen that keeps rendering the last loaded value during a reload, so the
 /// frequent `user_settings` writes (sync, notification history, journey) don't
@@ -82,11 +148,12 @@ class SettingsScreen extends ConsumerStatefulWidget {
 }
 
 class _SettingsScreenState extends ConsumerState<SettingsScreen> {
+  bool _savingPrefs = false;
   String _profileName(UserSettingsEntity? s, String email) {
     final n = s?.displayName?.trim() ?? '';
     if (n.isNotEmpty) return n;
     final local = email.split('@').first.trim();
-    if (local.isEmpty || local == '—') return 'صديق مالي';
+    if (local.isEmpty || local == '—') return context.l10n.homeMoneyFriend;
     return local.replaceAll('.', ' ').replaceAll('_', ' ');
   }
 
@@ -200,6 +267,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final captureHealthAsync = ref.watch(captureHealthStatusProvider);
     final settingsAsync = ref.watch(userSettingsProvider);
     final settings = settingsAsync.valueOrNull;
+    final achievements = ref.watch(achievementsViewProvider).valueOrNull;
     final countriesAsync = ref.watch(supportedCountriesProvider);
     final currenciesAsync = ref.watch(activeCurrenciesProvider);
     final c = context.colors;
@@ -211,7 +279,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
     return Scaffold(
       backgroundColor: c.bg,
-      body: Stack(
+      body: StatusBarScrim(
+        child: Stack(
         children: [
           // Ambient glow for dark mode (matches dashboard)
           if (isDark) ...[
@@ -259,6 +328,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       ? settings!.phoneNumber!.trim()
                       : email,
                   avatarPath: settings?.avatarPath?.trim() ?? '',
+                  levelKey: achievements?.xpLevel.levelKey,
+                  totalXp: achievements?.xpLevel.totalXp,
                   onBack: widget.showBackButton
                       ? () {
                           if (context.canPop()) context.pop();
@@ -293,11 +364,10 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       120,
                     ),
                     child: Column(children: [
+                      _buildGeneralTab(context, ref, settingsAsync),
+                      const SizedBox(height: AppSpacing.s4),
                       if (settings != null) ...[
                         _Section(
-                          // First group: it renders inside the header's melt,
-                          // where the background is still blue.
-                          onMelt: true,
                           // UX-028 — the other «الحساب». This group is profile
                           // data, so it says so.
                           title: context.l10n.setAccountData,
@@ -359,7 +429,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ),
                         const SizedBox(height: AppSpacing.s4),
                       ],
-                      _buildGeneralTab(context, ref, settingsAsync),
+                      _buildAppearanceSection(context, ref),
                       const SizedBox(height: AppSpacing.s4),
                       _buildNotificationsTab(
                         context,
@@ -377,6 +447,20 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
         ],
       ),
+      ),
+    );
+  }
+
+  Widget _buildAppearanceSection(BuildContext context, WidgetRef ref) {
+    return _Section(
+      title: context.l10n.setAppearance,
+      description: context.l10n.setAppearanceSub,
+      children: [
+        _ThemeModeSelector(
+          value: ref.watch(themeModeProvider),
+          onChanged: (mode) => ref.read(themeModeProvider.notifier).set(mode),
+        ),
+      ],
     );
   }
 
@@ -387,20 +471,6 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
   ) {
     return Column(
       children: [
-        PremiumMotion(
-            delay: const Duration(milliseconds: 40),
-            child: _Section(
-              title: context.l10n.setAppearance,
-              description: context.l10n.setAppearanceSub,
-              children: [
-                _ThemeModeSelector(
-                  value: ref.watch(themeModeProvider),
-                  onChanged: (mode) =>
-                      ref.read(themeModeProvider.notifier).set(mode),
-                ),
-              ],
-            )),
-        const SizedBox(height: AppSpacing.s3),
         PremiumMotion(
             delay: const Duration(milliseconds: 80),
             // UX-029 — «إدارة أموالك» had become the app's navigation hub: ten
@@ -584,7 +654,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: context.l10n.setConfirmCaptured,
                     icon: AppLucideIcons.messageSquare,
                     value: prefs.captureReview,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(captureReview: value),
                     ),
@@ -594,7 +664,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: AppLucideIcons.bellRing,
                     iconColor: c.cta,
                     value: prefs.captureLight,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(captureLight: value),
                     ),
@@ -604,7 +674,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: context.l10n.setHideOnLockScreen,
                     icon: AppLucideIcons.lock,
                     value: prefs.hideLockScreenContent,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(hideLockScreenContent: value),
                     ),
@@ -621,7 +691,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: context.l10n.setQirshMessages,
                     icon: AppLucideIcons.megaphone,
                     value: prefs.marketingMessages,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(marketingMessages: value),
                     ),
@@ -631,7 +701,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: AppLucideIcons.alertTriangle,
                     iconColor: c.accent,
                     value: prefs.budgetWarning,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(budgetWarning: value),
                     ),
@@ -641,7 +711,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: AppLucideIcons.alertCircle,
                     iconColor: c.danger,
                     value: prefs.budgetOver,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(budgetOver: value),
                     ),
@@ -651,7 +721,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     subtitle: context.l10n.setDailyReminderTime,
                     icon: AppLucideIcons.bell,
                     value: prefs.dailyReminder,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(dailyReminder: value),
                     ),
@@ -660,7 +730,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     title: context.l10n.setWeeklyReport,
                     icon: AppLucideIcons.lineChart,
                     value: prefs.weeklyReport,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(weeklyReport: value),
                     ),
@@ -670,7 +740,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: AppLucideIcons.calendarCheck,
                     iconColor: c.cta,
                     value: prefs.subscriptionReminder,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(subscriptionReminder: value),
                     ),
@@ -680,7 +750,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: AppLucideIcons.flag,
                     iconColor: c.success,
                     value: prefs.goalMilestone,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(goalMilestone: value),
                     ),
@@ -690,7 +760,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                     icon: AppLucideIcons.trophy,
                     iconColor: c.success,
                     value: prefs.achievements,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(achievements: value),
                     ),
@@ -703,7 +773,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                         ? '${Formatters.hourOfDay(prefs.quietHoursStartHour, context)} - ${Formatters.hourOfDay(prefs.quietHoursEndHour, context)}'
                         : context.l10n.setDisabled,
                     value: prefs.quietHoursEnabled,
-                    onChanged: (value) => _savePrefs(
+                    onChanged: _savingPrefs ? null : (value) => _savePrefs(
                       ref,
                       prefs.copyWith(quietHoursEnabled: value),
                     ),
@@ -794,9 +864,28 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
               // stating carefully: it claims local-database encryption, which
               // is what the code does — not end-to-end encryption, which it
               // does not.
-              description: context.l10n.setEncryptedDbPart1 +
-                  context.l10n.setEncryptedDbPart2,
               children: [
+                Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.s4,
+                    vertical: AppSpacing.s3,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          context.l10n.setEncryptedDbPart1 +
+                              context.l10n.setEncryptedDbPart2,
+                          style: AppTypography.caption(
+                              context.colors.textSecondary),
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.s3),
+                      const QirshIllustration(
+                        name: 'privacy', width: 92, height: 69),
+                    ],
+                  ),
+                ),
                 _NavTile(
                   icon: AppLucideIcons.helpCircle,
                   title: context.l10n.helpSettingsTile,
@@ -886,30 +975,34 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     );
   }
 
-  Future<void> _savePrefs(
+  Future<bool> _savePrefs(
     WidgetRef ref,
     NotificationPreferences preferences,
   ) async {
-    await ref
-        .read(saveNotificationPreferencesUseCaseProvider)
-        .call(preferences);
-    unawaited(NativeCaptureBridge.setHideCaptureDetails(
-        preferences.hideLockScreenContent));
-    refreshNotificationPreferences(ref);
+    if (_savingPrefs) return false;
+    setState(() => _savingPrefs = true);
+    try {
+      await ref.read(saveNotificationPreferencesUseCaseProvider).call(preferences);
+      unawaited(NativeCaptureBridge.setHideCaptureDetails(
+          preferences.hideLockScreenContent));
+      if (mounted) refreshNotificationPreferences(ref);
+      return true;
+    } catch (_) {
+      if (mounted) AppToast.showError(context, context.l10n.setupSaveFailed);
+      return false;
+    } finally {
+      if (mounted) setState(() => _savingPrefs = false);
+    }
   }
 
   Future<void> _sendTestNotification(BuildContext context) async {
     final sent = await LocalNotificationService.instance.showTestNotification();
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          sent
-              ? context.l10n.setTestNotificationSent
-              : context.l10n.setTestNotificationFailed,
-        ),
-      ),
-    );
+    if (sent) {
+      AppToast.show(context, context.l10n.setTestNotificationSent);
+    } else {
+      AppToast.showError(context, context.l10n.setTestNotificationFailed);
+    }
   }
 
   /// Sign-out (WP-3b, SYNC-Q2/Q3/Q8). The default choice LOCKS this account's
@@ -937,7 +1030,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     }
     if (!context.mounted) return;
     // Captured while the screen still exists.
-    final messenger = ScaffoldMessenger.maybeOf(context);
+    final overlay = Overlay.maybeOf(context, rootOverlay: true);
     final failedText = context.l10n.setSignOutFailed;
     final navigator = Navigator.of(context, rootNavigator: true);
     final l10n = context.l10n;
@@ -959,7 +1052,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       }
       if (SupabaseConfig.isConfigured) {
         try {
-          await supabase.Supabase.instance.client.auth.signOut();
+          // ASR §4.9: durable removal first, then the server revocation.
+          await AuthCoordinator.logout(supabase.Supabase.instance.client.auth);
         } catch (_) {
           // The local sign-out above already protects the device even if the
           // network sign-out fails.
@@ -983,7 +1077,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
       // the next launch or sign-in (the remote sign-out already ran).
       return;
     } catch (_) {
-      messenger?.showSnackBar(SnackBar(content: Text(failedText)));
+      if (overlay != null) AppToast.showErrorInOverlay(overlay, failedText);
       return;
     }
     await signOutRemote();
@@ -1067,9 +1161,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
         );
     _refreshSettingsDependents(ref);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.l10n.setPhotoUpdated)),
-    );
+    AppToast.show(context, context.l10n.setPhotoUpdated);
   }
 
   Future<void> _showProfileTextSheet(
@@ -1081,60 +1173,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required UserSettingsEntity Function(String value) apply,
     TextInputType keyboardType = TextInputType.text,
   }) async {
-    final c = context.colors;
-    final controller = TextEditingController(text: initialValue);
     await showGlassSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => navySheetTheme(Directionality(
-        textDirection: Directionality.of(context),
-        child: Padding(
-          padding: EdgeInsets.fromLTRB(
-            AppSpacing.gutter,
-            AppSpacing.s2,
-            AppSpacing.gutter,
-            MediaQuery.of(context).viewInsets.bottom + AppSpacing.s6,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(title, style: AppTypography.sectionTitle(c.textMain)),
-              const SizedBox(height: AppSpacing.s3),
-              TextField(
-                controller: controller,
-                autofocus: true,
-                keyboardType: keyboardType,
-                decoration: InputDecoration(
-                  labelText: label,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(AppRadius.md),
-                  ),
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s3),
-              SizedBox(
-                height: AppSpacing.buttonHeight,
-                child: FilledButton(
-                  onPressed: () async {
-                    await ref
-                        .read(userSettingsRepositoryProvider)
-                        .saveSettings(apply(controller.text));
-                    _refreshSettingsDependents(ref);
-                    if (context.mounted) Navigator.of(context).pop();
-                  },
-                  child: Text(context.l10n.setSave),
-                ),
-              ),
-            ],
-          ),
-        ),
+      builder: (context) => navySheetTheme(_ProfileTextSheet(
+        title: title,
+        label: label,
+        initialValue: initialValue,
+        keyboardType: keyboardType,
+        onSave: (value) async {
+          await ref.read(userSettingsRepositoryProvider).saveSettings(apply(value));
+          if (mounted) _refreshSettingsDependents(ref);
+        },
       )),
     );
-    // Do NOT dispose controller here – the sheet's exit animation may still
-    // reference it.  Because it is a local variable, it will be GC'd once
-    // the animation completes and all listeners are released.
   }
 
   void _refreshSettingsDependents(WidgetRef ref) {
@@ -1209,22 +1262,25 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
 
   Future<void> _showCategoriesSheet(BuildContext context, WidgetRef ref) async {
     final c = context.colors;
-    final catalog = await ref.read(categoryCatalogProvider.future);
+    final initialCatalog = await ref.read(categoryCatalogProvider.future);
     if (!context.mounted) return;
-    final income = catalog.all.where((item) => item.entity.isIncome).toList();
-    final transfers =
-        catalog.all.where((item) => item.key == 'transfers').toList();
-    final expenses = catalog.all
-        .where((item) =>
-            !item.entity.isIncome &&
-            item.key != 'transfers' &&
-            item.key != 'all_expenses')
-        .toList();
     showGlassSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => navySheetTheme(Directionality(
+      builder: (context) => Consumer(builder: (context, sheetRef, _) {
+        final catalog = sheetRef.watch(categoryCatalogProvider).valueOrNull ??
+            initialCatalog;
+        final income = catalog.all.where((item) => item.entity.isIncome).toList();
+        final transfers =
+            catalog.all.where((item) => item.key == 'transfers').toList();
+        final expenses = catalog.all
+            .where((item) =>
+                !item.entity.isIncome &&
+                item.key != 'transfers' &&
+                item.key != 'all_expenses')
+            .toList();
+        return navySheetTheme(Directionality(
         textDirection: Directionality.of(context),
         child: Container(
           constraints: BoxConstraints(
@@ -1274,7 +1330,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ],
           ),
         ),
-      )),
+      ));
+      }),
     );
   }
 
@@ -1290,40 +1347,43 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     var isIncome = item?.entity.isIncome ?? false;
     final isEditing = item != null;
     const icons = [
-      'shapes',
-      'utensils-crossed',
-      'shopping-basket',
-      'shopping-bag',
-      'car-taxi-front',
-      'receipt-text',
-      'wallet-cards',
-      'banknote',
-      'coffee',
-      'gift',
-      'house',
-      'plane',
-      'heart-pulse',
-      'graduation-cap',
-      'arrow-left-right',
+      ('shapes', 'other'),
+      ('utensils-crossed', 'restaurants'),
+      ('shopping-basket', 'groceries'),
+      ('shopping-bag', 'shopping'),
+      ('car-taxi-front', 'transport'),
+      ('receipt-text', 'bills'),
+      ('wallet-cards', 'cards'),
+      ('banknote', 'cash'),
+      ('coffee', 'cafes'),
+      ('gift', 'gifts'),
+      ('house', 'home'),
+      ('plane', 'travel'),
+      ('heart-pulse', 'health'),
+      ('graduation-cap', 'education'),
+      ('arrow-left-right', 'transfers'),
     ];
     const colors = [
-      '#9E9E9E',
-      '#FF7043',
-      '#43A047',
-      '#1E88E5',
-      '#8E24AA',
-      '#00C853',
-      '#00897B',
-      '#D81B60',
-      '#546E7A',
-      '#FB8C00',
+      ('#9E9E9E', 'grey'),
+      ('#FF7043', 'coral'),
+      ('#43A047', 'green'),
+      ('#1E88E5', 'blue'),
+      ('#8E24AA', 'purple'),
+      ('#00C853', 'brightGreen'),
+      ('#00897B', 'teal'),
+      ('#D81B60', 'pink'),
+      ('#546E7A', 'blueGrey'),
+      ('#FB8C00', 'orange'),
     ];
 
+    ModalRoute<void>? categoryRoute;
     await showGlassSheet<void>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => navySheetTheme(StatefulBuilder(
+      builder: (context) {
+        categoryRoute = ModalRoute.of<void>(context);
+        return navySheetTheme(StatefulBuilder(
         builder: (context, setState) => Directionality(
           textDirection: Directionality.of(context),
           child: Padding(
@@ -1357,64 +1417,67 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                   title: Text(context.l10n.setIncomeCategory),
                 ),
                 const SizedBox(height: AppSpacing.s3),
-                GlassDropdownField<String>(
-                  value: icon,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.setIcon,
-                    prefixIcon: const Icon(AppLucideIcons.smile),
-                  ),
-                  items: icons
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Row(
-                            children: [
-                              CategoryGlyph(
-                                  name: value, size: 18, color: c.textMain),
-                              const SizedBox(width: 8),
-                              Text(value),
-                            ],
-                          ),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(() => icon = value ?? icon),
+                Text(context.l10n.setIcon,
+                    style: AppTypography.subhead(c.textMain)),
+                const SizedBox(height: AppSpacing.s2),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final choice in [
+                      if (!icons.any((entry) => entry.$1 == icon)) (icon, 'other'),
+                      ...icons,
+                    ])
+                      _CategoryChoiceTile(
+                        key: ValueKey('category-icon-${choice.$1}'),
+                        label: context.l10n.setCategoryIconName(choice.$2),
+                        selected: icon == choice.$1,
+                        onTap: () => setState(() => icon = choice.$1),
+                        child: CategoryGlyph(name: choice.$1, size: 24,
+                            color: c.textMain),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.s3),
-                GlassDropdownField<String>(
-                  value: color,
-                  decoration: InputDecoration(
-                    labelText: context.l10n.setColor,
-                    prefixIcon: const Icon(AppLucideIcons.palette),
-                  ),
-                  items: colors
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Row(
-                            children: [
-                              CircleAvatar(
-                                radius: 8,
-                                backgroundColor: Formatters.colorFromHex(value),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(value),
-                            ],
+                Text(context.l10n.setColor,
+                    style: AppTypography.subhead(c.textMain)),
+                const SizedBox(height: AppSpacing.s2),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final choice in [
+                      if (!colors.any((entry) => entry.$1 == color)) (color, 'other'),
+                      ...colors,
+                    ])
+                      _CategoryChoiceTile(
+                        key: ValueKey('category-colour-${choice.$1}'),
+                        label: context.l10n.setCategoryColourName(choice.$2),
+                        selected: color == choice.$1,
+                        onTap: () => setState(() => color = choice.$1),
+                        child: Container(
+                          width: 30,
+                          height: 30,
+                          decoration: BoxDecoration(
+                            shape: BoxShape.circle,
+                            color: Formatters.colorFromHex(choice.$1),
                           ),
+                          child: color == choice.$1
+                              ? Icon(AppLucideIcons.check, size: 18,
+                                  color: Formatters.colorFromHex(choice.$1)
+                                              .computeLuminance() > 0.4
+                                      ? Colors.black : Colors.white)
+                              : null,
                         ),
-                      )
-                      .toList(),
-                  onChanged: (value) => setState(() => color = value ?? color),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.s3),
                 FilledButton(
                   onPressed: () async {
                     final title = name.text.trim();
                     if (title.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                            content: Text(context.l10n.setEnterCategoryName)),
-                      );
+                      AppToast.showError(context, context.l10n.setEnterCategoryName);
                       return;
                     }
                     final repo = ref.read(categoryRepositoryProvider);
@@ -1449,8 +1512,12 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             ),
           ),
         ),
-      )),
+        ));
+      },
     );
+    // The modal result resolves when popped, before its exit animation ends.
+    // Keep the name controller alive until the route releases its TextField.
+    await categoryRoute?.completed;
     name.dispose();
   }
 
@@ -1474,6 +1541,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: context.colors.danger),
             child: Text(context.l10n.setDelete),
           ),
         ],
@@ -1499,6 +1567,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     final c = context.colors;
     var start = preferences.quietHoursStartHour;
     var end = preferences.quietHoursEndHour;
+    var saving = false;
     return showGlassSheet<void>(
       context: context,
       showDragHandle: true,
@@ -1530,7 +1599,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: _HourPicker(
                         label: context.l10n.setStarts,
                         value: start,
-                        onChanged: (value) => setState(() => start = value),
+                        onChanged: saving ? null : (value) => setState(() => start = value),
                       ),
                     ),
                     const SizedBox(width: AppSpacing.s3),
@@ -1538,7 +1607,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                       child: _HourPicker(
                         label: context.l10n.setEnds,
                         value: end,
-                        onChanged: (value) => setState(() => end = value),
+                        onChanged: saving ? null : (value) => setState(() => end = value),
                       ),
                     ),
                   ],
@@ -1547,15 +1616,21 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
                 SizedBox(
                   height: AppSpacing.buttonHeight,
                   child: FilledButton(
-                    onPressed: () async {
-                      await _savePrefs(
+                    onPressed: saving ? null : () async {
+                      setState(() => saving = true);
+                      final saved = await _savePrefs(
                         ref,
                         preferences.copyWith(
                           quietHoursStartHour: start,
                           quietHoursEndHour: end,
                         ),
                       );
-                      if (context.mounted) Navigator.of(context).pop();
+                      if (!context.mounted) return;
+                      if (saved) {
+                        Navigator.of(context).pop();
+                      } else {
+                        setState(() => saving = false);
+                      }
                     },
                     style: FilledButton.styleFrom(
                       shape: RoundedRectangleBorder(
@@ -1580,6 +1655,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _showInfoSheet(
       context,
       title: context.l10n.setAboutApp,
+      photo: QirshPhoto.brand,
       body: context.l10n.setAboutBody,
       actionLabel: context.l10n.setOk,
     );
@@ -1589,6 +1665,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     _showInfoSheet(
       context,
       title: context.l10n.setContactUs,
+      illustration: 'help',
       body: context.l10n.setSupportBody,
       actionLabel: context.l10n.setCopyEmail,
       onAction: () async {
@@ -1605,6 +1682,8 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     required String body,
     required String actionLabel,
     Future<void> Function()? onAction,
+    QirshPhoto? photo,
+    String? illustration,
   }) {
     final c = context.colors;
     showGlassSheet<void>(
@@ -1623,6 +1702,13 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              if (photo != null) QirshPhotoBanner(photo: photo,
+                height: 150, margin: const EdgeInsets.only(bottom: 14)),
+              if (illustration != null) ...[
+                Center(child: QirshIllustration(
+                    name: illustration, width: 120, height: 90)),
+                const SizedBox(height: AppSpacing.s3),
+              ],
               Text(title, style: AppTypography.sectionTitle(c.textMain)),
               const SizedBox(height: AppSpacing.s2),
               Text(body, style: AppTypography.callout(c.textLight)),
@@ -1677,7 +1763,7 @@ class _SettingsScreenState extends ConsumerState<SettingsScreen> {
     // navigation uses the app router rather than this screen's context.
     await AppSession.instance.resetAllLocalData(
       signOutRemote: SupabaseConfig.isConfigured
-          ? supabase.Supabase.instance.client.auth.signOut
+          ? () => AuthCoordinator.logout(supabase.Supabase.instance.client.auth)
           : null,
     );
     appRouter.go('/welcome');
@@ -1732,13 +1818,14 @@ class _SettingsErrorState extends StatelessWidget {
   }
 }
 
-/// Blue profile hero for Settings — title + avatar/name/contact/edit on the
-/// gradient, then the rounded page-bg lip (same language as CalmPageHeader).
+/// Profile and canonical level summary, followed by the existing settings.
 class _SettingsHeader extends StatelessWidget {
   const _SettingsHeader({
     required this.name,
     required this.contact,
     required this.avatarPath,
+    this.levelKey,
+    this.totalXp,
     this.onBack,
     this.onAvatarTap,
     this.onNameTap,
@@ -1747,89 +1834,93 @@ class _SettingsHeader extends StatelessWidget {
   final String name;
   final String contact;
   final String avatarPath;
+  final String? levelKey;
+  final int? totalXp;
   final VoidCallback? onBack;
   final VoidCallback? onAvatarTap;
   final VoidCallback? onNameTap;
 
+  String _levelName(BuildContext context) => switch (levelKey) {
+    'organized' => context.l10n.achLevelOrganised,
+    'smart_saver' => context.l10n.achLevelSmartSaver,
+    'financial_expert' => context.l10n.achLevelExpert,
+    'saving_legend' => context.l10n.achLevelLegend,
+    _ => context.l10n.achLevelBeginner,
+  };
+
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     final file = avatarPath.isEmpty ? null : File(avatarPath);
     final hasImage = file != null && file.existsSync();
     final initial = name.trim().isEmpty ? 'م' : name.characters.first;
-    // نفس هيدر باقي الصفحات (CalmPageHeader بميلته الموحّد) — صف البروفايل
-    // جوّه الأزرق عبر خانة child.
-    return CalmPageHeader(
-      // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
-      meltOverflow: 0,
-      title: context.l10n.setSettings,
-      leading: onBack == null
-          ? null
-          : IconButton(
-              tooltip: context.l10n.setBack,
-              onPressed: onBack,
-              padding: EdgeInsets.zero,
-              visualDensity: VisualDensity.compact,
-              constraints: const BoxConstraints(),
-              icon: const Icon(AppLucideIcons.arrowRight, color: Colors.white),
-            ),
-      child: Row(
-        children: [
-          GestureDetector(
-            onTap: onAvatarTap,
-            child: Container(
-              width: 58,
-              height: 58,
-              alignment: Alignment.center,
-              clipBehavior: Clip.antiAlias,
-              decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(19),
-              ),
-              child: hasImage
-                  ? Image.file(file, fit: BoxFit.cover, width: 58, height: 58)
-                  : Text(initial, style: AppTypography.title2(Colors.white)),
-            ),
+    return Padding(
+      padding: EdgeInsets.fromLTRB(AppSpacing.gutter,
+          MediaQuery.paddingOf(context).top + 16, AppSpacing.gutter, 0),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Row(children: [
+          if (onBack != null) IconButton(
+            tooltip: context.l10n.setBack,
+            onPressed: onBack,
+            icon: const BackButtonIcon(),
+            color: c.textPrimary,
           ),
-          const SizedBox(width: 13),
-          Expanded(
-            child: GestureDetector(
-              onTap: onNameTap,
-              behavior: HitTestBehavior.opaque,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: AppTypography.headline(Colors.white)),
-                  const SizedBox(height: 2),
-                  Text(contact,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+          Expanded(child: Text(onBack == null ? context.l10n.navMore : context.l10n.setSettings,
+            style: AppTypography.title1(c.textPrimary))),
+        ]),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: c.border), boxShadow: AppShadows.card),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(children: [
+              GestureDetector(onTap: onAvatarTap,
+                child: Container(width: 54, height: 54, alignment: Alignment.center,
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(color: const Color(0xFFFFD46C),
+                    borderRadius: BorderRadius.circular(27)),
+                  child: hasImage
+                    ? Image.file(file, fit: BoxFit.cover, width: 54, height: 54)
+                    : Text(initial, style: AppTypography.title2(const Color(0xFF0A2540))))),
+              const SizedBox(width: 12),
+              Expanded(child: GestureDetector(onTap: onNameTap,
+                behavior: HitTestBehavior.opaque,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min, children: [
+                    Text(name, maxLines: 1, overflow: TextOverflow.ellipsis,
+                      style: AppTypography.headline(c.textPrimary)),
+                    const SizedBox(height: 4),
+                    Text(contact, maxLines: 1, overflow: TextOverflow.ellipsis,
                       textDirection: TextDirection.ltr,
-                      style: AppTypography.caption(
-                          Colors.white.withValues(alpha: 0.75))),
-                ],
-              ),
-            ),
-          ),
-          GestureDetector(
-            onTap: onNameTap,
-            child: Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: Colors.white.withValues(alpha: 0.16),
-                border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
-              ),
-              child: const Icon(AppLucideIcons.pencil,
-                  color: Colors.white, size: 18),
-            ),
-          ),
-        ],
-      ),
+                      style: AppTypography.caption(c.textMuted)),
+                  ]))),
+              const SizedBox(width: 8),
+              TextButton(onPressed: onNameTap,
+                style: TextButton.styleFrom(backgroundColor: c.surfaceMuted,
+                  foregroundColor: c.textPrimary,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))),
+                child: Text(context.l10n.setEdit)),
+            ]),
+            if (levelKey != null && totalXp != null) ...[
+              const SizedBox(height: 12),
+              Divider(height: 1, color: c.divider),
+              const SizedBox(height: 10),
+              Row(children: [
+                Expanded(child: Text('${context.l10n.achLevel} ${_levelName(context)}',
+                  style: AppTypography.caption(c.textMuted))),
+                Text('$totalXp XP', textDirection: TextDirection.ltr,
+                  style: AppTypography.caption(c.textPrimary)),
+                const SizedBox(width: 6),
+                SizedBox(width: 32, height: 32, child: IconButton(
+                  padding: EdgeInsets.zero, tooltip: context.l10n.achTitle,
+                  onPressed: () => context.push('/achievements'),
+                  icon: Icon(AppLucideIcons.trophy, color: c.primary, size: 18))),
+              ]),
+            ],
+          ]),
+        ),
+      ]),
     );
   }
 }
@@ -1839,21 +1930,11 @@ class _Section extends StatelessWidget {
     required this.title,
     required this.children,
     this.description,
-    this.onMelt = false,
   });
 
   final String title;
   final String? description;
   final List<Widget> children;
-
-  /// True for the FIRST group only, which sits inside the header's `MeltTail`
-  /// where the background is still blue.
-  ///
-  /// The page tokens are correct everywhere else and wrong there: «Your account
-  /// details» measured **1.10:1** against the melt — effectively invisible.
-  /// A single colour cannot serve both, because the melt fades from the header
-  /// blue to the page background across this one group.
-  final bool onMelt;
 
   @override
   Widget build(BuildContext context) {
@@ -1869,18 +1950,14 @@ class _Section extends StatelessWidget {
             children: [
               Text(
                 title,
-                style: AppTypography.footnote(onMelt
-                        ? Colors.white.withValues(alpha: 0.85)
-                        : c.textLight)
+                style: AppTypography.footnote(c.textLight)
                     .copyWith(fontWeight: FontWeight.w700),
               ),
               if (description != null) ...[
                 const SizedBox(height: 1),
                 Text(
                   description!,
-                  style: AppTypography.micro(onMelt
-                      ? Colors.white.withValues(alpha: 0.70)
-                      : c.textMuted),
+                  style: AppTypography.micro(c.textMuted),
                 ),
               ],
             ],
@@ -1978,6 +2055,49 @@ class _ThemeModeSelector extends StatelessWidget {
   }
 }
 
+class _CategoryChoiceTile extends StatelessWidget {
+  const _CategoryChoiceTile({
+    super.key,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+    required this.child,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: Tooltip(
+        message: label,
+        excludeFromSemantics: true,
+        child: Material(
+          color: selected ? c.primary.withValues(alpha: 0.10) : c.surface2,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(14),
+            side: BorderSide(color: selected ? c.primary : c.border,
+                width: selected ? 2 : 1),
+          ),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            onTap: onTap,
+            child: SizedBox(width: 48, height: 48,
+                child: Center(child: ExcludeSemantics(child: child))),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _CategoryGroup extends StatelessWidget {
   const _CategoryGroup({
     required this.title,
@@ -2023,13 +2143,13 @@ class _CategoryGroup extends StatelessWidget {
                   ListTile(
                     contentPadding:
                         const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
-                    leading: CircleAvatar(
-                      backgroundColor: items[i].color.withValues(alpha: 0.12),
-                      child:
-                          Icon(items[i].icon, color: items[i].color, size: 18),
-                    ),
+                    leading: AppAvatar.category(category: items[i]),
                     title: Text(items[i].name),
-                    subtitle: Text(items[i].key),
+                    subtitle: Text(items[i].entity.isIncome
+                        ? context.l10n.setIncome
+                        : items[i].key == 'transfers'
+                            ? context.l10n.setTransfers
+                            : context.l10n.setExpenses),
                     trailing: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
@@ -2117,19 +2237,21 @@ class _AppLockTileState extends State<_AppLockTile> {
   Future<void> _setEnabled(bool value) async {
     if (_busy) return;
     setState(() => _busy = true);
-    final ok = await AppLockService.instance
-        .setEnabled(value, reason: context.l10n.lockPrompt);
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      if (ok) _enabled = value;
-    });
-    if (!ok) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(context.l10n.setAppLockFailed),
-        ),
-      );
+    try {
+      final ok = await AppLockService.instance
+          .setEnabled(value, reason: context.l10n.lockPrompt);
+      if (!mounted) return;
+      if (ok) {
+        setState(() => _enabled = value);
+      } else {
+        AppToast.showError(context, context.l10n.setAppLockFailed);
+      }
+    } catch (_) {
+      if (mounted) {
+        AppToast.showError(context, context.l10n.setupSaveFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -2141,7 +2263,7 @@ class _AppLockTileState extends State<_AppLockTile> {
       icon: AppLucideIcons.lock,
       iconColor: c.primary,
       value: _enabled,
-      onChanged: _loading || _busy ? (_) {} : _setEnabled,
+      onChanged: _loading || _busy ? null : _setEnabled,
     );
   }
 }
@@ -2389,7 +2511,7 @@ class _SwitchTile extends StatelessWidget {
   final IconData icon;
   final Color? iconColor;
   final bool value;
-  final ValueChanged<bool> onChanged;
+  final ValueChanged<bool>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2420,11 +2542,9 @@ class _TileIcon extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // نفس تايل [AppAvatar] بالظبط — سوبر-إليبس ولون تقيل وجليف أبيض.
-    return AppAvatar.icon(
-      icon: icon,
-      color: Color.lerp(color, Colors.black, 0.45),
-    );
+    // نفس تايل [AppAvatar] بالظبط — سوبر-إليبس بلون هادي وجليف بلونه
+    // (`iconTile` في النموذج).
+    return AppAvatar.icon(icon: icon, color: color, tone: AppAvatarTone.soft);
   }
 }
 
@@ -2437,7 +2557,7 @@ class _HourPicker extends StatelessWidget {
 
   final String label;
   final int value;
-  final ValueChanged<int> onChanged;
+  final ValueChanged<int>? onChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -2468,8 +2588,8 @@ class _HourPicker extends StatelessWidget {
                 child: Text(Formatters.hourOfDay(hour, context)),
               ),
           ],
-          onChanged: (value) {
-            if (value != null) onChanged(value);
+          onChanged: onChanged == null ? null : (value) {
+            if (value != null) onChanged!(value);
           },
         ),
       ],

@@ -39,8 +39,10 @@ void main() {
       'hand-written one', () {
     final src =
         File('lib/core/startup/bootstrap_runner.dart').readAsStringSync();
-    expect(src,
-        contains('ObservingAuthLocalStorage(_initEvents, SupabaseConfig.url)'));
+    expect(
+        RegExp(r'ObservingAuthLocalStorage\(\s*_initEvents,\s*SupabaseConfig\.url\s*[,)]')
+            .hasMatch(src),
+        isTrue);
     expect(src,
         contains("'sb-\${Uri.parse(url).host.split('.').first}-auth-token'"),
         reason: 'the single reviewed derivation');

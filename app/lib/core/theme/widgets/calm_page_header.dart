@@ -1,7 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'qirsh_visuals.dart';
+import 'section_photo_header.dart';
+export 'section_photo_header.dart' show QirshSectionPhoto, QirshSectionBackdrop;
+
 import '../app_colors.dart';
 import '../app_spacing.dart';
+import '../app_shadows.dart';
 import '../app_typography.dart';
 
 /// One cell in a [CalmPageHeader] metric strip.
@@ -12,14 +17,18 @@ class CalmMetric {
 }
 
 /// CalmPageHeader — the shared top-of-page pattern for the whole app
-/// (docs/MALI_DESIGN_SYSTEM.md).
+/// (docs/MALI_DESIGN_SYSTEM.md). Every screen uses this one widget — edit it
+/// here and every page updates.
 ///
-/// A blue hero band (title + optional subtitle, leading/trailing action, big
-/// amount statement, metric strip) that MELTS into the page background — the
-/// blue dissolves vertically into the canvas instead of ending at a lip or a
-/// hard edge (the mockup's «الهيدر سايح» language, same as the dashboard
-/// hero). White content on the blue.
-/// Every screen uses this one widget — edit it here and every page updates.
+/// Follows the approved redesign prototype (design-preview/qirsh-redesign):
+/// a large title on the calm canvas, then — when the page has a statement
+/// amount — one soft brand "feature hero" card with the amount (and optional
+/// art), then the metrics as a row of white KPI tiles. Only Home keeps the
+/// full-bleed melting blue (dashboard_screen.dart); every other page reads as
+/// a quiet iOS large-title page.
+///
+/// [child] is rendered inside a navy card, so callers that built white-on-blue
+/// content for the old band keep working unchanged.
 class CalmPageHeader extends StatelessWidget {
   const CalmPageHeader({
     super.key,
@@ -28,8 +37,17 @@ class CalmPageHeader extends StatelessWidget {
     this.leading,
     this.trailing,
     this.amount,
+    this.amountLabel,
+    this.amountFootnote,
     this.currency,
     this.metrics,
+    this.art,
+    this.photo,
+    this.sectionPhoto,
+    this.sectionHeight = 220,
+    this.inkAmount = false,
+    this.coverBottom,
+    this.showTitle = true,
     this.child,
     this.topInset = AppSpacing.headerTopInset,
     this.useSafeAreaTop = true,
@@ -41,16 +59,34 @@ class CalmPageHeader extends StatelessWidget {
   final Widget? leading;
   final Widget? trailing;
 
-  /// Big statement amount (e.g. the period total). Rendered white on the blue.
+  /// Big statement amount (e.g. the period total), shown in the feature hero.
   final String? amount;
+
+  /// The hero's caption above [amount]. Falls back to [subtitle] (most callers
+  /// pass the amount's label as their subtitle), in which case the subtitle is
+  /// not repeated under the title.
+  final String? amountLabel;
+  final String? amountFootnote;
 
   /// Smaller, secondary currency next to [amount].
   final String? currency;
 
   final List<CalmMetric>? metrics;
 
-  /// Optional extra content rendered inside the blue after the metrics
-  /// (e.g. the settings profile row) — white-on-blue like everything else.
+  /// Optional illustration on the feature hero's trailing side.
+  final Widget? art;
+
+  /// Original photographic artwork from the approved HTML feature hero.
+  final QirshPhoto? photo;
+
+  final QirshSectionPhoto? sectionPhoto;
+  final double sectionHeight;
+  final bool inkAmount;
+  final Widget? coverBottom;
+  final bool showTitle;
+
+  /// Optional extra content, rendered on a navy card under the hero (e.g. the
+  /// settings profile row) — white-on-navy, as it was on the old blue band.
   final Widget? child;
 
   /// Fallback top padding when [useSafeAreaTop] is false (e.g. the header is
@@ -59,188 +95,477 @@ class CalmPageHeader extends StatelessWidget {
 
   /// When true (screens that extend under the status bar) the top padding is
   /// the real device safe-area inset + a small gap, so the title always clears
-  /// the notch / Dynamic Island. A fixed inset can't — the island is ~59px.
+  /// the notch / Dynamic Island.
   final bool useSafeAreaTop;
 
-  /// كام بكسل الأزرق يكمّل تحت نهاية محتوى الهيدر — ده اللي بيوصّل اللون
-  /// لنص الشاشة تقريبًا وبيخلي الذوبان يحصل خلف أول كروت الصفحة.
-  ///
-  /// **مهم:** الامتداد ده بيشتغل بس لما الهيدر والمحتوى يكونوا في نفس الـ
-  /// sliver (يعني `ListView`/`Column` عادي)، لأن الـ Viewport بيرسم أول sliver
-  /// فوق اللي بعده — ففي صفحات `NestedScrollView`/`CustomScrollView` متعددة
-  /// الشرائح لازم `meltOverflow: 0` وإلا الأزرق هيغطّي كروت الصفحة.
+  /// Kept for API compatibility with the melting-band header. The canvas
+  /// header paints nothing below itself, so the value no longer matters.
   final double meltOverflow;
 
   static const double _defaultMeltOverflow = 220;
 
-  /// لون حافة الهيدر السفلية لما `meltOverflow == 0` — [MeltTail] بيبدأ منه
-  /// بالظبط فالتدرّج بيكمّل من غير لحام.
+  /// The colour at the header's bottom edge. With the canvas header this is
+  /// the page background, so [MeltTail]/[MeltSlice] paint nothing visible.
   static Color meltEdgeColor(bool isDark) =>
-      isDark ? AppBrandBlue.strong : AppBrandBlue.mid;
+      isDark ? AppColors.dark.bg : AppColors.light.bg;
 
-  /// إجمالي طول الذوبان تحت الهيدر بالبكسل.
+  /// Length of the (now flat) melt under the header, in pixels.
   static const double meltLength = 220;
 
-  /// لون الذوبان عند مسافة [px] تحت حافة الهيدر — أي حاجة بتتحط في نص
-  /// الذوبان (زي شريط التبويبات المثبّت) بتستخدمه عشان مايبانش لحام.
-  static Color meltColorAt(BuildContext context, double px) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    return Color.lerp(meltEdgeColor(isDark), context.colors.bg,
-        (px / meltLength).clamp(0.0, 1.0))!;
+  /// The melt colour [px] below the header's edge — the canvas, everywhere.
+  static Color meltColorAt(BuildContext context, double px) =>
+      context.colors.bg;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final compactTitle = leading is BackButton;
+    final topPad = !showTitle || sectionPhoto != null ? 0.0 : useSafeAreaTop
+        ? MediaQuery.paddingOf(context).top + AppSpacing.s2
+        : topInset;
+    final heroLabel = amountLabel ?? subtitle;
+    final showSubtitle = !compactTitle && subtitle != null &&
+        subtitle!.isNotEmpty &&
+        !(amount != null && amountLabel == null);
+    final content = Padding(
+      padding: EdgeInsets.only(top: topPad, bottom: AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (showTitle && sectionPhoto == null) Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+            child: IconTheme(
+              data: IconThemeData(color: c.textPrimary),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  if (leading != null) ...[
+                    leading!,
+                    const SizedBox(width: AppSpacing.s2),
+                  ],
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          title,
+                          style: AppTypography.custom(
+                            size: 24,
+                            weight: FontWeight.w700,
+                            height: 1.25,
+                            letterSpacing: -0.45,
+                            color: c.textPrimary,
+                          ),
+                        ),
+                        if (showSubtitle) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            subtitle!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: AppTypography.custom(
+                                size: 14,
+                                weight: FontWeight.w400,
+                                height: 1.35,
+                                color: c.textMuted),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  if (trailing != null) ...[
+                    const SizedBox(width: AppSpacing.s2),
+                    trailing!,
+                  ],
+                ],
+              ),
+            ),
+          ),
+          if (amount != null) ...[
+            const SizedBox(height: 14),
+            if (photo != null)
+              QirshPhotoCard(
+                photo: photo!,
+                height: 150,
+                child: _PhotoHeroCopy(label: heroLabel, amount: amount!, currency: currency,
+                  footnote: amountFootnote),
+              )
+            else _FeatureHero(
+              label: heroLabel,
+              amount: amount!,
+              currency: currency,
+              art: art,
+              ink: sectionPhoto != null || inkAmount,
+              footnote: amountFootnote,
+            ),
+          ],
+          if (metrics != null && metrics!.isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.s3),
+            CalmKpiTiles(metrics: metrics!),
+          ],
+          if (child != null) ...[
+            const SizedBox(height: AppSpacing.s3),
+            _NavyCard(child: child!),
+          ],
+        ],
+      ),
+    );
+    if (sectionPhoto != null) {
+      return QirshSectionHero(
+        photo: sectionPhoto!, title: title,
+        subtitle: showSubtitle ? subtitle : null,
+        leading: leading, trailing: trailing, bottom: coverBottom,
+        height: sectionHeight, useSafeAreaTop: useSafeAreaTop,
+        child: content,
+      );
+    }
+    return content;
   }
+}
+
+/// The prototype's `.feature-hero`: a soft brand card holding one figure.
+class _FeatureHero extends StatelessWidget {
+  const _FeatureHero({
+    required this.label,
+    required this.amount,
+    required this.currency,
+    required this.art,
+    this.footnote,
+    this.ink = false,
+  });
+
+  final String? label;
+  final String amount;
+  final String? currency;
+  final Widget? art;
+  final String? footnote;
+  final bool ink;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final topPad = useSafeAreaTop
-        ? MediaQuery.paddingOf(context).top + AppSpacing.s2
-        : topInset;
-    // الأزرق بيكمل تحت حدود الهيدر نفسه (بيتـرسم قبل باقي عناصر الصفحة فبيبقى
-    // وراها): كده الذوبان بيحصل خلف أول كروت الصفحة لحد نص الشاشة تقريبًا،
-    // من غير شريط أزرق فاضي تحت المقاييس.
-    // من غير امتداد، الذوبان لازم يخلص جوّه حدود الهيدر نفسه — فذيل أطول
-    // شوية تحت المحتوى، والتلاشي يبدأ متأخر عشان مايبانش شريط أزرق باهت.
-    final hasOverflow = meltOverflow > 0;
-    const bottomPad = AppSpacing.s5;
-    final fadeStart = hasOverflow ? 0.55 : 1.0;
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: -meltOverflow,
-          child: Container(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topRight,
-                end: Alignment.bottomLeft,
-                stops: const [0.0, 0.55, 1.0],
-                // درجات واحدة من [AppBrandBlue] — مش ألوان مكتوبة هنا.
-                colors: AppBrandBlue.headerStops(isDark),
-              ),
-            ),
-            // الميلت: الأزرق بيدوب رأسيًا في خلفية الصفحة — مفيش لسان ولا حافة.
-            // لما مفيش امتداد، الحافة السفلية بتتسطّح على [meltEdgeColor] عشان
-            // [MeltTail] في محتوى الصفحة يكمّل التدرّج من غير خط فاصل.
-            foregroundDecoration: BoxDecoration(
-              gradient: hasOverflow
-                  ? LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: [0.0, fadeStart, 1.0],
-                      colors: [
-                        c.bg.withValues(alpha: 0),
-                        c.bg.withValues(alpha: 0),
-                        c.bg,
-                      ],
-                    )
-                  : LinearGradient(
-                      begin: Alignment.topCenter,
-                      end: Alignment.bottomCenter,
-                      stops: const [0.0, 0.5, 1.0],
-                      colors: [
-                        meltEdgeColor(isDark).withValues(alpha: 0),
-                        meltEdgeColor(isDark).withValues(alpha: 0.55),
-                        meltEdgeColor(isDark),
-                      ],
-                    ),
-            ),
-          ),
-        ),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: EdgeInsets.fromLTRB(
-                  AppSpacing.gutter, topPad, AppSpacing.gutter, bottomPad),
-              // White content on the blue hero. Icon leading/trailing that don't
-              // hardcode a colour inherit white from here.
-              child: IconTheme(
-                data: const IconThemeData(color: Colors.white),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        if (leading != null) ...[
-                          leading!,
-                          const SizedBox(width: AppSpacing.s2),
-                        ],
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Text(
-                                title,
-                                style: AppTypography.calmTitle(Colors.white)
-                                    .copyWith(
-                                        fontSize: 24, letterSpacing: -0.5),
-                              ),
-                              if (subtitle != null && subtitle!.isNotEmpty) ...[
-                                const SizedBox(height: 3),
-                                Text(
-                                  subtitle!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppTypography.caption(
-                                      Colors.white.withValues(alpha: 0.72)),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ),
-                        if (trailing != null) trailing!,
-                      ],
-                    ),
-                    if (amount != null) ...[
-                      const SizedBox(height: AppSpacing.s3),
-                      FittedBox(
-                        fit: BoxFit.scaleDown,
-                        alignment: AlignmentDirectional.centerStart,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Text(
-                              amount!,
-                              style: AppTypography.balanceHero(Colors.white)
-                                  .copyWith(fontSize: 44),
-                            ),
-                            if (currency != null && currency!.isNotEmpty) ...[
-                              const SizedBox(width: 8),
-                              Text(
-                                currency!,
-                                style: AppTypography.title2(
-                                        Colors.white.withValues(alpha: 0.82))
-                                    .copyWith(
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.w500),
-                              ),
-                            ],
-                          ],
+    final onInk = ink ? Colors.white : c.textPrimary;
+    final mutedInk = ink ? const Color(0xFFC6D3E5) : c.textMuted;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
+      constraints: const BoxConstraints(minHeight: 96),
+      padding: EdgeInsetsDirectional.fromSTEB(
+          AppSpacing.s4, AppSpacing.s4, art == null ? AppSpacing.s4 : 6, AppSpacing.s4),
+      decoration: BoxDecoration(
+        color: ink ? const Color(0xFF10223C)
+            : isDark ? const Color(0xFF142347) : const Color(0xFFE8EEFE),
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (label != null && label!.isNotEmpty)
+                  Text(
+                    label!,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: AppTypography.custom(
+                        size: 12.5,
+                        weight: FontWeight.w400,
+                        height: 1.3,
+                        color: mutedInk),
+                  ),
+                const SizedBox(height: 4),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: AlignmentDirectional.centerStart,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Text(
+                        amount,
+                        style: AppTypography.custom(
+                          size: 30,
+                          weight: FontWeight.w700,
+                          height: 1.1,
+                          letterSpacing: -0.6,
+                          tabular: true,
+                          color: onInk,
                         ),
                       ),
+                      if (currency != null && currency!.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          currency!,
+                          style: AppTypography.custom(
+                              size: 14,
+                              weight: FontWeight.w500,
+                              height: 1.2,
+                              color: mutedInk),
+                        ),
+                      ],
                     ],
-                    if (metrics != null && metrics!.isNotEmpty) ...[
-                      const SizedBox(height: AppSpacing.s3),
-                      _MetricStrip(metrics: metrics!),
-                    ],
-                    if (child != null) ...[
-                      const SizedBox(height: AppSpacing.s4),
-                      child!,
-                    ],
-                  ],
+                  ),
+                ),
+                if (footnote != null) ...[
+                  const SizedBox(height: 6),
+                  Text(footnote!, style: AppTypography.caption(ink ? mutedInk : c.textSecondary)),
+                ],
+              ],
+            ),
+          ),
+          if (art != null) SizedBox(width: 128, height: 96, child: art),
+        ],
+      ),
+    );
+  }
+}
+
+class _PhotoHeroCopy extends StatelessWidget {
+  const _PhotoHeroCopy({required this.label, required this.amount, this.currency, this.footnote});
+  final String? label;
+  final String amount;
+  final String? currency;
+  final String? footnote;
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.end,
+    children: [
+      if (label != null) Text(label!, textAlign: TextAlign.right,
+        style: AppTypography.custom(size: 12.5, weight: FontWeight.w400,
+          height: 1.35, color: Colors.white.withValues(alpha: .76))),
+      const SizedBox(height: 6),
+      Text.rich(TextSpan(children: [
+        TextSpan(text: amount, style: AppTypography.custom(size: 24,
+          weight: FontWeight.w700, height: 1.2, color: Colors.white, tabular: true)),
+        if (currency != null) TextSpan(text: ' $currency',
+          style: AppTypography.custom(size: 13, weight: FontWeight.w400,
+            height: 1.2, color: Colors.white.withValues(alpha: .76))),
+      ]), textAlign: TextAlign.right),
+      if (footnote != null) ...[
+        const SizedBox(height: 6),
+        Text(footnote!, textAlign: TextAlign.right,
+          style: AppTypography.custom(size: 11, weight: FontWeight.w400,
+            height: 1.35, color: Colors.white.withValues(alpha: .76))),
+      ],
+    ],
+  );
+}
+
+/// The prototype's `.kpis`: equal white tiles, label above value.
+class CalmKpiTiles extends StatelessWidget {
+  const CalmKpiTiles({super.key, required this.metrics,
+    this.margin = const EdgeInsets.symmetric(horizontal: AppSpacing.s4)});
+  final EdgeInsetsGeometry margin;
+  final List<CalmMetric> metrics;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // Three per row reads as a grid; four becomes 2 + 2 rather than 3 + 1.
+    final perRow = metrics.length <= 3 ? metrics.length : (metrics.length + 1) ~/ 2;
+    final valueStyle = AppTypography.custom(
+        size: 17, weight: FontWeight.w700, height: 1.25,
+        tabular: true, color: c.textPrimary);
+    Widget tile(CalmMetric m, {bool wrapValue = false}) => Container(
+          padding: const EdgeInsets.all(AppSpacing.s3),
+          decoration: BoxDecoration(
+            color: c.surface,
+            borderRadius: BorderRadius.circular(AppRadius.lg),
+            border: isDark ? Border.all(color: c.border) : null,
+            boxShadow: isDark ? null : AppShadows.card,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                m.label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: AppTypography.custom(
+                    size: 11.5,
+                    weight: FontWeight.w400,
+                    height: 1.3,
+                    color: c.textMuted),
+              ),
+              const SizedBox(height: 3),
+              if (wrapValue)
+                Text(m.value, style: valueStyle)
+              else FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(
+                  m.value,
+                  maxLines: 1,
+                  style: valueStyle,
                 ),
               ),
-            ),
+            ],
+          ),
+        );
+    return Padding(
+      padding: margin,
+      child: LayoutBuilder(builder: (context, constraints) {
+        // A complete value that only fits at a tiny scale is not readable.
+        // Measure the same style/scaler as the rendered text; keep the normal
+        // grid unless a value would fall below 80% of its natural text size.
+        const minimumScale = .8;
+        final tileInsets = AppSpacing.s3 * 2 + (isDark ? 2 : 0);
+        final widths = <CalmMetric, double>{};
+        for (final metric in metrics) {
+          final painter = TextPainter(
+            text: TextSpan(text: metric.value, style: valueStyle),
+            textDirection: Directionality.of(context),
+            textScaler: MediaQuery.textScalerOf(context),
+            locale: Localizations.maybeLocaleOf(context),
+          )..layout();
+          widths[metric] = painter.width;
+          painter.dispose();
+        }
+        final ordinaryContentWidth =
+            (constraints.maxWidth - (perRow - 1) * AppSpacing.s2) / perRow -
+                tileInsets;
+        bool needsFullRow(CalmMetric metric) =>
+            widths[metric]! * minimumScale > ordinaryContentWidth;
+        final adaptive = metrics.any(needsFullRow);
+        final groups = <List<CalmMetric>>[];
+        var pending = <CalmMetric>[];
+        for (final metric in metrics) {
+          if (adaptive && needsFullRow(metric)) {
+            if (pending.isNotEmpty) groups.add(pending);
+            pending = [];
+            groups.add([metric]);
+          } else {
+            pending.add(metric);
+            if (pending.length == perRow) {
+              groups.add(pending);
+              pending = [];
+            }
+          }
+        }
+        if (pending.isNotEmpty) groups.add(pending);
+        final rows = <Widget>[];
+        for (final row in groups) {
+          final columns = adaptive ? row.length : perRow;
+          final contentWidth =
+              (constraints.maxWidth - (columns - 1) * AppSpacing.s2) / columns -
+                  tileInsets;
+          // Labels may wrap to two lines; each row keeps its tiles one height.
+          rows.add(IntrinsicHeight(child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var j = 0; j < columns; j++) ...[
+                if (j > 0) const SizedBox(width: AppSpacing.s2),
+                Expanded(child: j < row.length
+                    ? tile(row[j], wrapValue:
+                        widths[row[j]]! * minimumScale > contentWidth)
+                    : const SizedBox()),
+              ],
+            ],
+          )));
+        }
+        return Column(
+          children: [
+            for (var r = 0; r < rows.length; r++) ...[
+              if (r > 0) const SizedBox(height: AppSpacing.s2),
+              rows[r],
+            ],
           ],
+        );
+      }),
+    );
+  }
+}
+
+/// White-on-navy card for [CalmPageHeader.child].
+class _NavyCard extends StatelessWidget {
+  const _NavyCard({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: AppSpacing.s4),
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0B1A33) : const Color(0xFF0A2540),
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
+      ),
+      child: IconTheme(
+        data: const IconThemeData(color: Colors.white),
+        child: DefaultTextStyle.merge(
+          style: const TextStyle(color: Colors.white),
+          child: child,
         ),
-      ],
+      ),
+    );
+  }
+}
+
+/// A round header action that reads on the canvas — the prototype's
+/// `.icon-btn` (surface) and `.icon-btn.primary` (brand blue, white glyph).
+class CalmHeaderAction extends StatelessWidget {
+  const CalmHeaderAction({
+    super.key,
+    required this.icon,
+    required this.onTap,
+    this.primary = false,
+    this.semanticLabel,
+  });
+
+  final IconData icon;
+  final VoidCallback onTap;
+  final bool primary;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final bg = primary ? AppBrandBlue.mid : c.surface;
+    return Semantics(
+      button: true,
+      label: semanticLabel,
+      child: Material(
+        color: bg,
+        shape: CircleBorder(
+            side: !primary && isDark
+                ? BorderSide(color: c.border)
+                : BorderSide.none),
+        elevation: 0,
+        shadowColor: Colors.transparent,
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: Container(
+            width: 42,
+            height: 42,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              boxShadow: isDark
+                  ? null
+                  : primary
+                      ? const [
+                          BoxShadow(
+                              color: Color(0x9E1653F3),
+                              blurRadius: 16,
+                              spreadRadius: -6,
+                              offset: Offset(0, 6)),
+                        ]
+                      : AppShadows.card,
+            ),
+            child: Icon(icon,
+                size: 20, color: primary ? Colors.white : c.textPrimary),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -339,111 +664,42 @@ class MeltSlice extends StatelessWidget {
   }
 }
 
-class _MetricStrip extends StatelessWidget {
-  const _MetricStrip({required this.metrics});
-  final List<CalmMetric> metrics;
+/// Keeps scrolled content out from under the status bar on a screen whose
+/// [CalmPageHeader] scrolls away with no pinned bar to cover it (Settings,
+/// Goals, Achievements). It is the canvas colour, so it is invisible at rest
+/// and only shows once content passes beneath it — iOS's scroll-edge bar.
+class StatusBarScrim extends StatelessWidget {
+  const StatusBarScrim({super.key, required this.child});
 
-  /// How many metrics share one row.
-  ///
-  /// Every cell is an `Expanded` with ellipsis, so past a point extra metrics
-  /// stop making the strip denser and start TRUNCATING it. But the rows also
-  /// have to be BALANCED: a flat "two per row" turned Goals' three metrics into
-  /// 2 + 1, which reads as a layout accident rather than a grid.
-  ///
-  ///   1..3 -> one row   (3 fits comfortably at phone width)
-  ///   4    -> 2 + 2     (Subscriptions; 3 + 1 would be lopsided)
-  ///   5,6  -> 3 + 2/3
-  ///
-  /// Screens passing one or two metrics render byte-identically to before.
-  static int _rowSize(int n) => n <= 3 ? n : (n + 1) ~/ 2;
+  final Widget child;
+
+  static const double _fade = 10;
 
   @override
   Widget build(BuildContext context) {
-    final perRow = _rowSize(metrics.length);
-    final rows = <List<CalmMetric>>[];
-    for (var i = 0; i < metrics.length; i += perRow) {
-      rows.add(metrics.sublist(
-          i, i + perRow > metrics.length ? metrics.length : i + perRow));
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-          vertical: AppSpacing.s4, horizontal: AppSpacing.s2),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          for (var r = 0; r < rows.length; r++) ...[
-            if (r > 0) ...[
-              const SizedBox(height: AppSpacing.s4),
-              // The horizontal counterpart of the vertical cell divider, at the
-              // same weight and opacity, so a wrapped strip reads as one object.
-              Container(
-                  height: 1, color: Colors.white.withValues(alpha: 0.2)),
-              const SizedBox(height: AppSpacing.s4),
-            ],
-            _MetricRow(metrics: rows[r], fill: perRow),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-class _MetricRow extends StatelessWidget {
-  const _MetricRow({required this.metrics, required this.fill});
-
-  final List<CalmMetric> metrics;
-
-  /// How many cells the row is divided into, so a trailing odd metric keeps the
-  /// same width as the cell above it rather than stretching across the strip.
-  final int fill;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
+    final top = MediaQuery.paddingOf(context).top;
+    final bg = context.colors.bg;
+    return Stack(
       children: [
-        for (var i = 0; i < metrics.length; i++) ...[
-          if (i > 0)
-            Container(
-                width: 1,
-                height: 30,
-                color: Colors.white.withValues(alpha: 0.2)),
-          Expanded(
-            child: Column(
-              children: [
-                Text(
-                  metrics[i].value,
-                  textAlign: TextAlign.center,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: AppTypography.bodyStrong(Colors.white),
+        child,
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: top + _fade,
+          child: IgnorePointer(
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [bg, bg, bg.withValues(alpha: 0)],
+                  stops: [0, top / (top + _fade), 1],
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  metrics[i].label,
-                  textAlign: TextAlign.center,
-                  // Three across leaves roughly 111pt per cell at phone width,
-                  // where a one-line Arabic label ellipsizes. A second line is
-                  // allowed only when the row is that tight; two-metric rows
-                  // keep the original single line.
-                  maxLines: fill >= 3 ? 2 : 1,
-                  overflow: TextOverflow.ellipsis,
-                  // 11px per the mockup `.metastrip span` (caption is 12).
-                  style: AppTypography.caption(
-                          Colors.white.withValues(alpha: 0.72))
-                      .copyWith(fontSize: 11),
-                ),
-              ],
+              ),
             ),
           ),
-        ],
-        // Keeps the last row's cells aligned with the row above when the metric
-        // count is odd.
-        for (var i = metrics.length; i < fill; i++) const Spacer(),
+        ),
       ],
     );
   }

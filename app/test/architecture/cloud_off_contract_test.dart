@@ -62,7 +62,7 @@ void main() {
     test('mirror + owner are ONE flock; the mirror is written first', () {
       final publish = body(store, 'static func publishActiveOwner(');
       expect(publish.trimLeft().substring(1).trimLeft(),
-          startsWith('try withQueueLock'));
+          matches(RegExp(r'^try with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       inOrder(publish, [
         'readBarrier() == nil',
         'ownerEpochKey',
@@ -88,7 +88,7 @@ void main() {
       expect(body(store, 'static func purgeUserOwnedState()'),
           contains('bumpOwnerEpoch()'));
       expect(
-          body(store, 'static func ownerEpoch()'), contains('withQueueLock'));
+          body(store, 'static func ownerEpoch()'), matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
     });
 
     test('setConsentMirror is refused under a Remove-data barrier', () {
@@ -105,7 +105,7 @@ void main() {
               'publishRestrictiveCaptureOwner');
       final restrictive =
           body(store, 'static func publishRestrictiveCaptureOwner(');
-      expect(restrictive, contains('withQueueLock'));
+      expect(restrictive, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       expect(
           RegExp(r'writeConsentMirrorEntry\(').allMatches(restrictive).length,
           1);
@@ -193,7 +193,7 @@ void main() {
     test('read-only, under the flock, no per-capture list', () {
       final fn = body(store, 'static func queueStats()');
       expect(fn.trimLeft().substring(1).trimLeft(),
-          startsWith('try withQueueLock'));
+          matches(RegExp(r'^try with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       for (final write in const [
         'saveQueue(',
         'writeKeychain(',
@@ -443,7 +443,7 @@ void main() {
           'Future<void> _disableCloud(Future<void> Function() commitLocalOff)');
       inOrder(fn, [
         "ConsentAuthority.freeze('disable');",
-        '_gate.advanceEpoch();',
+        '_gate.advanceEpoch(EpochCause.cloudDisable);',
         '_gate.beginDisabling(',
         '_restrictNativeSide(',
         '_captureRevokeInputs(',

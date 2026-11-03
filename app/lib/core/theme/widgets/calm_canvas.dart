@@ -27,17 +27,22 @@ class CalmCanvas extends StatelessWidget {
       children: [
         // Base canvas + the top accent glow (behind the balance hero).
         Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: t.canvas,
-              gradient: ambient
-                  ? RadialGradient(
-                      center: const Alignment(0, -1.25),
-                      radius: 1.15,
-                      colors: [t.auroraTop, Colors.transparent],
-                      stops: const [0.0, 0.72],
-                    )
-                  : null,
+          // A decoration's gradient and color share one Paint. Its transparent
+          // shader pixels need a separate opaque base beneath them.
+          child: ColoredBox(
+            color: t.canvas,
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: t.canvas,
+                gradient: ambient
+                    ? RadialGradient(
+                        center: const Alignment(0, -1.25),
+                        radius: 1.15,
+                        colors: [t.auroraTop, Colors.transparent],
+                        stops: const [0.0, 0.72],
+                      )
+                    : null,
+              ),
             ),
           ),
         ),

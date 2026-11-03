@@ -5,6 +5,9 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../common/app_header.dart';
+import '../common/app_avatar.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../common/widgets.dart';
 import 'coupon_models.dart';
@@ -57,40 +60,7 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
     final tags = ref.watch(couponTagsProvider).valueOrNull ?? const [];
 
     return AppScreenScaffold(
-      header: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter,
-          AppSpacing.s3,
-          AppSpacing.gutter,
-          AppSpacing.s2,
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.couponsTitle,
-                    style: AppTypography.calmTitle(c.textPrimary)
-                        .copyWith(fontSize: 24, letterSpacing: -0.5),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    l10n.couponsSubtitle,
-                    style: AppTypography.caption(c.textSecondary)
-                        .copyWith(fontSize: 13, fontWeight: FontWeight.w400),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(AppLucideIcons.x),
-            ),
-          ],
-        ),
-      ),
+      header: AppHeader(title: l10n.couponsTitle),
       body: coupons.when(
         skipLoadingOnReload: true,
         loading: () => AppLoadingState(label: l10n.couponsLoading),
@@ -105,6 +75,8 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
           if (offers.isEmpty) {
             return AppEmptyState(
               icon: AppLucideIcons.tag,
+              illustration: const QirshIllustration(
+                  name: 'offers', width: 220, height: 165),
               title: l10n.couponsEmptyTitle,
               subtitle: l10n.couponsEmptyBody,
             );
@@ -133,6 +105,24 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
               120,
             ),
             children: [
+              Container(
+                padding: const EdgeInsetsDirectional.fromSTEB(16, 6, 6, 6),
+                decoration: BoxDecoration(color: c.ctaSoft, borderRadius: BorderRadius.circular(24)),
+                child: Row(children: [
+                  Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(l10n.couponsAvailableLabel,
+                      style: AppTypography.caption(c.textMuted)),
+                    const SizedBox(height: 4),
+                    Text('${offers.length}', textDirection: TextDirection.ltr,
+                      style: AppTypography.custom(size: 28, weight: FontWeight.w700, height: 1.3, color: c.textPrimary)),
+                  ])),
+                  const QirshIllustration(name: 'offers', width: 128, height: 96),
+                ]),
+              ),
+              const SizedBox(height: 10),
+              Text(l10n.couponsSubtitle,
+                  style: AppTypography.caption(c.textMuted)),
+              const SizedBox(height: AppSpacing.s3),
               // COUPONS Phase 1 — merchant surfaces, ABOVE the filters.
               //
               // Both render nothing unless there is something real to show:
@@ -160,6 +150,8 @@ class _CouponsScreenState extends ConsumerState<CouponsScreen> {
               if (filtered.isEmpty)
                 AppEmptyState(
                   icon: AppLucideIcons.filterX,
+                  illustration: const QirshIllustration(
+                      name: 'offers', width: 160, height: 120),
                   title: l10n.couponsFilterEmptyTitle,
                   subtitle: l10n.couponsFilterEmptyBody,
                 )
@@ -275,20 +267,32 @@ class _StoresSection extends ConsumerWidget {
               .copyWith(fontWeight: FontWeight.w700),
         ),
         const SizedBox(height: AppSpacing.s2),
-        Wrap(
-          spacing: AppSpacing.s2,
-          runSpacing: AppSpacing.s2,
-          children: [
-            for (final e in entries)
-              _Chip(
-                label: english && (e.value.nameEn?.trim().isNotEmpty ?? false)
-                    ? e.value.nameEn!
-                    : e.value.nameAr,
-                selected: false,
-                onTap: () => context.push('/coupons/merchant/${e.key}'),
-              ),
-          ],
-        ),
+        SizedBox(height: 112,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: entries.length,
+            separatorBuilder: (_, index) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final entry = entries[index];
+              final merchant = entry.value;
+              final label = english && (merchant.nameEn?.trim().isNotEmpty ?? false)
+                  ? merchant.nameEn! : merchant.nameAr;
+              return SizedBox(width: 118,
+                child: Material(color: c.surface, borderRadius: BorderRadius.circular(18),
+                  child: InkWell(borderRadius: BorderRadius.circular(18),
+                    onTap: () => context.push('/coupons/merchant/${entry.key}'),
+                    child: Padding(padding: const EdgeInsets.all(10),
+                      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        AppAvatar.brand(name: merchant.nameEn ?? merchant.slug, size: 36),
+                        const SizedBox(height: 8),
+                        Text(label, textAlign: TextAlign.center, maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: AppTypography.caption(c.textPrimary)),
+                      ])),
+                  ),
+                ));
+            },
+          )),
         const SizedBox(height: AppSpacing.s4),
       ],
     );

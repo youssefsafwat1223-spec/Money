@@ -3,6 +3,60 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
+// Inspect argument names rather than every {word}: in an ICU select,
+// restaurants{Restaurants} contains a message body, not a Restaurants argument.
+// This follows the project's default (use-escaping: false) gen-l10n setting;
+// gen-l10n remains responsible for validating the complete ICU grammar.
+Set<String> _icuPlaceholders(String message) {
+  final names = <String>{};
+  int closingBrace(int opening, int end) {
+    var depth = 1;
+    for (var index = opening + 1; index < end; index++) {
+      if (message[index] == '{') depth++;
+      if (message[index] == '}' && --depth == 0) return index;
+    }
+    throw FormatException('Unclosed ICU argument', message, opening);
+  }
+
+  late void Function(int start, int end) collectMessage;
+  collectMessage = (start, end) {
+    var cursor = start;
+    while (cursor < end) {
+      if (message[cursor] != '{') {
+        cursor++;
+        continue;
+      }
+      final close = closingBrace(cursor, end);
+      final header = RegExp(r'^\s*(\w+)\s*(,|$)')
+          .firstMatch(message.substring(cursor + 1, close));
+      if (header == null) {
+        throw FormatException('Invalid ICU argument', message, cursor);
+      }
+      names.add(header.group(1)!);
+      if (header.group(2) == ',') {
+        final typeStart = cursor + 1 + header.end;
+        final typeEnd = message.indexOf(',', typeStart);
+        if (typeEnd >= 0 && typeEnd < close) {
+          final type = message.substring(typeStart, typeEnd).trim();
+          if (const ['plural', 'select', 'selectordinal'].contains(type)) {
+            var branch = typeEnd + 1;
+            while (branch < close) {
+              final open = message.indexOf('{', branch);
+              if (open < 0 || open >= close) break;
+              final branchEnd = closingBrace(open, close);
+              collectMessage(open + 1, branchEnd);
+              branch = branchEnd + 1;
+            }
+          }
+        }
+      }
+      cursor = close + 1;
+    }
+  };
+  collectMessage(0, message.length);
+  return names;
+}
+
 /// The two ARB files must stay in lockstep.
 ///
 /// A key present in one language and not the other is a missing string at
@@ -22,6 +76,35 @@ void main() {
 
   final ar = load('lib/l10n/app_ar.arb');
   final en = load('lib/l10n/app_en.arb');
+
+  test('ICU select branch text is not a placeholder', () {
+    expect(_icuPlaceholders(
+        '{icon, select, restaurants{Restaurants} other{Other icon}}'),
+        {'icon'});
+    expect(_icuPlaceholders(
+        '{icon, select, restaurants{مطاعم} other{أيقونة أخرى}}'),
+        {'icon'});
+  });
+
+  test('ICU extraction retains control and nested interpolation arguments', () {
+    expect(_icuPlaceholders('Hello {name}: '
+        '{kind, select, food{{count, plural, =1{One meal for {person}} '
+        'other{{count} meals}}} other{Nothing}}'),
+        {'name', 'kind', 'count', 'person'});
+    expect(_icuPlaceholders('{amount, number, currency} on {date}'),
+        {'amount', 'date'});
+    expect(_icuPlaceholders('{rank, selectordinal, one{First} other{Last}}'),
+        {'rank'});
+  });
+
+  test('ICU argument mismatches are still detectable inside branches', () {
+    expect(_icuPlaceholders('{kind, select, one{For {name}} other{None}}'),
+        isNot(_icuPlaceholders(
+            '{kind, select, one{لـ {person}} other{لا شيء}}')));
+    expect(_icuPlaceholders('{count, plural, one{One} other{Many}}'),
+        isNot(_icuPlaceholders(
+            '{total, plural, one{واحد} other{كثير}}')));
+  });
 
   test('both languages define exactly the same keys', () {
     final onlyAr = keys(ar).difference(keys(en));
@@ -44,14 +127,13 @@ void main() {
   test('placeholders match between languages', () {
     // A string that interpolates {count} in one language and nothing in the
     // other throws at runtime for exactly one audience.
-    final placeholder = RegExp(r'\{(\w+)\}');
     final mismatched = <String>[];
     for (final k in keys(ar)) {
       final a = ar[k];
       final e = en[k];
       if (a is! String || e is! String) continue;
-      final pa = placeholder.allMatches(a).map((m) => m.group(1)).toSet();
-      final pe = placeholder.allMatches(e).map((m) => m.group(1)).toSet();
+      final pa = _icuPlaceholders(a);
+      final pe = _icuPlaceholders(e);
       if (pa.length != pe.length || !pa.containsAll(pe)) {
         mismatched.add('$k: ar=$pa en=$pe');
       }

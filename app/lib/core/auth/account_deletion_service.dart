@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../backend/supabase_config.dart';
 import '../privacy/cloud_egress_gate.dart';
 import '../../domain/errors/repo_exceptions.dart';
+import 'auth_coordinator.dart';
 import 'immediate_account_deletion.dart';
 
 /// Current pending-deletion status for the signed-in user, per the approved
@@ -37,6 +38,26 @@ class AccountDeletionService {
   // Raw HTTP alone deliberately does not configure the safe immediate path.
   final ImmediateAccountDeletionRecovery? _immediateRecovery;
 
+  /// ASR §3.5: inside the grant zone, the expired-token refresh is the
+  /// coordinator's account-control op (the SDK's own refresh is denied).
+  /// Immediately before the RPC the token must have ≥ 60 s left; otherwise the
+  /// operation fails retryably.
+  Future<T> _withFreshToken<T>(Future<T> Function() rpc) async {
+    final coord = AuthCoordinator.active;
+    if (coord != null) {
+      await coord.refreshForAccountControl(
+          ordinaryAdmissionHeld: coord.ordinaryAdmissionHeld ?? () => false);
+      final exp = _getClient().auth.currentSession?.expiresAt;
+      if (exp == null ||
+          DateTime.fromMillisecondsSinceEpoch(exp * 1000)
+                  .difference(DateTime.now()) <
+              const Duration(seconds: 60)) {
+        throw const NetworkRepoException('session_refresh_required');
+      }
+    }
+    return rpc();
+  }
+
   Future<AccountDeletionStatus> getStatus() async {
     if (!SupabaseConfig.isConfigured) return const AccountDeletionStatus();
     final userId = _getClient().auth.currentUser?.id;
@@ -69,12 +90,14 @@ class AccountDeletionService {
       // this RPC (+ the strictly necessary refresh_token exchange) only.
       final response = await CloudEgressGate.instance.runAccountControl(
           AccountControlOp.deleteAccount,
-          () => _getClient().rpc('request_account_deletion'));
+          () => _withFreshToken(
+              () => _getClient().rpc('request_account_deletion')));
       return DateTime.parse(response as String).toUtc();
     } catch (error) {
       if (error is PostgrestException && error.code == 'QD003') {
         throw const LegacyDeletionUnavailable();
       }
+      if (error is NetworkRepoException) rethrow;
       throw mapSupabaseError(error);
     }
   }
@@ -84,8 +107,10 @@ class AccountDeletionService {
     try {
       await CloudEgressGate.instance.runAccountControl(
           AccountControlOp.cancelDelete,
-          () => _getClient().rpc('cancel_account_deletion'));
+          () => _withFreshToken(
+              () => _getClient().rpc('cancel_account_deletion')));
     } catch (error) {
+      if (error is NetworkRepoException) rethrow;
       throw mapSupabaseError(error);
     }
   }

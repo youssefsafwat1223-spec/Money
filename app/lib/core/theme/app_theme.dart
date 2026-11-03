@@ -52,7 +52,7 @@ class AppTheme {
     warningBg: Color(0xFF2B1E00),
     infoBg: Color(0xFF102B52),
     onSuccess: Color(0xFF000000),
-    onDanger: Color(0xFFFFFFFF),
+    onDanger: Color(0xFF111827),
     onWarning: Color(0xFF000000),
     onInfo: Color(0xFFFFFFFF),
     gradA: AppBrandBlue.bright,
@@ -84,7 +84,7 @@ class AppTheme {
       secondary: c.accent,
       onSecondary: c.onCta,
       error: c.danger,
-      onError: Colors.white,
+      onError: c.onDanger,
     );
 
     return ThemeData(

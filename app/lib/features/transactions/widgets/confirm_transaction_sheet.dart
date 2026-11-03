@@ -13,6 +13,7 @@ import '../../../core/utils/l10n_ext.dart';
 import '../../../core/utils/formatters.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/finance/money_input.dart';
+import '../../../domain/finance/money_format.dart';
 import '../../../domain/errors/repo_exceptions.dart';
 import '../../../domain/usecases/add_transaction_usecase.dart';
 import '../../common/app_sheet_scaffold.dart';
@@ -52,7 +53,7 @@ String? feeNoticeFor(BuildContext context, AddTransactionResult? secondary) {
   }
   final fee = secondary!.transaction!;
   return context.l10n.ctsFeeAlsoAdded(
-      fee.amount.toStringAsFixed(2), fee.currency);
+      formatMoney(fee.amountMoney), fee.currency);
 }
 
 class _ConfirmSheet extends ConsumerStatefulWidget {
@@ -139,11 +140,15 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           // Amount + Badge (foreign amount shown until it is priced locally)
-          Text(
-            _awaitingPricing(tx)
-                ? '${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency}'
-                : '${Formatters.amount(tx.amount)} ${tx.currency}',
-            style: AppTypography.amountHero(c.textMain),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Text(
+              _awaitingPricing(tx)
+                  ? '${formatMoney(tx.foreignMoney!)} ${tx.foreignCurrency}'
+                  : '${formatMoney(tx.amountMoney)} ${tx.currency}',
+              textDirection: TextDirection.ltr,
+              style: AppTypography.amountHero(c.textMain),
+            ),
           ),
           const SizedBox(height: AppSpacing.s2),
           Container(
@@ -155,10 +160,10 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(AppLucideIcons.sparkles, size: 14, color: c.accent),
+                Icon(AppLucideIcons.sparkles, size: 14, color: c.textPrimary),
                 const SizedBox(width: 6),
                 Text(context.l10n.txnPendingReview,
-                    style: AppTypography.caption(c.accent)
+                    style: AppTypography.caption(c.textPrimary)
                         .copyWith(fontWeight: FontWeight.w700)),
               ],
             ),
@@ -197,6 +202,30 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
             const SizedBox(height: AppSpacing.s4),
             Text(tx.rawMerchant!, style: AppTypography.headline(c.textMain)),
           ],
+          if (tx.rawMessage.trim().isNotEmpty) ...[
+            const SizedBox(height: AppSpacing.s4),
+            Container(
+              key: const ValueKey('confirmation-original-message'),
+              width: double.infinity,
+              padding: const EdgeInsets.all(AppSpacing.s3),
+              decoration: BoxDecoration(
+                color: c.surface2,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: c.border),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(context.l10n.txdOriginalText,
+                      style: AppTypography.caption(c.textLight)),
+                  const SizedBox(height: AppSpacing.s2),
+                  SelectableText(tx.rawMessage,
+                      textAlign: TextAlign.start,
+                      style: AppTypography.callout(c.textMain)),
+                ],
+              ),
+            ),
+          ],
 
           if (_awaitingPricing(tx)) ...[
             const SizedBox(height: AppSpacing.s4),
@@ -213,7 +242,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                 children: [
                   Text(
                     context.l10n.ctsForeignCurrencyHint(
-                        Formatters.amount(tx.foreignAmount!),
+                        formatMoney(tx.foreignMoney!),
                         tx.foreignCurrency ?? '',
                         Currency.label(context, tx.currency)),
                     style: AppTypography.caption(c.textMain),
@@ -287,7 +316,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                           final message = e is RepoException
                               ? repoErrorMessage(context, e)
                               : context.l10n.ctsCategoryUpdateFailed;
-                          AppToast.show(context, message);
+                          AppToast.showError(context, message);
                         });
                       },
                     ),
@@ -374,7 +403,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                               );
                         } on RepoException catch (e) {
                           if (!context.mounted) return;
-                          AppToast.show(context, repoErrorMessage(context, e));
+                          AppToast.showError(context, repoErrorMessage(context, e));
                           return;
                         }
                         ref.invalidate(
@@ -412,7 +441,7 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                                 );
                           } on RepoException catch (e) {
                             if (!context.mounted) return;
-                            AppToast.show(context, repoErrorMessage(context, e));
+                            AppToast.showError(context, repoErrorMessage(context, e));
                             return;
                           }
                         } on Exception {
@@ -429,10 +458,10 @@ class _ConfirmSheetState extends ConsumerState<_ConfirmSheet> {
                       if (context.mounted) Navigator.of(context).pop();
                     } on RepoException catch (e) {
                       if (!context.mounted) return;
-                      AppToast.show(context, repoErrorMessage(context, e));
+                      AppToast.showError(context, repoErrorMessage(context, e));
                     } catch (_) {
                       if (!context.mounted) return;
-                      AppToast.show(
+                      AppToast.showError(
                           context, context.l10n.ctsConfirmFailed);
                     } finally {
                       if (mounted) setState(() => _confirming = false);

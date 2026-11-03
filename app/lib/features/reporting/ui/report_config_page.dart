@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../../core/utils/l10n_ext.dart';
+import '../../../core/theme/widgets/qirsh_visuals.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/di/app_providers.dart';
@@ -15,6 +17,7 @@ import 'report_preview_screen.dart';
 import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/theme/widgets/glass_dialog.dart';
 import '../../../core/theme/widgets/glass_dropdown_field.dart';
+import '../../../core/theme/widgets/app_toast.dart';
 
 enum _PeriodKind { weekly, monthly, yearly, custom }
 
@@ -62,7 +65,7 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
     _privacy = settings?.privacyModeEnabled ?? false;
   }
 
-  ReportRequest _buildRequest() {
+  ReportRequest _buildRequest(String? selectedAccountId) {
     final ReportPeriod period = switch (_period) {
       _PeriodKind.weekly => const WeeklyPeriod(),
       _PeriodKind.yearly => const YearlyPeriod(),
@@ -75,9 +78,9 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
         ),
       _PeriodKind.monthly => const MonthlyPeriod(),
     };
-    final scope = (_allAccounts || _accountId == null)
+    final scope = _allAccounts
         ? const AllAccountsScope()
-        : SingleAccountScope(_accountId!);
+        : SingleAccountScope(selectedAccountId!);
     return ReportRequest(
       period: period,
       scope: scope,
@@ -97,15 +100,19 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
   Widget build(BuildContext context) {
     final accounts =
         ref.watch(accountsProvider).valueOrNull ?? const <AccountEntity>[];
-    final canGenerate = _period != _PeriodKind.custom || _customRange != null;
+    final selectedAccountId = accounts.any((a) => a.id == _accountId)
+        ? _accountId
+        : (accounts.isEmpty ? null : accounts.first.id);
+    final canGenerate = (_period != _PeriodKind.custom || _customRange != null) &&
+        (_allAccounts || selectedAccountId != null);
 
     return Scaffold(
       appBar: AppHeader(
           title: context.l10n.rcTitle),
       body: SingleChildScrollView(
         padding: EdgeInsets.only(
-          left: 20,
-          right: 20,
+          left: 16,
+          right: 16,
           top: 12,
           bottom: MediaQuery.of(context).viewInsets.bottom + 20,
         ),
@@ -113,6 +120,8 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
+            const Center(child: QirshIllustration(name: 'reports', width: 170, height: 128)),
+            const SizedBox(height: 12),
             _label(context.l10n.rcPeriod),
             Wrap(
               spacing: 8,
@@ -139,6 +148,21 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
                       firstDate: DateTime(now.year - 5),
                       lastDate: now,
                       initialDateRange: _customRange,
+                      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(
+                        value: Theme.of(context).brightness == Brightness.dark
+                            ? SystemUiOverlayStyle.light
+                            : SystemUiOverlayStyle.dark,
+                        child: Theme(
+                          data: Theme.of(context).copyWith(
+                            appBarTheme: Theme.of(context).appBarTheme.copyWith(
+                              systemOverlayStyle: Theme.of(context).brightness == Brightness.dark
+                                  ? SystemUiOverlayStyle.light
+                                  : SystemUiOverlayStyle.dark,
+                            ),
+                          ),
+                          child: child!,
+                        ),
+                      ),
                     );
                     if (picked != null) setState(() => _customRange = picked);
                   },
@@ -155,7 +179,7 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
             if (!_allAccounts && accounts.isNotEmpty)
               GlassDropdownField<String>(
                 isExpanded: true,
-                value: _accountId ?? accounts.first.id,
+                value: selectedAccountId,
                 items: <DropdownMenuItem<String>>[
                   for (final a in accounts)
                     DropdownMenuItem<String>(value: a.id, child: Text(a.name)),
@@ -194,7 +218,7 @@ class _ReportConfigPageState extends ConsumerState<_ReportConfigPage> {
             icon: const Icon(AppLucideIcons.fileText, size: 18),
             label: Text(context.l10n.rcCreateReport),
             onPressed: canGenerate
-                ? () => Navigator.of(context).pop(_buildRequest())
+                ? () => Navigator.of(context).pop(_buildRequest(selectedAccountId))
                 : null,
           ),
         ),
@@ -264,8 +288,7 @@ Future<void> runReportGeneration(
     if (!context.mounted) return;
     Navigator.of(context).pop(); // dismiss progress
     if (e.kind == ReportErrorKind.cancelled) return;
-    ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(_errorText(context, e.kind))));
+    AppToast.showError(context, _errorText(context, e.kind));
   } finally {
     progress.dispose();
   }

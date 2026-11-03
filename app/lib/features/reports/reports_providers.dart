@@ -16,6 +16,7 @@ class ReportSection {
     required this.topMerchants,
     required this.dailySpend,
     required this.anomaly,
+    this.transactionCount,
   });
 
   /// Net expense: `Σpayment + Σwithdrawal − Σrefund` (the documented contract).
@@ -39,6 +40,7 @@ class ReportSection {
   final List<MerchantSpend> topMerchants;
   final List<DailySpend> dailySpend;
   final SpendingAnomaly? anomaly;
+  final int? transactionCount;
 
   /// نسبة التغيّر مقابل الفترة السابقة (null إذا لا توجد فترة سابقة).
   double? get deltaPercent => prevTotal.isZero
@@ -138,6 +140,11 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
         from: from, to: to, currency: currency, accountId: accountId);
     final breakdown = await txRepo.categoryBreakdown(
         from: from, to: to, currency: currency, accountId: accountId);
+    final previousBreakdown = await txRepo.categoryBreakdown(
+        from: prevFrom, to: prevTo, currency: currency, accountId: accountId);
+    final previousByCategory = {
+      for (final item in previousBreakdown) item.categoryId: item.total,
+    };
     final sumAll = Money.sum(breakdown.map((item) => item.total), currency);
     final topCategories = <CategorySlice>[];
     for (final item in breakdown.take(18)) {
@@ -150,6 +157,7 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
         percent: sumAll.isZero ? 0 : item.total.toDouble() / sumAll.toDouble(),
         count: item.count,
         refunds: item.refunds,
+        previousTotal: previousByCategory[item.categoryId] ?? Money.zero(currency),
       ));
     }
     final topMerchants = await txRepo.merchantBreakdown(
@@ -164,6 +172,7 @@ final reportsProvider = FutureProvider<ReportsBundle>((ref) async {
       topMerchants: topMerchants,
       dailySpend: dailySpend,
       anomaly: detectSpendingAnomaly(dailySpend),
+      transactionCount: breakdown.fold<int>(0, (count, item) => count + item.count),
     );
   }
 

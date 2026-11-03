@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/async_reload_safe.dart';
@@ -61,13 +60,6 @@ class BillFormSheet extends ConsumerStatefulWidget {
   ConsumerState<BillFormSheet> createState() => _BillFormSheetState();
 }
 
-final _decimalInputFormatter = FilteringTextInputFormatter.allow(
-  RegExp(r'[0-9٠-٩۰-۹.,٫٬،\s]'),
-);
-final _integerInputFormatter = FilteringTextInputFormatter.allow(
-  RegExp(r'[0-9٠-٩۰-۹]'),
-);
-
 String _normalizeNumberInput(String input) {
   const digitMap = {
     '٠': '0',
@@ -124,9 +116,11 @@ double? _parseDecimalInput(String input) {
 }
 
 int? _parseIntegerInput(String input) {
-  final normalized = _normalizeNumberInput(input);
-  if (normalized.isEmpty) return null;
-  return int.tryParse(normalized.split('.').first);
+  try {
+    return int.tryParse(normalizeLocalizedDecimal(input));
+  } on Exception {
+    return null;
+  }
 }
 
 class _BillFormSheetState extends ConsumerState<BillFormSheet> {
@@ -237,9 +231,19 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
     if (picked != null) setState(() => _nextDueDate = picked);
   }
 
+  void _invalidInput(String message) {
+    _formKey.currentState!.validate();
+    AppToast.showError(context, message);
+  }
+
   Future<void> _save() async {
     final l10n = context.l10n;
     if (_busy) return;
+    // Lazy form fields may be offstage at Save; validate retained text too.
+    if (_nameController.text.trim().isEmpty) {
+      _invalidInput(l10n.bfEnterName);
+      return;
+    }
     final Money amountMoney;
     final Money? manualPaidMoney;
     final Money? totalPurchaseMoney;
@@ -256,9 +260,21 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               ? null
               : parseLocalizedMoney(totalPurchaseText, _currency);
     } on Exception {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.bfInvalidAmount)),
-      );
+      _invalidInput(l10n.bfInvalidAmount);
+      return;
+    }
+    if (amountMoney.minorUnits <= 0) {
+      _invalidInput(l10n.bfEnterValidAmount);
+      return;
+    }
+    if (manualPaidMoney != null && manualPaidMoney.minorUnits <= 0) {
+      _invalidInput(l10n.bfAmountAboveZero);
+      return;
+    }
+    final customDays = _frequency == BillFrequency.custom
+        ? _parseIntegerInput(_customDaysController.text.trim()) : null;
+    if (_frequency == BillFrequency.custom && (customDays == null || customDays <= 0)) {
+      _invalidInput(l10n.bfEnterValidDays);
       return;
     }
     if (!_formKey.currentState!.validate()) return;
@@ -270,9 +286,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
       _nextDueDate.day,
     );
     if (dueDate.isBefore(todayStart)) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.bfPickFutureDue)),
-      );
+      AppToast.showError(context, context.l10n.bfPickFutureDue);
       return;
     }
     setState(() => _busy = true);
@@ -291,9 +305,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
         nextDueDate: _nextDueDate,
         reminderOn: _reminderOn,
         isConfirmed: _isConfirmed,
-        customIntervalDays: _frequency == BillFrequency.custom
-            ? _parseIntegerInput(_customDaysController.text.trim())
-            : null,
+        customIntervalDays: customDays,
         createdAt: widget.bill?.createdAt ?? now,
         merchantId: widget.bill?.merchantId,
         status: _status,
@@ -375,7 +387,7 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
           : e is RepoException
               ? repoErrorMessage(context, e)
               : context.l10n.bfSaveFailed;
-      AppToast.show(context, message);
+      AppToast.showError(context, message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -433,9 +445,6 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               controller: _amountController,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                _decimalInputFormatter,
-              ],
               decoration: InputDecoration(labelText: context.l10n.bdgAmount),
               validator: (value) {
                 final raw = value?.trim() ?? '';
@@ -454,14 +463,12 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               controller: _manualPaidController,
               keyboardType:
                   const TextInputType.numberWithOptions(decimal: true),
-              inputFormatters: [
-                _decimalInputFormatter,
-              ],
               decoration: InputDecoration(
                 labelText: _type == BillType.installment
                     ? context.l10n.bfManuallyPaidAmount
                     : context.l10n.bfPaidManuallyFromSub,
                 helperText: context.l10n.bfRecordManualHint,
+                helperMaxLines: 4,
               ),
               validator: (value) {
                 final raw = value?.trim() ?? '';
@@ -551,7 +558,6 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                     child: TextFormField(
                       controller: _totalInstController,
                       keyboardType: TextInputType.number,
-                      inputFormatters: [_integerInputFormatter],
                       decoration:
                           InputDecoration(labelText: context.l10n.bfTotalInstalments),
                     ),
@@ -561,7 +567,6 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                     child: TextFormField(
                       controller: _paidCountController,
                       keyboardType: TextInputType.number,
-                      inputFormatters: [_integerInputFormatter],
                       decoration:
                           InputDecoration(labelText: context.l10n.bfPaidSoFar),
                     ),
@@ -576,9 +581,6 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                       controller: _totalPurchaseController,
                       keyboardType:
                           const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        _decimalInputFormatter,
-                      ],
                       decoration: InputDecoration(
                           labelText: context.l10n.bfPurchaseValue),
                     ),
@@ -589,9 +591,6 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
                       controller: _interestController,
                       keyboardType:
                           const TextInputType.numberWithOptions(decimal: true),
-                      inputFormatters: [
-                        _decimalInputFormatter,
-                      ],
                       decoration: InputDecoration(
                           labelText: context.l10n.bfInterestOptional, hintText: '0'),
                     ),
@@ -619,7 +618,6 @@ class _BillFormSheetState extends ConsumerState<BillFormSheet> {
               TextFormField(
                 controller: _customDaysController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [_integerInputFormatter],
                 decoration: InputDecoration(labelText: context.l10n.bfEveryHowManyDays),
                 validator: (value) {
                   if (_frequency != BillFrequency.custom) return null;
@@ -984,7 +982,7 @@ class _Segmented<T> extends StatelessWidget {
                     label(item),
                     textAlign: TextAlign.center,
                     style: AppTypography.caption(
-                      item == value ? Colors.white : c.textLight,
+                      item == value ? c.onPrimary : c.textLight,
                     ).copyWith(fontWeight: FontWeight.w700),
                   ),
                 ),

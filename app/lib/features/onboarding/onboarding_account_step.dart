@@ -22,11 +22,13 @@ class OnboardingAccountStep extends ConsumerStatefulWidget {
     super.key,
     required this.currency,
     required this.onDone,
+    this.onDark = true,
   });
 
   /// The currency chosen on the country step; pre-fills the form.
   final String currency;
   final VoidCallback onDone;
+  final bool onDark;
 
   @override
   ConsumerState<OnboardingAccountStep> createState() =>
@@ -43,6 +45,9 @@ class _OnboardingAccountStepState extends ConsumerState<OnboardingAccountStep> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
+    final c = context.colors;
+    final fg = widget.onDark ? Colors.white : c.textPrimary;
+    final muted = widget.onDark ? Colors.white.withValues(alpha: .72) : c.textSecondary;
     final accounts = ref.watch(accountsProvider).valueOrNull ?? const [];
     final showList = accounts.isNotEmpty && !_adding;
     return SingleChildScrollView(
@@ -53,12 +58,12 @@ class _OnboardingAccountStepState extends ConsumerState<OnboardingAccountStep> {
         children: [
           Text(
             showList ? l10n.onbAccountExistingTitle : l10n.onbAccountTitle,
-            style: AppTypography.sectionTitle(Colors.white),
+            style: AppTypography.sectionTitle(fg),
           ),
           const SizedBox(height: AppSpacing.s3),
           Text(
             showList ? l10n.onbAccountExistingBody : l10n.onbAccountBody,
-            style: AppTypography.body(Colors.white.withValues(alpha: 0.72)),
+            style: AppTypography.body(muted),
           ),
           const SizedBox(height: AppSpacing.s4),
           if (showList) ...[
@@ -68,21 +73,21 @@ class _OnboardingAccountStepState extends ConsumerState<OnboardingAccountStep> {
                 child: Container(
                   padding: const EdgeInsets.all(AppSpacing.s3),
                   decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
+                    color: widget.onDark ? Colors.white.withValues(alpha: .08) : c.surface,
                     borderRadius: BorderRadius.circular(AppRadius.md),
                   ),
                   child: Row(
                     children: [
                       Icon(accountTypeIcon(account.type),
-                          size: 18, color: Colors.white),
+                          size: 18, color: fg),
                       const SizedBox(width: AppSpacing.s2),
                       Expanded(
                         child: Text(account.name,
-                            style: AppTypography.bodyStrong(Colors.white)),
+                            style: AppTypography.bodyStrong(fg)),
                       ),
                       Text(Currency.codeWithLabel(context, account.currency),
                           style: AppTypography.caption(
-                              Colors.white.withValues(alpha: 0.7))),
+                              muted)),
                     ],
                   ),
                 ),
@@ -94,8 +99,8 @@ class _OnboardingAccountStepState extends ConsumerState<OnboardingAccountStep> {
                 key: const ValueKey('onboarding-account-continue'),
                 onPressed: widget.onDone,
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: AppBrandBlue.brand,
+                  backgroundColor: widget.onDark ? Colors.white : c.cta,
+                  foregroundColor: widget.onDark ? AppBrandBlue.brand : c.onCta,
                 ),
                 child: Text(l10n.onbAccountContinue),
               ),
@@ -103,7 +108,7 @@ class _OnboardingAccountStepState extends ConsumerState<OnboardingAccountStep> {
             TextButton(
               key: const ValueKey('onboarding-account-add-another'),
               onPressed: () => setState(() => _adding = true),
-              style: TextButton.styleFrom(foregroundColor: Colors.white),
+              style: TextButton.styleFrom(foregroundColor: fg),
               child: Text(l10n.onbAccountAddAnother),
             ),
           ] else

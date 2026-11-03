@@ -1748,7 +1748,8 @@ class _AppShellState extends ConsumerState<AppShell> {
     }
   }
 
-  Future<bool> _syncEngagementBody(AdmittedLocalWork work, bool Function() current, SyncPhaseBinding phase) async {
+  Future<bool> _syncEngagementBody(AdmittedLocalWork work,
+      bool Function() current, SyncPhaseBinding phase) async {
     // Entry is already a disposal window: this is awaited from _onResume after
     // other awaits, so the shell can be gone before the first line runs.
     if (!current()) return false;
@@ -1963,7 +1964,10 @@ class _AppShellState extends ConsumerState<AppShell> {
         await _handleCaptureNotificationAction(route, action!);
         return;
       }
+      final work = AdmittedLocalWork.capture(ref);
+      if (work == null) return;
       final target = await _routeForCaptureNotification(route, syncResult);
+      if (!mounted || !work.current) return;
       _handleNotificationRoute(target);
     } finally {
       _isDrainingNotificationRoutes = false;
@@ -1995,19 +1999,32 @@ class _AppShellState extends ConsumerState<AppShell> {
     CaptureNotificationRoute route,
     CaptureSyncResult? syncResult,
   ) async {
-    final type = route.notificationType;
-    String? payloadTransactionId;
     final payloadId = route.payloadId ?? route.smartInboxItemId;
-    if (type != 'needs_review' &&
-        type != 'suspicious_duplicate' &&
-        payloadId != null &&
-        payloadId.isNotEmpty) {
-      payloadTransactionId = await ref
-          .read(captureSyncServiceProvider)
-          .transactionIdForPayload(payloadId);
+    final payloadTransactionId = payloadId == null || payloadId.isEmpty
+        ? null
+        : await ref
+            .read(captureSyncServiceProvider)
+            .transactionIdForPayload(payloadId);
+    final repository = ref.read(transactionRepositoryProvider);
+    for (final id in {
+      route.transactionId,
+      payloadTransactionId,
+      // Import V3 commits the transaction under the payload id atomically.
+      if (_captureImportV3Enabled()) payloadId,
+    }) {
+      if (id == null ||
+          id.isEmpty ||
+          id.startsWith('smart_inbox:') ||
+          id.startsWith('rejected:')) {
+        continue;
+      }
+      final transaction = await repository.getById(id);
+      if (transaction?.status == TransactionStatus.confirmed) {
+        return captureRouteFor(confirmedTransactionId: transaction!.id);
+      }
     }
     return captureRouteFor(
-      type: type,
+      type: route.notificationType,
       transactionId: route.transactionId,
       payloadTransactionId: payloadTransactionId,
     );
@@ -2051,6 +2068,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     if (route.startsWith('/transaction/')) {
       final transactionId = route.substring('/transaction/'.length);
       if (!_claimAutoNavigation(transactionId)) return;
+      ref.read(transactionsPendingFilterProvider.notifier).state = false;
       context.push(route);
       return;
     }
@@ -2226,24 +2244,24 @@ class _BottomNavBar extends StatelessWidget {
 
   static const _items = [
     _BottomBarItem(
-      page: 3,
-      icon: AppLucideIcons.settings,
-    ),
-    _BottomBarItem(
-      page: 4,
-      icon: AppLucideIcons.shapes,
-    ),
-    _BottomBarItem(
       page: 0,
       icon: AppLucideIcons.home,
+    ),
+    _BottomBarItem(
+      page: 1,
+      icon: AppLucideIcons.receipt,
     ),
     _BottomBarItem(
       page: 2,
       icon: AppLucideIcons.walletCards,
     ),
     _BottomBarItem(
-      page: 1,
-      icon: AppLucideIcons.receipt,
+      page: 4,
+      icon: AppLucideIcons.shapes,
+    ),
+    _BottomBarItem(
+      page: 3,
+      icon: AppLucideIcons.settings,
     ),
   ];
 

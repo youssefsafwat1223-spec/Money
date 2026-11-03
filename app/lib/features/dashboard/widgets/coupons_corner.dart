@@ -6,6 +6,7 @@ import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/mali_tokens.dart';
 import '../../../core/theme/widgets/mali_card.dart';
+import '../../../core/theme/widgets/directional_chevron.dart';
 import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/utils/formatters.dart';
 import '../../common/app_avatar.dart';
@@ -98,7 +99,7 @@ class CouponsCorner extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    '${offers.length} ${offers.length == 1 ? 'كوبون متاح' : 'كوبونات متاحة'}',
+                    context.l10n.homeAvailableCoupons(offers.length),
                     style:
                         AppTypography.bodyStrong(t.textOnCanvasPrimary),
                   ),
@@ -180,7 +181,7 @@ class CouponsCorner extends StatelessWidget {
   ) {
     final code = offer.code;
     if (code == null || code.isEmpty) {
-      return Icon(AppLucideIcons.chevronLeft,
+      return DirectionalChevron(
           size: 20, color: t.textOnCanvasMuted);
     }
     return Container(

@@ -825,6 +825,10 @@ class ReplicaStore {
   Future<Map<String, ReplicaEntry>> _readRegistryStrict() async {
     final raw = await _storage.read(key: registryKey);
     if (raw == null || raw.isEmpty) return {};
+    return _parseRegistryStrict(raw);
+  }
+
+  static Map<String, ReplicaEntry> _parseRegistryStrict(String raw) {
     final json = jsonDecode(raw) as Map<String, Object?>;
     final result = <String, ReplicaEntry>{};
     for (final e in json.entries) {
@@ -1194,6 +1198,30 @@ class ReplicaStore {
   /// The rebootstrap marker of [uid]'s replica, or null when none is in progress.
   Future<RebootstrapMarker?> rebootstrapMarker(String uid) async =>
       (await _readRegistry())[await uidHash(uid)]?.rebootstrap;
+
+  /// ASR E11 (§9.2/§12): [uid]'s replica exactly as local read itself
+  /// requires it, and no rebootstrap anywhere — a non-empty, strictly parsed
+  /// registry (malformed flags throw) whose entry for [uid] is `active` and
+  /// not adoption-pending. [read] is the status-preserving accessor: it throws
+  /// unless the item's absence is confirmed. Any failure, absence or
+  /// restriction is false.
+  Future<bool> asrRegistryPermits(String uid,
+      {required Future<String?> Function(String key) read}) async {
+    try {
+      final raw = await read(registryKey);
+      if (raw == null || raw.isEmpty) return false;
+      final registry = _parseRegistryStrict(raw);
+      if (registry.values.any((e) => e.rebootstrap != null)) return false;
+      final hash = await uidHash(uid);
+      final entry = registry[hash];
+      return entry != null &&
+          entry.state == ReplicaState.active &&
+          !entry.adoptPending &&
+          !_removing.contains(hash);
+    } catch (_) {
+      return false;
+    }
+  }
 
   /// Every replica with a rebootstrap in progress (launch resume).
   Future<List<ReplicaEntry>> pendingRebootstraps() async => [

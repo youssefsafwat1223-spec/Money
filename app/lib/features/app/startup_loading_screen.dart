@@ -91,7 +91,8 @@ class _LoadingBody extends StatelessWidget {
           updatingData
               ? context.l10n.rebootUpdatingData
               : context.l10n.startPreparing,
-          style: AppTypography.callout(c.textLight),
+          style: AppTypography.callout(c.textLight)
+              .copyWith(decoration: TextDecoration.none),
         ),
       ],
     );
@@ -140,7 +141,8 @@ class _ErrorBody extends StatelessWidget {
         Text(
           context.l10n.startCheckConnection,
           textAlign: TextAlign.center,
-          style: AppTypography.callout(c.textLight),
+          style: AppTypography.callout(c.textLight)
+              .copyWith(decoration: TextDecoration.none),
         ),
         if (lastStep != null) ...[
           const SizedBox(height: AppSpacing.s2),

@@ -58,15 +58,22 @@ class _GlassSnackContent extends StatelessWidget {
     return MaliGlass(
       variant: MaliGlassVariant.pill,
       radius: 22,
-      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      padding: EdgeInsets.zero,
       nativeMaterial: true,
-      child: DefaultTextStyle.merge(
-        style: TextStyle(color: c.textPrimary),
-        child: Row(
-          children: [
-            Expanded(child: child),
-            if (action != null) action!,
-          ],
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+        decoration: BoxDecoration(
+          color: c.surfaceCard,
+          borderRadius: BorderRadius.circular(22),
+        ),
+        child: DefaultTextStyle.merge(
+          style: TextStyle(color: c.textPrimary),
+          child: Row(
+            children: [
+              Expanded(child: child),
+              if (action != null) action!,
+            ],
+          ),
         ),
       ),
     );

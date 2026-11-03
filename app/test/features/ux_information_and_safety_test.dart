@@ -47,7 +47,8 @@ void main() {
       final b = Money(164430, 'SAR');
       final bLimit = Money(250000, 'SAR');
       final bRemaining = bLimit - b;
-      expect((b.minorUnits / 100).round() + (bRemaining.minorUnits / 100).round(),
+      expect(
+          (b.minorUnits / 100).round() + (bRemaining.minorUnits / 100).round(),
           2500);
     });
 
@@ -68,7 +69,8 @@ void main() {
 
     test('the limit tile reads the exact field, not the legacy REAL one', () {
       expect(screen, contains('amount: entry.budget.amountMoney'));
-      expect(screen.contains('Formatters.integer(entry.budget.amount)'), isFalse);
+      expect(
+          screen.contains('Formatters.integer(entry.budget.amount)'), isFalse);
     });
   });
 
@@ -153,7 +155,8 @@ void main() {
   group('R-8 — a capture notification cannot mis-scale a currency', () {
     test('a 3-decimal currency is not rounded to 2', () {
       expect(fmtCaptureMoney(Money(12345, 'KWD')), '12.345',
-          reason: 'the old double formatter printed 12.35 — a different number');
+          reason:
+              'the old double formatter printed 12.35 — a different number');
     });
 
     test('the approved brevity rule survives', () {
@@ -193,10 +196,12 @@ void main() {
       expect(providers, contains('billsScopeAccountProvider'),
           reason: 'the label must come from the SAME resolution the filter '
               'used, or the two can drift apart');
-      expect(providers, contains('await ref.watch(billsScopeAccountProvider.future)'));
+      expect(providers,
+          contains('await ref.watch(billsScopeAccountProvider.future)'));
 
-      final screen = File('lib/features/subscriptions/subscriptions_screen.dart')
-          .readAsStringSync();
+      final screen =
+          File('lib/features/subscriptions/subscriptions_screen.dart')
+              .readAsStringSync();
       expect(screen, contains('scopeAccountName'));
       expect(screen, contains('billsScopeAccountProvider'));
     });
@@ -294,8 +299,7 @@ void main() {
       // duplicate it." UX-012 is fixed — every bottom-nav tab now carries a
       // text label, Analytics among them.
       expect(src.contains("title: 'الرؤى والتقارير'"), isFalse);
-      final shell =
-          File('lib/features/app/app_shell.dart').readAsStringSync();
+      final shell = File('lib/features/app/app_shell.dart').readAsStringSync();
       // The label used to be an Arabic literal in `_items`, which this test
       // grepped for. It now comes from the ARB, so assert the wiring AND both
       // languages — an Arabic-only label would have passed the old grep.
@@ -348,7 +352,8 @@ void main() {
       // length", and a multi-banner row is one of those lengths.
       expect('EdgeInsets.fromLTRB('.allMatches(src).length, 2,
           reason: 'single-banner and horizontal-scroll paths both need it');
-      expect(src.contains('EdgeInsets.symmetric(horizontal: AppSpacing.gutter)'),
+      expect(
+          src.contains('EdgeInsets.symmetric(horizontal: AppSpacing.gutter)'),
           isFalse,
           reason: 'horizontal-only padding is what left it flush against the '
               'smart-inbox card below');
@@ -359,43 +364,28 @@ void main() {
       // show. A spacer on Home would leave a permanent gap on the far more
       // common no-announcement screen.
       expect(src, contains('SizedBox.shrink()'));
-      final home =
-          File('lib/features/dashboard/dashboard_screen.dart').readAsStringSync();
+      final home = File('lib/features/dashboard/dashboard_screen.dart')
+          .readAsStringSync();
       expect(
-        home,
-        contains('const AnnouncementBanner(),\n              const _SetupNudgeCard(),'),
+        RegExp(r'AnnouncementBanner\(\),\s*const SizedBox').hasMatch(home),
+        isFalse,
         reason: 'no compensating spacer was added at the call site',
       );
     });
   });
 
-  group('UX-010 — a section with nothing in it says so, it does not vanish',
-      () {
+  group('Home hides empty sections and preserves populated sections', () {
     // The dashboard redesign moved the budgets section into its own widget, so
     // the empty copy no longer all lives in one file. The contract is about
     // what Home RENDERS, not about which file holds the string — so the search
     // spans Home plus the section widgets it composes.
     final home =
         File('lib/features/dashboard/dashboard_screen.dart').readAsStringSync();
-    final sections = [
-      home,
-      for (final f in Directory('lib/features/dashboard/widgets')
-          .listSync()
-          .whereType<File>()
-          .where((f) => f.path.endsWith('.dart')))
-        f.readAsStringSync(),
-    ].join('\n');
-
-    test('none of the three account-scoped sections is conditionally omitted',
-        () {
-      // The original defect: switching accounts made whole sections disappear
-      // with no header, which reads as breakage. Verified as the ABSENCE of the
-      // conditional that removed them — a "4 empty-state hits" grep is what
-      // made this look closed when it was not.
-      expect(home.contains('if (data.budgetProgress.isNotEmpty) ...['), isFalse);
-      expect(home.contains('if (data.activeGoal != null) ...['), isFalse);
-      expect(home.contains('if (subs.isEmpty) return const SizedBox.shrink();'),
-          isFalse);
+    test('empty account sections have explicit visibility guards', () {
+      expect(home, contains('if (data.budgetProgress.isEmpty)'));
+      expect(
+          home, contains('if (bills.isEmpty) return const SizedBox.shrink();'));
+      expect(home, contains('if (goals.isEmpty && plans.isEmpty)'));
     });
 
     test('each says which account has nothing, not just "empty"', () {
@@ -416,8 +406,8 @@ void main() {
         'homeNoBillsOnAccount',
       ];
       for (final k in keys) {
-        expect(sections, contains('context.l10n.$k'),
-            reason: '$k must actually be rendered by a Home section');
+        expect(home, isNot(contains('context.l10n.$k')),
+            reason: 'Home hides empty sections after the approved redesign');
         expect(ar[k], contains('هذا الحساب'),
             reason: '$k must name the account, not just say "empty"');
         expect(en[k], contains('this account'),
@@ -426,32 +416,48 @@ void main() {
     });
 
     test('the sections a user OWNS survive a period with no transactions', () {
-      // Regression guard for a defect this redesign fixed: the whole body used
-      // to sit behind `data.isEmpty`, so a range with no rows hid the budgets
-      // the user set, the subscriptions they still pay and the goals they are
-      // still saving for. Those are not a function of the selected period.
-      final body = home.split('if (data.isEmpty)').last;
-      final ledgerBranch = body.split('],').first;
+      // Regression guard for a defect an earlier redesign fixed: the whole body
+      // used to sit behind `data.isEmpty`, so a range with no rows hid the
+      // budgets the user set, the subscriptions they still pay and the goals
+      // they are still saving for. Those are not a function of the selected
+      // period, so nothing in Home's body may gate on it.
+      expect(home.contains('if (data.isEmpty) ...['), isFalse);
+      final regular = home
+          .split('class _HomeBody')
+          .last
+          .split('] else ...[')
+          .last
+          .split('// THE BANNER')
+          .first;
       for (final owned in [
-        '_BudgetsSection(',
-        '_SubscriptionSection(',
-        '_GoalSection(',
-        '_PlansSection(',
+        '_BudgetsSection(data: data, privacyMode: privacyMode)',
+        '_UpcomingSection(privacyMode: privacyMode)',
+        '_GoalsPlansSection(privacyMode: privacyMode)',
       ]) {
-        expect(home, contains(owned));
-        expect(ledgerBranch.contains(owned), isFalse,
-            reason: '$owned must not sit inside the empty-ledger branch');
+        expect(regular, contains(owned),
+            reason: '$owned must render unconditionally once the account has '
+                'any transaction');
       }
     });
 
-    test('an account with NO data still gets the full-screen empty state', () {
+    test('a first-run account gets the welcome screen, not empty sections', () {
       // Three empty section headers would be a worse answer than one clear one.
-      expect(home, contains('if (data.isEmpty)\n                _empty(context)'));
+      // First-run means the account has NEVER had a transaction — not that the
+      // selected period is empty.
+      expect(home, contains('final firstRun = !data.hasAnyTransactions;'));
+      expect(
+          home,
+          contains(
+              'if (firstRun) ...[\n                _WelcomeBody(data: data),'));
+      // What the user already created before their first transaction still
+      // shows there.
+      expect(home, contains('if (goals.isEmpty && plans.isEmpty)'));
     });
 
     test('the note is quiet, not a stack of full empty-state archetypes', () {
-      expect(home, contains('class _SectionEmptyNote'));
-      expect(home, contains('AppTypography.caption(c.textSecondary)'));
+      expect(home, isNot(contains('class _SectionEmptyNote')));
+      expect(
+          home, contains('if (bills.isEmpty) return const SizedBox.shrink();'));
     });
   });
 
@@ -484,9 +490,11 @@ void main() {
 
     test('the 20-row cap is disclosed rather than silent', () {
       expect(src, contains('_kPeriodTransactionLimit'));
-      expect(src, contains('history.transactions.length > _kPeriodTransactionLimit'));
+      expect(src,
+          contains('history.transactions.length > _kPeriodTransactionLimit'));
       expect(src, contains('باقي '),
-          reason: 'F-009 class — a silent cap makes 60 transactions look like 20');
+          reason:
+              'F-009 class — a silent cap makes 60 transactions look like 20');
     });
 
     test('the count is stated even when nothing is truncated', () {
@@ -523,7 +531,7 @@ void main() {
       // «مصروفات» + «قيد المراجعة» is a meaningful combination; a fifth kind
       // chip would have made them mutually exclusive, and the provider ANDs
       // pendingOnly with the kind filter rather than replacing it.
-      expect(src, contains('.state =\n          !active'));
+      expect(RegExp(r'\.state\s*=\s*!active').hasMatch(src), isTrue);
       final providers =
           File('lib/features/transactions/transactions_providers.dart')
               .readAsStringSync();
@@ -612,8 +620,9 @@ void main() {
   });
 
   group('UX-034 — the account and the card are separate facts', () {
-    final src = File('lib/features/transactions/transaction_details_screen.dart')
-        .readAsStringSync();
+    final src =
+        File('lib/features/transactions/transaction_details_screen.dart')
+            .readAsStringSync();
 
     final arArb = jsonDecode(File('lib/l10n/app_ar.arb').readAsStringSync())
         as Map<String, dynamic>;
@@ -621,7 +630,8 @@ void main() {
         as Map<String, dynamic>;
 
     test('they are separate labelled rows, not one «المصدر» string', () {
-      expect(src.contains(r"${tx.cardLast4 != null ? ' · ${tx.cardLast4}' : ''}"),
+      expect(
+          src.contains(r"${tx.cardLast4 != null ? ' · ${tx.cardLast4}' : ''}"),
           isFalse);
       expect(src, contains('context.l10n.commonAccountDefinite'));
       expect(src, contains('context.l10n.txdCard'));
@@ -642,7 +652,8 @@ void main() {
       // must be stated in whichever language the user is reading.
       expect(arArb['txdCardSheetNote'],
           contains('تغيير البطاقة لا ينقل العملية إلى حساب آخر'));
-      expect(arArb['txdCardRemoved'], contains('ما زالت العملية في الحساب نفسه'));
+      expect(
+          arArb['txdCardRemoved'], contains('ما زالت العملية في الحساب نفسه'));
       expect(enArb['txdCardSheetNote'],
           contains('does not move the transaction to another account'));
       expect(enArb['txdCardRemoved'], contains('still in the same account'));

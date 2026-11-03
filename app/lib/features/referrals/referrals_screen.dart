@@ -7,6 +7,8 @@ import 'package:share_plus/share_plus.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../common/app_header.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/theme/widgets/mali_card.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -35,44 +37,10 @@ class _ReferralsScreenState extends ConsumerState<ReferralsScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    final c = context.colors;
     final summaryAsync = ref.watch(referralSummaryProvider);
 
     return AppScreenScaffold(
-      header: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter,
-          AppSpacing.s3,
-          AppSpacing.gutter,
-          AppSpacing.s2,
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    l10n.referralTitle,
-                    style: AppTypography.calmTitle(c.textPrimary)
-                        .copyWith(fontSize: 24, letterSpacing: -0.5),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    l10n.referralSubtitle,
-                    style: AppTypography.caption(c.textSecondary)
-                        .copyWith(fontSize: 13, fontWeight: FontWeight.w400),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(Icons.close_rounded),
-            ),
-          ],
-        ),
-      ),
+      header: AppHeader(title: l10n.referralTitle),
       body: summaryAsync.when(
         skipLoadingOnReload: true,
         loading: () => AppLoadingState(label: l10n.referralLoading),
@@ -88,6 +56,8 @@ class _ReferralsScreenState extends ConsumerState<ReferralsScreen> {
           if (summary == null) {
             return AppEmptyState(
               icon: AppLucideIcons.gift,
+              illustration: const QirshIllustration(
+                  name: 'referral', width: 250, height: 187.5),
               title: l10n.referralUnavailableTitle,
               subtitle: l10n.referralUnavailableBody,
             );
@@ -167,6 +137,14 @@ class _ReferralBodyState extends ConsumerState<_ReferralBody> {
         AppSpacing.s8,
       ),
       children: [
+        const Center(
+          child: QirshIllustration(
+              name: 'referral', width: 250, height: 187.5),
+        ),
+        const SizedBox(height: AppSpacing.s3),
+        Text(context.l10n.referralSubtitle, textAlign: TextAlign.center,
+            style: AppTypography.callout(context.colors.textMuted)),
+        const SizedBox(height: AppSpacing.s4),
         _CodeCard(
           code: summary.referralCode,
           onCopy: () => _copyCode(summary.referralCode),

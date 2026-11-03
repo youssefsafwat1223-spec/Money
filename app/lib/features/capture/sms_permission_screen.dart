@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -56,6 +57,9 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                Expanded(child: SingleChildScrollView(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
                 Center(
                   child: Container(
                     width: 44,
@@ -84,13 +88,9 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s3),
-                CircleAvatar(
-                  radius: 34,
-                  backgroundColor: c.primary.withValues(alpha: 0.12),
-                  child: Icon(
-                    AppLucideIcons.receipt,
-                    color: c.primary,
-                    size: 28,
+                const Center(
+                  child: QirshIllustration(
+                    name: 'capture', width: 230, height: 120,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s4),
@@ -134,7 +134,9 @@ class _SmsPermissionScreenState extends State<SmsPermissionScreen> {
                     ],
                   ),
                 ),
-                const Spacer(),
+                  ],
+                ))),
+                const SizedBox(height: AppSpacing.s3),
                 SizedBox(
                   height: 52,
                   child: FilledButton(

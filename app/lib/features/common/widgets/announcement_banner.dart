@@ -9,6 +9,8 @@ import '../../../core/di/app_providers.dart';
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
+import '../../../core/theme/widgets/mali_card.dart';
+import '../../common/app_avatar.dart';
 import '../../../data/catalog/catalog_daos.dart';
 import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/utils/l10n_ext.dart';
@@ -117,150 +119,15 @@ class _CampaignBannerTileState extends ConsumerState<_CampaignBannerTile> {
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // كان تدرّج تركوازي — لون مالوش وجود في أي مكان تاني في التطبيق.
-    final start = isDark ? AppBrandBlue.strong : AppBrandBlue.mid;
-    const end = AppBrandBlue.brand;
-    final body = widget.campaign.bodyFor(context)?.trim();
-    final hasBody = body != null && body.isNotEmpty;
-    final actionLabel = widget.campaign.actionLabelFor(context)?.trim();
-    final hasAction = actionLabel != null && actionLabel.isNotEmpty;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.xxl),
-        boxShadow: [
-          BoxShadow(
-            color: start.withValues(alpha: isDark ? 0.20 : 0.24),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadius.xxl),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _handleTap(context),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: AlignmentDirectional.topStart,
-                      end: AlignmentDirectional.bottomEnd,
-                      colors: [start, end],
-                    ),
-                  ),
-                ),
-              ),
-              PositionedDirectional(
-                top: -44,
-                start: -26,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.08),
-                  ),
-                ),
-              ),
-              PositionedDirectional(
-                bottom: -58,
-                end: -28,
-                child: Container(
-                  width: 150,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.black.withValues(alpha: 0.07),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsetsDirectional.fromSTEB(
-                  AppSpacing.s5,
-                  AppSpacing.s5,
-                  AppSpacing.s4,
-                  AppSpacing.s5,
-                ),
-                child: Directionality(
-                  textDirection: Directionality.of(context),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              widget.campaign.titleFor(context),
-                              textAlign: TextAlign.start,
-                              style: AppTypography.title(Colors.white).copyWith(
-                                fontWeight: FontWeight.w700,
-                                height: 1.22,
-                              ),
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (widget.campaign.isDismissible) ...[
-                            const SizedBox(width: AppSpacing.s2),
-                            _CampaignDismissButton(
-                              campaignId: widget.campaign.id,
-                            ),
-                          ],
-                        ],
-                      ),
-                      if (hasBody) ...[
-                        const SizedBox(height: AppSpacing.s2),
-                        Text(
-                          body,
-                          textAlign: TextAlign.start,
-                          style: AppTypography.body(
-                            Colors.white.withValues(alpha: 0.82),
-                          ).copyWith(height: 1.35),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                      if (hasAction) ...[
-                        const SizedBox(height: AppSpacing.s3),
-                        Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.s3,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.16),
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.pill),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.18),
-                              ),
-                            ),
-                            child: Text(
-                              actionLabel,
-                              style: AppTypography.caption(Colors.white)
-                                  .copyWith(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return _CompactAnnouncementTile(
+      title: widget.campaign.titleFor(context),
+      body: widget.campaign.bodyFor(context)?.trim(),
+      actionLabel: widget.campaign.actionLabelFor(context)?.trim(),
+      icon: AppLucideIcons.sparkles,
+      iconColor: context.colors.primary,
+      onTap: () => _handleTap(context),
+      dismiss: widget.campaign.isDismissible
+          ? _CampaignDismissButton(campaignId: widget.campaign.id) : null,
     );
   }
 
@@ -284,165 +151,22 @@ class _BannerTile extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = Theme.of(context).extension<AppColors>()!;
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final colors = switch (announcement.severity) {
-      'warning' => (
-          start: c.warning,
-          end: const Color(0xFFB45309),
-          fg: Colors.white,
-        ),
-      'maintenance' => (
-          start: c.accent,
-          end: const Color(0xFF7C3AED),
-          fg: Colors.white,
-        ),
-      _ => (
-          start: isDark ? AppBrandBlue.strong : AppBrandBlue.mid,
-          end: AppBrandBlue.brand,
-          fg: Colors.white,
-        ),
+    final c = context.colors;
+    final (icon, color) = switch (announcement.severity) {
+      'warning' => (AppLucideIcons.alertTriangle, c.warning),
+      'maintenance' => (AppLucideIcons.wrench, c.accent),
+      _ => (AppLucideIcons.sparkles, c.primary),
     };
-    final body = announcement.bodyFor(context)?.trim();
-    final hasBody = body != null && body.isNotEmpty;
-    final actionLabel = announcement.actionLabelFor(context)?.trim();
-    final hasAction = announcement.actionUrl != null &&
-        actionLabel != null &&
-        actionLabel.isNotEmpty;
-
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(AppRadius.xxl),
-        boxShadow: [
-          BoxShadow(
-            color: colors.start.withValues(alpha: isDark ? 0.20 : 0.24),
-            blurRadius: 22,
-            offset: const Offset(0, 10),
-          ),
-        ],
-      ),
-      child: Material(
-        color: Colors.transparent,
-        borderRadius: BorderRadius.circular(AppRadius.xxl),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _handleTap(context, announcement.actionUrl),
-          child: Stack(
-            children: [
-              Positioned.fill(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      begin: AlignmentDirectional.topStart,
-                      end: AlignmentDirectional.bottomEnd,
-                      colors: [colors.start, colors.end],
-                    ),
-                  ),
-                ),
-              ),
-              PositionedDirectional(
-                top: -44,
-                start: -26,
-                child: Container(
-                  width: 120,
-                  height: 120,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.08),
-                  ),
-                ),
-              ),
-              PositionedDirectional(
-                bottom: -58,
-                end: -28,
-                child: Container(
-                  width: 150,
-                  height: 150,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.black.withValues(alpha: 0.07),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsetsDirectional.fromSTEB(
-                  AppSpacing.s5,
-                  AppSpacing.s5,
-                  AppSpacing.s4,
-                  AppSpacing.s5,
-                ),
-                child: Directionality(
-                  textDirection: Directionality.of(context),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            child: Text(
-                              announcement.titleFor(context),
-                              textAlign: TextAlign.start,
-                              style: AppTypography.title(colors.fg).copyWith(
-                                fontWeight: FontWeight.w700,
-                                height: 1.22,
-                              ),
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                          if (announcement.isDismissible) ...[
-                            const SizedBox(width: AppSpacing.s2),
-                            _DismissButton(announcementId: announcement.id),
-                          ],
-                        ],
-                      ),
-                      if (hasBody) ...[
-                        const SizedBox(height: AppSpacing.s2),
-                        Text(
-                          body,
-                          textAlign: TextAlign.start,
-                          style: AppTypography.body(
-                            colors.fg.withValues(alpha: 0.82),
-                          ).copyWith(height: 1.35),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                      if (hasAction) ...[
-                        const SizedBox(height: AppSpacing.s3),
-                        Align(
-                          alignment: AlignmentDirectional.centerStart,
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.s3,
-                              vertical: 7,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.16),
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.pill),
-                              border: Border.all(
-                                color: Colors.white.withValues(alpha: 0.18),
-                              ),
-                            ),
-                            child: Text(
-                              actionLabel,
-                              style: AppTypography.caption(colors.fg)
-                                  .copyWith(fontWeight: FontWeight.w700),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    return _CompactAnnouncementTile(
+      title: announcement.titleFor(context),
+      body: announcement.bodyFor(context)?.trim(),
+      actionLabel: announcement.actionUrl != null
+          ? announcement.actionLabelFor(context)?.trim() : null,
+      icon: icon,
+      iconColor: color,
+      onTap: () => _handleTap(context, announcement.actionUrl),
+      dismiss: announcement.isDismissible
+          ? _DismissButton(announcementId: announcement.id) : null,
     );
   }
 
@@ -459,6 +183,78 @@ class _BannerTile extends ConsumerWidget {
   }
 }
 
+/// The approved compact, neutral announcement card. Severity colours its
+/// glyph; the complete localized message and existing destination stay intact.
+class _CompactAnnouncementTile extends StatelessWidget {
+  const _CompactAnnouncementTile({
+    required this.title,
+    required this.body,
+    required this.actionLabel,
+    required this.icon,
+    required this.iconColor,
+    required this.onTap,
+    required this.dismiss,
+  });
+
+  final String title;
+  final String? body;
+  final String? actionLabel;
+  final IconData icon;
+  final Color iconColor;
+  final VoidCallback onTap;
+  final Widget? dismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return MaliCard(
+      padding: EdgeInsets.zero,
+      onTap: onTap,
+      child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              AppAvatar.icon(icon: icon, color: iconColor,
+                  tone: AppAvatarTone.soft, size: 36),
+              const SizedBox(width: AppSpacing.s3),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(title, style: AppTypography.custom(size: 14,
+                        weight: FontWeight.w600, height: 1.4, color: c.textMain)),
+                    if (body?.isNotEmpty ?? false) ...[
+                      const SizedBox(height: 3),
+                      Text(body!, style: AppTypography.caption(c.textLight)),
+                    ],
+                    if (actionLabel?.isNotEmpty ?? false)
+                      TextButton(
+                        onPressed: onTap,
+                        style: TextButton.styleFrom(
+                          padding: EdgeInsets.zero,
+                          alignment: AlignmentDirectional.centerStart,
+                          minimumSize: const Size(44, 36),
+                        ),
+                        child: Text(actionLabel!,
+                            style: AppTypography.caption(c.primary)
+                                .copyWith(fontWeight: FontWeight.w600)),
+                      ),
+                  ],
+                ),
+              ),
+              if (dismiss != null) ...[
+                const SizedBox(width: AppSpacing.s2),
+                dismiss!,
+              ],
+            ],
+          ),
+      ),
+    );
+  }
+}
+
 class _DismissButton extends ConsumerWidget {
   const _DismissButton({required this.announcementId});
 
@@ -471,8 +267,8 @@ class _DismissButton extends ConsumerWidget {
       child: IconButton(
         padding: EdgeInsets.zero,
         style: IconButton.styleFrom(
-          backgroundColor: Colors.white.withValues(alpha: 0.16),
-          foregroundColor: Colors.white,
+          backgroundColor: context.colors.surface2,
+          foregroundColor: context.colors.textMain,
           shape: const CircleBorder(),
         ),
         onPressed: () =>
@@ -498,8 +294,8 @@ class _CampaignDismissButton extends ConsumerWidget {
       child: IconButton(
         padding: EdgeInsets.zero,
         style: IconButton.styleFrom(
-          backgroundColor: Colors.white.withValues(alpha: 0.16),
-          foregroundColor: Colors.white,
+          backgroundColor: context.colors.surface2,
+          foregroundColor: context.colors.textMain,
           shape: const CircleBorder(),
         ),
         onPressed: () => ref

@@ -9,12 +9,17 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/category_glyph.dart';
+import '../../core/utils/category_tone.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/id_generator.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/budget_entity.dart';
+import '../../domain/entities/goal_entity.dart';
+import '../../domain/errors/repo_exceptions.dart';
+import '../../core/theme/widgets/app_toast.dart';
+import '../common/repo_error_messages.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -79,9 +84,19 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
     super.dispose();
   }
 
-  double _income() => double.tryParse(_incomeController.text.trim()) ?? 0;
-  double _val(String key) => double.tryParse(_ctrl(key).text.trim()) ?? 0;
-  double _savings() => double.tryParse(_savingsController.text.trim()) ?? 0;
+  // Display and suggestion only. Save parses complete inputs into Money below;
+  // these doubles never decide which financial rows are written.
+  double _displayAmount(String text) {
+    try {
+      return double.tryParse(normalizeLocalizedDecimal(text)) ?? 0;
+    } on Exception {
+      return 0;
+    }
+  }
+
+  double _income() => _displayAmount(_incomeController.text);
+  double _val(String key) => _displayAmount(_ctrl(key).text);
+  double _savings() => _displayAmount(_savingsController.text);
   double _allocated() =>
       _allocationPlan.keys.fold<double>(0, (sum, k) => sum + _val(k));
 
@@ -99,86 +114,113 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
   Future<void> _save(CategoryCatalog catalog) async {
     if (_saving) return;
     setState(() => _saving = true);
+    try {
+      final currency = ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR';
+      final amounts = <String, Money>{};
+      try {
+        for (final key in _allocationPlan.keys) {
+          final text = _ctrl(key).text.trim();
+          if (text.isNotEmpty) amounts[key] = parseLocalizedMoney(text, currency);
+        }
+      } on Exception {
+        if (mounted) AppToast.showError(context, context.l10n.gfEnterValidAmount);
+        return;
+      }
 
-    final selectedId = ref.read(dashboardAccountProvider);
-    final accountRepo = ref.read(accountRepositoryProvider);
-    AccountEntity? account =
-        selectedId == null ? null : await accountRepo.getById(selectedId);
-    account ??= await accountRepo.getDefault();
-    final accountId = account?.id;
-
-    final existing = await ref.read(budgetRepositoryProvider).getAll();
-    String? idFor(String categoryId) {
-      for (final budget in existing) {
-        if (budget.categoryId == categoryId &&
-            budget.period == BudgetPeriod.monthly &&
-            budget.accountId == accountId) {
-          return budget.id;
+      // Read and validate the selected goal's own-currency input before an
+      // envelope write or old roll-up deletion can occur.
+      GoalEntity? savingsGoal;
+      Money? savingsMoney;
+      final goalId = _savingsGoalId;
+      final savingsText = _savingsController.text.trim();
+      if (goalId != null && savingsText.isNotEmpty) {
+        savingsGoal = await ref.read(goalRepositoryProvider).getById(goalId);
+        if (savingsGoal != null) {
+          try {
+            savingsMoney = parseLocalizedMoney(savingsText, savingsGoal.currency);
+          } on Exception {
+            if (mounted) AppToast.showError(context, context.l10n.gfEnterValidAmount);
+            return;
+          }
         }
       }
-      return null;
-    }
 
-    final save = ref.read(saveBudgetUseCaseProvider);
-    final budgetRepo = ref.read(budgetRepositoryProvider);
-    final now = DateTime.now().toUtc();
-    // §25 — new budgets are seeded from the effective base currency; amounts are
-    // parsed EXACTLY from each envelope's input string.
-    final currency = ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR';
-    for (final entry in _allocationPlan.entries) {
-      final amount = _val(entry.key);
-      final category = catalog.byKey(entry.key);
-      if (amount <= 0 || category == null) continue;
-      await save(
-        BudgetEntity(
-          id: idFor(category.id) ?? IdGenerator.next(),
-          categoryId: category.id,
-          currency: currency,
-          amountMoney:
-              parseLocalizedMoney(_ctrl(entry.key).text.trim(), currency),
-          lastNotifiedSpentMoney: Money(0, currency),
-          period: BudgetPeriod.monthly,
-          startDate: now,
-          isActive: true,
-          lastNotifiedPeriodStart: now,
-          accountId: accountId,
-        ),
-      );
-    }
+      final selectedId = ref.read(dashboardAccountProvider);
+      final accountRepo = ref.read(accountRepositoryProvider);
+      AccountEntity? account =
+          selectedId == null ? null : await accountRepo.getById(selectedId);
+      account ??= await accountRepo.getDefault();
+      final accountId = account?.id;
 
-    // The envelopes ARE the plan; the total is computed as their sum everywhere.
-    // Remove any stale "all expenses" roll-up budget for this account so the
-    // total is never counted twice.
-    for (final budget in existing) {
-      if (budget.isAllExpenses && budget.accountId == accountId) {
-        await budgetRepo.delete(budget.id);
+      final existing = await ref.read(budgetRepositoryProvider).getAll();
+      String? idFor(String categoryId) {
+        for (final budget in existing) {
+          if (budget.categoryId == categoryId &&
+              budget.period == BudgetPeriod.monthly &&
+              budget.accountId == accountId) {
+            return budget.id;
+          }
+        }
+        return null;
       }
-    }
 
-    // Route the chosen savings amount to a goal as a monthly auto-save, so the
-    // money actually accumulates toward it (via the goal auto-save engine).
-    final savings = _savings();
-    final goalId = _savingsGoalId;
-    if (savings > 0 && goalId != null) {
-      final goalRepo = ref.read(goalRepositoryProvider);
-      final goal = await goalRepo.getById(goalId);
-      if (goal != null) {
-        // The auto-save amount is in the GOAL's own currency, parsed exactly.
-        await goalRepo.save(
-          goal.copyWith(
-            autoSaveMoney: parseLocalizedMoney(
-                _savingsController.text.trim(), goal.currency),
-            autoSavePeriod: 'monthly',
-            autoSaveLastRun: goal.autoSaveLastRun ?? now,
+      final save = ref.read(saveBudgetUseCaseProvider);
+      final budgetRepo = ref.read(budgetRepositoryProvider);
+      final now = DateTime.now().toUtc();
+      // §25 — new budgets are seeded from the effective base currency; amounts are
+      // parsed EXACTLY from each envelope's input string.
+      for (final entry in _allocationPlan.entries) {
+        final amount = amounts[entry.key];
+        final category = catalog.byKey(entry.key);
+        if (amount == null || amount.minorUnits <= 0 || category == null) continue;
+        await save(
+          BudgetEntity(
+            id: idFor(category.id) ?? IdGenerator.next(),
+            categoryId: category.id,
+            currency: currency,
+            amountMoney: amount,
+            lastNotifiedSpentMoney: Money(0, currency),
+            period: BudgetPeriod.monthly,
+            startDate: now,
+            isActive: true,
+            lastNotifiedPeriodStart: now,
+            accountId: accountId,
           ),
         );
       }
-    }
 
-    if (!mounted) return;
-    refreshBudgets(ref);
-    ref.invalidate(dashboardDataProvider);
-    Navigator.of(context).pop();
+      // The envelopes ARE the plan; the total is computed as their sum everywhere.
+      // Remove any stale "all expenses" roll-up budget for this account so the
+      // total is never counted twice.
+      for (final budget in existing) {
+        if (budget.isAllExpenses && budget.accountId == accountId) {
+          await budgetRepo.delete(budget.id);
+        }
+      }
+
+      // Route the chosen savings amount to a goal as a monthly auto-save, so the
+      // money actually accumulates toward it (via the goal auto-save engine).
+      if (savingsMoney != null && savingsMoney.minorUnits > 0 && savingsGoal != null) {
+        await ref.read(goalRepositoryProvider).save(
+          savingsGoal.copyWith(
+            autoSaveMoney: savingsMoney,
+            autoSavePeriod: 'monthly',
+            autoSaveLastRun: savingsGoal.autoSaveLastRun ?? now,
+          ),
+        );
+      }
+
+      if (!mounted) return;
+      refreshBudgets(ref);
+      ref.invalidate(dashboardDataProvider);
+      Navigator.of(context).pop();
+    } catch (error) {
+      if (!mounted) return;
+      AppToast.showError(context, error is RepoException
+          ? repoErrorMessage(context, error) : context.l10n.bfSaveFailed);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -265,13 +307,13 @@ class _AllocateIncomeSheetState extends ConsumerState<AllocateIncomeSheet> {
                       decoration: BoxDecoration(
                         // `.catgrid .c .icobox` — a 36px tile at radius 12,
                         // on the category's wash rather than its full colour.
-                        color: category.tileColor.withValues(alpha: 0.12),
+                        color: categoryTone(category.iconName, Theme.of(context).brightness).background,
                         borderRadius: BorderRadius.circular(AppRadius.md),
                       ),
                       child: CategoryGlyph(
                         name: category.iconName,
                         size: 18,
-                        color: category.tileColor,
+                        color: categoryTone(category.iconName, Theme.of(context).brightness).ink,
                       ),
                     ),
                     const SizedBox(width: AppSpacing.s3),

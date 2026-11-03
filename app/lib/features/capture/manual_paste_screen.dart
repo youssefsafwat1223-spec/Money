@@ -92,9 +92,10 @@ class _ManualPasteSheet extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      Text(context.l10n.pasteTitle,
-                          style: AppTypography.title2(c.textMain)),
-                      const Spacer(),
+                      Expanded(
+                        child: Text(context.l10n.pasteTitle,
+                            style: AppTypography.title2(c.textMain)),
+                      ),
                       IconButton(
                         onPressed: () => Navigator.of(context).pop(),
                         icon: const Icon(AppLucideIcons.x),
@@ -198,30 +199,36 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
       _batchItems = const [];
     });
 
-    if (messages.length == 1) {
-      final item = await _ingestOne(messages.first);
+    try {
+      if (messages.length == 1) {
+        final item = await _ingestOne(messages.first);
+        if (!mounted) return;
+        setState(() => _busy = false);
+        await _handleSingleResult(item);
+        return;
+      }
+
+      final items = <_PasteBatchItem>[];
+      for (final message in messages) {
+        final item = await _ingestOne(message);
+        items.add(item);
+        if (!mounted) return;
+        setState(() {
+          _processedCount = items.length;
+          _batchItems = List.unmodifiable(items);
+        });
+      }
+
+      refreshTransactions(ref);
+      ref.invalidate(dashboardDataProvider);
       if (!mounted) return;
       setState(() => _busy = false);
-      await _handleSingleResult(item);
-      return;
+      await _showBatchResults(items);
+    } catch (_) {
+      if (mounted) showTopError(context, context.l10n.txnError);
+    } finally {
+      if (mounted && _busy) setState(() => _busy = false);
     }
-
-    final items = <_PasteBatchItem>[];
-    for (final message in messages) {
-      final item = await _ingestOne(message);
-      items.add(item);
-      if (!mounted) return;
-      setState(() {
-        _processedCount = items.length;
-        _batchItems = List.unmodifiable(items);
-      });
-    }
-
-    refreshTransactions(ref);
-    ref.invalidate(dashboardDataProvider);
-    if (!mounted) return;
-    setState(() => _busy = false);
-    await _showBatchResults(items);
   }
 
   Future<_PasteBatchItem> _ingestOne(String text) async {
@@ -388,7 +395,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final summary = _BatchSummary.from(_batchItems);
 
-    final content = Padding(
+    final content = SingleChildScrollView(
       padding: const EdgeInsets.all(AppSpacing.gutter),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -448,7 +455,7 @@ class _ManualPasteContentState extends ConsumerState<_ManualPasteContent> {
               summary: summary,
             ),
           ],
-          const Spacer(),
+          const SizedBox(height: AppSpacing.s5),
           SizedBox(
             height: 52,
             child: FilledButton(
@@ -662,17 +669,28 @@ class _BatchResultsSheetState extends ConsumerState<_BatchResultsSheet> {
             tx.pricingState != TransactionPricingState.awaitingFx)
         .map((tx) => tx.id)
         .toSet();
-    for (final id in pendingIds) {
-      await ref.read(confirmTransactionUseCaseProvider)(id);
+    try {
+      final repository = ref.read(transactionRepositoryProvider);
+      final confirm = ref.read(confirmTransactionUseCaseProvider);
+      for (final id in pendingIds.difference(_confirmedIds)) {
+        final current = await repository.getById(id);
+        if (!mounted) return;
+        if (current?.status != TransactionStatus.confirmed) {
+          await confirm(id);
+        }
+        _confirmedIds.add(id);
+        if (!mounted) return;
+      }
+      widget.onConfirm();
+    } catch (_) {
+      if (mounted) showTopError(context, context.l10n.txnError);
+    } finally {
+      if (mounted) {
+        refreshTransactions(ref);
+        ref.invalidate(dashboardDataProvider);
+        setState(() => _confirming = false);
+      }
     }
-    refreshTransactions(ref);
-    ref.invalidate(dashboardDataProvider);
-    if (!mounted) return;
-    setState(() {
-      _confirming = false;
-      _confirmedIds.addAll(pendingIds);
-    });
-    widget.onConfirm();
   }
 
   @override

@@ -169,6 +169,12 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
   /// database before it is published; a throw closes it and fails the switch.
   final Future<AccountScopeInit> Function(AppDatabase db, String? uid)
       initialize;
+
+  /// The authority of the activation whose [initialize] is running (null when
+  /// none, or for an activation without one). Host turns are serialized, so
+  /// this names exactly the activation the running initialization belongs to.
+  AdmissionAuthority? get initializingAuthority => _initializing;
+  AdmissionAuthority? _initializing;
   final Future<AppDatabase> Function() _openSignedOut;
   final Future<void> Function(ReplicaLocation location)? _prepareLocation;
 
@@ -590,7 +596,12 @@ class AccountScopeHost extends ChangeNotifier implements AccountScopeControl {
         AccountFenceAuthority.shared.requireInHostTurn(uid,
             current: authority?.isCurrent ?? true);
       }
-      init = await initialize(db, uid);
+      _initializing = authority;
+      try {
+        init = await initialize(db, uid);
+      } finally {
+        _initializing = null;
+      }
       if (uid != null) {
         AccountFenceAuthority.shared.requireInHostTurn(uid,
             current: authority?.isCurrent ?? true);

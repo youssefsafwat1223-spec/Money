@@ -29,7 +29,7 @@ void main() {
   /// The `[start, end)` character extents of every `withQueueLock { ... }` body.
   List<({int start, int end})> lockBlocks() {
     final blocks = <({int start, int end})>[];
-    for (final match in RegExp(r'withQueueLock\s*\{').allMatches(source)) {
+    for (final match in RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)\s*\{').allMatches(source)) {
       var depth = 0;
       final open = source.indexOf('{', match.start);
       for (var i = open; i < source.length; i++) {

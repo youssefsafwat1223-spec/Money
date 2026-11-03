@@ -101,6 +101,11 @@ enum ApnsEnvironment {
 @objc class AppDelegate: FlutterAppDelegate {
   private var captureChannel: FlutterMethodChannel?
 
+  /// ASR §6.1: status-preserving Keychain access for the session store. Bound to
+  /// a plugin registrar (not a view controller) so it exists before Dart's
+  /// bootstrap reads the session, whatever the scene lifecycle is doing.
+  private let sessionKeychain = SessionKeychain()
+
   /// The controller whose binaryMessenger [captureChannel] is bound to.
   ///
   /// WEAK on purpose, and identity-compared rather than counted. `captureChannel
@@ -136,6 +141,9 @@ enum ApnsEnvironment {
       UNUserNotificationCenter.current().delegate = self
     }
     GeneratedPluginRegistrant.register(with: self)
+    if let registrar = self.registrar(forPlugin: "QirshSessionKeychain") {
+      sessionKeychain.attach(messenger: registrar.messenger())
+    }
     if let registrar = self.registrar(forPlugin: "NativeGlass") {
       registrar.register(
         NativeGlassViewFactory(),
@@ -326,6 +334,11 @@ enum ApnsEnvironment {
     }
     // Consent-security amendment: the structured per-layer reply of every pending-
     // enable phase. Only `status == "done"` is success; no uid/key/content in it.
+    // ASR §7.2: the evidence identity only (no uid, key or content).
+    func evidenceMap(_ e: SharedCaptureStore.ExpiryEvidence) -> [String: Any] {
+      ["evidenceId": e.evidenceId, "ownerGeneration": e.ownerGeneration,
+       "ownerEpoch": e.ownerEpoch, "sessionLifecycle": e.sessionLifecycle]
+    }
     func transitionMap(_ r: SharedCaptureStore.EnableTransitionResult) -> [String: Any] {
       func layers(_ reports: [SharedCaptureStore.LayerReport]) -> [[String: Any]] {
         reports.map { report in
@@ -348,6 +361,8 @@ enum ApnsEnvironment {
       if let version = r.reservedVersion { map["reservedVersion"] = version }
       if let generation = r.ownerGeneration { map["ownerGeneration"] = generation }
       if let epoch = r.ownerEpoch { map["ownerEpoch"] = epoch }
+      if let evidence = r.expiryEvidence { map["expiryEvidence"] = evidenceMap(evidence) }
+      if let counter = r.mutationCounter { map["mutationCounter"] = counter }
       return map
     }
     func barrierMap(_ barrier: SharedCaptureStore.RemovalBarrier?) -> [String: Any]? {
@@ -553,9 +568,15 @@ enum ApnsEnvironment {
             recover = (tg, rv, args["expectedLifetimeOwnerGeneration"] as? Int,
                        args["expectedLifetimeOwnerEpoch"] as? Int)
           }
+          var successorOf: (evidenceId: String, expectedCounter: Int)? = nil
+          if let id = args["successorEvidenceId"] as? String,
+             let counter = args["successorExpectedCounter"] as? Int {
+            successorOf = (id, counter)
+          }
           let receipt = try SharedCaptureStore.publishRestrictiveCaptureOwner(
-            uid: uid, version: version, expectedEpoch: expectedEpoch, recover: recover)
-          var map = transitionMap(SharedCaptureStore.EnableTransitionResult(
+            uid: uid, version: version, expectedEpoch: expectedEpoch, recover: recover,
+            successorOf: successorOf)
+          var reply = SharedCaptureStore.EnableTransitionResult(
             operation: "publishRestrictive", status: receipt.status, operationId: nil,
             transitionGeneration: nil, reservedVersion: nil,
             ownerGeneration: receipt.owner?.generation, ownerEpoch: receipt.ownerEpoch,
@@ -564,7 +585,9 @@ enum ApnsEnvironment {
                 transitionGeneration: nil, reservedVersion: nil, operationId: nil, ownerGeneration: nil, ownerEpoch: nil),
               SharedCaptureStore.LayerReport(layer: "keychain", outcome: .absent, state: nil,
                 transitionGeneration: nil, reservedVersion: nil, operationId: nil, ownerGeneration: nil, ownerEpoch: nil)
-            ], egress: receipt.egress))
+            ], egress: receipt.egress)
+          reply.mutationCounter = receipt.mutationCounter
+          var map = transitionMap(reply)
           if let owner = ownerMap(receipt.owner) { map["owner"] = owner }
           return map
         }
@@ -704,10 +727,19 @@ enum ApnsEnvironment {
           result(FlutterError(code: "bad_args", message: "Expected both resume fields or none.", details: nil))
           return
         }
+        // ASR §7.5 SE2: a successor begin names the consumed evidence and the
+        // SE1 receipt counter, both or neither.
+        let successorId = args["successorEvidenceId"] as? String
+        let successorCounter = args["successorExpectedCounter"] as? Int
+        guard (successorId == nil) == (successorCounter == nil) else {
+          result(FlutterError(code: "bad_args", message: "Expected both successor fields or none.", details: nil))
+          return
+        }
         queueResult(result) {
           transitionMap(try SharedCaptureStore.beginCloudEgressEnable(
             ownerUid: ownerUid, transitionGeneration: generation, reservedVersion: reservedVersion,
-            resumeOperationId: resumeId, resumeOwnerEpoch: resumeEpoch))
+            resumeOperationId: resumeId, resumeOwnerEpoch: resumeEpoch,
+            successor: successorId.map { ($0, successorCounter!) }))
         }
       case "writeCloudEgressEnableOn", "restrictCloudEgressEnable", "finishCloudEgressEnable", "revokeCaptureAuthorizationLifetime":
         guard let args = call.arguments as? [String: Any],
@@ -722,18 +754,22 @@ enum ApnsEnvironment {
         }
         let phase = call.method
         let abandon = args["abandon"] as? Bool ?? false
+        let expectedCounter = args["expectedCounter"] as? Int
+        let expiryLifecycle = args["expirySessionLifecycle"] as? Int
         queueResult(result) {
           switch phase {
           case "writeCloudEgressEnableOn":
             return transitionMap(try SharedCaptureStore.writeCloudEgressEnableOn(
               ownerUid: ownerUid, operationId: operationId,
               transitionGeneration: generation, reservedVersion: reservedVersion,
-              ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch))
+              ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch,
+              expectedCounter: expectedCounter))
           case "revokeCaptureAuthorizationLifetime":
             return transitionMap(try SharedCaptureStore.revokeCaptureAuthorizationLifetime(
               ownerUid: ownerUid, operationId: operationId,
               transitionGeneration: generation, reservedVersion: reservedVersion,
-              ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch))
+              ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch,
+              expirySessionLifecycle: expiryLifecycle))
           case "restrictCloudEgressEnable":
             return transitionMap(try SharedCaptureStore.restrictCloudEgressEnable(
               ownerUid: ownerUid, operationId: operationId,
@@ -744,8 +780,83 @@ enum ApnsEnvironment {
               ownerUid: ownerUid, operationId: operationId,
               transitionGeneration: generation, reservedVersion: reservedVersion,
               ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch,
-              abandon: abandon))
+              abandon: abandon, expectedCounter: expectedCounter))
           }
+        }
+      case "inspectRecoveryEvidence":
+        // ASR §7.4: read-only locked snapshot.
+        guard let ownerUid = (call.arguments as? [String: Any])?["ownerUid"] as? String else {
+          result(FlutterError(code: "bad_args", message: "Expected ownerUid.", details: nil))
+          return
+        }
+        queueResult(result) {
+          let snap = try SharedCaptureStore.inspectRecoveryEvidence(ownerUid: ownerUid)
+          var map: [String: Any] = ["kind": snap.kind]
+          if let g = snap.ownerGeneration { map["ownerGeneration"] = g }
+          if let e = snap.ownerEpoch { map["ownerEpoch"] = e }
+          if let c = snap.mutationCounter { map["mutationCounter"] = c }
+          if let r = snap.record {
+            var rec: [String: Any] = ["state": r.state, "transitionGeneration": r.transitionGeneration,
+                                      "reservedVersion": r.reservedVersion]
+            if let g = r.lifetimeOwnerGeneration { rec["lifetimeOwnerGeneration"] = g }
+            if let e = r.lifetimeOwnerEpoch { rec["lifetimeOwnerEpoch"] = e }
+            if let ev = r.expiryEvidence { rec["expiryEvidence"] = evidenceMap(ev) }
+            map["record"] = rec
+          }
+          return map
+        }
+      case "confirmRecoveryEvidence":
+        guard let counter = (call.arguments as? [String: Any])?["expectedCounter"] as? Int else {
+          result(FlutterError(code: "bad_args", message: "Expected expectedCounter.", details: nil))
+          return
+        }
+        queueResult(result) { try SharedCaptureStore.confirmRecoveryEvidence(expectedCounter: counter) }
+      case "mintExpiryEvidenceForLiveOn":
+        guard let args = call.arguments as? [String: Any],
+              let ownerUid = args["ownerUid"] as? String,
+              let ownerGeneration = args["ownerGeneration"] as? Int,
+              let ownerEpoch = args["ownerEpoch"] as? Int,
+              let generation = args["transitionGeneration"] as? Int,
+              let reservedVersion = args["reservedVersion"] as? Int,
+              let lifecycle = args["sessionLifecycle"] as? Int,
+              let counter = args["expectedCounter"] as? Int else {
+          result(FlutterError(code: "bad_args", message: "Expected mint fields.", details: nil))
+          return
+        }
+        queueResult(result) {
+          transitionMap(try SharedCaptureStore.mintExpiryEvidenceForLiveOn(
+            ownerUid: ownerUid, ownerGeneration: ownerGeneration, ownerEpoch: ownerEpoch,
+            transitionGeneration: generation, reservedVersion: reservedVersion,
+            sessionLifecycle: lifecycle, expectedCounter: counter))
+        }
+      case "invalidateExpiryEvidence":
+        guard let args = call.arguments as? [String: Any],
+              let ownerUid = args["ownerUid"] as? String,
+              let evidenceId = args["evidenceId"] as? String else {
+          result(FlutterError(code: "bad_args", message: "Expected evidence fields.", details: nil))
+          return
+        }
+        queueResult(result) {
+          transitionMap(try SharedCaptureStore.invalidateExpiryEvidence(ownerUid: ownerUid, evidenceId: evidenceId))
+        }
+      case "retireSuccessor", "inspectSuccessor":
+        guard let args = call.arguments as? [String: Any],
+              let ownerUid = args["ownerUid"] as? String,
+              let generation = args["successorGeneration"] as? Int,
+              let ownerEpoch = args["ownerEpoch"] as? Int,
+              let operationId = args["operationId"] as? String else {
+          result(FlutterError(code: "bad_args", message: "Expected successor fields.", details: nil))
+          return
+        }
+        let retire = call.method == "retireSuccessor"
+        queueResult(result) {
+          retire
+            ? transitionMap(try SharedCaptureStore.retireSuccessor(
+                ownerUid: ownerUid, successorGeneration: generation, ownerEpoch: ownerEpoch,
+                operationId: operationId)) as Any
+            : try SharedCaptureStore.inspectSuccessor(
+                ownerUid: ownerUid, successorGeneration: generation, ownerEpoch: ownerEpoch,
+                operationId: operationId) as Any
         }
       case "getCloudEgressPending":
         guard let ownerUid = (call.arguments as? [String: Any])?["ownerUid"] as? String,

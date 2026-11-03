@@ -103,6 +103,8 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).last,
     );
+    // Finish animations started when the carousel's cards enter the viewport.
+    await tester.pumpAndSettle();
     expect(find.textContaining('EGP'), findsWidgets);
   });
 }

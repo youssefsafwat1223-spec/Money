@@ -31,11 +31,18 @@ List<String> _imports(String path) {
       .toList(growable: false);
 }
 
+/// The hero's trend drawing is the one chart-named import Home may keep: a
+/// custom painter with no axis, legend, tooltip or gesture that gives the hero
+/// figure its context (a line against the budget pace, seven bars against an
+/// average) — the same kind of drawing as the seven-day bars Home already had.
+/// It pulls in no chart package; the guard below still rejects every one.
+const _homeHeroDrawing = 'widgets/hero_trend_chart.dart';
+
 bool _dependsOnCharts(List<String> imports) => imports.any((i) =>
     i.contains('fl_chart') ||
     i.contains('spending_charts') ||
     i.contains('/charts/') ||
-    i.endsWith('_chart.dart'));
+    (i.endsWith('_chart.dart') && i != _homeHeroDrawing));
 
 void main() {
   test('Home (dashboard_screen.dart) imports no chart package or chart widget',
@@ -44,6 +51,16 @@ void main() {
     expect(_dependsOnCharts(imports), isFalse,
         reason: 'analytics charts belong in Reports, not Home — '
             'offending imports: ${imports.where((i) => i.contains('chart'))}');
+  });
+
+  test('the hero drawing itself depends on no chart package', () {
+    final imports = _imports('lib/features/dashboard/$_homeHeroDrawing');
+    expect(
+        imports.any((i) =>
+            i.contains('fl_chart') ||
+            i.contains('spending_charts') ||
+            i.contains('/charts/')),
+        isFalse);
   });
 
   test('Reports (reports_screen.dart) still depends on the chart widgets '

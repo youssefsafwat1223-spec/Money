@@ -36,6 +36,8 @@ Widget _app(CardGrouping grouping, List<AccountEntity> accounts) {
   return ProviderScope(
     overrides: [
       accountsProvider.overrideWith((_) async => accounts),
+      allCardsProvider.overrideWith((_) async => const []),
+      baseCurrencyProvider.overrideWith((_) async => 'SAR'),
       accountCardGroupsProvider.overrideWith((_) async => grouping),
     ],
     child: MaterialApp(
@@ -66,10 +68,20 @@ void main() {
     await tester.pumpWidget(_app(grouping, [_account('acc-a', 'بنك الراجحي')]));
     await tester.pumpAndSettle();
 
-    expect(find.text('بنك الراجحي'), findsOneWidget);
-    expect(find.text('غير مخصّصة'), findsOneWidget);
-    expect(find.text('•••• 1234'), findsOneWidget);
-    expect(find.text('•••• 9999'), findsOneWidget);
+    final assigned = find.byKey(const ValueKey('card-activity-acc-a|1234'));
+    await tester.scrollUntilVisible(assigned, 150,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: assigned, matching: find.text('•••• 1234')),
+        findsOneWidget);
+    final unassigned = find.byKey(const ValueKey('card-activity-|9999'));
+    await tester.scrollUntilVisible(unassigned, 150,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: unassigned, matching: find.text('•••• 9999')),
+        findsOneWidget);
+    expect(find.descendant(of: unassigned, matching: find.text('غير مخصّصة')),
+        findsOneWidget);
   });
 
   testWidgets('no unassigned section when every card is confidently assigned',
@@ -83,7 +95,12 @@ void main() {
     await tester.pumpWidget(_app(grouping, [_account('acc-a', 'بنك الراجحي')]));
     await tester.pumpAndSettle();
 
-    expect(find.text('بنك الراجحي'), findsOneWidget);
+    final assigned = find.byKey(const ValueKey('card-activity-acc-a|1234'));
+    await tester.scrollUntilVisible(assigned, 150,
+        scrollable: find.byType(Scrollable).first);
+    await tester.pumpAndSettle();
+    expect(find.descendant(of: assigned, matching: find.text('•••• 1234')),
+        findsOneWidget);
     expect(find.text('غير مخصّصة'), findsNothing);
   });
 

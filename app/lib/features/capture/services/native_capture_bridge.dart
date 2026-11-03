@@ -316,6 +316,154 @@ class CloudEgressLayerReport {
 /// `confirms…` methods, which also check both layers and the full operation
 /// binding. [tryParse] is strict; null means malformed and must be treated as a
 /// failure.
+/// ASR §7.2: the identity of native expiry evidence (no uid, key or content).
+class NativeExpiryEvidence {
+  const NativeExpiryEvidence({
+    required this.evidenceId,
+    required this.ownerGeneration,
+    required this.ownerEpoch,
+    required this.sessionLifecycle,
+  });
+
+  final String evidenceId;
+  final int ownerGeneration;
+  final int ownerEpoch;
+  final int sessionLifecycle;
+
+  static const _keys = {
+    'evidenceId',
+    'ownerGeneration',
+    'ownerEpoch',
+    'sessionLifecycle'
+  };
+
+  static NativeExpiryEvidence? tryParse(Object? raw) {
+    if (raw is! Map ||
+        raw.length != _keys.length ||
+        !raw.keys.every(_keys.contains)) {
+      return null;
+    }
+    final id = raw['evidenceId'];
+    final generation = raw['ownerGeneration'];
+    final epoch = raw['ownerEpoch'];
+    final lifecycle = raw['sessionLifecycle'];
+    if (id is! String ||
+        !CloudEgressEnableResult._operationIdPattern.hasMatch(id) ||
+        generation is! int ||
+        generation <= 0 ||
+        epoch is! int ||
+        epoch < 0 ||
+        lifecycle is! int ||
+        lifecycle < 0) {
+      return null;
+    }
+    return NativeExpiryEvidence(
+        evidenceId: id,
+        ownerGeneration: generation,
+        ownerEpoch: epoch,
+        sessionLifecycle: lifecycle);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is NativeExpiryEvidence &&
+      other.evidenceId == evidenceId &&
+      other.ownerGeneration == ownerGeneration &&
+      other.ownerEpoch == ownerEpoch &&
+      other.sessionLifecycle == sessionLifecycle;
+
+  @override
+  int get hashCode =>
+      Object.hash(evidenceId, ownerGeneration, ownerEpoch, sessionLifecycle);
+}
+
+/// ASR §7.4: what `inspectRecoveryEvidence` saw under one native lock.
+enum RecoveryEvidenceKind { expiryEvidence, liveOn, none }
+
+class RecoveryEvidenceSnapshot {
+  const RecoveryEvidenceSnapshot({
+    required this.kind,
+    required this.ownerGeneration,
+    required this.ownerEpoch,
+    required this.mutationCounter,
+    this.state,
+    this.transitionGeneration,
+    this.reservedVersion,
+    this.lifetimeOwnerGeneration,
+    this.lifetimeOwnerEpoch,
+    this.expiryEvidence,
+  });
+
+  final RecoveryEvidenceKind kind;
+  final int? ownerGeneration;
+  final int? ownerEpoch;
+  final int? mutationCounter;
+  final String? state;
+  final int? transitionGeneration;
+  final int? reservedVersion;
+  final int? lifetimeOwnerGeneration;
+  final int? lifetimeOwnerEpoch;
+  final NativeExpiryEvidence? expiryEvidence;
+
+  /// Positive native OFF (session-only refresh, Cloud OFF): a live owner with
+  /// no removal barrier, no pending, and both native layers readable and agreed
+  /// on an OFF record. Native sends a record only after all of that held
+  /// (`SharedCaptureStore.inspectRecoveryEvidence`); absence is not OFF.
+  bool get verifiedOff =>
+      mutationCounter != null &&
+      ownerGeneration != null &&
+      ownerEpoch != null &&
+      kind != RecoveryEvidenceKind.liveOn &&
+      state == 'OFF';
+
+  static int? _int(Map<Object?, Object?> raw, String key) {
+    final v = raw[key];
+    return v is int && v >= 0 ? v : null;
+  }
+
+  /// Any malformed reply is null (the caller denies).
+  static RecoveryEvidenceSnapshot? tryParse(Object? raw) {
+    if (raw is! Map) return null;
+    RecoveryEvidenceKind? kind;
+    for (final k in RecoveryEvidenceKind.values) {
+      if (k.name == raw['kind']) kind = k;
+    }
+    if (kind == null) return null;
+    final rec = raw['record'];
+    if (rec != null && rec is! Map) return null;
+    final evidenceRaw = rec is Map ? rec['expiryEvidence'] : null;
+    final evidence =
+        evidenceRaw == null ? null : NativeExpiryEvidence.tryParse(evidenceRaw);
+    if (evidenceRaw != null && evidence == null) return null;
+    final snapshot = RecoveryEvidenceSnapshot(
+      kind: kind,
+      ownerGeneration: _int(raw, 'ownerGeneration'),
+      ownerEpoch: _int(raw, 'ownerEpoch'),
+      mutationCounter: _int(raw, 'mutationCounter'),
+      state: rec is Map ? rec['state'] as String? : null,
+      transitionGeneration:
+          rec is Map ? _int(rec, 'transitionGeneration') : null,
+      reservedVersion: rec is Map ? _int(rec, 'reservedVersion') : null,
+      lifetimeOwnerGeneration:
+          rec is Map ? _int(rec, 'lifetimeOwnerGeneration') : null,
+      lifetimeOwnerEpoch: rec is Map ? _int(rec, 'lifetimeOwnerEpoch') : null,
+      expiryEvidence: evidence,
+    );
+    // A positive kind must carry everything its predicate is built from.
+    if (kind != RecoveryEvidenceKind.none &&
+        (snapshot.ownerGeneration == null ||
+            snapshot.ownerEpoch == null ||
+            snapshot.mutationCounter == null ||
+            snapshot.transitionGeneration == null ||
+            snapshot.reservedVersion == null ||
+            (kind == RecoveryEvidenceKind.expiryEvidence &&
+                evidence == null))) {
+      return null;
+    }
+    return snapshot;
+  }
+}
+
 class CloudEgressEnableResult {
   const CloudEgressEnableResult({
     required this.operation,
@@ -327,6 +475,8 @@ class CloudEgressEnableResult {
     this.reservedVersion,
     this.ownerGeneration,
     this.ownerEpoch,
+    this.expiryEvidence,
+    this.mutationCounter,
   });
 
   static const _operations = {
@@ -338,6 +488,9 @@ class CloudEgressEnableResult {
     'inspect',
     'revoke',
     'publishRestrictive',
+    'mintExpiry',
+    'invalidateExpiry',
+    'retireSuccessor',
   };
   static const _topKeys = {
     'contractVersion',
@@ -350,6 +503,8 @@ class CloudEgressEnableResult {
     'ownerEpoch',
     'barrier',
     'egress',
+    'expiryEvidence',
+    'mutationCounter',
   };
   static const _layerKeys = {
     'layer',
@@ -377,6 +532,12 @@ class CloudEgressEnableResult {
 
   /// Egress-state layers, in order `file`, `keychain` (empty when not read).
   final List<CloudEgressLayerReport> egress;
+
+  /// ASR §7.2: the expiry evidence both layers hold after an expiry revoke/mint.
+  final NativeExpiryEvidence? expiryEvidence;
+
+  /// ASR §7.4: the native `egressMutationCounter` read under the same lock.
+  final int? mutationCounter;
 
   /// The operation this reply is about, or null when any part of its identity is
   /// missing (then nothing can be resumed, restricted or finished with it).
@@ -490,10 +651,16 @@ class CloudEgressEnableResult {
     final ownerEpoch = _optionalInt(raw, 'ownerEpoch');
     final barrier = _parseLayers(raw['barrier'], allowEmpty: false);
     final egress = _parseLayers(raw['egress'], allowEmpty: true);
+    final counter = _optionalInt(raw, 'mutationCounter');
+    final evidence = raw.containsKey('expiryEvidence')
+        ? NativeExpiryEvidence.tryParse(raw['expiryEvidence'])
+        : null;
     if (generation == -1 ||
         version == -1 ||
         ownerGeneration == -1 ||
         ownerEpoch == -1 ||
+        counter == -1 ||
+        (raw.containsKey('expiryEvidence') && evidence == null) ||
         barrier == null ||
         egress == null ||
         !_validId(raw)) {
@@ -509,6 +676,8 @@ class CloudEgressEnableResult {
       ownerEpoch: ownerEpoch,
       barrier: barrier,
       egress: egress,
+      expiryEvidence: evidence,
+      mutationCounter: counter,
     );
   }
 
@@ -1376,10 +1545,51 @@ class NativeCaptureBridge {
   /// (Android, manual paste) have no native upload gate to consult.
   static bool get hasNativeQueue => _hasNativeQueue;
 
+  /// ASR §5 (C2): the native writes of egress, pending, barrier or owner state
+  /// issued from Dart, and whether each is an IDENTITY cause (removal, barrier,
+  /// owner clear) rather than POLICY.
+  static const Map<String, bool> protectedNativeWrites = {
+    'publishCaptureOwner': false,
+    'publishRestrictiveCaptureOwner': false,
+    'repairActiveOwnerGeneration': false,
+    'revokeCaptureAuthorizationLifetime': false,
+    'setCaptureConsentMirror': false,
+    'setCloudEgressState': false,
+    'beginCloudEgressEnable': false,
+    'writeCloudEgressEnableOn': false,
+    'restrictCloudEgressEnable': false,
+    'finishCloudEgressEnable': false,
+    'resolveLegacyCaptureItems': false,
+    'mintExpiryEvidenceForLiveOn': false,
+    'invalidateExpiryEvidence': false,
+    'retireSuccessor': false,
+    'clearCaptureOwner': true,
+    'beginCaptureRemoval': true,
+    'finishCaptureRemoval': true,
+    'purgeAllCaptureState': true,
+  };
+
+  /// Wired by the egress gate: appends the typed cause of a protected native
+  /// write. Called synchronously BEFORE the channel call. [authority] is the
+  /// ASR op an owned successor-chain write belongs to (§11.2); every other
+  /// write passes none and is foreign to every op.
+  static void Function(String method,
+      {required bool identity, Object? authority})? onProtectedNativeWrite;
+
+  static void _noteProtectedWrite(String method, Object? authority) {
+    final identity = protectedNativeWrites[method];
+    if (identity != null) {
+      onProtectedNativeWrite?.call(method,
+          identity: identity, authority: authority);
+    }
+  }
+
   static Future<T?> _queueCall<T>(
     String method, [
     Map<String, Object?>? arguments,
+    Object? causeAuthority,
   ]) async {
+    _noteProtectedWrite(method, causeAuthority);
     try {
       return await _channel.invokeMethod<T>(method, arguments);
     } on PlatformException catch (e) {
@@ -1447,11 +1657,18 @@ class NativeCaptureBridge {
     int? expectedReservedVersion,
     int? expectedLifetimeOwnerGeneration,
     int? expectedLifetimeOwnerEpoch,
+    ({String evidenceId, int expectedCounter})? successorOf,
+    Object? causeAuthority,
   }) async {
     if (!_hasNativeQueue) return null;
     return RestrictiveCaptureOwnerReceipt.tryParse(
         await _queueCall<Object?>('publishRestrictiveCaptureOwner', {
       'uid': uid, 'version': version, 'expectedEpoch': expectedEpoch,
+      // ASR §7.5 SE1: a successor of exactly this expiry evidence.
+      if (successorOf != null) ...{
+        'successorEvidenceId': successorOf.evidenceId,
+        'successorExpectedCounter': successorOf.expectedCounter,
+      },
       // Recovery mode: native writes only while BOTH layers still hold exactly
       // this inspected OFF record, and `version` is strictly above it.
       if (expectedTransitionGeneration != null &&
@@ -1464,17 +1681,124 @@ class NativeCaptureBridge {
         if (expectedLifetimeOwnerEpoch != null)
           'expectedLifetimeOwnerEpoch': expectedLifetimeOwnerEpoch,
       },
-    }));
+    }, causeAuthority));
   }
 
+  /// ASR §7.2: [expirySessionLifecycle] only for cause `sessionExpiry`; native
+  /// then mints expiry evidence when (and only when) its conditions hold.
   static Future<CloudEgressEnableResult?> revokeCaptureAuthorizationLifetime({
     required String ownerUid,
     required CloudEgressEnableBinding binding,
+    int? expirySessionLifecycle,
   }) async {
     if (!_hasNativeQueue) return null;
-    return CloudEgressEnableResult.tryParse(await _queueCall<Object?>(
-        'revokeCaptureAuthorizationLifetime',
-        _phaseArguments(ownerUid, binding)));
+    return CloudEgressEnableResult.tryParse(
+        await _queueCall<Object?>('revokeCaptureAuthorizationLifetime', {
+      ..._phaseArguments(ownerUid, binding),
+      if (expirySessionLifecycle != null)
+        'expirySessionLifecycle': expirySessionLifecycle,
+    }));
+  }
+
+  /// ASR §7.4: one locked read-only snapshot. Null off iOS or on any failure.
+  static Future<RecoveryEvidenceSnapshot?> inspectRecoveryEvidence(
+      {required String ownerUid}) async {
+    if (!_hasNativeQueue) return null;
+    try {
+      return RecoveryEvidenceSnapshot.tryParse(await _queueCall<Object?>(
+          'inspectRecoveryEvidence', {'ownerUid': ownerUid}));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// ASR §7.4: true only when native confirms no protected write since
+  /// [expectedCounter]; false on any failure.
+  static Future<bool> confirmRecoveryEvidence(int expectedCounter) async {
+    if (!_hasNativeQueue) return false;
+    try {
+      return await _queueCall<bool>('confirmRecoveryEvidence',
+              {'expectedCounter': expectedCounter}) ==
+          true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// ASR §7.6 E2-b: conditional expiry retirement of an inspected live ON.
+  static Future<CloudEgressEnableResult?> mintExpiryEvidenceForLiveOn({
+    required String ownerUid,
+    required int ownerGeneration,
+    required int ownerEpoch,
+    required int transitionGeneration,
+    required int reservedVersion,
+    required int sessionLifecycle,
+    required int expectedCounter,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return _enableResult(
+        'mintExpiry',
+        await _queueCall<Object?>('mintExpiryEvidenceForLiveOn', {
+          'ownerUid': ownerUid,
+          'ownerGeneration': ownerGeneration,
+          'ownerEpoch': ownerEpoch,
+          'transitionGeneration': transitionGeneration,
+          'reservedVersion': reservedVersion,
+          'sessionLifecycle': sessionLifecycle,
+          'expectedCounter': expectedCounter,
+        }));
+  }
+
+  /// ASR §7.7: removes exactly [evidenceId] natively.
+  static Future<CloudEgressEnableResult?> invalidateExpiryEvidence(
+      {required String ownerUid, required String evidenceId}) async {
+    if (!_hasNativeQueue) return null;
+    return _enableResult(
+        'invalidateExpiry',
+        await _queueCall<Object?>('invalidateExpiryEvidence',
+            {'ownerUid': ownerUid, 'evidenceId': evidenceId}));
+  }
+
+  /// ASR §7.5: exact retirement of successor lifetime [successorGeneration].
+  static Future<CloudEgressEnableResult?> retireSuccessor({
+    required String ownerUid,
+    required int successorGeneration,
+    required int ownerEpoch,
+    required String operationId,
+    Object? causeAuthority,
+  }) async {
+    if (!_hasNativeQueue) return null;
+    return _enableResult(
+        'retireSuccessor',
+        await _queueCall<Object?>('retireSuccessor', {
+          'ownerUid': ownerUid,
+          'successorGeneration': successorGeneration,
+          'ownerEpoch': ownerEpoch,
+          'operationId': operationId,
+        }, causeAuthority));
+  }
+
+  /// ASR §7.5.1: `finished`, `behindBarrier` or `other` (also on any failure).
+  static Future<String> inspectSuccessor({
+    required String ownerUid,
+    required int successorGeneration,
+    required int ownerEpoch,
+    required String operationId,
+  }) async {
+    if (!_hasNativeQueue) return 'other';
+    try {
+      final raw = await _queueCall<Object?>('inspectSuccessor', {
+        'ownerUid': ownerUid,
+        'successorGeneration': successorGeneration,
+        'ownerEpoch': ownerEpoch,
+        'operationId': operationId,
+      });
+      return raw == 'finished' || raw == 'behindBarrier'
+          ? raw as String
+          : 'other';
+    } catch (_) {
+      return 'other';
+    }
   }
 
   /// The owner epoch, bumped natively by every owner clear. 0 off iOS.
@@ -1624,7 +1948,12 @@ class NativeCaptureBridge {
     required int transitionGeneration,
     required int reservedVersion,
     CloudEgressEnableBinding? resume,
+    ({String evidenceId, int expectedCounter})? successor,
+    Object? causeAuthority,
   }) async {
+    if (resume != null && successor != null) {
+      throw ArgumentError('a successor begin is never a resume');
+    }
     if (resume != null &&
         (resume.transitionGeneration != transitionGeneration ||
             resume.reservedVersion != reservedVersion)) {
@@ -1639,7 +1968,11 @@ class NativeCaptureBridge {
         'reservedVersion': reservedVersion,
         if (resume != null) 'resumeOperationId': resume.operationId,
         if (resume != null) 'resumeOwnerEpoch': resume.ownerEpoch,
-      }),
+        if (successor != null) ...{
+          'successorEvidenceId': successor.evidenceId,
+          'successorExpectedCounter': successor.expectedCounter,
+        },
+      }, successor == null ? null : causeAuthority),
     );
   }
 
@@ -1661,12 +1994,16 @@ class NativeCaptureBridge {
   static Future<CloudEgressEnableResult?> writeCloudEgressEnableOn({
     required String ownerUid,
     required CloudEgressEnableBinding binding,
+    int? expectedCounter,
+    Object? causeAuthority,
   }) async {
     if (!_hasNativeQueue) return null;
     return _enableResult(
       'writeOn',
-      await _queueCall<Object?>(
-          'writeCloudEgressEnableOn', _phaseArguments(ownerUid, binding)),
+      await _queueCall<Object?>('writeCloudEgressEnableOn', {
+        ..._phaseArguments(ownerUid, binding),
+        if (expectedCounter != null) 'expectedCounter': expectedCounter,
+      }, causeAuthority),
     );
   }
 
@@ -1679,12 +2016,13 @@ class NativeCaptureBridge {
   static Future<CloudEgressEnableResult?> restrictCloudEgressEnable({
     required String ownerUid,
     required CloudEgressEnableBinding binding,
+    Object? causeAuthority,
   }) async {
     if (!_hasNativeQueue) return null;
     return _enableResult(
       'restrict',
-      await _queueCall<Object?>(
-          'restrictCloudEgressEnable', _phaseArguments(ownerUid, binding)),
+      await _queueCall<Object?>('restrictCloudEgressEnable',
+          _phaseArguments(ownerUid, binding), causeAuthority),
     );
   }
 
@@ -1700,12 +2038,20 @@ class NativeCaptureBridge {
     required String ownerUid,
     required CloudEgressEnableBinding binding,
     required bool abandon,
+    int? expectedCounter,
+    Object? causeAuthority,
   }) async {
+    if (expectedCounter != null && abandon) {
+      throw ArgumentError('a counter-bound finish is a completion');
+    }
     if (!_hasNativeQueue) return null;
     return _enableResult(
       abandon ? 'abandon' : 'complete',
-      await _queueCall<Object?>('finishCloudEgressEnable',
-          {..._phaseArguments(ownerUid, binding), 'abandon': abandon}),
+      await _queueCall<Object?>('finishCloudEgressEnable', {
+        ..._phaseArguments(ownerUid, binding),
+        'abandon': abandon,
+        if (expectedCounter != null) 'expectedCounter': expectedCounter,
+      }, causeAuthority),
     );
   }
 
@@ -2066,6 +2412,7 @@ class NativeCaptureBridge {
     }
     for (var attempt = 0;; attempt++) {
       try {
+        _noteProtectedWrite('purgeAllCaptureState', null);
         final ok = await _channel.invokeMethod<bool>('purgeAllCaptureState');
         return ok ?? false;
       } on MissingPluginException {

@@ -32,7 +32,7 @@ class MaliCard extends StatelessWidget {
     required this.child,
     this.style = MaliSurfaceStyle.floating,
     this.padding = const EdgeInsets.all(AppSpacing.cardPadding),
-    this.radius = AppRadius.xxl,
+    this.radius = AppRadius.card,
     this.onTap,
     this.onLongPress,
   });

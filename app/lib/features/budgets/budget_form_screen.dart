@@ -19,6 +19,7 @@ import '../../domain/entities/budget_entity.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../common/app_button.dart';
 import '../common/category_catalog.dart';
+import '../common/app_avatar.dart';
 import 'budgets_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../common/app_header.dart';
@@ -26,6 +27,7 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
 import '../../core/theme/widgets/glass_dropdown_field.dart';
+import '../common/app_error_state.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
     {bool tabular = false, List<Shadow>? shadows}) {
@@ -180,12 +182,22 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
     return budgetAsync.when(
       skipLoadingOnReload: true,
       loading: () => const Center(child: CircularProgressIndicator()),
-      error: (error, _) => Center(child: Text(context.l10n.txnError)),
+      error: (error, _) => SingleChildScrollView(child: AppErrorState(
+        title: context.l10n.txnError,
+        description: context.l10n.annTryAgainSoon,
+        retryLabel: context.l10n.startRetry,
+        onRetry: () => ref.invalidate(budgetByIdProvider(widget.budgetId!)),
+      )),
       data: (budget) {
         return categoriesAsync.when(
           skipLoadingOnReload: true,
           loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(child: Text(context.l10n.txnError)),
+          error: (error, _) => SingleChildScrollView(child: AppErrorState(
+            title: context.l10n.txnError,
+            description: context.l10n.annTryAgainSoon,
+            retryLabel: context.l10n.startRetry,
+            onRetry: () => ref.invalidate(categoryCatalogProvider),
+          )),
           data: (catalog) {
             _seedInitialState(budget);
             return Form(
@@ -194,51 +206,12 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                 padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.gutter, vertical: 8),
                 children: [
-                  GlassDropdownField<String>(
-                    value: _categoryId,
-                    items: [
-                      DropdownMenuItem<String>(
-                        value: BudgetEntity.allExpensesCategoryId,
-                        child: Text(context.l10n.bdgAllExpenses),
-                      ),
-                      for (final category in catalog.all.where(
-                        (it) =>
-                            it.key != 'income' &&
-                            it.key != BudgetEntity.allExpensesCategoryKey,
-                      ))
-                        DropdownMenuItem<String>(
-                          value: category.id,
-                          child: Text(category.name),
-                        ),
-                    ],
+                  _PeriodSelector(
+                    value: _period,
                     onChanged: (value) {
-                      setState(() => _categoryId = value);
+                      setState(() => _period = value);
                       _refreshSuggestedAmount();
                     },
-                    style: _alex(14, FontWeight.w700, 1.2, c.textMain),
-                    decoration: InputDecoration(
-                      labelText: context.l10n.txnCategory,
-                      labelStyle: _alex(13, FontWeight.w700, 1.2, c.textLight),
-                      filled: true,
-                      fillColor: c.surface.withValues(alpha: 0.15),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 14),
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide:
-                            BorderSide(color: c.border.withValues(alpha: 0.3)),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide:
-                            BorderSide(color: c.border.withValues(alpha: 0.3)),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(16),
-                        borderSide: BorderSide(color: c.primary, width: 1.5),
-                      ),
-                    ),
-                    validator: (value) => value == null ? context.l10n.bfsPickCategory : null,
                   ),
                   const SizedBox(height: AppSpacing.s4),
                   TextFormField(
@@ -271,19 +244,74 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
                       ),
                     ),
                     validator: (value) {
-                      final amount = double.tryParse(value ?? '');
-                      if (amount == null || amount <= 0) {
+                      try {
+                        final amount = parseLocalizedMoney(
+                            value ?? '', budget?.currency ?? baseCurrency);
+                        if (amount.minorUnits > 0) return null;
+                      } catch (_) {
                         return context.l10n.gfEnterValidAmount;
                       }
-                      return null;
+                      return context.l10n.gfEnterValidAmount;
                     },
                   ),
                   const SizedBox(height: AppSpacing.s4),
-                  _PeriodSelector(
-                    value: _period,
-                    onChanged: (value) {
-                      setState(() => _period = value);
-                      _refreshSuggestedAmount();
+                  Text(context.l10n.txnCategory,
+                    style: _alex(13, FontWeight.w600, 1.4, c.textMuted)),
+                  const SizedBox(height: 8),
+                  FormField<String>(
+                    key: ValueKey('budget-category-$_categoryId'),
+                    initialValue: _categoryId,
+                    validator: (value) => value == null ? context.l10n.bfsPickCategory : null,
+                    builder: (field) {
+                      final choices = <(String, String, CategoryView?)>[
+                        (BudgetEntity.allExpensesCategoryId, context.l10n.bdgAllExpenses, null),
+                        for (final category in catalog.all.where((it) =>
+                            it.key != 'income' && it.key != BudgetEntity.allExpensesCategoryKey))
+                          (category.id, category.name, category),
+                      ];
+                      return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        LayoutBuilder(builder: (context, box) => GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: choices.length,
+                          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: box.maxWidth < 400 ? 3 : 4,
+                            crossAxisSpacing: 8, mainAxisSpacing: 8,
+                            mainAxisExtent: 94 * MediaQuery.textScalerOf(context).scale(1)),
+                          itemBuilder: (context, index) {
+                            final choice = choices[index];
+                            final selected = _categoryId == choice.$1;
+                            return Semantics(selected: selected, button: true,
+                              child: InkWell(
+                                key: ValueKey('budget-category-${choice.$1}'),
+                                borderRadius: BorderRadius.circular(14),
+                                onTap: () {
+                                  field.didChange(choice.$1);
+                                  setState(() => _categoryId = choice.$1);
+                                  _refreshSuggestedAmount();
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: selected ? c.primary.withValues(alpha: .08) : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(color: selected ? c.primary : Colors.transparent, width: 1.5)),
+                                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                                    choice.$3 == null
+                                      ? AppAvatar.icon(icon: AppLucideIcons.wallet, color: c.primary, size: 32)
+                                      : AppAvatar.category(category: choice.$3, size: 32),
+                                    const SizedBox(height: 6),
+                                    Text(choice.$2, textAlign: TextAlign.center, maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: _alex(11.5, FontWeight.w600, 1.25, selected ? c.primary : c.textSecondary)),
+                                  ]),
+                                ),
+                              ));
+                          },
+                        )),
+                        if (field.hasError) Padding(padding: const EdgeInsets.only(top: 6),
+                          child: Text(field.errorText!, style: _alex(12, FontWeight.w400, 1.4, c.danger))),
+                      ]);
                     },
                   ),
                   const SizedBox(height: AppSpacing.s4),
@@ -387,17 +415,30 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
   }
 
   Future<void> _submit(BudgetEntity? existing) async {
-    if (_saving || !_formKey.currentState!.validate() || _categoryId == null) {
+    if (_saving) return;
+    // The amount field can be disposed while the long category list scrolls.
+    // Validate its retained controller text even when FormState has no field.
+    // §25 — an existing budget keeps its persisted currency; a new one is
+    // seeded from the effective base. The amount is parsed EXACTLY from the
+    // input string into that currency (never double -> Money.fromLegacyReal).
+    final currency = existing?.currency ??
+        (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final Money amountMoney;
+    try {
+      amountMoney = parseLocalizedMoney(_amountController.text, currency);
+      if (amountMoney.minorUnits <= 0) {
+        _formKey.currentState!.validate();
+        AppToast.showError(context, context.l10n.gfEnterValidAmount);
+        return;
+      }
+    } catch (_) {
+      _formKey.currentState!.validate();
+      AppToast.showError(context, context.l10n.gfEnterValidAmount);
       return;
     }
+    if (!_formKey.currentState!.validate() || _categoryId == null) return;
     setState(() => _saving = true);
     try {
-      // §25 — an existing budget keeps its persisted currency; a new one is
-      // seeded from the effective base. The amount is parsed EXACTLY from the
-      // input string into that currency (never double -> Money.fromLegacyReal).
-      final currency = existing?.currency ??
-          (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
-      final amountMoney = parseLocalizedMoney(_amountController.text, currency);
       final accounts =
           ref.read(accountsProvider).valueOrNull ?? <AccountEntity>[];
       final selectedAccount = _selectedAccount(accounts);
@@ -431,7 +472,7 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
       final message = error is RepoException
           ? repoErrorMessage(context, error)
           : context.l10n.bfSaveFailed;
-      AppToast.show(context, message);
+      AppToast.showError(context, message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -454,9 +495,9 @@ class _BudgetFormContentState extends ConsumerState<_BudgetFormContent> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            style: FilledButton.styleFrom(backgroundColor: c.danger),
+            style: FilledButton.styleFrom(backgroundColor: c.danger, foregroundColor: c.onDanger),
             child: Text(context.l10n.setDelete,
-                style: _alex(14, FontWeight.w700, 1.2, Colors.white)),
+                style: _alex(14, FontWeight.w700, 1.2, c.onDanger)),
           ),
         ],
       ),
@@ -642,6 +683,9 @@ class _BudgetSuggestionCard extends StatelessWidget {
           if (value != null) ...[
             const SizedBox(width: AppSpacing.s2),
             TextButton(
+              style: Theme.of(context).brightness == Brightness.dark
+                  ? TextButton.styleFrom(foregroundColor: c.primary)
+                  : null,
               onPressed: onApply,
               child: Text(context.l10n.bfsUseIt),
             ),

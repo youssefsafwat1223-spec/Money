@@ -8,6 +8,7 @@ import '../../core/utils/l10n_ext.dart';
 import '../../core/backup/backup_service.dart';
 import '../../core/backup/restore_controller.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../budgets/budgets_providers.dart';
@@ -15,8 +16,8 @@ import '../dashboard/dashboard_providers.dart';
 import '../goals/goals_providers.dart';
 import '../transactions/transactions_providers.dart';
 import 'setup_screen.dart';
-import 'widgets/neon_illustration.dart';
-import 'widgets/premium_ui.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
+import '../../core/theme/app_shadows.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../backup/backup_error_messages.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
@@ -167,7 +168,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final actionForeground = maliPrimaryActionForeground(context);
+    final actionForeground = c.onCta;
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
@@ -181,16 +182,9 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
             padding: const EdgeInsets.all(AppSpacing.gutter),
             decoration: BoxDecoration(
               color: c.bg,
-              borderRadius: BorderRadius.circular(30),
+              borderRadius: BorderRadius.circular(AppRadius.card),
               border: Border.all(color: c.border),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withValues(alpha: isDark ? 0.55 : 0.18),
-                  blurRadius: 36,
-                  spreadRadius: -16,
-                  offset: const Offset(0, 18),
-                ),
-              ],
+              boxShadow: isDark ? const [] : AppShadows.card,
             ),
             child: SingleChildScrollView(
               child: Column(
@@ -209,19 +203,25 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                     ),
                   ),
                   Center(
-                    child: const NeonIllustration(
-                      icon: AppLucideIcons.cloud,
-                      size: 140,
+                    child: const QirshIllustration(
+                      name: 'dataTransfer', width: 200, height: 150,
                     )
                         .animate()
                         .fade(duration: 800.ms)
                         .scale(curve: Curves.easeOutBack),
                   ),
                   const SizedBox(height: AppSpacing.s4),
-                  Text(
-                    context.l10n.backupFound,
-                    textAlign: TextAlign.center,
-                    style: AppTypography.title2(c.textMain),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Image.asset(AppAssets.getCoin(context), width: 32, height: 32),
+                      const SizedBox(width: AppSpacing.s2),
+                      Flexible(child: Text(
+                        context.l10n.backupFound,
+                        textAlign: TextAlign.center,
+                        style: AppTypography.title2(c.textMain),
+                      )),
+                    ],
                   ),
                   const SizedBox(height: 8),
                   Text(
@@ -273,6 +273,7 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                     style: AppTypography.body(c.textMain),
                     decoration: InputDecoration(
                       errorText: _error,
+                      errorMaxLines: 4,
                       errorStyle: AppTypography.footnote(c.danger),
                       hintText: _useRecoveryCode
                           ? context.l10n.recoveryCodeHint
@@ -322,24 +323,12 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                   const SizedBox(height: AppSpacing.s4),
                   SizedBox(
                     height: 52,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: maliPrimaryActionGradient(context),
-                        borderRadius: BorderRadius.circular(16),
-                        boxShadow: [
-                          BoxShadow(
-                            color: c.accent.withValues(alpha: 0.25),
-                            blurRadius: 15,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: ElevatedButton(
+                    child: FilledButton(
                         key: const Key('restore_cta'),
                         onPressed: _busy ? null : _restore,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.transparent,
-                          shadowColor: Colors.transparent,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: c.cta,
+                          foregroundColor: actionForeground,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(16),
                           ),
@@ -358,7 +347,6 @@ class _RestorePromptScreenState extends ConsumerState<RestorePromptScreen> {
                                 style:
                                     AppTypography.bodyStrong(actionForeground),
                               ),
-                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.s2),

@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:drift/native.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/data/catalog/catalog_daos.dart';
@@ -35,6 +37,13 @@ import 'package:url_launcher_platform_interface/url_launcher_platform_interface.
 class _RecordingLauncher extends UrlLauncherPlatform
     with MockPlatformInterfaceMixin {
   final List<String> launched = <String>[];
+  bool succeeds = true;
+  bool throws = false;
+  bool _record(String url) {
+    launched.add(url);
+    if (throws) throw StateError('synthetic_launcher_failure');
+    return succeeds;
+  }
 
   @override
   Widget Function(LinkInfo)? get linkDelegate => null;
@@ -44,8 +53,7 @@ class _RecordingLauncher extends UrlLauncherPlatform
 
   @override
   Future<bool> launchUrl(String url, LaunchOptions options) async {
-    launched.add(url);
-    return true;
+    return _record(url);
   }
 
   @override
@@ -59,8 +67,7 @@ class _RecordingLauncher extends UrlLauncherPlatform
     required Map<String, String> headers,
     String? webOnlyWindowName,
   }) async {
-    launched.add(url);
-    return true;
+    return _record(url);
   }
 }
 
@@ -81,7 +88,7 @@ class _StubGateway implements AffiliateClickGateway {
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
-CouponOffer _offer({String? url = 'https://merchant.example/deal'}) =>
+CouponOffer _offer({String? url = 'https://merchant.example/deal', String? code, DateTime? validUntil}) =>
     CouponOffer(
       id: 'o1',
       slug: 'deal',
@@ -90,23 +97,24 @@ CouponOffer _offer({String? url = 'https://merchant.example/deal'}) =>
       titleEn: 'Offer',
       descriptionAr: 'وصف',
       descriptionEn: 'Description',
-      redemptionType: CouponRedemptionType.link,
-      code: null,
+      redemptionType: code == null ? CouponRedemptionType.link : CouponRedemptionType.code,
+      code: code,
       partnerUrl: url,
       category: const CouponCategory(key: 'food', labelAr: 'طعام'),
       tags: const [],
       countryCodes: const ['SA'],
       featured: false,
       validFrom: DateTime.now().subtract(const Duration(days: 1)),
-      validUntil: DateTime.now().add(const Duration(days: 30)),
+      validUntil: validUntil ?? DateTime.now().add(const Duration(days: 30)),
       accentHex: '#2563EB',
     );
 
-Widget _app(Widget child, {List<Override> overrides = const []}) =>
+Widget _app(Widget child, {List<Override> overrides = const [],
+    String language = 'ar', bool dark = true}) =>
     ProviderScope(
       overrides: overrides,
       child: MaterialApp(
-        locale: const Locale('ar'),
+        locale: Locale(language),
         localizationsDelegates: const [
           AppL10n.delegate,
           GlobalMaterialLocalizations.delegate,
@@ -114,24 +122,34 @@ Widget _app(Widget child, {List<Override> overrides = const []}) =>
           GlobalCupertinoLocalizations.delegate,
         ],
         supportedLocales: AppL10n.supportedLocales,
-        theme: AppTheme.dark,
+        theme: dark ? AppTheme.dark : AppTheme.light,
         // The failure paths surface a banner, which needs a Scaffold ancestor.
         home: Scaffold(body: child),
       ),
     );
 
-Future<void> _tapCta(WidgetTester tester) async {
+Future<void> _tapCta(WidgetTester tester, {bool drainToast = true}) async {
   // Find the CTA by its real localized label, not by a key a test invented.
   final l10n = await AppL10n.delegate.load(const Locale('ar'));
   final cta = find.widgetWithText(FilledButton, l10n.couponsUseOffer);
   expect(cta, findsOneWidget, reason: 'the real CTA must be present');
   await tester.tap(cta);
   await tester.pumpAndSettle();
-  // The paths that launch nothing surface a top banner whose auto-dismiss is a
-  // bare 5s Future.delayed, which pumpAndSettle does not drain. Advance past it
-  // so teardown does not fail on a pending timer.
+  if (!drainToast) return;
+  // Drain the top-toast timer before teardown.
   await tester.pump(const Duration(seconds: 5));
   await tester.pumpAndSettle();
+}
+
+Future<void> _expectErrorToast(WidgetTester tester, String copy) async {
+  try {
+    expect(find.text(copy), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.alertCircle), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.checkCircle), findsNothing);
+  } finally {
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  }
 }
 
 /// Analytics needs a database in production; the CTA records a click before
@@ -183,6 +201,68 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  for (final language in ['ar', 'en']) {
+    for (final dark in [false, true]) {
+      testWidgets('code copy announcement uses UI direction $language dark$dark', (t) async {
+        t.view.physicalSize = const Size(375, 812);
+        t.view.devicePixelRatio = 1;
+        addTearDown(t.view.reset);
+        final clipboard = <String>[];
+        final haptics = <Object?>[];
+        final announcements = <Map<dynamic, dynamic>>[];
+        t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform, (call) async {
+            if (call.method == 'Clipboard.setData') {
+              clipboard.add((call.arguments as Map)['text'] as String);
+            } else if (call.method == 'HapticFeedback.vibrate') {
+              haptics.add(call.arguments);
+            }
+            return null;
+          });
+        t.binding.defaultBinaryMessenger.setMockDecodedMessageHandler(
+          SystemChannels.accessibility, (message) async {
+            final event = message as Map;
+            if (event['type'] == 'announce') announcements.add(event);
+            return null;
+          });
+        addTearDown(() {
+          t.binding.defaultBinaryMessenger
+              .setMockMethodCallHandler(SystemChannels.platform, null);
+          t.binding.defaultBinaryMessenger
+              .setMockDecodedMessageHandler(SystemChannels.accessibility, null);
+        });
+        final gateway = _StubGateway(const ClickResult(ClickOutcome.unavailable));
+        await t.pumpWidget(_app(CouponDetailsSheet(offer: _offer(code: 'DEMO20')),
+          language: language, dark: dark, overrides: [
+            affiliateClickGatewayProvider.overrideWithValue(gateway),
+            couponAnalyticsProvider.overrideWithValue(_SpyAnalytics()),
+          ]));
+        await t.pumpAndSettle();
+        final l10n = AppL10n.of(t.element(find.byType(CouponDetailsSheet)));
+        await t.tap(find.widgetWithText(FilledButton, l10n.couponsCopyCode));
+        await t.pumpAndSettle();
+        try {
+          expect(clipboard, ['DEMO20']);
+          expect(haptics, ['HapticFeedbackType.selectionClick',
+              'HapticFeedbackType.lightImpact']);
+          expect(gateway.opens, 0);
+          expect(launcher.launched, isEmpty);
+          expect(announcements, hasLength(1));
+          final data = announcements.single['data'] as Map;
+          expect(data['message'], l10n.couponsCodeCopied('DEMO20'));
+          expect(data['textDirection'],
+              (language == 'ar' ? TextDirection.rtl : TextDirection.ltr).index);
+          expect(find.text(l10n.couponsCodeCopied('DEMO20')), findsOneWidget);
+          expect(find.byIcon(AppLucideIcons.checkCircle), findsOneWidget);
+          expect(t.takeException(), isNull);
+        } finally {
+          await t.pump(const Duration(seconds: 4));
+          await t.pumpAndSettle();
+        }
+      });
+    }
+  }
+
   group('what actually reaches the platform launcher', () {
     testWidgets('a valid prepared https URL launches EXACTLY once', (t) async {
       final g = _StubGateway(const ClickResult(
@@ -221,16 +301,20 @@ void main() {
       final g = _StubGateway(const ClickResult(ClickOutcome.tracked,
           url: 'http://insecure.example/x'));
       await pumpSheet(t, gateway: g);
-      await _tapCta(t);
+      await _tapCta(t, drainToast: false);
       expect(launcher.launched, isEmpty);
+      final l10n = await AppL10n.delegate.load(const Locale('ar'));
+      await _expectErrorToast(t, l10n.couponsOpenFailed);
     });
 
     testWidgets('a malformed url is never launched', (t) async {
       final g = _StubGateway(
           const ClickResult(ClickOutcome.tracked, url: 'not a url at all'));
       await pumpSheet(t, gateway: g);
-      await _tapCta(t);
+      await _tapCta(t, drainToast: false);
       expect(launcher.launched, isEmpty);
+      final l10n = await AppL10n.delegate.load(const Locale('ar'));
+      await _expectErrorToast(t, l10n.couponsOpenFailed);
     });
 
     testWidgets('preparation failure launches nothing at all', (t) async {
@@ -238,9 +322,11 @@ void main() {
       // happened AND have a browser opened.
       final g = _StubGateway(const ClickResult(ClickOutcome.unavailable));
       await pumpSheet(t, gateway: g);
-      await _tapCta(t);
+      await _tapCta(t, drainToast: false);
       expect(g.opens, 1);
       expect(launcher.launched, isEmpty);
+      final l10n = await AppL10n.delegate.load(const Locale('ar'));
+      await _expectErrorToast(t, l10n.couponsOpenFailed);
     });
 
     testWidgets('an untracked fallback still opens the merchant URL',
@@ -254,6 +340,85 @@ void main() {
       await pumpSheet(t, gateway: g);
       await _tapCta(t);
       expect(launcher.launched, ['https://merchant.example/deal']);
+    });
+  });
+
+  group('failure and success notice semantics', () {
+    for (final codeOffer in [true, false]) {
+      testWidgets(codeOffer ? 'expired code cannot copy and shows error' :
+          'expired link never reaches gateway or launcher and shows error', (t) async {
+        final gateway = _StubGateway(const ClickResult(ClickOutcome.untracked,
+            url: 'https://merchant.example/deal'));
+        var clipboardWrites = 0;
+        t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          SystemChannels.platform, (call) async {
+            if (call.method == 'Clipboard.setData') clipboardWrites++;
+            return null;
+          });
+        addTearDown(() => t.binding.defaultBinaryMessenger
+            .setMockMethodCallHandler(SystemChannels.platform, null));
+        await pumpSheet(t, gateway: gateway, offer: _offer(
+          code: codeOffer ? 'SYNTHETIC' : null,
+          validUntil: DateTime.now().subtract(const Duration(hours: 1))));
+        final l10n = await AppL10n.delegate.load(const Locale('ar'));
+        if (codeOffer) {
+          await t.tap(find.widgetWithText(FilledButton, l10n.couponsCopyCode));
+          await t.pumpAndSettle();
+        } else {
+          await _tapCta(t, drainToast: false);
+        }
+        expect(clipboardWrites, 0);
+        expect(gateway.opens, 0);
+        expect(launcher.launched, isEmpty);
+        await _expectErrorToast(t, l10n.couponsOfferUnavailable);
+      });
+    }
+
+    for (final throws in [false, true]) {
+      testWidgets(throws ? 'platform launch exception shows failure alert' :
+          'platform launch refusal shows failure alert', (t) async {
+        launcher.succeeds = false;
+        launcher.throws = throws;
+        final gateway = _StubGateway(const ClickResult(ClickOutcome.untracked,
+            url: 'https://merchant.example/deal'));
+        final analytics = _SpyAnalytics();
+        await pumpSheet(t, gateway: gateway, analytics: analytics);
+        await _tapCta(t, drainToast: false);
+        expect(gateway.opens, 1);
+        expect(launcher.launched, ['https://merchant.example/deal']);
+        expect(analytics.clicks, ['o1']);
+        final l10n = await AppL10n.delegate.load(const Locale('ar'));
+        await _expectErrorToast(t, l10n.couponsOpenFailed);
+      });
+    }
+
+    testWidgets('successful code copy keeps success check and exact copied value', (t) async {
+      final clipboard = <String>[];
+      t.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        SystemChannels.platform, (call) async {
+          if (call.method == 'Clipboard.setData') {
+            clipboard.add((call.arguments as Map)['text'] as String);
+          }
+          return null;
+        });
+      addTearDown(() => t.binding.defaultBinaryMessenger
+          .setMockMethodCallHandler(SystemChannels.platform, null));
+      final gateway = _StubGateway(const ClickResult(ClickOutcome.unavailable));
+      await pumpSheet(t, gateway: gateway, offer: _offer(code: 'SYNTHETIC'));
+      final l10n = await AppL10n.delegate.load(const Locale('ar'));
+      await t.tap(find.widgetWithText(FilledButton, l10n.couponsCopyCode));
+      await t.pumpAndSettle();
+      try {
+        expect(clipboard, ['SYNTHETIC']);
+        expect(gateway.opens, 0);
+        expect(launcher.launched, isEmpty);
+        expect(find.text(l10n.couponsCodeCopied('SYNTHETIC')), findsOneWidget);
+        expect(find.byIcon(AppLucideIcons.checkCircle), findsOneWidget);
+        expect(find.byIcon(AppLucideIcons.alertCircle), findsNothing);
+      } finally {
+        await t.pump(const Duration(seconds: 4));
+        await t.pumpAndSettle();
+      }
     });
   });
 

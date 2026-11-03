@@ -284,9 +284,12 @@ class ReportPdfRenderer {
   pw.Page _appendixPage(ReportViewModel m, ReportFontSet fonts,
       ReportThemeSpec theme, pw.TextDirection td, pw.TextStyle base) {
     final head = base.copyWith(fontSize: 8.5, color: theme.textMuted);
-    pw.Widget cell(String text, pw.TextStyle style) => pw.Padding(
+    pw.Widget cell(String text, pw.TextStyle style,
+        {pw.TextDirection? direction}) => pw.Padding(
           padding: const pw.EdgeInsets.symmetric(vertical: 5, horizontal: 6),
-          child: pw.Text(text, style: style, maxLines: 1),
+          child: direction == pw.TextDirection.ltr
+              ? _atomicAmount(text, style)
+              : pw.Text(text, style: style, maxLines: 1),
         );
     // A MultiPage auto-paginates the whole table across as many pages as needed,
     // repeating the header row; real page numbers come from the PDF context.
@@ -335,7 +338,8 @@ class ReportPdfRenderer {
                     base.copyWith(
                         font: fonts.semiBold,
                         fontSize: 9.5,
-                        color: r.isDebit ? theme.expense : theme.income)),
+                        color: r.isDebit ? theme.expense : theme.income),
+                    direction: pw.TextDirection.ltr),
               ]),
           ],
         ),
@@ -787,6 +791,27 @@ class ReportPdfRenderer {
     );
   }
 
+  // Keep the sign beside the digits while shaping an Arabic currency word in
+  // its own RTL run. A whole-string LTR Text reverses the currency glyph order.
+  pw.Widget _atomicAmount(String value, pw.TextStyle style) {
+    final separator = value.indexOf(' ');
+    if (separator < 0) {
+      return pw.Text(value, style: style, textDirection: pw.TextDirection.ltr);
+    }
+    final number = value.substring(0, separator);
+    final currency = value.substring(separator + 1);
+    return pw.Directionality(
+      textDirection: pw.TextDirection.ltr,
+      child: pw.Row(mainAxisSize: pw.MainAxisSize.min, children: [
+        pw.Text(number, style: style, textDirection: pw.TextDirection.ltr),
+        pw.SizedBox(width: 3),
+        pw.Text(currency, style: style,
+            textDirection: RegExp(r'[\u0600-\u06FF]').hasMatch(currency)
+                ? pw.TextDirection.rtl : pw.TextDirection.ltr),
+      ]),
+    );
+  }
+
   pw.Widget _amountRow(ReportThemeSpec theme, pw.TextStyle base,
       ReportFontSet fonts, AmountRowVM row) {
     return pw.Container(
@@ -809,8 +834,8 @@ class ReportPdfRenderer {
             ),
           ),
           pw.SizedBox(width: 12),
-          pw.Text(row.value,
-              style: base.copyWith(
+          _atomicAmount(row.value,
+              base.copyWith(
                   font: fonts.semiBold,
                   fontSize: 11,
                   color: row.colorArgb == null

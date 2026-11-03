@@ -204,6 +204,20 @@ void main() {
       expect(good.occurredAt, ok);
     });
 
+    // Phone report: "12:02 AM" showed as 12:02 PM because the AI's hour
+    // replaced the local parser's.
+    test('a local date wins over a different AI date', () {
+      final localAt = DateTime(2026, 6, 15, 0, 2);
+      final v = _run(
+          AiParseResponse(
+              amount: 1250,
+              currency: 'EGP',
+              occurredAt: DateTime(2026, 6, 15, 12, 2)),
+          'paid EGP 1,250.00 on 15/06/2026 at 12:02 AM',
+          local: _local(at: localAt));
+      expect(v.occurredAt, localAt);
+    });
+
     test('missing amountText is rejected', () {
       final v = _validator.validate(
         response: const AiParseResponse(amount: 1250, currency: 'EGP'),

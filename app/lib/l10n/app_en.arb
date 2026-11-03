@@ -611,6 +611,8 @@
   "txnConfirmAll": "Confirm all",
   "txnTabTransactions": "Transactions",
   "txnTabBills": "Bills",
+  "txnPendingEmptyTitle": "No pending transactions in this view",
+  "txnPendingEmptyBody": "Try another period or change the filters to review other transactions.",
   "txnEmptyPeriodTitle": "No transactions in this period",
   "txnEmptyPeriodBody": "Change the period, or add a new bank message with the + button.",
   "txnConfirmAllTitle": "Confirm every pending transaction?",
@@ -1213,7 +1215,10 @@
   "cardAccountWord": "Account",
   "cardUnassigned": "Unassigned",
   "cardBack": "Back",
+  "cardActivityTitle": "Card activity",
   "cardAllCards": "All cards",
+  "cardLoadFailed": "Your cards could not be loaded",
+  "cardLoadFailedBody": "Try again to see your saved cards.",
   "cardAddCard": "Add card",
   "cardEmptyTitle": "No cards yet",
   "cardEmptyBody": "Cards appear automatically from your bank messages, and you can add one of your own design.",
@@ -1346,7 +1351,7 @@
   "privCancelDeletion": "Cancel deletion",
   "privCancelFailed": "The deletion could not be cancelled right now. Please try again.",
   "privTitle": "Privacy & data",
-  "privIntro": "Bank messages you share through the shortcut are processed as sanitised text on the Qirsh server, with help from AI. You can export or import your financial data from the Data transfer screen.",
+  "privIntro": "When you enable Cloud processing, bank messages you share through the shortcut may be processed as sanitised text on Qirsh servers with help from AI. With Cloud off, messages are parsed locally. You can export or import your financial data from Data transfer.",
   "dtxPreviewRows": "{rows} records • {format}",
   "@dtxPreviewRows": {
     "placeholders": {
@@ -1446,7 +1451,7 @@
   "pasteAlreadyExists": "That transaction already exists — we opened it for review.",
   "pasteAlreadyRecorded": "This transaction is already recorded.",
   "pasteSimilarNeedsReview": "A similar transaction exists and needs reviewing.",
-  "pasteAiOffline": "AI is not connected in this build — run the app with Supabase keys.",
+  "pasteAiOffline": "AI analysis is unavailable. No transaction was added. You can add it manually.",
   "pasteUnreadableOnDevice": "The message could not be read on this device — add it manually.",
   "pasteNotATransaction": "It could not be read as a transaction — add it manually.",
   "pasteNothingToOpen": "There is no transaction to open for this message.",
@@ -1857,6 +1862,8 @@
   },
   "homeNoBudgetsOnAccount": "No budgets on this account.",
   "homeActiveBudget": "active budget",
+  "homeAvailableCoupons": "{count, plural, =1{1 coupon available} other{{count} coupons available}}",
+  "@homeAvailableCoupons": {"placeholders": {"count": {"type": "int"}}},
   "homePartnerOffers": "Offers from Qirsh partners",
   "homeAllCoupons": "See all coupons",
   "homeSpentToday": "Spent today",
@@ -2086,6 +2093,15 @@
   },
   "cfDesign": "Design",
   "cfAccentOptional": "Accent colour (optional)",
+  "cfAccentNone": "No accent colour",
+  "cfAccentColourName": "{colour, select, amber{Amber} red{Red} pink{Pink} purple{Purple} blue{Blue} cyan{Cyan} emerald{Emerald} lime{Lime} orange{Orange} teal{Teal} other{Accent colour}}",
+  "@cfAccentColourName": {
+    "placeholders": {
+      "colour": {
+        "type": "String"
+      }
+    }
+  },
   "cfLinkedAccount": "Linked account",
   "cfDeleteCard": "Delete card",
   "cfNoAccount": "No account",
@@ -2751,10 +2767,10 @@
   "authAppleFailed": "Apple sign-in failed.",
   "authAppleTokenUnreadable": "We could not read the Apple sign-in token.",
   "navHome": "Home",
-  "navTransactions": "Transactions",
+  "navTransactions": "Activity",
   "navBudgets": "Budgets",
   "navMore": "More",
-  "navAnalytics": "Analytics",
+  "navAnalytics": "Insights",
   "navExpandBar": "Open the navigation bar — {tab}",
   "@navExpandBar": {
     "placeholders": {
@@ -3250,6 +3266,294 @@
   "pasteAiUnavailable": "Read on your device — AI is not available in this build.",
   "pasteAiMismatch": "Read on your device — AI's answer didn't match the message, so it was not used.",
   "pasteAiFailed": "Read on your device — AI could not be reached ({code}).",
-  "@pasteAiFailed": {"placeholders": {"code": {"type": "String"}}},
-  "pasteAiConsentOff": "This message could not be read on your device. Enable Cloud and Smart Analysis in Privacy to allow AI assistance."
+  "@pasteAiFailed": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "pasteAiConsentOff": "This message could not be read on your device. Enable Cloud and Smart Analysis in Privacy to allow AI assistance.",
+  "homeGoodMorning": "Good morning",
+  "homeGoodEvening": "Good evening",
+  "homeQuickAdd": "Add",
+  "homeQuickPaste": "Paste SMS",
+  "homeQuickBudget": "Budget",
+  "homeQuickGoals": "Goals",
+  "homeBudgetLeft": "of a {limit} budget · {left} left",
+  "@homeBudgetLeft": {
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      },
+      "left": {
+        "type": "String"
+      }
+    }
+  },
+  "homeBudgetOverBy": "{over} over the {limit} budget",
+  "@homeBudgetOverBy": {
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      },
+      "over": {
+        "type": "String"
+      }
+    }
+  },
+  "homeProjectedMonthEnd": "Expected by month end: {amount}",
+  "@homeProjectedMonthEnd": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeLastWeekWas": "Last week: {amount}",
+  "@homeLastWeekWas": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeTodayTxCount": "Transactions today: {count}",
+  "@homeTodayTxCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeLeftTodayShort": "{amount} left today",
+  "@homeLeftTodayShort": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homePaceUnder": "{percent}% under budget pace",
+  "@homePaceUnder": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homePaceOver": "{percent}% over budget pace",
+  "@homePaceOver": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homePaceOnTrack": "On budget pace",
+  "homePaceSetBudget": "Set a budget to track your pace",
+  "homeWeekMoreThan": "{percent}% more than last week",
+  "@homeWeekMoreThan": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWeekLessThan": "{percent}% less than last week",
+  "@homeWeekLessThan": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeDayMoreThan": "{percent}% more than yesterday",
+  "@homeDayMoreThan": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeDayLessThan": "{percent}% less than yesterday",
+  "@homeDayLessThan": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeToReview": "To review",
+  "homeReviewNow": "Review",
+  "homeSpentOfAllowance": "Spent {spent} of {allowance}",
+  "@homeSpentOfAllowance": {
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      },
+      "allowance": {
+        "type": "String"
+      }
+    }
+  },
+  "homeLastSevenDays": "Last 7 days",
+  "homeDailyAverage": "{amount} a day on average",
+  "@homeDailyAverage": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhereMoneyWent": "Where your money went",
+  "homeDetails": "Details",
+  "homeUpcoming": "Upcoming payments",
+  "homeInstalmentProgress": "Payment {n} of {total}",
+  "@homeInstalmentProgress": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "homeGoalsAndPlans": "Goals & plans",
+  "homeNewGoal": "New goal",
+  "homeRecentTx": "Recent transactions",
+  "homeSeeAll": "See all",
+  "homeWelcomeTo": "Welcome to Qirsh",
+  "homeWelcomeTitle": "Add your first transaction,\nQirsh sorts the rest",
+  "homeWelcomeBody": "Your daily spend, what you have left and where your money goes all show up here after your first transaction.",
+  "homeStartSteps": "Start in 3 steps",
+  "homeStartStepsHint": "Takes under two minutes",
+  "homeStepAddTitle": "Add your first transaction",
+  "homeStepAddBody": "Paste a bank SMS or enter it by hand",
+  "homeStepAddCta": "Add transaction",
+  "homeStepBudgetTitle": "Set a monthly budget",
+  "homeStepBudgetBody": "So you know what you can spend each day",
+  "homeStepBudgetCta": "Set budget",
+  "homeStepCaptureTitle": "Turn on bank SMS capture",
+  "homeStepCaptureBody": "So transactions are added without pasting",
+  "homeStepCaptureCta": "How to set it up",
+  "homeOnDeviceTitle": "Your data stays on your device",
+  "homeOnDeviceBody": "Your database is encrypted on this device.",
+  "homeCreateYourself": "Or create your own",
+  "homeTileBudgetSub": "Monthly or per category",
+  "homeTileGoal": "Savings goal",
+  "homeTileGoalSub": "Travel, car, emergencies",
+  "homeTileBill": "Subscription or instalment",
+  "homeTileBillSub": "We remind you before it's charged",
+  "homeTilePlan": "Plan",
+  "homeTilePlanSub": "For trips or occasions",
+  "homePrivacyToggle": "Show or hide amounts",
+  "accTotalBalance": "Total balance",
+  "achBadges": "Badges",
+  "achEarnedCount": "{earned} of {total} earned",
+  "@achEarnedCount": {
+    "placeholders": {
+      "earned": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "achNextLevelXp": "{remaining} to the next level",
+  "@achNextLevelXp": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      }
+    }
+  },
+  "gdSavedLabel": "Saved",
+  "homeSavingsGrowing": "Your savings are growing",
+  "homeSavingsSurplus": "You earned {amount} more than you spent this month",
+  "@homeSavingsSurplus": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSavingsMotivation": "Move some of it into your goals and let it grow.",
+  "homeAddToGoal": "Add to a goal",
+  "rptPhotoKicker": "A clearer view of your money",
+  "rptPhotoTitle": "Your spending, in one place",
+  "homeSpendingAhead": "You spent {amount} more than you earned this month",
+  "@homeSpendingAhead": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "goalCoverLabel": "Goal cover",
+  "goalCoverTravel": "Travel",
+  "goalCoverCar": "Car",
+  "goalCoverHome": "Home",
+  "goalCoverEducation": "Education",
+  "goalCoverGadgets": "Gadgets",
+  "goalCoverEmergency": "Safety net",
+  "bdgOverviewSubtitle": "Your limits and goals in one place",
+  "rptExpenseCountLabel": "Expense transactions",
+  "rptDailySpending": "Daily spending",
+  "dtxExportSection": "Export",
+  "dtxImportSection": "Import",
+  "dtxPdfReport": "PDF financial report",
+  "dtxPdfReportSub": "A designed summary to share",
+  "captureAutomaticTitle": "Automatic capture",
+  "captureAutomaticBody": "Set up Apple Shortcuts or bank-message capture",
+  "homeHeroIncome": "Income",
+  "homeHeroSpent": "Spent",
+  "homeHeroNet": "Net",
+  "homePaceUsed": "{percent}% used",
+  "@homePaceUsed": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homePaceExpected": "Expected by now {percent}%",
+  "@homePaceExpected": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "introWelcomeTitle": "Your money, clear — without the effort",
+  "introWelcomeBody": "Qirsh turns bank messages into a clear picture of your spending, budgets and goals.",
+  "introCaptureTitle": "Transactions from bank messages",
+  "introCaptureBody": "An Apple Shortcut sends the bank message to Qirsh. Read it on your device and review the result before saving.",
+  "introBudgetTitle": "Budgets that warn you early",
+  "introBudgetBody": "See your pace day by day and know when to slow down.",
+  "introPrivacyTitle": "Privacy before anything",
+  "introPrivacyBody": "Your data is encrypted on your device. Cloud processing is optional and controlled in Settings.",
+  "introPageSemantic": "Page {page} of {total}",
+  "@introPageSemantic": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "introPrivacyLocalBody": "Your records are stored encrypted on this device.",
+  "introPrivacyCloudBody": "Optional. Choose whether to enable it during setup or in Settings.",
+  "annPreferencesTitle": "Choose the alerts you care about",
+  "annPreferencesAction": "Notification settings",
+  "couponsAvailableLabel": "Available offers",
+  "setCategoryIconName": "{icon, select, restaurants{Restaurants} groceries{Groceries} shopping{Shopping} transport{Transport} bills{Bills} cards{Cards} cash{Cash} cafes{Cafés} gifts{Gifts} home{Home} travel{Travel} health{Health} education{Education} transfers{Transfers} other{Other icon}}",
+  "@setCategoryIconName": {"description": "Accessible name for the category picker choice. Stored icon and colour identifiers do not change.", "placeholders": {"icon": {"type": "String"}}},
+  "setCategoryColourName": "{colour, select, grey{Grey} coral{Coral} green{Green} blue{Blue} purple{Purple} brightGreen{Bright green} teal{Teal} pink{Pink} blueGrey{Blue grey} orange{Orange} other{Custom colour}}",
+  "@setCategoryColourName": {"description": "Accessible name for the category picker choice. Stored icon and colour identifiers do not change.", "placeholders": {"colour": {"type": "String"}}},
+  "rptPreviousPeriod": "Previous period"
 }

@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/sync/sync_diagnostics_report.dart';
 import 'package:money_companion/core/sync/sync_status.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/features/common/app_error_state.dart';
 import 'package:money_companion/features/settings/sync_diagnostics_screen.dart';
 import 'package:money_companion/features/settings/sync_status_providers.dart';
 import 'package:money_companion/features/settings/sync_status_ui.dart';
@@ -112,6 +113,36 @@ void main() {
   });
 
   group('diagnostics', () {
+    testWidgets('diagnostics error keeps technical class and retries only its read', (tester) async {
+      var reads = 0;
+      await tester.pumpWidget(ProviderScope(overrides: [
+        syncDiagnosticsProvider.overrideWith((ref) async {
+          reads++;
+          if (reads == 1) throw StateError('synthetic_diagnostics_read_failure');
+          return const SyncDiagnosticsReport([
+            DiagnosticSection('Synthetic read recovered', {'count': '0'}),
+          ]);
+        }),
+      ], child: MaterialApp(theme: AppTheme.light,
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('en'), home: const SyncDiagnosticsScreen(),
+      )));
+      await tester.pumpAndSettle();
+      expect(reads, 1);
+      expect(find.byType(AppErrorState), findsOneWidget);
+      expect(find.text('Unavailable: StateError'), findsOneWidget);
+      expect(find.byKey(const ValueKey('run-sync-now')), findsNothing);
+      await tester.tap(find.text(lookupAppL10n(const Locale('en')).startRetry));
+      await tester.pumpAndSettle();
+      expect(reads, 2);
+      expect(find.text('Synthetic read recovered'), findsOneWidget);
+      expect(find.byType(AppErrorState), findsNothing);
+      expect(find.byKey(const ValueKey('run-sync-now')), findsOneWidget);
+      expect(find.byKey(const ValueKey('copy-diagnostics')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     const auth = 'aaaa1111-2222-3333-4444-555566667777';
     const owner = 'bbbb1111-2222-3333-4444-555566668888';
     const smsText = 'Card 4111111111111234 charged SAR 1,234.56 at ACME COFFEE';

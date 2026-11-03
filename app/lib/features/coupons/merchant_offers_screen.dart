@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../common/widgets.dart';
@@ -90,6 +91,8 @@ class MerchantOffersScreen extends ConsumerWidget {
           if (offers.isEmpty) {
             return AppEmptyState(
               icon: AppLucideIcons.tag,
+              illustration: const QirshIllustration(
+                  name: 'offers', width: 220, height: 165),
               title: l10n.couponsMerchantEmptyTitle,
               subtitle: l10n.couponsMerchantEmptyBody,
             );

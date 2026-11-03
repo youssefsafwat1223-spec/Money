@@ -1,12 +1,14 @@
 import 'package:money_companion/l10n/app_localizations.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/theme/widgets/qirsh_visuals.dart';
 import 'package:money_companion/domain/entities/engagement_entities.dart';
 import 'package:money_companion/domain/entities/supporting_entities.dart';
 import 'package:money_companion/features/settings/settings_providers.dart';
@@ -101,6 +103,28 @@ void main() {
     ]) {
       expect(find.text(label), findsOneWidget, reason: label);
     }
+    final l10n = AppL10n.of(tester.element(find.byType(SettingsScreen)));
+    await tester.ensureVisible(find.text(l10n.setContactUs));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(l10n.setContactUs));
+    await tester.pumpAndSettle();
+    expect(find.byWidgetPredicate((widget) => widget is QirshIllustration &&
+        widget.name == 'help'), findsOneWidget);
+    expect(find.text(l10n.setSupportBody), findsOneWidget);
+    String? copiedEmail;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copiedEmail = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      });
+    addTearDown(() => tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null));
+    await tester.tap(find.text(l10n.setCopyEmail));
+    await tester.pumpAndSettle();
+    expect(copiedEmail, 'support@money-companion.app');
+    expect(find.text(l10n.setSupportBody), findsNothing);
     expect(tester.takeException(), isNull);
   });
 

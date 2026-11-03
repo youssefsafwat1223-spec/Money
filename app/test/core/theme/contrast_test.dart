@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/theme/app_colors.dart';
+import 'package:money_companion/core/theme/app_theme.dart';
 
 /// WCAG contrast on the REAL token pairs.
 ///
@@ -61,6 +62,12 @@ void main() {
       'light textMuted on bg': [light.textMuted, light.bg],
       'light neutral on surface': [light.neutral, light.surface],
       'light onWarning on warningBg': [light.onWarning, light.warningBg],
+      'light onDanger on danger': [light.onDanger, light.danger],
+      'dark onDanger on danger': [dark.onDanger, dark.danger],
+      'light Material onError on error': [AppTheme.light.colorScheme.onError, AppTheme.light.colorScheme.error],
+      'dark Material onError on error': [AppTheme.dark.colorScheme.onError, AppTheme.dark.colorScheme.error],
+      'sheet Material onError on error': [AppTheme.sheet.colorScheme.onError, AppTheme.sheet.colorScheme.error],
+      'sheet onDanger on danger': [AppTheme.sheetColors.onDanger, AppTheme.sheetColors.danger],
       'dark textPrimary on surface': [dark.textPrimary, dark.surface],
       'dark textPrimary on bg': [dark.textPrimary, dark.bg],
       'dark textMuted on surface': [dark.textMuted, dark.surface],

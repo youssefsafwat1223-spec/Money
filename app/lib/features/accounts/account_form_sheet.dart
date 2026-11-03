@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/l10n_ext.dart';
 
@@ -215,12 +214,18 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       return;
     }
     final dueDayText = _paymentDueDay.text.trim();
-    final dueDay = dueDayText.isEmpty ? null : int.tryParse(dueDayText);
-    if (_type == AccountType.card &&
-        dueDay != null &&
-        (dueDay < 1 || dueDay > 31)) {
-      AppToast.showError(context, context.l10n.afPaymentDayRange);
-      return;
+    int? dueDay;
+    if (_type == AccountType.card && dueDayText.isNotEmpty) {
+      try {
+        dueDay = int.parse(normalizeLocalizedDecimal(dueDayText));
+      } on Exception {
+        AppToast.showError(context, context.l10n.afPaymentDayRange);
+        return;
+      }
+      if (dueDay < 1 || dueDay > 31) {
+        AppToast.showError(context, context.l10n.afPaymentDayRange);
+        return;
+      }
     }
     final submittedCurrency = _currency;
     // Parse the money inputs exactly (localized → canonical Money). Ambiguous /
@@ -371,6 +376,8 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
               ),
               FilledButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
+                style: FilledButton.styleFrom(backgroundColor: ctx.colors.danger,
+                    foregroundColor: ctx.colors.onDanger),
                 child: Text(context.l10n.setDelete),
               ),
             ],
@@ -529,6 +536,8 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
               decoration: InputDecoration(
                 helperText:
                     currencyLocked ? context.l10n.afCurrencyLockedShort : null,
+                helperMaxLines: 3,
+                helperStyle: TextStyle(color: c.textMuted),
               ),
               items: [
                 for (final code in currencies)
@@ -692,9 +701,6 @@ class _AccountFormState extends ConsumerState<AccountFormPanel> {
       keyboardType: number
           ? const TextInputType.numberWithOptions(decimal: true)
           : TextInputType.text,
-      inputFormatters: number
-          ? [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))]
-          : null,
       style: AppTypography.body(c.textMain),
       decoration: InputDecoration(
         labelText: label,

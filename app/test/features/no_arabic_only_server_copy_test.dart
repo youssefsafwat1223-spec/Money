@@ -74,11 +74,34 @@ void main() {
             '${offenders.join(", ")}');
   });
 
-  test('no widget hardcodes a text alignment', () {
+  test('text alignment follows locale except exact approved photo copy', () {
     // `TextAlign.right` is what an Arabic-only app writes when it means
     // "start". Under English it right-aligns body copy, and on the welcome
     // story it also pushed the text into the halftone illustration, leaving
     // words unreadable on the first screen a new user sees.
+    // Approved HTML photo copy stays on the physical right of an unmirrored
+    // photograph/scrim in AR and EN. These exact eight statements are the
+    // complete exception; other copy in these files must still follow locale.
+    // qirsh_visuals_test.dart asserts the actual physical position in both directions.
+    const approvedPhotoCopy = <String, Set<String>>{
+      'lib/core/theme/widgets/calm_page_header.dart': {
+        "if (label != null) Text(label!, textAlign: TextAlign.right,",
+        "]), textAlign: TextAlign.right),",
+        // The budget's remaining/deadline line belongs to the same approved
+        // physical-right photo overlay as its label and amount above it.
+        "Text(footnote!, textAlign: TextAlign.right,",
+      },
+      'lib/features/dashboard/dashboard_screen.dart': {
+        "Text(context.l10n.homeSavingsGrowing, textAlign: TextAlign.right,",
+        ": context.l10n.homeSavingsSurplus(amount), textAlign: TextAlign.right,",
+        "Text(context.l10n.homeSavingsMotivation, textAlign: TextAlign.right,",
+      },
+      'lib/features/reports/reports_screen.dart': {
+        "Text(context.l10n.rptPhotoKicker, textAlign: TextAlign.right,",
+        "Text(context.l10n.rptPhotoTitle, textAlign: TextAlign.right,",
+      },
+    };
+    final approvedUses = <String, int>{};
     final offenders = <String>[];
     for (final file in Directory('lib')
         .listSync(recursive: true)
@@ -88,12 +111,30 @@ void main() {
       // right-alignment is a typographic choice rather than a direction; a PDF
       // also has no Directionality to inherit from.
       if (file.path.endsWith('pdf/report_pdf_renderer.dart')) continue;
-      final lines = file.readAsLinesSync();
-      for (var i = 0; i < lines.length; i++) {
-        if (lines[i].trimLeft().startsWith('//')) continue;
-        if (RegExp(r'(?<!pw\.)TextAlign\.(right|left)\b').hasMatch(lines[i])) {
-          offenders.add('${file.path}:${i + 1}');
-        }
+      final source = file
+          .readAsLinesSync()
+          .where((line) => !line.trimLeft().startsWith('//'))
+          .join('\n');
+      String compact(String value) => value.replaceAll(RegExp(r'\s+'), '');
+      final normalized = compact(source);
+      var approvedCount = 0;
+      for (final statement in approvedPhotoCopy[file.path] ?? <String>{}) {
+        final count = RegExp(RegExp.escape(compact(statement)))
+            .allMatches(normalized)
+            .length;
+        approvedUses[file.path + ':' + statement] = count;
+        approvedCount += count;
+      }
+      final total = RegExp(r'(?<!pw\.)TextAlign\.(right|left)\b')
+          .allMatches(source)
+          .length;
+      if (total != approvedCount) offenders.add(file.path);
+    }
+    for (final entry in approvedPhotoCopy.entries) {
+      for (final statement in entry.value) {
+        expect(approvedUses['${entry.key}:$statement'], 1,
+            reason: 'each named photo exception must exist exactly once; stale '
+                'or duplicated exceptions require a design review');
       }
     }
     expect(offenders, isEmpty,

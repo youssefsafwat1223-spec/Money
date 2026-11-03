@@ -158,10 +158,11 @@ class RemoveDataFlow {
 
   /// True while a removal has started and not finished (even when its record is
   /// unreadable: then the uid is unknown and admission stays blocked).
-  Future<bool> hasPending() async {
-    final raw = await _storage.read(key: barrierKey);
-    return raw != null && raw.isNotEmpty;
-  }
+  Future<bool> hasPending() async =>
+      barrierPending(await _storage.read(key: barrierKey));
+
+  /// Whether the stored barrier value [raw] marks a removal in progress.
+  static bool barrierPending(String? raw) => raw != null && raw.isNotEmpty;
 
   /// True from the moment an operation is accepted until it finished — queued or
   /// executing.
@@ -170,8 +171,11 @@ class RemoveDataFlow {
   /// The uids whose Remove data completed and that have not authenticated
   /// explicitly since. Throws when the record is unreadable: the caller must fail
   /// closed, never read that as "no restrictions".
-  Future<Set<String>> revokedUids() async {
-    final raw = await _storage.read(key: revokedKey);
+  Future<Set<String>> revokedUids() async =>
+      parseRevokedUids(await _storage.read(key: revokedKey));
+
+  /// The revoked uids stored as [raw]; throws when it is malformed.
+  static Set<String> parseRevokedUids(String? raw) {
     if (raw == null || raw.isEmpty) return <String>{};
     final decoded = jsonDecode(raw);
     if (decoded is! List) throw const FormatException('revoked uids');

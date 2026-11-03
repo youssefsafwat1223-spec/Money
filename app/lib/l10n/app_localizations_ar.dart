@@ -1786,6 +1786,13 @@ class AppL10nAr extends AppL10n {
   String get txnTabBills => 'الفواتير';
 
   @override
+  String get txnPendingEmptyTitle => 'لا توجد عمليات معلّقة في هذا العرض';
+
+  @override
+  String get txnPendingEmptyBody =>
+      'اختر فترة أخرى أو غيّر عوامل التصفية لمراجعة عمليات أخرى.';
+
+  @override
   String get txnEmptyPeriodTitle => 'لا توجد عمليات في هذه الفترة';
 
   @override
@@ -2639,7 +2646,16 @@ class AppL10nAr extends AppL10n {
   String get cardBack => 'رجوع';
 
   @override
+  String get cardActivityTitle => 'حركة البطاقات';
+
+  @override
   String get cardAllCards => 'كل البطاقات';
+
+  @override
+  String get cardLoadFailed => 'تعذّر تحميل بطاقاتك';
+
+  @override
+  String get cardLoadFailedBody => 'حاول مجددًا لعرض بطاقاتك المحفوظة.';
 
   @override
   String get cardAddCard => 'إضافة بطاقة';
@@ -2905,7 +2921,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get privIntro =>
-      'رسائل البنك التي تشاركها عبر الاختصار تُعالج بنص مُعقّم على خادم قرش وبمساعدة الذكاء الاصطناعي. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.';
+      'عند تفعيل المعالجة السحابية، قد تُعالج رسائل البنك التي تشاركها عبر الاختصار بنص مُعقّم على خوادم قرش وبمساعدة الذكاء الاصطناعي. عند إيقاف المعالجة السحابية تُحلّل الرسائل محليًا. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.';
 
   @override
   String dtxPreviewRows(int rows, String format) {
@@ -3095,7 +3111,7 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get pasteAiOffline =>
-      'الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.';
+      'تحليل الذكاء الاصطناعي غير متاح. لم تُضَف عملية. يمكنك إضافتها يدويًا.';
 
   @override
   String get pasteUnreadableOnDevice =>
@@ -3700,6 +3716,21 @@ class AppL10nAr extends AppL10n {
   String get homeActiveBudget => 'ميزانية نشطة';
 
   @override
+  String homeAvailableCoupons(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count كوبون متاح',
+      many: '$count كوبونًا متاحًا',
+      few: '$count كوبونات متاحة',
+      two: 'كوبونان متاحان',
+      one: 'كوبون واحد متاح',
+      zero: 'لا توجد كوبونات متاحة',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get homePartnerOffers => 'عروض من شركاء قرش';
 
   @override
@@ -4174,6 +4205,30 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get cfAccentOptional => 'لون مميّز (اختياري)';
+
+  @override
+  String get cfAccentNone => 'بدون لون مميّز';
+
+  @override
+  String cfAccentColourName(String colour) {
+    String _temp0 = intl.Intl.selectLogic(
+      colour,
+      {
+        'amber': 'كهرماني',
+        'red': 'أحمر',
+        'pink': 'وردي',
+        'purple': 'بنفسجي',
+        'blue': 'أزرق',
+        'cyan': 'سماوي',
+        'emerald': 'زمردي',
+        'lime': 'أخضر ليموني',
+        'orange': 'برتقالي',
+        'teal': 'فيروزي',
+        'other': 'لون مميّز',
+      },
+    );
+    return '$_temp0';
+  }
 
   @override
   String get cfLinkedAccount => 'الحساب المرتبط';
@@ -6439,4 +6494,417 @@ class AppL10nAr extends AppL10n {
   @override
   String get pasteAiConsentOff =>
       'تعذّرت قراءة هذه الرسالة على جهازك. فعّل السحابة والتحليل الذكي من الخصوصية للسماح بمساعدة الذكاء الاصطناعي.';
+
+  @override
+  String get homeGoodMorning => 'صباح الخير';
+
+  @override
+  String get homeGoodEvening => 'مساء الخير';
+
+  @override
+  String get homeQuickAdd => 'إضافة';
+
+  @override
+  String get homeQuickPaste => 'لصق رسالة';
+
+  @override
+  String get homeQuickBudget => 'ميزانية';
+
+  @override
+  String get homeQuickGoals => 'أهداف';
+
+  @override
+  String homeBudgetLeft(String limit, String left) {
+    return 'من ميزانية $limit · متبقي $left';
+  }
+
+  @override
+  String homeBudgetOverBy(String limit, String over) {
+    return 'تجاوزت ميزانية $limit بـ $over';
+  }
+
+  @override
+  String homeProjectedMonthEnd(String amount) {
+    return 'المتوقع نهاية الشهر $amount';
+  }
+
+  @override
+  String homeLastWeekWas(String amount) {
+    return 'الأسبوع الماضي $amount';
+  }
+
+  @override
+  String homeTodayTxCount(int count) {
+    return 'عمليات اليوم: $count';
+  }
+
+  @override
+  String homeLeftTodayShort(String amount) {
+    return 'متاح لليوم $amount';
+  }
+
+  @override
+  String homePaceUnder(int percent) {
+    return 'أقل من وتيرة الميزانية بـ $percent%';
+  }
+
+  @override
+  String homePaceOver(int percent) {
+    return 'أعلى من وتيرة الميزانية بـ $percent%';
+  }
+
+  @override
+  String get homePaceOnTrack => 'على وتيرة الميزانية';
+
+  @override
+  String get homePaceSetBudget => 'حدّد ميزانية لتتابع الوتيرة';
+
+  @override
+  String homeWeekMoreThan(int percent) {
+    return 'أعلى من الأسبوع الماضي بـ $percent%';
+  }
+
+  @override
+  String homeWeekLessThan(int percent) {
+    return 'أقل من الأسبوع الماضي بـ $percent%';
+  }
+
+  @override
+  String homeDayMoreThan(int percent) {
+    return 'أعلى من أمس بـ $percent%';
+  }
+
+  @override
+  String homeDayLessThan(int percent) {
+    return 'أقل من أمس بـ $percent%';
+  }
+
+  @override
+  String get homeToReview => 'للمراجعة';
+
+  @override
+  String get homeReviewNow => 'راجعها';
+
+  @override
+  String homeSpentOfAllowance(String spent, String allowance) {
+    return 'صرفت $spent من $allowance';
+  }
+
+  @override
+  String get homeLastSevenDays => 'آخر ٧ أيام';
+
+  @override
+  String homeDailyAverage(String amount) {
+    return 'المتوسط $amount يوميًا';
+  }
+
+  @override
+  String get homeWhereMoneyWent => 'أين ذهبت أموالك';
+
+  @override
+  String get homeDetails => 'التفاصيل';
+
+  @override
+  String get homeUpcoming => 'مدفوعات قادمة';
+
+  @override
+  String homeInstalmentProgress(int n, int total) {
+    return 'الدفعة $n من $total';
+  }
+
+  @override
+  String get homeGoalsAndPlans => 'أهدافي وخططي';
+
+  @override
+  String get homeNewGoal => 'هدف جديد';
+
+  @override
+  String get homeRecentTx => 'آخر العمليات';
+
+  @override
+  String get homeSeeAll => 'عرض الكل';
+
+  @override
+  String get homeWelcomeTo => 'أهلاً بك في قِرش';
+
+  @override
+  String get homeWelcomeTitle => 'أضف أول عملية،\nوقِرش يرتّب الباقي';
+
+  @override
+  String get homeWelcomeBody =>
+      'صرفك اليومي، المتاح لك، وأين تذهب أموالك. كلها تظهر هنا بعد أول عملية.';
+
+  @override
+  String get homeStartSteps => 'ابدأ في ٣ خطوات';
+
+  @override
+  String get homeStartStepsHint => 'أقل من دقيقتين';
+
+  @override
+  String get homeStepAddTitle => 'أضف أول عملية';
+
+  @override
+  String get homeStepAddBody => 'ألصق رسالة البنك أو أدخلها يدويًا';
+
+  @override
+  String get homeStepAddCta => 'أضف عملية';
+
+  @override
+  String get homeStepBudgetTitle => 'حدّد ميزانية الشهر';
+
+  @override
+  String get homeStepBudgetBody => 'لتعرف كم يتاح لك كل يوم';
+
+  @override
+  String get homeStepBudgetCta => 'حدّد الميزانية';
+
+  @override
+  String get homeStepCaptureTitle => 'فعّل التقاط رسائل البنك';
+
+  @override
+  String get homeStepCaptureBody => 'لتُضاف العمليات بدون لصق';
+
+  @override
+  String get homeStepCaptureCta => 'طريقة التفعيل';
+
+  @override
+  String get homeOnDeviceTitle => 'بياناتك محفوظة على جهازك';
+
+  @override
+  String get homeOnDeviceBody => 'قاعدة بياناتك مشفّرة على هذا الجهاز.';
+
+  @override
+  String get homeCreateYourself => 'أو أنشئ بنفسك';
+
+  @override
+  String get homeTileBudgetSub => 'شهرية أو لتصنيف';
+
+  @override
+  String get homeTileGoal => 'هدف ادخار';
+
+  @override
+  String get homeTileGoalSub => 'سفر، سيارة، طوارئ';
+
+  @override
+  String get homeTileBill => 'اشتراك أو قسط';
+
+  @override
+  String get homeTileBillSub => 'ونذكّرك قبل الخصم';
+
+  @override
+  String get homeTilePlan => 'خطة';
+
+  @override
+  String get homeTilePlanSub => 'للسفر أو المناسبات';
+
+  @override
+  String get homePrivacyToggle => 'إظهار المبالغ أو إخفاؤها';
+
+  @override
+  String get accTotalBalance => 'إجمالي الأرصدة';
+
+  @override
+  String get achBadges => 'الشارات';
+
+  @override
+  String achEarnedCount(int earned, int total) {
+    return '$earned من $total مكتملة';
+  }
+
+  @override
+  String achNextLevelXp(int remaining) {
+    return 'باقي $remaining للمستوى التالي';
+  }
+
+  @override
+  String get gdSavedLabel => 'ادّخرت';
+
+  @override
+  String get homeSavingsGrowing => 'نمو مدخراتك';
+
+  @override
+  String homeSavingsSurplus(String amount) {
+    return 'دخلك سبق صرفك بـ $amount هذا الشهر';
+  }
+
+  @override
+  String get homeSavingsMotivation => 'حوّل جزء منه لأهدافك وخلّيه يكبر.';
+
+  @override
+  String get homeAddToGoal => 'أضف لهدف';
+
+  @override
+  String get rptPhotoKicker => 'صورة أوضح لأموالك';
+
+  @override
+  String get rptPhotoTitle => 'تفاصيل صرفك في مكان واحد';
+
+  @override
+  String homeSpendingAhead(String amount) {
+    return 'صرفك سبق دخلك بـ $amount هذا الشهر';
+  }
+
+  @override
+  String get goalCoverLabel => 'صورة الهدف';
+
+  @override
+  String get goalCoverTravel => 'سفر';
+
+  @override
+  String get goalCoverCar => 'عربية';
+
+  @override
+  String get goalCoverHome => 'بيت';
+
+  @override
+  String get goalCoverEducation => 'تعليم';
+
+  @override
+  String get goalCoverGadgets => 'أجهزة';
+
+  @override
+  String get goalCoverEmergency => 'طوارئ';
+
+  @override
+  String get bdgOverviewSubtitle => 'حدودك وأهدافك في مكان واحد';
+
+  @override
+  String get rptExpenseCountLabel => 'عمليات الصرف';
+
+  @override
+  String get rptDailySpending => 'الصرف اليومي';
+
+  @override
+  String get dtxExportSection => 'تصدير';
+
+  @override
+  String get dtxImportSection => 'استيراد';
+
+  @override
+  String get dtxPdfReport => 'تقرير مالي PDF';
+
+  @override
+  String get dtxPdfReportSub => 'ملخص مصمم للمشاركة';
+
+  @override
+  String get captureAutomaticTitle => 'الالتقاط التلقائي';
+
+  @override
+  String get captureAutomaticBody => 'إعداد اختصار آبل أو التقاط رسائل البنك';
+
+  @override
+  String get homeHeroIncome => 'دخل';
+
+  @override
+  String get homeHeroSpent => 'مصروف';
+
+  @override
+  String get homeHeroNet => 'الصافي';
+
+  @override
+  String homePaceUsed(int percent) {
+    return 'استخدمت $percent%';
+  }
+
+  @override
+  String homePaceExpected(int percent) {
+    return 'المتوقع حتى الآن $percent%';
+  }
+
+  @override
+  String get introWelcomeTitle => 'فلوسك واضحة… من غير مجهود';
+
+  @override
+  String get introWelcomeBody =>
+      'قِرش يحوّل رسائل البنك لصورة واضحة لصرفك وميزانياتك وأهدافك.';
+
+  @override
+  String get introCaptureTitle => 'عملياتك من رسائل البنك';
+
+  @override
+  String get introCaptureBody =>
+      'اختصار آبل يرسل رسالة البنك لقِرش. تُقرأ على جهازك، وتراجع النتيجة قبل حفظها.';
+
+  @override
+  String get introBudgetTitle => 'ميزانية تنبهك قبل التجاوز';
+
+  @override
+  String get introBudgetBody => 'شوف وتيرة صرفك يوم بيوم، واعرف إمتى تهدّي.';
+
+  @override
+  String get introPrivacyTitle => 'خصوصيتك قبل أي حاجة';
+
+  @override
+  String get introPrivacyBody =>
+      'بياناتك مشفّرة على جهازك. المعالجة السحابية اختيارية، وتتحكم فيها من الإعدادات.';
+
+  @override
+  String introPageSemantic(int page, int total) {
+    return 'الصفحة $page من $total';
+  }
+
+  @override
+  String get introPrivacyLocalBody => 'تُحفظ سجلاتك مشفّرة على هذا الجهاز.';
+
+  @override
+  String get introPrivacyCloudBody =>
+      'اختياري. اختر تفعيله أثناء الإعداد أو لاحقًا من الإعدادات.';
+
+  @override
+  String get annPreferencesTitle => 'اختر الإشعارات التي تهمك';
+
+  @override
+  String get annPreferencesAction => 'إعدادات الإشعارات';
+
+  @override
+  String get couponsAvailableLabel => 'العروض المتاحة';
+
+  @override
+  String setCategoryIconName(String icon) {
+    String _temp0 = intl.Intl.selectLogic(
+      icon,
+      {
+        'restaurants': 'مطاعم',
+        'groceries': 'بقالة',
+        'shopping': 'تسوق',
+        'transport': 'مواصلات',
+        'bills': 'فواتير',
+        'cards': 'بطاقات',
+        'cash': 'نقود',
+        'cafes': 'مقاهٍ',
+        'gifts': 'هدايا',
+        'home': 'منزل',
+        'travel': 'سفر',
+        'health': 'صحة',
+        'education': 'تعليم',
+        'transfers': 'تحويلات',
+        'other': 'أيقونة أخرى',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setCategoryColourName(String colour) {
+    String _temp0 = intl.Intl.selectLogic(
+      colour,
+      {
+        'grey': 'رمادي',
+        'coral': 'مرجاني',
+        'green': 'أخضر',
+        'blue': 'أزرق',
+        'purple': 'بنفسجي',
+        'brightGreen': 'أخضر زاهٍ',
+        'teal': 'أخضر مزرق',
+        'pink': 'وردي',
+        'blueGrey': 'رمادي مزرق',
+        'orange': 'برتقالي',
+        'other': 'لون مخصص',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get rptPreviousPeriod => 'الفترة السابقة';
 }

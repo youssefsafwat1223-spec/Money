@@ -51,7 +51,7 @@ void main() {
       expect(write,
           contains('SharedKeychain.writeData(data, forKey: egressStateKC)'));
       expect(write, contains('.atomic'));
-      expect(write, contains('withQueueLock'));
+      expect(write, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       for (final field in const [
         'state',
         'transitionGeneration',
@@ -156,7 +156,7 @@ void main() {
     test('authorizeUpload reads the denial state under the SAME flock', () {
       final auth = body(store, 'private static func authorizeUploadLocked(');
       expect(body(store, 'static func authorizeUpload(payloadID: String)'),
-          contains('withQueueLock'));
+          matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       expect(auth, contains('egressDenied(forOwner: uid)'));
       expect(auth.indexOf('egressDenied(forOwner: uid)'),
           greaterThan(auth.indexOf('owner.uid == uid')));
@@ -203,7 +203,7 @@ void main() {
       expect(gate, greaterThan(at));
       expect(gate, lessThan(call));
       final host = body(store, 'static func egressAdmitsHostRequest(');
-      expect(host, contains('withQueueLock'));
+      expect(host, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       expect(host, contains('?? false'));
     });
   });
@@ -212,7 +212,7 @@ void main() {
     test('admission = authorize + register, in ONE flock, before the request',
         () {
       final admit = body(store, 'static func admitUpload(payloadID: String)');
-      expect(admit, contains('withQueueLock'));
+      expect(admit, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       expect(admit, contains('authorizeUploadLocked(payloadID)'));
       expect(admit.indexOf('authorizeUploadLocked('),
           lessThan(admit.indexOf('InflightUpload(')));
@@ -254,12 +254,12 @@ void main() {
     test('entries past their deadline count as finished; reader is under flock',
         () {
       final read = body(store, 'static func inflightUploads(forUid');
-      expect(read, contains('withQueueLock'));
+      expect(read, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       expect(read, contains(r'$0.deadline > now'));
       expect(read, contains(r'$0.ownerHash == hash'));
       expect(read, contains('readInflightRaw()'), reason: 'unreadable throws');
       final remove = body(store, 'static func removeInflightUpload(');
-      expect(remove, contains('withQueueLock'));
+      expect(remove, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       expect(remove, contains(r'$0.payloadId != payloadID'));
     });
 
@@ -374,7 +374,7 @@ void main() {
       expect(guard, contains('QueueError.staleGeneration'));
       expect(guard, contains('QueueError.egressDenied'));
       final config = body(store, 'static func setBackendConfig(');
-      expect(config, contains('withQueueLock'));
+      expect(config, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       expect(config, contains('egressGenerationIsStale('));
       expect(config, contains('egressDenied(forOwner: subject)'));
       final egress = body(store, 'static func setCloudEgressState(');

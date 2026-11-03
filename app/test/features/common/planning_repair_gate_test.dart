@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:money_companion/core/di/app_providers.dart';
+import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/data/db/planning_cutover.dart';
 import 'package:money_companion/features/common/planning_repair_gate.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
@@ -33,12 +34,18 @@ GoRouter _router() => GoRouter(
     );
 
 Future<void> _pump(WidgetTester tester, PlanningCutoverState state,
-    GoRouter router) async {
+    GoRouter router, {String? language, bool dark = false, double textScale = 1}) async {
   await tester.pumpWidget(ProviderScope(
     overrides: [_coordinator(state)],
     // The gate's copy comes from the ARB now.
     child: MaterialApp.router(
       routerConfig: router,
+      theme: dark ? AppTheme.dark : AppTheme.light,
+      locale: language == null ? null : Locale(language),
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(textScaler: TextScaler.linear(textScale)),
+        child: child!,
+      ),
       localizationsDelegates: AppL10n.localizationsDelegates,
       supportedLocales: AppL10n.supportedLocales,
     ),
@@ -47,6 +54,34 @@ Future<void> _pump(WidgetTester tester, PlanningCutoverState state,
 }
 
 void main() {
+  for (final language in ['ar', 'en']) {
+    for (final dark in [false, true]) {
+      testWidgets('compact repair gate keeps both actions reachable at 2x text $language dark=$dark', (tester) async {
+        tester.view.physicalSize = const Size(375, 667);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final router = _router();
+        addTearDown(router.dispose);
+        router.go('/budgets');
+        await _pump(tester, PlanningCutoverState.unresolved, router,
+            language: language, dark: dark, textScale: 2);
+        expect(tester.takeException(), isNull);
+        final confirm = find.byKey(const Key('planning_repair_confirm_cta'));
+        final defer = find.byKey(const Key('planning_repair_defer_cta'));
+        await tester.ensureVisible(confirm);
+        await tester.pumpAndSettle();
+        expect(tester.getCenter(confirm).dy, inExclusiveRange(0, 667));
+        await tester.ensureVisible(defer);
+        await tester.pumpAndSettle();
+        expect(tester.getCenter(defer).dy, inExclusiveRange(0, 667));
+        await tester.tap(defer);
+        await tester.pumpAndSettle();
+        expect(find.text('HOME'), findsOneWidget);
+        expect(tester.takeException(), isNull);
+      });
+    }
+  }
+
   testWidgets('legacy (v29) renders the child unchanged — no interstitial',
       (tester) async {
     final router = _router();

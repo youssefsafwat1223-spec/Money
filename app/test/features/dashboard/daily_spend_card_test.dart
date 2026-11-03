@@ -76,13 +76,13 @@ void main() {
     expect(find.text('ريال'), findsOneWidget);
   });
 
-  testWidgets('no monthly budget shows «—» and prompts for one — never a zero',
+  testWidgets('no monthly budget hides the empty allowance and budget prompt',
       (tester) async {
-    await pumpCard(
-        tester, todaySpend: sar(23850), days: days, availableToday: null);
+    await pumpCard(tester,
+        todaySpend: sar(23850), days: days, availableToday: null);
 
-    expect(find.text('—'), findsOneWidget);
-    expect(find.text('حدّد ميزانية شهرية'), findsOneWidget);
+    expect(find.text('—'), findsNothing);
+    expect(find.text('حدّد ميزانية شهرية'), findsNothing);
     expect(find.text('متاح لليوم'), findsNothing);
   });
 
@@ -102,8 +102,8 @@ void main() {
 
   testWidgets('the vs-yesterday chip is omitted when the ratio is undefined',
       (tester) async {
-    await pumpCard(
-        tester, todaySpend: sar(23850), days: days, todayVsYesterday: null);
+    await pumpCard(tester,
+        todaySpend: sar(23850), days: days, todayVsYesterday: null);
 
     expect(find.textContaining('عن أمس'), findsNothing);
   });

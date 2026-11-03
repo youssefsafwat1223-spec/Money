@@ -6,20 +6,23 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/widgets/section_photo_header.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/liquid_bar.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/theme/widgets/mali_card.dart';
-import '../../core/utils/category_glyph.dart';
 import '../../core/utils/currency.dart';
-import '../../core/utils/formatters.dart';
 import '../../domain/entities/goal_entity.dart';
 import '../../domain/finance/money.dart';
+import '../../domain/finance/money_format.dart';
 import '../ads/ad_placement.dart';
 import '../ads/qirsh_ad_banner.dart';
 import '../common/planning_repair_gate.dart';
 import '../common/premium_loading.dart';
+import '../common/app_error_state.dart';
+import '../common/app_header.dart';
 import 'goal_details_screen.dart';
 import 'goal_form_screen.dart';
 import 'goals_providers.dart';
@@ -40,10 +43,24 @@ class GoalsScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: context.colors.bg,
+      appBar: AppHeader(
+        sectionPhoto: QirshSectionPhoto.goals,
+        title: context.l10n.bdgTabGoals,
+        action: IconButton(
+          tooltip: context.l10n.bdgAddGoal,
+          icon: const Icon(AppLucideIcons.plus, color: Colors.white),
+          onPressed: () => GoalFormScreen.showSheet(context),
+        ),
+      ),
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const SkeletonList(rows: 4),
-        error: (error, _) => Center(child: Text(context.l10n.txnError)),
+        error: (error, _) => SingleChildScrollView(child: AppErrorState(
+          title: context.l10n.txnError,
+          description: context.l10n.annTryAgainSoon,
+          retryLabel: context.l10n.startRetry,
+          onRetry: () => ref.invalidate(goalsListProvider),
+        )),
         data: (goals) {
           final visibleGoals = goals
               .where((goal) =>
@@ -59,10 +76,9 @@ class GoalsScreen extends ConsumerWidget {
               children: [
                 _GoalsHeader(
                   count: 0,
-                  saved: 0,
-                  target: 0,
+                  saved: Money.zero(displayCurrency),
+                  target: Money.zero(displayCurrency),
                   currencyLabel: currencyLabel,
-                  onAdd: () => GoalFormScreen.showSheet(context),
                 ),
                 Padding(
                   padding: const EdgeInsets.all(AppSpacing.gutter),
@@ -89,11 +105,11 @@ class GoalsScreen extends ConsumerWidget {
               padding: EdgeInsets.zero,
               children: [
                 _GoalsHeader(
-                  count: visibleGoals.length,
-                  saved: saved.toDouble(),
-                  target: target.toDouble(),
+                  count: visibleGoals.where((goal) =>
+                      goal.savedMoney.compareTo(goal.targetMoney) < 0).length,
+                  saved: saved,
+                  target: target,
                   currencyLabel: currencyLabel,
-                  onAdd: () => GoalFormScreen.showSheet(context),
                 ),
                 // The FIRST goal card, on its own, so the banner can follow
                 // it. Splitting the list this way is what lets the ad sit after
@@ -137,6 +153,15 @@ class GoalsScreen extends ConsumerWidget {
                       ],
                     ),
                   ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      AppSpacing.gutter, 0, AppSpacing.gutter, AppSpacing.s4),
+                  child: FilledButton.tonalIcon(
+                    onPressed: () => GoalFormScreen.showSheet(context),
+                    icon: const Icon(AppLucideIcons.plus, size: 18),
+                    label: Text(context.l10n.bdgAddGoal),
+                  ),
+                ),
                 // The nav-bar clearance that used to close the Column above.
                 // Moved out so it sits BELOW the banner rather than between the
                 // last goal and it — an ad the floating bar covers is an
@@ -167,141 +192,98 @@ class _GoalCard extends StatelessWidget {
         goal.targetAmount == 0 ? 0.0 : goal.savedAmount / goal.targetAmount;
     final clampedProgress = progress.clamp(0, 1).toDouble();
     final percent = (progress * 100).round();
-    final remaining =
-        (goal.targetAmount - goal.savedAmount).clamp(0, double.infinity);
-    // UX-025 — exact minor-unit arithmetic; the double above is display-only.
     final pacing = goalPacing(
       target: goal.targetMoney,
       saved: goal.savedMoney,
       deadline: goal.deadline,
       now: DateTime.now(),
     );
-    // نفس لغة ويدجت الهدف في الداشبورد (design-system §15.9): كارت هادي +
-    // تايل أخضر + كبسولة نسبة + شريط سائل — بدل التدرّج الكحلي القديم.
-    final tone = remaining == 0 ? c.success : c.income;
+    final remaining = pacing.remaining;
+    final tone = remaining.isZero ? c.success : c.income;
     return MaliCard(
       style: MaliSurfaceStyle.floating,
       padding: EdgeInsets.zero,
       child: InkWell(
-        borderRadius: BorderRadius.circular(AppRadius.xxxl),
+        borderRadius: BorderRadius.circular(AppRadius.xxl),
         onTap: () => GoalDetailsScreen.showSheet(context, goal.id),
         child: Padding(
-          padding: const EdgeInsets.all(AppSpacing.s4),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+          padding: const EdgeInsetsDirectional.fromSTEB(6, 6, 16, 6),
+          child: Row(
             children: [
-              Row(
-                children: [
-                  Container(
-                    width: 38,
-                    height: 38,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: tone.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: CategoryGlyph(
-                      name: 'piggy-bank',
-                      size: 20,
-                      color: tone,
-                    ),
-                  ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
+              ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: QirshPhotoFrame(
+                  photo: qirshGoalPhoto(goal.vaultSkin),
+                  width: 96,
+                  height: 96,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(goal.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: AppTypography.cardTitle(c.textMain)),
+                    const SizedBox(height: 3),
+                    if (pacing.requiredPerMonth case final rate?)
+                      Wrap(
+                        spacing: 4,
+                        runSpacing: 2,
+                        children: [
+                          Text(
+                            _goalDeadlineLabel(context, pacing.daysRemaining),
+                            style: AppTypography.caption(c.textLight),
+                          ),
+                          MoneyText(rate,
+                              style: AppTypography.caption(c.textLight)),
+                          Text(context.l10n.goalPerMonth,
+                              style: AppTypography.caption(c.textLight)),
+                        ],
+                      )
+                    else
+                      Text(
+                        remaining.isZero
+                            ? context.l10n.bdgGoalDone
+                            : pacing.isOverdue
+                                ? context.l10n.goalOverdue
+                                : context.l10n.goalRemainingToReach(
+                                    formatMoney(remaining), currencyLabel),
+                        style: AppTypography.caption(
+                            pacing.isOverdue ? c.warning : c.textLight),
+                      ),
+                    const SizedBox(height: 9),
+                    LiquidBar(value: clampedProgress, color: tone, height: 6),
+                    const SizedBox(height: 6),
+                    Row(
                       children: [
-                        Text(goal.name,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: AppTypography.cardTitle(c.textMain)),
-                        const SizedBox(height: 2),
-                        Text(
-                          remaining == 0
-                              ? context.l10n.bdgGoalDone
-                              : context.l10n.goalRemainingToReach(
-                                  Formatters.integer(remaining), currencyLabel),
-                          style: AppTypography.footnote(
-                            remaining == 0 ? c.success : c.textLight,
+                        Expanded(
+                          child: Text.rich(
+                            TextSpan(children: [
+                              TextSpan(
+                                text: formatMoney(goal.savedMoney),
+                                style: AppTypography.caption(c.textMain)
+                                    .copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              TextSpan(
+                                text: ' / ${formatMoney(goal.targetMoney)}',
+                                style: AppTypography.caption(c.textLight),
+                              ),
+                            ]),
+                            maxLines: 2,
+                            textDirection: TextDirection.ltr,
                           ),
                         ),
-                        // UX-025 — the date and the rate that make a goal a
-                        // PLAN rather than a number.
-                        //
-                        // `deadline` was already stored, already used to order
-                        // the Home preview, and already printed in the exported
-                        // PDF — and never shown on the screen where the user
-                        // manages the goal. The required monthly contribution
-                        // is derivable from data already present and was never
-                        // shown either.
-                        //
-                        // Subscriptions renders «بعد 3 يوم» and the installment
-                        // card «القسط القادم: بعد 7 يوم»: time-to-target was
-                        // surfaced for obligations and withheld from goals.
-                        if (pacing.requiredPerMonth case final rate?) ...[
-                          const SizedBox(height: 3),
-                          Row(
-                            children: [
-                              Icon(AppLucideIcons.calendarDays,
-                                  size: 12, color: c.textLight),
-                              const SizedBox(width: 3),
-                              Flexible(
-                                child: Text(
-                                  _goalDeadlineLabel(context, pacing.daysRemaining),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: AppTypography.caption(c.textLight),
-                                ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text('·',
-                                  style: AppTypography.caption(c.textLight)),
-                              const SizedBox(width: 6),
-                              MoneyText(rate,
-                                  style: AppTypography.caption(c.income)),
-                              const SizedBox(width: 3),
-                              Text(context.l10n.goalPerMonth,
-                                  style: AppTypography.caption(c.textLight)),
-                            ],
-                          ),
-                        ] else if (pacing.isOverdue) ...[
-                          const SizedBox(height: 3),
-                          Text(context.l10n.goalOverdue,
-                              style: AppTypography.caption(c.warning)),
-                        ],
+                        const SizedBox(width: 6),
+                        Text('$percent%',
+                            style: AppTypography.caption(tone)
+                                .copyWith(fontWeight: FontWeight.w700)),
                       ],
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: tone.withValues(alpha: 0.14),
-                      borderRadius: BorderRadius.circular(AppRadius.pill),
-                    ),
-                    child: Text('$percent%', style: AppTypography.label(tone)),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              LiquidBar(value: clampedProgress, color: tone),
-              const SizedBox(height: 9),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      context.l10n.goalSavedAmount(
-                          Formatters.integer(goal.savedAmount), currencyLabel),
-                      style: AppTypography.caption(c.textSecondary),
-                    ),
-                  ),
-                  Text(
-                    context.l10n.goalTargetAmount(
-                        Formatters.integer(goal.targetAmount), currencyLabel),
-                    style: AppTypography.caption(c.textSecondary),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ],
           ),
@@ -317,43 +299,28 @@ class _GoalsHeader extends StatelessWidget {
     required this.saved,
     required this.target,
     required this.currencyLabel,
-    required this.onAdd,
   });
 
   final int count;
-  final double saved;
-  final double target;
+  final Money saved;
+  final Money target;
   final String currencyLabel;
-  final VoidCallback onAdd;
 
   @override
   Widget build(BuildContext context) {
-    final ratio = target == 0 ? 0 : (saved / target * 100).round();
+    final ratio = target.isZero ? 0 : (saved.toDouble() / target.toDouble() * 100).round();
     return CalmPageHeader(
       title: context.l10n.bdgTabGoals,
       subtitle: context.l10n.goalTotalSavedAll,
-      leading: Navigator.of(context).canPop()
-          ? const BackButton(color: Colors.white)
-          : null,
-      trailing: GestureDetector(
-        onTap: onAdd,
-        child: Container(
-          width: 42,
-          height: 42,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: Colors.white.withValues(alpha: 0.16),
-            border: Border.all(color: Colors.white.withValues(alpha: 0.28)),
-          ),
-          child: const Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
-        ),
-      ),
-      amount: Formatters.amount(saved),
+      showTitle: false,
+      useSafeAreaTop: false,
+      photo: QirshPhoto.goals,
+      amount: formatMoney(saved),
       currency: currencyLabel,
       metrics: [
         CalmMetric(label: context.l10n.bdgStatActiveGoals, value: '$count'),
         CalmMetric(label: context.l10n.bdgStatProgress, value: '$ratio%'),
-        CalmMetric(label: context.l10n.goalTargetLabel, value: Formatters.amount(target)),
+        CalmMetric(label: context.l10n.goalTargetLabel, value: formatMoney(target)),
       ],
     );
   }
@@ -374,6 +341,12 @@ class _EmptyGoalsCard extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.s6),
         child: Column(
           children: [
+            const QirshIllustration(name: 'savings', width: 170, height: 128),
+            const SizedBox(height: AppSpacing.s3),
+            Text(context.l10n.bdgEmptyGoalsTitle,
+                textAlign: TextAlign.center,
+                style: AppTypography.cardTitle(c.textMain)),
+            const SizedBox(height: AppSpacing.s2),
             Text(context.l10n.goalEmptyBody,
                 textAlign: TextAlign.center,
                 style: AppTypography.callout(c.textLight)),

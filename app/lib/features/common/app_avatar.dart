@@ -24,9 +24,11 @@ class AppAvatar extends StatelessWidget {
     super.key,
     required String name,
     String? logoUrl,
+    Widget? fallback,
     this.size = AppSpacing.avatar,
   })  : _brandName = name,
         _logoUrl = logoUrl,
+        _fallback = fallback,
         _category = null,
         _iconName = null,
         _label = null,
@@ -55,6 +57,7 @@ class AppAvatar extends StatelessWidget {
     this.size = AppSpacing.avatar,
   })  : _brandName = null,
         _logoUrl = null,
+        _fallback = null,
         _category = category,
         _iconName = iconName,
         _label = merchantName,
@@ -71,6 +74,7 @@ class AppAvatar extends StatelessWidget {
     this.size = AppSpacing.avatar,
   })  : _brandName = null,
         _logoUrl = null,
+        _fallback = null,
         _category = null,
         _iconName = null,
         _label = null,
@@ -80,6 +84,7 @@ class AppAvatar extends StatelessWidget {
 
   final String? _brandName;
   final String? _logoUrl;
+  final Widget? _fallback;
   final CategoryView? _category;
   final String? _iconName;
   final String? _label;
@@ -97,7 +102,8 @@ class AppAvatar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (_brandName != null) {
-      return BrandMark(name: _brandName, logoUrl: _logoUrl, size: size);
+      return BrandMark(
+          name: _brandName, logoUrl: _logoUrl, size: size, fallback: _fallback);
     }
 
     final c = context.colors;
@@ -127,7 +133,12 @@ class AppAvatar extends StatelessWidget {
       alignment: Alignment.center,
       decoration: ShapeDecoration(
         color: isSoft
-            ? (tone?.background ?? tileColor.withValues(alpha: 0.12))
+            ? (tone?.background ??
+                // The prototype's `iconTile`: 12% of the hue, 22% on dark.
+                tileColor.withValues(
+                    alpha: Theme.of(context).brightness == Brightness.dark
+                        ? 0.22
+                        : 0.12))
             : tileColor,
         shape: shapeFor(size),
       ),

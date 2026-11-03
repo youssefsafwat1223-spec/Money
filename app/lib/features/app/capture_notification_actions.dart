@@ -17,7 +17,16 @@ String captureRouteFor({
   String? type,
   String? transactionId,
   String? payloadTransactionId,
+  String? confirmedTransactionId,
 }) {
+  // The local ledger is newer than the notification delivered in the past.
+  // Only a verified confirmed row can override the old review destination.
+  if (confirmedTransactionId != null &&
+      confirmedTransactionId.isNotEmpty &&
+      !confirmedTransactionId.startsWith(_smartInboxMarkerPrefix) &&
+      !confirmedTransactionId.startsWith('rejected:')) {
+    return '/transaction/$confirmedTransactionId';
+  }
   if (type == 'needs_review' || type == 'suspicious_duplicate') {
     return '/smart-inbox';
   }

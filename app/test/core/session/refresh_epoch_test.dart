@@ -17,7 +17,7 @@ void refreshEpochCase(String lifecycle,
     {bool failure = false, bool refreshDuringProvider = false}) {
   TestWidgetsFlutterBinding.ensureInitialized();
   test(
-      'real gated late ${failure ? 'failed' : 'successful'} refresh after $lifecycle${refreshDuringProvider ? ' while provider pending' : ''} cannot restore old authority',
+      'real gated SDK refresh (${failure ? 'failing' : 'successful'} server) is denied, and after $lifecycle${refreshDuringProvider ? ' while provider pending' : ''} cannot restore old authority',
       () async {
     final egress = TestEgress(seedOn: true).install();
     final f = await F2Fixture.create(initialize: (db, uid) async {
@@ -61,9 +61,10 @@ void refreshEpochCase(String lifecycle,
       await f.session.bindSupabaseAuth(client);
       final providerAttempt =
           refreshDuringProvider ? f.session.beginAuthAttempt() : null;
-      final refresh = client.auth.refreshSession();
-      final rejected = expectLater(refresh, throwsA(anything));
-      await reached.future;
+      // ASR I3: the SDK's refresh is denied before admission, so it never
+      // reaches the transport and no late result can exist at all.
+      await expectLater(client.auth.refreshSession(), throwsA(anything));
+      expect(reached.isCompleted, isFalse);
       if (lifecycle == 'new login' ||
           lifecycle == 'same UID reauthentication') {
         final attempt = providerAttempt ?? f.session.beginAuthAttempt();
@@ -90,7 +91,6 @@ void refreshEpochCase(String lifecycle,
       final from = f.storage.attempts.length;
       final scopeFrom = f.scope.calls.length;
       release.complete();
-      await rejected;
       await Future<void>.delayed(Duration.zero);
       await f.session.drainAdmissions();
       expect(f.storage.attempts.skip(from), isEmpty);

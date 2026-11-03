@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/goal_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
@@ -125,7 +126,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
   });
 
-  testWidgets('failed goal save resets loading state and shows SnackBar',
+  testWidgets('failed goal save resets loading state, retains input and shows error alert',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1000));
     final repository = _GoalRepository(throwOnSave: true);
@@ -138,6 +139,10 @@ void main() {
 
     expect(repository.saveCalls, 1);
     expect(find.textContaining('حدث خطأ غير متوقع'), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.alertCircle), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.checkCircle), findsNothing);
+    expect(tester.widgetList<TextFormField>(find.byType(TextFormField))
+        .map((field) => field.controller?.text), containsAll(['Existing', '1000.00']));
     expect(find.text('حفظ التعديل'), findsOneWidget);
     expect(tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
         isNotNull);
@@ -171,5 +176,6 @@ void main() {
 
     expect(repository.saveCalls, 0);
     expect(find.text('اختر موعدًا نهائيًا قادمًا أو اليوم.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
   });
 }

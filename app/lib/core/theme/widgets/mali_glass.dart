@@ -287,6 +287,20 @@ class _MaliGlassState extends State<MaliGlass> {
           )
         : content;
 
+    // The approved HTML form sheets use a neutral opaque surface. Keep the
+    // route's native drag/keyboard behavior and reserve glass for chrome.
+    if (isSheet) {
+      return _wrapInteractive(
+        DecoratedBox(
+          decoration: BoxDecoration(borderRadius: br, boxShadow: spec.shadow),
+          child: ClipRRect(borderRadius: br,
+            child: ColoredBox(color: c.surface, child: layered)),
+        ),
+        interactive: interactive,
+        reduceMotion: reduceMotion,
+      );
+    }
+
     // Generic MaliGlass NEVER self-selects the native platform-view tier:
     // native UIGlassEffect is used only when the caller is an explicit native
     // host ([nativeMaterial]). Generic surfaces resolve: opaque → advanced →

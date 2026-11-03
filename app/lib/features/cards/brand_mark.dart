@@ -3,6 +3,7 @@ import '../../core/privacy/gated_network_image.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
+import '../../core/theme/app_colors.dart';
 import '../../engine/parser/payment_aggregators.dart';
 import '../common/app_avatar.dart';
 import '../settings/settings_providers.dart';
@@ -33,10 +34,18 @@ class BrandMark extends ConsumerWidget {
     required this.name,
     this.size = 44,
     this.logoUrl,
+    this.fallback,
   });
 
   final String name;
   final double size;
+
+  /// Shown instead of the generic first-letter tile when no real mark can be
+  /// shown (no bundled SVG, no remote logo allowed or loaded, no curated brand
+  /// colour). Transaction rows pass their category tile, so an unbranded
+  /// merchant reads like every other categorised row — the prototype's
+  /// `brandTile` → `catTile` rule.
+  final Widget? fallback;
 
   /// Admin-managed brand logo URL (from the synced catalog). When present it's
   /// shown first; on load failure it falls back to the bundled SVG / letter mark.
@@ -443,7 +452,7 @@ class BrandMark extends ConsumerWidget {
       height: size,
       padding: EdgeInsets.all(size * 0.18),
       decoration: ShapeDecoration(
-        color: Colors.white,
+        color: slug == 'sony' ? AppBrandBlue.deep : Colors.white,
         shape: AppAvatar.shapeFor(size),
       ),
       child: SvgPicture.asset(
@@ -477,6 +486,7 @@ class BrandMark extends ConsumerWidget {
     // B2-C — the _brands match is memoised in _stable; the first-character
     // fallback still derives from this instance's name.
     final resolved = _stable(name);
+    if (resolved.letterColor == null && fallback != null) return fallback!;
     final firstChar = name.isNotEmpty ? name.characters.first : '?';
     final Color color = resolved.letterColor ?? const Color(0xFF0A2540);
     final String label = (resolved.letterLabel == null)

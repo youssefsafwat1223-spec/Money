@@ -47,6 +47,31 @@ Future<void> _openTour(WidgetTester tester, Locale locale) async {
 }
 
 void main() {
+  testWidgets('an empty guide opens no dialog and reports no tour',
+      (tester) async {
+    bool? shown;
+    await tester.pumpWidget(_host(
+      const Locale('en'),
+      Builder(
+        builder: (context) => TextButton(
+          onPressed: () async {
+            shown = await showCoachMarksOnce(
+              context,
+              id: CoachMarkIds.dashboard,
+              marks: const [],
+            );
+          },
+          child: const Text('open'),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(shown, isFalse);
+    expect(find.byType(Dialog), findsNothing);
+    expect(find.text('open'), findsOneWidget);
+  });
+
   testWidgets('advances through every step, then finishes', (tester) async {
     await _openTour(tester, const Locale('en'));
 

@@ -255,8 +255,8 @@ class _AppButtonBaseState extends State<_AppButtonBase> {
               borderRadius: borderRadius,
               boxShadow: isEnabled ? widget.shadow : null,
             ),
-            child: SizedBox(
-              height: widget.height,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(minHeight: widget.height),
               child: ElevatedButton(
                 onPressed: isEnabled ? widget.onTap : null,
                 style: ElevatedButton.styleFrom(
@@ -294,10 +294,14 @@ class _AppButtonBaseState extends State<_AppButtonBase> {
                             Icon(widget.icon, size: 18),
                             const SizedBox(width: AppSpacing.s2),
                           ],
-                          Text(
-                            widget.label,
-                            style: AppTypography.bodyStrong(
-                                widget.foregroundColor),
+                          Flexible(
+                            fit: FlexFit.loose,
+                            child: Text(
+                              widget.label,
+                              textAlign: TextAlign.center,
+                              style: AppTypography.bodyStrong(
+                                  widget.foregroundColor),
+                            ),
                           ),
                         ],
                       ),

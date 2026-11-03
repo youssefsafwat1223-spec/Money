@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/session/app_session.dart';
 import '../../l10n/app_localizations.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/app_colors.dart';
 
 /// Honest outcome of an incomplete logout: the device IS signed out and the
 /// process stays locked, but the durable offline lock could not be written, so a
@@ -27,6 +28,7 @@ Future<void> showSignOutIncompleteNotice(
           actions: [
             TextButton(
               key: const Key('sign_out_incomplete_retry'),
+              style: TextButton.styleFrom(foregroundColor: context.colors.textPrimary),
               onPressed: busy
                   ? null
                   : () async {
@@ -51,6 +53,7 @@ Future<void> showSignOutIncompleteNotice(
             ),
             TextButton(
               key: const Key('sign_out_incomplete_close'),
+              style: TextButton.styleFrom(foregroundColor: context.colors.textPrimary),
               onPressed: () => Navigator.of(dialogContext).pop(),
               child: Text(l10n.commonClose),
             ),

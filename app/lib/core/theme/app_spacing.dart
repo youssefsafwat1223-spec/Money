@@ -23,7 +23,7 @@ class AppSpacing {
 
   // Semantic spacing — Compact UI system (docs/MALI_COMPACT_UI_SYSTEM_PLAN.md).
   // Evolved toward ~25–35% less vertical whitespace; every screen inherits these.
-  static const double pagePadding = s5; // 20 (was 24)
+  static const double pagePadding = s4; // HTML page gutter: 16
   static const double pagePaddingCompact = s4; // 16
   static const double sectionGap = s6; // 24 (was 32)
   static const double sectionGapCompact = s4; // 16 (was 20)
@@ -106,7 +106,7 @@ class AppRadius {
   static const double row = 13;
 
   /// `--r-card: 18px` — `.card`, `.grp`, `.lgrp`, `.strip`, `.ledger`, `.rank`.
-  static const double card = 18;
+  static const double card = 20;
 
   /// `--r-sheet: 28px` — the modal sheet's top corners.
   static const double sheet = 28;

@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart' show DateFormat;
 
 import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
@@ -387,18 +388,28 @@ class DailySpendBarChart extends StatelessWidget {
     this.height = 180,
     this.selectedIndex,
     this.onBarTap,
+    this.days,
+    this.average,
+    this.averageLabel,
   });
 
   final List<double> values;
   final double height;
   final int? selectedIndex;
   final ValueChanged<int>? onBarTap;
+  final List<DateTime>? days;
+  final Money? average;
+  final String? averageLabel;
 
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final safeValues = values.isEmpty ? const [0.0] : values;
-    final maxValue = math.max(safeValues.reduce(math.max), 1);
+    final safeValues = values;
+    final averageValue = average?.toDouble();
+    final chartValues = [0.0, ...safeValues,
+      if (averageValue != null && values.isNotEmpty) averageValue];
+    final maxValue = math.max(chartValues.reduce(math.max), 1);
+    final minValue = chartValues.reduce(math.min);
 
     return SizedBox(
       height: height,
@@ -406,7 +417,26 @@ class DailySpendBarChart extends StatelessWidget {
       child: BarChart(
         BarChartData(
           maxY: maxValue * 1.2,
+          minY: minValue < 0 ? minValue * 1.2 : 0,
           alignment: BarChartAlignment.spaceBetween,
+          extraLinesData: ExtraLinesData(horizontalLines: [
+            if (averageValue != null && values.isNotEmpty)
+              HorizontalLine(
+                y: averageValue,
+                color: c.textMuted,
+                strokeWidth: 1.5,
+                dashArray: [5, 4],
+                label: HorizontalLineLabel(
+                  show: averageLabel != null,
+                  alignment: AlignmentDirectional.topStart
+                      .resolve(Directionality.of(context)),
+                  labelResolver: (_) => averageLabel ?? '',
+                  style: AppTypography.caption(c.textMuted),
+                ),
+              ),
+            if (minValue < 0)
+              HorizontalLine(y: 0, color: c.border, strokeWidth: 1),
+          ]),
           barTouchData: BarTouchData(
             enabled: onBarTap != null,
             touchCallback: (event, response) {
@@ -437,15 +467,29 @@ class DailySpendBarChart extends StatelessWidget {
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
-                reservedSize: 22,
+                reservedSize: days == null ? 22 : 32,
                 interval: math.max((safeValues.length / 6).floorToDouble(), 1),
                 getTitlesWidget: (value, meta) {
                   final index = value.toInt();
                   if (index < 0 || index >= safeValues.length) {
                     return const SizedBox.shrink();
                   }
+                  // BarChart invokes this for every group even when interval
+                  // is set. Enforce spacing in the actual title callback.
+                  final maxLabels = (meta.parentAxisSize / (days == null ? 36 : 66))
+                      .floor().clamp(2, 6);
+                  final stride = math.max(
+                      ((safeValues.length - 1) / (maxLabels - 1)).ceil(), 1);
+                  final last = safeValues.length - 1;
+                  if (index != last &&
+                      (index % stride != 0 || last - index < stride)) {
+                    return const SizedBox.shrink();
+                  }
                   return Text(
-                    '${index + 1}',
+                    days != null && index < days!.length
+                        ? DateFormat.MMMd(Localizations.localeOf(context).languageCode)
+                            .format(days![index])
+                        : '${index + 1}',
                     style: AppTypography.caption(c.textMuted)
                         .copyWith(fontSize: 10),
                   );

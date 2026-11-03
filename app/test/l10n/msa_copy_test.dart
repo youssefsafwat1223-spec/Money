@@ -64,6 +64,8 @@ void main() {
   const brandVoiceKeys = <String>{
     'brandTagline',    // فلوسك أوضح. قرارك أذكى.
     'welcomeSubtitle', // صاحبك في فلوسك
+    // Exact approved HTML onboarding copy; its conversational voice is intentional.
+    'introBudgetBody', // شوف وتيرة صرفك يوم بيوم، واعرف إمتى تهدّي.
   };
 
   test('the Arabic ARB carries no colloquial forms outside brand voice', () {

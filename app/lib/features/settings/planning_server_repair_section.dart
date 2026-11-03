@@ -7,7 +7,13 @@ import '../../core/utils/l10n_ext.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/app_toast.dart';
 import '../../domain/finance/currency_scale.dart';
+import '../common/app_card.dart';
+import '../common/app_error_state.dart';
 import '../planning_sync/services/planning_server_currency_repair.dart';
 import 'planning_server_repair_providers.dart';
 
@@ -16,28 +22,39 @@ class PlanningServerRepairSection extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final items =
-        ref.watch(serverUnresolvedPlanningItemsProvider).valueOrNull ??
-            const <PlanningRepairItem>[];
+    final async = ref.watch(serverUnresolvedPlanningItemsProvider);
+    if (async.hasError) {
+      return AppErrorState(
+        title: context.l10n.pcrReadFailed,
+        description: context.l10n.annTryAgainSoon,
+        retryLabel: context.l10n.annRetry,
+        onRetry: () => ref.invalidate(serverUnresolvedPlanningItemsProvider),
+      );
+    }
+    if (async.isLoading && !async.hasValue) {
+      return const Padding(padding: EdgeInsets.all(AppSpacing.s4),
+          child: Center(child: CircularProgressIndicator()));
+    }
+    final items = async.valueOrNull ?? const <PlanningRepairItem>[];
     if (items.isEmpty) return const SizedBox.shrink();
     return Directionality(
       textDirection: Directionality.of(context),
-      child: Card(
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.gutter),
+        child: AppCard(
         key: const ValueKey('server-unresolved-repair'),
-        margin: const EdgeInsets.all(12),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(context.l10n.psrTitle,
-                  style: const TextStyle(fontWeight: FontWeight.bold)),
+                  style: AppTypography.cardTitle(context.colors.textPrimary)),
               const SizedBox(height: 4),
               Text(
                 context.l10n.psrIntro,
               ),
               const SizedBox(height: 8),
-              for (final item in items) _ServerRepairRow(item: item),
+              for (final item in items) _ServerRepairRow(
+                key: ValueKey('server-repair-${item.entityType}-${item.serverId}'), item: item),
             ],
           ),
         ),
@@ -47,7 +64,7 @@ class PlanningServerRepairSection extends ConsumerWidget {
 }
 
 class _ServerRepairRow extends ConsumerStatefulWidget {
-  const _ServerRepairRow({required this.item});
+  const _ServerRepairRow({required this.item, super.key});
   final PlanningRepairItem item;
   @override
   ConsumerState<_ServerRepairRow> createState() => _ServerRepairRowState();
@@ -66,9 +83,8 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
 
   Future<void> _resolve() async {
     final code = _controller.text.trim().toUpperCase();
-    final messenger = ScaffoldMessenger.of(context);
     if (!isSupportedCurrency(code)) {
-      messenger.showSnackBar(SnackBar(content: Text(context.l10n.psrUnsupported)));
+      AppToast.showError(context, context.l10n.psrUnsupported);
       return;
     }
     setState(() => _busy = true);
@@ -82,8 +98,11 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
     setState(() => _busy = false);
     final ok = outcome == PlanningRepairOutcome.resolved ||
         outcome == PlanningRepairOutcome.resolvedByRemoval;
-    messenger.showSnackBar(SnackBar(
-        content: Text(ok ? context.l10n.psrConfirmed : context.l10n.psrConfirmFailed)));
+    if (ok) {
+      AppToast.show(context, context.l10n.psrConfirmed);
+    } else {
+      AppToast.showError(context, context.l10n.psrConfirmFailed);
+    }
     ref.invalidate(serverUnresolvedPlanningItemsProvider);
   }
 
@@ -99,13 +118,15 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
           Text('$kind: ${item.title ?? kind}'),
           if (item.amountText != null)
             Text(context.l10n.psrAmount(item.amountText ?? ''),
-                style: const TextStyle(color: Colors.grey)),
+                style: AppTypography.caption(context.colors.textSecondary)),
           Row(
             children: [
               Expanded(
                 child: TextField(
+                  key: ValueKey('server-repair-currency-${item.entityType}-${item.serverId}'),
                   controller: _controller,
                   textCapitalization: TextCapitalization.characters,
+                  textDirection: TextDirection.ltr,
                   decoration: InputDecoration(
                     hintText: context.l10n.psrCurrencyExample,
                     isDense: true,
@@ -114,6 +135,7 @@ class _ServerRepairRowState extends ConsumerState<_ServerRepairRow> {
               ),
               const SizedBox(width: 8),
               FilledButton(
+                style: FilledButton.styleFrom(minimumSize: const Size(0, 50)),
                 onPressed: _busy ? null : _resolve,
                 child: _busy
                     ? const SizedBox(

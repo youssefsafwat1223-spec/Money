@@ -7,8 +7,7 @@ void main() {
       expect(captureRouteFor(transactionId: 'smart_inbox:local_capture:p1'),
           '/smart-inbox');
       expect(
-          captureRouteFor(
-              payloadTransactionId: 'smart_inbox:local_capture:p1'),
+          captureRouteFor(payloadTransactionId: 'smart_inbox:local_capture:p1'),
           '/smart-inbox');
     });
 
@@ -32,6 +31,23 @@ void main() {
           '/smart-inbox');
       expect(
           captureRouteFor(type: 'suspicious_duplicate', transactionId: 'tx1'),
+          '/smart-inbox');
+    });
+
+    test('confirmed ledger row overrides an old needs-review notification', () {
+      expect(
+          captureRouteFor(
+              type: 'needs_review',
+              transactionId: 'smart_inbox:old',
+              confirmedTransactionId: 'saved-tx'),
+          '/transaction/saved-tx');
+      expect(
+          captureRouteFor(
+              type: 'suspicious_duplicate', confirmedTransactionId: 'saved-tx'),
+          '/transaction/saved-tx');
+      expect(
+          captureRouteFor(
+              type: 'needs_review', confirmedTransactionId: 'smart_inbox:old'),
           '/smart-inbox');
     });
 
@@ -77,8 +93,7 @@ void main() {
       granted = false;
     });
 
-    test('add manually opens the sheet and resolves only when saved',
-        () async {
+    test('add manually opens the sheet and resolves only when saved', () async {
       saved = true;
       await run(kActionAddManually, marker: 'smart_inbox:local_capture:p1');
       expect(log, ['inbox', 'manual', 'resolve:local_capture:p1']);

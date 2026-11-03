@@ -128,7 +128,9 @@ class AiCandidateValidator {
     return AiCandidateValidation.accepted(
       currency: currency,
       merchantName: merchant,
-      occurredAt: dateOk ? aiDate : localParsed?.occurredAt,
+      // The local parser reads the written digits and AM/PM/ص/م exactly; the
+      // AI only fills a date the local parse could not find.
+      occurredAt: localParsed?.occurredAt ?? (dateOk ? aiDate : null),
     );
   }
 

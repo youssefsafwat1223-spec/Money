@@ -421,14 +421,18 @@ class TransactionsListNotifier
 ///   - free-text search and the kind/category list filters do NOT change it —
 ///     the header explicitly claims the *period* expense, not the filtered
 ///     subset (the list below reflects those filters).
+/// The adjacent income KPI uses the canonical income-only aggregate over the
+/// identical scope; refunds never contribute to it.
 /// Computed from Drift, so it is always available offline.
 class TransactionsPeriodTotal {
   const TransactionsPeriodTotal({
     required this.netExpense,
+    required this.income,
     required this.currency,
   });
 
   final Money netExpense;
+  final Money income;
   final String currency;
 }
 
@@ -458,8 +462,15 @@ final transactionsPeriodTotalProvider =
       currency: activeAccount.currency,
       accountId: activeAccount.id,
     );
+    final income = await txRepo.incomeTotalBetween(
+      from: range.from,
+      to: range.to,
+      currency: activeAccount.currency,
+      accountId: activeAccount.id,
+    );
     return TransactionsPeriodTotal(
       netExpense: netExpense,
+      income: income,
       currency: activeAccount.currency,
     );
   }
@@ -474,6 +485,7 @@ final transactionsPeriodTotalProvider =
       .toList(growable: false);
   return TransactionsPeriodTotal(
     netExpense: match.isEmpty ? Money.zero(base) : match.first.expense,
+    income: match.isEmpty ? Money.zero(base) : match.first.income,
     currency: base,
   );
 });

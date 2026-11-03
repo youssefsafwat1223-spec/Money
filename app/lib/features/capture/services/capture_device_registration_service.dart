@@ -1397,7 +1397,7 @@ class CaptureDeviceRegistrationService {
     final token = Object();
     _enableFreeze = token;
     ConsentAuthority.freeze('enable_flight');
-    _gate.advanceEpoch();
+    _gate.advanceEpoch(EpochCause.captureTransition);
     _gate.freezeEnable(owner);
     var success = false;
     try {
@@ -1621,7 +1621,7 @@ class CaptureDeviceRegistrationService {
 
   Future<void> _disableCloud(Future<void> Function() commitLocalOff) async {
     ConsentAuthority.freeze('disable');
-    _gate.advanceEpoch(); // P4: advance BEFORE any transition work
+    _gate.advanceEpoch(EpochCause.cloudDisable); // P4: advance BEFORE any transition work
     final sessionUid = _readSession()?.uid;
     String? owner;
     DisableFreeze? freeze;
@@ -1796,7 +1796,7 @@ class CaptureDeviceRegistrationService {
     AdmissionAuthority? admission,
   ) async {
     if (!current()) throw const StaleAdmissionException();
-    _gate.advanceEpoch();
+    _gate.advanceEpoch(EpochCause.cloudEnable);
     final owner = await _readReplicaOwnerUid() ?? '';
     if (!current() || (admission != null && owner != admission.uid)) {
       throw const StaleAdmissionException();
@@ -1991,7 +1991,11 @@ class CaptureDeviceRegistrationService {
         inspected.status == CloudEgressTransitionStatus.noBarrier &&
             inspected.barrier
                 .every((r) => r.outcome == CloudEgressLayerOutcome.absent);
-    if ((dartAhead.isNotEmpty || nativeAhead.isNotEmpty) &&
+    final recoverUnboundFreeze = ConsentAuthority.egressFrozen &&
+        ConsentAuthority.egressFreezeTag ==
+            'reconcile_uncertain:native:lifetime_fields_unbound';
+    final freezeGeneration = ConsentAuthority.freezeGeneration;
+    if ((dartAhead.isNotEmpty || nativeAhead.isNotEmpty || recoverUnboundFreeze) &&
         !repaired &&
         pending == null &&
         cleanupPending == null &&
@@ -2004,6 +2008,12 @@ class CaptureDeviceRegistrationService {
       // verified OFF (never adopt the old ON), then rerun this preflight once
       // from fresh evidence.
       await _repairStaleEgressOff(owner, frontier, current);
+      if (!current()) throw const StaleAdmissionException();
+      // This exact reconciliation freeze is obsolete only after all four
+      // layers have been verified restrictive. A concurrent freeze survives.
+      if (recoverUnboundFreeze) {
+        ConsentAuthority.releaseFreeze(freezeGeneration, wasFrozen: false);
+      }
       return _reserveEnableVersion(capability, current, operationId,
           repaired: true);
     }
@@ -2115,8 +2125,8 @@ class CaptureDeviceRegistrationService {
   /// honestly; nothing here can make egress more permissive.
   Future<void> _repairStaleEgressOff(
       String owner, int frontier, bool Function() current) async {
-    Never incomplete() =>
-        throw const CloudEnableIncompleteException('preflight_repair_incomplete');
+    Never incomplete(String stage) =>
+        throw CloudEnableIncompleteException('preflight_repair_incomplete/$stage');
     final EgressWriteResult? written;
     try {
       written = await _gate.alignOff(
@@ -2126,17 +2136,18 @@ class CaptureDeviceRegistrationService {
             transitionGeneration: 0,
             reservedVersion: frontier,
           ),
-          isCurrent: current);
+          isCurrent: current,
+          onlyOwner: true);
     } on StaleAdmissionException {
       rethrow;
     } catch (_) {
-      incomplete();
+      incomplete('write_error');
     }
     if (!current()) throw const StaleAdmissionException();
     // Null: an unverifiable layer, nothing written. A refused native write
     // (it holds its own lifetime guards) is judged by the readback below: it
     // passes only if native already reads OFF.
-    if (written == null) incomplete();
+    if (written == null) incomplete('allocation');
     final CloudEgressEnableResult inspected;
     final ({List<CloudEgressRecord> records, bool uncertain}) dart;
     try {
@@ -2145,7 +2156,7 @@ class CaptureDeviceRegistrationService {
       dart = await _gate.store.readDartOwnerLayers(owner);
     } catch (_) {
       if (!current()) throw const StaleAdmissionException();
-      incomplete();
+      incomplete('read_error');
     }
     if (!current()) throw const StaleAdmissionException();
     bool offOrAbsent(CloudEgressLayerReport r) =>
@@ -2160,7 +2171,7 @@ class CaptureDeviceRegistrationService {
         !inspected.egress.every(offOrAbsent) ||
         !inspected.barrier
             .every((r) => r.outcome == CloudEgressLayerOutcome.absent)) {
-      incomplete();
+      incomplete('unverified_off');
     }
   }
 
@@ -2484,6 +2495,9 @@ class CaptureDeviceRegistrationService {
         final int allocated;
         try {
           allocated = await _gate.allocateEnableGeneration(owner);
+        } on EgressWriteFailedException catch (error) {
+          if (!current()) throw const StaleAdmissionException();
+          incomplete('generation/${error.what}');
         } catch (_) {
           if (!current()) throw const StaleAdmissionException();
           incomplete('generation');
@@ -2833,7 +2847,7 @@ class CaptureDeviceRegistrationService {
     // Terminal restrictive outcome: retain a freeze already in force (and its
     // tag), otherwise install one. Never a thaw, never a timer.
     void restrict(String tag) {
-      if (owns() && !ConsentAuthority.egressFrozen) ConsentAuthority.freeze(tag);
+      if (owns()) ConsentAuthority.freeze(tag, retainTag: true);
     }
 
     var lifetime = () => false;
@@ -2957,6 +2971,13 @@ class CaptureDeviceRegistrationService {
   }) async {
     current ??= _captureLifetime();
     if (!current()) return _Gate.blocked;
+    // ASR §7.5/§11.1: while an ASR transition hold is active the native lane
+    // is mid-successor (OFF behind or before its pending barrier); nothing is
+    // aligned until the hold ends and `refresh()` judges the settled state.
+    if (_gate.holdActive) return _Gate.blocked;
+    // B2: an unsettled successor is reconciled only by its ordered
+    // reconciliation (§7.5.2), never judged here.
+    if (_gate.successorUnsettled) return _Gate.blocked;
     final String owner;
     EgressView view;
     try {
@@ -2985,6 +3006,36 @@ class CaptureDeviceRegistrationService {
       if (!current()) return _Gate.blocked;
       ConsentAuthority.freeze('reconcile_throw:${e.runtimeType}'); // owner/state unknown: fail closed
       return _Gate.blocked;
+    }
+    if (view.uncertain &&
+        view.readout.problems.length == 1 &&
+        view.readout.problems.single == 'native:lifetime_fields_unbound' &&
+        owner.isNotEmpty &&
+        _readSession()?.uid == owner) {
+      // The same UID can return under a new native lifetime after sign-out.
+      // Only recover to OFF, with no active enable barrier and a local OFF
+      // choice. Never transfer an old lifetime's ON to the new one.
+      bool ownsRecovery() => current!() && _readSession()?.uid == owner;
+      try {
+        if (await _storedCloudOff(ownsRecovery) &&
+            !await _gate.pendingBlocks(owner: owner) &&
+            ownsRecovery()) {
+          final inspected =
+              await NativeCaptureBridge.getCloudEgressPending(ownerUid: owner);
+          if (ownsRecovery() &&
+              inspected?.operation == 'inspect' &&
+              inspected?.status == CloudEgressTransitionStatus.noBarrier &&
+              inspected!.barrier.length == 2 &&
+              inspected.barrier.every(
+                  (layer) => layer.outcome == CloudEgressLayerOutcome.absent)) {
+            await _repairStaleEgressOff(owner, 0, ownsRecovery);
+            if (ownsRecovery()) view = await _gate.view(owner: owner);
+          }
+        }
+      } catch (_) {
+        // Incomplete repair stays blocked.
+      }
+      if (!ownsRecovery()) return _Gate.blocked;
     }
     if (view.uncertain) {
       ConsentAuthority.freeze(
@@ -3064,7 +3115,7 @@ class CaptureDeviceRegistrationService {
       bool Function() current, void Function()? didAdvanceEpoch) async {
     if (!current()) return false;
     ConsentAuthority.freeze('pending_disable');
-    _gate.advanceEpoch();
+    _gate.advanceEpoch(EpochCause.consentWithdrawn);
     didAdvanceEpoch?.call();
     try {
       final settings = await _settingsRepository.getSettings();
@@ -3353,6 +3404,8 @@ extension RestrictiveOwnerPublication on CaptureDeviceRegistrationService {
   Future<Object> publishRestrictiveOwnerDetailed({
     required AdmissionAuthority admissionAuthority,
     RestrictivePublishPlan? plan,
+    ({String evidenceId, int expectedCounter})? successorOf,
+    Object? successorCauseAuthority,
   }) async {
     final current = _captureLifetime(
         requireAdmission: true, admissionAuthority: admissionAuthority);
@@ -3391,6 +3444,9 @@ extension RestrictiveOwnerPublication on CaptureDeviceRegistrationService {
       expectedReservedVersion: plan?.expectedReservedVersion,
       expectedLifetimeOwnerGeneration: plan?.expectedLifetimeOwnerGeneration,
       expectedLifetimeOwnerEpoch: plan?.expectedLifetimeOwnerEpoch,
+      // ASR §7.5 SE1 (never together with an explicit plan).
+      successorOf: plan == null ? successorOf : null,
+      causeAuthority: plan == null ? successorCauseAuthority : null,
     );
     if (receipt == null) return const RestrictiveOwnerRefusal('receipt_null');
     if (!receipt.confirms(
@@ -3408,5 +3464,363 @@ extension RestrictiveOwnerPublication on CaptureDeviceRegistrationService {
       });
     }
     return receipt;
+  }
+}
+
+/// ASR §7.5 SE2–SE5: one expiry-successor enable in flight. Holds the Dart
+/// pending record, the native binding and the counter its own receipts
+/// advanced native to.
+/// The in-process freeze an expiry successor took: its enable token, the
+/// state before it, and the [ConsentAuthority.freezeGeneration] of its freeze.
+typedef SuccessorFreeze = ({Object token, bool wasFrozen, int generation});
+
+class ExpirySuccessor {
+  ExpirySuccessor._(this.owner, this.successorGeneration, this.ownerEpoch,
+      this.pending, this.binding, this.counter, this._freeze,
+      [this.causeAuthority]);
+  final String owner;
+  final int successorGeneration;
+  final int ownerEpoch;
+  final PendingEnableRecord pending;
+  final CloudEgressEnableBinding binding;
+  int counter;
+  final SuccessorFreeze _freeze;
+
+  /// §11.2: the ASR op whose own native writes these are (null after a
+  /// restart: no op owns them, so they are foreign to every op).
+  final Object? causeAuthority;
+}
+
+/// ASR §7.5: the narrow successor of an expiry-retired lifetime. Unlike the
+/// explicit enable it reserves no new consent version and writes no Dart ON:
+/// it re-establishes, behind the ordinary pending barrier, the native ON that
+/// the expiry revoke retired for an owner whose Dart layers and saved consent
+/// stayed ON. Every step is bound to the previous step's native counter.
+extension ExpirySuccessorEnable on CaptureDeviceRegistrationService {
+  /// B2: how long one successor-chain native call is awaited. An unanswered
+  /// call is a lost reply: the step reports it unsettled and the durable
+  /// `finalizing` record hands it to the ordered reconciliation (§7.5.2); the
+  /// native queue keeps the late call ordered before that reconciliation's.
+  static const Duration nativeReplyTimeout = Duration(seconds: 8);
+
+  static Future<CloudEgressEnableResult?> _native(
+      Future<CloudEgressEnableResult?> Function() call) async {
+    try {
+      return await call().timeout(nativeReplyTimeout);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// B2: the in-process freeze of a successor whose settlement is still
+  /// outstanding, by its native operation id. An in-process reconciliation
+  /// ([recoverExpirySuccessor]) releases exactly that freeze once settled.
+  static final Map<String, SuccessorFreeze> _openFreezes = {};
+
+  /// Phase 4c: releases only this successor's contribution — the enable token
+  /// must still be its own, and a freeze taken since (e.g. Cloud disable) is
+  /// kept ([ConsentAuthority.releaseFreeze]).
+  static void _releaseFreeze(SuccessorFreeze f) {
+    if (!identical(CaptureDeviceRegistrationService._enableFreeze, f.token)) {
+      return;
+    }
+    CaptureDeviceRegistrationService._enableFreeze = null;
+    ConsentAuthority.releaseFreeze(f.generation, wasFrozen: f.wasFrozen);
+  }
+
+  void _releaseSuccessorFreeze(ExpirySuccessor s) {
+    _openFreezes.remove(s.binding.operationId);
+    _releaseFreeze(s._freeze);
+  }
+
+  /// SE2 (native + Dart pending barrier) and SE3 (native ON behind it) after
+  /// SE1 published lifetime [successorGeneration]/[ownerEpoch] at counter
+  /// [counter]. Null when refused; whatever was written is compensated first.
+  Future<ExpirySuccessor?> prepareExpirySuccessor({
+    required String owner,
+    required String evidenceId,
+    required int successorGeneration,
+    required int ownerEpoch,
+    required int counter,
+    required bool Function() mayProceed,
+    Object? causeAuthority,
+  }) async {
+    if (!_usesNativeBarrier || !mayProceed()) return null;
+    final settings = await _settingsRepository.getSettings();
+    final layers = await _gate.store.readDartOwnerLayers(owner);
+    final readout = await _gate.readPending();
+    if (!mayProceed() ||
+        !_cloudOn(settings) ||
+        layers.uncertain ||
+        layers.records.length != 2 ||
+        layers.records.any((r) =>
+            r.state != EgressState.on ||
+            r.ownerUid != owner ||
+            r.transitionGeneration != layers.records.first.transitionGeneration) ||
+        readout.unreadable ||
+        readout.blocks(owner)) {
+      return null;
+    }
+    final consentVersion = settings.consentVersion;
+    final dartOnGeneration = layers.records.first.transitionGeneration;
+    final int generation;
+    try {
+      generation = await _gate.allocateEnableGeneration(owner);
+    } catch (_) {
+      return null;
+    }
+    if (!mayProceed()) return null;
+
+    final wasFrozen = ConsentAuthority.egressFrozen;
+    final token = Object();
+    CaptureDeviceRegistrationService._enableFreeze = token;
+    ConsentAuthority.freeze('pending_enable');
+    final freeze = (
+      token: token,
+      wasFrozen: wasFrozen,
+      generation: ConsentAuthority.freezeGeneration,
+    );
+    _gate.freezeEnable(owner, authority: causeAuthority);
+    final record = PendingEnableRecord(
+      ownerUid: owner,
+      transitionGeneration: generation,
+      reservedVersion: consentVersion,
+      localOperationId: CaptureDeviceRegistrationService._randomOperationId(),
+    );
+
+    Future<ExpirySuccessor?> undo({CloudEgressEnableBinding? bound}) async {
+      if (bound != null) {
+        final r = await _native(() => NativeCaptureBridge.retireSuccessor(
+            ownerUid: owner,
+            successorGeneration: successorGeneration,
+            ownerEpoch: ownerEpoch,
+            operationId: bound.operationId,
+            causeAuthority: causeAuthority));
+        if (r == null ||
+            (r.status != CloudEgressTransitionStatus.done &&
+                r.status != CloudEgressTransitionStatus.stale)) {
+          return null; // the barrier keeps native denied; freeze stays
+        }
+      }
+      for (final p in {record, if (bound != null) record.bound(bound)}) {
+        if (!(await _gate.clearPendingEnable(p)).all) return null;
+      }
+      if (bound != null) _openFreezes.remove(bound.operationId);
+      _releaseFreeze(freeze);
+      await _gate.thawEnable(owner);
+      return null;
+    }
+
+    if (!(await _gate.beginPendingEnable(record)).all || !mayProceed()) {
+      return undo();
+    }
+    final began = await _native(() => NativeCaptureBridge.beginCloudEgressEnable(
+        ownerUid: owner,
+        transitionGeneration: generation,
+        reservedVersion: consentVersion,
+        successor: (evidenceId: evidenceId, expectedCounter: counter),
+        causeAuthority: causeAuthority));
+    final binding = began?.binding;
+    final c2 = began?.mutationCounter;
+    if (began == null ||
+        binding == null ||
+        c2 == null ||
+        !began.confirmsBarrierEstablished(
+            transitionGeneration: generation,
+            reservedVersion: consentVersion) ||
+        binding.ownerGeneration != successorGeneration ||
+        binding.ownerEpoch != ownerEpoch) {
+      // A refused begin wrote nothing; an unknown one may hold the barrier,
+      // which keeps native denied (and the pending keeps Dart frozen).
+      return began != null &&
+              (began.status == CloudEgressTransitionStatus.conflict ||
+                  began.status == CloudEgressTransitionStatus.ownerMismatch)
+          ? undo()
+          : null;
+    }
+    final bound = record.bound(binding);
+    _openFreezes[binding.operationId] = freeze;
+    if (!(await _gate.bindPendingEnable(from: record, to: bound)).all ||
+        !mayProceed()) {
+      return undo(bound: binding);
+    }
+
+    // SE3: saved consent still accepted at exactly that version, Dart still ON
+    // at the inspected generation.
+    final latest = await _settingsRepository.getSettings();
+    final again = await _gate.store.readDartOwnerLayers(owner);
+    if (!mayProceed() ||
+        !_cloudOn(latest) ||
+        latest.consentVersion != consentVersion ||
+        again.uncertain ||
+        again.records.length != 2 ||
+        again.records.any((r) =>
+            r.state != EgressState.on ||
+            r.transitionGeneration != dartOnGeneration)) {
+      return undo(bound: binding);
+    }
+    final on = await _native(() => NativeCaptureBridge.writeCloudEgressEnableOn(
+        ownerUid: owner,
+        binding: binding,
+        expectedCounter: c2,
+        causeAuthority: causeAuthority));
+    final c3 = on?.mutationCounter;
+    if (on == null || c3 == null || !on.confirmsOnWritten(binding)) {
+      return undo(bound: binding);
+    }
+    return ExpirySuccessor._(owner, successorGeneration, ownerEpoch, bound,
+        binding, c3, freeze, causeAuthority);
+  }
+
+  /// SE4. `confirmed`, `notExecuted` (a definite refusal), or `unknown` (lost
+  /// reply: resolved by [inspectExpirySuccessor]). The caller made the
+  /// synchronous `mayContinue` check immediately before this call.
+  Future<String> finishExpirySuccessor(ExpirySuccessor s) async {
+    final r = await _native(() => NativeCaptureBridge.finishCloudEgressEnable(
+        ownerUid: s.owner,
+        binding: s.binding,
+        abandon: false,
+        expectedCounter: s.counter,
+        causeAuthority: s.causeAuthority));
+    if (r == null) return inspectExpirySuccessor(s);
+    if (r.confirmsCompleted(s.binding)) return 'confirmed';
+    return r.status == CloudEgressTransitionStatus.conflict ||
+            r.status == CloudEgressTransitionStatus.stale ||
+            r.status == CloudEgressTransitionStatus.ownerMismatch
+        ? 'notExecuted'
+        : inspectExpirySuccessor(s);
+  }
+
+  /// §7.5.1 lost-reply rule: G' ON with no pending → `confirmed`; this op's
+  /// pending present with G' ON behind it → `notExecuted`; else `unknown`.
+  Future<String> inspectExpirySuccessor(ExpirySuccessor s) async {
+    final String seen;
+    try {
+      seen = await NativeCaptureBridge.inspectSuccessor(
+              ownerUid: s.owner,
+              successorGeneration: s.successorGeneration,
+              ownerEpoch: s.ownerEpoch,
+              operationId: s.binding.operationId)
+          .timeout(nativeReplyTimeout);
+    } catch (_) {
+      return 'unknown';
+    }
+    return switch (seen) {
+      'finished' => 'confirmed',
+      'behindBarrier' => 'notExecuted',
+      _ => 'unknown',
+    };
+  }
+
+  /// SE5: the exact Dart pending clearance (read back in both layers), then
+  /// the freeze release.
+  Future<bool> clearExpirySuccessor(ExpirySuccessor s) async {
+    if (!(await _gate.clearPendingEnable(s.pending)).all ||
+        await _gate.pendingBlocks(owner: s.owner)) {
+      return false;
+    }
+    _releaseSuccessorFreeze(s);
+    await _gate.thawEnable(s.owner);
+    return true;
+  }
+
+  /// §7.5.2 restart: the successor whose Dart pending record (both layers,
+  /// agreeing) names [pendingOpId] for lifetime [successorGeneration]. Null
+  /// when no pending of the owner is left; throws when it cannot be read.
+  Future<ExpirySuccessor?> recoverExpirySuccessor({
+    required String owner,
+    required int successorGeneration,
+    required String pendingOpId,
+  }) async {
+    final readout = await _gate.readPending();
+    if (readout.unreadable) throw StateError('pending_unreadable');
+    final pending = readout.agreed(owner);
+    if (pending == null) {
+      if (readout.blocks(owner)) throw StateError('pending_partial');
+      return null;
+    }
+    final b = pending.binding;
+    if (b == null ||
+        b.operationId != pendingOpId ||
+        b.ownerGeneration != successorGeneration) {
+      throw StateError('pending_foreign');
+    }
+    // In process, the freeze this op's prepare set is still the one to lift;
+    // after a restart there is none (a fresh token never matches).
+    final open = _openFreezes[b.operationId];
+    return ExpirySuccessor._(owner, successorGeneration, b.ownerEpoch, pending,
+        b, -1, open ?? (token: Object(), wasFrozen: true, generation: -1));
+  }
+
+  /// §7.5.2 restart with no pending left: exact retirement of G' (a no-op
+  /// when a later transition superseded it). True when settled.
+  Future<bool> retireOrphanSuccessor({
+    required String owner,
+    required int successorGeneration,
+    required String pendingOpId,
+  }) async {
+    final RecoveryEvidenceSnapshot? snap;
+    try {
+      snap = await NativeCaptureBridge.inspectRecoveryEvidence(ownerUid: owner)
+          .timeout(nativeReplyTimeout);
+    } catch (_) {
+      return false;
+    }
+    final epoch = snap?.ownerEpoch;
+    if (epoch == null) return false;
+    final r = await _native(() => NativeCaptureBridge.retireSuccessor(
+        ownerUid: owner,
+        successorGeneration: successorGeneration,
+        ownerEpoch: epoch,
+        operationId: pendingOpId));
+    return r != null &&
+        (r.status == CloudEgressTransitionStatus.done ||
+            r.status == CloudEgressTransitionStatus.stale);
+  }
+
+  /// Compensation. Before SE4 ([finished] false): exact restrict + abandon of
+  /// this op, or `retireSuccessor` when that cannot be confirmed. After SE4 (or
+  /// unknown): `retireSuccessor` of exactly G'. The Dart pending is then
+  /// cleared exactly; a clearance that cannot be confirmed keeps the freeze
+  /// (the existing pending-enable reconciliation owns it). True only when
+  /// settled: native restricted+abandoned or retired (or superseded), AND the
+  /// Dart pending cleared and read back (B2). Never throws.
+  Future<bool> compensateExpirySuccessor(ExpirySuccessor s,
+      {required bool finished}) async {
+    try {
+      var retire = finished;
+      if (!finished) {
+        final restricted = await _native(() =>
+            NativeCaptureBridge.restrictCloudEgressEnable(
+                ownerUid: s.owner,
+                binding: s.binding,
+                causeAuthority: s.causeAuthority));
+        final abandoned = restricted != null &&
+                restricted.confirmsRestricted(s.binding)
+            ? await _native(() => NativeCaptureBridge.finishCloudEgressEnable(
+                ownerUid: s.owner,
+                binding: s.binding,
+                abandon: true,
+                causeAuthority: s.causeAuthority))
+            : null;
+        retire = abandoned == null || !abandoned.confirmsAbandoned(s.binding);
+      }
+      if (retire) {
+        final r = await _native(() => NativeCaptureBridge.retireSuccessor(
+            ownerUid: s.owner,
+            successorGeneration: s.successorGeneration,
+            ownerEpoch: s.ownerEpoch,
+            operationId: s.binding.operationId,
+            causeAuthority: s.causeAuthority));
+        if (r == null ||
+            (r.status != CloudEgressTransitionStatus.done &&
+                r.status != CloudEgressTransitionStatus.stale)) {
+          return false;
+        }
+      }
+      return await clearExpirySuccessor(s);
+    } catch (_) {
+      return false;
+    }
   }
 }

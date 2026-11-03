@@ -172,9 +172,13 @@ class _CardFormState extends ConsumerState<_CardForm> {
         actions: [
           TextButton(
               onPressed: () => Navigator.of(context).pop(false),
+              style: Theme.of(context).brightness == Brightness.dark
+                  ? TextButton.styleFrom(foregroundColor: context.colors.textPrimary)
+                  : null,
               child: Text(context.l10n.commonCancel)),
           TextButton(
               onPressed: () => Navigator.of(context).pop(true),
+              style: TextButton.styleFrom(foregroundColor: context.colors.danger),
               child: Text(context.l10n.setDelete)),
         ],
       ),
@@ -300,9 +304,12 @@ class _CardFormState extends ConsumerState<_CardForm> {
               const SizedBox(height: AppSpacing.s2),
               TextButton.icon(
                 onPressed: _busy ? null : _delete,
-                icon: Icon(AppLucideIcons.trash2, color: c.danger),
-                label: Text(context.l10n.cfDeleteCard,
-                    style: AppTypography.body(c.danger)),
+                icon: const Icon(AppLucideIcons.trash2),
+                label: Text(context.l10n.cfDeleteCard),
+                style: TextButton.styleFrom(
+                  foregroundColor: c.danger,
+                  textStyle: AppTypography.body(c.danger),
+                ),
               ),
             ],
           ],
@@ -420,13 +427,34 @@ class _CardFormState extends ConsumerState<_CardForm> {
   }
 
   // ── صفّ الألوان المميّزة (بدون + اللوحة المنسّقة) ────────────────────────
+  Widget _accentChoice({required String? hex, required String label,
+      required Widget dot}) {
+    final select = _busy ? null : () => setState(() => _accentHex = hex);
+    return Semantics(
+      key: ValueKey('card-accent-${hex ?? 'none'}'),
+      label: label,
+      button: true,
+      enabled: !_busy,
+      selected: _accentHex == hex,
+      onTap: select,
+      child: ExcludeSemantics(
+        child: GestureDetector(
+          onTap: select,
+          behavior: HitTestBehavior.opaque,
+          child: SizedBox(width: 48, height: 48, child: Center(child: dot)),
+        ),
+      ),
+    );
+  }
+
   Widget _accentRow() {
     final c = context.colors;
     final dots = <Widget>[
       // «بدون» لون مميّز.
-      GestureDetector(
-        onTap: _busy ? null : () => setState(() => _accentHex = null),
-        child: Container(
+      _accentChoice(
+        hex: null,
+        label: context.l10n.cfAccentNone,
+        dot: Container(
           width: 34,
           height: 34,
           decoration: BoxDecoration(
@@ -441,9 +469,22 @@ class _CardFormState extends ConsumerState<_CardForm> {
         ),
       ),
       for (final hex in kCardAccentSwatches)
-        GestureDetector(
-          onTap: _busy ? null : () => setState(() => _accentHex = hex),
-          child: Container(
+        _accentChoice(
+          hex: hex,
+          label: context.l10n.cfAccentColourName(switch (hex) {
+            '#F59E0B' => 'amber',
+            '#EF4444' => 'red',
+            '#EC4899' => 'pink',
+            '#8B5CF6' => 'purple',
+            '#3B82F6' => 'blue',
+            '#06B6D4' => 'cyan',
+            '#10B981' => 'emerald',
+            '#84CC16' => 'lime',
+            '#F97316' => 'orange',
+            '#14B8A6' => 'teal',
+            _ => 'other',
+          }),
+          dot: Container(
             width: 34,
             height: 34,
             decoration: BoxDecoration(
@@ -462,7 +503,7 @@ class _CardFormState extends ConsumerState<_CardForm> {
         ),
     ];
     return SizedBox(
-      height: 40,
+      height: 48,
       child: ListView.separated(
         scrollDirection: Axis.horizontal,
         itemCount: dots.length,

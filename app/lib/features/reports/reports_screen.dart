@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../transactions/transactions_providers.dart';
 import '../common/money_text.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -12,12 +13,11 @@ import '../ads/banner_ads_providers.dart';
 import '../ads/qirsh_ad_banner.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/theme/widgets/mali_card.dart';
-import '../../core/theme/widgets/mali_glass.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
-import '../../core/utils/formatters.dart';
 import '../../domain/entities/report_models.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/finance/money_format.dart';
@@ -49,6 +49,16 @@ import 'reports_providers.dart';
 const double _tabBarHeight = 64.0;
 
 
+Future<void> _openReport(BuildContext context, WidgetRef ref) async {
+  final request = await showReportConfigPage(context);
+  if (request == null || !context.mounted) return;
+  await ref.read(reportExportCoordinatorProvider).run(() async {
+    if (!context.mounted) return;
+    await runReportGeneration(context, ref, request);
+  }, confirmAdNotice: () async =>
+      context.mounted && await showReportAdNotice(context));
+}
+
 class ReportsScreen extends ConsumerWidget {
   const ReportsScreen({super.key});
 
@@ -68,7 +78,12 @@ class ReportsScreen extends ConsumerWidget {
         body: async.when(
           skipLoadingOnReload: true,
           loading: () => const SkeletonList(rows: 4),
-          error: (e, _) => Center(child: Text(context.l10n.txnError)),
+          error: (e, _) => SafeArea(child: SingleChildScrollView(child: AppErrorState(
+            title: context.l10n.txnError,
+            description: context.l10n.annTryAgainSoon,
+            retryLabel: context.l10n.startRetry,
+            onRetry: () => ref.invalidate(reportsProvider),
+          ))),
           data: (bundle) {
             final section = bundle.monthly;
             // The ad band's REAL pixel height, or zero when no ad is showing.
@@ -83,8 +98,9 @@ class ReportsScreen extends ConsumerWidget {
             final adExtent =
                 ref.watch(headerAdExtentProvider(AdPlacement.reports));
             final meltBelowTabs = adExtent + _tabBarHeight;
-            return SafeArea(
-                top: false,
+            return QirshSectionBackdrop(child: SafeArea(
+                // Keep pinned report tabs below the status bar; the compact
+                // photographic header scrolls above the existing controls.
                 bottom: false,
                 child: NestedScrollView(
                   headerSliverBuilder: (context, innerBoxIsScrolled) {
@@ -96,27 +112,19 @@ class ReportsScreen extends ConsumerWidget {
                               section: section,
                               currencyLabel: currencyLabel,
                               privacyMode: privacyMode,
-                              onReport: () async {
-                                final request =
-                                    await showReportConfigPage(context);
-                                if (request == null || !context.mounted) return;
-                                // R4: route the accepted export through the ad
-                                // coordinator (single-flight, fail-open). It
-                                // resolves entitlement, may show ONE interstitial,
-                                // then generates exactly once via this closure.
-                                await ref.read(reportExportCoordinatorProvider).run(
-                                    () async {
-                                  if (!context.mounted) return;
-                                  await runReportGeneration(
-                                      context, ref, request);
-                                },
-                                    // Shown only once the coordinator has a
-                                    // loaded ad to present (never for
-                                    // ad-free / offline / flag-off).
-                                    confirmAdNotice: () async =>
-                                        context.mounted &&
-                                        await showReportAdNotice(context));
-                              },
+                              onReport: () => _openReport(context, ref),
+                            ),
+                            Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
+                              child: Wrap(spacing: 8, runSpacing: 6, children: [
+                                for (final preset in [TransactionsDatePreset.thisMonth,
+                                  TransactionsDatePreset.previousMonth, TransactionsDatePreset.last90Days])
+                                  ChoiceChip(
+                                    label: Text(transactionsRangeForPreset(preset).labelIn(Localizations.localeOf(context).languageCode)),
+                                    selected: ref.watch(transactionsDateRangeProvider).preset == preset,
+                                    onSelected: (_) => ref.read(transactionsDateRangeProvider.notifier).state = transactionsRangeForPreset(preset),
+                                  ),
+                              ]),
                             ),
                             // IN THE HEADER, not in the tabs.
                             //
@@ -203,6 +211,7 @@ class ReportsScreen extends ConsumerWidget {
                   body: TabBarView(
                     children: [
                       _OverviewTab(
+                        onExport: () => _openReport(context, ref),
                         meltStartAt: meltBelowTabs,
                         section: section,
                         weekly: bundle.weekly,
@@ -212,6 +221,7 @@ class ReportsScreen extends ConsumerWidget {
                       _TrendsTab(
                         meltStartAt: meltBelowTabs,
                         section: section,
+                        weekly: bundle.weekly,
                         currencyLabel: currencyLabel,
                         privacyMode: privacyMode,
                       ),
@@ -223,7 +233,7 @@ class ReportsScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                ));
+                )));
           },
         ),
       ),
@@ -247,6 +257,7 @@ String _dateLabel(DateTime day) => '${day.day}/${day.month}';
 
 class _OverviewTab extends StatelessWidget {
   const _OverviewTab({
+    required this.onExport,
     required this.meltStartAt,
     required this.section,
     required this.weekly,
@@ -255,6 +266,7 @@ class _OverviewTab extends StatelessWidget {
   });
 
   /// Melt already consumed by the header, the ad band and the tab row.
+  final VoidCallback onExport;
   final double meltStartAt;
 
   final ReportSection section;
@@ -274,31 +286,49 @@ class _OverviewTab extends StatelessWidget {
             AppSpacing.gutter,
           ),
           children: [
-            if (!weekly.total.isZero && !weekly.total.isNegative) ...[
+            QirshPhotoCard(
+              photo: QirshPhoto.analytics,
+              margin: EdgeInsets.zero,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(context.l10n.rptPhotoKicker, textAlign: TextAlign.right,
+                    style: AppTypography.custom(size: 11, weight: FontWeight.w500,
+                      height: 1.4, color: Colors.white.withValues(alpha: .72))),
+                  const SizedBox(height: 6),
+                  Text(context.l10n.rptPhotoTitle, textAlign: TextAlign.right,
+                    style: AppTypography.custom(size: 17, weight: FontWeight.w700,
+                      height: 1.4, color: Colors.white)),
+                  const SizedBox(height: 14),
+                  FilledButton(onPressed: onExport,
+                    style: FilledButton.styleFrom(backgroundColor: Colors.white,
+                      foregroundColor: const Color(0xFF0C1330)),
+                    child: Text(context.l10n.rcCreateReport)),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.s4),
+            // The reference places the period figure below its editorial card.
+            ...[
               PremiumMotion(
-                child: _WeeklyInsightCard(
-                  weekly: weekly,
+                child: _PeriodCard(
+                  section: section,
                   currencyLabel: currencyLabel,
+                  privacyMode: privacyMode,
                 ),
               ),
               const SizedBox(height: AppSpacing.s4),
             ],
-            PremiumMotion(
-              child: _PeriodCard(
-                section: section,
-                currencyLabel: currencyLabel,
-                privacyMode: privacyMode,
-              ),
-            ),
-            const SizedBox(height: AppSpacing.s4),
-            PremiumMotion(
-              delay: const Duration(milliseconds: 70),
-              child: _WeeklySpendCard(
-                section: weekly,
-                currencyLabel: currencyLabel,
-                privacyMode: privacyMode,
-              ),
-            ),
+            CalmKpiTiles(margin: EdgeInsets.zero, metrics: [
+              CalmMetric(label: context.l10n.rptDailyAverage,
+                value: _money(section.averageDaily, currencyLabel: currencyLabel, privacyMode: privacyMode)),
+              CalmMetric(label: context.l10n.rptHighestDay,
+                value: _money(section.highestDaily, currencyLabel: currencyLabel, privacyMode: privacyMode)),
+              CalmMetric(label: context.l10n.rptExpenseCountLabel,
+                value: privacyMode ? '••••' : section.transactionCount?.toString() ?? '—'),
+            ]),
+            const SizedBox(height: 16),
             if (section.topCategories.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.s4),
               PremiumMotion(
@@ -309,6 +339,29 @@ class _OverviewTab extends StatelessWidget {
                   privacyMode: privacyMode,
                 ),
               ),
+            ],
+            if (section.anomaly case final SpendingAnomaly anomaly) ...[
+              _InsightCard(
+                icon: AppLucideIcons.alertTriangle,
+                art: const QirshIllustration(name: 'reports', width: 100, height: 90),
+                title: context.l10n.rptUnusualSpend,
+                body: privacyMode ? context.l10n.rptAnomalyPrivate(_dateLabel(anomaly.day))
+                  : context.l10n.rptAnomalyDetail(_dateLabel(anomaly.day),
+                    _money(anomaly.total, currencyLabel: currencyLabel, privacyMode: false),
+                    anomaly.ratio.toStringAsFixed(1)),
+                color: context.colors.danger,
+              ),
+              const SizedBox(height: 16),
+            ],
+            if (!weekly.total.isZero && !weekly.total.isNegative) ...[
+              PremiumMotion(
+                child: _WeeklyInsightCard(
+                  weekly: weekly,
+                  currencyLabel: currencyLabel,
+                  privacyMode: privacyMode,
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s4),
             ],
             if (section.topMerchants.isNotEmpty) ...[
               const SizedBox(height: AppSpacing.s4),
@@ -330,6 +383,7 @@ class _TrendsTab extends StatelessWidget {
   const _TrendsTab({
     required this.meltStartAt,
     required this.section,
+    required this.weekly,
     required this.currencyLabel,
     required this.privacyMode,
   });
@@ -338,6 +392,7 @@ class _TrendsTab extends StatelessWidget {
   final double meltStartAt;
 
   final ReportSection section;
+  final ReportSection weekly;
   final String currencyLabel;
   final bool privacyMode;
 
@@ -356,6 +411,35 @@ class _TrendsTab extends StatelessWidget {
             AppSpacing.gutter,
           ),
           children: [
+            Text(context.l10n.rptDailySpending,
+              style: AppTypography.sectionTitle(c.textPrimary)),
+            const SizedBox(height: 12),
+            MaliCard(child: privacyMode
+              ? const Center(child: Text('••••'))
+              : DailySpendBarChart(
+                  values: section.dailySpend.map((d) => d.total.toDouble()).toList(),
+                  days: section.dailySpend.map((d) => d.day).toList(),
+                  average: section.averageDaily,
+                  averageLabel: context.l10n.rptDailyAverage,
+                )),
+            const SizedBox(height: 16),
+            PremiumMotion(
+              delay: const Duration(milliseconds: 70),
+              child: _WeeklySpendCard(
+                section: weekly,
+                currencyLabel: currencyLabel,
+                privacyMode: privacyMode,
+              ),
+            ),
+            if (section.topCategories.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.s4),
+              _CategoryComparisonCard(
+                section: section,
+                currencyLabel: currencyLabel,
+                privacyMode: privacyMode,
+              ),
+              const SizedBox(height: AppSpacing.s4),
+            ],
             if (anomaly != null) ...[
               _InsightCard(
                 icon: AppLucideIcons.alertTriangle,
@@ -407,6 +491,119 @@ class _TrendsTab extends StatelessWidget {
   }
 }
 
+class _CategoryComparisonCard extends StatelessWidget {
+  const _CategoryComparisonCard({
+    required this.section,
+    required this.currencyLabel,
+    required this.privacyMode,
+  });
+
+  final ReportSection section;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return MaliCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _VisualSectionTitle(icon: AppLucideIcons.barChart3,
+              title: context.l10n.rptVsPrevPeriod,
+              subtitle: context.l10n.rptNet),
+          for (final slice in section.topCategories.take(5)) ...[
+            const SizedBox(height: AppSpacing.s4),
+            _CategoryComparisonRow(slice: slice,
+                currencyLabel: currencyLabel, privacyMode: privacyMode),
+          ],
+          if (!privacyMode && section.topCategories
+              .every((slice) => slice.previousTotal == null)) ...[
+            const SizedBox(height: AppSpacing.s3),
+            Text(context.l10n.rptNeedPrevPeriod,
+                style: AppTypography.caption(c.textLight)),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryComparisonRow extends StatelessWidget {
+  const _CategoryComparisonRow({required this.slice,
+      required this.currencyLabel, required this.privacyMode});
+
+  final CategorySlice slice;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    final previous = slice.previousTotal;
+    // A refund-dominated or absent baseline has no useful spending percentage.
+    // Percent labels use integer minor units; doubles are only bar coordinates.
+    String? percent;
+    if (!privacyMode && previous != null &&
+        previous.minorUnits > 0 && !slice.total.isNegative) {
+      final delta = BigInt.from(slice.total.minorUnits) -
+          BigInt.from(previous.minorUnits);
+      final baseline = BigInt.from(previous.minorUnits);
+      final rounded = (delta.abs() * BigInt.from(100) + baseline ~/ BigInt.two)
+          ~/ baseline;
+      percent = '${delta.isNegative ? '−' : delta > BigInt.zero ? '+' : ''}$rounded%';
+    }
+    final maxMinor = [BigInt.from(slice.total.minorUnits).abs(),
+      BigInt.from(previous?.minorUnits ?? 0).abs(), BigInt.one]
+        .reduce((a, b) => a > b ? a : b);
+    final tone = previous != null && slice.total.compareTo(previous) > 0
+        ? c.warning : c.success;
+    return Column(
+      key: ValueKey('report-category-comparison-${slice.category.id}'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(children: [
+          AppAvatar.category(category: slice.category, size: 28),
+          const SizedBox(width: AppSpacing.s2),
+          Expanded(child: Text(slice.category.name,
+              style: AppTypography.subhead(c.textMain))),
+          if (percent != null) Flexible(child: Text(percent,
+              textAlign: TextAlign.end, textDirection: TextDirection.ltr,
+              style: AppTypography.caption(tone))),
+        ]),
+        const SizedBox(height: AppSpacing.s2),
+        for (final entry in [
+          (context.l10n.rptSelectedPeriod, slice.total, c.primary),
+          if (previous != null) (context.l10n.rptPreviousPeriod, previous, c.textLight),
+        ]) ...[
+          Row(children: [
+            Expanded(child: Text(entry.$1,
+                style: AppTypography.caption(c.textLight))),
+            Flexible(child: Text(_money(entry.$2,
+                currencyLabel: currencyLabel, privacyMode: privacyMode),
+                textAlign: TextAlign.end,
+                style: AppTypography.caption(c.textMain))),
+          ]),
+          if (!privacyMode) ...[
+            const SizedBox(height: 4),
+            ClipRRect(borderRadius: BorderRadius.circular(AppRadius.pill),
+              child: LinearProgressIndicator(
+                value: BigInt.from(entry.$2.minorUnits).abs().toDouble() /
+                    maxMinor.toDouble(),
+                minHeight: 5, backgroundColor: c.surface2,
+                valueColor: AlwaysStoppedAnimation(entry.$3),
+              )),
+          ],
+          const SizedBox(height: AppSpacing.s2),
+        ],
+        if (!privacyMode && slice.hasRefunds)
+          Text('${context.l10n.rptIncludesRefund}${formatMoney(slice.refunds!)}',
+              style: AppTypography.caption(c.textLight)),
+      ],
+    );
+  }
+}
+
 class _DetailsTab extends StatelessWidget {
   const _DetailsTab({
     required this.meltStartAt,
@@ -429,13 +626,13 @@ class _DetailsTab extends StatelessWidget {
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.gutter),
           children: [
-            _MerchantRankingCard(
+            _CategoryRankingCard(
               section: section,
               currencyLabel: currencyLabel,
               privacyMode: privacyMode,
             ),
             const SizedBox(height: AppSpacing.s4),
-            _CategoryDistributionCard(
+            _MerchantRankingCard(
               section: section,
               currencyLabel: currencyLabel,
               privacyMode: privacyMode,
@@ -470,7 +667,8 @@ class _PeriodCard extends StatelessWidget {
           Text(
               _money(section.total,
                   currencyLabel: currencyLabel, privacyMode: privacyMode),
-              style: AppTypography.amountHero(c.textMain)),
+              style: AppTypography.custom(size: 30, weight: FontWeight.w700,
+                height: 1.2, color: c.textMain, tabular: true)),
           Text(
               section.hasRefunds ? context.l10n.rptNetPeriodSpend : context.l10n.rptSelectedPeriodSpend,
               style: AppTypography.caption(c.textLight)),
@@ -662,6 +860,102 @@ class _CategoryDistributionCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _CategoryRankingCard extends StatelessWidget {
+  const _CategoryRankingCard({
+    required this.section,
+    required this.currencyLabel,
+    required this.privacyMode,
+  });
+
+  final ReportSection section;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return MaliCard(
+      style: MaliSurfaceStyle.floating,
+      padding: const EdgeInsets.all(AppSpacing.s4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _VisualSectionTitle(
+            icon: AppLucideIcons.layers,
+            title: context.l10n.rptByCategory,
+            subtitle: _money(section.total,
+                currencyLabel: currencyLabel, privacyMode: privacyMode),
+          ),
+          const SizedBox(height: AppSpacing.s3),
+          if (section.topCategories.isEmpty)
+            Text(context.l10n.rptAddMoreTx,
+                style: AppTypography.caption(c.textLight))
+          else
+            for (var i = 0; i < section.topCategories.length; i++) ...[
+              if (i > 0) const Divider(height: AppSpacing.s4),
+              _CategoryRankingRow(
+                slice: section.topCategories[i],
+                currencyLabel: currencyLabel,
+                privacyMode: privacyMode,
+              ),
+            ],
+        ],
+      ),
+    );
+  }
+}
+
+class _CategoryRankingRow extends StatelessWidget {
+  const _CategoryRankingRow({
+    required this.slice,
+    required this.currencyLabel,
+    required this.privacyMode,
+  });
+
+  final CategorySlice slice;
+  final String currencyLabel;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.colors;
+    return Row(
+      children: [
+        AppAvatar.category(category: slice.category, size: AppSpacing.avatarSm),
+        const SizedBox(width: AppSpacing.s3),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(slice.category.name,
+                  style: AppTypography.subhead(c.textMain)),
+              Text(
+                '${(slice.percent * 100).round()}%'
+                '${slice.count > 0 ? ' · ${context.l10n.rptMerchantTxCount(slice.count)}' : ''}',
+                style: AppTypography.caption(c.textLight),
+              ),
+              if (slice.hasRefunds && !privacyMode)
+                Text(
+                  '${context.l10n.rptIncludesRefund}${formatMoney(slice.refunds!)}',
+                  style: AppTypography.caption(c.textLight),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(width: AppSpacing.s2),
+        Flexible(
+          child: Text(
+            _money(slice.total,
+                currencyLabel: currencyLabel, privacyMode: privacyMode),
+            textAlign: TextAlign.end,
+            style: AppTypography.subhead(c.textMain),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -922,8 +1216,10 @@ class _InsightCard extends StatelessWidget {
     required this.title,
     required this.body,
     required this.color,
+    this.art,
   });
 
+  final Widget? art;
   final IconData icon;
   final String title;
   final String body;
@@ -937,7 +1233,7 @@ class _InsightCard extends StatelessWidget {
       padding: const EdgeInsets.all(AppSpacing.s4),
       child: Row(
         children: [
-          Container(
+          if (art != null) art! else Container(
             width: 44,
             height: 44,
             decoration: BoxDecoration(
@@ -972,17 +1268,7 @@ class _ReportButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaliGlass(
-      variant: MaliGlassVariant.headerAction,
-      onTap: onTap,
-      child: const SizedBox(
-        width: 44,
-        height: 44,
-        child: Center(
-          child: Icon(AppLucideIcons.fileText, color: Colors.white, size: 22),
-        ),
-      ),
-    );
+    return CalmHeaderAction(icon: AppLucideIcons.fileText, onTap: onTap);
   }
 }
 
@@ -1002,29 +1288,18 @@ class _ReportsHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CalmPageHeader(
+      sectionPhoto: QirshSectionPhoto.reports,
+      sectionHeight: 156,
+      useSafeAreaTop: false,
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
       title: context.l10n.rptInsightsTitle,
       subtitle: context.l10n.rptInsightsSub,
       leading: Navigator.of(context).canPop()
-          ? const BackButton(color: Colors.white)
+          ? const BackButton()
           : null,
       trailing: _ReportButton(onTap: onReport),
-      amount:
-          privacyMode ? '••••' : Formatters.amount(section.total.toDouble()),
-      currency: privacyMode ? '' : currencyLabel,
-      metrics: [
-        CalmMetric(
-          label: context.l10n.rptDailyAverage,
-          value: _money(section.averageDaily,
-              currencyLabel: currencyLabel, privacyMode: privacyMode),
-        ),
-        CalmMetric(
-          label: context.l10n.rptHighestDay,
-          value: _money(section.highestDaily,
-              currencyLabel: currencyLabel, privacyMode: privacyMode),
-        ),
-      ],
+
     );
   }
 }
@@ -1033,10 +1308,12 @@ class _WeeklyInsightCard extends StatelessWidget {
   const _WeeklyInsightCard({
     required this.weekly,
     required this.currencyLabel,
+    required this.privacyMode,
   });
 
   final ReportSection weekly;
   final String currencyLabel;
+  final bool privacyMode;
 
   @override
   Widget build(BuildContext context) {
@@ -1073,14 +1350,14 @@ class _WeeklyInsightCard extends StatelessWidget {
           AppLucideIcons.star,
           context.l10n.rptBestSavingDay(
               '${bestDay.day.day}/${bestDay.day.month}',
-              '${Formatters.amount(bestDay.total.toDouble())} $currencyLabel'),
+              _money(bestDay.total, currencyLabel: currencyLabel, privacyMode: privacyMode)),
           c.success,
         ),
       if (topMerchant != null)
         (
           AppLucideIcons.store,
           context.l10n.rptTopMerchantWeek(topMerchant.name,
-              '${Formatters.amount(topMerchant.total.toDouble())} $currencyLabel'),
+              _money(topMerchant.total, currencyLabel: currencyLabel, privacyMode: privacyMode)),
           c.textMuted,
         ),
     ];
@@ -1168,19 +1445,33 @@ class _RefundLine extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: AppTypography.callout(c.textLight)),
+        Expanded(child: Text(label, style: AppTypography.callout(c.textLight))),
+        const SizedBox(width: AppSpacing.s2),
         if (privacyMode)
           Text('••••', style: style)
         else
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (negative)
-                Text('−', style: style, textDirection: TextDirection.ltr),
-              MoneyText(amount, style: style),
-              const SizedBox(width: 3),
-              Text(currencyLabel, style: AppTypography.caption(c.textLight)),
-            ],
+          Flexible(
+            child: Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 3,
+              children: [
+                Directionality(
+                  textDirection: TextDirection.ltr,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (negative) Text('−', style: style),
+                        MoneyText(amount, style: style),
+                      ],
+                    ),
+                  ),
+                ),
+                Text(currencyLabel, style: AppTypography.caption(c.textLight)),
+              ],
+            ),
           ),
       ],
     );

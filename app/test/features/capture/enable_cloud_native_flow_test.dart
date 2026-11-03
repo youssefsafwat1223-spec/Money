@@ -639,6 +639,20 @@ void main() {
       }
     }
 
+    test('verified OFF repair releases the stale native lifetime freeze', () async {
+      final capability = await returning();
+      nativeOffAt20Rv2();
+      rig.secure.value = rigEnvelope(rigRecord(EgressState.on, 20, 9));
+      rig.file.value = rig.secure.value;
+      final settings = await freshSettings();
+      final svc = service(settings);
+      productionHook(svc);
+      ConsentAuthority.freeze('reconcile_uncertain:native:lifetime_fields_unbound');
+      expect(await enable(svc, capability), isNull);
+      expect(ConsentAuthority.egressFrozen, isFalse);
+      expect(sim.egressState, 'ON');
+    });
+
     test('same-uid fixture: both Dart layers ON, native OFF, stored OFF',
         () async {
       final capability = await returning();
@@ -666,7 +680,7 @@ void main() {
         final err = await enable(svc, capability);
         (slot == 'secure' ? rig.secure : rig.file).failWrites = false;
         expect((err as CloudEnableIncompleteException).reason,
-            'preflight_repair_incomplete');
+            startsWith('preflight_repair_incomplete/'));
         expect((await marks()).reserved, 0);
         expect(sim.of('beginCloudEgressEnable'), isEmpty);
         expect(sim.of('publishRestrictiveCaptureOwner'), isEmpty);

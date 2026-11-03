@@ -40,7 +40,7 @@ class AppCard extends StatelessWidget {
     final t = MaliTokens.of(context);
     // Calm Capital: match the flagship MaliCard so AppCard-based screens look
     // identical (28px radius + translucent floating fill). `radius:` overrides.
-    final effectiveRadius = radius ?? AppRadius.xxl;
+    final effectiveRadius = radius ?? AppRadius.card;
     final effectiveGradient = gradient ??
         switch (variant) {
           AppCardVariant.gradient => LinearGradient(

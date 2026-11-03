@@ -62,7 +62,8 @@ class AppBootLoader extends StatelessWidget {
                 ),
                 const SizedBox(height: AppSpacing.s5),
                 Text(context.l10n.startPreparing,
-                    style: AppTypography.callout(c.textLight)),
+                    style: AppTypography.callout(c.textLight)
+                        .copyWith(decoration: TextDecoration.none)),
               ],
             ),
           ),

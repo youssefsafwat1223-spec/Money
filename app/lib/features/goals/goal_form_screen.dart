@@ -9,6 +9,7 @@ import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
@@ -152,6 +153,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
   DateTime? _deadline;
   bool _autoSaveOn = false;
   String _autoSavePeriod = 'monthly';
+  String? _coverSkin;
   bool _seeded = false;
   bool _saving = false;
 
@@ -167,9 +169,10 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
   Widget build(BuildContext context) {
     final c = context.colors;
     _seedInitialState();
-    final recommended = _recommendedDailyAmount();
-    final cur = Currency.label(context, 
-        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final currency = widget.goal?.currency ??
+        (ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final recommended = _recommendedDailyAmount(currency);
+    final cur = Currency.label(context, currency);
     return Form(
       key: _formKey,
       child: ListView(
@@ -180,6 +183,8 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
           MediaQuery.of(context).viewInsets.bottom + AppSpacing.s6,
         ),
         children: [
+          const Center(child: QirshIllustration(name: 'savings', width: 170, height: 128)),
+          const SizedBox(height: 12),
           TextFormField(
             controller: _nameController,
             style: _alex(15, FontWeight.w700, 1.2, c.textMain),
@@ -236,11 +241,14 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
             ),
             onChanged: (_) => setState(() {}),
             validator: (value) {
-              final amount = double.tryParse(value ?? '');
-              if (amount == null || amount <= 0) {
+              try {
+                if (parseLocalizedMoney(value ?? '', currency).minorUnits > 0) {
+                  return null;
+                }
+              } catch (_) {
                 return context.l10n.gfEnterValidAmount;
               }
-              return null;
+              return context.l10n.gfEnterValidAmount;
             },
           ),
           const SizedBox(height: AppSpacing.s4),
@@ -270,6 +278,48 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
             ),
           ),
           const SizedBox(height: AppSpacing.s4),
+          Text(context.l10n.goalCoverLabel,
+            style: AppTypography.bodyStrong(c.textPrimary)),
+          const SizedBox(height: 8),
+          GridView.builder(
+            padding: EdgeInsets.zero,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3, mainAxisSpacing: 8, crossAxisSpacing: 8,
+              mainAxisExtent: 76),
+            itemCount: 6,
+            itemBuilder: (context, index) {
+              final options = [
+                ('photo:travel', QirshPhoto.travel, context.l10n.goalCoverTravel),
+                ('photo:car', QirshPhoto.car, context.l10n.goalCoverCar),
+                ('photo:home', QirshPhoto.home, context.l10n.goalCoverHome),
+                ('photo:education', QirshPhoto.education, context.l10n.goalCoverEducation),
+                ('photo:laptop', QirshPhoto.laptop, context.l10n.goalCoverGadgets),
+                ('photo:emergency', QirshPhoto.emergency, context.l10n.goalCoverEmergency),
+              ];
+              final option = options[index];
+              final selected = qirshGoalPhoto(_coverSkin ?? widget.goal?.vaultSkin ?? 'default_vault') == option.$2;
+              return Semantics(selected: selected, button: true, label: option.$3,
+                child: InkWell(onTap: _saving ? null : () => setState(() => _coverSkin = option.$1),
+                  borderRadius: BorderRadius.circular(14),
+                  child: Container(clipBehavior: Clip.antiAlias,
+                    decoration: BoxDecoration(borderRadius: BorderRadius.circular(14),
+                      border: Border.all(color: selected ? c.cta : c.border, width: selected ? 2 : 1)),
+                    child: Stack(children: [
+                      Positioned.fill(child: QirshPhotoFrame(photo: option.$2, height: 76)),
+                      const Positioned.fill(child: DecoratedBox(decoration: BoxDecoration(
+                        gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter,
+                          colors: [Colors.transparent, Color(0x9906122E)])))),
+                      Positioned(right: 8, bottom: 6, child: Text(option.$3,
+                        style: AppTypography.custom(size: 11, weight: FontWeight.w500,
+                          height: 1.2, color: Colors.white))),
+                    ]),
+                  ),
+                ));
+            },
+          ),
+          const SizedBox(height: 12),
           Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
@@ -416,11 +466,16 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     _seeded = true;
   }
 
-  double? _recommendedDailyAmount() {
-    final amount = double.tryParse(_amountController.text);
-    if (amount == null || amount <= 0 || _deadline == null) {
+  double? _recommendedDailyAmount(String currency) {
+    final Money target;
+    try {
+      target = parseLocalizedMoney(_amountController.text, currency);
+    } catch (_) {
       return null;
     }
+    if (target.minorUnits <= 0 || _deadline == null) return null;
+    // Display-only suggestion; persistence below retains canonical Money.
+    final amount = target.toDouble();
     final days = _deadline!.difference(DateTime.now()).inDays;
     if (days <= 0) {
       return amount;
@@ -440,10 +495,47 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     }
   }
 
+  void _invalidAmount() {
+    _formKey.currentState!.validate();
+    AppToast.showError(context, context.l10n.gfEnterValidAmount);
+  }
+
   Future<void> _submit() async {
-    if (_saving || !_formKey.currentState!.validate()) {
+    if (_saving) return;
+    final name = _nameController.text.trim();
+    if (name.isEmpty) {
+      _formKey.currentState!.validate();
+      AppToast.showError(context, context.l10n.gfEnterGoalName);
       return;
     }
+    // Validate retained text even after the amount fields scroll offstage.
+    // §25 — an existing goal keeps its persisted currency; a new one is seeded
+    // from the effective base. All amounts are parsed EXACTLY from their input
+    // strings into that currency.
+    final currency = widget.goal?.currency ??
+        (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final Money targetMoney;
+    Money? autoSaveMoney;
+    try {
+      targetMoney = parseLocalizedMoney(_amountController.text, currency);
+      if (targetMoney.minorUnits <= 0) {
+        _invalidAmount();
+        return;
+      }
+      final autoText = _autoSaveController.text.trim();
+      if (_autoSaveOn && autoText.isNotEmpty) {
+        final parsed = parseLocalizedMoney(autoText, currency);
+        if (parsed.minorUnits < 0) {
+          _invalidAmount();
+          return;
+        }
+        if (parsed.minorUnits > 0) autoSaveMoney = parsed;
+      }
+    } catch (_) {
+      _invalidAmount();
+      return;
+    }
+    if (!_formKey.currentState!.validate()) return;
     final deadline = _deadline;
     if (deadline != null) {
       final now = DateTime.now();
@@ -454,10 +546,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
         deadline.day,
       );
       if (deadlineDate.isBefore(today)) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text(context.l10n.gfPickFutureDeadline)),
-        );
+        AppToast.showError(context, context.l10n.gfPickFutureDeadline);
         return;
       }
     }
@@ -465,29 +554,21 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
     try {
       final accountId = widget.goal?.accountId ?? await _resolveAccountId();
       final base = widget.goal;
-      // §25 — an existing goal keeps its persisted currency; a new one is seeded
-      // from the effective base. All amounts are parsed EXACTLY from their input
-      // strings into that currency.
-      final currency = base?.currency ??
-          (ref.read(baseCurrencyProvider).valueOrNull ?? 'SAR');
-      final autoAmount = double.tryParse(_autoSaveController.text.trim()) ?? 0;
-      final autoOn = _autoSaveOn && autoAmount > 0;
+      final autoOn = autoSaveMoney != null;
       final goal = GoalEntity(
         id: base?.id ?? IdGenerator.next(),
-        name: _nameController.text.trim(),
+        name: name,
         accountId: accountId,
         currency: currency,
-        targetMoney: parseLocalizedMoney(_amountController.text, currency),
+        targetMoney: targetMoney,
         savedMoney: base?.savedMoney ?? Money(0, currency),
         lastNotifiedSavedMoney:
             base?.lastNotifiedSavedMoney ?? Money(0, currency),
         deadline: _deadline?.toUtc(),
-        vaultSkin: base?.vaultSkin ?? 'default_vault',
+        vaultSkin: _coverSkin ?? base?.vaultSkin ?? 'default_vault',
         status: base?.status ?? 'active',
         createdAt: base?.createdAt ?? DateTime.now().toUtc(),
-        autoSaveMoney: autoOn
-            ? parseLocalizedMoney(_autoSaveController.text.trim(), currency)
-            : null,
+        autoSaveMoney: autoSaveMoney,
         autoSavePeriod: autoOn ? _autoSavePeriod : null,
         // Start the schedule now so catch-up doesn't backfill from creation.
         autoSaveLastRun:
@@ -507,7 +588,7 @@ class _GoalFormContentState extends ConsumerState<_GoalFormContent> {
       final message = error is RepoException
           ? repoErrorMessage(context, error)
           : context.l10n.bfSaveFailed;
-      AppToast.show(context, message);
+      AppToast.showError(context, message);
     } finally {
       if (mounted) setState(() => _saving = false);
     }

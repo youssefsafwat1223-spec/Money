@@ -4,7 +4,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
+import '../../domain/finance/money_format.dart';
 import 'app_avatar.dart';
+import '../cards/brand_mark.dart';
 import 'category_catalog.dart';
 import 'transaction_direction.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -73,10 +75,10 @@ class TransactionRow extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             child: Row(
               children: [
-                AppAvatar.category(
-                  merchantName: transaction.rawMerchant,
-                  category: category,
-                ),
+                BrandMark.hasBrand(transaction.rawMerchant ?? '')
+                    ? AppAvatar.brand(name: transaction.rawMerchant!,
+                        fallback: AppAvatar.category(category: category))
+                    : AppAvatar.category(category: category),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -154,7 +156,8 @@ class TransactionRow extends StatelessWidget {
                 Text(
                   hideAmount
                       ? '•••• ${transaction.currency}'
-                      : '${Formatters.signed(transaction.amount, isExpense: isDebit)} ${transaction.currency}',
+                      : '${transaction.amountMoney.isZero ? '' : isDebit ? '−' : '+'}${formatMoney(transaction.amountMoney.isNegative ? -transaction.amountMoney : transaction.amountMoney)} ${transaction.currency}',
+                  textDirection: TextDirection.ltr,
                   style: AppTypography.bodyStrong(amountColor).copyWith(
                     fontWeight: FontWeight.bold,
                   ),

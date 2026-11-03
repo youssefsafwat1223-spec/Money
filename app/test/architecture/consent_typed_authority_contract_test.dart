@@ -123,7 +123,8 @@ void main() {
         reason: 'before any early return');
     expect(session, contains('_authLossSeq++;\n          _revokeConsentProof();'));
     expect(session,
-        contains('_revokeConsentProof(); // an expired SDK session proves nothing'));
+        contains('_revokeConsentProof(expiry: true); '
+            '// an expired SDK session proves nothing'));
     expect(session,
         contains('_revokeConsentProof(); // no SDK session: the proof ends here'));
     // the helper drops the proof AND advances the dedicated loss generation

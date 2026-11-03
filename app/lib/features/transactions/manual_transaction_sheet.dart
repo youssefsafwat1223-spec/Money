@@ -3,7 +3,6 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../core/utils/formatters.dart';
 import '../../core/utils/l10n_ext.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/async_reload_safe.dart';
 
@@ -25,6 +24,7 @@ import '../budgets/budgets_providers.dart';
 import '../cards/mini_card_art.dart';
 import '../capture/services/captured_message_processor.dart';
 import '../common/app_sheet_scaffold.dart';
+import '../common/app_error_state.dart';
 import '../common/category_catalog.dart';
 import '../dashboard/dashboard_providers.dart';
 import '../subscriptions/subscriptions_providers.dart';
@@ -156,17 +156,17 @@ class _ManualTransactionSheetState
     try {
       amount = parseLocalizedMoney(_amount.text, normalizedCurrency);
     } on Exception {
-      _snack(context.l10n.mtEnterValidAmount);
+      _error(context.l10n.mtEnterValidAmount);
       return;
     }
     if (amount.minorUnits <= 0) {
-      _snack(context.l10n.mtEnterValidAmount);
+      _error(context.l10n.mtEnterValidAmount);
       return;
     }
     final categoryKey = _categoryKey ?? catalog.byId(_categoryId)?.key;
     final categoryId = _categoryId ?? catalog.byKey(_categoryKey)?.id;
     if (categoryKey == null && !_isEditing) {
-      _snack(context.l10n.mtPickCategory);
+      _error(context.l10n.mtPickCategory);
       return;
     }
 
@@ -221,9 +221,9 @@ class _ManualTransactionSheetState
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on RepoException catch (e) {
-      if (mounted) _snack(repoErrorMessage(context, e));
+      if (mounted) _error(repoErrorMessage(context, e));
     } catch (_) {
-      if (mounted) _snack(context.l10n.mtSaveFailed);
+      if (mounted) _error(context.l10n.mtSaveFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -244,6 +244,7 @@ class _ManualTransactionSheetState
           ),
           TextButton(
             onPressed: () => Navigator.of(context).pop(true),
+            style: TextButton.styleFrom(foregroundColor: context.colors.danger),
             child: Text(context.l10n.setDelete),
           ),
         ],
@@ -274,9 +275,9 @@ class _ManualTransactionSheetState
       Navigator.of(context).pop();
       Navigator.of(context).maybePop();
     } on RepoException catch (e) {
-      if (mounted) _snack(repoErrorMessage(context, e));
+      if (mounted) _error(repoErrorMessage(context, e));
     } catch (_) {
-      if (mounted) _snack(context.l10n.mtDeleteFailed);
+      if (mounted) _error(context.l10n.mtDeleteFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -284,7 +285,10 @@ class _ManualTransactionSheetState
 
   Future<void> _confirmTransaction() async {
     final tx = widget.transaction;
-    if (tx == null || _busy || tx.status == TransactionStatus.confirmed) {
+    if (tx == null ||
+        _busy ||
+        tx.status == TransactionStatus.confirmed ||
+        tx.pricingState == TransactionPricingState.awaitingFx) {
       return;
     }
     setState(() => _busy = true);
@@ -296,16 +300,16 @@ class _ManualTransactionSheetState
       refreshBudgets(ref);
       refreshAchievements(ref);
       ref.invalidate(dashboardDataProvider);
-      _snack(context.l10n.txdConfirmedToast);
+      AppToast.show(context, context.l10n.txdConfirmedToast);
     } catch (_) {
-      if (mounted) _snack(context.l10n.mtConfirmFailed);
+      if (mounted) _error(context.l10n.mtConfirmFailed);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
-  void _snack(String message) {
-    AppToast.show(context, message);
+  void _error(String message) {
+    AppToast.showError(context, message);
   }
 
   @override
@@ -317,8 +321,12 @@ class _ManualTransactionSheetState
       body: catalogAsync.when(
         skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stackTrace) =>
-            Center(child: Text(context.l10n.mtCategoriesFailed)),
+        error: (error, stackTrace) => SingleChildScrollView(child: AppErrorState(
+          title: context.l10n.mtCategoriesFailed,
+          description: context.l10n.annTryAgainSoon,
+          retryLabel: context.l10n.startRetry,
+          onRetry: () => ref.invalidate(categoryCatalogProvider),
+        )),
         data: (catalog) => _buildForm(context, catalog),
       ),
     );
@@ -511,7 +519,8 @@ class _ManualTransactionSheetState
           const SizedBox(height: AppSpacing.s2),
           FilledButton.icon(
             onPressed: _busy ||
-                    widget.transaction!.status == TransactionStatus.confirmed
+                    widget.transaction!.status == TransactionStatus.confirmed ||
+                    widget.transaction!.pricingState == TransactionPricingState.awaitingFx
                 ? null
                 : _confirmTransaction,
             icon: Icon(
@@ -528,10 +537,11 @@ class _ManualTransactionSheetState
           const SizedBox(height: AppSpacing.s2),
           OutlinedButton.icon(
             onPressed: _busy ? null : _delete,
-            icon: Icon(AppLucideIcons.trash2, color: c.danger),
-            label: Text(context.l10n.txdDeleteTx, style: TextStyle(color: c.danger)),
+            icon: const Icon(AppLucideIcons.trash2),
+            label: Text(context.l10n.txdDeleteTx),
             style: OutlinedButton.styleFrom(
-              side: BorderSide(color: c.danger),
+              foregroundColor: c.danger,
+              side: _busy ? null : BorderSide(color: c.danger),
             ),
           ),
         ],
@@ -573,30 +583,29 @@ class _AmountField extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.baseline,
           textBaseline: TextBaseline.alphabetic,
           children: [
-            IntrinsicWidth(
-              child: TextField(
-                controller: controller,
-                autofocus: autofocus,
-                onChanged: (_) => onChanged(),
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                inputFormatters: [
-                  FilteringTextInputFormatter.allow(RegExp(r'[0-9٠-٩۰-۹.,]')),
-                ],
-                textAlign: TextAlign.center,
-                textDirection: TextDirection.ltr,
-                cursorColor: c.cta,
-                style: AppTypography.balanceHero(color).copyWith(fontSize: 44),
-                decoration: InputDecoration(
-                  filled: false,
-                  isDense: true,
-                  contentPadding: EdgeInsets.zero,
-                  border: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  hintText: '0',
-                  hintStyle: AppTypography.balanceHero(c.textMuted)
-                      .copyWith(fontSize: 44),
+            Flexible(
+              child: IntrinsicWidth(
+                child: TextField(
+                  controller: controller,
+                  autofocus: autofocus,
+                  onChanged: (_) => onChanged(),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  textAlign: TextAlign.center,
+                  textDirection: TextDirection.ltr,
+                  cursorColor: c.cta,
+                  style: AppTypography.balanceHero(color).copyWith(fontSize: 44),
+                  decoration: InputDecoration(
+                    filled: false,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    hintText: '0',
+                    hintStyle: AppTypography.balanceHero(c.textMuted)
+                        .copyWith(fontSize: 44),
+                  ),
                 ),
               ),
             ),

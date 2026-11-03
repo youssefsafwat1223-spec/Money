@@ -17,6 +17,7 @@ import 'package:money_companion/domain/entities/budget_entity.dart';
 import 'package:money_companion/domain/entities/plan_entity.dart';
 import 'package:money_companion/domain/entities/transaction_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
+import 'package:money_companion/domain/repositories/transaction_repository.dart';
 import 'package:money_companion/features/budgets/budgets_providers.dart';
 import 'package:money_companion/features/dashboard/home_sections_providers.dart';
 import 'package:money_companion/features/plans/plans_providers.dart';
@@ -100,7 +101,7 @@ void main() {
     required String id,
     required double amount,
     required TransactionTypeEntity type,
-    required String accountId,
+    required String? accountId,
     TransactionStatus status = TransactionStatus.confirmed,
     String currency = 'SAR',
     String? categoryKey = 'groceries',
@@ -217,6 +218,7 @@ void main() {
     // Transactions header provider == repository net expense.
     final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, repoExpense);
+    expect(header.income, repoIncome);
     expect(header.currency, 'SAR');
 
     // Home category provider == repository category breakdown.
@@ -289,6 +291,7 @@ void main() {
 
     final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, Money(40000, 'SAR'));
+    expect(header.income, Money(90000, 'SAR'));
 
     final budgetView = await container.read(budgetsViewProvider.future);
     expect(budgetView.snapshot.entries.single.spent, Money(40000, 'SAR'));
@@ -334,6 +337,7 @@ void main() {
     expect(header.netExpense, Money(40000, 'SAR'));
     expect(sar.totalOut, Money(40000, 'SAR'));
     expect(sar.totalOut, repoExpense);
+    expect(header.income, sar.totalIn);
     expect(sar.totalIn,
         Money(20000, 'SAR')); // income only, refund not counted as income
   });
@@ -523,12 +527,14 @@ void main() {
 
     final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, Money(11000, 'SAR')); // 100 + 40 − 30
+    expect(header.income, Money(50000, 'SAR')); // refund is not income
   });
 
   test('empty result → header 0', () async {
     await account('main', isDefault: true);
     final header = await container.read(transactionsPeriodTotalProvider.future);
     expect(header.netExpense, Money(0, 'SAR'));
+    expect(header.income, Money(0, 'SAR'));
   });
 
   test('category alias resolves to the same stable category key', () async {
@@ -554,4 +560,90 @@ void main() {
     expect(g.total, Money(10000, 'SAR'));
     expect(g.count, 2);
   });
+  test('income KPI is confirmed-only and respects the half-open window', () async {
+    final main = await account('main', isDefault: true);
+    await put(id: 'income-start', amount: 10, type: TransactionTypeEntity.income,
+        accountId: main.id, occurredAt: monthStart, categoryKey: null);
+    await put(id: 'income-middle', amount: 20, type: TransactionTypeEntity.income,
+        accountId: main.id, categoryKey: null);
+    await put(id: 'income-before', amount: 400, type: TransactionTypeEntity.income,
+        accountId: main.id, occurredAt: monthStart.subtract(const Duration(seconds: 1)), categoryKey: null);
+    await put(id: 'income-end', amount: 500, type: TransactionTypeEntity.income,
+        accountId: main.id, occurredAt: nextMonthStart, categoryKey: null);
+    for (final status in [TransactionStatus.pending, TransactionStatus.ignored]) {
+      await put(id: 'income-${status.name}', amount: 600, type: TransactionTypeEntity.income,
+          accountId: main.id, status: status, categoryKey: null);
+    }
+    await put(id: 'income-deleted', amount: 700, type: TransactionTypeEntity.income,
+        accountId: main.id, categoryKey: null);
+    await txRepo.deleteTransaction('income-deleted');
+    await put(id: 'not-income-refund', amount: 800, type: TransactionTypeEntity.refund,
+        accountId: main.id);
+    await put(id: 'not-income-transfer', amount: 900, type: TransactionTypeEntity.transfer,
+        accountId: main.id, categoryKey: null);
+    final header = await container.read(transactionsPeriodTotalProvider.future);
+    expect(header.income, Money(3000, 'SAR'));
+  });
+
+  test('income KPI isolates selected account and currency, including excluded account details', () async {
+    final sar = await account('main', currency: 'SAR', isDefault: true);
+    final other = await account('other', currency: 'SAR', excludeFromTotals: true);
+    final kwd = await account('kwd', currency: 'KWD');
+    await put(id: 'sar-income', amount: 25, type: TransactionTypeEntity.income,
+        accountId: sar.id, categoryKey: null);
+    await put(id: 'other-income', amount: 75, type: TransactionTypeEntity.income,
+        accountId: other.id, categoryKey: null);
+    await put(id: 'kwd-income', amount: 9.123, type: TransactionTypeEntity.income,
+        currency: 'KWD', accountId: kwd.id, categoryKey: null);
+    expect((await container.read(transactionsPeriodTotalProvider.future)).income, Money(2500, 'SAR'));
+    container.read(activeAccountIdProvider.notifier).state = other.id;
+    container.invalidate(transactionsPeriodTotalProvider);
+    expect((await container.read(transactionsPeriodTotalProvider.future)).income, Money(7500, 'SAR'));
+    container.read(activeAccountIdProvider.notifier).state = kwd.id;
+    container.invalidate(transactionsPeriodTotalProvider);
+    final selected = await container.read(transactionsPeriodTotalProvider.future);
+    expect(selected.currency, 'KWD');
+    expect(selected.income, Money(9123, 'KWD'));
+  });
+
+  test('income KPI covers 501 rows regardless of loaded pages or list filters', () async {
+    final main = await account('main', isDefault: true);
+    for (var i = 0; i < 501; i++) {
+      await put(id: 'income-page-$i', amount: 1, type: TransactionTypeEntity.income,
+          accountId: main.id, categoryKey: null);
+    }
+    final visible = await txRepo.getTransactionPage(limit: transactionsPageSize,
+        filter: TransactionPageFilter(accountId: main.id, from: monthStart, to: nextMonthStart));
+    expect(visible.length, 500);
+    final initial = await container.read(transactionsPeriodTotalProvider.future);
+    expect(initial.income, Money(50100, 'SAR'));
+    container.read(transactionSearchQueryProvider.notifier).state = 'no matching merchant';
+    container.read(transactionKindFilterProvider.notifier).state = TransactionKindFilter.expenses;
+    container.read(transactionCategoryFilterProvider.notifier).state = 'not-a-category';
+    container.read(transactionsPendingFilterProvider.notifier).state = true;
+    container.invalidate(transactionsPeriodTotalProvider);
+    final filtered = await container.read(transactionsPeriodTotalProvider.future);
+    expect(filtered.income, initial.income);
+    expect(filtered.netExpense, initial.netExpense);
+  });
+
+  test('no-account fallback keeps base-currency income separate from other currencies', () async {
+    expect(await accountRepo.getDefault(), isNull);
+    final fallback = ProviderContainer(overrides: [
+      appDatabaseProvider.overrideWithValue(db),
+      baseCurrencyProvider.overrideWith((ref) async => 'SAR'),
+    ]);
+    addTearDown(fallback.dispose);
+    fallback.read(transactionsDateRangeProvider.notifier).state = TransactionsDateRange(
+      preset: TransactionsDatePreset.custom, from: monthStart, to: nextMonthStart);
+    await put(id: 'unassigned-sar', amount: 12.34, type: TransactionTypeEntity.income,
+        accountId: null, categoryKey: null);
+    await put(id: 'unassigned-usd', amount: 900, type: TransactionTypeEntity.income,
+        currency: 'USD', accountId: null, categoryKey: null);
+    final header = await fallback.read(transactionsPeriodTotalProvider.future);
+    expect(header.currency, 'SAR');
+    expect(header.income, Money(1234, 'SAR'));
+    expect(header.netExpense, Money.zero('SAR'));
+  });
+
 }

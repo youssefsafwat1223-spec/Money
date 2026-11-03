@@ -8,8 +8,9 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/utils/l10n_ext.dart';
-import 'widgets/premium_ui.dart';
+import '../../core/theme/widgets/mali_card.dart';
 import '../../core/utils/app_lucide_icons.dart';
 
 TextStyle _alex(double size, FontWeight weight, double height, Color color,
@@ -166,7 +167,7 @@ Future<void> showIosShortcutSheet(BuildContext context) {
     backgroundColor: c.bg,
     barrierColor: Colors.black.withValues(alpha: 0.55),
     shape: const RoundedRectangleBorder(
-      borderRadius: BorderRadius.vertical(top: Radius.circular(30)),
+      borderRadius: BorderRadius.vertical(top: Radius.circular(AppRadius.sheet)),
     ),
     constraints: BoxConstraints(
       maxHeight: MediaQuery.of(context).size.height * 0.9,
@@ -193,52 +194,15 @@ class _IosShortcutSheet extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              gradient: c.primaryGradient,
-              borderRadius: BorderRadius.circular(26),
-            ),
-            child: Column(
-              children: [
-                Container(
-                  width: 64,
-                  height: 64,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                      color: Colors.white.withValues(alpha: 0.10),
-                    ),
-                  ),
-                  child: const Icon(
-                    AppLucideIcons.share,
-                    color: Colors.white,
-                    size: 30,
-                  ),
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  context.l10n.setupAppleShortcut,
-                  textAlign: TextAlign.center,
-                  style: _alex(22, FontWeight.w800, 1.2, Colors.white),
-                ),
-                const SizedBox(height: 8),
-                Text(
-                  context.l10n.autoTrackingSubtitleIos,
-                  textAlign: TextAlign.center,
-                  style: _alex(
-                    13,
-                    FontWeight.w500,
-                    1.5,
-                    Colors.white.withValues(alpha: 0.84),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          const Center(child: QirshIllustration(name: 'capture', width: 220, height: 165)),
+          const SizedBox(height: 12),
+          Text(context.l10n.setupAppleShortcut, textAlign: TextAlign.center,
+            style: _alex(22, FontWeight.w700, 1.3, c.textPrimary)),
+          const SizedBox(height: 8),
+          Text(context.l10n.autoTrackingSubtitleIos, textAlign: TextAlign.center,
+            style: _alex(13, FontWeight.w400, 1.7, c.textMuted)),
           const SizedBox(height: 16),
-          GlassCard(
+          MaliCard(
             padding: const EdgeInsets.all(18),
             child: IosShortcutGuide(
               currencyCode: shortcutCurrency,

@@ -9,6 +9,14 @@ import '../../core/sync/conflict_fields.dart';
 import '../../core/sync/conflict_policy.dart';
 import '../../core/sync/sync_conflict_store.dart';
 import '../../core/theme/widgets/glass_sheet.dart';
+import '../../core/theme/widgets/app_toast.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
+import '../../core/utils/app_lucide_icons.dart';
+import '../common/app_card.dart';
+import '../common/app_empty_state.dart';
 
 /// MALI-022 part 2 — the visible conflict-resolution surface. Lists planning
 /// rows stuck in `sync_status='conflict'` (a real two-device edit collision)
@@ -37,19 +45,35 @@ class PlanningConflictsSheet extends ConsumerWidget {
           padding: EdgeInsets.all(32),
           child: Center(child: CircularProgressIndicator()),
         ),
-        error: (_, __) => Padding(
-          padding: const EdgeInsets.all(24),
-          child: Text(context.l10n.pcsLoadFailed),
+        error: (_, __) => SingleChildScrollView(
+          child: Semantics(
+            liveRegion: true,
+            child: AppCard(
+              variant: AppCardVariant.danger,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(AppLucideIcons.alertTriangle,
+                      color: context.colors.danger, size: 32),
+                  const SizedBox(height: AppSpacing.s3),
+                  Text(context.l10n.pcsLoadFailed,
+                      textAlign: TextAlign.center,
+                      style: AppTypography.callout(context.colors.textPrimary)),
+                ],
+              ),
+            ),
+          ),
         ),
         data: (conflicts) {
           if (conflicts.isEmpty) {
-            return Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(context.l10n.pcsNoConflicts, style: theme.textTheme.titleMedium),
-                const SizedBox(height: 8),
-                Text(context.l10n.pcsAllSynced),
-              ],
+            return SingleChildScrollView(
+              child: AppEmptyState(
+                icon: AppLucideIcons.checkCircle,
+                illustration: const QirshIllustration(
+                    name: 'dataTransfer', width: 160, height: 120),
+                title: context.l10n.pcsNoConflicts,
+                subtitle: context.l10n.pcsAllSynced,
+              ),
             );
           }
           return Column(
@@ -113,15 +137,17 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
             widget.conflict.entityType, widget.conflict.localId);
       }
       ref.invalidate(conflictsProvider);
-      if (mounted && resolved) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(keepLocal
-                ? context.l10n.pcsKeptMine
-                : context.l10n.conflictKeptCloud),
-          ),
-        );
+      if (mounted) {
+        if (resolved) {
+          AppToast.show(context, keepLocal
+              ? context.l10n.pcsKeptMine
+              : context.l10n.conflictKeptCloud);
+        } else {
+          AppToast.showError(context, context.l10n.annTryAgainSoon);
+        }
       }
+    } catch (_) {
+      if (mounted) AppToast.showError(context, context.l10n.annTryAgainSoon);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -132,6 +158,9 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
     final conflict = widget.conflict;
     final l10n = context.l10n;
     final theme = Theme.of(context);
+    final actionStyle = theme.brightness == Brightness.dark
+        ? OutlinedButton.styleFrom(foregroundColor: context.colors.textPrimary)
+        : null;
     final tombstone = conflict.kind == SyncConflictKind.tombstone;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -163,6 +192,7 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
             if (conflict.canKeepMine) ...[
               Expanded(
                 child: OutlinedButton(
+                  style: actionStyle,
                   onPressed: _busy ? null : () => _resolve(true),
                   child: Text(tombstone
                       ? l10n.conflictKeepMineAsNew
@@ -173,6 +203,7 @@ class _ConflictRowState extends ConsumerState<_ConflictRow> {
             ],
             Expanded(
               child: OutlinedButton(
+                style: actionStyle,
                 onPressed: _busy ? null : () => _resolve(false),
                 child: Text(l10n.conflictKeepCloud),
               ),

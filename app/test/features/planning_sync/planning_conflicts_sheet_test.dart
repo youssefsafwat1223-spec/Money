@@ -6,6 +6,8 @@ import 'package:money_companion/core/sync/conflict_fields.dart';
 import 'package:money_companion/core/sync/conflict_policy.dart';
 import 'package:money_companion/core/sync/sync_conflict_store.dart';
 import 'package:money_companion/core/sync/conflict_resolver.dart';
+import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 import 'package:money_companion/features/planning_sync/planning_conflicts_sheet.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
 
@@ -43,6 +45,7 @@ void main() {
         conflictResolverProvider.overrideWithValue(fake),
       ],
       child: MaterialApp(
+        theme: AppTheme.light,
         // The sheet reads its copy from the ARB now.
         localizationsDelegates: AppL10n.localizationsDelegates,
         supportedLocales: AppL10n.supportedLocales,
@@ -69,6 +72,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(fake.keepLocal, ['${ConflictEntities.goal}/g1']);
     expect(fake.keepRemote, isEmpty);
+    final l10n = AppL10n.of(tester.element(find.byType(PlanningConflictsSheet)));
+    expect(find.text(l10n.pcsKeptMine), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.checkCircle), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
   });
 
   testWidgets('keep-cloud calls resolveKeepRemote for the conflict',
@@ -78,6 +87,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(fake.keepRemote, ['${ConflictEntities.goal}/g1']);
     expect(fake.keepLocal, isEmpty);
+    final l10n = AppL10n.of(tester.element(find.byType(PlanningConflictsSheet)));
+    expect(find.text(l10n.conflictKeptCloud), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.checkCircle), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
   });
 
   // SYNC-Q5: the screen shows the meaningful field differences.

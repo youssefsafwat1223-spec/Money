@@ -8,6 +8,7 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 
 import '../privacy/cloud_egress_gate.dart';
+import 'auth_coordinator.dart';
 import 'auth_service.dart';
 
 /// Audit **H-9** — Apple Sign-In nonce binding.
@@ -123,8 +124,30 @@ class SupabaseAuthService implements AuthService {
   /// consent. The app has one interactive surface (also used when a session
   /// expired), so [AccountControlOp.signIn] covers re-authentication too; the
   /// two ops carry identical allowlists.
-  Future<T> _accountControl<T>(Future<T> Function() body) =>
-      CloudEgressGate.instance.runAccountControl(AccountControlOp.signIn, body);
+  ///
+  /// ASR §4.4/§4.6: with the AuthCoordinator, a session-establishing exchange
+  /// belongs to the explicit attempt in the zone (an unattributed one is
+  /// denied), waits for ASR quiescence, and runs inside the coordinator's
+  /// mutation section with the explicit exclusion set.
+  Future<T> _accountControl<T>(Future<T> Function() body,
+      {bool establishesSession = true}) {
+    final gate = CloudEgressGate.instance;
+    final coord = AuthCoordinator.active;
+    if (coord == null) {
+      return gate.runAccountControl(AccountControlOp.signIn, body);
+    }
+    if (!establishesSession) {
+      return gate.runAccountControl(AccountControlOp.signIn, body);
+    }
+    final intent = AuthAttemptZone.current;
+    if (intent == null) {
+      return Future.error(
+          EgressDeniedException('account_control_unattributed'));
+    }
+    return gate.runAccountControl(AccountControlOp.signIn,
+        () => coord.explicitExchange(intent, body),
+        attempt: true);
+  }
 
   @override
   Future<void> signOutProviderSession() => _googleSignIn.signOut();
@@ -247,7 +270,8 @@ class SupabaseAuthService implements AuthService {
 
   @override
   Future<void> sendEmailCode(String email) async {
-    await _accountControl(() => _client.auth.signInWithOtp(email: email));
+    await _accountControl(() => _client.auth.signInWithOtp(email: email),
+        establishesSession: false);
   }
 
   @override

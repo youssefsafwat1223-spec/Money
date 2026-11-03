@@ -9,6 +9,7 @@ import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/theme/app_colors.dart';
 
@@ -41,10 +42,16 @@ class _OnboardingBrandScreenState extends State<OnboardingBrandScreen> {
 
   Future<void> _continue() async {
     if (_navigating) return;
-    _navigating = true;
+    setState(() => _navigating = true);
     HapticFeedback.lightImpact();
-    await AppSession.instance.markWelcomeManifestoSeen();
-    if (mounted) context.go('/onboarding/auth');
+    try {
+      await AppSession.instance.markWelcomeManifestoSeen();
+      if (mounted) context.go('/onboarding/auth');
+    } catch (_) {
+      if (mounted) AppToast.showError(context, context.l10n.setupSaveFailed);
+    } finally {
+      if (mounted) setState(() => _navigating = false);
+    }
   }
 
   @override
@@ -52,7 +59,9 @@ class _OnboardingBrandScreenState extends State<OnboardingBrandScreen> {
     final l10n = context.l10n;
     final reduceMotion = _reduceMotion;
 
-    return Scaffold(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light,
+      child: Scaffold(
       backgroundColor: _brandBlue,
       body: SafeArea(
         child: Padding(
@@ -106,9 +115,10 @@ class _OnboardingBrandScreenState extends State<OnboardingBrandScreen> {
                   width: double.infinity,
                   height: AppSpacing.buttonHeight,
                   child: FilledButton(
-                    onPressed: _continue,
+                    onPressed: _navigating ? null : _continue,
                     style: FilledButton.styleFrom(
                       backgroundColor: Colors.white,
+                      disabledBackgroundColor: Colors.white70,
                       foregroundColor: _brandBlue,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(AppRadius.button),
@@ -128,7 +138,7 @@ class _OnboardingBrandScreenState extends State<OnboardingBrandScreen> {
           ),
         ),
       ),
-    );
+    ));
   }
 
   Widget _fadeIn(

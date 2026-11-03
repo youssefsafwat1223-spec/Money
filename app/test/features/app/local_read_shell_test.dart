@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications_platform_interface/flutter_local_notifications_platform_interface.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/database_access_broker.dart';
@@ -15,6 +16,7 @@ import 'package:money_companion/core/session/account_fence_authority.dart';
 import 'package:money_companion/core/session/account_scope.dart';
 import 'package:money_companion/core/tracking/user_activity_service.dart';
 import 'package:money_companion/core/backend/auth_client_provider.dart';
+import 'package:money_companion/core/di/local_read_providers.dart';
 import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
 import 'package:money_companion/core/router/app_router.dart';
 import 'package:money_companion/core/session/app_session.dart';
@@ -378,6 +380,14 @@ void main() {
     expect(find.text('Main Wallet'), findsOneWidget);
     expect(find.textContaining('125'), findsWidgets);
     expect(find.textContaining('500'), findsWidgets);
+    // Dates are the device-local time in a readable form, never the stored
+    // UTC ISO string ("2026-10-28T01:47:17.889Z").
+    expect(find.textContaining(RegExp(r'\d{4}-\d{2}-\d{2}T')), findsNothing);
+    final local = DateTime.now();
+    expect(
+        find.textContaining(
+            '${DateFormat('MMMM', 'en').format(local)} ${local.day}, ${local.year}'),
+        findsWidgets);
 
     expect(find.byType(CircularProgressIndicator), findsNothing,
         reason: 'no ordinary restore spinner');
@@ -407,6 +417,16 @@ void main() {
         () => find.text(l10n.localReadBannerTitle).evaluate().isNotEmpty);
     expect(find.text(l10n.localReadReconnect), findsOneWidget);
     expect(find.text(l10n.localReadLogout), findsOneWidget);
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(LocalReadShell)), listen: false);
+    await _until(tester,
+        () => container.read(localReadSnapshotProvider).hasValue);
+    // Transaction rows are lazy; reveal the real row before checking its date.
+    await tester.scrollUntilVisible(find.text('Coffee Corner'), 200,
+        scrollable: find.byType(Scrollable).first);
+    expect(find.textContaining(RegExp(r'\d{4}-\d{2}-\d{2}T')), findsNothing);
+    expect(find.textContaining('${DateTime.now().year}، '), findsWidgets,
+        reason: 'Arabic date, Arabic separator, then the time');
   });
 
   caseWidgets('deep links to action and editing routes are denied',
@@ -542,6 +562,7 @@ void main() {
     // Resume listeners (app lock, SDK, shell): background then foreground.
     for (final state in [
       AppLifecycleState.inactive,
+      AppLifecycleState.hidden,
       AppLifecycleState.paused,
       AppLifecycleState.hidden,
       AppLifecycleState.inactive,

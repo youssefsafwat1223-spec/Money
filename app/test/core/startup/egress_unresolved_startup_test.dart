@@ -159,9 +159,15 @@ void main() {
     await boot(egress);
     expect(reached, isEmpty);
     egress.gate.markResolved(egress.gate.beginResolution());
+    // ASR I3: the SDK never refreshes the expired session itself (only the
+    // AuthCoordinator does); give it a fresh one for the control request.
+    await Supabase.instance.client.auth
+        .setInitialSession(_expiredSession(expired: false));
     await Supabase.instance.client.rpc('mark_onboarding_completed');
     expect(reached.where((r) => r.url.path.contains('mark_onboarding')),
         isNotEmpty);
+    expect(reached.where((r) => r.url.path == '/auth/v1/token'), isEmpty,
+        reason: 'the SDK refresh is denied before admission');
   });
 
   test(

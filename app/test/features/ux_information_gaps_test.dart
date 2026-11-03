@@ -34,8 +34,9 @@ void main() {
           .readAsStringSync();
       expect(dead, contains('account.name'),
           reason: 'unmounted control, kept for reference');
-      expect(source, contains('GlassSelector'),
-          reason: 'the dashboard builds its own chip — this is the live one');
+      expect(source, contains('_accountSelector(context, ref)'),
+          reason: 'the dashboard builds its own account selector in the hero — '
+              'this is the live one');
     });
   });
 

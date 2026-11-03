@@ -9,6 +9,8 @@ import 'package:go_router/go_router.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/session/app_session.dart';
 import '../../core/theme/app_assets.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
+import '../../core/theme/widgets/app_toast.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -22,21 +24,16 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/app_colors.dart';
 import '../common/repo_error_messages.dart';
 
-/// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
-/// `color: "#021B79"`) and the rest of the pre-dashboard onboarding sequence.
-const _setupBlue = AppBrandBlue.brand;
-const _setupAccent = AppBrandBlue.pale;
-
 /// Page 4 of the redesigned onboarding: one activation step at a time.
 ///
 /// Steps, in order:
 ///   0. Country / currency   → saves the base currency (no account is created)
 ///   1. Cloud Sync and Smart Analysis → one explicit disclosed choice
-///   3. Readiness            → live registration status (never blocks)
-///   4. Account Setup        → the user creates their first account (local,
+///   2. Readiness            → live registration status (never blocks)
+///   3. Account Setup        → the user creates their first account (local,
 ///                             works offline); there is no default account
-///   5. Notifications        → OS permission prompt
-///   6. Shortcut install     → instructions carousel, self-declared
+///   4. Notifications        → OS permission prompt
+///   5. Shortcut install     → instructions carousel, self-declared
 ///
 /// Cloud and AI processing consent default OFF (NULL state = off, MALI-059n);
 /// each is only granted by its explicit opt-in here or in the privacy
@@ -172,9 +169,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
       final message = error is RepoException
           ? repoErrorMessage(context, error)
           : context.l10n.setupSaveFailed;
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(content: Text(message)));
+      AppToast.showError(context, message);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -185,7 +180,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     setState(() => _busy = true);
     try {
       await LocalNotificationService.instance.requestPermissionsIfNeeded();
-      _markDone(5);
+      _markDone(4);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -205,11 +200,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
           _done[_accountStep] = false;
           _currentStep = _accountStep;
         });
-        ScaffoldMessenger.of(context)
-          ..hideCurrentSnackBar()
-          ..showSnackBar(
-            SnackBar(content: Text(context.l10n.onbAccountRequired)),
-          );
+        AppToast.showError(context, context.l10n.onbAccountRequired);
         return;
       }
       await AppSession.instance.finishOnboarding();
@@ -217,19 +208,18 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     } catch (_) {
       if (!mounted) return;
       setState(() => _busy = false);
-      ScaffoldMessenger.of(context)
-        ..hideCurrentSnackBar()
-        ..showSnackBar(
-          SnackBar(content: Text(context.l10n.setupFinishFailed)),
-        );
+      AppToast.showError(context, context.l10n.setupFinishFailed);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = context.l10n;
-    return Scaffold(
-      backgroundColor: _setupBlue,
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: Theme.of(context).brightness == Brightness.dark
+          ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      child: Scaffold(
+      backgroundColor: context.colors.bg,
       body: SafeArea(
         child: Column(
           children: [
@@ -267,7 +257,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
           ],
         ),
       ),
-    );
+    ));
   }
 
   Widget _header(AppL10n l10n) {
@@ -283,8 +273,9 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
                 ? IconButton(
                     padding: EdgeInsets.zero,
                     onPressed: _busy ? null : _goBack,
-                    icon: const Icon(AppLucideIcons.arrowLeft,
-                        size: 18, color: Colors.white70),
+                    tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                    icon: const BackButtonIcon(),
+                    color: context.colors.textPrimary,
                   )
                 : null,
           ),
@@ -301,8 +292,8 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
                         child: AnimatedContainer(
                           duration: const Duration(milliseconds: 300),
                           color: _done[i] || i < _currentStep
-                              ? _setupAccent
-                              : Colors.white.withValues(alpha: 0.16),
+                              ? context.colors.cta
+                              : context.colors.border,
                         ),
                       ),
                     ),
@@ -315,7 +306,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
           const SizedBox(width: AppSpacing.s3),
           Text(
             l10n.setupStepLabel(_currentStep + 1, _stepCount),
-            style: AppTypography.caption(Colors.white.withValues(alpha: 0.56)),
+            style: AppTypography.caption(context.colors.textMuted),
           ),
         ],
       ),
@@ -329,13 +320,15 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
       case 1:
         return OnboardingConsentStep(
           kind: OnboardingConsentKind.cloud,
+          onDark: false,
           onDone: (_) => _markDone(1),
         );
       case 2:
-        return OnboardingReadinessStep(onDone: () => _markDone(2));
+        return OnboardingReadinessStep(onDark: false, onDone: () => _markDone(2));
       case _accountStep:
         return OnboardingAccountStep(
           currency: _selectedCountry(context).currency,
+          onDark: false,
           onDone: () => _markDone(_accountStep),
         );
       case 4:
@@ -352,7 +345,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
     }
   }
 
-  /// Shared hero layout for a single step: a glowing icon, a big centered
+  /// Shared hero layout for a single step: its original flat illustration, a centered
   /// title/body, then the step's own control underneath.
   Widget _stepHero({
     required int step,
@@ -373,31 +366,13 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
             eyebrow,
             const SizedBox(height: AppSpacing.s7),
           ],
-          Center(
-            child: Container(
-              width: 84,
-              height: 84,
-              decoration: BoxDecoration(
-                shape: BoxShape.circle,
-                color: _setupAccent.withValues(alpha: 0.12),
-                boxShadow: [
-                  BoxShadow(
-                    color: _setupAccent.withValues(alpha: 0.28),
-                    blurRadius: 44,
-                    spreadRadius: 2,
-                  ),
-                ],
-              ),
-              child: done
-                  ? const Icon(AppLucideIcons.check,
-                          color: _setupAccent, size: 36)
-                      .animate(key: ValueKey('done-icon-$step'))
-                      .scale(curve: Curves.easeOutBack, duration: 400.ms)
-                      .then()
-                      .shimmer(duration: 600.ms, color: Colors.white)
-                  : Icon(icon, color: _setupAccent, size: 36),
-            ),
-          ),
+          Center(child: Column(children: [
+            QirshIllustration(
+              name: step == 0 ? 'welcome' : step == 4 ? 'notifications' : 'capture',
+              width: 220, height: 165),
+            if (done) Padding(padding: const EdgeInsets.only(top: 8),
+              child: Icon(AppLucideIcons.check, color: context.colors.success, size: 24)),
+          ])),
           const SizedBox(height: AppSpacing.s6),
           Text(
             title,
@@ -406,14 +381,14 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
               size: 26,
               weight: FontWeight.w800,
               height: 1.22,
-              color: Colors.white,
+              color: context.colors.textPrimary,
             ),
           ),
           const SizedBox(height: AppSpacing.s3),
           Text(
             body,
             textAlign: TextAlign.center,
-            style: AppTypography.body(Colors.white.withValues(alpha: 0.68))
+            style: AppTypography.body(context.colors.textSecondary)
                 .copyWith(height: 1.55),
           ),
           const SizedBox(height: AppSpacing.s7),
@@ -438,38 +413,19 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
               size: 20,
               weight: FontWeight.w700,
               height: 1.2,
-              color: _setupAccent,
+              color: context.colors.cta,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             l10n.setupHeaderSubtitle,
             textAlign: TextAlign.center,
-            style: AppTypography.caption(Colors.white.withValues(alpha: 0.5)),
+            style: AppTypography.caption(context.colors.textMuted),
           ),
         ],
       ),
-      // A pill this screen owns, rather than a themed ChoiceChip.
-      //
-      // The chips rendered as SOLID WHITE pills carrying WHITE labels —
-      // measured on the capture, rgb(255,255,255) against an rgb(8,26,116)
-      // page. A new user could read exactly one country, the one already
-      // selected, in BOTH languages, on the mandatory first-run step.
-      //
-      // Three attempts failed to move it: per-chip `backgroundColor`, per-chip
-      // `color` (the M3 state property), and an ancestor `ChipTheme`. Each of
-      // them resolves correctly in a widget test — pumping the REAL screen and
-      // reading the chips' `Ink` reports `white @ 10%` — and each still landed
-      // white on the device. The `Ink` is not the whole story: the chip's own
-      // `Material` falls back to the theme's canvas colour and paints it inside
-      // the pill shape, underneath. On a screen that paints its own navy over a
-      // LIGHT theme, that fallback is white, and no property on the chip
-      // reaches it.
-      //
-      // So the pill is drawn here instead: a transparent Material, an explicit
-      // decoration, and nothing left to inherit. Same shape, same spacing, same
-      // selected treatment — and `country_chip_contrast_test` now measures the
-      // composite rather than trusting a property.
+      // Explicit pill surfaces keep selected and unselected contrast independent
+      // of Material chip defaults in both themes.
       control: Wrap(
         alignment: WrapAlignment.center,
         spacing: 8,
@@ -507,10 +463,10 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
               child: FilledButton(
                 onPressed: _busy ? null : () => onTap(),
                 style: FilledButton.styleFrom(
-                  backgroundColor: Colors.white,
-                  foregroundColor: _setupBlue,
+                  backgroundColor: context.colors.cta,
+                  foregroundColor: context.colors.onCta,
                 ),
-                child: Text(cta, style: AppTypography.bodyStrong(_setupBlue)),
+                child: Text(cta, style: AppTypography.bodyStrong(context.colors.onCta)),
               ),
             ),
     );
@@ -539,38 +495,35 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                SizedBox(
-                  height: 118,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    itemCount: steps.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 10),
-                    itemBuilder: (context, i) {
-                      final (title, body) = steps[i];
-                      return Container(
-                        width: 220,
-                        padding: const EdgeInsets.all(AppSpacing.s3),
-                        decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.05),
-                          borderRadius: BorderRadius.circular(AppRadius.md),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('${i + 1}. $title',
-                                style: AppTypography.bodyStrong(Colors.white)),
-                            const SizedBox(height: 6),
-                            Expanded(
-                              child: Text(body,
-                                  style: AppTypography.caption(
-                                      Colors.white.withValues(alpha: 0.6)),
-                                  maxLines: 4,
-                                  overflow: TextOverflow.ellipsis),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < steps.length; i++) ...[
+                          Container(
+                            width: 220,
+                            padding: const EdgeInsets.all(AppSpacing.s3),
+                            decoration: BoxDecoration(
+                              color: context.colors.surface,
+                              borderRadius: BorderRadius.circular(AppRadius.md),
                             ),
-                          ],
-                        ),
-                      );
-                    },
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('${i + 1}. ${steps[i].$1}',
+                                    style: AppTypography.bodyStrong(context.colors.textPrimary)),
+                                const SizedBox(height: 6),
+                                Text(steps[i].$2,
+                                    style: AppTypography.caption(context.colors.textMuted)),
+                              ],
+                            ),
+                          ),
+                          if (i != steps.length - 1) const SizedBox(width: 10),
+                        ],
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.s4),
@@ -580,11 +533,11 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
                   child: FilledButton(
                     onPressed: _busy ? null : () => _markDone(step),
                     style: FilledButton.styleFrom(
-                      backgroundColor: Colors.white,
-                      foregroundColor: _setupBlue,
+                      backgroundColor: context.colors.cta,
+                      foregroundColor: context.colors.onCta,
                     ),
                     child: Text(l10n.setupShortcutCta,
-                        style: AppTypography.bodyStrong(_setupBlue)),
+                        style: AppTypography.bodyStrong(context.colors.onCta)),
                   ),
                 ),
               ],
@@ -603,13 +556,13 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
         child: FilledButton(
           onPressed: ready ? _finish : null,
           style: FilledButton.styleFrom(
-            backgroundColor: Colors.white,
-            foregroundColor: _setupBlue,
-            disabledBackgroundColor: Colors.white.withValues(alpha: 0.1),
+            backgroundColor: context.colors.cta,
+            foregroundColor: context.colors.onCta,
+            disabledBackgroundColor: context.colors.disabled,
           ),
           child: Text(l10n.setupFinishCta,
               style: AppTypography.bodyStrong(
-                ready ? _setupBlue : Colors.white38,
+                ready ? context.colors.onCta : context.colors.disabledFg,
               )),
         ),
       ).animate(target: _completed == _stepCount ? 1 : 0).scaleXY(
@@ -625,8 +578,7 @@ class _OnboardingSetupScreenState extends ConsumerState<OnboardingSetupScreen> {
 /// One country/currency choice on the setup step.
 ///
 /// Deliberately not a `ChoiceChip`: see the note at its call site. Material's
-/// chip paints its own surface from the ambient theme underneath anything the
-/// widget sets, which on this navy screen meant a white pill under white text.
+/// chip defaults must not override the explicit selected/unselected surfaces.
 class _CountryPill extends StatelessWidget {
   const _CountryPill({
     required this.choice,
@@ -640,12 +592,10 @@ class _CountryPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final fill = selected
-        ? _setupAccent.withValues(alpha: 0.22)
-        : Colors.white.withValues(alpha: 0.10);
-    final border = selected
-        ? _setupAccent.withValues(alpha: 0.60)
-        : Colors.white.withValues(alpha: 0.24);
+    final c = context.colors;
+    final fill = selected ? c.cta : c.surface;
+    final border = selected ? c.cta : c.border;
+    final foreground = selected ? c.onCta : c.textPrimary;
     return Material(
       type: MaterialType.transparency,
       child: InkWell(
@@ -665,13 +615,13 @@ class _CountryPill extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (selected) ...[
-                  const Icon(Icons.check, size: 16, color: Colors.white),
+                  Icon(Icons.check, size: 16, color: foreground),
                   const SizedBox(width: 6),
                 ],
-                Text(
+                Flexible(child: Text(
                   '${choice.flag} ${choice.name} · ${choice.currency}',
-                  style: AppTypography.caption(Colors.white),
-                ),
+                  style: AppTypography.caption(foreground),
+                )),
               ],
             ),
           ),

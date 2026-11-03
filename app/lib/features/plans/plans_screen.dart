@@ -4,8 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/widgets/section_photo_header.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -15,9 +17,12 @@ import '../../domain/entities/transaction_entity.dart';
 import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/plan_scope.dart';
+import '../../domain/finance/money_format.dart';
 import '../common/app_card.dart';
+import '../common/app_missing_record_state.dart';
 import '../common/money_text.dart';
 import '../common/app_empty_state.dart';
+import '../common/app_error_state.dart';
 import '../common/app_header.dart';
 import '../common/app_screen_scaffold.dart';
 import '../common/app_sheet_scaffold.dart';
@@ -41,23 +46,29 @@ class PlansScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final c = context.colors;
     final async = ref.watch(plansWithSpentProvider);
     return AppScreenScaffold(
+      safeArea: false, // The photographic header owns the top inset.
       header: AppHeader(
+        sectionPhoto: QirshSectionPhoto.plans,
         title: context.l10n.homePlans,
         subtitle: context.l10n.plSubtitle,
         showBack: true,
         action: IconButton(
           tooltip: context.l10n.homeNewPlan,
           onPressed: () => PlanFormSheet.show(context),
-          icon: Icon(AppLucideIcons.plus, color: c.cta),
+          icon: const Icon(AppLucideIcons.plus, color: Colors.white),
         ),
       ),
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const Center(child: CircularProgressIndicator()),
-        error: (e, _) => Center(child: Text(context.l10n.plLoadFailed)),
+        error: (e, _) => SingleChildScrollView(child: AppErrorState(
+          title: context.l10n.plLoadFailed,
+          description: context.l10n.annTryAgainSoon,
+          retryLabel: context.l10n.startRetry,
+          onRetry: () => ref.invalidate(plansWithSpentProvider),
+        )),
         data: (plans) {
           if (plans.isEmpty) {
             return Center(
@@ -66,6 +77,8 @@ class PlansScreen extends ConsumerWidget {
                     const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
                 child: AppEmptyState(
                   icon: AppLucideIcons.luggage,
+                  illustration: const QirshIllustration(
+                      name: 'plans', width: 220, height: 165),
                   title: context.l10n.plNoPlans,
                   subtitle:
                       context.l10n.plEmptyBody,
@@ -79,6 +92,26 @@ class PlansScreen extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(
                 AppSpacing.gutter, AppSpacing.s4, AppSpacing.gutter, 120),
             children: [
+              Container(
+                padding: const EdgeInsets.all(AppSpacing.s4),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? const Color(0xFF152846) : const Color(0xFF10223C),
+                  borderRadius: BorderRadius.circular(26),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(child: Text(context.l10n.plSubtitle,
+                        style: AppTypography.custom(size: 17,
+                            weight: FontWeight.w700, height: 1.45,
+                            color: Colors.white))),
+                    const SizedBox(width: 12),
+                    const QirshIllustration(
+                        name: 'plans', width: 128, height: 96),
+                  ],
+                ),
+              ),
+              const SizedBox(height: AppSpacing.s4),
               for (final progress in plans) ...[
                 _PlanCard(progress: progress),
                 const SizedBox(height: AppSpacing.s4),
@@ -276,10 +309,14 @@ class _PlanCard extends ConsumerWidget {
             ),
           ),
           const SizedBox(height: AppSpacing.s2),
-          Row(
+          Wrap(
+            alignment: WrapAlignment.spaceBetween,
+            spacing: 12,
+            runSpacing: 6,
             children: [
-              Expanded(
-                child: Row(
+                Wrap(
+                  spacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
                     Text(
                       progress.isOver
@@ -288,26 +325,28 @@ class _PlanCard extends ConsumerWidget {
                       style: AppTypography.caption(
                           progress.isOver ? c.danger : c.textSecondary),
                     ),
-                    Flexible(
-                      child: MoneyText(
+                    MoneyText(
                         progress.isOver
                             ? -progress.remaining
                             : progress.remaining,
                         style: AppTypography.caption(
                             progress.isOver ? c.danger : c.textSecondary),
-                      ),
                     ),
                   ],
                 ),
-              ),
-              if (plan.daysLeft > 0 && !progress.isOver) ...[
-                MoneyText(
-                  progress.perDayLeft,
-                  style: AppTypography.caption(c.textLight),
+              if (plan.daysLeft > 0 && !progress.isOver)
+                Wrap(
+                  spacing: 4,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    MoneyText(
+                      progress.perDayLeft,
+                      style: AppTypography.caption(c.textLight),
+                    ),
+                    Text(context.l10n.plPerDayLeft(plan.daysLeft),
+                        style: AppTypography.caption(c.textLight)),
+                  ],
                 ),
-                Text(context.l10n.plPerDayLeft(plan.daysLeft),
-                    style: AppTypography.caption(c.textLight)),
-              ],
             ],
           ),
         ],
@@ -328,6 +367,7 @@ class _PlanCard extends ConsumerWidget {
               child: Text(context.l10n.commonCancel)),
           TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
+              style: TextButton.styleFrom(foregroundColor: ctx.colors.danger),
               child: Text(context.l10n.setDelete)),
         ],
       ),
@@ -353,9 +393,7 @@ class _PlanCard extends ConsumerWidget {
     } catch (_) {
       if (!context.mounted) return;
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.plDeleteFailed)),
-      );
+      AppToast.showError(context, context.l10n.plDeleteFailed);
     }
   }
 }
@@ -388,13 +426,21 @@ class _PlanDetailsSheet extends ConsumerWidget {
       ),
       error: (e, _) => AppSheetScaffold(
         title: context.l10n.plDetails,
-        body: Center(child: Text(context.l10n.plLoadFailed)),
+        scrollable: true,
+        body: AppErrorState(
+          title: context.l10n.plLoadFailed,
+          description: context.l10n.annTryAgainSoon,
+          retryLabel: context.l10n.startRetry,
+          onRetry: () => ref.invalidate(planProgressProvider(planId)),
+        ),
       ),
       data: (progress) {
         if (progress == null) {
           return AppSheetScaffold(
             title: context.l10n.plDetails,
-            body: Center(child: Text(context.l10n.plNotFound)),
+            scrollable: true,
+            body: AppMissingRecordState(
+              message: context.l10n.plNotFound, illustration: 'plans'),
           );
         }
         final plan = progress.plan;
@@ -437,13 +483,13 @@ class _PlanDetailsSheet extends ConsumerWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      '${Formatters.amount(progress.spent.toDouble())} $currency',
+                      '${formatMoney(progress.spent)} $currency',
                       style: AppTypography.title1(c.textMain)
                           .copyWith(fontWeight: FontWeight.w700),
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      context.l10n.plOfBudget(Formatters.amount(plan.budgetAmount), currency),
+                      context.l10n.plOfBudget(formatMoney(plan.budgetAmountMoney), currency),
                       style: AppTypography.caption(c.textLight),
                     ),
                     const SizedBox(height: AppSpacing.s3),
@@ -464,7 +510,12 @@ class _PlanDetailsSheet extends ConsumerWidget {
               txAsync.when(
                 skipLoadingOnReload: true,
                 loading: () => const Center(child: CircularProgressIndicator()),
-                error: (e, _) => Text(context.l10n.plTxLoadFailed),
+                error: (e, _) => AppErrorState(
+                  title: context.l10n.plTxLoadFailed,
+                  description: context.l10n.annTryAgainSoon,
+                  retryLabel: context.l10n.startRetry,
+                  onRetry: () => ref.invalidate(planTransactionsProvider(planId)),
+                ),
                 data: (transactions) {
                   if (transactions.isEmpty) {
                     return AppEmptyState(
@@ -537,7 +588,7 @@ class _PlanTransactionTile extends StatelessWidget {
             ),
           ),
           Text(
-            '${Formatters.amount(tx.amount)} ${Currency.label(context, tx.currency)}',
+            '${formatMoney(tx.amountMoney)} ${Currency.label(context, tx.currency)}',
             style: AppTypography.bodyStrong(c.danger),
           ),
         ],
@@ -554,6 +605,7 @@ Future<void> _showLinkTransactionSheet(
 ) {
   final linkedIds = linkedTransactions.map((tx) => tx.id).toSet();
   String? linkingId;
+  Future<List<TransactionEntity>>? transactionPage;
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
@@ -571,12 +623,23 @@ Future<void> _showLinkTransactionSheet(
             // B2-C — bounded recent-expenses page (kind pushed to SQL) instead of
             // the whole ledger; the picker shows the 40 most-recent confirmed,
             // not-yet-linked expenses.
-            future: ref.read(transactionRepositoryProvider).getTransactionPage(
+            future: transactionPage ??= ref.read(transactionRepositoryProvider).getTransactionPage(
                   limit: 500,
                   filter: const TransactionPageFilter(
                       kind: TransactionPageKind.expenses),
                 ),
             builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return AppErrorState(
+                  title: context.l10n.txnError,
+                  description: context.l10n.annTryAgainSoon,
+                  retryLabel: context.l10n.startRetry,
+                  onRetry: () => setState(() => transactionPage = null),
+                );
+              }
               if (!snapshot.hasData) {
                 return const Center(child: CircularProgressIndicator());
               }
@@ -589,6 +652,8 @@ Future<void> _showLinkTransactionSheet(
               if (transactions.isEmpty) {
                 return AppEmptyState(
                   icon: AppLucideIcons.unlink,
+                  illustration: const QirshIllustration(
+                      name: 'emptyTx', width: 160, height: 120),
                   title: context.l10n.plNoSuitableTx,
                   subtitle: context.l10n.plAllLinkedAlready,
                 );
@@ -635,7 +700,7 @@ Future<void> _showLinkTransactionSheet(
                             )
                           else
                             Text(
-                              '${Formatters.amount(tx.amount)} ${Currency.label(context, tx.currency)}',
+                              '${formatMoney(tx.amountMoney)} ${Currency.label(context, tx.currency)}',
                               style: AppTypography.caption(c.textSecondary),
                             ),
                         ],

@@ -6,6 +6,8 @@ import 'package:flutter_animate/flutter_animate.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/app_motion.dart';
 import '../../core/utils/formatters.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_format.dart';
 
 bool shouldReduceMotion(BuildContext context) {
   final media = MediaQuery.maybeOf(context);
@@ -62,9 +64,19 @@ class AnimatedAmountText extends StatelessWidget {
     this.suffix = '',
     this.textAlign = TextAlign.center,
     this.style,
-  });
+  }) : money = null;
+
+  const AnimatedAmountText.money({
+    super.key,
+    required Money value,
+    required this.color,
+    this.suffix = '',
+    this.textAlign = TextAlign.center,
+    this.style,
+  }) : money = value, amount = 0;
 
   final double amount;
+  final Money? money;
   final Color color;
   final String suffix;
   final TextAlign textAlign;
@@ -74,6 +86,23 @@ class AnimatedAmountText extends StatelessWidget {
   Widget build(BuildContext context) {
     final duration =
         shouldReduceMotion(context) ? Duration.zero : AppMotion.numberCountUp;
+    final exact = money;
+    if (exact != null) {
+      return TweenAnimationBuilder<int>(
+        tween: IntTween(begin: 0, end: 1000),
+        duration: duration,
+        curve: AppMotion.standardCurve,
+        builder: (context, progress, _) {
+          final minor = (BigInt.from(exact.minorUnits) * BigInt.from(progress) ~/
+              BigInt.from(1000)).toInt();
+          return Text('${formatMoney(Money(minor, exact.currency))}$suffix',
+            textDirection: TextDirection.ltr,
+            textAlign: textAlign,
+            style: (style ?? AppTypography.title2(color)).copyWith(color: color,
+              fontFeatures: const [FontFeature.tabularFigures()]));
+        },
+      );
+    }
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: amount),
       duration: duration,

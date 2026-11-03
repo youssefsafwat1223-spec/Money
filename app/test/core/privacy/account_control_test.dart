@@ -135,30 +135,35 @@ void main() {
       expect(spy.calls, ['POST /auth/v1/token?grant_type=id_token']);
     });
 
-    test('deleteAccount: the RPC, and the refresh an expired token needs',
-        () async {
-      await client.auth
-          .setInitialSession(jsonEncode(_sessionJson(expired: true)));
+    test('deleteAccount: the RPC', () async {
+      await client.auth.setInitialSession(jsonEncode(_sessionJson(expired: false)));
       final r = await gateRun(AccountControlOp.deleteAccount,
           () => client.rpc('request_account_deletion'));
       expect(r, '2026-02-01T00:00:00Z');
-      expect(spy.calls, [
-        'POST /auth/v1/token?grant_type=refresh_token',
-        'POST /rest/v1/rpc/request_account_deletion',
-      ]);
+      expect(spy.calls, ['POST /rest/v1/rpc/request_account_deletion']);
     });
 
-    test('cancelDelete: the RPC, and the refresh an expired token needs',
-        () async {
-      await client.auth
-          .setInitialSession(jsonEncode(_sessionJson(expired: true)));
+    test('cancelDelete: the RPC', () async {
+      await client.auth.setInitialSession(jsonEncode(_sessionJson(expired: false)));
       await gateRun(AccountControlOp.cancelDelete,
           () => client.rpc('cancel_account_deletion'));
-      expect(spy.calls, [
-        'POST /auth/v1/token?grant_type=refresh_token',
-        'POST /rest/v1/rpc/cancel_account_deletion',
-      ]);
+      expect(spy.calls, ['POST /rest/v1/rpc/cancel_account_deletion']);
     });
+
+    // ASR I3: the expired-token refresh is the AuthCoordinator's own op (§3.5);
+    // the SDK's refresh is denied before admission even inside the grant.
+    for (final (op, rpc) in [
+      (AccountControlOp.deleteAccount, 'request_account_deletion'),
+      (AccountControlOp.cancelDelete, 'cancel_account_deletion'),
+    ]) {
+      test('${op.name}: the SDK refresh of an expired token is denied', () async {
+        await client.auth
+            .setInitialSession(jsonEncode(_sessionJson(expired: true)));
+        expect(await expectDenied(() => gateRun(op, () => client.rpc(rpc))),
+            isNotNull);
+        expect(spy.seen, isEmpty);
+      });
+    }
 
     test('no grant, no OFF traffic: the same calls are denied unwrapped',
         () async {
@@ -322,8 +327,7 @@ void main() {
         () async {
       final before = (egress.secure.value, egress.file.value);
       for (final op in AccountControlOp.values) {
-        await client.auth
-            .setInitialSession(jsonEncode(_sessionJson(expired: true)));
+        await client.auth.setInitialSession(jsonEncode(_sessionJson(expired: false)));
         await gateRun(op, () async {
           if (op == AccountControlOp.deleteAccount) {
             await client.rpc('request_account_deletion');

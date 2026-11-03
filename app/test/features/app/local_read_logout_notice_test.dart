@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/local_read_providers.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 import 'package:money_companion/features/app/local_read_shell.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
 import 'package:money_companion/l10n/app_localizations_ar.dart';
@@ -25,6 +27,7 @@ Future<void> _pump(
           (ref) async => const LocalReadSnapshot([], [])),
     ],
     child: MaterialApp(
+      theme: AppTheme.light,
       locale: locale,
       supportedLocales: AppL10n.supportedLocales,
       localizationsDelegates: const [
@@ -40,6 +43,30 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('a failed logout keeps the shell and shows the shared error notice',
+      (tester) async {
+    var calls = 0;
+    var retries = 0;
+    await _pump(tester, signOut: () async {
+      calls++;
+      throw StateError('synthetic logout failure');
+    }, retry: () async {
+      retries++;
+      return true;
+    });
+    await tester.tap(find.byKey(const Key('local_read_logout')));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(retries, 0);
+    expect(find.byType(LocalReadShell), findsOneWidget);
+    expect(find.text(AppL10nEn().localReadLogoutFailed), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.alertCircle), findsOneWidget);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(find.byKey(const Key('sign_out_incomplete_notice')), findsNothing);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('an incomplete logout shows the honest message (EN)',
       (tester) async {
     await _pump(tester,

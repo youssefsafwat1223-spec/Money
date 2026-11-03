@@ -2,11 +2,13 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import '../../../core/utils/l10n_ext.dart';
+import '../../../core/theme/app_colors.dart';
 import 'package:printing/printing.dart';
 
 import '../../../core/exporting/managed_export_store.dart';
 import '../services/report_file_service.dart';
 import '../../common/app_header.dart';
+import '../../common/app_error_state.dart';
 import '../../../core/utils/app_lucide_icons.dart';
 import '../../../core/theme/widgets/glass_dialog.dart';
 
@@ -54,6 +56,15 @@ class _ReportPreviewScreenState extends State<ReportPreviewScreen> {
       appBar: AppHeader(title: isAr ? context.l10n.rpTitle : 'Report preview'),
       body: PdfPreview(
         build: (_) async => widget.bytes,
+        onError: (context, _) => ColoredBox(
+          color: context.colors.bg,
+          child: SizedBox.expand(
+            child: AppErrorState(
+              title: context.l10n.txnError,
+              description: context.l10n.annTryAgainSoon,
+            ),
+          ),
+        ),
         useActions: false,
         canChangePageFormat: false,
         canChangeOrientation: false,

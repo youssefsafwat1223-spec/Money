@@ -1,4 +1,7 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
+import '../onboarding/ios_shortcut_guide.dart';
+import 'sms_permission_screen.dart';
 
 import '../../core/utils/l10n_ext.dart';
 import '../../core/theme/app_colors.dart';
@@ -49,6 +52,15 @@ Future<void> showCaptureEntrySheet(BuildContext context) {
               ManualTransactionSheet.show(context);
             },
           ),
+          const SizedBox(height: AppSpacing.s3),
+          _ActionTile(icon: AppLucideIcons.zap,
+            title: context.l10n.captureAutomaticTitle,
+            subtitle: context.l10n.captureAutomaticBody,
+            onTap: () {
+              Navigator.of(context).pop();
+              if (Platform.isIOS) { showIosShortcutSheet(context); }
+              else { SmsPermissionScreen.showSheet(context); }
+            }),
         ],
       ),
     )),

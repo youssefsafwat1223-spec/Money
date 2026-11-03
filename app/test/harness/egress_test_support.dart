@@ -43,7 +43,8 @@ class TestEgress {
     Duration accountControlTtl = kAccountControlTtl,
     Duration Function()? monotonic,
   })  : secure = MemorySlot(),
-        file = MemorySlot() {
+        file = MemorySlot(),
+        pendingSecure = MemorySlot() {
     if (seedOn) {
       final body = jsonEncode({
         'v': 1,
@@ -60,7 +61,11 @@ class TestEgress {
       file.value = body;
     }
     gate = CloudEgressGate(
-      store: CloudEgressStore.forTesting(secure: secure, file: file, native: native),
+      store: CloudEgressStore.forTesting(
+          secure: secure,
+          file: file,
+          native: native,
+          pendingSecure: pendingSecure),
       activeOwner: () async => owner,
       drainTimeout: drain,
       nativeInflight: (_) async => (count: 0, latestDeadline: null),
@@ -69,11 +74,21 @@ class TestEgress {
       accountControlTtl: accountControlTtl,
       monotonic: monotonic,
     );
+    // The memory slots keep their status, as the strict Keychain read does.
+    gate.strictSecureSlot = (key) =>
+        key == CloudEgressStore.kSecureKey ? secure : pendingSecure;
+    gate.nativeVerifiedOff = (_) async => nativeOff;
   }
+
+  /// What the strict native inspection reports for the session-only refresh.
+  bool nativeOff = true;
 
   final String supabaseUrl;
   final MemorySlot secure;
   final MemorySlot file;
+
+  /// The secure pending layer (the file one stays volatile).
+  final MemorySlot pendingSecure;
   late final CloudEgressGate gate;
   String? owner = 'uid-a';
 

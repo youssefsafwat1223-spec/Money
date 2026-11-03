@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/app_colors.dart';
+
 import '../../domain/entities/account_entity.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../domain/usecases/account_deletion.dart';
@@ -77,6 +79,8 @@ class _AccountDeletionSheetState extends State<AccountDeletionSheet> {
   Widget build(BuildContext context) {
     final impact = widget.impact;
     final theme = Theme.of(context);
+    final colors = theme.extension<AppColors>() ??
+        (theme.brightness == Brightness.dark ? AppColors.dark : AppColors.light);
     return Padding(
       padding: EdgeInsets.only(
         bottom: MediaQuery.of(context).viewInsets.bottom,
@@ -135,7 +139,8 @@ class _AccountDeletionSheetState extends State<AccountDeletionSheet> {
             FilledButton(
               onPressed: _allSubscriptionsResolved ? _confirm : null,
               style: FilledButton.styleFrom(
-                backgroundColor: theme.colorScheme.error,
+                backgroundColor: colors.danger,
+                foregroundColor: colors.onDanger,
               ),
               child: Text(context.l10n.afDeleteAccount),
             ),

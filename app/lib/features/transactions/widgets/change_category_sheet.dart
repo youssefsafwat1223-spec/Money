@@ -6,6 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../../../core/theme/app_typography.dart';
 import '../../../core/theme/widgets/navy_sheet_theme.dart';
+import '../../../core/theme/widgets/app_toast.dart';
 import '../../../domain/entities/budget_entity.dart';
 import '../../../domain/entities/transaction_entity.dart';
 import '../../../domain/usecases/correct_category_usecase.dart';
@@ -56,14 +57,22 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
   Future<void> _save() async {
     if (_selectedKey == null || _saving) return;
     setState(() => _saving = true);
-    await ref.read(correctCategoryUseCaseProvider)(
-      transactionId: widget.transaction.id,
-      categoryKey: _selectedKey!,
-      scope: _scope,
-    );
-    refreshTransactions(ref);
-    ref.invalidate(dashboardDataProvider);
-    if (mounted) Navigator.of(context).pop();
+    try {
+      await ref.read(correctCategoryUseCaseProvider)(
+        transactionId: widget.transaction.id,
+        categoryKey: _selectedKey!,
+        scope: _scope,
+      );
+      refreshTransactions(ref);
+      ref.invalidate(dashboardDataProvider);
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) {
+        AppToast.showError(context, context.l10n.ctsCategoryUpdateFailed);
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -73,6 +82,7 @@ class _State extends ConsumerState<_ChangeCategorySheet> {
 
     return AppSheetScaffold(
       title: context.l10n.ccTitle,
+      scrollable: true,
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
       body: Column(
         mainAxisSize: MainAxisSize.min,

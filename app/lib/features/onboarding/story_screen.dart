@@ -1,665 +1,135 @@
-import 'widgets/onboarding_language_button.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../core/theme/app_assets.dart';
-import '../../core/theme/app_spacing.dart';
-import '../../core/theme/app_typography.dart';
-import '../../core/theme/widgets/premium_glass_container.dart';
-import '../../core/utils/l10n_ext.dart';
-import 'widgets/coin_rain.dart';
-import 'widgets/word_reveal_text.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
+import '../../core/utils/l10n_ext.dart';
+import 'widgets/onboarding_language_button.dart';
 
-/// Same flat navy the native launch screen uses (`flutter_native_splash.yaml`,
-/// `color: "#021B79"`), so the app never "jumps" from the launch screen to a
-/// visually different first frame.
-const _onboardingBlue = AppBrandBlue.brand;
-const _accentBlue = AppBrandBlue.pale;
-
-/// First-launch cinematic story shown before the brand and mandatory auth.
-///
-/// Two pages in a [PageView], both on the same flat navy background as the
-/// native launch screen with a small fixed logo up top — no photographic
-/// artwork. Page 1 ([_PromisePage]) types out a scrollable run of promise
-/// copy; page 2 ([_StoryPage]) does the same with a shorter run. Every word
-/// on screen — titles, supporting copy, Skip, and the CTAs — is live,
-/// localized Flutter text (`context.l10n`), so it stays accessible,
-/// RTL-correct, and translatable.
+/// The approved illustrated introduction. It only explains the product;
+/// existing brand/auth/setup routes retain their actual consent decisions.
 class OnboardingStoryScreen extends StatefulWidget {
   const OnboardingStoryScreen({super.key});
-
   @override
   State<OnboardingStoryScreen> createState() => _OnboardingStoryScreenState();
 }
 
 class _OnboardingStoryScreenState extends State<OnboardingStoryScreen> {
-  static const _pageCount = 2;
-
-  final PageController _pageController = PageController();
+  final _controller = PageController();
   int _page = 0;
   bool _navigating = false;
+  @override
+  void dispose() { _controller.dispose(); super.dispose(); }
 
-  bool get _reduceMotion =>
-      MediaQuery.maybeOf(context)?.disableAnimations ?? false;
-
-  void _onPageChanged(int page) => setState(() => _page = page);
-
-  Future<void> _continueFromPage(int page) async {
-    if (page < _pageCount - 1) {
-      // PageController.animateToPage asserts duration > Duration.zero, so a
-      // reduced-motion jump must go through jumpToPage instead.
-      if (_reduceMotion) {
-        _pageController.jumpToPage(page + 1);
-      } else {
-        await _pageController.animateToPage(
-          page + 1,
-          duration: const Duration(milliseconds: 420),
-          curve: Curves.easeOutCubic,
-        );
-      }
-      return;
-    }
-    _goToBrand();
-  }
-
-  void _skip() => _goToBrand();
-
-  void _goToBrand() {
+  void _finish() {
     if (_navigating) return;
     _navigating = true;
     HapticFeedback.selectionClick();
     context.go('/onboarding/brand');
   }
 
-  @override
-  void dispose() {
-    _pageController.dispose();
-    super.dispose();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    precacheImage(const AssetImage(AppAssets.qirshLogoFull), context);
-    precacheImage(const AssetImage(AppAssets.handCoinCutout), context);
+  void _next() {
+    if (_page == 3) { _finish(); return; }
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.jumpToPage(_page + 1);
+    } else {
+      _controller.animateToPage(_page + 1, duration: const Duration(milliseconds: 300), curve: Curves.easeOutCubic);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final secondPageData = _StoryPageData(
-      title: l10n.storySpendingTitle,
-      body: l10n.storySpendingBody,
-      highlight: l10n.storySpendingHighlight,
-      supporting: l10n.storySpendingSupporting,
-      ctaLabel: l10n.storyStartCta,
-      semanticLabel: l10n.storyPageTwoSemanticLabel,
-    );
-
+    final c = context.colors;
+    final l = context.l10n;
+    final pages = [
+      ('welcome', l.introWelcomeTitle, l.introWelcomeBody),
+      ('capture', l.introCaptureTitle, l.introCaptureBody),
+      ('budget', l.introBudgetTitle, l.introBudgetBody),
+      ('privacy', l.introPrivacyTitle, l.introPrivacyBody),
+    ];
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light,
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Stack(
-          children: [
-            PageView.builder(
-              controller: _pageController,
-              onPageChanged: _onPageChanged,
-              itemCount: _pageCount,
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return Semantics(
-                    label: l10n.storyPageOneSemanticLabel,
-                    child: _PromisePage(
-                      reduceMotion: _reduceMotion,
-                      onCta: () => _continueFromPage(0),
-                    ),
-                  );
-                }
-                return Semantics(
-                  label: secondPageData.semanticLabel,
-                  child: _StoryPage(
-                    data: secondPageData,
-                    reduceMotion: _reduceMotion,
-                    onCta: () => _continueFromPage(index),
-                  ),
-                );
-              },
-            ),
-            SafeArea(
-              bottom: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  12,
-                  AppSpacing.gutter,
-                  0,
+      value: Theme.of(context).brightness == Brightness.dark
+          ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+      child: Scaffold(backgroundColor: c.bg,
+        body: SafeArea(child: Column(children: [
+          Padding(padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            child: LayoutBuilder(builder: (context, box) => Row(children: [
+              if (_page > 0) IconButton(
+                tooltip: MaterialLocalizations.of(context).backButtonTooltip,
+                onPressed: () {
+                  if (MediaQuery.disableAnimationsOf(context)) {
+                    _controller.jumpToPage(_page - 1);
+                  } else {
+                    _controller.previousPage(duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+                  }
+                },
+                icon: const Icon(Icons.arrow_back_ios_new, size: 18)),
+              OnboardingLanguageButton(onDark: false, compact: box.maxWidth < 328),
+              const Spacer(),
+              TextButton(onPressed: _finish, child: Text(l.storySkip)),
+            ]))),
+          Expanded(child: PageView.builder(controller: _controller,
+            onPageChanged: (page) => setState(() => _page = page), itemCount: pages.length,
+            itemBuilder: (context, index) {
+              final page = pages[index];
+              return LayoutBuilder(builder: (context, box) => SingleChildScrollView(
+                padding: const EdgeInsets.symmetric(horizontal: 28),
+                child: ConstrainedBox(constraints: BoxConstraints(minHeight: box.maxHeight),
+                  child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+                    QirshIllustration(name: page.$1, width: 260, height: 195),
+                    const SizedBox(height: 28),
+                    Semantics(label: l.introPageSemantic(index + 1, 4),
+                      child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+                        for (var dot = 0; dot < 4; dot++) Container(
+                          margin: const EdgeInsets.symmetric(horizontal: 4),
+                          width: dot == index ? 22 : 7, height: 7,
+                          decoration: BoxDecoration(color: dot == index ? c.cta : c.border,
+                            borderRadius: BorderRadius.circular(99))),
+                      ])),
+                    const SizedBox(height: 24),
+                    Text(page.$2, textAlign: TextAlign.center,
+                      style: AppTypography.custom(size: 27, weight: FontWeight.w700,
+                        height: 1.45, color: c.textPrimary)),
+                    const SizedBox(height: 12),
+                    if (index == 3) ...[
+                      _privacyInfo(context, Icons.lock_outline, l.authTrustLocalEncryption, l.introPrivacyLocalBody),
+                      const SizedBox(height: 10),
+                      _privacyInfo(context, Icons.public, l.privCloudProcessing, l.introPrivacyCloudBody),
+                    ] else Text(page.$3, textAlign: TextAlign.center,
+                      style: AppTypography.custom(size: 15, weight: FontWeight.w400,
+                        height: 1.75, color: c.textMuted)),
+                    const SizedBox(height: 28),
+                  ]),
                 ),
-                child: AnimatedBuilder(
-                  animation: _pageController,
-                  builder: (context, _) {
-                    final page = _pageController.hasClients
-                        ? (_pageController.page ?? _page.toDouble())
-                        : _page.toDouble();
-                    return _StoryHeader(
-                      pageCount: _pageCount,
-                      segmentFill: (index) =>
-                          (page - index + 1).clamp(0.0, 1.0),
-                      skipLabel: l10n.storySkip,
-                      onSkip: _skip,
-                    );
-                  },
-                ),
-              ),
-            ),
-          ],
-        ),
+              ));
+            })),
+          Padding(padding: const EdgeInsets.fromLTRB(24, 12, 24, 22),
+            child: SizedBox(width: double.infinity, height: 52,
+              child: FilledButton(onPressed: _next,
+                child: Text(_page == 3 ? l.storyStartCta : l.storyContinueCta)))),
+        ])),
       ),
     );
   }
-}
-
-class _StoryPageData {
-  const _StoryPageData({
-    required this.title,
-    required this.body,
-    required this.highlight,
-    required this.supporting,
-    required this.ctaLabel,
-    required this.semanticLabel,
-  });
-
-  final String title;
-  final String body;
-  final String highlight;
-  final String supporting;
-  final String ctaLabel;
-  final String semanticLabel;
-}
-
-class _StoryHeader extends StatelessWidget {
-  const _StoryHeader({
-    required this.pageCount,
-    required this.segmentFill,
-    required this.skipLabel,
-    required this.onSkip,
-  });
-
-  final int pageCount;
-  final double Function(int index) segmentFill;
-  final String skipLabel;
-  final VoidCallback onSkip;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Row(
-            children: [
-              for (var i = 0; i < pageCount; i++) ...[
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(2),
-                    child: SizedBox(
-                      height: 3,
-                      child: Stack(
-                        children: [
-                          ColoredBox(
-                            color: Colors.white.withValues(alpha: 0.22),
-                          ),
-                          FractionallySizedBox(
-                            widthFactor: segmentFill(i),
-                            child: const ColoredBox(color: _accentBlue),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                if (i < pageCount - 1) const SizedBox(width: 6),
-              ],
-            ],
-          ),
-        ),
-        const SizedBox(width: 8),
-        const OnboardingLanguageButton(compact: true),
-        const SizedBox(width: 8),
-        PremiumGlassContainer(
-          borderRadius: BorderRadius.circular(AppRadius.pill),
-          blurSigma: 12,
-          backgroundColor: Colors.white.withValues(alpha: 0.08),
-          borderColor: Colors.white.withValues(alpha: 0.14),
-          padding: EdgeInsets.zero,
-          child: TextButton(
-            onPressed: onSkip,
-            style: TextButton.styleFrom(foregroundColor: Colors.white),
-            child: Text(skipLabel, style: AppTypography.caption(Colors.white)),
-          ),
-        ),
-      ],
+  Widget _privacyInfo(BuildContext context, IconData icon, String title, String body) {
+    final c = context.colors;
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(color: c.surface, borderRadius: BorderRadius.circular(16)),
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Container(width: 36, height: 36,
+          decoration: BoxDecoration(color: c.success.withValues(alpha: .1), borderRadius: BorderRadius.circular(12)),
+          child: Icon(icon, color: c.success, size: 20)),
+        const SizedBox(width: 10),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: AppTypography.custom(size: 13, weight: FontWeight.w600, color: c.textPrimary, height: 1.5)),
+          const SizedBox(height: 4),
+          Text(body, style: AppTypography.custom(size: 11.5, weight: FontWeight.w400, color: c.textMuted, height: 1.6)),
+        ])),
+      ]),
     );
   }
-}
 
-class _PromiseBlock {
-  const _PromiseBlock(this.text, this.style);
-
-  final String text;
-  final TextStyle style;
-}
-
-/// First story page: full-bleed decorative artwork (coin top-left, hand/jar
-/// bottom-left, clean black field on the right) with a right-aligned,
-/// scrollable stack of live copy over it. Kept separate from [_StoryPage]
-/// (page 2, unchanged) since the two layouts differ deliberately — page 2
-/// is a half-screen image above a fixed text block, this page is a
-/// full-screen background behind a taller run of copy.
-///
-/// The copy types on block by block — like page 2's [WordRevealText] — and
-/// the CTA only fades in once the last block finishes.
-class _PromisePage extends StatefulWidget {
-  const _PromisePage({required this.reduceMotion, required this.onCta});
-
-  final bool reduceMotion;
-  final VoidCallback onCta;
-
-  @override
-  State<_PromisePage> createState() => _PromisePageState();
-}
-
-class _PromisePageState extends State<_PromisePage> {
-  final _scrollController = ScrollController();
-  int _revealedBlocks = 1;
-  bool _textComplete = false;
-
-  void _advance(int blockCount) {
-    if (!mounted) return;
-    setState(() {
-      if (_revealedBlocks < blockCount) {
-        _revealedBlocks++;
-      } else {
-        _textComplete = true;
-      }
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
-      );
-    });
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = context.l10n;
-    final width = MediaQuery.sizeOf(context).width;
-    final isCompact = width < 360;
-    final fontScale = isCompact ? 0.88 : 1.0;
-    final columnWidth = width * (isCompact ? 0.62 : 0.7);
-
-    TextStyle style(
-            double size, FontWeight weight, double height, Color color) =>
-        AppTypography.custom(
-          size: size * fontScale,
-          weight: weight,
-          height: height,
-          color: color,
-        );
-
-    final blocks = <_PromiseBlock>[
-      _PromiseBlock(
-        l10n.storyPromiseTitle,
-        style(44, FontWeight.w800, 1.14, Colors.white),
-      ),
-      _PromiseBlock(
-        l10n.storyPromiseSubtitle,
-        style(22, FontWeight.w500, 1.4, Colors.white.withValues(alpha: 0.9)),
-      ),
-      _PromiseBlock(
-        l10n.storyPromiseHighlight,
-        style(21, FontWeight.w600, 1.4, _accentBlue),
-      ),
-      _PromiseBlock(
-        l10n.storyPromiseBody,
-        style(19, FontWeight.w400, 1.55, Colors.white.withValues(alpha: 0.86)),
-      ),
-      _PromiseBlock(
-        l10n.storyPromiseSectionTitle,
-        style(36, FontWeight.w700, 1.16, Colors.white),
-      ),
-      _PromiseBlock(
-        l10n.storyPromiseSectionBody,
-        style(19, FontWeight.w400, 1.55, Colors.white.withValues(alpha: 0.86)),
-      ),
-      _PromiseBlock(
-        l10n.storyPromiseClosing,
-        style(21, FontWeight.w600, 1.35, Colors.white),
-      ),
-    ];
-    final gaps = [
-      AppSpacing.s3,
-      AppSpacing.s5,
-      AppSpacing.s4,
-      AppSpacing.s6,
-      AppSpacing.s3,
-      AppSpacing.s6,
-    ];
-    final visibleCount = _revealedBlocks.clamp(0, blocks.length);
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const ColoredBox(color: _onboardingBlue),
-        const Positioned.fill(child: CoinRain()),
-        // DIRECTIONAL, not absolute. The illustration belongs on the side the
-        // text does NOT start from: in Arabic the copy is right-aligned and the
-        // hand sits far left. Pinned with `left:` it stayed far left under
-        // English too — where the copy now starts — and the halftone ran
-        // straight through the body text, leaving "…ging expenses and setting"
-        // unreadable on the first screen a new user sees.
-        //
-        // `end` resolves to left in RTL, so the Arabic frame is unchanged to
-        // the pixel, and to right in LTR, which is where it should have been.
-        PositionedDirectional(
-          end: -width * 0.10,
-          bottom: 90,
-          child: ExcludeSemantics(
-            // DECORATION, at decoration weight. The asset is a bright white
-            // halftone and was painted at full opacity, so body copy — which is
-            // white at ~70% — crossed it and simply disappeared: on the English
-            // frame "manage your money with eas…", "from logging expenses and
-            // s…" and "Your partner on your financia… journey." all ran into
-            // it and stopped being readable. The content sits ABOVE the image
-            // in this Stack, so nothing was clipped; the two were the same
-            // colour.
-            //
-            // The prototype draws this hand as a faint, navy-blended texture,
-            // not as a foreground object. Matching that both restores the
-            // intended look and gives the text something to be read against.
-            child: Opacity(
-              opacity: 0.38,
-              child: Image(
-                image: const AssetImage(AppAssets.handCoinCutout),
-                width: width * 0.52,
-                fit: BoxFit.fitWidth,
-              ),
-            ),
-          ),
-        ),
-        SafeArea(
-          minimum: const EdgeInsets.only(top: AppSpacing.s10 + AppSpacing.s2),
-          child: Column(
-            children: [
-              const ExcludeSemantics(
-                child: Image(
-                  image: AssetImage(AppAssets.qirshLogoFull),
-                  height: 40,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s5),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.gutter,
-                  ),
-                  child: Align(
-                    // DIRECTIONAL. Absolute `centerRight` pins this column to
-                    // the right in English too, where it should follow the
-                    // reading direction and start on the left.
-                    alignment: AlignmentDirectional.centerStart,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: columnWidth),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (var i = 0; i < visibleCount; i++) ...[
-                            if (i > 0)
-                              SizedBox(height: gaps[i - 1] * fontScale),
-                            WordRevealText(
-                              blocks[i].text,
-                              style: blocks[i].style,
-                              textAlign: TextAlign.start,
-                              hapticPerWord: true,
-                              onComplete: () => _advance(blocks.length),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.s3,
-                  AppSpacing.gutter,
-                  AppSpacing.s6,
-                ),
-                child: _textComplete
-                    ? SizedBox(
-                        width: double.infinity,
-                        height: AppSpacing.buttonHeight,
-                        child: FilledButton(
-                          onPressed: widget.onCta,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: _onboardingBlue,
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.button),
-                            ),
-                          ),
-                          child: Text(
-                            l10n.storyContinueCta,
-                            style: AppTypography.bodyStrong(
-                              _onboardingBlue,
-                            ),
-                          ),
-                        ).animate().fadeIn(
-                              duration: widget.reduceMotion
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 320),
-                            ),
-                      )
-                    : const SizedBox(height: AppSpacing.buttonHeight),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _StoryTextBlock {
-  const _StoryTextBlock(this.text, this.style);
-
-  final String text;
-  final TextStyle style;
-}
-
-/// Second story page: full-bleed decorative artwork (skyline, standing
-/// figure, coin, jar, and coin stacks in the upper frame; a dark, clear
-/// field below for copy) with title, body, highlight, and supporting lines
-/// anchored to that lower field. The text region is capped to a share of
-/// the available height so it can never grow up into the artwork's focal
-/// objects; it scrolls internally if large accessibility text still
-/// overflows that budget.
-///
-/// The copy types on block by block, matching page 1's reveal pacing, and
-/// the CTA only fades in once the last block finishes.
-class _StoryPage extends StatefulWidget {
-  const _StoryPage({
-    required this.data,
-    required this.reduceMotion,
-    required this.onCta,
-  });
-
-  final _StoryPageData data;
-  final bool reduceMotion;
-  final VoidCallback onCta;
-
-  @override
-  State<_StoryPage> createState() => _StoryPageState();
-}
-
-class _StoryPageState extends State<_StoryPage> {
-  final _scrollController = ScrollController();
-  int _revealedBlocks = 1;
-  bool _textComplete = false;
-
-  void _advance(int blockCount) {
-    if (!mounted) return;
-    setState(() {
-      if (_revealedBlocks < blockCount) {
-        _revealedBlocks++;
-      } else {
-        _textComplete = true;
-      }
-    });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 320),
-        curve: Curves.easeOutCubic,
-      );
-    });
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final data = widget.data;
-    final width = MediaQuery.sizeOf(context).width;
-    final fontScale = width < 360 ? 0.88 : 1.0;
-
-    TextStyle style(
-            double size, FontWeight weight, double height, Color color) =>
-        AppTypography.custom(
-          size: size * fontScale,
-          weight: weight,
-          height: height,
-          color: color,
-        );
-
-    final blocks = <_StoryTextBlock>[
-      _StoryTextBlock(
-        data.title,
-        style(30, FontWeight.w800, 1.16, Colors.white),
-      ),
-      _StoryTextBlock(
-        data.body,
-        style(16, FontWeight.w400, 1.5, Colors.white.withValues(alpha: 0.88)),
-      ),
-      _StoryTextBlock(
-        data.highlight,
-        style(19, FontWeight.w700, 1.32, _accentBlue),
-      ),
-      _StoryTextBlock(
-        data.supporting,
-        style(15, FontWeight.w400, 1.5, Colors.white.withValues(alpha: 0.8)),
-      ),
-    ];
-    final gaps = [AppSpacing.s3, AppSpacing.s4, AppSpacing.s4];
-    final visibleCount = _revealedBlocks.clamp(0, blocks.length);
-
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        const ColoredBox(color: _onboardingBlue),
-        const Positioned.fill(child: CoinRain()),
-        SafeArea(
-          minimum: const EdgeInsets.only(top: AppSpacing.s10 + AppSpacing.s2),
-          child: Column(
-            children: [
-              const ExcludeSemantics(
-                child: Image(
-                  image: AssetImage(AppAssets.qirshLogoFull),
-                  height: 40,
-                ),
-              ),
-              const SizedBox(height: AppSpacing.s5),
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: _scrollController,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      for (var i = 0; i < visibleCount; i++) ...[
-                        if (i > 0) SizedBox(height: gaps[i - 1] * fontScale),
-                        WordRevealText(
-                          blocks[i].text,
-                          style: blocks[i].style,
-                          textAlign: TextAlign.start,
-                          hapticPerWord: true,
-                          onComplete: () => _advance(blocks.length),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.s4,
-                  AppSpacing.gutter,
-                  AppSpacing.s6,
-                ),
-                child: _textComplete
-                    ? SizedBox(
-                        width: double.infinity,
-                        height: AppSpacing.buttonHeight,
-                        child: FilledButton(
-                          onPressed: widget.onCta,
-                          style: FilledButton.styleFrom(
-                            backgroundColor: Colors.white,
-                            foregroundColor: _onboardingBlue,
-                            shape: RoundedRectangleBorder(
-                              borderRadius:
-                                  BorderRadius.circular(AppRadius.button),
-                            ),
-                          ),
-                          child: Text(
-                            data.ctaLabel,
-                            style: AppTypography.bodyStrong(
-                              _onboardingBlue,
-                            ),
-                          ),
-                        ).animate().fadeIn(
-                              duration: widget.reduceMotion
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 320),
-                            ),
-                      )
-                    : const SizedBox(height: AppSpacing.buttonHeight),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 }

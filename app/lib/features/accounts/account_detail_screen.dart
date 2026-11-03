@@ -10,6 +10,7 @@ import '../../core/theme/app_typography.dart';
 import '../../core/utils/currency.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/card_entity.dart';
+import '../../engine/parser/card_network.dart';
 import '../cards/bank_mark.dart';
 import '../cards/card_form_sheet.dart';
 import '../cards/card_network_label.dart';
@@ -42,7 +43,14 @@ class AccountDetailScreen extends ConsumerWidget {
       return Scaffold(
         backgroundColor: c.bg,
         appBar: AppHeader(title: context.l10n.commonAccountDefinite),
-        body: Center(
+        body: accountsAsync.hasError
+            ? SingleChildScrollView(child: AppErrorState(
+                title: context.l10n.txnError,
+                description: context.l10n.annTryAgainSoon,
+                retryLabel: context.l10n.startRetry,
+                onRetry: () => ref.invalidate(accountsProvider),
+              ))
+            : Center(
           child: accountsAsync.isLoading
               ? const CircularProgressIndicator()
               : Text(context.l10n.adNotFound, style: AppTypography.body(c.textMain)),
@@ -66,7 +74,7 @@ class AccountDetailScreen extends ConsumerWidget {
         titleMaxLines: 2,
         trailing: IconButton(
           tooltip: context.l10n.cardEdit,
-          icon: const Icon(AppLucideIcons.pencil),
+          icon: Icon(AppLucideIcons.pencil, color: c.primary),
           onPressed: () => showAccountForm(context, ref, account: account),
         ),
       ),
@@ -83,6 +91,7 @@ class AccountDetailScreen extends ConsumerWidget {
               TextButton.icon(
                 onPressed: () =>
                     showCardForm(context, ref, accountId: accountId),
+                style: TextButton.styleFrom(foregroundColor: c.primary),
                 icon: const Icon(AppLucideIcons.plus, size: 18),
                 label: Text(context.l10n.cardAddCard),
               ),
@@ -94,10 +103,24 @@ class AccountDetailScreen extends ConsumerWidget {
                 context.l10n.adNoCards,
                 style: AppTypography.caption(c.textLight))
           else
-            for (final card in cards) ...[
-              _ManagedCardRow(accountId: accountId, card: card),
-              const SizedBox(height: AppSpacing.s2),
-            ],
+            Material(
+              color: c.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(AppRadius.card),
+                side: BorderSide(color: c.border),
+              ),
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: [
+                  for (var i = 0; i < cards.length; i++) ...[
+                    if (i > 0)
+                      Divider(height: 1, indent: AppSpacing.s3,
+                          endIndent: AppSpacing.s3, color: c.divider),
+                    _ManagedCardRow(accountId: accountId, card: cards[i]),
+                  ],
+                ],
+              ),
+            ),
           const SizedBox(height: AppSpacing.s4),
           Text(context.l10n.adRecentTx, style: AppTypography.sectionTitle(c.textMain)),
           const SizedBox(height: AppSpacing.s2),
@@ -107,7 +130,12 @@ class AccountDetailScreen extends ConsumerWidget {
                 child: Padding(
                     padding: EdgeInsets.all(AppSpacing.cardPadding),
                     child: CircularProgressIndicator())),
-            error: (e, _) => Text(context.l10n.txnError),
+            error: (e, _) => AppErrorState(
+              title: context.l10n.txnError,
+              description: context.l10n.annTryAgainSoon,
+              retryLabel: context.l10n.startRetry,
+              onRetry: () => ref.invalidate(accountRecentTransactionsProvider(accountId)),
+            ),
             data: (txns) {
               if (txns.isEmpty) {
                 return Text(context.l10n.cdNoTxYet,
@@ -204,15 +232,9 @@ class _ManagedCardRow extends ConsumerWidget {
             ? card.nickname!
             : cardNetworkLabel(context, card.network);
     return InkWell(
-      borderRadius: BorderRadius.circular(AppRadius.card),
       onTap: () => context.push('/card/${card.last4}'),
-      child: Container(
-        padding: const EdgeInsets.all(AppSpacing.s3),
-        decoration: BoxDecoration(
-          color: c.surface,
-          borderRadius: BorderRadius.circular(AppRadius.card),
-          border: Border.all(color: c.border),
-        ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppSpacing.s3, vertical: 4),
         child: Row(
           children: [
             Icon(AppLucideIcons.creditCard, color: c.primary, size: 22),
@@ -227,8 +249,10 @@ class _ManagedCardRow extends ConsumerWidget {
                       Text('•••• ${card.last4}',
                           style: AppTypography.bodyStrong(c.textMain)
                               .copyWith(letterSpacing: 1.2)),
-                      const SizedBox(width: 8),
-                      CardNetworkBadge(network: card.network, height: 16),
+                      if (card.network != CardNetwork.unknown) ...[
+                        const SizedBox(width: 8),
+                        CardNetworkBadge(network: card.network, height: 16),
+                      ],
                     ],
                   ),
                   // UX-015 — «تلقائية / يدوية» is how the code classifies a

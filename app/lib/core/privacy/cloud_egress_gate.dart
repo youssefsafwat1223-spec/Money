@@ -737,7 +737,7 @@ class CloudEgressStore {
   }
 
   Future<({List<Map<String, CloudEgressRecord>> layers, List<String> problems})>
-      _collect(String? owner, {bool verifyNative = false}) async {
+      _collect(String? owner, {bool verifyNative = false, bool onlyOwner = false}) async {
     final problems = <String>[];
     final layers = <Map<String, CloudEgressRecord>>[];
 
@@ -767,7 +767,7 @@ class CloudEgressStore {
       // owner the Dart stores know about (a DISABLING marker must be found).
       final owners = {
         if (owner != null) owner,
-        for (final l in layers) ...l.keys,
+        if (!onlyOwner) for (final l in layers) ...l.keys,
       };
       if (owners.isEmpty) owners.add('');
       for (final o in owners) {
@@ -787,6 +787,15 @@ class CloudEgressStore {
               : e is FormatException
               ? e.message.replaceFirst('native_egress_uncertain:', '')
               : e.runtimeType.toString();
+          // A bound ON for an inactive UID cannot match the active native
+          // lifetime. Keep other uncertainty, including any for this owner.
+          if (!verifyNative &&
+              owner != null &&
+              owner.isNotEmpty &&
+              o != owner &&
+              detail == 'lifetime_fields_unbound') {
+            continue;
+          }
           problems.add('native:$detail');
           break;
         }
@@ -873,6 +882,12 @@ class CloudEgressStore {
   Future<PendingReadout> readPending() async => PendingReadout(
       await _readPendingLayer(_pendingSecure),
       await _readPendingLayer(_pendingFile));
+
+  /// [readPending] with the secure layer read through [secure] (ASR §12: a
+  /// status-preserving accessor of the same item).
+  Future<PendingReadout> readPendingVia(DurableSlot secure) async =>
+      PendingReadout(await _readPendingLayer(secure),
+          await _readPendingLayer(_pendingFile));
 
   /// Replaces [owner]'s record in ONE layer by [next] (null removes it), only
   /// when the layer is readable and [allowed] accepts what it holds for the
@@ -980,9 +995,14 @@ class CloudEgressStore {
 
   /// Unmerged physical Dart evidence. Verified absence is readable.
   Future<({List<CloudEgressRecord> records, bool uncertain})>
-      readDartOwnerLayers(String owner) async {
+      readDartOwnerLayers(String owner) => readDartOwnerLayersVia(owner, _secure);
+
+  /// [readDartOwnerLayers] with the secure layer read through [secure] (ASR
+  /// §12: a status-preserving accessor of the same item).
+  Future<({List<CloudEgressRecord> records, bool uncertain})>
+      readDartOwnerLayersVia(String owner, DurableSlot secure) async {
     final layers = [
-      await _readEgressLayer(_secure),
+      await _readEgressLayer(secure),
       await _readEgressLayer(_file)
     ];
     return (
@@ -1150,10 +1170,10 @@ class CloudEgressStore {
   /// generation guard covers it).
   Future<({CloudEgressRecord record, EgressWriteResult result})?> writeAllocated(
       String owner, CloudEgressRecord Function(int generation) build,
-      {bool Function()? isCurrent}) async {
+      {bool Function()? isCurrent, bool onlyOwner = false}) async {
     CloudEgressRecord record;
     try {
-      final collected = await _collect(owner, verifyNative: true);
+      final collected = await _collect(owner, verifyNative: true, onlyOwner: onlyOwner);
       if (collected.problems.isNotEmpty) return null;
       var highest = 0;
       var version = 0;
@@ -1488,11 +1508,15 @@ class EgressGrant {
 
 /// One admitted request.
 class EgressTicket {
-  EgressTicket._(this.owner, this.epoch, this.grant, this.request);
+  EgressTicket._(this.owner, this.epoch, this.grant, this.request,
+      {this.refresh});
   final String owner;
   final int epoch;
   final EgressGrant? grant;
   final AdmissionRequest? request;
+
+  /// Set for a coordinator refresh op's ticket (ASR §9.3).
+  final RefreshAdmission? refresh;
   final Completer<void> _cancel = Completer<void>();
   bool _released = false;
 
@@ -1559,6 +1583,105 @@ class _Mutex {
   }
 }
 
+/// ASR design v7.2 §5 — typed epoch causes.
+///
+/// Every mutation of the gate epoch carries a cause, and Dart-originated native
+/// writes of protected capture state append one BEFORE their channel call. The
+/// cause log lets an in-flight coordinator refresh decide synchronously whether
+/// anything foreign happened since it started.
+enum CauseClass { policy, identity }
+
+/// The three coordinator refresh-operation kinds (§4.10).
+enum RefreshOpKind { routine, accountControl, asr }
+
+@immutable
+class EpochCause {
+  const EpochCause(this.kind,
+      {this.causeClass = CauseClass.policy, this.identityForAsr = false});
+
+  /// Diagnostic name; never carries an id.
+  final String kind;
+  final CauseClass causeClass;
+
+  /// `explicitAttempt` is IDENTITY for ASR and POLICY for the other kinds.
+  final bool identityForAsr;
+
+  CauseClass classFor(RefreshOpKind op) =>
+      identityForAsr && op == RefreshOpKind.asr ? CauseClass.identity : causeClass;
+
+  static const scopeSwap = EpochCause('scopeSwap');
+  static const scopeInit = EpochCause('scopeInit');
+  static const explicitAttempt =
+      EpochCause('explicitAttempt', identityForAsr: true);
+  static const consentLoss = EpochCause('consentLoss');
+  static const localRead = EpochCause('localRead');
+  static const captureTransition = EpochCause('captureTransition');
+  static const cloudDisable = EpochCause('cloudDisable');
+  static const cloudEnable = EpochCause('cloudEnable');
+  static const consentWithdrawn = EpochCause('consentWithdrawn');
+  static const lifecycleDenied = EpochCause('lifecycleDenied');
+  static const freeze = EpochCause('freeze');
+  static const pendingEnable = EpochCause('pendingEnable');
+  static const uncertain = EpochCause('uncertain');
+  static const removal =
+      EpochCause('removal', causeClass: CauseClass.identity);
+  static const accountSwitch =
+      EpochCause('accountSwitch', causeClass: CauseClass.identity);
+  static const accountFenceRetired =
+      EpochCause('accountFenceRetired', causeClass: CauseClass.identity);
+
+  /// An advance whose site did not say why: treated as the most restrictive.
+  static const untyped =
+      EpochCause('untyped', causeClass: CauseClass.identity);
+
+  /// A Dart-originated native write of protected capture state.
+  const EpochCause.native(String method, {bool identity = false})
+      : kind = 'native:$method',
+        causeClass = identity ? CauseClass.identity : CauseClass.policy,
+        identityForAsr = false;
+
+  @override
+  String toString() => 'EpochCause($kind)';
+}
+
+@immutable
+class CauseEntry {
+  const CauseEntry(this.position, this.cause, this.authority);
+  final int position;
+  final EpochCause cause;
+
+  /// The operation the cause belongs to (its own transitions are not foreign
+  /// for it), or null.
+  final Object? authority;
+}
+
+/// One coordinator refresh operation's admission (§9.3). [authority] tags the
+/// op's own causes.
+class RefreshAdmission {
+  RefreshAdmission({
+    required this.kind,
+    required this.startPosition,
+    required this.authority,
+  });
+
+  final RefreshOpKind kind;
+
+  /// The cause-log position the op captured when it started.
+  final int startPosition;
+  final Object authority;
+
+  /// Set when P_send passed (the credential bytes were handed to the request).
+  bool passedSend = false;
+
+  /// A POLICY cause after send: custody only, never installation (§5).
+  bool noInstall = false;
+}
+
+/// An owned transition hold (§11.1). Only its owner can end it.
+class TransitionHoldToken {
+  TransitionHoldToken._();
+}
+
 class CloudEgressGate {
   CloudEgressGate({
     CloudEgressStore? store,
@@ -1577,7 +1700,14 @@ class CloudEgressGate {
         _activeOwner = activeOwner,
         _resolved = resolved,
         _supabaseUrl = supabaseUrl ?? (() => SupabaseConfig.url),
-        _monotonic = monotonic ?? _processClock;
+        _monotonic = monotonic ?? _processClock {
+    // ASR §5 (C2): every Dart-originated protected native write appends its
+    // typed cause to the CURRENT process gate before the channel call.
+    NativeCaptureBridge.onProtectedNativeWrite ??=
+        (method, {required identity, authority}) => CloudEgressGate.instance
+            .noteCause(EpochCause.native(method, identity: identity),
+                authority: authority);
+  }
 
   static final Stopwatch _processStopwatch = Stopwatch()..start();
   static Duration _processClock() => _processStopwatch.elapsed;
@@ -1609,8 +1739,11 @@ class CloudEgressGate {
   /// resolution restrictively.
   EgressResolutionToken? _resolutionOwner;
 
-  EgressResolutionToken beginResolution() =>
-      _resolutionOwner = EgressResolutionToken._();
+  EgressResolutionToken beginResolution() {
+    _resolutionGeneration++;
+    _resolvedSignedOut = false;
+    return _resolutionOwner = EgressResolutionToken._();
+  }
 
   bool ownsResolution(EgressResolutionToken token) =>
       identical(_resolutionOwner, token);
@@ -1620,6 +1753,7 @@ class CloudEgressGate {
   bool markResolved(EgressResolutionToken token) {
     if (!ownsResolution(token)) return false;
     _resolved = true;
+    _resolutionGeneration++;
     return true;
   }
 
@@ -1633,9 +1767,7 @@ class CloudEgressGate {
   Future<void> resolveRestrictively(EgressResolutionToken token,
       {String? owner, String? freezeTag}) async {
     void freeze(String tag) {
-      if (ownsResolution(token) && !ConsentAuthority.egressFrozen) {
-        ConsentAuthority.freeze(tag);
-      }
+      if (ownsResolution(token)) ConsentAuthority.freeze(tag, retainTag: true);
     }
 
     if (freezeTag != null) freeze(freezeTag);
@@ -1738,7 +1870,156 @@ class CloudEgressGate {
   /// disable, an enable, an account transition or a sign-out; every async
   /// mutation captures it and re-checks it before it writes.
   int get epoch => _epoch;
-  int advanceEpoch() => ++_epoch;
+
+  /// Advances the epoch with a typed [cause] (§5). Production call sites always
+  /// name their cause; the untyped default is classed IDENTITY.
+  int advanceEpoch([EpochCause cause = EpochCause.untyped, Object? authority]) =>
+      _advance(cause, authority: authority);
+
+  int _advance(EpochCause cause, {Object? authority}) {
+    _epoch++;
+    noteCause(cause, authority: authority);
+    return _epoch;
+  }
+
+  // ── ASR §5: the cause log ──────────────────────────────────────────────────
+
+  static const int causeLogCapacity = 512;
+  final List<CauseEntry> _causes = [];
+  int _causeSeq = 0;
+
+  /// Every position at or below this was dropped from the bounded log; an op
+  /// that started at or below it is treated as having observed an IDENTITY
+  /// cause.
+  int _droppedThrough = 0;
+
+  /// The current cause-log position (an op captures it at start).
+  int get causePosition => _causeSeq;
+
+  /// Appends [cause] synchronously and runs the refresh-ticket hook: IDENTITY →
+  /// cancel every refresh ticket; POLICY → cancel every refresh ticket that has
+  /// not passed P_send, and mark the others "no installation". An op's own
+  /// causes ([authority]) are not foreign for it. ASR §11.2: [authority] is
+  /// passed explicitly, only at the transitions an op owns (its scope
+  /// initialization, SE1–SE5); there is no ambient attribution, so a cause from
+  /// a listener, a service or the user is foreign to every op.
+  void noteCause(EpochCause cause, {Object? authority}) {
+    _causeSeq++;
+    _causes.add(CauseEntry(_causeSeq, cause, authority));
+    if (_causes.length > causeLogCapacity) {
+      _droppedThrough = _causes.removeAt(0).position;
+    }
+    for (final t in _inFlight.toList()) {
+      final r = t.refresh;
+      if (r == null || identical(r.authority, authority)) continue;
+      final cls = cause.classFor(r.kind);
+      if (cls == CauseClass.identity || !r.passedSend) {
+        if (!t._cancel.isCompleted) t._cancel.complete();
+      } else {
+        r.noInstall = true;
+      }
+    }
+  }
+
+  /// Whether a cause foreign to [authority] of at least [atLeast] (as classed
+  /// for [kind]) was appended after [position]. An overflowed log answers true.
+  bool foreignCauseSince(int position,
+      {required RefreshOpKind kind,
+      Object? authority,
+      CauseClass atLeast = CauseClass.policy}) {
+    if (position < _droppedThrough) return true;
+    for (final e in _causes.reversed) {
+      if (e.position <= position) break;
+      if (authority != null && identical(e.authority, authority)) continue;
+      if (atLeast == CauseClass.policy ||
+          e.cause.classFor(kind) == CauseClass.identity) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ── ASR §11.1: transition holds, terminal denial, alignment zone ────────────
+
+  final Set<TransitionHoldToken> _holds = {};
+
+  bool get holdActive => _holds.isNotEmpty;
+
+  /// B2: whether an ASR successor is unsettled (its session record is still
+  /// `finalizing`). Wired by bootstrap; generic capture reconciliation waits
+  /// for the ordered successor reconciliation instead of judging it.
+  bool Function()? asrSuccessorUnsettled;
+  bool get successorUnsettled => asrSuccessorUnsettled?.call() ?? false;
+
+  /// Begins an owned hold: every Dart permit path denies until every hold
+  /// ended. Outstanding ordinary tickets are cancelled (refresh tickets are
+  /// governed by causes).
+  TransitionHoldToken beginTransitionHold() {
+    final token = TransitionHoldToken._();
+    _holds.add(token);
+    for (final t in _inFlight.toList()) {
+      if (t.refresh == null && t.grant == null && !t._cancel.isCompleted) {
+        t._cancel.complete();
+      }
+    }
+    _setMirror(false);
+    return token;
+  }
+
+  /// Removes only [token] and recomputes the mirror.
+  Future<void> endTransitionHold(TransitionHoldToken token) async {
+    if (!_holds.remove(token)) return;
+    if (_holds.isEmpty) {
+      try {
+        await refresh();
+      } catch (_) {}
+    }
+  }
+
+  bool _terminalDenied = false;
+  bool get terminalDenied => _terminalDenied;
+
+  /// §11.4: set synchronously before an ASR failure's cleanup; denies every Dart
+  /// permit path except explicit account control. Cleared only by an
+  /// explicit commit ([clearTerminalDenial]).
+  void terminalDeny() {
+    _terminalDenied = true;
+    _setMirror(false);
+  }
+
+  void clearTerminalDenial() {
+    if (!_terminalDenied) return;
+    _terminalDenied = false;
+    unawaited(refresh().catchError((Object _) {}));
+  }
+
+  static const Symbol _alignmentKey = #qirshAlignmentZone;
+
+  /// §4.8: runs [body] in a zone in which every request is denied BEFORE
+  /// admission (so the SDK's `admin.signOut` never reaches the transport).
+  Future<T> runAlignment<T>(Future<T> Function() body) =>
+      runZoned(() async => await body(), zoneValues: {_alignmentKey: true});
+
+  static bool get inAlignmentZone => Zone.current[_alignmentKey] == true;
+
+  // ── §2: resolution generation ───────────────────────────────────────────────
+
+  int _resolutionGeneration = 0;
+  int get resolutionGeneration => _resolutionGeneration;
+  bool _resolvedSignedOut = false;
+
+  /// True after [resolveSignedOut] until the next resolution begins.
+  bool get resolvedSignedOut => _resolvedSignedOut;
+
+  /// §11.4: the signed-out resolution after an ASR failure: the process stays
+  /// resolved (no restrictive owner freeze); the mirror is recomputed.
+  Future<void> resolveSignedOut() async {
+    _resolutionGeneration++;
+    _resolvedSignedOut = true;
+    try {
+      await refresh();
+    } catch (_) {}
+  }
 
   /// N2: set SYNCHRONOUSLY, with the epoch advance, when an authority loss leaves
   /// a native lifecycle fence unconfirmed. While set, ordinary egress is denied;
@@ -1748,7 +2029,7 @@ class CloudEgressGate {
   bool _lifecycleDenied = false;
   void denyForLifecycleLoss() {
     _lifecycleDenied = true;
-    _epoch++;
+    _advance(EpochCause.lifecycleDenied);
     _setMirror(false);
   }
 
@@ -1762,6 +2043,8 @@ class CloudEgressGate {
     return _permitMirror &&
         _resolved &&
         !_lifecycleDenied &&
+        _holds.isEmpty &&
+        !_terminalDenied &&
         _enablePendingOwners.isEmpty &&
         !ConsentAuthority.egressFrozen &&
         !_localReadDenies;
@@ -1806,14 +2089,122 @@ class CloudEgressGate {
   /// frozen / ABSENT (never explicitly enabled, e.g. an upgrade) / unresolved
   /// all answer false (Astra H2.2).
   Future<bool> permits({String? owner}) async {
-    if (!_resolved || _lifecycleDenied || ConsentAuthority.egressFrozen || _localReadDenies) {
-      return false;
-    }
+    bool closed() =>
+        !_resolved ||
+        _lifecycleDenied ||
+        ConsentAuthority.egressFrozen ||
+        _localReadDenies ||
+        _holds.isNotEmpty ||
+        _terminalDenied;
+    if (closed()) return false;
     final o = await _owner(owner);
     // N-E: an unresolved pending enable denies before anything else is judged.
     if (await _pendingDenies(o)) return false;
     final v = await view(owner: o);
-    return !v.uncertain && v.record?.state == EgressState.on;
+    // ASR §11.1: recheck synchronously after the last await.
+    return !closed() && !v.uncertain && v.record?.state == EgressState.on;
+  }
+
+  /// Wired by bootstrap: a read-only, status-preserving accessor of a secure
+  /// item (ASR §12), so only an OS-confirmed not-found reads as absence. Null
+  /// (or a throw) denies every session-only refresh.
+  DurableSlot Function(String key)? strictSecureSlot;
+
+  /// Wired by bootstrap: whether native positively reports [owner] OFF (its
+  /// strict recovery inspection, not the restrictive getter). Null (or a
+  /// throw) denies every session-only refresh.
+  Future<bool> Function(String owner)? nativeVerifiedOff;
+
+  /// Owner decision (2026-10-29): the session-only token refresh — the
+  /// AuthCoordinator's `grant_type=refresh_token` exchange, which carries no
+  /// financial data, SMS or sync payload — is allowed while Cloud is OFF.
+  /// Cloud ON is exactly [permits]. Otherwise every process denial
+  /// (unresolved, lifecycle fence, freeze, local read, hold, terminal) still
+  /// denies, the pending layers must confirm no pending enable through the
+  /// strict secure read, the merged view [permits] reads (native included)
+  /// must be certain and absent or OFF, native must positively report OFF
+  /// ([nativeVerifiedOff]), and the Dart egress layers must be
+  /// verified OFF ([dartLayersVerifiedOff], confirmed absence included). Only the
+  /// coordinator's routine op consults it; every other egress keeps [permits].
+  Future<bool> permitsSessionRefresh({String? owner}) async {
+    if (await permits(owner: owner)) return true;
+    bool closed() =>
+        !_resolved ||
+        _lifecycleDenied ||
+        ConsentAuthority.egressFrozen ||
+        _localReadDenies ||
+        _holds.isNotEmpty ||
+        _terminalDenied;
+    if (closed()) return false;
+    final o = await _owner(owner);
+    final strict = strictSecureSlot;
+    if (strict == null || _enablePendingOwners.contains(o)) return false;
+    try {
+      final pending = await store
+          .readPendingVia(strict(CloudEgressStore.kPendingSecureKey));
+      if (pending.blocks(o)) return false;
+    } catch (_) {
+      return false;
+    }
+    // Astra (Cloud OFF delta): native uncertainty, mismatch and a winning
+    // DISABLING still deny, exactly as they do for [permits].
+    final v = await view(owner: o);
+    final merged = v.record;
+    if (v.uncertain || (merged != null && merged.state != EgressState.off)) {
+      return false;
+    }
+    // The restrictive getter can answer OFF over an unreadable layer, a
+    // pending or a disagreement: native must also positively report OFF.
+    final native = nativeVerifiedOff;
+    try {
+      if (native == null || !await native(o)) return false;
+    } catch (_) {
+      return false;
+    }
+    if (!await dartLayersVerifiedOff(o, allowAbsent: true)) return false;
+    return !closed() && !_enablePendingOwners.contains(o);
+  }
+
+  /// Both Dart egress layers of [owner], the secure one read through
+  /// [strictSecureSlot]: true only when both hold the same OFF record, or
+  /// ([allowAbsent]) both confirm absence. Unreadable, corrupt, partial,
+  /// disagreeing, ON and DISABLING all deny.
+  Future<bool> dartLayersVerifiedOff(String owner,
+      {required bool allowAbsent}) async {
+    final strict = strictSecureSlot;
+    if (strict == null) return false;
+    try {
+      final seen = await store.readDartOwnerLayersVia(
+          owner, strict(CloudEgressStore.kSecureKey));
+      if (seen.uncertain) return false;
+      if (seen.records.isEmpty) return allowAbsent;
+      final first = seen.records.first;
+      return seen.records.length == 2 &&
+          first.state == EgressState.off &&
+          first.ownerUid == owner &&
+          seen.records.every((r) => r == first);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Diagnostic only (Beta 1): the Dart egress layers of [owner] as a constant
+  /// (absent, off, on, disabling, partial, mixed, uncertain, no_strict).
+  Future<String> describeDartLayers(String owner) async {
+    final strict = strictSecureSlot;
+    if (strict == null) return 'no_strict';
+    try {
+      final seen = await store.readDartOwnerLayersVia(
+          owner, strict(CloudEgressStore.kSecureKey));
+      if (seen.uncertain) return 'uncertain';
+      if (seen.records.isEmpty) return 'absent';
+      if (seen.records.length != 2) return 'partial';
+      final first = seen.records.first;
+      if (!seen.records.every((r) => r == first)) return 'mixed';
+      return first.state.name;
+    } catch (_) {
+      return 'uncertain';
+    }
   }
 
   /// N-E: whether a pending enable of [owner] is in flight in this process, or
@@ -1830,6 +2221,10 @@ class CloudEgressGate {
   /// The two Dart pending layers as they are now.
   Future<PendingReadout> readPending() => store.readPending();
 
+  /// ASR §12 E3: [readPending] with a status-preserving secure-layer read.
+  Future<PendingReadout> readPendingVia(DurableSlot secure) =>
+      store.readPendingVia(secure);
+
   /// True while [owner]'s ON admission is denied by a pending enable.
   Future<bool> pendingBlocks({String? owner}) async =>
       _pendingDenies(await _owner(owner));
@@ -1845,6 +2240,8 @@ class CloudEgressGate {
     if (control == null ||
         !control.active ||
         !_resolved ||
+        _holds.isNotEmpty ||
+        inAlignmentZone ||
         (ConsentAuthority.egressFrozen &&
             !_signedOutControl(control, await _owner(null)))) {
       return false;
@@ -1859,10 +2256,15 @@ class CloudEgressGate {
   Future<String?> _decide(
       String owner, EgressGrant? grant, AdmissionRequest? request) async {
     if (!_resolved) return 'unresolved';
+    if (inAlignmentZone) return 'alignment';
+    // ASR §11.1: a transition hold denies every Dart permit path.
+    if (_holds.isNotEmpty) return 'transition_hold';
     final revoke = grant?.kind == EgressGrantKind.revoke;
     final control = grant?.control;
     // D6: local read admits only an explicit account-control exchange.
     if (control == null && _localReadDenies) return 'local_read';
+    // ASR §11.4: terminal denial admits only explicit account control.
+    if (control == null && _terminalDenied) return 'terminal';
     if (control != null) {
       // A grant that ended or expired admits NOTHING (a zone timer or retry
       // that fires after the op finished lands here).
@@ -1924,7 +2326,9 @@ class CloudEgressGate {
         throw EgressDeniedException('deletion_owner');
       }
       final o = deletion?.owner ?? activeOwner!;
-      final deny = await _decide(o, g, request);
+      var deny = await _decide(o, g, request);
+      // ASR §11.1: recheck the hold synchronously after the last await.
+      if (deny == null && _holds.isNotEmpty) deny = 'transition_hold';
       // A granted request says nothing about whether AUTOMATIC traffic may run.
       if (g == null) _setMirror(deny == null);
       if (deny != null) throw EgressDeniedException(deny);
@@ -1940,6 +2344,221 @@ class CloudEgressGate {
       _inFlight.add(t);
       return t;
     });
+  }
+
+  // ── ASR §3.1: the single refresher ──────────────────────────────────────────
+
+  /// The ONE token-endpoint helper: the configured base path + `/auth/v1/token`.
+  static String authTokenPath(Uri base) {
+    final prefix = base.path.endsWith('/')
+        ? base.path.substring(0, base.path.length - 1)
+        : base.path;
+    return '$prefix/auth/v1/token';
+  }
+
+  /// The coordinator's refresh endpoint on the configured origin, or null when
+  /// Supabase is not configured.
+  Uri? refreshTokenUri() {
+    final base = Uri.tryParse(_supabaseUrl());
+    if (base == null || base.host.isEmpty) return null;
+    return base.replace(
+        path: authTokenPath(base),
+        queryParameters: const {'grant_type': 'refresh_token'},
+        fragment: null);
+  }
+
+  /// I3: why [request] is a refresh-token request that only the AuthCoordinator
+  /// may send (it never goes through this client), or null. Decided from a
+  /// snapshot of the query and body bytes, before any await. Anything on the
+  /// token path that cannot be read unambiguously is denied.
+  String? sdkRefreshViolation(http.BaseRequest request) {
+    final base = Uri.tryParse(_supabaseUrl());
+    if (base == null || base.host.isEmpty) return null;
+    final uri = request.url;
+    if (uri.scheme != base.scheme ||
+        uri.host.toLowerCase() != base.host.toLowerCase() ||
+        uri.port != base.port) {
+      return null;
+    }
+    final String path;
+    try {
+      path = Uri.decodeFull(uri.path)
+          .replaceAll(RegExp('/{2,}'), '/')
+          .replaceAll(RegExp(r'/+$'), '')
+          .toLowerCase();
+    } catch (_) {
+      return 'sdk_refresh';
+    }
+    if (path != authTokenPath(base).toLowerCase()) return null;
+
+    final grants = <String>[];
+    var carriesRefreshToken = false;
+    bool readForm(String raw) {
+      if (raw.isEmpty) return true;
+      for (final pair in raw.split('&')) {
+        if (pair.isEmpty) continue;
+        final i = pair.indexOf('=');
+        final String k, v;
+        try {
+          k = Uri.decodeQueryComponent(i < 0 ? pair : pair.substring(0, i));
+          v = i < 0 ? '' : Uri.decodeQueryComponent(pair.substring(i + 1));
+        } catch (_) {
+          return false;
+        }
+        if (k == 'grant_type') grants.add(v);
+        if (k == 'refresh_token') carriesRefreshToken = true;
+      }
+      return true;
+    }
+
+    if (!readForm(uri.query)) return 'sdk_refresh';
+    if (request is! http.Request) return 'sdk_refresh';
+    final body = request.bodyBytes;
+    if (body.isNotEmpty) {
+      final type = (request.headers.entries
+                  .where((e) => e.key.toLowerCase() == 'content-type')
+                  .map((e) => e.value)
+                  .firstOrNull ??
+              '')
+          .split(';')
+          .first
+          .trim()
+          .toLowerCase();
+      final String text;
+      try {
+        text = utf8.decode(body);
+      } catch (_) {
+        return 'sdk_refresh';
+      }
+      if (type == 'application/x-www-form-urlencoded') {
+        if (!readForm(text)) return 'sdk_refresh';
+      } else if (type == 'application/json') {
+        final Object? json;
+        try {
+          json = jsonDecode(text);
+        } catch (_) {
+          return 'sdk_refresh';
+        }
+        if (json is Map) {
+          if (json.containsKey('refresh_token')) carriesRefreshToken = true;
+          if (json.containsKey('grant_type')) {
+            final g = json['grant_type'];
+            if (g is! String) return 'sdk_refresh';
+            grants.add(g);
+          }
+        } else if (json != null) {
+          return 'sdk_refresh';
+        }
+      } else {
+        return 'sdk_refresh';
+      }
+    }
+    if (carriesRefreshToken ||
+        grants.length > 1 ||
+        grants.contains('refresh_token')) {
+      return 'sdk_refresh';
+    }
+    return null;
+  }
+
+  /// §9.3 / §4.10 P_admit for a coordinator refresh op: runs in the gate lock
+  /// and registers a refresh ticket in the in-flight set (drains see it and the
+  /// cause hook can cancel it). [predicate] is the op's own synchronous check,
+  /// evaluated after the last await. Throws [EgressDeniedException] on refusal.
+  Future<EgressTicket> admitRefreshOp({
+    required RefreshOpKind kind,
+    required String owner,
+    required int startPosition,
+    required Object authority,
+    bool Function()? predicate,
+  }) {
+    final zoneGrant = Zone.current[_grantKey] as EgressGrant?;
+    return _lock.synchronized(() async {
+      String? deny;
+      EgressGrant? grant;
+      if (!_resolved) {
+        deny = 'unresolved';
+      } else if (inAlignmentZone) {
+        deny = 'alignment';
+      } else if (await _owner(null) != owner) {
+        deny = 'owner';
+      } else {
+        switch (kind) {
+          case RefreshOpKind.routine:
+            if (!await permitsSessionRefresh(owner: owner)) {
+              deny = 'routine_not_permitted';
+            }
+          case RefreshOpKind.accountControl:
+            final control = zoneGrant?.control;
+            final uri = refreshTokenUri();
+            if (control == null ||
+                (control.op != AccountControlOp.deleteAccount &&
+                    control.op != AccountControlOp.cancelDelete) ||
+                uri == null) {
+              deny = 'grant_scope';
+            } else {
+              grant = zoneGrant;
+              deny = await _decide(owner, zoneGrant, AdmissionRequest('POST', uri));
+            }
+          case RefreshOpKind.asr:
+            if (!_localReadDenies) {
+              deny = 'not_local_read';
+            } else if (await _pendingDenies(owner)) {
+              deny = 'pending_enable';
+            }
+        }
+      }
+      // Synchronously after the last await.
+      deny ??= _refreshDenial(kind, startPosition, authority, grant);
+      if (deny == null && predicate != null) {
+        bool ok;
+        try {
+          ok = predicate();
+        } catch (_) {
+          ok = false;
+        }
+        if (!ok) deny = 'predicate';
+      }
+      if (deny != null) throw EgressDeniedException(deny);
+      final t = EgressTicket._(owner, _epoch, grant, null,
+          refresh: RefreshAdmission(
+              kind: kind, startPosition: startPosition, authority: authority));
+      _inFlight.add(t);
+      return t;
+    });
+  }
+
+  /// §9.4 P_send, the gate's half: synchronous, immediately before the first
+  /// request byte. Marks the ticket as past send. Null when it may send.
+  String? confirmRefreshSend(EgressTicket t) {
+    final r = t.refresh;
+    if (r == null) return 'not_refresh';
+    if (t.isCancelled || t._released) return 'cancelled';
+    final deny = _refreshDenial(r.kind, r.startPosition, r.authority, t.grant);
+    if (deny != null) return deny;
+    r.passedSend = true;
+    return null;
+  }
+
+  String? _refreshDenial(
+      RefreshOpKind kind, int start, Object authority, EgressGrant? grant) {
+    if (!_resolved) return 'unresolved';
+    if (inAlignmentZone) return 'alignment';
+    if (_holds.isNotEmpty) return 'transition_hold';
+    if (foreignCauseSince(start, kind: kind, authority: authority)) {
+      return 'foreign_cause';
+    }
+    if (kind == RefreshOpKind.accountControl) {
+      final control = grant?.control;
+      return control == null || !control.active ? 'grant_inactive' : null;
+    }
+    if (_terminalDenied) return 'terminal';
+    if (_lifecycleDenied) return 'lifecycle_fence';
+    if (ConsentAuthority.egressFrozen) return 'frozen';
+    if (kind == RefreshOpKind.asr) {
+      return _localReadDenies ? null : 'not_local_read';
+    }
+    return _localReadDenies ? 'local_read' : null;
   }
 
   void release(EgressTicket t) {
@@ -1982,7 +2601,15 @@ class CloudEgressGate {
   ///  * it never writes the egress record, never flips Cloud ON and never touches
   ///    consent.
   Future<T> runAccountControl<T>(
-      AccountControlOp op, Future<T> Function() body) async {
+      AccountControlOp op, Future<T> Function() body,
+      {bool attempt = false}) async {
+    // §11.3: an explicit attempt waits (bounded) until ASR really finished; ASR
+    // keeps ownership on a timeout and the attempt fails retryably.
+    final quiesced = asrQuiesced;
+    if (attempt && quiesced != null) {
+      await quiesced().timeout(asrQuiescenceTimeout,
+          onTimeout: () => throw TimeoutException('asr_quiescence'));
+    }
     final control =
         AccountControlGrant._(op, ++_grantSeq, accountControlTtl, _monotonic);
     final grant = EgressGrant.accountControl(control);
@@ -2005,6 +2632,11 @@ class CloudEgressGate {
       control._end();
     }
   }
+
+  /// Wired by the AuthCoordinator: completes when ASR holds no section, hold,
+  /// pending local mutation or transport resource (§11.3).
+  Future<void> Function()? asrQuiesced;
+  static const Duration asrQuiescenceTimeout = Duration(seconds: 10);
 
   /// Explicit foreground exchange only; never an automatic Cloud OFF poller.
   Future<T> runImmediateDeletion<T>({
@@ -2272,9 +2904,9 @@ class CloudEgressGate {
   /// permit mirror drops and the in-process marker denies, before the first
   /// await of the enable. Only a read-back-verified [clearPendingEnable] (or a
   /// startup that finds no pending) ends it.
-  void freezeEnable(String owner) {
+  void freezeEnable(String owner, {Object? authority}) {
     _enablePendingOwners.add(owner);
-    _epoch++;
+    _advance(EpochCause.freeze, authority: authority);
     _setMirror(false);
   }
 
@@ -2283,14 +2915,19 @@ class CloudEgressGate {
   /// corrupt or unreadable (no guessed counter).
   Future<int> allocateEnableGeneration(String owner) =>
       _lock.synchronized(() async {
-        final seen = await store.readOwnerLayers(owner);
-        if (seen.uncertain) {
-          throw const EgressWriteFailedException('allocate_generation');
+        // Generations are per owner. A previous owner's native operation
+        // cannot contribute to this owner's generation frontier.
+        final seen = await store._collect(owner,
+            verifyNative: true, onlyOwner: true);
+        if (seen.problems.isNotEmpty) {
+          throw EgressWriteFailedException(
+              'allocate_generation/${seen.problems.join(',')}');
         }
         final pending = (await store.readPending()).agreed(owner);
         var highest = pending?.transitionGeneration ?? 0;
-        for (final r in seen.records) {
-          if (r.transitionGeneration > highest) {
+        for (final layer in seen.layers) {
+          final r = layer[owner];
+          if (r != null && r.transitionGeneration > highest) {
             highest = r.transitionGeneration;
           }
         }
@@ -2413,7 +3050,7 @@ class CloudEgressGate {
   /// unverifiable layer writes nothing (null). The initializing service's
   /// currency is checked inside the queue, after allocation and at dispatch.
   Future<EgressWriteResult?> alignOff(CloudEgressRecord observed,
-          {bool Function()? isCurrent}) =>
+          {bool Function()? isCurrent, bool onlyOwner = false}) =>
       _lock.synchronized(() async {
         if (isCurrent != null && !isCurrent()) {
           throw const StaleAdmissionException();
@@ -2422,7 +3059,7 @@ class CloudEgressGate {
                 observed.ownerUid,
                 (gen) => observed.copyWith(
                     state: EgressState.off, transitionGeneration: gen),
-                isCurrent: isCurrent))
+                isCurrent: isCurrent, onlyOwner: onlyOwner))
             ?.result;
       });
 
@@ -2491,6 +3128,8 @@ class CloudEgressGate {
     final next = permits &&
         _resolved &&
         !_lifecycleDenied &&
+        _holds.isEmpty &&
+        !_terminalDenied &&
         !ConsentAuthority.egressFrozen &&
         !_localReadDenies;
     if (next == _permitMirror) return;
@@ -2527,16 +3166,30 @@ class GatedHttpClient extends http.BaseClient {
   @override
   Future<http.StreamedResponse> send(http.BaseRequest request) async {
     final gate = CloudEgressGate.instance;
-    final deletion = (Zone.current[CloudEgressGate._grantKey] as EgressGrant?)?._deletion;
-    // Freeze bytes AND headers before the first admission await. The same
-    // private snapshot is fingerprinted and sent, so mutable callers cannot
-    // replace an admitted body or inject a status Authorization afterwards.
+    // Freeze bytes AND headers before classification and the first admission
+    // await. The same private snapshot is classified, fingerprinted and sent,
+    // so a mutable caller cannot replace a classified/admitted body or inject a
+    // status Authorization afterwards.
     List<int>? bytes;
     Map<String, String>? headers;
-    if (deletion != null) {
-      if (request is! http.Request) throw EgressDeniedException('deletion_stream');
-      bytes = List<int>.of(request.bodyBytes);
-      headers = Map<String, String>.of(request.headers);
+    if (request is http.Request) {
+      bytes = List<int>.unmodifiable(request.bodyBytes);
+      headers = Map<String, String>.unmodifiable(request.headers);
+    }
+    // I3 (ASR §3.1): only the AuthCoordinator refreshes, through its own
+    // transport. Every other refresh-token request is denied here, before
+    // admission, in every mode and under every grant.
+    final refresh = gate.sdkRefreshViolation(bytes == null
+        ? request
+        : (http.Request(request.method, request.url)
+          ..headers.addAll(headers!)
+          ..bodyBytes = bytes));
+    if (refresh != null) throw EgressDeniedException(refresh);
+    // §4.8: nothing from an alignment zone reaches admission.
+    if (CloudEgressGate.inAlignmentZone) throw EgressDeniedException('alignment');
+    final deletion = (Zone.current[CloudEgressGate._grantKey] as EgressGrant?)?._deletion;
+    if (deletion != null && bytes == null) {
+      throw EgressDeniedException('deletion_stream');
     }
     String? header(String name) {
       for (final e in (headers ?? request.headers).entries) {
@@ -2545,7 +3198,8 @@ class GatedHttpClient extends http.BaseClient {
       return null;
     }
     final ticket = await gate.admit(request: AdmissionRequest(request.method, request.url,
-      bodyFingerprint: bytes == null ? null : sha256.convert(bytes).toString(),
+      bodyFingerprint:
+          deletion == null ? null : sha256.convert(bytes!).toString(),
       authorization: header('authorization'), contentType: header('content-type')));
     if (deletion != null && !gate.isCurrent(ticket)) {
       gate.release(ticket);

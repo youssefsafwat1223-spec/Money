@@ -53,7 +53,7 @@ void main() {
       expect(revoke, contains('max(old?.transitionGeneration ?? 0, transitionGeneration)'));
       expect(revoke, contains('retirement: expected'));
       expect(revoke, contains('reports.allSatisfy { \$0.outcome == .verified } ? .done : .incomplete'));
-      expect(revoke, contains('return try withQueueLock {'));
+      expect(revoke, matches(RegExp(r'return try with(?:QueueLock|ProtectedWriteLock(?:Counted)?) \{')));
     });
   });
 

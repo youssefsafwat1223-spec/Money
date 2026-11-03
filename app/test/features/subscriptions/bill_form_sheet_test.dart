@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 import 'package:money_companion/domain/entities/account_entity.dart';
 import 'package:money_companion/domain/entities/bill_entity.dart';
 import 'package:money_companion/domain/finance/money.dart';
@@ -113,6 +114,7 @@ void main() {
 
     expect(repository.saveCalls, 0);
     expect(find.text('اختر تاريخ استحقاق قادمًا أو اليوم.'), findsOneWidget);
+    await tester.pump(const Duration(seconds: 4));
   });
 
   testWidgets('today due date is accepted', (tester) async {
@@ -163,7 +165,10 @@ void main() {
       await _submit(tester);
 
       expect(repository.saveCalls, 0);
-      expect(find.text('اكتب مبلغ أكبر من صفر'), findsOneWidget);
+      expect(find.text('اكتب مبلغ أكبر من صفر'), findsWidgets);
+      expect(find.byIcon(AppLucideIcons.alertCircle), findsOneWidget);
+      await tester.pump(const Duration(seconds: 4));
+      await tester.pumpAndSettle();
     }
   });
 

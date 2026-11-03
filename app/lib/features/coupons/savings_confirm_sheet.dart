@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../domain/finance/money.dart';
 import '../../domain/finance/money_format.dart';
@@ -52,6 +53,7 @@ class _SavingsConfirmSheet extends ConsumerStatefulWidget {
 class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
   final _controller = TextEditingController();
   SavingsOutcome? _preview;
+  bool _saving = false;
 
   @override
   void dispose() {
@@ -88,15 +90,22 @@ class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
     // Guarded twice: the button is disabled without an amount, and the
     // repository refuses an abstention. A saving must never be written from a
     // figure we could not compute.
-    if (outcome == null || !outcome.hasAmount) return;
-    await ref.read(savingsRepositoryProvider).record(
+    if (_saving || outcome == null || !outcome.hasAmount) return;
+    setState(() => _saving = true);
+    try {
+      await ref.read(savingsRepositoryProvider).record(
           outcome,
           couponId: widget.offer.id,
           merchantId: widget.merchantId ?? widget.offer.merchantId,
         );
-    ref.invalidate(savingsTotalsProvider);
-    ref.invalidate(savingsHistoryProvider);
-    if (mounted) Navigator.of(context).pop();
+      ref.invalidate(savingsTotalsProvider);
+      ref.invalidate(savingsHistoryProvider);
+      if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) AppToast.showError(context, context.l10n.txnError);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -104,7 +113,7 @@ class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
     final c = context.colors;
     final l10n = context.l10n;
     final preview = _preview;
-    final canSave = preview != null && preview.hasAmount;
+    final canSave = !_saving && preview != null && preview.hasAmount;
 
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
@@ -128,6 +137,7 @@ class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
             const SizedBox(height: AppSpacing.s4),
             TextField(
               controller: _controller,
+              enabled: !_saving,
               keyboardType: const TextInputType.numberWithOptions(decimal: true),
               onChanged: (_) => _recompute(),
               decoration: InputDecoration(
@@ -152,7 +162,13 @@ class _SavingsConfirmSheetState extends ConsumerState<_SavingsConfirmSheet> {
               width: double.infinity,
               child: FilledButton(
                 onPressed: canSave ? _save : null,
-                child: Text(l10n.savingsConfirmAction),
+                child: _saving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(l10n.savingsConfirmAction),
               ),
             ),
           ],

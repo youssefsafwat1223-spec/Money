@@ -1,13 +1,12 @@
 import 'package:flutter/material.dart';
 
-import '../app_spacing.dart';
-import 'mali_glass.dart';
+import '../app_colors.dart';
 
-/// An [AlertDialog] on the Liquid Glass material.
+/// An [AlertDialog] on the approved opaque dialog surface.
 ///
 /// Same title / content / actions layout and the same [DialogThemeData] text
-/// styles as [AlertDialog]; the surface is [MaliGlass] instead of an opaque
-/// Material, so the dialog reads as glass over the dimmed page.
+/// styles as [AlertDialog]. The opaque surface preserves text contrast over
+/// busy financial screens in either appearance.
 class GlassAlertDialog extends StatelessWidget {
   const GlassAlertDialog({
     super.key,
@@ -26,6 +25,30 @@ class GlassAlertDialog extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final dialogTheme = DialogTheme.of(context);
+    final inheritedButtonStyle = TextButtonTheme.of(context).style;
+    Widget actionBar() {
+      final bar = OverflowBar(
+        alignment: MainAxisAlignment.end,
+        overflowAlignment: OverflowBarAlignment.end,
+        spacing: 8,
+        children: actions!,
+      );
+      if (theme.brightness != Brightness.dark) return bar;
+      return TextButtonTheme(
+        data: TextButtonThemeData(
+          style: (inheritedButtonStyle ?? const ButtonStyle()).copyWith(
+            foregroundColor: WidgetStateProperty.resolveWith((states) {
+              final inherited = inheritedButtonStyle?.foregroundColor?.resolve(states);
+              if (inherited != null || states.contains(WidgetState.disabled)) {
+                return inherited;
+              }
+              return theme.extension<AppColors>()?.textPrimary ?? theme.colorScheme.onSurface;
+            }),
+          ),
+        ),
+        child: bar,
+      );
+    }
     return Dialog(
       backgroundColor: Colors.transparent,
       surfaceTintColor: Colors.transparent,
@@ -33,11 +56,12 @@ class GlassAlertDialog extends StatelessWidget {
       elevation: 0,
       child: ConstrainedBox(
         constraints: const BoxConstraints(minWidth: 280),
-        child: MaliGlass(
-          variant: MaliGlassVariant.card,
-          radius: AppRadius.sheet,
-          padding: EdgeInsets.zero,
-          nativeMaterial: true,
+        child: Material(
+          color: theme.brightness == Brightness.dark
+              ? const Color(0xFF1C1F25)
+              : theme.extension<AppColors>()?.surface ?? theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(22),
+          clipBehavior: Clip.antiAlias,
           child: Material(
             type: MaterialType.transparency,
             child: Column(
@@ -74,12 +98,7 @@ class GlassAlertDialog extends StatelessWidget {
                   Padding(
                     padding: actionsPadding ??
                         const EdgeInsets.fromLTRB(16, 16, 16, 16),
-                    child: OverflowBar(
-                      alignment: MainAxisAlignment.end,
-                      overflowAlignment: OverflowBarAlignment.end,
-                      spacing: 8,
-                      children: actions!,
-                    ),
+                    child: actionBar(),
                   ),
               ],
             ),

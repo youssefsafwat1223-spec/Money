@@ -19,7 +19,8 @@ import '../../domain/errors/repo_exceptions.dart';
 import '../capture/services/capture_device_registration_service.dart';
 import '../consent/smart_analysis_consent_sheet.dart';
 import 'consent_status.dart';
-import '../onboarding/widgets/neon_illustration.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
+import '../common/app_header.dart';
 import 'settings_providers.dart';
 import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
@@ -47,14 +48,27 @@ class PrivacyScreen extends ConsumerWidget {
             child: ListView(
               padding: const EdgeInsets.all(AppSpacing.gutter),
               children: [
-                const SizedBox(height: AppSpacing.s4),
                 const Center(
-                  child: NeonIllustration(
-                    icon: AppLucideIcons.shield,
-                    size: 140,
+                  child: QirshIllustration(
+                    name: 'privacy', width: 230, height: 172.5,
                   ),
                 ),
-                const SizedBox(height: AppSpacing.s6),
+                Text(
+                  l10n.helpPrivacyTitle,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.custom(size: 20, weight: FontWeight.w700,
+                      height: 1.35, color: c.textPrimary),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  l10n.helpPrivacyBody,
+                  textAlign: TextAlign.center,
+                  style: AppTypography.callout(c.textMuted),
+                ),
+                const SizedBox(height: 8),
+                Text(l10n.privIntro, textAlign: TextAlign.center,
+                  style: AppTypography.caption(c.textMuted)),
+                const SizedBox(height: AppSpacing.s5),
                 _PrivacyCard(
                   icon: AppLucideIcons.fileText,
                   title: context.l10n.privPolicy,
@@ -282,9 +296,7 @@ class PrivacyScreen extends ConsumerWidget {
   Future<void> _openExternalLink(BuildContext context, Uri url) async {
     final opened = await launchExternalUrl(url);
     if (!opened && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.privLinkFailed)),
-      );
+      AppToast.showError(context, context.l10n.privLinkFailed);
     }
   }
 
@@ -314,7 +326,7 @@ class PrivacyScreen extends ConsumerWidget {
       final message = error is RepoException
           ? repoErrorMessage(context, error)
           : context.l10n.privCancelFailed;
-      AppToast.show(context, message);
+      AppToast.showError(context, message);
     }
   }
 }
@@ -546,12 +558,18 @@ class _ConsentManagementCardState
                     if (canTurnOff)
                       OutlinedButton(
                         key: const Key('consentTurnOff'),
+                        style: Theme.of(context).brightness == Brightness.dark
+                            ? OutlinedButton.styleFrom(foregroundColor: c.primary)
+                            : null,
                         onPressed: _busy ? null : _turnOff,
                         child: Text(l10n.consentTurnOff),
                       ),
                     if (canRefresh)
                       TextButton(
                         key: const Key('consentRefresh'),
+                        style: Theme.of(context).brightness == Brightness.dark
+                            ? TextButton.styleFrom(foregroundColor: c.primary)
+                            : null,
                         onPressed: _busy ? null : _refresh,
                         child: Text(l10n.consentRefresh),
                       ),
@@ -599,6 +617,9 @@ class _PendingDeletionCard extends StatelessWidget {
           Align(
             alignment: AlignmentDirectional.centerStart,
             child: TextButton(
+              style: Theme.of(context).brightness == Brightness.dark
+                  ? TextButton.styleFrom(foregroundColor: c.primary)
+                  : null,
               onPressed: onCancel,
               child: Text(context.l10n.privCancelDeletion),
             ),
@@ -611,55 +632,11 @@ class _PendingDeletionCard extends StatelessWidget {
 
 class _PrivacyHeader extends StatelessWidget {
   const _PrivacyHeader();
-
   @override
-  Widget build(BuildContext context) {
-    final c = context.colors;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.gutter,
-        64,
-        AppSpacing.gutter,
-        AppSpacing.s5,
-      ),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            c.cta.withValues(alpha: 0.12),
-            c.bg,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              if (Navigator.of(context).canPop()) ...[
-                BackButton(color: c.textMain),
-                const SizedBox(width: AppSpacing.s2),
-              ],
-              Expanded(
-                child: Text(
-                  context.l10n.privTitle,
-                  style: AppTypography.title1(c.textMain)
-                      .copyWith(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            context.l10n.privIntro,
-            style: AppTypography.caption(c.textMuted),
-          ),
-        ],
-      ),
-    );
-  }
+  Widget build(BuildContext context) => SafeArea(
+    bottom: false,
+    child: SizedBox(height: 56, child: AppHeader(title: context.l10n.privTitle)),
+  );
 }
 
 /// Revocable data-processing consent switch (MALI-001) — same card language

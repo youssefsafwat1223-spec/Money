@@ -42,10 +42,14 @@ class ReportMoneyFormatter {
 
   /// Exact-money leaf formatter. Decimal text is derived directly from minor
   /// units; no binary floating-point value participates in financial math.
-  String moneyExact(Money amount) => masked
-      ? _mask
-      : '${_number(amount.toDouble().abs(), _decimals(amount.currency))} '
-          '${_token(amount.currency)}';
+  String moneyExact(Money amount) {
+    if (masked) return _mask;
+    final formatted = formatMoney(amount);
+    // Strip the display sign without negating int64-min into an out-of-range
+    // positive Money. Signed formatting adds the report's chosen sign below.
+    final magnitude = amount.isNegative ? formatted.substring(1) : formatted;
+    return '$magnitude ${_token(amount.currency)}';
+  }
 
   /// Signed with U+2212 for negative/expense values, `+` otherwise.
   String signedMoney(double amount, String code, {bool? isExpense}) {

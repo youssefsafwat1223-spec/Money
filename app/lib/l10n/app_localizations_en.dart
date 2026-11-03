@@ -1826,6 +1826,13 @@ class AppL10nEn extends AppL10n {
   String get txnTabBills => 'Bills';
 
   @override
+  String get txnPendingEmptyTitle => 'No pending transactions in this view';
+
+  @override
+  String get txnPendingEmptyBody =>
+      'Try another period or change the filters to review other transactions.';
+
+  @override
   String get txnEmptyPeriodTitle => 'No transactions in this period';
 
   @override
@@ -2631,7 +2638,16 @@ class AppL10nEn extends AppL10n {
   String get cardBack => 'Back';
 
   @override
+  String get cardActivityTitle => 'Card activity';
+
+  @override
   String get cardAllCards => 'All cards';
+
+  @override
+  String get cardLoadFailed => 'Your cards could not be loaded';
+
+  @override
+  String get cardLoadFailedBody => 'Try again to see your saved cards.';
 
   @override
   String get cardAddCard => 'Add card';
@@ -2892,7 +2908,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get privIntro =>
-      'Bank messages you share through the shortcut are processed as sanitised text on the Qirsh server, with help from AI. You can export or import your financial data from the Data transfer screen.';
+      'When you enable Cloud processing, bank messages you share through the shortcut may be processed as sanitised text on Qirsh servers with help from AI. With Cloud off, messages are parsed locally. You can export or import your financial data from Data transfer.';
 
   @override
   String dtxPreviewRows(int rows, String format) {
@@ -3091,7 +3107,7 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get pasteAiOffline =>
-      'AI is not connected in this build — run the app with Supabase keys.';
+      'AI analysis is unavailable. No transaction was added. You can add it manually.';
 
   @override
   String get pasteUnreadableOnDevice =>
@@ -3667,6 +3683,17 @@ class AppL10nEn extends AppL10n {
   String get homeActiveBudget => 'active budget';
 
   @override
+  String homeAvailableCoupons(int count) {
+    String _temp0 = intl.Intl.pluralLogic(
+      count,
+      locale: localeName,
+      other: '$count coupons available',
+      one: '1 coupon available',
+    );
+    return '$_temp0';
+  }
+
+  @override
   String get homePartnerOffers => 'Offers from Qirsh partners';
 
   @override
@@ -4149,6 +4176,30 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get cfAccentOptional => 'Accent colour (optional)';
+
+  @override
+  String get cfAccentNone => 'No accent colour';
+
+  @override
+  String cfAccentColourName(String colour) {
+    String _temp0 = intl.Intl.selectLogic(
+      colour,
+      {
+        'amber': 'Amber',
+        'red': 'Red',
+        'pink': 'Pink',
+        'purple': 'Purple',
+        'blue': 'Blue',
+        'cyan': 'Cyan',
+        'emerald': 'Emerald',
+        'lime': 'Lime',
+        'orange': 'Orange',
+        'teal': 'Teal',
+        'other': 'Accent colour',
+      },
+    );
+    return '$_temp0';
+  }
 
   @override
   String get cfLinkedAccount => 'Linked account';
@@ -5372,7 +5423,7 @@ class AppL10nEn extends AppL10n {
   String get navHome => 'Home';
 
   @override
-  String get navTransactions => 'Transactions';
+  String get navTransactions => 'Activity';
 
   @override
   String get navBudgets => 'Budgets';
@@ -5381,7 +5432,7 @@ class AppL10nEn extends AppL10n {
   String get navMore => 'More';
 
   @override
-  String get navAnalytics => 'Analytics';
+  String get navAnalytics => 'Insights';
 
   @override
   String navExpandBar(String tab) {
@@ -6434,4 +6485,422 @@ class AppL10nEn extends AppL10n {
   @override
   String get pasteAiConsentOff =>
       'This message could not be read on your device. Enable Cloud and Smart Analysis in Privacy to allow AI assistance.';
+
+  @override
+  String get homeGoodMorning => 'Good morning';
+
+  @override
+  String get homeGoodEvening => 'Good evening';
+
+  @override
+  String get homeQuickAdd => 'Add';
+
+  @override
+  String get homeQuickPaste => 'Paste SMS';
+
+  @override
+  String get homeQuickBudget => 'Budget';
+
+  @override
+  String get homeQuickGoals => 'Goals';
+
+  @override
+  String homeBudgetLeft(String limit, String left) {
+    return 'of a $limit budget · $left left';
+  }
+
+  @override
+  String homeBudgetOverBy(String limit, String over) {
+    return '$over over the $limit budget';
+  }
+
+  @override
+  String homeProjectedMonthEnd(String amount) {
+    return 'Expected by month end: $amount';
+  }
+
+  @override
+  String homeLastWeekWas(String amount) {
+    return 'Last week: $amount';
+  }
+
+  @override
+  String homeTodayTxCount(int count) {
+    return 'Transactions today: $count';
+  }
+
+  @override
+  String homeLeftTodayShort(String amount) {
+    return '$amount left today';
+  }
+
+  @override
+  String homePaceUnder(int percent) {
+    return '$percent% under budget pace';
+  }
+
+  @override
+  String homePaceOver(int percent) {
+    return '$percent% over budget pace';
+  }
+
+  @override
+  String get homePaceOnTrack => 'On budget pace';
+
+  @override
+  String get homePaceSetBudget => 'Set a budget to track your pace';
+
+  @override
+  String homeWeekMoreThan(int percent) {
+    return '$percent% more than last week';
+  }
+
+  @override
+  String homeWeekLessThan(int percent) {
+    return '$percent% less than last week';
+  }
+
+  @override
+  String homeDayMoreThan(int percent) {
+    return '$percent% more than yesterday';
+  }
+
+  @override
+  String homeDayLessThan(int percent) {
+    return '$percent% less than yesterday';
+  }
+
+  @override
+  String get homeToReview => 'To review';
+
+  @override
+  String get homeReviewNow => 'Review';
+
+  @override
+  String homeSpentOfAllowance(String spent, String allowance) {
+    return 'Spent $spent of $allowance';
+  }
+
+  @override
+  String get homeLastSevenDays => 'Last 7 days';
+
+  @override
+  String homeDailyAverage(String amount) {
+    return '$amount a day on average';
+  }
+
+  @override
+  String get homeWhereMoneyWent => 'Where your money went';
+
+  @override
+  String get homeDetails => 'Details';
+
+  @override
+  String get homeUpcoming => 'Upcoming payments';
+
+  @override
+  String homeInstalmentProgress(int n, int total) {
+    return 'Payment $n of $total';
+  }
+
+  @override
+  String get homeGoalsAndPlans => 'Goals & plans';
+
+  @override
+  String get homeNewGoal => 'New goal';
+
+  @override
+  String get homeRecentTx => 'Recent transactions';
+
+  @override
+  String get homeSeeAll => 'See all';
+
+  @override
+  String get homeWelcomeTo => 'Welcome to Qirsh';
+
+  @override
+  String get homeWelcomeTitle =>
+      'Add your first transaction,\nQirsh sorts the rest';
+
+  @override
+  String get homeWelcomeBody =>
+      'Your daily spend, what you have left and where your money goes all show up here after your first transaction.';
+
+  @override
+  String get homeStartSteps => 'Start in 3 steps';
+
+  @override
+  String get homeStartStepsHint => 'Takes under two minutes';
+
+  @override
+  String get homeStepAddTitle => 'Add your first transaction';
+
+  @override
+  String get homeStepAddBody => 'Paste a bank SMS or enter it by hand';
+
+  @override
+  String get homeStepAddCta => 'Add transaction';
+
+  @override
+  String get homeStepBudgetTitle => 'Set a monthly budget';
+
+  @override
+  String get homeStepBudgetBody => 'So you know what you can spend each day';
+
+  @override
+  String get homeStepBudgetCta => 'Set budget';
+
+  @override
+  String get homeStepCaptureTitle => 'Turn on bank SMS capture';
+
+  @override
+  String get homeStepCaptureBody => 'So transactions are added without pasting';
+
+  @override
+  String get homeStepCaptureCta => 'How to set it up';
+
+  @override
+  String get homeOnDeviceTitle => 'Your data stays on your device';
+
+  @override
+  String get homeOnDeviceBody => 'Your database is encrypted on this device.';
+
+  @override
+  String get homeCreateYourself => 'Or create your own';
+
+  @override
+  String get homeTileBudgetSub => 'Monthly or per category';
+
+  @override
+  String get homeTileGoal => 'Savings goal';
+
+  @override
+  String get homeTileGoalSub => 'Travel, car, emergencies';
+
+  @override
+  String get homeTileBill => 'Subscription or instalment';
+
+  @override
+  String get homeTileBillSub => 'We remind you before it\'s charged';
+
+  @override
+  String get homeTilePlan => 'Plan';
+
+  @override
+  String get homeTilePlanSub => 'For trips or occasions';
+
+  @override
+  String get homePrivacyToggle => 'Show or hide amounts';
+
+  @override
+  String get accTotalBalance => 'Total balance';
+
+  @override
+  String get achBadges => 'Badges';
+
+  @override
+  String achEarnedCount(int earned, int total) {
+    return '$earned of $total earned';
+  }
+
+  @override
+  String achNextLevelXp(int remaining) {
+    return '$remaining to the next level';
+  }
+
+  @override
+  String get gdSavedLabel => 'Saved';
+
+  @override
+  String get homeSavingsGrowing => 'Your savings are growing';
+
+  @override
+  String homeSavingsSurplus(String amount) {
+    return 'You earned $amount more than you spent this month';
+  }
+
+  @override
+  String get homeSavingsMotivation =>
+      'Move some of it into your goals and let it grow.';
+
+  @override
+  String get homeAddToGoal => 'Add to a goal';
+
+  @override
+  String get rptPhotoKicker => 'A clearer view of your money';
+
+  @override
+  String get rptPhotoTitle => 'Your spending, in one place';
+
+  @override
+  String homeSpendingAhead(String amount) {
+    return 'You spent $amount more than you earned this month';
+  }
+
+  @override
+  String get goalCoverLabel => 'Goal cover';
+
+  @override
+  String get goalCoverTravel => 'Travel';
+
+  @override
+  String get goalCoverCar => 'Car';
+
+  @override
+  String get goalCoverHome => 'Home';
+
+  @override
+  String get goalCoverEducation => 'Education';
+
+  @override
+  String get goalCoverGadgets => 'Gadgets';
+
+  @override
+  String get goalCoverEmergency => 'Safety net';
+
+  @override
+  String get bdgOverviewSubtitle => 'Your limits and goals in one place';
+
+  @override
+  String get rptExpenseCountLabel => 'Expense transactions';
+
+  @override
+  String get rptDailySpending => 'Daily spending';
+
+  @override
+  String get dtxExportSection => 'Export';
+
+  @override
+  String get dtxImportSection => 'Import';
+
+  @override
+  String get dtxPdfReport => 'PDF financial report';
+
+  @override
+  String get dtxPdfReportSub => 'A designed summary to share';
+
+  @override
+  String get captureAutomaticTitle => 'Automatic capture';
+
+  @override
+  String get captureAutomaticBody =>
+      'Set up Apple Shortcuts or bank-message capture';
+
+  @override
+  String get homeHeroIncome => 'Income';
+
+  @override
+  String get homeHeroSpent => 'Spent';
+
+  @override
+  String get homeHeroNet => 'Net';
+
+  @override
+  String homePaceUsed(int percent) {
+    return '$percent% used';
+  }
+
+  @override
+  String homePaceExpected(int percent) {
+    return 'Expected by now $percent%';
+  }
+
+  @override
+  String get introWelcomeTitle => 'Your money, clear — without the effort';
+
+  @override
+  String get introWelcomeBody =>
+      'Qirsh turns bank messages into a clear picture of your spending, budgets and goals.';
+
+  @override
+  String get introCaptureTitle => 'Transactions from bank messages';
+
+  @override
+  String get introCaptureBody =>
+      'An Apple Shortcut sends the bank message to Qirsh. Read it on your device and review the result before saving.';
+
+  @override
+  String get introBudgetTitle => 'Budgets that warn you early';
+
+  @override
+  String get introBudgetBody =>
+      'See your pace day by day and know when to slow down.';
+
+  @override
+  String get introPrivacyTitle => 'Privacy before anything';
+
+  @override
+  String get introPrivacyBody =>
+      'Your data is encrypted on your device. Cloud processing is optional and controlled in Settings.';
+
+  @override
+  String introPageSemantic(int page, int total) {
+    return 'Page $page of $total';
+  }
+
+  @override
+  String get introPrivacyLocalBody =>
+      'Your records are stored encrypted on this device.';
+
+  @override
+  String get introPrivacyCloudBody =>
+      'Optional. Choose whether to enable it during setup or in Settings.';
+
+  @override
+  String get annPreferencesTitle => 'Choose the alerts you care about';
+
+  @override
+  String get annPreferencesAction => 'Notification settings';
+
+  @override
+  String get couponsAvailableLabel => 'Available offers';
+
+  @override
+  String setCategoryIconName(String icon) {
+    String _temp0 = intl.Intl.selectLogic(
+      icon,
+      {
+        'restaurants': 'Restaurants',
+        'groceries': 'Groceries',
+        'shopping': 'Shopping',
+        'transport': 'Transport',
+        'bills': 'Bills',
+        'cards': 'Cards',
+        'cash': 'Cash',
+        'cafes': 'Cafés',
+        'gifts': 'Gifts',
+        'home': 'Home',
+        'travel': 'Travel',
+        'health': 'Health',
+        'education': 'Education',
+        'transfers': 'Transfers',
+        'other': 'Other icon',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String setCategoryColourName(String colour) {
+    String _temp0 = intl.Intl.selectLogic(
+      colour,
+      {
+        'grey': 'Grey',
+        'coral': 'Coral',
+        'green': 'Green',
+        'blue': 'Blue',
+        'purple': 'Purple',
+        'brightGreen': 'Bright green',
+        'teal': 'Teal',
+        'pink': 'Pink',
+        'blueGrey': 'Blue grey',
+        'orange': 'Orange',
+        'other': 'Custom colour',
+      },
+    );
+    return '$_temp0';
+  }
+
+  @override
+  String get rptPreviousPeriod => 'Previous period';
 }

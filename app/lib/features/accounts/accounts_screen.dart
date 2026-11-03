@@ -6,22 +6,24 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/widgets/section_photo_header.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/mali_card.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/utils/currency.dart';
-import '../../core/utils/formatters.dart';
+import '../../domain/finance/money_format.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/card_summary.dart';
 import '../cards/bank_mark.dart';
 import '../cards/card_network_badge.dart';
-import '../cards/mini_card_art.dart';
 import '../cards/cards_providers.dart';
 import 'account_form_sheet.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/directional_chevron.dart';
+import '../common/app_error_state.dart';
+import '../common/app_header.dart';
 
 class AccountsScreen extends ConsumerWidget {
   const AccountsScreen({super.key});
@@ -35,6 +37,10 @@ class AccountsScreen extends ConsumerWidget {
             const <CardSummary>[];
     return Scaffold(
       backgroundColor: c.bg,
+      appBar: AppHeader(
+        title: context.l10n.accTitle,
+        sectionPhoto: QirshSectionPhoto.accounts,
+      ),
       body: Column(
         children: [
           const _AccountsHeader(),
@@ -42,7 +48,12 @@ class AccountsScreen extends ConsumerWidget {
             child: accountsAsync.when(
               skipLoadingOnReload: true,
               loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Center(child: Text(context.l10n.txnError)),
+              error: (e, _) => SingleChildScrollView(child: AppErrorState(
+                title: context.l10n.txnError,
+                description: context.l10n.annTryAgainSoon,
+                retryLabel: context.l10n.startRetry,
+                onRetry: () => ref.invalidate(accountsProvider),
+              )),
               data: (accounts) => ListView(
                 padding: const EdgeInsets.fromLTRB(
                   AppSpacing.gutter,
@@ -52,10 +63,27 @@ class AccountsScreen extends ConsumerWidget {
                 ),
                 children: [
                   _CurrencyTotals(accounts: accounts),
-                  for (final account in accounts) ...[
-                    _AccountCard(account: account),
-                    const SizedBox(height: AppSpacing.s3),
-                  ],
+                  if (accounts.isEmpty)
+                    const Center(
+                      child: QirshIllustration(name: 'accounts'),
+                    )
+                  else
+                    MaliCard(
+                      style: MaliSurfaceStyle.floating,
+                      padding: EdgeInsets.zero,
+                      child: Column(
+                        children: [
+                          for (var i = 0; i < accounts.length; i++) ...[
+                            if (i > 0)
+                              Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: Divider(height: 1, color: c.border),
+                              ),
+                            _AccountCard(account: accounts[i]),
+                          ],
+                        ],
+                      ),
+                    ),
                   const SizedBox(height: AppSpacing.s3),
                   OutlinedButton.icon(
                     onPressed: () => showAccountForm(context, ref),
@@ -94,7 +122,6 @@ class _CurrencyTotals extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
     final totals = <String, int>{};
     for (final a in accounts) {
       final m = a.currentBalanceMoney;
@@ -106,47 +133,32 @@ class _CurrencyTotals extends StatelessWidget {
     final entries = totals.entries.toList()
       ..sort((x, y) => y.value.abs().compareTo(x.value.abs()));
 
-    return Padding(
-      padding: const EdgeInsets.only(bottom: AppSpacing.s3),
-      child: Wrap(
-        spacing: AppSpacing.s2,
-        runSpacing: AppSpacing.s2,
+    return QirshPhotoCard(
+      photo: QirshPhoto.cards,
+      height: 150,
+      margin: const EdgeInsets.only(bottom: 14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          Text(context.l10n.accTotalBalance,
+              style: AppTypography.caption(Colors.white.withValues(alpha: 0.72))),
+          const SizedBox(height: 5),
           for (final e in entries)
-            Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.s3, vertical: 6),
-              // OPAQUE, not a 10% tint.
-              //
-              // `_CurrencyTotals` is the first item in the ListView, so it
-              // lands in the melt zone where `_AccountsHeader` fades its
-              // gradient into the page. A 10% navy tint over navy is still
-              // navy, and `c.primary` text on it measured **1.50:1** — WCAG
-              // wants 3:1 even for large text. The tint is correct on the page
-              // background and wrong here, and the pill cannot know which it
-              // is sitting on. An opaque surface reads on both.
-              decoration: BoxDecoration(
-                color: c.surface,
-                borderRadius: BorderRadius.circular(AppRadius.pill),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  MoneyText(
-                    Money(e.value, e.key),
+            Wrap(
+              spacing: 4,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                MoneyText(
+                  Money(e.value, e.key),
+                  style: AppTypography.custom(
+                      size: entries.length == 1 ? 24 : 20,
+                      weight: FontWeight.w700, height: 1.35,
+                      color: e.value < 0 ? const Color(0xFFFFD485) : Colors.white),
+                ),
+                Text(Currency.label(context, e.key),
                     style: AppTypography.caption(
-                      e.value < 0 ? c.warning : c.primary,
-                    ).copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(width: 3),
-                  Text(
-                    Currency.label(context, e.key),
-                    style: AppTypography.caption(
-                      e.value < 0 ? c.warning : c.primary,
-                    ),
-                  ),
-                ],
-              ),
+                        Colors.white.withValues(alpha: 0.72))),
+              ],
             ),
         ],
       ),
@@ -159,12 +171,11 @@ class _AccountsHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CalmPageHeader(
-      title: context.l10n.accTitle,
-      subtitle: context.l10n.accSubtitle,
-      leading: Navigator.of(context).canPop()
-          ? const BackButton(color: Colors.white)
-          : null,
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(AppSpacing.gutter, 8, AppSpacing.gutter, 0),
+      child: Align(alignment: AlignmentDirectional.centerStart,
+        child: Text(context.l10n.accSubtitle,
+          style: AppTypography.caption(context.colors.textSecondary))),
     );
   }
 }
@@ -177,95 +188,53 @@ class _AccountCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
+    return InkWell(
       onTap: () => context.push('/account/${account.id}'),
-      child: MaliCard(
-        style: MaliSurfaceStyle.floating,
-        padding: const EdgeInsets.all(AppSpacing.s4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            // بنك/بطاقة = بطاقة مصغّرة واقعية؛ كاش/محفظة تفضل بعلامة النوع —
-            // مفيش بطاقة فيزيائية تتمثّل.
-            if (account.type == AccountType.bank ||
-                account.type == AccountType.card)
-              MiniCardArt(
-                width: 54,
-                themeKey:
-                    account.type == AccountType.bank ? 'navy' : 'graphite',
-              )
-            else
-              BankMark(
-                accountName: account.name,
-                accountType: account.type,
-                size: 46,
-              ),
-            const SizedBox(width: AppSpacing.s3),
+            BankMark(
+              accountName: account.name,
+              accountType: account.type,
+              size: 34,
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          account.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: AppTypography.bodyStrong(c.textMain),
-                        ),
-                      ),
-                      if (account.isDefault) ...[
-                        const SizedBox(width: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: c.primary.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(AppRadius.pill),
-                          ),
-                          child: Text(context.l10n.accDefault,
-                              style: AppTypography.caption(c.primary)
-                                  .copyWith(fontWeight: FontWeight.w700)),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 2),
+                  Text(account.name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: AppTypography.bodyStrong(c.textMain)),
+                  const SizedBox(height: 3),
                   Text(
-                    '${accountTypeLabel(context, account.type)} · '
-                    '${Currency.labelWithCode(context, account.currency)}',
+                    '${accountTypeLabel(context, account.type)}'
+                    '${account.isDefault ? ' · ${context.l10n.accDefault}' : ''}',
                     style: AppTypography.caption(c.textLight),
                   ),
-                  // UX-013 — the balance was the one thing this screen never
-                  // answered. A negative balance is normal for a credit card,
-                  // so it is coloured as information rather than as an error,
-                  // and carries an explicit sign so it can never read as a
-                  // positive figure.
-                  if (account.currentBalanceMoney case final balance?) ...[
-                    const SizedBox(height: 4),
-                    Row(
-                      children: [
-                        Flexible(
-                          child: MoneyText(
-                            balance,
-                            style: AppTypography.bodyStrong(
-                              balance.minorUnits < 0 ? c.warning : c.textMain,
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 4),
-                        Text(
-                          Currency.label(context, account.currency),
-                          style: AppTypography.caption(c.textLight),
-                        ),
-                      ],
-                    ),
-                  ],
                 ],
               ),
             ),
-            DirectionalChevron(color: c.textLight, size: 20),
+            const SizedBox(width: 10),
+            if (account.currentBalanceMoney case final balance?)
+              Flexible(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    MoneyText(balance,
+                        style: AppTypography.bodyStrong(
+                            balance.minorUnits < 0 ? c.warning : c.textMain)),
+                    const SizedBox(height: 3),
+                    Text(Currency.labelWithCode(context, account.currency),
+                        style: AppTypography.caption(c.textLight)),
+                  ],
+                ),
+              )
+            else
+              Text(Currency.labelWithCode(context, account.currency),
+                  style: AppTypography.caption(c.textLight)),
           ],
         ),
       ),
@@ -333,7 +302,7 @@ class _UnassignedCardTile extends StatelessWidget {
                 ],
               ),
             ),
-            Text(Formatters.amount(net.toDouble()),
+            Text(formatMoney(net),
                 style: AppTypography.caption(c.textLight)),
             const SizedBox(width: 6),
             DirectionalChevron(color: c.textLight, size: 20),

@@ -131,8 +131,8 @@ class MaliTokens {
     strokeSoft: Color(0x1AFFFFFF), // white @ ~10%
     cardBorder: Color(0x0FFFFFFF), // white @ ~6%
     textOnCanvasPrimary: Color(0xFFFFFFFF),
-    textOnCanvasSecondary: Color(0xA3FFFFFF), // ~64%
-    textOnCanvasMuted: Color(0x6BFFFFFF), // ~42%
+    textOnCanvasSecondary: Color(0xFFC3C8D2), // ~64%
+    textOnCanvasMuted: Color(0xFF8D94A2), // ~42%
     ringTrackNeutral: Color(0x1FFFFFFF),
     ringIndeterminate: Color(0x40FFFFFF),
     // --float-shadow (dark): 0 8/28 @ .45 + 0 20/48 @ .30
@@ -150,7 +150,7 @@ class MaliTokens {
   /// The calm off-white companion. Matches `AppColors.light.bg` so the canvas
   /// is seamless with the ambient scaffold.
   static const MaliTokens light = MaliTokens(
-    canvas: Color(0xFFF4F6FB),
+    canvas: Color(0xFFF3F5FA),
     canvasGlowTop: Color(0x122E6BFF), // blue @ ~7%
     canvasGlowSecondary: Color(0x0D1C4FD0), // brand blue @ ~5%
     surfaceRaised: Color(0xFFEEF1F7),
@@ -164,16 +164,15 @@ class MaliTokens {
     glassSheetFill: Color(0xC7FFFFFF), // white @ 78% — liquid, forms legible
     strokeSoft: Color(0xFFEAF0F7),
     cardBorder: Color(0xFFEDF1F7),
-    textOnCanvasPrimary: Color(0xFF0F172A),
-    textOnCanvasSecondary: Color(0xFF64748B),
-    textOnCanvasMuted: Color(0xFF94A3B8),
+    textOnCanvasPrimary: Color(0xFF0C1330),
+    textOnCanvasSecondary: Color(0xFF3D4660),
+    textOnCanvasMuted: Color(0xFF67708A),
     ringTrackNeutral: Color(0xFFE7ECF5),
     ringIndeterminate: Color(0x330F172A), // ink @ ~20%
-    // --float-shadow (light): navy 0 12/40 @ .08 + 0 2/8 @ .05
+    // Approved HTML --shadow-1: restrained ambient card elevation.
     floatShadow: [
-      BoxShadow(
-          color: Color(0x140D1E4B), blurRadius: 40, offset: Offset(0, 12)),
-      BoxShadow(color: Color(0x0D0D1E4B), blurRadius: 8, offset: Offset(0, 2)),
+      BoxShadow(color: Color(0x0A0C1330), blurRadius: 2, offset: Offset(0, 1)),
+      BoxShadow(color: Color(0x0A0C1330), blurRadius: 8, offset: Offset(0, 2)),
     ],
     auroraTop: Color(0x1A2E6BFF), // accent @ ~10% (subtler in light)
     auroraA: Color(0x142E6BFF), // accent @ ~8%

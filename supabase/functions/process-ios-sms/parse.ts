@@ -32,7 +32,7 @@ export type ParsedCapture = {
 };
 
 // Read lazily so tests (and key rotation) see the current environment.
-const GEMINI_MODEL = () => Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite';
+const GEMINI_MODEL = () => Deno.env.get('GEMINI_SMS_MODEL') ?? 'gemini-3.8-flash';
 const GEMINI_API_KEY = () => Deno.env.get('GEMINI_API_KEY') ?? '';
 const geminiUrl = () => `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL()}:generateContent`;
 
@@ -255,6 +255,7 @@ async function aiParse(text: string): Promise<AiCandidate | null | 'transient'> 
 Return only JSON. If not a transaction return {"is_transaction":false}.
 Fields: amount number (required legacy compatibility value), amount_text string (required exact plain-decimal token
 from the SMS, no exponent or rounding), currency ISO, merchant string, type payment|withdrawal|transfer|income|refund|unknown, direction credit|debit|unknown, category restaurants|groceries|transport|fuel|bills|shopping|health|education|entertainment|subscriptions|transfers|cash|travel|gifts|kids|home|cafes|maintenance|fitness|beauty|charity|pets|insurance|income|other, occurredAt ISO if present, last4 if present.
+occurredAt: the LOCAL date-time written in the SMS as "YYYY-MM-DDTHH:MM:SS" in 24-hour time, with NO "Z" and NO timezone offset. Convert 12-hour times exactly: AM/ص/صباحا = morning, PM/م/مساء = afternoon/evening; 12:xx AM = 00:xx, 12:xx PM = 12:xx, 01:43 PM = 13:43. Never guess a time that is not written; if only a date is written, return the date with no time.
 Example money shape: {"amount":19.99,"amount_text":"19.99","currency":"EGP"}.
 IPN/InstaPay/person-to-person transfers (SMS contains "IPN REF", "IPN transfer", "Instapay", "credited by ... from <person>", "received from <person>", or "sent to <person>") are type=transfer, category=transfers, and merchant must be omitted even if a person's name appears — never type=income, never a merchant name. direction=credit for incoming/received, debit for sent/outgoing.
 SMS: ${text}`;
@@ -274,7 +275,10 @@ SMS: ${text}`;
         contents: [{ parts: [{ text: prompt }] }],
         generationConfig: {
           temperature: 0.1,
-          maxOutputTokens: 512,
+          maxOutputTokens: 1024,
+          ...(GEMINI_MODEL() === 'gemini-3.8-flash'
+            ? { thinkingConfig: { thinkingLevel: 'low' } }
+            : {}),
           responseMimeType: 'application/json',
         },
       }),
@@ -413,47 +417,75 @@ function inferCategory(merchant: string | undefined, type: string): string {
   return 'other';
 }
 
+// Optional meridiem after a clock time: AM/PM (any dots/case) or Arabic ص/م
+// (صباحا/مساءً). A bare Arabic letter only counts when no other letter follows.
+const MERIDIEM = String.raw`(?:\s*(a\.?\s?m\.?|p\.?\s?m\.?|صباحا|صباحاً|مساء|مساءً|ص|م)(?![a-z\u0621-\u064A]))?`;
+
 function extractTimestamp(
   text: string,
   receivedAt: string,
   tzOffsetMinutes: number | null,
 ): string | undefined {
   const reference = localReference(receivedAt, tzOffsetMinutes);
-  const iso = /(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T]+(\d{1,2}):(\d{2}))?/i.exec(text);
+  const iso = new RegExp(
+    String.raw`(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[ T]+(\d{1,2}):(\d{2})(?::\d{2})?${MERIDIEM})?`,
+    'i',
+  ).exec(text);
   if (iso) {
-    return makeTimestamp(
-      Number(iso[1]),
-      Number(iso[2]),
-      Number(iso[3]),
-      Number(iso[4] ?? 12),
-      Number(iso[5] ?? 0),
-      tzOffsetMinutes,
-    );
+    return timestampFor(Number(iso[1]), Number(iso[2]), Number(iso[3]), iso[4], iso[5], iso[6], receivedAt, tzOffsetMinutes);
   }
-  const dmy = /(\d{1,2})[-/](\d{1,2})(?:[-/](\d{2,4}))?(?:(?:\s*(?:t|at|الساعة)\s*)(\d{1,2}):(\d{2}))?/i.exec(text);
+  const dmy = new RegExp(
+    String.raw`(\d{1,2})[-/](\d{1,2})(?:[-/](\d{2,4}))?(?:(?:\s*(?:t|at|الساعة)\s*|\s+)(\d{1,2}):(\d{2})(?::\d{2})?${MERIDIEM})?`,
+    'i',
+  ).exec(text);
   if (dmy) {
     const year = dmy[3] ? normalizeYear(Number(dmy[3])) : reference.year;
-    return makeTimestamp(
-      year,
-      Number(dmy[2]),
-      Number(dmy[1]),
-      Number(dmy[4] ?? 12),
-      Number(dmy[5] ?? 0),
-      tzOffsetMinutes,
-    );
+    return timestampFor(year, Number(dmy[2]), Number(dmy[1]), dmy[4], dmy[5], dmy[6], receivedAt, tzOffsetMinutes);
   }
-  const time = /(?:الساعة|at)\s*(\d{1,2}):(\d{2})/i.exec(text);
+  const time = new RegExp(String.raw`(?:الساعة|at)\s*(\d{1,2}):(\d{2})(?::\d{2})?${MERIDIEM}`, 'i').exec(text);
   if (time) {
     return makeTimestamp(
       reference.year,
       reference.month,
       reference.day,
-      Number(time[1]),
+      hourWithMeridiem(Number(time[1]), time[3]),
       Number(time[2]),
       tzOffsetMinutes,
     );
   }
   return undefined;
+}
+
+// A date with a clock time is exact. A date with no time keeps the received
+// time when it is the received day, so the transaction does not jump to noon.
+function timestampFor(
+  year: number,
+  month: number,
+  day: number,
+  hour: string | undefined,
+  minute: string | undefined,
+  meridiem: string | undefined,
+  receivedAt: string,
+  tzOffsetMinutes: number | null,
+): string {
+  if (hour != null) {
+    return makeTimestamp(year, month, day, hourWithMeridiem(Number(hour), meridiem), Number(minute ?? 0), tzOffsetMinutes);
+  }
+  const reference = localReference(receivedAt, tzOffsetMinutes);
+  if (reference.year === year && reference.month === month && reference.day === day) {
+    const received = parseTimestamp(receivedAt);
+    if (received) return received.toISOString();
+  }
+  return makeTimestamp(year, month, day, 12, 0, tzOffsetMinutes);
+}
+
+// 12 AM = 00, 12 PM = 12, 1-11 PM = +12. No meridiem = 24-hour clock.
+function hourWithMeridiem(hour: number, meridiem: string | undefined): number {
+  if (!meridiem || hour < 1 || hour > 12) return hour;
+  const m = meridiem.toLowerCase().replace(/[.\s]/g, '');
+  const pm = m === 'pm' || m === 'م' || m.startsWith('مساء');
+  if (pm) return hour === 12 ? 12 : hour + 12;
+  return hour === 12 ? 0 : hour;
 }
 
 const MAX_SMS_TIMESTAMP_PAST_MS = 31 * 24 * 60 * 60 * 1000;

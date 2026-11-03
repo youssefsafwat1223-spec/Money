@@ -81,9 +81,13 @@ enum EgressClass {
 ///   genuinely-anonymous essential channel needs its own documented contract —
 ///   it is not assumed here.
 /// * **Catalog and auth are gated like everything else** (Astra G, P1). There is
-///   no automatic exception while Cloud is OFF: no catalog fetch, no background
-///   token refresh. [decide] answers false for [EgressClass.auth]; only an
-///   explicit user action may authenticate (see [EgressClass.auth]).
+///   no automatic exception while Cloud is OFF: no catalog fetch. [decide]
+///   answers false for [EgressClass.auth]; only an explicit user action may
+///   authenticate (see [EgressClass.auth]). The one exception, an owner
+///   decision (2026-10-29): the AuthCoordinator's session-only token refresh
+///   (routine and automatic session recovery) runs while Cloud is OFF under
+///   `CloudEgressGate.permitsSessionRefresh`. It carries the refresh token
+///   only: no financial data, SMS, AI or sync.
 ///
 /// ## What this class deliberately does NOT do
 /// It does not cache. Callers must consult it at the moment of egress, because
@@ -105,10 +109,25 @@ class ConsentAuthority {
   /// (never a uid or a secret). Shown by the sign-in failure code.
   static String egressFreezeTag = '';
 
-  /// Freezes egress and records [tag] (a constant) as the cause.
-  static void freeze(String tag) {
+  /// Phase 4c: advanced by every [freeze]. A holder that records the value
+  /// right after its own freeze owns only that contribution: [releaseFreeze]
+  /// restores the earlier state only while no freeze has happened since, so a
+  /// later (foreign) freeze is never erased.
+  static int freezeGeneration = 0;
+
+  /// Freezes egress and records [tag] (a constant) as the cause. With
+  /// [retainTag] a freeze already in force keeps its tag; the generation still
+  /// advances, so this holder's freeze outlives an earlier holder's release.
+  static void freeze(String tag, {bool retainTag = false}) {
+    if (!(retainTag && egressFrozen)) egressFreezeTag = tag;
     egressFrozen = true;
-    egressFreezeTag = tag;
+    freezeGeneration++;
+  }
+
+  /// Releases the freeze taken at [generation]: restores [wasFrozen] when no
+  /// freeze happened since, else leaves egress frozen for the newer holder.
+  static void releaseFreeze(int generation, {required bool wasFrozen}) {
+    if (freezeGeneration == generation) egressFrozen = wasFrozen;
   }
 
   /// Reads settings FRESH on every call. See the no-caching note above.

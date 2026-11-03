@@ -1,4 +1,3 @@
-import 'dart:ui' show ImageFilter;
 
 import 'package:flutter/material.dart';
 import '../../domain/finance/money_format.dart';
@@ -11,12 +10,14 @@ import '../../core/theme/app_spacing.dart';
 import '../../core/di/app_providers.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/theme/widgets/mali_card.dart';
-import '../../core/theme/widgets/mali_glass.dart';
 import '../ads/ad_placement.dart';
 import '../ads/banner_ads_providers.dart';
 import '../ads/qirsh_ad_banner.dart';
 import '../common/app_pill_tab_bar.dart';
+import '../common/app_header.dart';
+import '../common/app_error_state.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
@@ -51,11 +52,10 @@ String _dueInLabel(BuildContext context, DateTime due) {
 /// restyle every screen with a calm header.
 /// The pinned tab row's height. Also how much melt it consumes.
 ///
-/// 76 rather than 64: the pill row is 44 and the group now sits on a frosted
-/// backing panel with 8pt of padding all round (44 + 16 = 60), which needs 8pt
-/// of air above and below or the panel reads as a bar wedged against the edges.
+/// 64, like every other tab row: the pill sits straight on the canvas now that
+/// the header is no longer blue, so it needs no frosted backing panel.
 /// `meltBelowTabs` is derived from this, so the melt under the tabs follows.
-const double _tabBarHeight = 76.0;
+const double _tabBarHeight = 64.0;
 
 class SubscriptionsScreen extends ConsumerWidget {
   const SubscriptionsScreen({super.key});
@@ -67,20 +67,27 @@ class SubscriptionsScreen extends ConsumerWidget {
     final baseCur = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
     // UX-024 — the same account the list was filtered by, not a second guess.
     final scopeAccount = ref.watch(billsScopeAccountProvider).valueOrNull;
+    final header = AppHeader(
+      title: context.l10n.subsTitle,
+      sectionPhoto: QirshSectionPhoto.bills,
+      action: _AddButton(onTap: () => BillFormSheet.show(
+        context, initialType: BillType.subscription)),
+    );
 
     return billsAsync.when(
       skipLoadingOnReload: true,
       loading: () => Scaffold(
-        appBar: Navigator.of(context).canPop()
-            ? AppBar(title: Text(context.l10n.subsTitle))
-            : null,
+        appBar: header,
         body: const SkeletonList(rows: 4),
       ),
       error: (e, _) => Scaffold(
-        appBar: Navigator.of(context).canPop()
-            ? AppBar(title: Text(context.l10n.subsTitle))
-            : null,
-        body: Center(child: Text(context.l10n.txnError)),
+        appBar: header,
+        body: SingleChildScrollView(child: AppErrorState(
+          title: context.l10n.txnError,
+          description: context.l10n.annTryAgainSoon,
+          retryLabel: context.l10n.startRetry,
+          onRetry: () => ref.invalidate(savedBillsProvider),
+        )),
       ),
       data: (bills) {
         final subs =
@@ -115,7 +122,11 @@ class SubscriptionsScreen extends ConsumerWidget {
         return DefaultTabController(
           length: 2,
           child: Scaffold(
+            appBar: header,
             body: SafeArea(
+              // The viewport starts below the status bar so the pinned tab
+              // bar never slides under the clock; the canvas header needs no
+              // colour behind the status bar (only Home's blue hero does).
               top: false,
               bottom: false,
               child: NestedScrollView(
@@ -184,8 +195,7 @@ class SubscriptionsScreen extends ConsumerWidget {
                               horizontal: AppSpacing.gutter,
                             ),
                             alignment: Alignment.center,
-                            child: _TabGroupPanel(
-                              child: Builder(
+                            child: Builder(
                                 builder: (context) {
                                 final controller =
                                     DefaultTabController.of(context);
@@ -202,7 +212,6 @@ class SubscriptionsScreen extends ConsumerWidget {
                                   );
                                 },
                               ),
-                            ),
                           ),
                         ),
                       ),
@@ -230,66 +239,6 @@ class SubscriptionsScreen extends ConsumerWidget {
           ),
         );
       },
-    );
-  }
-}
-
-/// The frosted backing layer behind the WHOLE tab group.
-///
-/// Not the pills — `AppPillTabBar` still owns those, and its labels, selected
-/// state and styling are untouched. This is only the group background.
-///
-/// ## Why the tint is barely there
-///
-/// A first attempt used white at 0.20 alpha. Over a saturated blue that is not
-/// glass, it is a WHITE BAND: it read as blue, then white, then blue, which is
-/// exactly the hard horizontal cut this is supposed to remove. The fix is to
-/// make the panel a lift in brightness rather than a layer of its own — white
-/// at 0.10 falling to 0.03, with no border at all, so every edge is defined by
-/// the blur and the gradient rather than by a line.
-///
-/// ## Why not `GlassSurface`
-///
-/// It is the app's frosted primitive, but it fills with `c.surface` at 0.66-0.72
-/// alpha and draws a full-weight `Border.all`. Both are the opposite of what is
-/// needed here. This uses the same primitives it is built from — `ClipRRect` +
-/// `BackdropFilter` + a `LinearGradient` — with the app's shared blur sigma and
-/// radius tokens.
-class _TabGroupPanel extends StatelessWidget {
-  const _TabGroupPanel({required this.child});
-
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final radius = BorderRadius.circular(AppRadius.xxl);
-    return ClipRRect(
-      borderRadius: radius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.s2, vertical: AppSpacing.s2),
-          decoration: BoxDecoration(
-            borderRadius: radius,
-            // Diagonal, to sit with the hero's own top-right to bottom-left
-            // light rather than across it.
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                Colors.white.withValues(alpha: isDark ? 0.09 : 0.10),
-                Colors.white.withValues(alpha: isDark ? 0.03 : 0.03),
-              ],
-            ),
-            // NO border. Any line here becomes the hard edge the panel exists
-            // to remove.
-          ),
-          child: child,
-        ),
-      ),
     );
   }
 }
@@ -344,6 +293,9 @@ class _BillsHeader extends StatelessWidget {
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
       title: context.l10n.subsTitle,
+      showTitle: false,
+      inkAmount: true,
+      useSafeAreaTop: false,
       // UX-023 — name the metric for what it measures.
       //
       // It read «إجمالي الصرف الشهري» — "total monthly spend" — while the
@@ -363,17 +315,9 @@ class _BillsHeader extends StatelessWidget {
       subtitle: scopeAccountName == null
           ? context.l10n.subsMonthlyTotal
           : context.l10n.subsMonthlyScoped(scopeAccountName!),
-      leading: Navigator.of(context).canPop()
-          ? const BackButton(color: Colors.white)
-          : null,
-      trailing: _AddButton(
-        onTap: () => BillFormSheet.show(
-          context,
-          initialType: BillType.subscription,
-        ),
-      ),
       amount: formatMoney(monthly),
       currency: currency,
+      art: const QirshIllustration(name: 'bills', width: 128, height: 96),
       metrics: [
         CalmMetric(label: context.l10n.subsActiveSubs, value: '$subsCount'),
         CalmMetric(label: context.l10n.subsRunningInst, value: '$instsCount'),
@@ -402,19 +346,13 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaliGlass(
-      variant: MaliGlassVariant.headerAction,
+    return CalmHeaderAction(
+      icon: AppLucideIcons.plus,
+      primary: true,
       onTap: () {
         HapticFeedback.selectionClick();
         onTap();
       },
-      child: const SizedBox(
-        width: 44,
-        height: 44,
-        child: Center(
-          child: Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
-        ),
-      ),
     );
   }
 }
@@ -609,10 +547,10 @@ class _SubscriptionCard extends StatelessWidget {
                         children: [
                           Icon(dueIcon, size: 13, color: dueColor),
                           const SizedBox(width: 4),
-                          Text(
+                          Flexible(child: Text(
                             '$freqLabel · $dueLabel',
                             style: AppTypography.caption(dueColor),
-                          ),
+                          )),
                         ],
                       ),
                     ],
@@ -623,7 +561,7 @@ class _SubscriptionCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      Formatters.amount(bill.amount),
+                      formatMoney(bill.amountMoney),
                       style: AppTypography.bodyStrong(c.textMain),
                     ),
                     Text(
@@ -661,7 +599,7 @@ class _SubscriptionCard extends StatelessWidget {
                       style: AppTypography.caption(c.textLight),
                     ),
                     Text(
-                      '${Formatters.amount(bill.safeManualPaidAmount)} ${Currency.label(context, bill.currency)}',
+                      '${formatMoney(bill.safeManualPaidMoney)} ${Currency.label(context, bill.currency)}',
                       style: AppTypography.caption(c.success).copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -721,7 +659,7 @@ class _SuggestionCard extends StatelessWidget {
               children: [
                 Text(
                   context.l10n.txnEstPerMonth(
-                          Formatters.amount((item.estimatedAmountMoney as Money).toDouble()),
+                          formatMoney(item.estimatedAmountMoney as Money),
                           Currency.label(context, baseCurrency)),
                   style: AppTypography.caption(c.textMain).copyWith(
                     fontWeight: FontWeight.bold,
@@ -816,19 +754,21 @@ class _InstallmentsTab extends StatelessWidget {
                         style: AppTypography.caption(c.textLight)),
                     const SizedBox(height: 4),
                     Text(
-                      '${Formatters.amount(totalRemainingMoney.toDouble())} $currency',
+                      '${formatMoney(totalRemainingMoney)} $currency',
                       style: AppTypography.amountMedium(c.textMain),
                     ),
                     const SizedBox(height: AppSpacing.s3),
-                    Row(
+                    Wrap(
+                      spacing: AppSpacing.s4,
+                      runSpacing: AppSpacing.s2,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         _DebtStat(label: context.l10n.subsRunningInst, value: '$activeCount'),
                         if (nearest != null) ...[
-                          const SizedBox(width: AppSpacing.s4),
                           _DebtStat(
                             label: context.l10n.subsNearestInst,
                             value:
-                                '${Formatters.amount(nearest.amount)} · ${_dueInLabel(context, nearest.nextDueDate)}',
+                                '${formatMoney(nearest.amountMoney)} · ${_dueInLabel(context, nearest.nextDueDate)}',
                           ),
                         ],
                       ],
@@ -955,7 +895,7 @@ class _InstallmentCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(
-                      Formatters.amount(bill.amount),
+                      formatMoney(bill.amountMoney),
                       style: AppTypography.bodyStrong(c.primary),
                     ),
                     Text(
@@ -1014,7 +954,7 @@ class _InstallmentCard extends StatelessWidget {
                       style: AppTypography.caption(c.textLight),
                     ),
                     Text(
-                      '${Formatters.amount(bill.totalPurchaseAmount!)} $currLabel',
+                      '${formatMoney(bill.totalPurchaseMoney!)} $currLabel',
                       style: AppTypography.caption(c.textMain).copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -1060,7 +1000,7 @@ class _InstallmentCard extends StatelessWidget {
                       style: AppTypography.caption(c.textLight),
                     ),
                     Text(
-                      '${Formatters.amount(bill.safeManualPaidAmount)} $currLabel',
+                      '${formatMoney(bill.safeManualPaidMoney)} $currLabel',
                       style: AppTypography.caption(c.success).copyWith(
                         fontWeight: FontWeight.bold,
                       ),
@@ -1119,15 +1059,7 @@ class _EmptyState extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: c.primary.withValues(alpha: 0.10),
-                  borderRadius: BorderRadius.circular(26),
-                ),
-                child: Icon(icon, color: c.primary, size: 34),
-              ),
+              const QirshIllustration(name: 'bills', width: 220, height: 165),
               const SizedBox(height: AppSpacing.s4),
               Text(title,
                   textAlign: TextAlign.center,

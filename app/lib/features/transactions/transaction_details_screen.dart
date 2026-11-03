@@ -11,6 +11,7 @@ import '../../core/utils/currency.dart';
 import '../../core/utils/formatters.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../../domain/finance/money.dart';
+import '../../domain/finance/money_format.dart';
 import '../../domain/finance/money_input.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../cards/brand_mark.dart';
@@ -23,6 +24,7 @@ import '../common/app_sheet_scaffold.dart';
 import '../common/app_screen_scaffold.dart';
 import '../common/app_header.dart';
 import '../common/app_card.dart';
+import '../common/app_missing_record_state.dart';
 import '../common/app_button.dart';
 import '../../core/di/app_providers.dart';
 import '../dashboard/dashboard_providers.dart';
@@ -35,6 +37,7 @@ import '../../core/theme/widgets/app_toast.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 
 class TransactionDetailsScreen extends ConsumerWidget {
   const TransactionDetailsScreen({super.key, required this.transactionId});
@@ -95,7 +98,7 @@ class _TransactionDetailsSheet extends StatelessWidget {
   }
 }
 
-class _TransactionDetailsContent extends ConsumerWidget {
+class _TransactionDetailsContent extends ConsumerStatefulWidget {
   const _TransactionDetailsContent(
       {required this.transactionId, required this.isSheet});
 
@@ -103,7 +106,18 @@ class _TransactionDetailsContent extends ConsumerWidget {
   final bool isSheet;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_TransactionDetailsContent> createState() => _TransactionDetailsContentState();
+}
+
+class _TransactionDetailsContentState extends ConsumerState<_TransactionDetailsContent> {
+  bool _confirming = false;
+  bool _deleting = false;
+  bool get _busy => _confirming || _deleting;
+  String get transactionId => widget.transactionId;
+  bool get isSheet => widget.isSheet;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.colors;
     final txAsync = ref.watch(transactionByIdProvider(transactionId));
     final catalog = ref.watch(categoryCatalogProvider).valueOrNull;
@@ -112,17 +126,22 @@ class _TransactionDetailsContent extends ConsumerWidget {
       skipLoadingOnReload: true,
       loading: () => _buildScaffold(
           context, c, const Center(child: CircularProgressIndicator())),
-      error: (e, _) =>
-          _buildScaffold(context, c, Center(child: Text(context.l10n.txnError))),
+      error: (e, _) => _buildScaffold(context, c, AppErrorState(
+        title: context.l10n.txnError,
+        description: context.l10n.annTryAgainSoon,
+        retryLabel: context.l10n.startRetry,
+        onRetry: () => ref.invalidate(transactionByIdProvider(transactionId)),
+      )),
       data: (tx) {
         if (tx == null) {
           return _buildScaffold(
-              context, c, Center(child: Text(context.l10n.txdNotFound)));
+              context, c, AppMissingRecordState(
+                message: context.l10n.txdNotFound, illustration: 'emptyTx'));
         }
 
         final category = catalog?.byId(tx.categoryId);
         final isDebit = transactionIsDebit(tx);
-        final amountColor = isDebit ? c.danger : c.success;
+        final amountColor = isDebit ? c.textPrimary : c.success;
         final merchantTitle = tx.rawMerchant?.trim().isNotEmpty == true
             ? tx.rawMerchant!.trim()
             : category?.name ?? context.l10n.txnTransactionWord;
@@ -163,7 +182,11 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     (tx.rawMerchant != null &&
                             BrandMark.hasBrand(tx.rawMerchant!))
                         ? AppAvatar.brand(
-                            name: tx.rawMerchant!, size: AppSpacing.avatarLg)
+                            name: tx.rawMerchant!,
+                            size: AppSpacing.avatarLg,
+                            fallback: AppAvatar.category(
+                                category: category,
+                                size: AppSpacing.avatarLg))
                         : AppAvatar.category(
                             category: category, size: AppSpacing.avatarLg),
                     const SizedBox(height: AppSpacing.s3),
@@ -177,17 +200,19 @@ class _TransactionDetailsContent extends ConsumerWidget {
                     const SizedBox(height: AppSpacing.s2),
                     FittedBox(
                       fit: BoxFit.scaleDown,
-                      child: AnimatedAmountText(
-                        amount:
+                      child: AnimatedAmountText.money(
+                        value:
                             (tx.pricingState == TransactionPricingState.awaitingFx)
-                                ? tx.foreignAmount!
-                                : tx.amount,
+                                ? tx.foreignMoney!
+                                : tx.amountMoney,
                         color: amountColor,
                         suffix:
                             (tx.pricingState == TransactionPricingState.awaitingFx)
                                 ? ' ${tx.foreignCurrency}'
                                 : ' ${Currency.label(context, tx.currency)}',
-                        style: AppTypography.amountHero(amountColor),
+                        style: AppTypography.custom(size: 36,
+                            weight: FontWeight.w700, height: 1.15,
+                            letterSpacing: -0.7, tabular: true, color: amountColor),
                       ),
                     ),
                     const SizedBox(height: AppSpacing.s2),
@@ -206,7 +231,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       ),
                       child: Text(
                         statusLabel,
-                        style: AppTypography.caption(statusColor)
+                        style: AppTypography.caption(tx.status == TransactionStatus.pending
+                            ? c.textPrimary : statusColor)
                             .copyWith(fontWeight: FontWeight.w700),
                       ),
                     ),
@@ -320,7 +346,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       _buildDetailRow(
                         context,
                         context.l10n.txdOriginalCurrency,
-                        '${Formatters.amount(tx.foreignAmount!)} ${tx.foreignCurrency!}',
+                        '${formatMoney(tx.foreignMoney!)} ${tx.foreignCurrency!}',
+                        valueTextDirection: TextDirection.ltr,
                       ),
                     ],
                     if (tx.balanceAfter != null) ...[
@@ -328,7 +355,8 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       _buildDetailRow(
                         context,
                         context.l10n.txdBalanceAfter,
-                        '${Formatters.amount(tx.balanceAfter!)} ${tx.currency}',
+                        '${formatMoney(tx.balanceAfterMoney!)} ${tx.currency}',
+                        valueTextDirection: TextDirection.ltr,
                       ),
                     ],
                     if (tx.note != null && tx.note!.isNotEmpty) ...[
@@ -383,8 +411,10 @@ class _TransactionDetailsContent extends ConsumerWidget {
                 SizedBox(
                   width: double.infinity,
                   child: FilledButton.icon(
-                    onPressed: () => _confirmTransaction(context, ref, tx.id),
-                    icon: const Icon(AppLucideIcons.badgeCheck),
+                    onPressed: _busy ? null : () => _confirmTransaction(context, ref, tx.id),
+                    icon: _confirming
+                        ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.38)))
+                        : const Icon(AppLucideIcons.badgeCheck),
                     label: Text(
                       tx.status == TransactionStatus.ignored
                           ? context.l10n.txdConfirmIgnored
@@ -395,10 +425,11 @@ class _TransactionDetailsContent extends ConsumerWidget {
                 const SizedBox(height: AppSpacing.s2),
               ],
               TextButton.icon(
-                onPressed: () => _confirmDelete(context, ref, tx.id),
-                icon: Icon(AppLucideIcons.trash2, color: c.danger),
+                onPressed: _busy ? null : () => _confirmDelete(context, ref, tx.id),
+                style: TextButton.styleFrom(foregroundColor: c.danger),
+                icon: const Icon(AppLucideIcons.trash2),
                 label: Text(context.l10n.txdDeleteTx,
-                    style: AppTypography.bodyStrong(c.danger)),
+                    style: AppTypography.bodyStrong(_busy ? Theme.of(context).disabledColor : c.danger)),
               ),
             ],
           ),
@@ -440,18 +471,18 @@ class _TransactionDetailsContent extends ConsumerWidget {
     WidgetRef ref,
     TransactionEntity tx,
   ) async {
-    final cards = (ref.read(allCardsProvider).valueOrNull ?? const <CardEntity>[])
-        .where((card) => card.accountId == tx.accountId)
-        .toList(growable: false);
-
     final choice = await showModalBottomSheet<String?>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (sheetContext) => navySheetTheme(Builder(
-        builder: (sheetContext) {
+      builder: (sheetContext) => navySheetTheme(Consumer(
+        builder: (sheetContext, sheetRef, _) {
           final sc = sheetContext.colors;
+          final cardsAsync = sheetRef.watch(allCardsProvider);
+          final cards = (cardsAsync.valueOrNull ?? const <CardEntity>[])
+              .where((card) => card.accountId == tx.accountId)
+              .toList(growable: false);
           return AppSheetScaffold(
             title: context.l10n.txdCardSheetTitle,
             subtitle: context.l10n.txdCardSheetNote,
@@ -462,6 +493,23 @@ class _TransactionDetailsContent extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (cardsAsync.isLoading)
+                    const Padding(
+                      padding: EdgeInsets.all(AppSpacing.s4),
+                      child: Center(child: CircularProgressIndicator(
+                        key: ValueKey('transaction-card-picker-loading'))),
+                    ),
+                  if (cardsAsync.hasError) ...[
+                    Text(context.l10n.cardLoadFailed,
+                      key: const ValueKey('transaction-card-picker-error'),
+                      style: AppTypography.caption(sc.textSecondary),
+                      textAlign: TextAlign.center),
+                    TextButton(
+                      key: const ValueKey('transaction-card-picker-retry'),
+                      onPressed: () => sheetRef.invalidate(allCardsProvider),
+                      child: Text(context.l10n.startRetry),
+                    ),
+                  ],
                   for (final card in cards)
                     ListTile(
                       leading: Icon(AppLucideIcons.creditCard, color: sc.cta),
@@ -473,7 +521,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
                       onTap: () =>
                           Navigator.of(sheetContext).pop(card.last4),
                     ),
-                  if (cards.isEmpty)
+                  if (!cardsAsync.isLoading && !cardsAsync.hasError && cards.isEmpty)
                     Padding(
                       padding: const EdgeInsets.symmetric(
                           vertical: AppSpacing.s3),
@@ -521,72 +569,94 @@ class _TransactionDetailsContent extends ConsumerWidget {
     ref.invalidate(cardSummariesProvider);
     ref.invalidate(allCardsProvider);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(next == null
-            ? context.l10n.txdCardRemoved
-            : context.l10n.txdLinkedToCard(next)),
-      ),
-    );
+    AppToast.show(context, next == null
+        ? context.l10n.txdCardRemoved
+        : context.l10n.txdLinkedToCard(next));
   }
 
   Future<void> _confirmTransaction(
       BuildContext context, WidgetRef ref, String id) async {
-    await ref.read(confirmTransactionUseCaseProvider)(id);
-    ref.invalidate(transactionByIdProvider(id));
-    refreshTransactions(ref);
-    ref.invalidate(dashboardDataProvider);
-    if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.l10n.txdConfirmedToast)),
-    );
+    if (_busy) return;
+    setState(() => _confirming = true);
+    try {
+      await ref.read(confirmTransactionUseCaseProvider)(id);
+      if (!mounted || !context.mounted) return;
+      ref.invalidate(transactionByIdProvider(id));
+      refreshTransactions(ref);
+      ref.invalidate(dashboardDataProvider);
+      AppToast.show(context, context.l10n.txdConfirmedToast);
+    } on RepoException catch (e) {
+      if (context.mounted) AppToast.showError(context, repoErrorMessage(context, e));
+    } catch (_) {
+      if (context.mounted) AppToast.showError(context, context.l10n.repoErrUnknown);
+    } finally {
+      if (mounted) setState(() => _confirming = false);
+    }
   }
 
   Future<void> _confirmDelete(
       BuildContext context, WidgetRef ref, String id) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => GlassAlertDialog(
-        title: Text(context.l10n.txdDeleteTitle),
-        content: Text(context.l10n.txdDeleteBody),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: Text(context.l10n.commonCancel),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text(context.l10n.setDelete, style: TextStyle(color: ctx.colors.danger)),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    late final List<String> affectedBillIds;
+    if (_busy) return;
+    setState(() => _deleting = true);
     try {
-      final transactionRepository = ref.read(transactionRepositoryProvider);
-      final billRepository = ref.read(billRepositoryProvider);
-      affectedBillIds = await ref.read(appDatabaseProvider).transaction(
-        () async {
-          await transactionRepository.deleteTransaction(id);
-          return billRepository.deletePaymentForTransaction(id);
-        },
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => GlassAlertDialog(
+          title: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const QirshIllustration(name: 'transactions', width: 120, height: 90),
+              const SizedBox(height: AppSpacing.s2),
+              Text(context.l10n.txdDeleteTitle, textAlign: TextAlign.center),
+            ],
+          ),
+          content: Text(context.l10n.txdDeleteBody, textAlign: TextAlign.center),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: Text(context.l10n.commonCancel),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(context.l10n.setDelete, style: TextStyle(color: ctx.colors.danger)),
+            ),
+          ],
+        ),
       );
-    } on RepoException catch (e) {
-      if (!context.mounted) return;
-      AppToast.show(context, repoErrorMessage(context, e));
-      return;
+      if (confirmed != true || !mounted || !context.mounted) return;
+      late final List<String> affectedBillIds;
+      try {
+        final transactionRepository = ref.read(transactionRepositoryProvider);
+        final billRepository = ref.read(billRepositoryProvider);
+        affectedBillIds = await ref.read(appDatabaseProvider).transaction(
+          () async {
+            await transactionRepository.deleteTransaction(id);
+            return billRepository.deletePaymentForTransaction(id);
+          },
+        );
+      } on RepoException catch (e) {
+        if (!context.mounted) return;
+        AppToast.showError(context, repoErrorMessage(context, e));
+        return;
+      } catch (_) {
+        if (!context.mounted) return;
+        AppToast.showError(context, context.l10n.repoErrUnknown);
+        return;
+      }
+      if (!mounted) return;
+      for (final billId in affectedBillIds) {
+        ref.invalidate(billPaymentsProvider(billId));
+      }
+      if (affectedBillIds.isNotEmpty) {
+        ref.invalidate(savedBillsProvider);
+        ref.invalidate(billsViewProvider);
+      }
+      refreshTransactions(ref);
+      ref.invalidate(dashboardDataProvider);
+      if (context.mounted) Navigator.of(context).pop();
+    } finally {
+      if (mounted) setState(() => _deleting = false);
     }
-    for (final billId in affectedBillIds) {
-      ref.invalidate(billPaymentsProvider(billId));
-    }
-    if (affectedBillIds.isNotEmpty) {
-      ref.invalidate(savedBillsProvider);
-      ref.invalidate(billsViewProvider);
-    }
-    refreshTransactions(ref);
-    ref.invalidate(dashboardDataProvider);
-    if (context.mounted) Navigator.of(context).pop();
   }
 
   Widget _buildScaffold(BuildContext context, AppColors c, Widget body,
@@ -595,6 +665,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
       return AppSheetScaffold(
         title: title ?? context.l10n.txdTitle,
         trailing: trailing,
+        showCloseButton: false,
         leading: IconButton(
           tooltip: context.l10n.annClose,
           onPressed: () => Navigator.of(context).pop(),
@@ -629,18 +700,24 @@ class _TransactionDetailsContent extends ConsumerWidget {
     TransactionEntity tx,
   ) async {
     final controller = TextEditingController();
+    String? validationError;
+    ModalRoute<dynamic>? priceRoute;
     final value = await showDialog<Money>(
       context: context,
-      builder: (ctx) => GlassAlertDialog(
+      builder: (ctx) {
+        priceRoute = ModalRoute.of(ctx);
+        return StatefulBuilder(builder: (ctx, setDialogState) => GlassAlertDialog(
         title: Text(context.l10n.txdValueIn(Currency.label(context, tx.currency))),
         content: TextField(
+          key: const ValueKey('transaction-price-amount'),
           controller: controller,
           autofocus: true,
           keyboardType: const TextInputType.numberWithOptions(decimal: true),
           decoration: InputDecoration(
             labelText: context.l10n.txdAmountIn(Currency.label(context, tx.currency)),
-            hintText: '${Formatters.amount(tx.foreignAmount ?? 0)} '
+            hintText: '${tx.foreignMoney == null ? '' : formatMoney(tx.foreignMoney!)} '
                 '${tx.foreignCurrency ?? ''}',
+            errorText: validationError,
           ),
         ),
         actions: [
@@ -651,19 +728,25 @@ class _TransactionDetailsContent extends ConsumerWidget {
           TextButton(
             onPressed: () {
               try {
-                Navigator.of(ctx)
-                    .pop(parseLocalizedMoney(controller.text, tx.currency));
+                final amount = parseLocalizedMoney(controller.text, tx.currency);
+                if (amount.minorUnits <= 0) {
+                  setDialogState(() => validationError = context.l10n.bfInvalidAmount);
+                  return;
+                }
+                Navigator.of(ctx).pop(amount);
               } on Exception {
-                Navigator.of(ctx).pop();
+                setDialogState(() => validationError = context.l10n.bfInvalidAmount);
               }
             },
             child: Text(context.l10n.txdSave),
           ),
         ],
-      ),
+      ));
+      },
     );
-    // Do NOT dispose controller here – the dialog's exit animation may still
-    // reference it. It will be GC'd when the method scope ends.
+    await priceRoute?.completed;
+    controller.dispose();
+    if (!context.mounted) return;
     if (value == null || value.minorUnits <= 0) return;
     try {
       await ref
@@ -671,7 +754,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
           .updateAmount(transactionId: tx.id, amount: value);
     } on RepoException catch (e) {
       if (!context.mounted) return;
-      AppToast.show(context, repoErrorMessage(context, e));
+      AppToast.showError(context, repoErrorMessage(context, e));
       return;
     }
     ref.invalidate(transactionByIdProvider(tx.id));
@@ -682,7 +765,7 @@ class _TransactionDetailsContent extends ConsumerWidget {
   /// صف تفاصيل: الاسم على جنب والقيمة على الجنب التاني — أهدأ من عمود
   /// بعرض ثابت، والقيم الطويلة بتاخد المساحة اللي فاضلة.
   Widget _buildDetailRow(BuildContext context, String label, String value,
-      {Widget? trailing, bool isPending = false}) {
+      {Widget? trailing, bool isPending = false, TextDirection? valueTextDirection}) {
     final c = context.colors;
     return Padding(
       padding: const EdgeInsets.symmetric(
@@ -697,9 +780,9 @@ class _TransactionDetailsContent extends ConsumerWidget {
           Expanded(
             child: Text(
               value,
+              textDirection: valueTextDirection,
               textAlign: TextAlign.end,
-              style:
-                  AppTypography.subhead(isPending ? c.accent : c.textPrimary),
+              style: AppTypography.subhead(c.textPrimary),
             ),
           ),
           if (trailing != null) ...[

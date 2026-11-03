@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/utils/l10n_ext.dart';
 import '../../core/utils/async_reload_safe.dart';
@@ -17,7 +18,6 @@ import '../../core/theme/widgets/calm_chip.dart';
 import '../../core/theme/widgets/calm_page_header.dart';
 import '../../core/theme/widgets/glass_selector.dart';
 import '../../core/theme/widgets/mali_card.dart';
-import '../../core/theme/widgets/mali_glass.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/utils/category_glyph.dart';
@@ -26,6 +26,8 @@ import '../../core/utils/formatters.dart';
 import '../../domain/entities/account_entity.dart';
 import '../../domain/entities/bill_entity.dart';
 import '../../domain/finance/bill_metrics.dart';
+import '../../domain/finance/money.dart' show Money;
+import '../../domain/finance/money_format.dart';
 import '../../domain/entities/transaction_entity.dart';
 import '../cards/brand_mark.dart';
 import '../common/app_avatar.dart';
@@ -53,6 +55,7 @@ import '../../core/theme/widgets/directional_chevron.dart';
 import '../../core/theme/widgets/glass_sheet.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
 import '../../core/theme/widgets/glass_pickers.dart';
+import '../common/app_error_state.dart';
 
 class TransactionsScreen extends ConsumerWidget {
   const TransactionsScreen({super.key});
@@ -63,16 +66,20 @@ class TransactionsScreen extends ConsumerWidget {
     final billsAsync = ref.watch(billsViewProvider);
     final tab = ref.watch(transactionsPageTabProvider);
     final pendingOnly = ref.watch(transactionsPendingFilterProvider);
-    final currencyLabel = Currency.label(context, 
-        ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
+    final currencyLabel = Currency.label(
+        context, ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR');
     // MALI-047n: canonical period expense over the full dataset (not a fold of
     // loaded pages), single-currency for the active-account scope.
     final periodTotal = ref.watch(transactionsPeriodTotalProvider).valueOrNull;
-    final periodExpense = periodTotal?.netExpense.toDouble() ?? 0.0;
-    final txHeaderCurrencyLabel = Currency.label(context, (periodTotal?.currency ??
-            ref.watch(baseCurrencyProvider).valueOrNull ??
-            'SAR')
-        .toUpperCase());
+    final privacyMode =
+        ref.watch(userSettingsProvider).valueOrNull?.privacyModeEnabled ??
+            false;
+    final txHeaderCurrencyLabel = Currency.label(
+        context,
+        (periodTotal?.currency ??
+                ref.watch(baseCurrencyProvider).valueOrNull ??
+                'SAR')
+            .toUpperCase());
     final logos = ref.watch(merchantLogosProvider).valueOrNull ??
         const <String, String>{};
 
@@ -81,17 +88,27 @@ class TransactionsScreen extends ConsumerWidget {
       body: async.when(
         skipLoadingOnReload: true,
         loading: () => const SkeletonList(rows: 6),
-        error: (e, _) => Center(child: Text(context.l10n.txnError)),
+        error: (e, _) => SafeArea(
+            child: SingleChildScrollView(
+                child: AppErrorState(
+          title: context.l10n.txnError,
+          description: context.l10n.annTryAgainSoon,
+          retryLabel: context.l10n.startRetry,
+          onRetry: () => ref.invalidate(transactionsListProvider),
+        ))),
         data: (view) {
           // B2-C — date-section grouping is precomputed once in the provider
           // (view.sections), not re-grouped over every row on every build here.
           final sections = view.sections;
           Widget txRow(TransactionEntity tx) {
             final category = view.catalog.byId(tx.categoryId);
-            final title = tx.rawMerchant ?? category?.name ?? context.l10n.txnTransactionWord;
+            final title = tx.rawMerchant ??
+                category?.name ??
+                context.l10n.txnTransactionWord;
             return AppTransactionRow(
               title: title,
               amount: tx.amount,
+              amountMoney: tx.amountMoney,
               currency: Currency.label(context, tx.currency),
               subtitle:
                   '${Formatters.time(tx.occurredAt, context)} · ${category?.name ?? context.l10n.homeUncategorised}',
@@ -99,7 +116,8 @@ class TransactionsScreen extends ConsumerWidget {
               categoryColor: category?.color,
               brandLogoUrl: BrandMark.logoFor(title, logos),
               isPending: tx.status == TransactionStatus.pending,
-              awaitingPrice: tx.pricingState == TransactionPricingState.awaitingFx,
+              awaitingPrice:
+                  tx.pricingState == TransactionPricingState.awaitingFx,
               isAi: tx.source == TransactionSourceEntity.aiParsed,
               isDebit: transactionIsDebit(tx),
               horizontalPadding: 14,
@@ -113,342 +131,382 @@ class TransactionsScreen extends ConsumerWidget {
           final insts =
               bills.where((b) => b.type == BillType.installment).toList();
           // Active-subscription monthly obligation, summed EXACTLY as Money in
-          // the base display currency (currency-isolated); converted to double
-          // only here at the display leaf.
+          // the base display currency (currency-isolated), kept exact through
+          // the monthly and annual display leaves.
           final baseCur = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
-          final monthlyTotal =
-              subscriptionMonthlyTotalMoney(subs, baseCur).toDouble();
+          final monthlyTotal = subscriptionMonthlyTotalMoney(subs, baseCur);
 
-          return SafeArea(
-              top: false,
-              bottom: false,
-              child: NestedScrollView(
-                headerSliverBuilder: (context, innerBoxIsScrolled) {
-                  return [
-                    SliverToBoxAdapter(
-                      child: Column(
-                        children: [
-                          _TransactionsHeader(
-                            tab: tab,
-                            expenseTotal: periodExpense,
-                            transactionsCount: view.transactions.length,
-                            pendingCount: view.pendingCount,
-                            subsCount: subs.length,
-                            instsCount: insts.length,
-                            monthlyTotal: monthlyTotal,
-                            currencyLabel: tab == 0
-                                ? txHeaderCurrencyLabel
-                                : currencyLabel,
-                            onAdd: () {
-                              if (tab == 0) {
-                                showCaptureEntrySheet(context);
-                              } else {
-                                BillFormSheet.show(context);
-                              }
-                            },
-                          ),
-                          // صفّ الفلاتر واقع بين الهيدر وشريط التبويبات —
-                          // من غير خلفية كانت بتبان شريحة بيضا وسط الأزرق.
-                          // الذوبان لسه ما بدأش هنا، فاللون هو نفس حافة
-                          // الهيدر بالظبط والشريط اللي بعده بيكمّل منه.
-                          ColoredBox(
-                            color: CalmPageHeader.meltEdgeColor(
-                                Theme.of(context).brightness ==
-                                    Brightness.dark),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: AppSpacing.gutter),
-                              child: Column(
-                                children: [
-                                  if (tab == 0 && !pendingOnly)
-                                    Row(
-                                      children: [
-                                        const Expanded(
-                                            child: _ActiveAccountPicker()),
-                                        const SizedBox(width: AppSpacing.s3),
-                                        Expanded(
-                                            child: _DateRangeChips(
-                                                range: view.range)),
-                                      ],
-                                    )
-                                  else
-                                    const _ActiveAccountPicker(),
-                                  const SizedBox(height: AppSpacing.s3),
-                                  const _SuspectedDuplicatesBanner(),
-                                  const _SmartInboxBanner(),
-                                  if (tab == 0) ...[
-                                    if (pendingOnly) ...[
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 12, vertical: 8),
-                                            decoration: BoxDecoration(
-                                              color: context.colors.accent
-                                                  .withValues(alpha: 0.12),
-                                              borderRadius:
-                                                  BorderRadius.circular(20),
-                                              border: Border.all(
+          return QirshSectionBackdrop(
+              child: SafeArea(
+                  // Keep the pinned tabs below the status bar.
+                  bottom: false,
+                  child: NestedScrollView(
+                    headerSliverBuilder: (context, innerBoxIsScrolled) {
+                      return [
+                        SliverToBoxAdapter(
+                          child: Column(
+                            children: [
+                              _TransactionsHeader(
+                                tab: tab,
+                                rangeLabel: view.range.labelIn(
+                                    Localizations.localeOf(context)
+                                        .languageCode),
+                                hasMoreTransactions: view.hasMore,
+                                transactionsCount: view.transactions.length,
+                                pendingCount: view.pendingCount,
+                                subsCount: subs.length,
+                                instsCount: insts.length,
+                                monthlyTotal: monthlyTotal,
+                                currencyLabel: tab == 0
+                                    ? txHeaderCurrencyLabel
+                                    : currencyLabel,
+                                onAdd: () {
+                                  if (tab == 0) {
+                                    showCaptureEntrySheet(context);
+                                  } else {
+                                    BillFormSheet.show(context);
+                                  }
+                                },
+                              ),
+                              if (tab == 0) ...[
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: AppSpacing.gutter),
+                                  child: _TransactionFlowTotals(
+                                      total: periodTotal,
+                                      privacyMode: privacyMode),
+                                ),
+                                const SizedBox(height: AppSpacing.s3),
+                              ],
+                              // صفّ الفلاتر واقع بين الهيدر وشريط التبويبات —
+                              // من غير خلفية كانت بتبان شريحة بيضا وسط الأزرق.
+                              // الذوبان لسه ما بدأش هنا، فاللون هو نفس حافة
+                              // الهيدر بالظبط والشريط اللي بعده بيكمّل منه.
+                              ColoredBox(
+                                color: CalmPageHeader.meltEdgeColor(
+                                    Theme.of(context).brightness ==
+                                        Brightness.dark),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: AppSpacing.gutter),
+                                  child: Column(
+                                    children: [
+                                      if (tab == 0 && !pendingOnly)
+                                        Row(
+                                          children: [
+                                            const Expanded(
+                                                child: _ActiveAccountPicker()),
+                                            const SizedBox(
+                                                width: AppSpacing.s3),
+                                            Expanded(
+                                                child: _DateRangeChips(
+                                                    range: view.range)),
+                                          ],
+                                        )
+                                      else
+                                        const _ActiveAccountPicker(),
+                                      const SizedBox(height: AppSpacing.s3),
+                                      const _SuspectedDuplicatesBanner(),
+                                      const _SmartInboxBanner(),
+                                      if (tab == 0) ...[
+                                        if (pendingOnly) ...[
+                                          Row(
+                                            children: [
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 12,
+                                                        vertical: 8),
+                                                decoration: BoxDecoration(
                                                   color: context.colors.accent
-                                                      .withValues(alpha: 0.30)),
-                                            ),
-                                            child: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Icon(
-                                                    AppLucideIcons
-                                                        .alertTriangle,
-                                                    size: 14,
-                                                    color:
-                                                        context.colors.accent),
-                                                const SizedBox(width: 6),
-                                                Text(context.l10n.txnFilterPending,
-                                                    style:
-                                                        AppTypography.caption(
-                                                                context.colors
+                                                      .withValues(alpha: 0.12),
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
+                                                  border: Border.all(
+                                                      color: context
+                                                          .colors.accent
+                                                          .withValues(
+                                                              alpha: 0.30)),
+                                                ),
+                                                child: Row(
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
+                                                  children: [
+                                                    Icon(
+                                                        AppLucideIcons
+                                                            .alertTriangle,
+                                                        size: 14,
+                                                        color: context
+                                                            .colors.accent),
+                                                    const SizedBox(width: 6),
+                                                    Text(
+                                                        context.l10n
+                                                            .txnFilterPending,
+                                                        style: AppTypography
+                                                                .caption(context
+                                                                    .colors
                                                                     .accent)
                                                             .copyWith(
                                                                 fontWeight:
                                                                     FontWeight
                                                                         .w700)),
-                                                const SizedBox(width: 8),
-                                                GestureDetector(
-                                                  onTap: () => ref
-                                                      .read(
-                                                          transactionsPendingFilterProvider
-                                                              .notifier)
-                                                      .state = false,
-                                                  child: Icon(AppLucideIcons.x,
-                                                      size: 14,
-                                                      color: context
-                                                          .colors.accent),
+                                                    const SizedBox(width: 8),
+                                                    GestureDetector(
+                                                      onTap: () => ref
+                                                          .read(
+                                                              transactionsPendingFilterProvider
+                                                                  .notifier)
+                                                          .state = false,
+                                                      child: Icon(
+                                                          AppLucideIcons.x,
+                                                          size: 14,
+                                                          color: context
+                                                              .colors.accent),
+                                                    ),
+                                                  ],
                                                 ),
-                                              ],
-                                            ),
-                                          ),
-                                          const Spacer(),
-                                          if (view.pendingCount > 0)
-                                            TextButton.icon(
-                                              onPressed: () =>
-                                                  _confirmAllPending(context,
-                                                      ref, view.transactions),
-                                              icon: Icon(
-                                                  AppLucideIcons.checkCheck,
-                                                  size: 18,
-                                                  color:
-                                                      context.colors.success),
-                                              label: Text(
-                                                context.l10n.txnConfirmAll,
-                                                style: AppTypography.caption(
-                                                        context.colors.success)
-                                                    .copyWith(
-                                                        fontWeight:
-                                                            FontWeight.w700),
                                               ),
-                                            ),
+                                              const Spacer(),
+                                              if (view.pendingCount > 0)
+                                                TextButton.icon(
+                                                  onPressed: () =>
+                                                      _confirmAllPending(
+                                                          context,
+                                                          ref,
+                                                          view.transactions),
+                                                  icon: Icon(
+                                                      AppLucideIcons.checkCheck,
+                                                      size: 18,
+                                                      color: context
+                                                          .colors.success),
+                                                  label: Text(
+                                                    context.l10n.txnConfirmAll,
+                                                    style:
+                                                        AppTypography.caption(
+                                                                context.colors
+                                                                    .success)
+                                                            .copyWith(
+                                                                fontWeight:
+                                                                    FontWeight
+                                                                        .w700),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: AppSpacing.s3),
                                         ],
-                                      ),
-                                      const SizedBox(height: AppSpacing.s3),
+                                      ],
                                     ],
-                                  ],
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    SliverPersistentHeader(
-                      pinned: true,
-                      delegate: _TabBarDelegate(
-                        // كبسولات عايمة من غير صندوق — ومن غير زجاج.
-                        child: MeltSlice(
-                          height: 64.0,
-                          child: Container(
-                            height: 64.0,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: AppSpacing.gutter,
-                            ),
-                            alignment: Alignment.center,
-                            child: AppPillTabBar(
-                              tabs: [context.l10n.txnTabTransactions, context.l10n.txnTabBills],
-                              selectedIndex: tab,
-                              onSelected: (value) => ref
-                                  .read(transactionsPageTabProvider.notifier)
-                                  .state = value,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ];
-                },
-                body: MeltTail(
-                  startAt: 64,
-                  child: tab == 0
-                      ? NotificationListener<ScrollNotification>(
-                          onNotification: (notification) {
-                            if (notification.metrics.extentAfter < 900 &&
-                                view.hasMore &&
-                                !view.isLoadingMore) {
-                              ref
-                                  .read(transactionsListProvider.notifier)
-                                  .loadMore();
-                            }
-                            return false;
-                          },
-                          child: ListView.builder(
-                            padding: const EdgeInsets.fromLTRB(
-                              AppSpacing.gutter,
-                              AppSpacing.s3,
-                              AppSpacing.gutter,
-                              120,
-                            ),
-                            itemCount: 4 +
-                                (view.transactions.isEmpty
-                                    ? 1
-                                    : sections.length) +
-                                (view.isLoadingMore ? 1 : 0),
-                            itemBuilder: (context, index) {
-                              if (index == 0) {
-                                return const TransactionSearchField();
-                              }
-                              if (index == 1) {
-                                return const SizedBox(height: AppSpacing.s2);
-                              }
-                              if (index == 2) return const _FilterBar();
-                              if (index == 3) {
-                                return const SizedBox(height: AppSpacing.s2);
-                              }
-                              final itemIndex = index - 4;
-                              if (view.transactions.isEmpty) {
-                                // EMPTY STATE — the message first, the banner
-                                // after it. A placement may not depend on the
-                                // user having data, but it must still sit below
-                                // the explanation rather than replace it.
-                                return Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    AppEmptyState(
-                                      icon: AppLucideIcons.inbox,
-                                      title: context.l10n.txnEmptyPeriodTitle,
-                                      subtitle:
-                                          context.l10n.txnEmptyPeriodBody,
-                                    ),
-                                    if (!pendingOnly) ...[
-                                      const SizedBox(height: AppSpacing.s4),
-                                      const QirshAdBanner(
-                                        placement:
-                                            AdPlacement.transactionsList,
-                                      ),
-                                    ],
-                                  ],
-                                );
-                              }
-                              if (itemIndex >= sections.length) {
-                                return const Padding(
-                                  padding:
-                                      EdgeInsets.all(AppSpacing.cardPadding),
-                                  child: Center(
-                                      child: CircularProgressIndicator()),
-                                );
-                              }
-                              final section = sections[itemIndex];
-                              return Padding(
-                                padding: const EdgeInsets.only(
-                                    bottom: AppSpacing.s4),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.stretch,
-                                  children: [
-                                    _DateHeader(
-                                      label: Formatters.dateGroupLabel(
-                                          section.day, context),
-                                    ),
-                                    const SizedBox(height: AppSpacing.s2),
-                                    MaliCard(
-                                      style: MaliSurfaceStyle.floating,
-                                      padding: const EdgeInsets.symmetric(
-                                          vertical: 4),
-                                      child: Column(
-                                        children: [
-                                          for (final tx in section.transactions)
-                                            txRow(tx),
-                                        ],
-                                      ),
-                                    ),
-                                    // The app's ONLY banner placement.
-                                    //
-                                    // After the FIRST complete day, and only
-                                    // when another day follows, so the ad is
-                                    // always bracketed by real content and is
-                                    // never the last thing on the screen. It
-                                    // sits below a finished card rather than
-                                    // between two transaction rows: the rows
-                                    // are tappable (they open the detail
-                                    // sheet), and an ad flush against one is
-                                    // the accidental-click layout Google's own
-                                    // placement guidance calls out.
-                                    //
-                                    // Not shown on the pending-review filter.
-                                    // That list is a correction workflow — the
-                                    // user is fixing how their money was
-                                    // classified — and an advertisement does
-                                    // not belong in the middle of it. That is a
-                                    // workflow rule, not a content rule, so it
-                                    // stays.
-                                    //
-                                    // A SECOND date section used to be
-                                    // required as well, so the ad was always
-                                    // bracketed by another day. Dropped:
-                                    // availability may no longer depend on how
-                                    // much data exists.
-                                    if (itemIndex == 0 && !pendingOnly)
-                                      const QirshAdBanner(
-                                        placement:
-                                            AdPlacement.transactionsList,
-                                      ),
-                                  ],
+                                  ),
                                 ),
-                              );
-                            },
-                          ),
-                        )
-                      : ListView(
-                          padding: const EdgeInsets.fromLTRB(
-                            AppSpacing.gutter,
-                            AppSpacing.s3,
-                            AppSpacing.gutter,
-                            120,
-                          ),
-                          children: [
-                            billsAsync.when(
-                              skipLoadingOnReload: true,
-                              loading: () => const Padding(
-                                padding: EdgeInsets.all(AppSpacing.s5),
-                                child:
-                                    Center(child: CircularProgressIndicator()),
                               ),
-                              error: (error, _) => Text(context.l10n.txnError),
-                              data: (bills) => _BillsTab(
-                                view: bills,
-                                currencyLabel: currencyLabel,
-                                // F-027 — the display currency must come from
-                                // the user's base currency, never from
-                                // `bills.first`, which made the total depend on
-                                // list ORDER and silently dropped every bill in
-                                // another currency.
-                                baseCurrency: ref
-                                        .watch(baseCurrencyProvider)
-                                        .valueOrNull ??
-                                    'SAR',
+                            ],
+                          ),
+                        ),
+                        SliverPersistentHeader(
+                          pinned: true,
+                          delegate: _TabBarDelegate(
+                            // كبسولات عايمة من غير صندوق — ومن غير زجاج.
+                            child: MeltSlice(
+                              height: 64.0,
+                              child: Container(
+                                height: 64.0,
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: AppSpacing.gutter,
+                                ),
+                                alignment: Alignment.center,
+                                child: AppPillTabBar(
+                                  tabs: [
+                                    context.l10n.txnTabTransactions,
+                                    context.l10n.txnTabBills
+                                  ],
+                                  selectedIndex: tab,
+                                  onSelected: (value) => ref
+                                      .read(
+                                          transactionsPageTabProvider.notifier)
+                                      .state = value,
+                                ),
                               ),
                             ),
-                          ],
+                          ),
                         ),
-                ),
-              ));
+                      ];
+                    },
+                    body: MeltTail(
+                      startAt: 64,
+                      child: tab == 0
+                          ? NotificationListener<ScrollNotification>(
+                              onNotification: (notification) {
+                                if (notification.metrics.extentAfter < 900 &&
+                                    view.hasMore &&
+                                    !view.isLoadingMore) {
+                                  ref
+                                      .read(transactionsListProvider.notifier)
+                                      .loadMore();
+                                }
+                                return false;
+                              },
+                              child: ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(
+                                  AppSpacing.gutter,
+                                  AppSpacing.s3,
+                                  AppSpacing.gutter,
+                                  120,
+                                ),
+                                itemCount: 2 +
+                                    (view.transactions.isEmpty
+                                        ? 1
+                                        : sections.length) +
+                                    (view.isLoadingMore ? 1 : 0),
+                                itemBuilder: (context, index) {
+                                  if (index == 0) return const _FilterBar();
+                                  if (index == 1) {
+                                    return const SizedBox(
+                                        height: AppSpacing.s2);
+                                  }
+                                  final itemIndex = index - 2;
+                                  if (view.transactions.isEmpty) {
+                                    // EMPTY STATE — the message first, the banner
+                                    // after it. A placement may not depend on the
+                                    // user having data, but it must still sit below
+                                    // the explanation rather than replace it.
+                                    return Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        AppEmptyState(
+                                          illustration: QirshIllustration(
+                                            name: pendingOnly
+                                                ? 'reviewDone'
+                                                : 'emptyTx',
+                                            width: 210,
+                                            height: 158,
+                                          ),
+                                          icon: AppLucideIcons.inbox,
+                                          title: pendingOnly
+                                              ? context
+                                                  .l10n.txnPendingEmptyTitle
+                                              : context
+                                                  .l10n.txnEmptyPeriodTitle,
+                                          subtitle: pendingOnly
+                                              ? context.l10n.txnPendingEmptyBody
+                                              : context.l10n.txnEmptyPeriodBody,
+                                        ),
+                                        if (!pendingOnly) ...[
+                                          const SizedBox(height: AppSpacing.s4),
+                                          const QirshAdBanner(
+                                            placement:
+                                                AdPlacement.transactionsList,
+                                          ),
+                                        ],
+                                      ],
+                                    );
+                                  }
+                                  if (itemIndex >= sections.length) {
+                                    return const Padding(
+                                      padding: EdgeInsets.all(
+                                          AppSpacing.cardPadding),
+                                      child: Center(
+                                          child: CircularProgressIndicator()),
+                                    );
+                                  }
+                                  final section = sections[itemIndex];
+                                  return Padding(
+                                    padding: const EdgeInsets.only(
+                                        bottom: AppSpacing.s4),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        _DateHeader(
+                                          label: Formatters.dateGroupLabel(
+                                              section.day, context),
+                                        ),
+                                        const SizedBox(height: AppSpacing.s2),
+                                        MaliCard(
+                                          style: MaliSurfaceStyle.floating,
+                                          padding: const EdgeInsets.symmetric(
+                                              vertical: 4),
+                                          child: Column(
+                                            children: [
+                                              for (final tx
+                                                  in section.transactions)
+                                                txRow(tx),
+                                            ],
+                                          ),
+                                        ),
+                                        // The app's ONLY banner placement.
+                                        //
+                                        // After the FIRST complete day, and only
+                                        // when another day follows, so the ad is
+                                        // always bracketed by real content and is
+                                        // never the last thing on the screen. It
+                                        // sits below a finished card rather than
+                                        // between two transaction rows: the rows
+                                        // are tappable (they open the detail
+                                        // sheet), and an ad flush against one is
+                                        // the accidental-click layout Google's own
+                                        // placement guidance calls out.
+                                        //
+                                        // Not shown on the pending-review filter.
+                                        // That list is a correction workflow — the
+                                        // user is fixing how their money was
+                                        // classified — and an advertisement does
+                                        // not belong in the middle of it. That is a
+                                        // workflow rule, not a content rule, so it
+                                        // stays.
+                                        //
+                                        // A SECOND date section used to be
+                                        // required as well, so the ad was always
+                                        // bracketed by another day. Dropped:
+                                        // availability may no longer depend on how
+                                        // much data exists.
+                                        if (itemIndex == 0 && !pendingOnly)
+                                          const QirshAdBanner(
+                                            placement:
+                                                AdPlacement.transactionsList,
+                                          ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              ),
+                            )
+                          : ListView(
+                              padding: const EdgeInsets.fromLTRB(
+                                AppSpacing.gutter,
+                                AppSpacing.s3,
+                                AppSpacing.gutter,
+                                120,
+                              ),
+                              children: [
+                                billsAsync.when(
+                                  skipLoadingOnReload: true,
+                                  loading: () => const Padding(
+                                    padding: EdgeInsets.all(AppSpacing.s5),
+                                    child: Center(
+                                        child: CircularProgressIndicator()),
+                                  ),
+                                  error: (error, _) =>
+                                      Text(context.l10n.txnError),
+                                  data: (bills) => _BillsTab(
+                                    view: bills,
+                                    currencyLabel: currencyLabel,
+                                    // F-027 — the display currency must come from
+                                    // the user's base currency, never from
+                                    // `bills.first`, which made the total depend on
+                                    // list ORDER and silently dropped every bill in
+                                    // another currency.
+                                    baseCurrency: ref
+                                            .watch(baseCurrencyProvider)
+                                            .valueOrNull ??
+                                        'SAR',
+                                  ),
+                                ),
+                              ],
+                            ),
+                    ),
+                  )));
         },
       ),
     );
@@ -511,7 +569,8 @@ class _ActiveAccountPicker extends ConsumerWidget {
         );
         return GlassSelector(
           icon: AppLucideIcons.walletCards,
-          label: '${account.name} · ${Currency.label(context, account.currency)}',
+          label:
+              '${account.name} · ${Currency.label(context, account.currency)}',
           onTap: () => _showAccountSheet(context, ref, account.id),
         );
       },
@@ -587,7 +646,9 @@ class _ActiveAccountPicker extends ConsumerWidget {
 }
 
 class TransactionSearchField extends ConsumerStatefulWidget {
-  const TransactionSearchField({super.key});
+  const TransactionSearchField({super.key, this.onPhoto = false});
+
+  final bool onPhoto;
 
   @override
   ConsumerState<TransactionSearchField> createState() =>
@@ -597,6 +658,7 @@ class TransactionSearchField extends ConsumerStatefulWidget {
 class TransactionSearchFieldState
     extends ConsumerState<TransactionSearchField> {
   late final TextEditingController _controller;
+  late final FocusNode _focusNode;
   // MALI-029 / rendering — debounce the search so a burst of keystrokes does not
   // re-fetch page 1 + re-filter + re-group the whole list on every character; the
   // field text updates instantly, only the filter query is debounced.
@@ -608,6 +670,20 @@ class TransactionSearchFieldState
     _controller = TextEditingController(
       text: ref.read(transactionSearchQueryProvider),
     );
+    _focusNode = FocusNode()..addListener(_revealPhotoSearch);
+  }
+
+  void _revealPhotoSearch() {
+    if (!widget.onPhoto || !_focusNode.hasFocus) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_focusNode.hasFocus) return;
+      Scrollable.ensureVisible(
+        context,
+        alignment: 0,
+        duration: const Duration(milliseconds: 220),
+        curve: Curves.easeOutCubic,
+      );
+    });
   }
 
   void _onQueryChanged(String value) {
@@ -622,6 +698,9 @@ class TransactionSearchFieldState
   @override
   void dispose() {
     _searchDebounce?.cancel();
+    _focusNode
+      ..removeListener(_revealPhotoSearch)
+      ..dispose();
     _controller.dispose();
     super.dispose();
   }
@@ -632,6 +711,7 @@ class TransactionSearchFieldState
     final query = ref.watch(transactionSearchQueryProvider);
     return TextField(
       controller: _controller,
+      focusNode: _focusNode,
       textInputAction: TextInputAction.search,
       onChanged: _onQueryChanged,
       decoration: InputDecoration(
@@ -659,7 +739,8 @@ class TransactionSearchFieldState
                 icon: const Icon(AppLucideIcons.x),
               ),
         filled: true,
-        fillColor: c.surface2.withValues(alpha: 0.45),
+        fillColor:
+            widget.onPhoto ? c.surface : c.surface2.withValues(alpha: 0.45),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(AppRadius.pill),
           borderSide: BorderSide.none,
@@ -690,7 +771,8 @@ class _DateRangeChips extends ConsumerWidget {
     );
   }
 
-  String _presetLabel(BuildContext context, TransactionsDatePreset preset) => switch (preset) {
+  String _presetLabel(BuildContext context, TransactionsDatePreset preset) =>
+      switch (preset) {
         TransactionsDatePreset.today => context.l10n.txnRangeToday,
         TransactionsDatePreset.thisWeek => context.l10n.txnRangeThisWeek,
         TransactionsDatePreset.thisMonth => context.l10n.txnRangeThisMonth,
@@ -909,8 +991,8 @@ class _PendingFilterChip extends ConsumerWidget {
     return CalmChip(
       label: context.l10n.txnPendingReview,
       selected: active,
-      onTap: () => ref.read(transactionsPendingFilterProvider.notifier).state =
-          !active,
+      onTap: () =>
+          ref.read(transactionsPendingFilterProvider.notifier).state = !active,
     );
   }
 }
@@ -1128,11 +1210,11 @@ class _BillsTabState extends State<_BillsTab> {
     // dropped from it — with no indication to the user. The base currency is now
     // passed in explicitly.
     final monthlyTotal = _type == BillType.subscription
-        ? subscriptionMonthlyTotalMoney(bills, widget.baseCurrency).toDouble()
+        ? subscriptionMonthlyTotalMoney(bills, widget.baseCurrency)
         : monthlyEquivalentsTotalMoney(
             bills.where((b) => b.status == BillStatus.active),
             widget.baseCurrency,
-          ).toDouble();
+          );
     final nextThisWeek = bills.where((bill) {
       final now = DateTime.now();
       final weekEnd = now.add(const Duration(days: 7));
@@ -1156,7 +1238,9 @@ class _BillsTabState extends State<_BillsTab> {
             initialType: _type,
           ),
           icon: AppLucideIcons.plus,
-          label: _type == BillType.subscription ? context.l10n.txnAddSub : context.l10n.txnAddInstalment,
+          label: _type == BillType.subscription
+              ? context.l10n.txnAddSub
+              : context.l10n.txnAddInstalment,
           isPrimary: true,
         ),
         const SizedBox(height: AppSpacing.s4),
@@ -1176,6 +1260,8 @@ class _BillsTabState extends State<_BillsTab> {
         const SizedBox(height: AppSpacing.s3),
         if (bills.isEmpty)
           AppEmptyState(
+            illustration:
+                const QirshIllustration(name: 'bills', width: 210, height: 158),
             icon: _type == BillType.subscription
                 ? AppLucideIcons.repeat
                 : AppLucideIcons.receipt,
@@ -1185,8 +1271,9 @@ class _BillsTabState extends State<_BillsTab> {
             subtitle: _type == BillType.subscription
                 ? context.l10n.txnSubsEmptyBody
                 : context.l10n.txnInstEmptyBody,
-            primaryLabel:
-                _type == BillType.subscription ? context.l10n.txnAddSub : context.l10n.txnAddInstalment,
+            primaryLabel: _type == BillType.subscription
+                ? context.l10n.txnAddSub
+                : context.l10n.txnAddInstalment,
             onPrimary: () => BillFormSheet.show(
               context,
               initialType: _type,
@@ -1263,7 +1350,7 @@ class _BillsHero extends StatelessWidget {
   });
 
   final BillType type;
-  final double monthlyTotal;
+  final Money monthlyTotal;
   final int activeCount;
   final int nextThisWeek;
   final String currencyLabel;
@@ -1272,8 +1359,8 @@ class _BillsHero extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.colors;
     final isSubscription = type == BillType.subscription;
-    // زجاج iOS 26 — مش سطح ink أسود/أبيض؛ الأزرق للزرار الأساسي بس.
-    return MaliGlass(
+    return MaliCard(
+      style: MaliSurfaceStyle.raised,
       radius: AppRadius.card,
       padding: const EdgeInsets.all(AppSpacing.s4),
       child: Column(
@@ -1281,13 +1368,15 @@ class _BillsHero extends StatelessWidget {
         children: [
           Row(
             children: [
-              Text(
-                isSubscription
-                    ? context.l10n.txnTotalMonthlySubs
-                    : context.l10n.txnTotalMonthlyInst,
-                style: AppTypography.caption(c.textSecondary),
+              Expanded(
+                child: Text(
+                  isSubscription
+                      ? context.l10n.txnTotalMonthlySubs
+                      : context.l10n.txnTotalMonthlyInst,
+                  style: AppTypography.caption(c.textSecondary),
+                ),
               ),
-              const Spacer(),
+              const SizedBox(width: AppSpacing.s2),
               Icon(
                 isSubscription ? AppLucideIcons.repeat : AppLucideIcons.receipt,
                 color: c.textSecondary,
@@ -1297,40 +1386,75 @@ class _BillsHero extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(
-            '${Formatters.amount(monthlyTotal)} $currencyLabel',
+            '${formatMoney(monthlyTotal)} $currencyLabel',
             style: AppTypography.title1(c.textPrimary)
                 .copyWith(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: AppSpacing.s4),
           Container(
+            width: double.infinity,
             padding: const EdgeInsets.symmetric(
                 horizontal: AppSpacing.s3, vertical: 8),
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(AppRadius.card),
-              border: Border.all(color: c.divider),
+              color: c.bg,
             ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: _HeroMetric(value: '$activeCount', label: context.l10n.txnActive),
-                ),
-                _Divider(color: c.divider),
-                Expanded(
-                  child: _HeroMetric(
-                    value:
-                        '${Formatters.integer(monthlyTotal * 12)} $currencyLabel',
-                    label: context.l10n.txnPerYear,
+            child: LayoutBuilder(builder: (context, constraints) {
+              final number = TextPainter(
+                text: TextSpan(
+                    text: '${formatMoney(monthlyTotal * 12)} $currencyLabel',
+                    style: AppTypography.bodyStrong(c.textPrimary)),
+                textDirection: Directionality.of(context),
+                textScaler: MediaQuery.textScalerOf(context),
+              )..layout();
+              final cells = isSubscription ? 3 : 2;
+              final needsWrap =
+                  number.width > (constraints.maxWidth - (cells - 1)) / cells;
+              number.dispose();
+              if (needsWrap) {
+                return Wrap(
+                  alignment: WrapAlignment.spaceBetween,
+                  spacing: AppSpacing.s4,
+                  runSpacing: AppSpacing.s3,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _HeroMetric(
+                        value: '$activeCount', label: context.l10n.txnActive),
+                    _HeroMetric(
+                        value:
+                            '${formatMoney(monthlyTotal * 12)} $currencyLabel',
+                        label: context.l10n.txnPerYear),
+                    if (isSubscription)
+                      _HeroMetric(
+                          value: '$nextThisWeek',
+                          label: context.l10n.txnRangeThisWeek),
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(
+                    child: _HeroMetric(
+                        value: '$activeCount', label: context.l10n.txnActive),
                   ),
-                ),
-                if (isSubscription) ...[
                   _Divider(color: c.divider),
                   Expanded(
                     child: _HeroMetric(
-                        value: '$nextThisWeek', label: context.l10n.txnRangeThisWeek),
+                      value: '${formatMoney(monthlyTotal * 12)} $currencyLabel',
+                      label: context.l10n.txnPerYear,
+                    ),
                   ),
+                  if (isSubscription) ...[
+                    _Divider(color: c.divider),
+                    Expanded(
+                      child: _HeroMetric(
+                          value: '$nextThisWeek',
+                          label: context.l10n.txnRangeThisWeek),
+                    ),
+                  ],
                 ],
-              ],
-            ),
+              );
+            }),
           ),
         ],
       ),
@@ -1349,7 +1473,9 @@ class _HeroMetric extends StatelessWidget {
     final c = context.colors;
     return Column(
       children: [
-        Text(value, style: AppTypography.bodyStrong(c.textPrimary)),
+        Text(value,
+            textAlign: TextAlign.center,
+            style: AppTypography.bodyStrong(c.textPrimary)),
         const SizedBox(height: 2),
         Text(
           label,
@@ -1476,9 +1602,11 @@ class _BillCard extends StatelessWidget {
                           children: [
                             Icon(dueIcon, size: 13, color: dueColor),
                             const SizedBox(width: 4),
-                            Text(
-                              '$freqLabel · $dueLabel',
-                              style: AppTypography.caption(dueColor),
+                            Flexible(
+                              child: Text(
+                                '$freqLabel · $dueLabel',
+                                style: AppTypography.caption(dueColor),
+                              ),
                             ),
                           ],
                         ),
@@ -1490,7 +1618,7 @@ class _BillCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
                       Text(
-                        Formatters.amount(bill.amount),
+                        formatMoney(bill.amountMoney),
                         style: AppTypography.bodyStrong(c.textMain),
                       ),
                       Text(
@@ -1557,7 +1685,7 @@ class _BillCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
                           Text(
-                            Formatters.amount(bill.amount),
+                            formatMoney(bill.amountMoney),
                             style: AppTypography.bodyStrong(c.primary),
                           ),
                           Text(
@@ -1573,7 +1701,8 @@ class _BillCard extends StatelessWidget {
                     Row(
                       children: [
                         Text(
-                          context.l10n.txnPaidOfTotal(bill.paidCount ?? 0, bill.totalInstallments ?? 0),
+                          context.l10n.txnPaidOfTotal(
+                              bill.paidCount ?? 0, bill.totalInstallments ?? 0),
                           style: AppTypography.caption(c.textLight),
                         ),
                         const Spacer(),
@@ -1616,7 +1745,7 @@ class _BillCard extends StatelessWidget {
                             style: AppTypography.caption(c.textLight),
                           ),
                           Text(
-                            '${Formatters.amount(bill.totalPurchaseAmount!)} $currLabel',
+                            '${formatMoney(bill.totalPurchaseMoney!)} $currLabel',
                             style: AppTypography.caption(c.textMain).copyWith(
                               fontWeight: FontWeight.bold,
                             ),
@@ -1632,7 +1761,9 @@ class _BillCard extends StatelessWidget {
                                     BorderRadius.circular(AppRadius.pill),
                               ),
                               child: Text(
-                                context.l10n.txnInterestRate((bill.interestRate! * 100).toStringAsFixed(1)),
+                                context.l10n.txnInterestRate(
+                                    (bill.interestRate! * 100)
+                                        .toStringAsFixed(1)),
                                 style: AppTypography.caption(c.accent)
                                     .copyWith(fontWeight: FontWeight.bold),
                               ),
@@ -1664,7 +1795,7 @@ class _BillCard extends StatelessWidget {
                             style: AppTypography.caption(c.textLight),
                           ),
                           Text(
-                            '${Formatters.amount(bill.safeManualPaidAmount)} $currLabel',
+                            '${formatMoney(bill.safeManualPaidMoney)} $currLabel',
                             style: AppTypography.caption(c.success).copyWith(
                               fontWeight: FontWeight.bold,
                             ),
@@ -1751,7 +1882,7 @@ class _SuggestionCard extends StatelessWidget {
                   children: [
                     Text(
                       context.l10n.txnEstPerMonth(
-                          Formatters.amount(suggestion.estimatedAmountMoney.toDouble()),
+                          formatMoney(suggestion.estimatedAmountMoney),
                           currencyLabel),
                       style: AppTypography.caption(c.textMain).copyWith(
                         fontWeight: FontWeight.bold,
@@ -1837,27 +1968,119 @@ class _AddButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaliGlass(
-      variant: MaliGlassVariant.headerAction,
+    return CalmHeaderAction(
+      icon: AppLucideIcons.plus,
+      primary: true,
       onTap: () {
         HapticFeedback.selectionClick();
         onTap();
       },
-      child: const SizedBox(
-        width: 44,
-        height: 44,
-        child: Center(
-          child: Icon(AppLucideIcons.plus, color: Colors.white, size: 24),
-        ),
-      ),
     );
+  }
+}
+
+// The HTML's Out/In cards use complete, canonical, currency-isolated totals.
+// A not-yet-loaded/failed aggregate is unknown (—), never an invented zero.
+class _TransactionFlowTotals extends StatelessWidget {
+  const _TransactionFlowTotals(
+      {required this.total, required this.privacyMode});
+  final TransactionsPeriodTotal? total;
+  final bool privacyMode;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = total;
+    final expense = privacyMode
+        ? '••••'
+        : value == null
+            ? '—'
+            : '${formatMoney(-value.netExpense)} ${value.currency}';
+    final income = privacyMode
+        ? '••••'
+        : value == null
+            ? '—'
+            : '${value.income.minorUnits > 0 ? "+" : ""}${formatMoney(value.income)} ${value.currency}';
+    final c = context.colors;
+    Widget metric(String key, String label, String amount, bool incoming) {
+      final accent = incoming ? c.income : c.danger;
+      return DecoratedBox(
+        key: ValueKey(key),
+        decoration: BoxDecoration(
+          color: c.surface,
+          border: Border.all(color: c.border),
+          borderRadius: BorderRadius.circular(18),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.s3),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(5),
+                    decoration: BoxDecoration(
+                      color: accent.withValues(alpha: .12),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Icon(incoming ? Icons.south_west : Icons.north_east,
+                        size: 14, color: accent),
+                  ),
+                  const SizedBox(width: 7),
+                  Expanded(
+                      child: Text(label,
+                          style: AppTypography.caption(c.textSecondary))),
+                ],
+              ),
+              const SizedBox(height: 8),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: AlignmentDirectional.centerStart,
+                child: Text(amount,
+                    textDirection: TextDirection.ltr,
+                    style: AppTypography.custom(
+                        size: 19,
+                        height: 1.25,
+                        weight: FontWeight.w700,
+                        tabular: true,
+                        color: c.textPrimary)),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return LayoutBuilder(builder: (context, constraints) {
+      final out =
+          metric('activity-period-out', context.l10n.cardOut, expense, false);
+      final incoming =
+          metric('activity-period-in', context.l10n.cardIn, income, true);
+      if (constraints.maxWidth < 250 ||
+          MediaQuery.textScalerOf(context).scale(19) > 27) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [out, const SizedBox(height: 8), incoming],
+        );
+      }
+      return IntrinsicHeight(
+          child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Expanded(child: out),
+          const SizedBox(width: 8),
+          Expanded(child: incoming)
+        ],
+      ));
+    });
   }
 }
 
 class _TransactionsHeader extends StatelessWidget {
   const _TransactionsHeader({
     required this.tab,
-    required this.expenseTotal,
+    required this.rangeLabel,
+    required this.hasMoreTransactions,
     required this.transactionsCount,
     required this.pendingCount,
     required this.subsCount,
@@ -1868,12 +2091,13 @@ class _TransactionsHeader extends StatelessWidget {
   });
 
   final int tab;
-  final double expenseTotal;
+  final String rangeLabel;
+  final bool hasMoreTransactions;
   final int transactionsCount;
   final int pendingCount;
   final int subsCount;
   final int instsCount;
-  final double monthlyTotal;
+  final Money monthlyTotal;
   final String currencyLabel;
   final VoidCallback onAdd;
 
@@ -1884,30 +2108,29 @@ class _TransactionsHeader extends StatelessWidget {
     return CalmPageHeader(
       // شرائح متعددة: الأزرق ميمتدّش تحت (هيغطّي المحتوى) — الذوبان جوّه.
       meltOverflow: 0,
-      title: tab == 0 ? context.l10n.txnTabTransactions : context.l10n.txnBillsAndSubs,
-      subtitle:
-          tab == 0 ? context.l10n.txnPeriodSpendTotal : context.l10n.txnActiveMonthlySpend,
-      leading: Navigator.of(context).canPop()
-          ? const BackButton(color: Colors.white)
-          : null,
+      sectionPhoto:
+          tab == 0 ? QirshSectionPhoto.transactions : QirshSectionPhoto.bills,
+      coverBottom:
+          tab == 0 ? const TransactionSearchField(onPhoto: true) : null,
+      title: tab == 0
+          ? context.l10n.txnTabTransactions
+          : context.l10n.txnBillsAndSubs,
+      subtitle: tab == 0
+          ? '$rangeLabel ${context.l10n.txnCountSuffix(transactionsCount.toString())}${hasMoreTransactions ? "+" : ""} · ${context.l10n.txnPendingReview} $pendingCount'
+          : context.l10n.txnActiveMonthlySpend,
+      leading: Navigator.of(context).canPop() ? const BackButton() : null,
       trailing: _AddButton(onTap: onAdd),
-      amount: Formatters.amount(tab == 0 ? expenseTotal : monthlyTotal),
+      amount: tab == 0 ? null : formatMoney(monthlyTotal),
       currency: currencyLabel,
       metrics: tab == 0
-          ? [
-              CalmMetric(label: context.l10n.txnTxForPeriod, value: '$transactionsCount'),
-              CalmMetric(label: context.l10n.txnPendingReview, value: '$pendingCount'),
-              CalmMetric(
-                label: context.l10n.txnTotalSpent,
-                value: '${Formatters.amount(expenseTotal)} $currencyLabel',
-              ),
-            ]
+          ? null
           : [
               CalmMetric(label: context.l10n.txnActiveSub, value: '$subsCount'),
-              CalmMetric(label: context.l10n.txnRunningInst, value: '$instsCount'),
+              CalmMetric(
+                  label: context.l10n.txnRunningInst, value: '$instsCount'),
               CalmMetric(
                 label: context.l10n.txnYearlyTotal,
-                value: '${Formatters.amount(monthlyTotal * 12)} $currencyLabel',
+                value: '${formatMoney(monthlyTotal * 12)} $currencyLabel',
               ),
             ],
     );
@@ -2038,14 +2261,17 @@ class SmartInboxCard extends ConsumerWidget {
                   onPressed: () async {
                     final saved = await ManualTransactionSheet.show(context);
                     if (!saved) return;
-                    await ref.read(smartInboxRepositoryProvider).resolve(item.id);
+                    await ref
+                        .read(smartInboxRepositoryProvider)
+                        .resolve(item.id);
                     ref.invalidate(smartInboxItemsProvider);
                   },
                   child: Text(context.l10n.cesManualEntry),
                 ),
                 if (settings != null && !smartAnalysisOn)
                   TextButton(
-                    onPressed: () => showSmartAnalysisConsentSheet(context, ref),
+                    onPressed: () =>
+                        showSmartAnalysisConsentSheet(context, ref),
                     child: Text(context.l10n.smartConsentEnable),
                   ),
               ],
@@ -2124,12 +2350,15 @@ Future<void> showSuspectedDuplicateReviewSheet(
     BuildContext context, SuspectedDuplicateEntity dupe) {
   return showGlassSheet<void>(
     context: context,
+    isScrollControlled: true,
     showDragHandle: true,
     builder: (_) => navySheetTheme(Directionality(
       textDirection: Directionality.of(context),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
-        child: _SuspectedDuplicateCard(dupe: dupe),
+      child: SingleChildScrollView(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 40),
+          child: _SuspectedDuplicateCard(dupe: dupe),
+        ),
       ),
     )),
   );
@@ -2218,8 +2447,17 @@ class _SuspectedDuplicatesSheet extends ConsumerWidget {
           Expanded(
             child: dupes.isEmpty
                 ? Center(
-                    child: Text(context.l10n.txnNoSuspectTx,
-                        style: AppTypography.body(c.textMuted)),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const QirshIllustration(
+                            name: 'emptyTx', width: 150, height: 112.5),
+                        const SizedBox(height: AppSpacing.s3),
+                        Text(context.l10n.txnNoSuspectTx,
+                            textAlign: TextAlign.center,
+                            style: AppTypography.body(c.textMuted)),
+                      ],
+                    ),
                   )
                 : ListView.separated(
                     controller: controller,
@@ -2259,24 +2497,43 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Icon(AppLucideIcons.copy, size: 18, color: c.warning),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  context.l10n.txnSimilarExists,
-                  style: AppTypography.bodyStrong(c.textMain),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+          if (MediaQuery.textScalerOf(context).scale(16) > 20) ...[
+            Row(
+              children: [
+                Icon(AppLucideIcons.copy, size: 18, color: c.warning),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    context.l10n.txnSimilarExists,
+                    style: AppTypography.bodyStrong(c.textMain),
+                  ),
                 ),
-              ),
-              Text(
+              ],
+            ),
+            Align(
+              alignment: AlignmentDirectional.centerEnd,
+              child: Text(
                 '${Formatters.amount(dupe.amount)} ${dupe.currency}',
                 style: AppTypography.bodyStrong(c.textMain),
               ),
-            ],
-          ),
+            ),
+          ] else
+            Row(
+              children: [
+                Icon(AppLucideIcons.copy, size: 18, color: c.warning),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    context.l10n.txnSimilarExists,
+                    style: AppTypography.bodyStrong(c.textMain),
+                  ),
+                ),
+                Text(
+                  '${Formatters.amount(dupe.amount)} ${dupe.currency}',
+                  style: AppTypography.bodyStrong(c.textMain),
+                ),
+              ],
+            ),
           const SizedBox(height: 4),
           Text(
             context.l10n.txnSimilarBody,
@@ -2308,61 +2565,110 @@ class _SuspectedDuplicateCard extends ConsumerWidget {
             style: AppTypography.caption(c.textMuted),
           ),
           const SizedBox(height: AppSpacing.s3),
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: () => _dismiss(ref),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: c.textMuted,
-                    side: BorderSide(color: c.border.withValues(alpha: 0.5)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                  child: Text(context.l10n.txnDismissDuplicate),
+          if (MediaQuery.textScalerOf(context).scale(16) > 20) ...[
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: () => _dismiss(ref),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: c.textMuted,
+                  side: BorderSide(color: c.border.withValues(alpha: 0.5)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
                 ),
+                child: Text(context.l10n.txnDismissDuplicate),
               ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: FilledButton(
-                  onPressed: () => _confirmAsReal(context, ref),
-                  style: FilledButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                  ),
-                  child: Text(context.l10n.txnSaveAsNew),
+            ),
+            const SizedBox(height: AppSpacing.s3),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () => _confirmAsReal(context, ref),
+                style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 10),
                 ),
+                child: Text(context.l10n.txnSaveAsNew),
               ),
-            ],
-          ),
+            ),
+          ] else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: () => _dismiss(ref),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: c.textMuted,
+                      side: BorderSide(color: c.border.withValues(alpha: 0.5)),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    child: Text(context.l10n.txnDismissDuplicate),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.s3),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () => _confirmAsReal(context, ref),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                    ),
+                    child: Text(context.l10n.txnSaveAsNew),
+                  ),
+                ),
+              ],
+            ),
           const SizedBox(height: AppSpacing.s2),
-          Row(
-            children: [
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: existing == null
-                      ? null
-                      : () => _editExisting(context, ref, existing),
-                  icon: const Icon(AppLucideIcons.pencil, size: 16),
-                  label: Text(context.l10n.txnEditTx),
-                ),
+          if (MediaQuery.textScalerOf(context).scale(16) > 20) ...[
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: existing == null
+                    ? null
+                    : () => _editExisting(context, ref, existing),
+                icon: const Icon(AppLucideIcons.pencil, size: 16),
+                label: Text(context.l10n.txnEditTx),
               ),
-              const SizedBox(width: AppSpacing.s2),
-              Expanded(
-                child: TextButton.icon(
-                  onPressed: existing == null
-                      ? null
-                      : () => _changeCategory(context, ref, existing),
-                  icon: const Icon(AppLucideIcons.shapes, size: 16),
-                  label: Text(context.l10n.txnChangeCategory),
-                ),
+            ),
+            const SizedBox(height: AppSpacing.s2),
+            SizedBox(
+              width: double.infinity,
+              child: TextButton.icon(
+                onPressed: existing == null
+                    ? null
+                    : () => _changeCategory(context, ref, existing),
+                icon: const Icon(AppLucideIcons.shapes, size: 16),
+                label: Text(context.l10n.txnChangeCategory),
               ),
-            ],
-          ),
+            ),
+          ] else
+            Row(
+              children: [
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: existing == null
+                        ? null
+                        : () => _editExisting(context, ref, existing),
+                    icon: const Icon(AppLucideIcons.pencil, size: 16),
+                    label: Text(context.l10n.txnEditTx),
+                  ),
+                ),
+                const SizedBox(width: AppSpacing.s2),
+                Expanded(
+                  child: TextButton.icon(
+                    onPressed: existing == null
+                        ? null
+                        : () => _changeCategory(context, ref, existing),
+                    icon: const Icon(AppLucideIcons.shapes, size: 16),
+                    label: Text(context.l10n.txnChangeCategory),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
   }
 
-  String _timestampSourceLabel(BuildContext context, ComparisonTimestampSource? source) {
+  String _timestampSourceLabel(
+      BuildContext context, ComparisonTimestampSource? source) {
     return source == ComparisonTimestampSource.smsBody
         ? context.l10n.txnTimeInSms
         : context.l10n.txnTimeReceived;

@@ -4,6 +4,8 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/utils/formatters.dart';
+import '../../domain/finance/money.dart';
+import '../../domain/finance/money_format.dart';
 import '../cards/brand_mark.dart';
 import 'app_avatar.dart';
 import '../../core/utils/l10n_ext.dart';
@@ -21,6 +23,7 @@ class AppTransactionRow extends StatelessWidget {
     required this.title,
     required this.amount,
     required this.currency,
+    this.amountMoney,
     this.subtitle,
     this.categoryIcon,
     this.categoryIconName,
@@ -42,6 +45,10 @@ class AppTransactionRow extends StatelessWidget {
   final String title;
   final double amount;
   final String currency;
+
+  /// Canonical precision for ledger callers; [currency] may be a translated
+  /// display label, so it cannot determine the currency's decimal scale.
+  final Money? amountMoney;
   final String? subtitle;
   final IconData? categoryIcon;
   final String? categoryIconName;
@@ -67,14 +74,22 @@ class AppTransactionRow extends StatelessWidget {
   /// the row sits inside a day card.
   final double horizontalPadding;
 
+  Widget _categoryTile() => categoryIcon != null
+      ? AppAvatar.icon(icon: categoryIcon!, color: categoryColor)
+      : AppAvatar.category(iconName: categoryIconName, color: categoryColor);
+
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final formattedAmount =
-        privacyMode ? '••••' : '${Formatters.amount(amount)} $currency';
+    final canonical = amountMoney;
+    final magnitude = canonical == null
+        ? Formatters.amount(amount.abs())
+        : formatMoney(canonical.isNegative ? -canonical : canonical);
+    final isZero = canonical?.isZero ?? amount == 0;
+    final formattedAmount = privacyMode ? '••••' : '$magnitude $currency';
     // Calm Capital ledger: expense stays neutral (primary text), income green.
     final amountColor = isDebit ? c.textPrimary : c.success;
-    final amountPrefix = isDebit ? '−' : '+';
+    final amountPrefix = isZero ? '' : isDebit ? '−' : '+';
 
     // The screen-reader label. It was Arabic in every locale, which is worse
     // than a visible untranslated string: a blind English user hears the row
@@ -104,14 +119,11 @@ class AppTransactionRow extends StatelessWidget {
             child: Row(
               children: [
                 (brandLogoUrl != null || BrandMark.hasBrand(title))
-                    ? AppAvatar.brand(name: title, logoUrl: brandLogoUrl)
-                    : categoryIcon != null
-                        ? AppAvatar.icon(
-                            icon: categoryIcon!, color: categoryColor)
-                        : AppAvatar.category(
-                            iconName: categoryIconName,
-                            color: categoryColor,
-                          ),
+                    ? AppAvatar.brand(
+                        name: title,
+                        logoUrl: brandLogoUrl,
+                        fallback: _categoryTile())
+                    : _categoryTile(),
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Column(
@@ -152,7 +164,8 @@ class AppTransactionRow extends StatelessWidget {
                     Text(
                       privacyMode
                           ? '••••'
-                          : '$amountPrefix${Formatters.amount(amount)}',
+                          : '$amountPrefix$magnitude',
+                      textDirection: TextDirection.ltr,
                       style: AppTypography.bodyStrong(
                           privacyMode ? c.textMuted : amountColor),
                     ),

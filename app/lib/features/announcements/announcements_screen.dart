@@ -7,10 +7,12 @@ import '../../core/utils/l10n_ext.dart';
 import '../../core/privacy/gated_url_launcher.dart';
 
 import '../../core/di/app_providers.dart';
-import '../../core/theme/app_assets.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
+import '../common/app_header.dart';
+import '../common/app_card.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../data/catalog/catalog_daos.dart';
 import '../../domain/entities/engagement_entities.dart';
 import '../common/widgets.dart';
@@ -26,48 +28,9 @@ class AnnouncementsScreen extends ConsumerWidget {
     final announcementsAsync = ref.watch(activeAnnouncementsProvider);
     final campaignsAsync = ref.watch(activeDashboardCampaignsProvider);
     final prefsAsync = ref.watch(notificationPreferencesProvider);
-    final c = context.colors;
 
     return AppScreenScaffold(
-      header: Padding(
-        padding: const EdgeInsets.fromLTRB(
-          AppSpacing.gutter,
-          AppSpacing.s3,
-          AppSpacing.gutter,
-          AppSpacing.s2,
-        ),
-        child: Row(
-          children: [
-            Image.asset(AppAssets.getCoin(context), width: 42, height: 42),
-            const SizedBox(width: AppSpacing.s3),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    context.l10n.annTitle,
-                    // Mockup `.tophead .h1`: 24px w600, tight tracking.
-                    style: AppTypography.calmTitle(c.textPrimary)
-                        .copyWith(fontSize: 24, letterSpacing: -0.5),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    context.l10n.annSubtitle,
-                    // Mockup `.hsub`: 13px secondary.
-                    style: AppTypography.caption(c.textSecondary)
-                        .copyWith(fontSize: 13, fontWeight: FontWeight.w400),
-                  ),
-                ],
-              ),
-            ),
-            IconButton(
-              tooltip: context.l10n.annClose,
-              onPressed: () => Navigator.of(context).maybePop(),
-              icon: const Icon(AppLucideIcons.x),
-            ),
-          ],
-        ),
-      ),
+      header: AppHeader(title: context.l10n.annTitle),
       body: prefsAsync.when(
         skipLoadingOnReload: true,
         loading: () => AppLoadingState(label: context.l10n.annLoading),
@@ -92,6 +55,8 @@ class AnnouncementsScreen extends ConsumerWidget {
           if (items.isEmpty) {
             return AppEmptyState(
               icon: AppLucideIcons.bell,
+              illustration: const QirshIllustration(
+                  name: 'notifications', width: 220, height: 165),
               title: context.l10n.annEmpty,
               subtitle:
                   context.l10n.annEmptyBody,
@@ -104,17 +69,45 @@ class AnnouncementsScreen extends ConsumerWidget {
               ref.invalidate(activeDashboardCampaignsProvider);
               ref.invalidate(notificationPreferencesProvider);
             },
-            child: ListView.separated(
+            child: ListView(
               padding: const EdgeInsets.fromLTRB(
-                AppSpacing.gutter,
-                AppSpacing.s2,
-                AppSpacing.gutter,
-                120,
+                AppSpacing.gutter, AppSpacing.s2, AppSpacing.gutter, 120,
               ),
-              itemCount: items.length,
-              separatorBuilder: (_, __) =>
-                  const SizedBox(height: AppSpacing.s3),
-              itemBuilder: (context, index) => _MessageCard(item: items[index]),
+              children: [
+                AppCard(
+                  padding: EdgeInsets.zero,
+                  child: Column(children: [
+                    for (final item in items) ...[
+                      if (item != items.first)
+                        Divider(height: 1, indent: 16, endIndent: 16,
+                            color: context.colors.border),
+                      _MessageCard(item: item),
+                    ],
+                  ]),
+                ),
+                const SizedBox(height: 20),
+                AppCard(
+                  child: Row(children: [
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(context.l10n.setSettings,
+                            style: AppTypography.caption(context.colors.primary)),
+                        const SizedBox(height: 4),
+                        Text(context.l10n.annPreferencesTitle,
+                            style: AppTypography.bodyStrong(context.colors.textPrimary)),
+                        TextButton(
+                          onPressed: () => context.push('/settings'),
+                          style: TextButton.styleFrom(padding: EdgeInsets.zero,
+                              alignment: AlignmentDirectional.centerStart),
+                          child: Text(context.l10n.annPreferencesAction),
+                        ),
+                      ],
+                    )),
+                    const QirshIllustration(name: 'notifications', width: 100, height: 75),
+                  ]),
+                ),
+              ],
             ),
           );
         },
@@ -131,87 +124,53 @@ class _MessageCard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final c = context.colors;
-    return Container(
-      padding: const EdgeInsets.all(AppSpacing.s4),
-      decoration: BoxDecoration(
-        color: c.surfaceCard,
-        borderRadius: BorderRadius.circular(AppRadius.card),
-        border: Border.all(color: c.border),
+    return ExpansionTile(
+      tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      childrenPadding: const EdgeInsetsDirectional.fromSTEB(16, 0, 16, 12),
+      shape: const Border(),
+      collapsedShape: const Border(),
+      iconColor: c.textMuted,
+      collapsedIconColor: c.textMuted,
+      maintainState: true,
+      leading: Container(
+        width: 36, height: 36,
+        decoration: BoxDecoration(
+          color: item.accent(c).withValues(alpha:
+              Theme.of(context).brightness == Brightness.dark ? 0.22 : 0.12),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Icon(item.icon, size: 18, color: item.accent(c)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 46,
-                height: 46,
-                padding: const EdgeInsets.all(7),
-                decoration: BoxDecoration(
-                  color: item.accent(c).withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(AppRadius.md),
-                ),
-                child: Icon(item.icon, color: item.accent(c)),
-              ),
-              const SizedBox(width: AppSpacing.s3),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // UX-031 — the screen calls itself «تاريخ إشعارات قرش» and
-                    // sorts every row by `sortAt`, and then showed no dates at
-                    // all: a history in which nothing is dated. The date is
-                    // stated beside the badge because the two together are what
-                    // make a row identifiable — «إشعار مرسل» alone does not
-                    // distinguish this month's budget warning from last
-                    // month's.
-                    Row(
-                      children: [
-                        Flexible(
-                          child: Text(item.badge,
-                              style: AppTypography.caption(c.textLight),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis),
-                        ),
-                        Text(' · ${item.dateLabel(context)}',
-                            style: AppTypography.caption(c.textLight)),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    Text(item.title,
-                        style: AppTypography.bodyStrong(c.textPrimary)),
-                    if (item.body.trim().isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(item.body,
-                          style: AppTypography.callout(c.textSecondary)),
-                    ],
-                  ],
-                ),
-              ),
-            ],
+      title: Text(item.title,
+          style: AppTypography.custom(size: 14.5, weight: FontWeight.w600,
+              height: 1.4, color: c.textPrimary)),
+      subtitle: Text('${item.dateLabel(context)} · ${item.badge}',
+          style: AppTypography.caption(c.textMuted)),
+      children: [
+        if (item.body.trim().isNotEmpty)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: Text(item.body,
+                style: AppTypography.callout(c.textSecondary)),
           ),
-          const SizedBox(height: AppSpacing.s3),
-          Row(
-            mainAxisSize: MainAxisSize.max,
-            children: [
-              if (item.actionLabel != null)
-                Flexible(
-                  child: FilledButton(
-                    onPressed: () => _openAction(context, item),
-                    child: Text(item.actionLabel!),
-                  ),
-                ),
-              const Spacer(),
-              if (item.dismissible)
-                TextButton(
-                  onPressed: () => _dismiss(ref, item),
-                  child: Text(context.l10n.txnHide),
-                ),
-            ],
-          ),
+        if (item.actionLabel != null || item.dismissible) ...[
+          const SizedBox(height: 8),
+          Row(children: [
+            if (item.actionLabel != null)
+              TextButton.icon(
+                onPressed: () => _openAction(context, item),
+                icon: const Icon(AppLucideIcons.externalLink, size: 16),
+                label: Text(item.actionLabel!),
+              ),
+            const Spacer(),
+            if (item.dismissible)
+              TextButton(
+                onPressed: () => _dismiss(ref, item),
+                child: Text(context.l10n.txnHide),
+              ),
+          ]),
         ],
-      ),
+      ],
     );
   }
 

@@ -72,8 +72,7 @@ void main() {
         final fn = body(store, sig).trimLeft();
         expect(
           fn.substring(1).trimLeft(),
-          anyOf(startsWith('try withQueueLock'),
-              startsWith('(try? withQueueLock')),
+          matches(RegExp(r'^(?:try|\(try\?) with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')),
           reason: '$sig must take the flock before touching the owner record '
               'or the queue (no unlocked fallback)',
         );
@@ -99,7 +98,7 @@ void main() {
       expect(publish, contains('forKey: lastAdmittedHashKC'));
       expect(publish, contains('QueueError.barrierActive'),
           reason: 'no owner may be published while a removal runs');
-      expect(restrictive, contains('withQueueLock'));
+      expect(restrictive, matches(RegExp(r'with(?:QueueLock|ProtectedWriteLock(?:Counted)?)')));
       expect(restrictive, contains('QueueError.barrierActive'));
       expect(restrictive.indexOf('guard let mirror = consentMirror(forHash: hash)'),
           greaterThan(-1));

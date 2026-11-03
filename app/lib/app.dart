@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
@@ -61,19 +62,27 @@ class MoneyApp extends ConsumerWidget {
           // launch to data-ready (see [appDataRestoring]) — sits above the
           // router so the shell never flashes reseeded defaults behind it.
           // Every snackbar in the app renders on the glass material.
-          child: GlassScaffoldMessenger(
-            child: Stack(
-              children: [
-                AppLockGate(child: child!),
-                const RemovalNoticeHost(),
-                const DenyIncompleteNoticeHost(),
-                ValueListenableBuilder<bool>(
-                  valueListenable: appDataRestoring,
-                  builder: (context, restoring, _) => restoring
-                      ? const Positioned.fill(child: AppBootLoader())
-                      : const SizedBox.shrink(),
-                ),
-              ],
+          // The status bar follows the theme wherever a screen sets nothing
+          // itself. Without this fallback the last style a screen set (Home's
+          // blue hero, onboarding) stays on after it scrolls or navigates away.
+          child: AnnotatedRegion<SystemUiOverlayStyle>(
+            value: Theme.of(context).brightness == Brightness.dark
+                ? SystemUiOverlayStyle.light
+                : SystemUiOverlayStyle.dark,
+            child: GlassScaffoldMessenger(
+              child: Stack(
+                children: [
+                  AppLockGate(child: child!),
+                  const RemovalNoticeHost(),
+                  const DenyIncompleteNoticeHost(),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: appDataRestoring,
+                    builder: (context, restoring, _) => restoring
+                        ? const Positioned.fill(child: AppBootLoader())
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
             ),
           ),
         );

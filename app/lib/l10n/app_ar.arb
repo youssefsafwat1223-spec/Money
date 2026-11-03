@@ -734,6 +734,8 @@
   "txnConfirmAll": "تأكيد الكل",
   "txnTabTransactions": "العمليات",
   "txnTabBills": "الفواتير",
+  "txnPendingEmptyTitle": "لا توجد عمليات معلّقة في هذا العرض",
+  "txnPendingEmptyBody": "اختر فترة أخرى أو غيّر عوامل التصفية لمراجعة عمليات أخرى.",
   "txnEmptyPeriodTitle": "لا توجد عمليات في هذه الفترة",
   "txnEmptyPeriodBody": "غيّر الفترة أو أضف رسالة بنك جديدة من زر +.",
   "txnConfirmAllTitle": "تأكيد كل العمليات المعلّقة؟",
@@ -1336,7 +1338,10 @@
   "cardAccountWord": "حساب",
   "cardUnassigned": "غير مخصّصة",
   "cardBack": "رجوع",
+  "cardActivityTitle": "حركة البطاقات",
   "cardAllCards": "كل البطاقات",
+  "cardLoadFailed": "تعذّر تحميل بطاقاتك",
+  "cardLoadFailedBody": "حاول مجددًا لعرض بطاقاتك المحفوظة.",
   "cardAddCard": "إضافة بطاقة",
   "cardEmptyTitle": "لا توجد بطاقات بعد",
   "cardEmptyBody": "تظهر البطاقات تلقائيًا من رسائل البنك، ويمكنك إضافة بطاقة بتصميمك.",
@@ -1469,7 +1474,7 @@
   "privCancelDeletion": "إلغاء الحذف",
   "privCancelFailed": "تعذّر إلغاء الحذف الآن. حاول مجدداً.",
   "privTitle": "الخصوصية والبيانات",
-  "privIntro": "رسائل البنك التي تشاركها عبر الاختصار تُعالج بنص مُعقّم على خادم قرش وبمساعدة الذكاء الاصطناعي. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.",
+  "privIntro": "عند تفعيل المعالجة السحابية، قد تُعالج رسائل البنك التي تشاركها عبر الاختصار بنص مُعقّم على خوادم قرش وبمساعدة الذكاء الاصطناعي. عند إيقاف المعالجة السحابية تُحلّل الرسائل محليًا. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.",
   "dtxPreviewRows": "{rows} سجل • {format}",
   "@dtxPreviewRows": {
     "placeholders": {
@@ -1569,7 +1574,7 @@
   "pasteAlreadyExists": "العملية موجودة بالفعل، فتحناها للمراجعة.",
   "pasteAlreadyRecorded": "هذه العملية مسجّلة بالفعل.",
   "pasteSimilarNeedsReview": "عملية مشابهة موجودة وتحتاج مراجعة.",
-  "pasteAiOffline": "الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.",
+  "pasteAiOffline": "تحليل الذكاء الاصطناعي غير متاح. لم تُضَف عملية. يمكنك إضافتها يدويًا.",
   "pasteUnreadableOnDevice": "تعذّرت قراءة الرسالة على الجهاز — أضِفها يدويًا.",
   "pasteNotATransaction": "تعذّرت قراءتها كعملية — أضِفها يدويًا.",
   "pasteNothingToOpen": "لا توجد عملية لفتحها لهذه الرسالة.",
@@ -1980,6 +1985,8 @@
   },
   "homeNoBudgetsOnAccount": "لا توجد ميزانيات على هذا الحساب.",
   "homeActiveBudget": "ميزانية نشطة",
+  "homeAvailableCoupons": "{count, plural, =0{لا توجد كوبونات متاحة} =1{كوبون واحد متاح} =2{كوبونان متاحان} few{{count} كوبونات متاحة} many{{count} كوبونًا متاحًا} other{{count} كوبون متاح}}",
+  "@homeAvailableCoupons": {"placeholders": {"count": {"type": "int"}}},
   "homePartnerOffers": "عروض من شركاء قرش",
   "homeAllCoupons": "عرض كل الكوبونات",
   "homeSpentToday": "صرفت اليوم",
@@ -2208,6 +2215,15 @@
   },
   "cfDesign": "التصميم",
   "cfAccentOptional": "لون مميّز (اختياري)",
+  "cfAccentNone": "بدون لون مميّز",
+  "cfAccentColourName": "{colour, select, amber{كهرماني} red{أحمر} pink{وردي} purple{بنفسجي} blue{أزرق} cyan{سماوي} emerald{زمردي} lime{أخضر ليموني} orange{برتقالي} teal{فيروزي} other{لون مميّز}}",
+  "@cfAccentColourName": {
+    "placeholders": {
+      "colour": {
+        "type": "String"
+      }
+    }
+  },
   "cfLinkedAccount": "الحساب المرتبط",
   "cfDeleteCard": "حذف البطاقة",
   "cfNoAccount": "بدون حساب",
@@ -3466,6 +3482,292 @@
   "pasteAiUnavailable": "قُرئت على جهازك — الذكاء الاصطناعي غير متاح في هذه النسخة.",
   "pasteAiMismatch": "قُرئت على جهازك — إجابة الذكاء الاصطناعي لم تطابق الرسالة فلم تُستخدم.",
   "pasteAiFailed": "قُرئت على جهازك — تعذّر الوصول إلى الذكاء الاصطناعي ({code}).",
-  "@pasteAiFailed": {"placeholders": {"code": {"type": "String"}}},
-  "pasteAiConsentOff": "تعذّرت قراءة هذه الرسالة على جهازك. فعّل السحابة والتحليل الذكي من الخصوصية للسماح بمساعدة الذكاء الاصطناعي."
+  "@pasteAiFailed": {
+    "placeholders": {
+      "code": {
+        "type": "String"
+      }
+    }
+  },
+  "pasteAiConsentOff": "تعذّرت قراءة هذه الرسالة على جهازك. فعّل السحابة والتحليل الذكي من الخصوصية للسماح بمساعدة الذكاء الاصطناعي.",
+  "homeGoodMorning": "صباح الخير",
+  "homeGoodEvening": "مساء الخير",
+  "homeQuickAdd": "إضافة",
+  "homeQuickPaste": "لصق رسالة",
+  "homeQuickBudget": "ميزانية",
+  "homeQuickGoals": "أهداف",
+  "homeBudgetLeft": "من ميزانية {limit} · متبقي {left}",
+  "@homeBudgetLeft": {
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      },
+      "left": {
+        "type": "String"
+      }
+    }
+  },
+  "homeBudgetOverBy": "تجاوزت ميزانية {limit} بـ {over}",
+  "@homeBudgetOverBy": {
+    "placeholders": {
+      "limit": {
+        "type": "String"
+      },
+      "over": {
+        "type": "String"
+      }
+    }
+  },
+  "homeProjectedMonthEnd": "المتوقع نهاية الشهر {amount}",
+  "@homeProjectedMonthEnd": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeLastWeekWas": "الأسبوع الماضي {amount}",
+  "@homeLastWeekWas": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeTodayTxCount": "عمليات اليوم: {count}",
+  "@homeTodayTxCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "homeLeftTodayShort": "متاح لليوم {amount}",
+  "@homeLeftTodayShort": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homePaceUnder": "أقل من وتيرة الميزانية بـ {percent}%",
+  "@homePaceUnder": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homePaceOver": "أعلى من وتيرة الميزانية بـ {percent}%",
+  "@homePaceOver": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homePaceOnTrack": "على وتيرة الميزانية",
+  "homePaceSetBudget": "حدّد ميزانية لتتابع الوتيرة",
+  "homeWeekMoreThan": "أعلى من الأسبوع الماضي بـ {percent}%",
+  "@homeWeekMoreThan": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeWeekLessThan": "أقل من الأسبوع الماضي بـ {percent}%",
+  "@homeWeekLessThan": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeDayMoreThan": "أعلى من أمس بـ {percent}%",
+  "@homeDayMoreThan": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeDayLessThan": "أقل من أمس بـ {percent}%",
+  "@homeDayLessThan": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homeToReview": "للمراجعة",
+  "homeReviewNow": "راجعها",
+  "homeSpentOfAllowance": "صرفت {spent} من {allowance}",
+  "@homeSpentOfAllowance": {
+    "placeholders": {
+      "spent": {
+        "type": "String"
+      },
+      "allowance": {
+        "type": "String"
+      }
+    }
+  },
+  "homeLastSevenDays": "آخر ٧ أيام",
+  "homeDailyAverage": "المتوسط {amount} يوميًا",
+  "@homeDailyAverage": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeWhereMoneyWent": "أين ذهبت أموالك",
+  "homeDetails": "التفاصيل",
+  "homeUpcoming": "مدفوعات قادمة",
+  "homeInstalmentProgress": "الدفعة {n} من {total}",
+  "@homeInstalmentProgress": {
+    "placeholders": {
+      "n": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "homeGoalsAndPlans": "أهدافي وخططي",
+  "homeNewGoal": "هدف جديد",
+  "homeRecentTx": "آخر العمليات",
+  "homeSeeAll": "عرض الكل",
+  "homeWelcomeTo": "أهلاً بك في قِرش",
+  "homeWelcomeTitle": "أضف أول عملية،\nوقِرش يرتّب الباقي",
+  "homeWelcomeBody": "صرفك اليومي، المتاح لك، وأين تذهب أموالك. كلها تظهر هنا بعد أول عملية.",
+  "homeStartSteps": "ابدأ في ٣ خطوات",
+  "homeStartStepsHint": "أقل من دقيقتين",
+  "homeStepAddTitle": "أضف أول عملية",
+  "homeStepAddBody": "ألصق رسالة البنك أو أدخلها يدويًا",
+  "homeStepAddCta": "أضف عملية",
+  "homeStepBudgetTitle": "حدّد ميزانية الشهر",
+  "homeStepBudgetBody": "لتعرف كم يتاح لك كل يوم",
+  "homeStepBudgetCta": "حدّد الميزانية",
+  "homeStepCaptureTitle": "فعّل التقاط رسائل البنك",
+  "homeStepCaptureBody": "لتُضاف العمليات بدون لصق",
+  "homeStepCaptureCta": "طريقة التفعيل",
+  "homeOnDeviceTitle": "بياناتك محفوظة على جهازك",
+  "homeOnDeviceBody": "قاعدة بياناتك مشفّرة على هذا الجهاز.",
+  "homeCreateYourself": "أو أنشئ بنفسك",
+  "homeTileBudgetSub": "شهرية أو لتصنيف",
+  "homeTileGoal": "هدف ادخار",
+  "homeTileGoalSub": "سفر، سيارة، طوارئ",
+  "homeTileBill": "اشتراك أو قسط",
+  "homeTileBillSub": "ونذكّرك قبل الخصم",
+  "homeTilePlan": "خطة",
+  "homeTilePlanSub": "للسفر أو المناسبات",
+  "homePrivacyToggle": "إظهار المبالغ أو إخفاؤها",
+  "accTotalBalance": "إجمالي الأرصدة",
+  "achBadges": "الشارات",
+  "achEarnedCount": "{earned} من {total} مكتملة",
+  "@achEarnedCount": {
+    "placeholders": {
+      "earned": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "achNextLevelXp": "باقي {remaining} للمستوى التالي",
+  "@achNextLevelXp": {
+    "placeholders": {
+      "remaining": {
+        "type": "int"
+      }
+    }
+  },
+  "gdSavedLabel": "ادّخرت",
+  "homeSavingsGrowing": "نمو مدخراتك",
+  "homeSavingsSurplus": "دخلك سبق صرفك بـ {amount} هذا الشهر",
+  "@homeSavingsSurplus": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "homeSavingsMotivation": "حوّل جزء منه لأهدافك وخلّيه يكبر.",
+  "homeAddToGoal": "أضف لهدف",
+  "rptPhotoKicker": "صورة أوضح لأموالك",
+  "rptPhotoTitle": "تفاصيل صرفك في مكان واحد",
+  "homeSpendingAhead": "صرفك سبق دخلك بـ {amount} هذا الشهر",
+  "@homeSpendingAhead": {
+    "placeholders": {
+      "amount": {
+        "type": "String"
+      }
+    }
+  },
+  "goalCoverLabel": "صورة الهدف",
+  "goalCoverTravel": "سفر",
+  "goalCoverCar": "عربية",
+  "goalCoverHome": "بيت",
+  "goalCoverEducation": "تعليم",
+  "goalCoverGadgets": "أجهزة",
+  "goalCoverEmergency": "طوارئ",
+  "bdgOverviewSubtitle": "حدودك وأهدافك في مكان واحد",
+  "rptExpenseCountLabel": "عمليات الصرف",
+  "rptDailySpending": "الصرف اليومي",
+  "dtxExportSection": "تصدير",
+  "dtxImportSection": "استيراد",
+  "dtxPdfReport": "تقرير مالي PDF",
+  "dtxPdfReportSub": "ملخص مصمم للمشاركة",
+  "captureAutomaticTitle": "الالتقاط التلقائي",
+  "captureAutomaticBody": "إعداد اختصار آبل أو التقاط رسائل البنك",
+  "homeHeroIncome": "دخل",
+  "homeHeroSpent": "مصروف",
+  "homeHeroNet": "الصافي",
+  "homePaceUsed": "استخدمت {percent}%",
+  "@homePaceUsed": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "homePaceExpected": "المتوقع حتى الآن {percent}%",
+  "@homePaceExpected": {
+    "placeholders": {
+      "percent": {
+        "type": "int"
+      }
+    }
+  },
+  "introWelcomeTitle": "فلوسك واضحة… من غير مجهود",
+  "introWelcomeBody": "قِرش يحوّل رسائل البنك لصورة واضحة لصرفك وميزانياتك وأهدافك.",
+  "introCaptureTitle": "عملياتك من رسائل البنك",
+  "introCaptureBody": "اختصار آبل يرسل رسالة البنك لقِرش. تُقرأ على جهازك، وتراجع النتيجة قبل حفظها.",
+  "introBudgetTitle": "ميزانية تنبهك قبل التجاوز",
+  "introBudgetBody": "شوف وتيرة صرفك يوم بيوم، واعرف إمتى تهدّي.",
+  "introPrivacyTitle": "خصوصيتك قبل أي حاجة",
+  "introPrivacyBody": "بياناتك مشفّرة على جهازك. المعالجة السحابية اختيارية، وتتحكم فيها من الإعدادات.",
+  "introPageSemantic": "الصفحة {page} من {total}",
+  "@introPageSemantic": {
+    "placeholders": {
+      "page": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "introPrivacyLocalBody": "تُحفظ سجلاتك مشفّرة على هذا الجهاز.",
+  "introPrivacyCloudBody": "اختياري. اختر تفعيله أثناء الإعداد أو لاحقًا من الإعدادات.",
+  "annPreferencesTitle": "اختر الإشعارات التي تهمك",
+  "annPreferencesAction": "إعدادات الإشعارات",
+  "couponsAvailableLabel": "العروض المتاحة",
+  "setCategoryIconName": "{icon, select, restaurants{مطاعم} groceries{بقالة} shopping{تسوق} transport{مواصلات} bills{فواتير} cards{بطاقات} cash{نقود} cafes{مقاهٍ} gifts{هدايا} home{منزل} travel{سفر} health{صحة} education{تعليم} transfers{تحويلات} other{أيقونة أخرى}}",
+  "setCategoryColourName": "{colour, select, grey{رمادي} coral{مرجاني} green{أخضر} blue{أزرق} purple{بنفسجي} brightGreen{أخضر زاهٍ} teal{أخضر مزرق} pink{وردي} blueGrey{رمادي مزرق} orange{برتقالي} other{لون مخصص}}",
+  "rptPreviousPeriod": "الفترة السابقة"
 }

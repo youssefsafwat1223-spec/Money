@@ -32,8 +32,47 @@ Widget _host(ProviderContainer c) => UncontrolledProviderScope(
       ),
     );
 
+Widget _photoHost(ProviderContainer c, ScrollController scrollController) =>
+    UncontrolledProviderScope(
+      container: c,
+      child: MaterialApp(
+        theme: AppTheme.light,
+        localizationsDelegates: AppL10n.localizationsDelegates,
+        supportedLocales: AppL10n.supportedLocales,
+        locale: const Locale('en'),
+        home: Scaffold(
+          body: SingleChildScrollView(
+            controller: scrollController,
+            child: const Column(
+              children: [
+                SizedBox(height: 420),
+                TransactionSearchField(onPhoto: true),
+                SizedBox(height: 500),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
 void main() {
   group('TransactionSearchField widget debounce', () {
+    testWidgets('photo search reveals itself when focused', (tester) async {
+      final c = ProviderContainer();
+      final scrollController = ScrollController();
+      addTearDown(c.dispose);
+      addTearDown(scrollController.dispose);
+
+      await tester.pumpWidget(_photoHost(c, scrollController));
+      expect(scrollController.offset, 0);
+
+      await tester.tap(find.byType(TextField));
+      await tester.pumpAndSettle();
+
+      expect(scrollController.offset, greaterThan(0));
+      expect(tester.getTopLeft(find.byType(TextField)).dy, lessThan(250));
+    });
+
     testWidgets('rapid typing writes only the final settled term once',
         (tester) async {
       final c = ProviderContainer();

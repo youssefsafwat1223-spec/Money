@@ -16,16 +16,23 @@ class AppToast {
 
   /// Shows a success or neutral notification at the top of the screen.
   static void show(BuildContext context, String message) {
-    _showToast(context, message, isError: false);
+    _showToast(Overlay.of(context, rootOverlay: true), message, isError: false);
   }
 
   /// Shows an error notification at the top of the screen.
   static void showError(BuildContext context, String message) {
-    _showToast(context, message, isError: true);
+    _showToast(Overlay.of(context, rootOverlay: true), message, isError: true);
   }
 
-  static void _showToast(BuildContext context, String message,
+  /// Uses a root overlay captured before an asynchronous route/scope change.
+  /// A disposed host is ignored without reading the former screen's context.
+  static void showErrorInOverlay(OverlayState overlay, String message) {
+    _showToast(overlay, message, isError: true);
+  }
+
+  static void _showToast(OverlayState overlayState, String message,
       {required bool isError}) {
+    if (!overlayState.mounted) return;
     // Dismiss existing toast if any
     _currentToast?.remove();
     _currentToast = null;
@@ -36,8 +43,6 @@ class AppToast {
     } else {
       HapticFeedback.lightImpact();
     }
-
-    final overlayState = Overlay.of(context, rootOverlay: true);
 
     _currentToast = OverlayEntry(
       builder: (context) => _ToastWidget(
@@ -152,7 +157,13 @@ class _ToastWidgetState extends State<_ToastWidget>
               padding: EdgeInsets.zero,
               nativeMaterial: true,
               tint: widget.isError ? Colors.red.withValues(alpha: 0.14) : null,
-              child: Padding(
+              // Keep text legible over photographs and the navy header even
+              // when the native material samples a dark background in light mode.
+              child: Container(
+                decoration: BoxDecoration(
+                  color: widget.isError ? c.dangerBg : c.surfaceCard,
+                  borderRadius: BorderRadius.circular(999),
+                ),
                 padding:
                     const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
                 child: Row(
@@ -161,7 +172,7 @@ class _ToastWidgetState extends State<_ToastWidget>
                       widget.isError
                           ? AppLucideIcons.alertCircle
                           : AppLucideIcons.checkCircle,
-                      color: widget.isError ? Colors.redAccent : c.success,
+                      color: widget.isError ? c.danger : c.success,
                       size: 22,
                     ),
                     const SizedBox(width: 12),

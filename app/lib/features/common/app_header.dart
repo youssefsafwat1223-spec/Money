@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
+import '../../core/theme/widgets/section_photo_header.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 
@@ -14,9 +15,13 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
     this.showBack = true,
     this.compact = false,
     this.titleMaxLines = 1,
+    this.sectionPhoto,
+    this.sectionHeight = 186,
   });
 
   final String title;
+  final QirshSectionPhoto? sectionPhoto;
+  final double sectionHeight;
   final String? subtitle;
   final Widget? leading;
   final Widget? trailing;
@@ -40,6 +45,18 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
+    if (sectionPhoto != null) {
+      return QirshSectionHero(
+        photo: sectionPhoto!, title: title, subtitle: subtitle,
+        height: sectionHeight, expandForText: false,
+        leading: leading ?? (showBack && Navigator.of(context).canPop()
+            ? const BackButton(color: Colors.white) : null),
+        trailing: trailing == null && action == null ? null : Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [if (trailing != null) trailing!, if (action != null) action!],
+        ),
+      );
+    }
     return AppBar(
       backgroundColor: c.bg,
       elevation: 0,
@@ -57,12 +74,9 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
             title,
             maxLines: titleMaxLines,
             overflow: TextOverflow.ellipsis,
-            // Mockup `.tophead .h1`: 24px w600, tight tracking.
-            style: compact
-                ? AppTypography.headline(c.textPrimary)
-                    .copyWith(fontWeight: FontWeight.w600)
-                : AppTypography.calmTitle(c.textPrimary)
-                    .copyWith(fontSize: 24, letterSpacing: -0.5),
+            // The approved HTML pushed-screen navigation title.
+            style: AppTypography.custom(size: 17, weight: FontWeight.w600,
+              height: 1.25, color: c.textPrimary),
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 2),
@@ -83,12 +97,13 @@ class AppHeader extends StatelessWidget implements PreferredSizeWidget {
         if (trailing != null || action != null)
           const SizedBox(width: AppSpacing.gutter),
       ],
-      centerTitle: false,
+      centerTitle: true,
     );
   }
 
   @override
   Size get preferredSize {
+    if (sectionPhoto != null) return Size.fromHeight(sectionHeight);
     final base = subtitle == null ? 56.0 : 68.0;
     // The title style is 24px with tight leading; each extra permitted line
     // needs its own room or the AppBar clips what it just allowed to wrap.

@@ -388,3 +388,30 @@ Deno.test('a time, date or reference after "at" is never a merchant', () => {
     '12',
   );
 });
+
+// Phone report: "12:02 AM" showed as 12:02 PM, because the meridiem was ignored
+// and a date with no time defaulted to noon. Times are local (UTC+3 here).
+Deno.test('AM/PM and Arabic ص/م set the right hour; a bare date keeps the received time', () => {
+  const at = (text: string, receivedAt = '2026-10-29T09:30:00.000Z') =>
+    deterministicParse(text, receivedAt, 180).comparisonTimestamp;
+  const cases: Array<[string, string]> = [
+    ['IPN transfer sent with amount of EGP 1.00 from 1938 on 29/10 at 12:02 AM. Ref# 1a', '2026-10-28T21:02:00.000Z'],
+    ['IPN transfer sent with amount of EGP 1.00 from 1938 on 28/10 at 01:43 AM. Ref# 1a', '2026-10-27T22:43:00.000Z'],
+    ['IPN transfer sent with amount of EGP 1.00 from 1938 on 28/10 at 01:43 PM. Ref# 1a', '2026-10-28T10:43:00.000Z'],
+    ['IPN transfer sent with amount of EGP 1.00 from 1938 on 28/10 at 12:15 PM. Ref# 1a', '2026-10-28T09:15:00.000Z'],
+    ['Purchase EGP 10.00 at SHELL on 28/10 at 9:05 p.m. card 1234', '2026-10-28T18:05:00.000Z'],
+    ['تم خصم 89.00 جنيه لدى STARBUCKS يوم 28/10 الساعة 09:15 م', '2026-10-28T18:15:00.000Z'],
+    ['تم خصم 89.00 جنيه لدى STARBUCKS يوم 28/10 الساعة 09:15 ص', '2026-10-28T06:15:00.000Z'],
+    ['تم خصم 89.00 جنيه لدى STARBUCKS يوم 28/10 الساعة 12:30 صباحا', '2026-10-27T21:30:00.000Z'],
+    ['تم خصم 89.00 جنيه لدى STARBUCKS يوم 28/10 الساعة 07:30 مساءً', '2026-10-28T16:30:00.000Z'],
+    // 24-hour times and a following Arabic word ("من") are left as written.
+    ['تم تحويل 5.00 جنيه يوم 28/10 الساعة 13:29 من حسابك', '2026-10-28T10:29:00.000Z'],
+    ['Debit transaction EGP 312.75 at PHARMACY by card 5512 on 27/10/2026 18:04', '2026-10-27T15:04:00.000Z'],
+    ['Purchase EGP 20.00 on 2026-10-28 11:40 PM card 1234', '2026-10-28T20:40:00.000Z'],
+    ['Purchase EGP 55.00 at COSTA COFFEE at 11:50 PM card 1177', '2026-10-29T20:50:00.000Z'],
+  ];
+  for (const [text, expected] of cases) assertEquals(at(text), expected, text);
+  // A date without a time: the received time on the received day, noon otherwise.
+  assertEquals(at('Your account was credited with salary EGP 18,500.00 on 29/10/2026'), '2026-10-29T09:30:00.000Z');
+  assertEquals(at('Your account was credited with salary EGP 18,500.00 on 25/10/2026'), '2026-10-25T09:00:00.000Z');
+});

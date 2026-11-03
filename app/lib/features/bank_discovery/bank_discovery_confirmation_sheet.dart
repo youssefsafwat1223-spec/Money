@@ -8,6 +8,7 @@ import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
 import '../../core/theme/widgets/mali_glass.dart';
+import '../../core/theme/widgets/app_toast.dart';
 import '../../core/theme/widgets/navy_sheet_theme.dart';
 import '../../domain/entities/sender_bank_mapping_entity.dart';
 import 'bank_discovery_controller.dart';
@@ -75,6 +76,8 @@ class _BankDiscoveryConfirmationSheetState
     try {
       await action();
       if (mounted) Navigator.of(context).pop();
+    } catch (_) {
+      if (mounted) AppToast.showError(context, context.l10n.txnError);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -98,82 +101,84 @@ class _BankDiscoveryConfirmationSheetState
             color: Colors.transparent,
             child: SafeArea(
               top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppSpacing.gutter,
-                  AppSpacing.s3,
-                  AppSpacing.gutter,
-                  AppSpacing.s5,
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Center(
-                      child: Container(
-                        width: 44,
-                        height: 5,
-                        decoration: BoxDecoration(
-                          color: c.textLight.withValues(alpha: 0.28),
-                          borderRadius: BorderRadius.circular(99),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.gutter,
+                    AppSpacing.s3,
+                    AppSpacing.gutter,
+                    AppSpacing.s5,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: c.textLight.withValues(alpha: 0.28),
+                            borderRadius: BorderRadius.circular(99),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: AppSpacing.s4),
-                    Text(
-                      context.l10n.bdConfirmTitle,
-                      textAlign: TextAlign.center,
-                      style: AppTypography.subhead(c.textLight),
-                    ),
-                    const SizedBox(height: AppSpacing.s2),
-                    Text(
-                      context.l10n.bdIsSenderFrom(mapping.suggestedBankName),
-                      textAlign: TextAlign.center,
-                      style: AppTypography.title2(c.textMain),
-                    ),
-                    const SizedBox(height: AppSpacing.s4),
-                    _InfoRow(label: context.l10n.bdSender, value: mapping.senderId),
-                    _InfoRow(
-                        label: context.l10n.bdCountry,
-                        value: mapping.suggestedCountry),
-                    _InfoRow(
-                        label: context.l10n.bdConfidence,
-                        value: '$confidence%'),
-                    if (mapping.bankKey != null)
+                      const SizedBox(height: AppSpacing.s4),
+                      Text(
+                        context.l10n.bdConfirmTitle,
+                        textAlign: TextAlign.center,
+                        style: AppTypography.subhead(c.textLight),
+                      ),
+                      const SizedBox(height: AppSpacing.s2),
+                      Text(
+                        context.l10n.bdIsSenderFrom(mapping.suggestedBankName),
+                        textAlign: TextAlign.center,
+                        style: AppTypography.title2(c.textMain),
+                      ),
+                      const SizedBox(height: AppSpacing.s4),
+                      _InfoRow(label: context.l10n.bdSender, value: mapping.senderId),
                       _InfoRow(
-                          label: context.l10n.bdKey,
-                          value: mapping.bankKey!),
-                    const SizedBox(height: AppSpacing.s3),
-                    Container(
-                      padding: const EdgeInsets.all(AppSpacing.s3),
-                      decoration: BoxDecoration(
-                        color: c.surface2.withValues(alpha: isDark ? 0.5 : 0.8),
-                        borderRadius: BorderRadius.circular(18),
-                        border: Border.all(color: c.border),
+                          label: context.l10n.bdCountry,
+                          value: mapping.suggestedCountry),
+                      _InfoRow(
+                          label: context.l10n.bdConfidence,
+                          value: '$confidence%'),
+                      if (mapping.bankKey != null)
+                        _InfoRow(
+                            label: context.l10n.bdKey,
+                            value: mapping.bankKey!),
+                      const SizedBox(height: AppSpacing.s3),
+                      Container(
+                        padding: const EdgeInsets.all(AppSpacing.s3),
+                        decoration: BoxDecoration(
+                          color: c.surface2.withValues(alpha: isDark ? 0.5 : 0.8),
+                          borderRadius: BorderRadius.circular(18),
+                          border: Border.all(color: c.border),
+                        ),
+                        child: Text(
+                          mapping.reason?.trim().isNotEmpty == true
+                              ? context.l10n.bdReason(mapping.reason!.trim())
+                              : context.l10n
+                                  .bdReasonDefault(mapping.suggestedBankName),
+                          style: AppTypography.footnote(c.textLight),
+                        ),
                       ),
-                      child: Text(
-                        mapping.reason?.trim().isNotEmpty == true
-                            ? context.l10n.bdReason(mapping.reason!.trim())
-                            : context.l10n
-                                .bdReasonDefault(mapping.suggestedBankName),
-                        style: AppTypography.footnote(c.textLight),
+                      const SizedBox(height: AppSpacing.s5),
+                      FilledButton(
+                        onPressed: _busy ? null : _confirm,
+                        child: Text(context.l10n.bdConfirmThis),
                       ),
-                    ),
-                    const SizedBox(height: AppSpacing.s5),
-                    FilledButton(
-                      onPressed: _busy ? null : _confirm,
-                      child: Text(context.l10n.bdConfirmThis),
-                    ),
-                    const SizedBox(height: AppSpacing.s2),
-                    OutlinedButton(
-                      onPressed: _busy ? null : _reject,
-                      child: Text(context.l10n.bdNotThis),
-                    ),
-                    TextButton(
-                      onPressed: _busy ? null : _askLater,
-                      child: Text(context.l10n.bdAskLater),
-                    ),
-                  ],
+                      const SizedBox(height: AppSpacing.s2),
+                      OutlinedButton(
+                        onPressed: _busy ? null : _reject,
+                        child: Text(context.l10n.bdNotThis),
+                      ),
+                      TextButton(
+                        onPressed: _busy ? null : _askLater,
+                        child: Text(context.l10n.bdAskLater),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -198,7 +203,16 @@ class _InfoRow extends StatelessWidget {
     final c = context.colors;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
+      child: MediaQuery.textScalerOf(context).scale(16) > 16 * 1.3
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(label, style: AppTypography.footnote(c.textLight)),
+                const SizedBox(height: AppSpacing.s1),
+                Text(value, style: AppTypography.bodyStrong(c.textMain)),
+              ],
+            )
+          : Row(
         children: [
           Expanded(
             child: Text(label, style: AppTypography.footnote(c.textLight)),

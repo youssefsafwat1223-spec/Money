@@ -47,7 +47,7 @@ void main() {
             'gets a mirrored layout: ${offenders.join(", ")}');
   });
 
-  test('no Align pins a child with an absolute left/right', () {
+  test('absolute layout sides are limited to the approved fixed photo copy', () {
     // `Alignment.topLeft` cannot mirror. The SMS-permission sheet put its
     // close button there, so it sat on the left in BOTH languages — right for
     // Arabic by coincidence, wrong for English, and inconsistent with every
@@ -56,6 +56,11 @@ void main() {
     // Scoped to `Align`/`alignment:` on a LAYOUT, not to gradients: a
     // gradient's begin/end is a visual direction, and mirroring it is a design
     // decision rather than a correctness one.
+    // Approved HTML exception: QirshPhotoCard keeps copy on the physical right
+    // of an unmirrored photograph and navy scrim in BOTH languages. Mirroring
+    // this composition puts text over the photo subject. The actual AR/EN
+    // position is asserted in core/theme/widgets/qirsh_visuals_test.dart.
+    var approvedPhotoAlignments = 0;
     final offenders = <String>[];
     for (final file in Directory('lib')
         .listSync(recursive: true)
@@ -68,11 +73,20 @@ void main() {
             .hasMatch(line)) {
           continue;
         }
+        // One named design exception, not a file-wide RTL exemption. Exact
+        // matching and the use count prevent another absolute layout slipping in.
+        if (file.path == 'lib/core/theme/widgets/qirsh_visuals.dart' &&
+            line.trim() == 'alignment: Alignment.centerRight,') {
+          approvedPhotoAlignments++;
+          continue;
+        }
         // A gradient names its own stops; those lines sit inside a
         // `LinearGradient(begin:/end:)`, not an `alignment:`.
         offenders.add('${file.path}:${i + 1}');
       }
     }
+    expect(approvedPhotoAlignments, 1,
+        reason: 'only QirshPhotoCard owns the approved physical-right composition');
     expect(offenders, isEmpty,
         reason: 'these pin a child to an absolute side, so the layout cannot '
             'mirror: ${offenders.join(", ")}');

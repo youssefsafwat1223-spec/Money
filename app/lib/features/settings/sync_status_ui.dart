@@ -43,9 +43,7 @@ class SyncStatusTile extends ConsumerWidget {
           const EdgeInsets.symmetric(horizontal: AppSpacing.s4, vertical: 2),
       minVerticalPadding: AppSpacing.s2,
       leading: AppAvatar.icon(
-        icon: icon,
-        color: Color.lerp(color, Colors.black, 0.45),
-      ),
+          icon: icon, color: color, tone: AppAvatarTone.soft),
       title: Text(syncStatusLabel(context, status),
           style: AppTypography.subhead(c.textMain)),
       trailing: DirectionalChevron(color: c.textMuted, size: 20),

@@ -3373,6 +3373,18 @@ abstract class AppL10n {
   /// **'الفواتير'**
   String get txnTabBills;
 
+  /// No description provided for @txnPendingEmptyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'لا توجد عمليات معلّقة في هذا العرض'**
+  String get txnPendingEmptyTitle;
+
+  /// No description provided for @txnPendingEmptyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر فترة أخرى أو غيّر عوامل التصفية لمراجعة عمليات أخرى.'**
+  String get txnPendingEmptyBody;
+
   /// No description provided for @txnEmptyPeriodTitle.
   ///
   /// In ar, this message translates to:
@@ -4525,11 +4537,29 @@ abstract class AppL10n {
   /// **'رجوع'**
   String get cardBack;
 
+  /// No description provided for @cardActivityTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حركة البطاقات'**
+  String get cardActivityTitle;
+
   /// No description provided for @cardAllCards.
   ///
   /// In ar, this message translates to:
   /// **'كل البطاقات'**
   String get cardAllCards;
+
+  /// No description provided for @cardLoadFailed.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر تحميل بطاقاتك'**
+  String get cardLoadFailed;
+
+  /// No description provided for @cardLoadFailedBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'حاول مجددًا لعرض بطاقاتك المحفوظة.'**
+  String get cardLoadFailedBody;
 
   /// No description provided for @cardAddCard.
   ///
@@ -4960,7 +4990,7 @@ abstract class AppL10n {
   /// No description provided for @privIntro.
   ///
   /// In ar, this message translates to:
-  /// **'رسائل البنك التي تشاركها عبر الاختصار تُعالج بنص مُعقّم على خادم قرش وبمساعدة الذكاء الاصطناعي. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.'**
+  /// **'عند تفعيل المعالجة السحابية، قد تُعالج رسائل البنك التي تشاركها عبر الاختصار بنص مُعقّم على خوادم قرش وبمساعدة الذكاء الاصطناعي. عند إيقاف المعالجة السحابية تُحلّل الرسائل محليًا. ويمكنك تصدير بياناتك المالية أو استيرادها من شاشة نقل البيانات.'**
   String get privIntro;
 
   /// No description provided for @dtxPreviewRows.
@@ -5290,7 +5320,7 @@ abstract class AppL10n {
   /// No description provided for @pasteAiOffline.
   ///
   /// In ar, this message translates to:
-  /// **'الذكاء الاصطناعي غير متصل في هذه النسخة — شغّل التطبيق بمفاتيح Supabase.'**
+  /// **'تحليل الذكاء الاصطناعي غير متاح. لم تُضَف عملية. يمكنك إضافتها يدويًا.'**
   String get pasteAiOffline;
 
   /// No description provided for @pasteUnreadableOnDevice.
@@ -6102,6 +6132,12 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'ميزانية نشطة'**
   String get homeActiveBudget;
+
+  /// No description provided for @homeAvailableCoupons.
+  ///
+  /// In ar, this message translates to:
+  /// **'{count, plural, =0{لا توجد كوبونات متاحة} =1{كوبون واحد متاح} =2{كوبونان متاحان} few{{count} كوبونات متاحة} many{{count} كوبونًا متاحًا} other{{count} كوبون متاح}}'**
+  String homeAvailableCoupons(int count);
 
   /// No description provided for @homePartnerOffers.
   ///
@@ -6972,6 +7008,18 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'لون مميّز (اختياري)'**
   String get cfAccentOptional;
+
+  /// No description provided for @cfAccentNone.
+  ///
+  /// In ar, this message translates to:
+  /// **'بدون لون مميّز'**
+  String get cfAccentNone;
+
+  /// No description provided for @cfAccentColourName.
+  ///
+  /// In ar, this message translates to:
+  /// **'{colour, select, amber{كهرماني} red{أحمر} pink{وردي} purple{بنفسجي} blue{أزرق} cyan{سماوي} emerald{زمردي} lime{أخضر ليموني} orange{برتقالي} teal{فيروزي} other{لون مميّز}}'**
+  String cfAccentColourName(String colour);
 
   /// No description provided for @cfLinkedAccount.
   ///
@@ -10872,6 +10920,654 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'تعذّرت قراءة هذه الرسالة على جهازك. فعّل السحابة والتحليل الذكي من الخصوصية للسماح بمساعدة الذكاء الاصطناعي.'**
   String get pasteAiConsentOff;
+
+  /// No description provided for @homeGoodMorning.
+  ///
+  /// In ar, this message translates to:
+  /// **'صباح الخير'**
+  String get homeGoodMorning;
+
+  /// No description provided for @homeGoodEvening.
+  ///
+  /// In ar, this message translates to:
+  /// **'مساء الخير'**
+  String get homeGoodEvening;
+
+  /// No description provided for @homeQuickAdd.
+  ///
+  /// In ar, this message translates to:
+  /// **'إضافة'**
+  String get homeQuickAdd;
+
+  /// No description provided for @homeQuickPaste.
+  ///
+  /// In ar, this message translates to:
+  /// **'لصق رسالة'**
+  String get homeQuickPaste;
+
+  /// No description provided for @homeQuickBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية'**
+  String get homeQuickBudget;
+
+  /// No description provided for @homeQuickGoals.
+  ///
+  /// In ar, this message translates to:
+  /// **'أهداف'**
+  String get homeQuickGoals;
+
+  /// No description provided for @homeBudgetLeft.
+  ///
+  /// In ar, this message translates to:
+  /// **'من ميزانية {limit} · متبقي {left}'**
+  String homeBudgetLeft(String limit, String left);
+
+  /// No description provided for @homeBudgetOverBy.
+  ///
+  /// In ar, this message translates to:
+  /// **'تجاوزت ميزانية {limit} بـ {over}'**
+  String homeBudgetOverBy(String limit, String over);
+
+  /// No description provided for @homeProjectedMonthEnd.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتوقع نهاية الشهر {amount}'**
+  String homeProjectedMonthEnd(String amount);
+
+  /// No description provided for @homeLastWeekWas.
+  ///
+  /// In ar, this message translates to:
+  /// **'الأسبوع الماضي {amount}'**
+  String homeLastWeekWas(String amount);
+
+  /// No description provided for @homeTodayTxCount.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمليات اليوم: {count}'**
+  String homeTodayTxCount(int count);
+
+  /// No description provided for @homeLeftTodayShort.
+  ///
+  /// In ar, this message translates to:
+  /// **'متاح لليوم {amount}'**
+  String homeLeftTodayShort(String amount);
+
+  /// No description provided for @homePaceUnder.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقل من وتيرة الميزانية بـ {percent}%'**
+  String homePaceUnder(int percent);
+
+  /// No description provided for @homePaceOver.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى من وتيرة الميزانية بـ {percent}%'**
+  String homePaceOver(int percent);
+
+  /// No description provided for @homePaceOnTrack.
+  ///
+  /// In ar, this message translates to:
+  /// **'على وتيرة الميزانية'**
+  String get homePaceOnTrack;
+
+  /// No description provided for @homePaceSetBudget.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد ميزانية لتتابع الوتيرة'**
+  String get homePaceSetBudget;
+
+  /// No description provided for @homeWeekMoreThan.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى من الأسبوع الماضي بـ {percent}%'**
+  String homeWeekMoreThan(int percent);
+
+  /// No description provided for @homeWeekLessThan.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقل من الأسبوع الماضي بـ {percent}%'**
+  String homeWeekLessThan(int percent);
+
+  /// No description provided for @homeDayMoreThan.
+  ///
+  /// In ar, this message translates to:
+  /// **'أعلى من أمس بـ {percent}%'**
+  String homeDayMoreThan(int percent);
+
+  /// No description provided for @homeDayLessThan.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقل من أمس بـ {percent}%'**
+  String homeDayLessThan(int percent);
+
+  /// No description provided for @homeToReview.
+  ///
+  /// In ar, this message translates to:
+  /// **'للمراجعة'**
+  String get homeToReview;
+
+  /// No description provided for @homeReviewNow.
+  ///
+  /// In ar, this message translates to:
+  /// **'راجعها'**
+  String get homeReviewNow;
+
+  /// No description provided for @homeSpentOfAllowance.
+  ///
+  /// In ar, this message translates to:
+  /// **'صرفت {spent} من {allowance}'**
+  String homeSpentOfAllowance(String spent, String allowance);
+
+  /// No description provided for @homeLastSevenDays.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر ٧ أيام'**
+  String get homeLastSevenDays;
+
+  /// No description provided for @homeDailyAverage.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتوسط {amount} يوميًا'**
+  String homeDailyAverage(String amount);
+
+  /// No description provided for @homeWhereMoneyWent.
+  ///
+  /// In ar, this message translates to:
+  /// **'أين ذهبت أموالك'**
+  String get homeWhereMoneyWent;
+
+  /// No description provided for @homeDetails.
+  ///
+  /// In ar, this message translates to:
+  /// **'التفاصيل'**
+  String get homeDetails;
+
+  /// No description provided for @homeUpcoming.
+  ///
+  /// In ar, this message translates to:
+  /// **'مدفوعات قادمة'**
+  String get homeUpcoming;
+
+  /// No description provided for @homeInstalmentProgress.
+  ///
+  /// In ar, this message translates to:
+  /// **'الدفعة {n} من {total}'**
+  String homeInstalmentProgress(int n, int total);
+
+  /// No description provided for @homeGoalsAndPlans.
+  ///
+  /// In ar, this message translates to:
+  /// **'أهدافي وخططي'**
+  String get homeGoalsAndPlans;
+
+  /// No description provided for @homeNewGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'هدف جديد'**
+  String get homeNewGoal;
+
+  /// No description provided for @homeRecentTx.
+  ///
+  /// In ar, this message translates to:
+  /// **'آخر العمليات'**
+  String get homeRecentTx;
+
+  /// No description provided for @homeSeeAll.
+  ///
+  /// In ar, this message translates to:
+  /// **'عرض الكل'**
+  String get homeSeeAll;
+
+  /// No description provided for @homeWelcomeTo.
+  ///
+  /// In ar, this message translates to:
+  /// **'أهلاً بك في قِرش'**
+  String get homeWelcomeTo;
+
+  /// No description provided for @homeWelcomeTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف أول عملية،\nوقِرش يرتّب الباقي'**
+  String get homeWelcomeTitle;
+
+  /// No description provided for @homeWelcomeBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'صرفك اليومي، المتاح لك، وأين تذهب أموالك. كلها تظهر هنا بعد أول عملية.'**
+  String get homeWelcomeBody;
+
+  /// No description provided for @homeStartSteps.
+  ///
+  /// In ar, this message translates to:
+  /// **'ابدأ في ٣ خطوات'**
+  String get homeStartSteps;
+
+  /// No description provided for @homeStartStepsHint.
+  ///
+  /// In ar, this message translates to:
+  /// **'أقل من دقيقتين'**
+  String get homeStartStepsHint;
+
+  /// No description provided for @homeStepAddTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف أول عملية'**
+  String get homeStepAddTitle;
+
+  /// No description provided for @homeStepAddBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'ألصق رسالة البنك أو أدخلها يدويًا'**
+  String get homeStepAddBody;
+
+  /// No description provided for @homeStepAddCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف عملية'**
+  String get homeStepAddCta;
+
+  /// No description provided for @homeStepBudgetTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد ميزانية الشهر'**
+  String get homeStepBudgetTitle;
+
+  /// No description provided for @homeStepBudgetBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لتعرف كم يتاح لك كل يوم'**
+  String get homeStepBudgetBody;
+
+  /// No description provided for @homeStepBudgetCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدّد الميزانية'**
+  String get homeStepBudgetCta;
+
+  /// No description provided for @homeStepCaptureTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'فعّل التقاط رسائل البنك'**
+  String get homeStepCaptureTitle;
+
+  /// No description provided for @homeStepCaptureBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'لتُضاف العمليات بدون لصق'**
+  String get homeStepCaptureBody;
+
+  /// No description provided for @homeStepCaptureCta.
+  ///
+  /// In ar, this message translates to:
+  /// **'طريقة التفعيل'**
+  String get homeStepCaptureCta;
+
+  /// No description provided for @homeOnDeviceTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك محفوظة على جهازك'**
+  String get homeOnDeviceTitle;
+
+  /// No description provided for @homeOnDeviceBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'قاعدة بياناتك مشفّرة على هذا الجهاز.'**
+  String get homeOnDeviceBody;
+
+  /// No description provided for @homeCreateYourself.
+  ///
+  /// In ar, this message translates to:
+  /// **'أو أنشئ بنفسك'**
+  String get homeCreateYourself;
+
+  /// No description provided for @homeTileBudgetSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'شهرية أو لتصنيف'**
+  String get homeTileBudgetSub;
+
+  /// No description provided for @homeTileGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'هدف ادخار'**
+  String get homeTileGoal;
+
+  /// No description provided for @homeTileGoalSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'سفر، سيارة، طوارئ'**
+  String get homeTileGoalSub;
+
+  /// No description provided for @homeTileBill.
+  ///
+  /// In ar, this message translates to:
+  /// **'اشتراك أو قسط'**
+  String get homeTileBill;
+
+  /// No description provided for @homeTileBillSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'ونذكّرك قبل الخصم'**
+  String get homeTileBillSub;
+
+  /// No description provided for @homeTilePlan.
+  ///
+  /// In ar, this message translates to:
+  /// **'خطة'**
+  String get homeTilePlan;
+
+  /// No description provided for @homeTilePlanSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'للسفر أو المناسبات'**
+  String get homeTilePlanSub;
+
+  /// No description provided for @homePrivacyToggle.
+  ///
+  /// In ar, this message translates to:
+  /// **'إظهار المبالغ أو إخفاؤها'**
+  String get homePrivacyToggle;
+
+  /// No description provided for @accTotalBalance.
+  ///
+  /// In ar, this message translates to:
+  /// **'إجمالي الأرصدة'**
+  String get accTotalBalance;
+
+  /// No description provided for @achBadges.
+  ///
+  /// In ar, this message translates to:
+  /// **'الشارات'**
+  String get achBadges;
+
+  /// No description provided for @achEarnedCount.
+  ///
+  /// In ar, this message translates to:
+  /// **'{earned} من {total} مكتملة'**
+  String achEarnedCount(int earned, int total);
+
+  /// No description provided for @achNextLevelXp.
+  ///
+  /// In ar, this message translates to:
+  /// **'باقي {remaining} للمستوى التالي'**
+  String achNextLevelXp(int remaining);
+
+  /// No description provided for @gdSavedLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'ادّخرت'**
+  String get gdSavedLabel;
+
+  /// No description provided for @homeSavingsGrowing.
+  ///
+  /// In ar, this message translates to:
+  /// **'نمو مدخراتك'**
+  String get homeSavingsGrowing;
+
+  /// No description provided for @homeSavingsSurplus.
+  ///
+  /// In ar, this message translates to:
+  /// **'دخلك سبق صرفك بـ {amount} هذا الشهر'**
+  String homeSavingsSurplus(String amount);
+
+  /// No description provided for @homeSavingsMotivation.
+  ///
+  /// In ar, this message translates to:
+  /// **'حوّل جزء منه لأهدافك وخلّيه يكبر.'**
+  String get homeSavingsMotivation;
+
+  /// No description provided for @homeAddToGoal.
+  ///
+  /// In ar, this message translates to:
+  /// **'أضف لهدف'**
+  String get homeAddToGoal;
+
+  /// No description provided for @rptPhotoKicker.
+  ///
+  /// In ar, this message translates to:
+  /// **'صورة أوضح لأموالك'**
+  String get rptPhotoKicker;
+
+  /// No description provided for @rptPhotoTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تفاصيل صرفك في مكان واحد'**
+  String get rptPhotoTitle;
+
+  /// No description provided for @homeSpendingAhead.
+  ///
+  /// In ar, this message translates to:
+  /// **'صرفك سبق دخلك بـ {amount} هذا الشهر'**
+  String homeSpendingAhead(String amount);
+
+  /// No description provided for @goalCoverLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'صورة الهدف'**
+  String get goalCoverLabel;
+
+  /// No description provided for @goalCoverTravel.
+  ///
+  /// In ar, this message translates to:
+  /// **'سفر'**
+  String get goalCoverTravel;
+
+  /// No description provided for @goalCoverCar.
+  ///
+  /// In ar, this message translates to:
+  /// **'عربية'**
+  String get goalCoverCar;
+
+  /// No description provided for @goalCoverHome.
+  ///
+  /// In ar, this message translates to:
+  /// **'بيت'**
+  String get goalCoverHome;
+
+  /// No description provided for @goalCoverEducation.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعليم'**
+  String get goalCoverEducation;
+
+  /// No description provided for @goalCoverGadgets.
+  ///
+  /// In ar, this message translates to:
+  /// **'أجهزة'**
+  String get goalCoverGadgets;
+
+  /// No description provided for @goalCoverEmergency.
+  ///
+  /// In ar, this message translates to:
+  /// **'طوارئ'**
+  String get goalCoverEmergency;
+
+  /// No description provided for @bdgOverviewSubtitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'حدودك وأهدافك في مكان واحد'**
+  String get bdgOverviewSubtitle;
+
+  /// No description provided for @rptExpenseCountLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'عمليات الصرف'**
+  String get rptExpenseCountLabel;
+
+  /// No description provided for @rptDailySpending.
+  ///
+  /// In ar, this message translates to:
+  /// **'الصرف اليومي'**
+  String get rptDailySpending;
+
+  /// No description provided for @dtxExportSection.
+  ///
+  /// In ar, this message translates to:
+  /// **'تصدير'**
+  String get dtxExportSection;
+
+  /// No description provided for @dtxImportSection.
+  ///
+  /// In ar, this message translates to:
+  /// **'استيراد'**
+  String get dtxImportSection;
+
+  /// No description provided for @dtxPdfReport.
+  ///
+  /// In ar, this message translates to:
+  /// **'تقرير مالي PDF'**
+  String get dtxPdfReport;
+
+  /// No description provided for @dtxPdfReportSub.
+  ///
+  /// In ar, this message translates to:
+  /// **'ملخص مصمم للمشاركة'**
+  String get dtxPdfReportSub;
+
+  /// No description provided for @captureAutomaticTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'الالتقاط التلقائي'**
+  String get captureAutomaticTitle;
+
+  /// No description provided for @captureAutomaticBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعداد اختصار آبل أو التقاط رسائل البنك'**
+  String get captureAutomaticBody;
+
+  /// No description provided for @homeHeroIncome.
+  ///
+  /// In ar, this message translates to:
+  /// **'دخل'**
+  String get homeHeroIncome;
+
+  /// No description provided for @homeHeroSpent.
+  ///
+  /// In ar, this message translates to:
+  /// **'مصروف'**
+  String get homeHeroSpent;
+
+  /// No description provided for @homeHeroNet.
+  ///
+  /// In ar, this message translates to:
+  /// **'الصافي'**
+  String get homeHeroNet;
+
+  /// No description provided for @homePaceUsed.
+  ///
+  /// In ar, this message translates to:
+  /// **'استخدمت {percent}%'**
+  String homePaceUsed(int percent);
+
+  /// No description provided for @homePaceExpected.
+  ///
+  /// In ar, this message translates to:
+  /// **'المتوقع حتى الآن {percent}%'**
+  String homePaceExpected(int percent);
+
+  /// No description provided for @introWelcomeTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'فلوسك واضحة… من غير مجهود'**
+  String get introWelcomeTitle;
+
+  /// No description provided for @introWelcomeBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'قِرش يحوّل رسائل البنك لصورة واضحة لصرفك وميزانياتك وأهدافك.'**
+  String get introWelcomeBody;
+
+  /// No description provided for @introCaptureTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'عملياتك من رسائل البنك'**
+  String get introCaptureTitle;
+
+  /// No description provided for @introCaptureBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختصار آبل يرسل رسالة البنك لقِرش. تُقرأ على جهازك، وتراجع النتيجة قبل حفظها.'**
+  String get introCaptureBody;
+
+  /// No description provided for @introBudgetTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'ميزانية تنبهك قبل التجاوز'**
+  String get introBudgetTitle;
+
+  /// No description provided for @introBudgetBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'شوف وتيرة صرفك يوم بيوم، واعرف إمتى تهدّي.'**
+  String get introBudgetBody;
+
+  /// No description provided for @introPrivacyTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'خصوصيتك قبل أي حاجة'**
+  String get introPrivacyTitle;
+
+  /// No description provided for @introPrivacyBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'بياناتك مشفّرة على جهازك. المعالجة السحابية اختيارية، وتتحكم فيها من الإعدادات.'**
+  String get introPrivacyBody;
+
+  /// No description provided for @introPageSemantic.
+  ///
+  /// In ar, this message translates to:
+  /// **'الصفحة {page} من {total}'**
+  String introPageSemantic(int page, int total);
+
+  /// No description provided for @introPrivacyLocalBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'تُحفظ سجلاتك مشفّرة على هذا الجهاز.'**
+  String get introPrivacyLocalBody;
+
+  /// No description provided for @introPrivacyCloudBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختياري. اختر تفعيله أثناء الإعداد أو لاحقًا من الإعدادات.'**
+  String get introPrivacyCloudBody;
+
+  /// No description provided for @annPreferencesTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'اختر الإشعارات التي تهمك'**
+  String get annPreferencesTitle;
+
+  /// No description provided for @annPreferencesAction.
+  ///
+  /// In ar, this message translates to:
+  /// **'إعدادات الإشعارات'**
+  String get annPreferencesAction;
+
+  /// No description provided for @couponsAvailableLabel.
+  ///
+  /// In ar, this message translates to:
+  /// **'العروض المتاحة'**
+  String get couponsAvailableLabel;
+
+  /// No description provided for @setCategoryIconName.
+  ///
+  /// In ar, this message translates to:
+  /// **'{icon, select, restaurants{مطاعم} groceries{بقالة} shopping{تسوق} transport{مواصلات} bills{فواتير} cards{بطاقات} cash{نقود} cafes{مقاهٍ} gifts{هدايا} home{منزل} travel{سفر} health{صحة} education{تعليم} transfers{تحويلات} other{أيقونة أخرى}}'**
+  String setCategoryIconName(String icon);
+
+  /// No description provided for @setCategoryColourName.
+  ///
+  /// In ar, this message translates to:
+  /// **'{colour, select, grey{رمادي} coral{مرجاني} green{أخضر} blue{أزرق} purple{بنفسجي} brightGreen{أخضر زاهٍ} teal{أخضر مزرق} pink{وردي} blueGrey{رمادي مزرق} orange{برتقالي} other{لون مخصص}}'**
+  String setCategoryColourName(String colour);
+
+  /// No description provided for @rptPreviousPeriod.
+  ///
+  /// In ar, this message translates to:
+  /// **'الفترة السابقة'**
+  String get rptPreviousPeriod;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

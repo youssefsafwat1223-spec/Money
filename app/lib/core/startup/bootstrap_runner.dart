@@ -5,10 +5,14 @@ import '../sync/sync_health.dart';
 import '../sync/outbox_failure.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show File;
+import 'dart:io' show Directory, File;
 
 import '../session/admission_authority.dart';
 import '../session/account_fence_authority.dart';
+import '../session/account_fence_store.dart';
+import '../auth/immediate_deletion_receipt_store.dart';
+import 'asr_storage_reads.dart';
+import 'automatic_session_recovery.dart';
 import '../session/auth_stream_boundary.dart';
 import '../session/rebootstrap_service.dart';
 import '../di/rebootstrap_providers.dart';
@@ -36,6 +40,16 @@ import '../../data/repositories/drift_goal_repository.dart';
 import '../../data/repositories/drift_transaction_repository.dart';
 import '../../data/repositories/drift_user_settings_repository.dart';
 import '../privacy/cloud_egress_gate.dart';
+import '../auth/auth_coordinator.dart';
+import '../auth/auth_diagnostics.dart';
+import '../auth/legacy_session_source.dart';
+import '../auth/refresh_transport.dart';
+import '../auth/session_files.dart';
+import '../auth/session_keychain.dart';
+import '../auth/session_store.dart';
+import '../../data/db/replica_location.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import '../privacy/consent_authority.dart';
 import '../tracking/user_activity_service.dart';
 import '../privacy/diagnostics_consent_gate.dart';
@@ -46,6 +60,8 @@ import '../../domain/usecases/run_goal_auto_saves_usecase.dart';
 import '../../domain/usecases/user_settings_usecases.dart';
 import '../../features/capture/capture_runtime.dart';
 import '../../features/capture/services/capture_device_registration_service.dart';
+import '../../features/capture/services/native_capture_bridge.dart'
+    show CaptureRemovalBarrierPresence, NativeCaptureBridge;
 import '../../features/capture/services/pending_notification_actions.dart';
 import '../../features/capture/services/local_notification_service.dart';
 import '../../features/app/app_boot_loader.dart';
@@ -77,6 +93,18 @@ class BootstrapCoordinatorUnavailable implements Exception {
   final String reason;
   @override
   String toString() => 'BootstrapCoordinatorUnavailable($reason)';
+}
+
+/// ASR §6.7: a read the session store needs was temporarily unavailable
+/// (protected data locked). `Supabase.initialize` was NOT called, no latch was
+/// set and nothing restrictive was published; bootstrap re-runs from
+/// `supabase_init` when protected data becomes available or on the next
+/// foreground.
+class BootstrapAuthDeferred implements Exception {
+  const BootstrapAuthDeferred(this.reason);
+  final String reason;
+  @override
+  String toString() => 'BootstrapAuthDeferred($reason)';
 }
 
 /// O-LC-1b: the Supabase SDK initialization failed (or its state in this
@@ -307,8 +335,16 @@ class BootstrapRunner {
     // O: the inert coordinator exists before any recovery, session load or
     // Drift opener below. It authorizes nothing by existing.
     _ensureCoordinator();
-    AppSession.instance
-        .configureLocalRead(LocalReadAuthority(store: SecureLocalReadStore()));
+    AppSession.instance.configureLocalRead(LocalReadAuthority(
+      store: SecureLocalReadStore(),
+      // ASR §12 E7: the status-preserving read of the same Keychain item.
+      strictRead: () {
+        final coord = AuthCoordinator.active;
+        if (coord == null) throw StateError('no_coordinator');
+        return AsrStrictReads(coord.store.keychain)
+            .read(SecureLocalReadStore.storageKey);
+      },
+    ));
     // O-LC-1a: this startup's identity for late classifications, captured once
     // per runner before any SDK initialization can classify anything.
     final binding =
@@ -334,9 +370,29 @@ class BootstrapRunner {
       // D6: under a verified local-read scope the gate admits only an explicit
       // account-control exchange, whatever Cloud/AI state was saved.
       ..localReadActive = (() => AppSession.instance.localReadEgressDenied)
+      // ASR §12: the session-only refresh reads the secure layers keeping the
+      // OS status (only a confirmed not-found is absence).
+      ..strictSecureSlot = ((key) {
+        final coord = AuthCoordinator.active;
+        if (coord == null) throw StateError('no_coordinator');
+        return AsrStrictReads(coord.store.keychain).slot(key);
+      })
+      ..nativeVerifiedOff = ((owner) async =>
+          (await NativeCaptureBridge.inspectRecoveryEvidence(ownerUid: owner))
+              ?.verifiedOff ??
+          false)
       ..onPermitChanged = (permits) async {
         if (!_supabaseInitialized) return;
         final auth = Supabase.instance.client.auth;
+        // ASR §3.3: the coordinator scheduler is the single refresher; the SDK
+        // ticker is never started. Owner decision (2026-10-29): it runs with
+        // Cloud OFF too; each tick asks the session-only refresh policy.
+        final coord = AuthCoordinator.active;
+        if (coord != null) {
+          auth.stopAutoRefresh();
+          coord.setSchedulerEnabled(true);
+          return;
+        }
         if (permits) {
           auth.startAutoRefresh();
         } else {
@@ -417,6 +473,25 @@ class BootstrapRunner {
         }
         await debugSdk?.beforeInitialize?.call();
         final sdkUrl = debugSdk?.url ?? SupabaseConfig.url;
+        // ASR §6.7/§6.8: the coordinator's store is loaded BEFORE the SDK
+        // exists; a temporarily unavailable read defers auth (no init, no latch).
+        final coord = await _prepareAuthCoordinator();
+        final load = coord?.loadResult;
+        AuthDiagnostics.add('session_start '
+            '${load?.loadClass.name ?? 'legacy'} '
+            'record=${load?.record == null ? 'no' : 'yes'} '
+            'served=${load?.served == null ? 'no' : 'yes'}');
+        if (load?.loadClass == LoadClass.unknownProvenance) {
+          _initEvents.markUnknownProvenance('session_store');
+        }
+        final serve = coord == null
+            ? null
+            : CoordinatedSessionServe(
+                served: load!.served?.session,
+                onInitialize: () {
+                  coord.attach(GoTrueAuthPort(Supabase.instance.client.auth));
+                  coord.beginInit();
+                });
         try {
           if (debugSdk == null) {
             await Supabase.initialize(
@@ -426,8 +501,11 @@ class BootstrapRunner {
               // D2: the event buffer is installed by the session store's initialize,
               // which runs before any initial/recovery event can be emitted.
               authOptions: FlutterAuthClientOptions(
-                localStorage:
-                    ObservingAuthLocalStorage(_initEvents, SupabaseConfig.url),
+                // ASR §3.4: the app has no redirect flow.
+                detectSessionInUri: false,
+                localStorage: ObservingAuthLocalStorage(
+                    _initEvents, SupabaseConfig.url,
+                    coordinated: serve),
               ),
             );
           } else {
@@ -440,9 +518,20 @@ class BootstrapRunner {
               authOptions: FlutterAuthClientOptions(
                 detectSessionInUri: false,
                 localStorage: ObservingAuthLocalStorage(_initEvents, sdkUrl,
-                    inner: debugSdk!.innerStorage),
+                    inner: debugSdk!.innerStorage, coordinated: serve),
               ),
             );
+          }
+          if (coord != null) {
+            coord.endInit(served: load!.served);
+            AuthCoordinator.active = coord;
+            egressGate.asrQuiesced = coord.handoverQuiesced;
+            // Owner decision (2026-10-29): the session-only refresh, also
+            // while Cloud is OFF (never any other egress).
+            coord.routinePermitted = egressGate.permitsSessionRefresh;
+            coord.ordinaryAdmissionHeld = () =>
+                AppSession.instance.status == SessionStatus.authenticated &&
+                !AppSession.instance.localReadEgressDenied;
           }
         } catch (_) {
           _sdkInitLatched = true;
@@ -467,7 +556,13 @@ class BootstrapRunner {
         final auth = Supabase.instance.client.auth;
         auth.stopAutoRefresh();
         _resumeGuard ??= AutoRefreshResumeGuard()..attach();
-        if (await egressGate.permits()) auth.startAutoRefresh();
+        _wireAutomaticSessionRecovery(egressGate);
+        final active = AuthCoordinator.active;
+        if (active != null) {
+          active.setSchedulerEnabled(true);
+        } else if (await egressGate.permits()) {
+          auth.startAutoRefresh();
+        }
       });
     }
 
@@ -494,6 +589,9 @@ class BootstrapRunner {
       await _step('local_read_decision', () async {
         final client = _authClient;
         final sdk = client?.auth.currentSession;
+        AuthDiagnostics.add('local_read_start '
+            'sdk=${sdk == null ? 'absent' : sdk.isExpired ? 'expired' : 'fresh'} '
+            'provenance=${_initEvents.provenanceIntact ? 'intact' : 'denied'}');
         if (client != null && (sdk == null || sdk.isExpired)) {
           if (!_initEvents.provenanceIntact) {
             // D2/R12: a signedOut/userDeleted was emitted during SDK
@@ -614,6 +712,11 @@ class BootstrapRunner {
     // non-critical, off-the-first-frame work (housekeeping only) WITHOUT gating
     // the return.
     localFinancialUiUsable.value = true;
+    // ASR §8: from local read on cold start, after the shell's first frame.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _asrFirstFrame = true;
+      AutomaticSessionRecovery.active?.trigger();
+    });
     if (!localRead) _observeBootstrapWork(_runDeferredStartupWork);
     // B2-C — the `app_open` metric is a REMOTE, best-effort telemetry RPC, fired
     // off the critical path. Astra H2.3: only when the gate PERMITS (resolved and
@@ -629,6 +732,98 @@ class BootstrapRunner {
       );
     }
     return database;
+  }
+
+  bool _asrFirstFrame = false;
+  String? _asrLocalReadOwner;
+  _AsrLifecycleObserver? _asrLifecycle;
+
+  /// ASR (design v7.2 §8): one orchestrator per coordinator. Triggers: the
+  /// first frame (above), every resume, and every transition into local read
+  /// once the first frame was drawn.
+  void _wireAutomaticSessionRecovery(CloudEgressGate egressGate) {
+    final coord = AuthCoordinator.active;
+    if (coord == null) return;
+    final previous = AutomaticSessionRecovery.active;
+    if (previous != null && identical(previous.coordinator, coord)) return;
+    previous?.dispose();
+    final session = AppSession.instance;
+    final asr = AutomaticSessionRecovery(
+      coordinator: coord,
+      gate: egressGate,
+      host: AppSessionAsrHost(session, Supabase.instance.client),
+      capture: RegistrationAsrCapture(
+          () => _captureRegistration, egressGate, session,
+          consentAccepted: () async {
+        final db = _host?.current?.database;
+        if (db == null) return false;
+        return (await DriftUserSettingsRepository(db).getSettings())
+            .cloudProcessingEnabled;
+      }),
+    );
+    AutomaticSessionRecovery.active = asr;
+    egressGate.asrQuiesced = () async {
+      await asr.quiesced();
+      // Phase 4c B8: refuses promptly when a transport closure is unconfirmed.
+      await coord.handoverQuiesced();
+    };
+    egressGate.asrSuccessorUnsettled =
+        () => asr.unsettledFinalizationOwner != null;
+    // §12: every read whose absence passes keeps the OS status; only a
+    // confirmed not-found is absence, anything else throws and denies.
+    final reads = AsrStrictReads(coord.store.keychain);
+    session.configureAsrEligibility((owner) async {
+      // E5 native.
+      final barrier = await captureQueue.getCaptureRemovalBarrier();
+      if (barrier.presence != CaptureRemovalBarrierPresence.absent) {
+        return 'barrier';
+      }
+      // E5 Dart: no removal in progress, [owner] not removed since.
+      if (RemoveDataFlow.barrierPending(
+              await reads.read(RemoveDataFlow.barrierKey)) ||
+          RemoveDataFlow.parseRevokedUids(
+                  await reads.read(RemoveDataFlow.revokedKey))
+              .contains(owner)) {
+        return 'removal';
+      }
+      // E3 Dart: both pending layers, the secure one status-preserving.
+      final pending = await egressGate
+          .readPendingVia(reads.slot(CloudEgressStore.kPendingSecureKey));
+      if (pending.blocks(owner)) return 'pending';
+      // E6: the authority's cleanup lane, then a confirmed read of the store.
+      try {
+        await AccountFenceAuthority.shared.guard(owner);
+      } catch (_) {
+        return 'fence';
+      }
+      final fence = reads.fenceStore();
+      if (!await fence.load() ||
+          !fence.allows(AccountFenceStore.ownerDigest(owner))) {
+        return 'fence';
+      }
+      // E10.
+      if (await ImmediateDeletionReceiptStore(read: reads.read).load(owner) !=
+          null) {
+        return 'deletion';
+      }
+      // E11.
+      final store = _replicaStore;
+      if (store == null ||
+          !await store.asrRegistryPermits(owner, read: reads.read)) {
+        return 'registry';
+      }
+      return null;
+    });
+    if (_asrLifecycle == null) {
+      _asrLifecycle = _AsrLifecycleObserver()..attach();
+      session.addListener(() {
+        final owner = session.asrLocalReadOwner;
+        if (owner != null && owner != _asrLocalReadOwner && _asrFirstFrame) {
+          AutomaticSessionRecovery.active?.trigger();
+        }
+        _asrLocalReadOwner = owner;
+      });
+    }
   }
 
   Future<void> _logAppOpenIfPermitted() async {
@@ -715,9 +910,13 @@ class BootstrapRunner {
     );
 
     await _step('capture_registration', () async {
-      CloudEgressGate.instance.advanceEpoch(); // new account scope (P4)
+      // New account scope (P4). ASR §11.2: the scope an ASR adoption opens is
+      // that op's own transition, named by its admission authority.
+      CloudEgressGate.instance.advanceEpoch(
+          EpochCause.scopeInit, _host?.initializingAuthority?.causeAuthority);
       final captureRegistration = CaptureDeviceRegistrationService(
         settingsRepository: DriftUserSettingsRepository(database),
+        isIos: debugCaptureIsIos,
         isCurrentScope: () =>
             identical(_host?.current?.database, database) &&
             _host?.current?.uid == uid,
@@ -727,6 +926,13 @@ class BootstrapRunner {
       _captureRegistration = captureRegistration;
       _captureRegistrationBinding =
           (service: captureRegistration, database: database, uid: uid);
+      // ASR §7.5.2: a session record left in `finalizing` settles its successor
+      // before anything below reconciles capture state; one left unsettled
+      // keeps generic reconciliation blocked (B2) until a later attempt.
+      final asr = AutomaticSessionRecovery.active;
+      if (uid != null && asr != null && !asr.running) {
+        await asr.reconcileSuccessorFinalization(uid);
+      }
       // E1: a Cloud-OFF transition that a dead process left half-done is
       // committed (without any revoke) before anything else can egress.
       await captureRegistration.resolvePendingDisable(resolution: resolution);
@@ -966,6 +1172,12 @@ class BootstrapRunner {
   /// The native capture queue seam (CAP-6a queue v3); tests substitute a fake.
   CaptureQueueBridge captureQueue = NativeCaptureQueue();
 
+  /// Test seam: the platform check of the account scopes' capture registration
+  /// service (null in production: `Platform.isIOS`). Lets a host test run the
+  /// real iOS capture lanes against a simulated native channel.
+  @visibleForTesting
+  bool Function()? debugCaptureIsIos;
+
   /// The ACTIVE account's device-registration service (set by every
   /// `_initializeAccount`); the capture-owner publish hook drives it.
   CaptureDeviceRegistrationService? _captureRegistration;
@@ -987,7 +1199,7 @@ class BootstrapRunner {
     Future<bool> release({required bool clearHint}) async {
       // P4: an account transition / sign-out advances the epoch first, so every
       // in-flight async mutation of the previous owner is stale from here on.
-      CloudEgressGate.instance.advanceEpoch();
+      CloudEgressGate.instance.advanceEpoch(EpochCause.scopeSwap);
       final cleared =
           await captureQueue.clearCaptureOwner(clearHint: clearHint);
       final filesCleared = await PendingNotificationActions.clear();
@@ -1017,9 +1229,19 @@ class BootstrapRunner {
       _receiveSenderBankMapping(uid: uid, received: authority);
       final registration = _captureRegistration;
       if (registration == null) return null;
+      // ASR §7.5 SE1: only the adoption of an ASR op asks for a successor; the
+      // publication is that op's own transition (§11.2).
+      final successor = AppSession.instance.asrSuccessorFor(authority);
       return registration.publishRestrictiveOwnerDetailed(
           admissionAuthority: authority,
-          plan: AppSession.instance.explicitPublishPlanFor(authority));
+          plan: AppSession.instance.explicitPublishPlanFor(authority),
+          successorOf: successor?.evidenceId == null
+              ? null
+              : (
+                  evidenceId: successor!.evidenceId!,
+                  expectedCounter: successor.expectedCounter,
+                ),
+          successorCauseAuthority: successor?.causeAuthority);
     }
 
     AppSession.instance.configureCaptureOwnerPublish(publishRestrictiveOwner);
@@ -1397,6 +1619,70 @@ class BootstrapRunner {
     }
   }
 
+  AuthCoordinator? _authCoordinator;
+
+  /// ASR §6.7: protected-data availability events, once a coordinator exists.
+  Stream<void>? get protectedDataAvailableEvents =>
+      _authCoordinator?.store.keychain.protectedDataBecameAvailable;
+
+  /// ASR: creates (once) and loads the AuthCoordinator. Null when no backend is
+  /// configured or a test runs the legacy SDK storage path.
+  Future<AuthCoordinator?> _prepareAuthCoordinator() async {
+    final debug = debugSdk;
+    final create = debug != null
+        ? debug.authCoordinator
+        : (SupabaseConfig.isConfigured ? _productionAuthCoordinator : null);
+    if (create == null) return null;
+    final coord = _authCoordinator ??= await create();
+    final loaded = coord.loadResult;
+    if (loaded == null || loaded.loadClass == LoadClass.deferred) {
+      final r = await coord.load();
+      if (r.loadClass == LoadClass.deferred) {
+        throw BootstrapAuthDeferred(r.reason ?? 'deferred');
+      }
+    }
+    return coord;
+  }
+
+  static Future<AuthCoordinator> _productionAuthCoordinator() async {
+    final support = await getApplicationSupportDirectory();
+    // Beta 1 diagnostic trail of refresh attempts (constants only, local).
+    await AuthDiagnostics.attach(support);
+    final gate = CloudEgressGate.instance;
+    return AuthCoordinator(
+      store: SessionStore(
+        keychain: MethodChannelSessionKeychain(),
+        files: SessionFiles(support),
+        origin: Uri.parse(SupabaseConfig.url),
+        legacy: SharedPrefsLegacySessionSource(
+            ObservingAuthLocalStorage.sdkStorageKey(SupabaseConfig.url)),
+        localInstallDataPresent: () => localInstallDataPresent(support.path),
+      ),
+      gate: gate,
+      channelFactory: () => RefreshExchange(
+          tokenUri: gate.refreshTokenUri()!, apiKey: SupabaseConfig.anonKey),
+    );
+  }
+
+  /// §6.5: whether this install already holds local app data (a replica or
+  /// the pre-WP-3a database). Null when it cannot be told (→ deferred).
+  @visibleForTesting
+  static Future<bool?> localInstallDataPresent(String support) async {
+    try {
+      if (await File(p.join(support, ReplicaLocation.legacyDbFileName))
+          .exists()) {
+        return true;
+      }
+      final replicas = Directory(p.join(support, 'replicas'));
+      if (!await replicas.exists()) return false;
+      return await replicas
+          .list()
+          .any((e) => e is Directory && !p.basename(e.path).startsWith('_'));
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<T> _step<T>(String name, Future<T> Function() run) async {
     _lastStep = name;
     final start = DateTime.now();
@@ -1527,11 +1813,15 @@ class BootstrapSdkTestConfig {
     this.innerStorage,
     this.innerHttp,
     this.beforeInitialize,
+    this.authCoordinator,
   });
   final String url;
   final LocalStorage? innerStorage;
   final http.Client? innerHttp;
   final Future<void> Function()? beforeInitialize;
+
+  /// Runs the coordinated (ASR) storage path with this coordinator.
+  final Future<AuthCoordinator> Function()? authCoordinator;
 }
 
 /// Astra D2 / R12: the provenance of the SDK's initial session.
@@ -1638,10 +1928,20 @@ class AuthInitEventBuffer {
 /// or that derivation change, until the contract is re-reviewed.
 @visibleForTesting
 class ObservingAuthLocalStorage extends LocalStorage {
-  ObservingAuthLocalStorage(this._buffer, String url, {LocalStorage? inner})
+  ObservingAuthLocalStorage(this._buffer, String url,
+      {LocalStorage? inner, this.coordinated})
       : _inner = inner ??
             SharedPreferencesLocalStorage(
                 persistSessionKey: sdkStorageKey(url));
+
+  /// ASR §3.2 / I4: with an AuthCoordinator the SDK never reads or writes
+  /// persisted state itself. The store answers exactly the first
+  /// `hasAccessToken`/`accessToken` pair (the `initialize` pair) from the
+  /// coordinator's loaded record and every later call with nothing, so the
+  /// unawaited lazy `recoverSession()` finds no session; persistence callbacks
+  /// are no-ops.
+  final CoordinatedSessionServe? coordinated;
+  bool _servedOnce = false;
 
   /// The SDK's own default key derivation (supabase_flutter `Supabase.initialize`).
   static String sdkStorageKey(String url) =>
@@ -1683,6 +1983,11 @@ class ObservingAuthLocalStorage extends LocalStorage {
   @override
   Future<void> initialize() async {
     _buffer.attach(Supabase.instance.client);
+    final c = coordinated;
+    if (c != null) {
+      c.onInitialize();
+      return;
+    }
     try {
       await _inner.initialize();
     } catch (_) {
@@ -1694,6 +1999,13 @@ class ObservingAuthLocalStorage extends LocalStorage {
 
   @override
   Future<bool> hasAccessToken() async {
+    final c = coordinated;
+    if (c != null) {
+      if (_servedOnce) return false;
+      final has = c.served != null;
+      if (!has) _servedOnce = true;
+      return has;
+    }
     final bool has;
     try {
       has = await _inner.hasAccessToken();
@@ -1708,6 +2020,12 @@ class ObservingAuthLocalStorage extends LocalStorage {
 
   @override
   Future<String?> accessToken() async {
+    final c = coordinated;
+    if (c != null) {
+      if (_servedOnce) return null;
+      _servedOnce = true;
+      return c.served;
+    }
     final String? raw;
     try {
       raw = await _inner.accessToken();
@@ -1734,15 +2052,30 @@ class ObservingAuthLocalStorage extends LocalStorage {
 
   @override
   Future<void> removePersistedSession() {
+    if (coordinated != null) return Future.value();
     _expected.add('empty');
     return _inner.removePersistedSession();
   }
 
   @override
   Future<void> persistSession(String persistSessionString) {
+    if (coordinated != null) return Future.value();
     _expected.add(persistSessionString);
     return _inner.persistSession(persistSessionString);
   }
+}
+
+/// What the coordinated one-shot store serves (ASR §3.2).
+class CoordinatedSessionServe {
+  const CoordinatedSessionServe(
+      {required this.served, required this.onInitialize});
+
+  /// The canonical session of a valid ordinary record, or null (§6.8).
+  final String? served;
+
+  /// Runs when the SDK initializes the store: the client exists and has not
+  /// emitted yet, so the coordinator attaches here (§4.5).
+  final void Function() onInitialize;
 }
 
 /// Astra H2.3: `supabase_flutter` calls `startAutoRefresh()` on EVERY app resume
@@ -1764,9 +2097,36 @@ class AutoRefreshResumeGuard with WidgetsBindingObserver {
     if (state != AppLifecycleState.resumed) return;
     unawaited(() async {
       try {
-        if (await CloudEgressGate.instance.permits()) return;
+        // ASR §3.3: with the coordinator the SDK ticker is stopped
+        // unconditionally; the coordinator scheduler is the only refresher.
+        if (AuthCoordinator.active == null &&
+            await CloudEgressGate.instance.permits()) {
+          return;
+        }
         Supabase.instance.client.auth.stopAutoRefresh();
       } catch (_) {}
     }());
+  }
+}
+
+/// ASR §8: a resume triggers recovery; backgrounding cancels an op before
+/// acceptance (decision (a)) and any pending retry.
+class _AsrLifecycleObserver with WidgetsBindingObserver {
+  void attach() => WidgetsBinding.instance.addObserver(this);
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final asr = AutomaticSessionRecovery.active;
+    if (asr == null) return;
+    switch (state) {
+      case AppLifecycleState.resumed:
+        asr.trigger();
+      // B5: every non-resumed state latches loss for a running op.
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+      case AppLifecycleState.detached:
+        asr.onBackground();
+    }
   }
 }

@@ -16,6 +16,7 @@ import '../../common/app_avatar.dart';
 import '../../common/category_catalog.dart';
 import '../../common/transaction_direction.dart';
 import '../../../core/utils/formatters.dart';
+import '../../../core/theme/widgets/ring_progress.dart';
 
 /// Home's «المصروفات اليومية» card.
 ///
@@ -39,6 +40,7 @@ class DailySpendCard extends StatelessWidget {
     required this.lastSevenDays,
     required this.averageSevenDays,
     required this.availableToday,
+    this.dailyBudgetLimit,
     required this.todayVsYesterday,
     required this.todayTransactions,
     required this.todayIsTruncated,
@@ -58,6 +60,7 @@ class DailySpendCard extends StatelessWidget {
   /// Null when no monthly budget is set — rendered as «—» plus a prompt, never
   /// as a zero that would read as "nothing left".
   final Money? availableToday;
+  final Money? dailyBudgetLimit;
 
   /// Null when yesterday had no spend: a percentage against zero is not a
   /// comparison, so the chip is omitted rather than showing «+100%».
@@ -100,7 +103,7 @@ class DailySpendCard extends StatelessWidget {
         children: [
           _headline(context, t),
           const SizedBox(height: AppSpacing.s4),
-          _SevenDayBars(days: lastSevenDays),
+          _SevenDayBars(days: lastSevenDays, privacyMode: privacyMode),
           const SizedBox(height: AppSpacing.s4),
           _metrics(context, t),
           if (top.isNotEmpty) ...[
@@ -157,12 +160,60 @@ class DailySpendCard extends StatelessWidget {
                       style: AppTypography.caption(t.textOnCanvasMuted)),
                 ],
               ),
+              if (ratio != null) ...[
+                const SizedBox(height: 6),
+                _DeltaChip(
+                    ratio: ratio, color: ratio > 0 ? c.danger : c.income),
+              ],
             ],
           ),
         ),
-        if (ratio != null) ...[
-          const SizedBox(width: AppSpacing.s2),
-          _DeltaChip(ratio: ratio, color: ratio > 0 ? c.danger : c.income),
+        if (availableToday != null) ...[
+          const SizedBox(width: AppSpacing.s3),
+          Expanded(
+              child: Row(children: [
+            RingProgress(
+              key: const ValueKey('today-budget-ring'),
+              size: 58,
+              strokeWidth: 5,
+              color: c.primary,
+              trackColor: c.surface2,
+              value: privacyMode ||
+                      dailyBudgetLimit == null ||
+                      dailyBudgetLimit!.currency != todaySpend.currency ||
+                      dailyBudgetLimit!.minorUnits <= 0
+                  ? null
+                  : todaySpend.minorUnits / dailyBudgetLimit!.minorUnits,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                  Text(
+                      availableToday == null
+                          ? context.l10n.homeSetMonthlyBudgetShort
+                          : context.l10n.homeAvailableToday,
+                      style: AppTypography.caption(t.textOnCanvasMuted)),
+                  const SizedBox(height: 4),
+                  FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Text(
+                          availableToday == null
+                              ? '—'
+                              : privacyMode
+                                  ? '••••'
+                                  : formatMoney(availableToday!),
+                          style: AppTypography.custom(
+                              size: 17,
+                              weight: FontWeight.w700,
+                              height: 1.2,
+                              tabular: true,
+                              color: t.textOnCanvasPrimary))),
+                ])),
+          ])),
         ],
       ],
     );
@@ -171,7 +222,6 @@ class DailySpendCard extends StatelessWidget {
   // ── المقاييس الثلاثة ────────────────────────────────────────────────────────
 
   Widget _metrics(BuildContext context, MaliTokens t) {
-    final allowance = availableToday;
     // The count is exact only when the read was not truncated.
     final countLabel = todayIsTruncated
         ? '+${todayTransactions.length}'
@@ -192,17 +242,8 @@ class DailySpendCard extends StatelessWidget {
             label: context.l10n.homeSevenDayAverage,
           ),
           _divider(t),
-          _metric(
-            context,
-            t,
-            value: allowance == null
-                ? '—'
-                : (privacyMode ? '••••' : formatMoney(allowance)),
-            label: allowance == null ? context.l10n.homeSetMonthlyBudgetShort : context.l10n.homeAvailableToday,
-            muted: allowance == null,
-          ),
-          _divider(t),
-          _metric(context, t, value: countLabel, label: context.l10n.homeTodayTransactions),
+          _metric(context, t,
+              value: countLabel, label: context.l10n.homeTodayTransactions),
         ],
       ),
     );
@@ -231,9 +272,7 @@ class DailySpendCard extends StatelessWidget {
                     weight: FontWeight.w600,
                     height: 1.2,
                     tabular: true,
-                    color: muted
-                        ? t.textOnCanvasMuted
-                        : t.textOnCanvasPrimary,
+                    color: muted ? t.textOnCanvasMuted : t.textOnCanvasPrimary,
                   ),
                 ),
               ),
@@ -278,8 +317,14 @@ class DailySpendCard extends StatelessWidget {
 
   Widget _topRow(BuildContext context, MaliTokens t, TransactionEntity tx) {
     final category = catalog.byId(tx.categoryId);
-    final title = tx.rawMerchant ?? category?.name ?? context.l10n.txnTransactionWord;
+    final title =
+        tx.rawMerchant ?? category?.name ?? context.l10n.txnTransactionWord;
     final logo = BrandMark.logoFor(title, merchantLogos);
+    final categoryTile = AppAvatar.category(
+        iconName: category?.iconName,
+        merchantName: title,
+        color: category?.color,
+        size: AppSpacing.avatarSm);
     return Semantics(
       button: onTransactionTap != null,
       child: GestureDetector(
@@ -296,12 +341,9 @@ class DailySpendCard extends StatelessWidget {
                     ? AppAvatar.brand(
                         name: title,
                         logoUrl: logo,
-                        size: AppSpacing.avatarSm)
-                    : AppAvatar.category(
-                        iconName: category?.iconName,
-                        merchantName: title,
-                        color: category?.color,
-                        size: AppSpacing.avatarSm),
+                        size: AppSpacing.avatarSm,
+                        fallback: categoryTile)
+                    : categoryTile,
                 const SizedBox(width: AppSpacing.s3),
                 Expanded(
                   child: Text(
@@ -343,9 +385,10 @@ class DailySpendCard extends StatelessWidget {
 /// today — the days are ONE series, so colouring each of them separately would
 /// burn the only free channel on information the bar heights already carry.
 class _SevenDayBars extends StatelessWidget {
-  const _SevenDayBars({required this.days});
+  const _SevenDayBars({required this.days, required this.privacyMode});
 
   final List<DailySpend> days;
+  final bool privacyMode;
 
   static const double _maxHeight = 56;
   static const double _minHeight = 3;
@@ -402,7 +445,8 @@ class _SevenDayBars extends StatelessWidget {
         ? context.l10n.txnRangeToday
         : Formatters.weekdayInitial(context, day.day);
     return Semantics(
-      label: context.l10n.homeDayAmountSemantics(label, formatMoney(day.total)),
+      label: context.l10n.homeDayAmountSemantics(
+          label, privacyMode ? '••••' : formatMoney(day.total)),
       excludeSemantics: true,
       child: Column(
         mainAxisSize: MainAxisSize.min,

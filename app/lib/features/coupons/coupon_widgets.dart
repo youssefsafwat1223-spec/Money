@@ -146,7 +146,7 @@ class _CouponValueRow extends StatelessWidget {
             ),
             child: Text(
               headline,
-              style: AppTypography.caption(c.cta)
+              style: AppTypography.caption(Theme.of(context).brightness == Brightness.dark ? c.textPrimary : c.cta)
                   .copyWith(fontWeight: FontWeight.w700),
             ),
           ),
@@ -361,7 +361,7 @@ class CouponCodePill extends StatelessWidget {
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textDirection: TextDirection.ltr,
-          style: AppTypography.caption(c.cta).copyWith(
+          style: AppTypography.caption(Theme.of(context).brightness == Brightness.dark ? c.textPrimary : c.primary).copyWith(
             fontWeight: FontWeight.w700,
             letterSpacing: 0.5,
           ),
@@ -435,7 +435,7 @@ class CouponDetailsSheet extends ConsumerWidget {
   Future<void> _copyCode(BuildContext context, WidgetRef ref) async {
     final l10n = context.l10n;
     if (!_stillRedeemable()) {
-      showTopInfo(context, l10n.couponsOfferUnavailable);
+      showTopError(context, l10n.couponsOfferUnavailable);
       return;
     }
     final code = offer.code;
@@ -445,7 +445,7 @@ class CouponDetailsSheet extends ConsumerWidget {
     if (context.mounted) {
       // Announced to screen readers as well as shown.
       SemanticsService.announce(
-          l10n.couponsCodeCopied(code), TextDirection.rtl);
+          l10n.couponsCodeCopied(code), Directionality.of(context));
       showTopInfo(context, l10n.couponsCodeCopied(code));
     }
     // Analytics run AFTER the copy already succeeded and are never awaited:
@@ -456,7 +456,7 @@ class CouponDetailsSheet extends ConsumerWidget {
   Future<void> _openPartner(BuildContext context, WidgetRef ref) async {
     final l10n = context.l10n;
     if (!_stillRedeemable()) {
-      showTopInfo(context, l10n.couponsOfferUnavailable);
+      showTopError(context, l10n.couponsOfferUnavailable);
       return;
     }
     // Route through the affiliate gateway. With `enable_affiliate_links` OFF —
@@ -477,7 +477,7 @@ class CouponDetailsSheet extends ConsumerWidget {
     // Defence in depth: only https is ever launched, whatever the cache holds.
     final uri = raw == null ? null : Uri.tryParse(raw);
     if (uri == null || uri.scheme != 'https' || !uri.hasAuthority) {
-      showTopInfo(context, l10n.couponsOpenFailed);
+      showTopError(context, l10n.couponsOpenFailed);
       return;
     }
     // `cta_click` counts a deliberate CLICK, not a redemption or a conversion —
@@ -491,7 +491,7 @@ class CouponDetailsSheet extends ConsumerWidget {
       launched = false;
     }
     if (!launched && context.mounted) {
-      showTopInfo(context, l10n.couponsOpenFailed);
+      showTopError(context, l10n.couponsOpenFailed);
     }
   }
 

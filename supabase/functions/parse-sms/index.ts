@@ -28,12 +28,7 @@ function jsonResponse(obj: Record<string, unknown>): Response {
   });
 }
 
-// Google deprecates model IDs fast — gemini-2.0-flash-lite was shut down 2026-06-01.
-// Pin to a stable versioned ID, not an alias. Current: gemini-2.5-flash-lite-preview-06-17.
-// If switching to gemini-2.5-flash (non-lite), set thinkingBudget: 0 in generationConfig
-// to prevent thinking tokens inflating output cost beyond the advertised rate.
-// Track cutover dates at: https://ai.google.dev/gemini-api/docs/models/gemini
-const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.5-flash-lite';
+const GEMINI_MODEL = Deno.env.get('GEMINI_SMS_MODEL') ?? 'gemini-3.8-flash';
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 
 // PHASE 7 — the DEDICATED shadow credential. Deliberately a separate variable
@@ -404,7 +399,10 @@ Fields (for transaction messages only):
   the current year when only day/month is present. If only day + time appears
   (e.g. Arabic "يوم 06 الساعة 13:29"), infer the current month/year unless
   that would be in the future, then use the previous month. Omit only when no
-  date/time clue exists.
+  date/time clue exists. Write it as "YYYY-MM-DDTHH:MM:SS" in 24-hour time with
+  NO "Z" and NO offset. Convert 12-hour times exactly: AM/ص/صباحا = morning,
+  PM/م/مساء = afternoon/evening; 12:xx AM = 00:xx, 12:xx PM = 12:xx,
+  01:43 PM = 13:43. Never invent a time that is not written.
 - category_key: "restaurants" | "groceries" | "transport" | "fuel" | "bills" | "shopping" | "health" | "education" | "entertainment" | "subscriptions" | "transfers" | "cash" | "travel" | "gifts" | "kids" | "home" | "cafes" | "maintenance" | "fitness" | "beauty" | "charity" | "pets" | "insurance" | "income" | "other"
 
 Category rules:
@@ -453,7 +451,14 @@ Return ONLY valid JSON. No markdown, no explanation.`;
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0, maxOutputTokens: 256 },
+        generationConfig: {
+          temperature: 0,
+          maxOutputTokens: 1024,
+          responseMimeType: 'application/json',
+          ...(GEMINI_MODEL === 'gemini-3.8-flash'
+            ? { thinkingConfig: { thinkingLevel: 'low' } }
+            : {}),
+        },
       }),
     }, GEMINI_TIMEOUT_MS);
     if (!geminiRes.ok) throw new Error(`gemini_${geminiRes.status}`);

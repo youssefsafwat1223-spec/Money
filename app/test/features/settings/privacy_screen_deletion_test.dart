@@ -15,16 +15,18 @@ import '../../core/session/fake_account_scope.dart';
 import '../../core/session/fake_remove_barrier.dart';
 import 'dart:io';
 import 'package:money_companion/core/theme/app_theme.dart';
+import 'package:money_companion/core/utils/app_lucide_icons.dart';
 import 'package:money_companion/features/settings/privacy_screen.dart';
 import 'package:money_companion/features/settings/delete_account_screen.dart';
 import 'package:money_companion/l10n/app_localizations.dart';
 
 class _FakeAccountDeletionService implements AccountDeletionService {
-  _FakeAccountDeletionService({this.scheduledAt, this.throwOnRequest = false, this.requestError});
+  _FakeAccountDeletionService({this.scheduledAt, this.throwOnRequest = false, this.requestError, this.cancelError});
 
   DateTime? scheduledAt;
   bool throwOnRequest;
   final Object? requestError;
+  final Object? cancelError;
   var requestCalls = 0;
   var cancelCalls = 0;
 
@@ -45,6 +47,7 @@ class _FakeAccountDeletionService implements AccountDeletionService {
   @override
   Future<void> cancelDeletion() async {
     cancelCalls += 1;
+    if (cancelError != null) throw cancelError!;
     scheduledAt = null;
   }
 }
@@ -127,6 +130,31 @@ Future<void> _tapEnsuringVisible(WidgetTester tester, Finder finder) async {
 void main() {
   // The reset fence invalidates the admission generation in secure storage first.
   setUp(() => FlutterSecureStorage.setMockInitialValues({}));
+
+  testWidgets('failed cancellation keeps pending deletion visible and shows error without wiping', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    final scheduled = DateTime.utc(2026, 8, 14);
+    final service = _FakeAccountDeletionService(scheduledAt: scheduled,
+        cancelError: StateError('synthetic_cancel_failure'));
+    final wipe = _NoopDataWipeService();
+    await tester.pumpWidget(_app(service, wipe));
+    await tester.pumpAndSettle();
+    await _tapEnsuringVisible(tester, find.text('إلغاء الحذف').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('إلغاء الحذف').last);
+    await tester.pumpAndSettle();
+    expect(service.cancelCalls, 1);
+    expect(service.scheduledAt, scheduled);
+    expect(service.requestCalls, 0);
+    expect(wipe.wipeCalls, 0);
+    expect(find.textContaining('2026-08-14'), findsOneWidget);
+    expect(find.text(lookupAppL10n(const Locale('ar')).privCancelFailed), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.alertCircle), findsOneWidget);
+    expect(find.byIcon(AppLucideIcons.checkCircle), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+  });
 
   testWidgets('pending deletion card shows scheduled date and cancel action',
       (tester) async {

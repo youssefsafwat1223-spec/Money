@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:money_companion/core/theme/app_colors.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/core/theme/mali_tokens.dart';
@@ -41,7 +42,7 @@ void main() {
     return null;
   }
 
-  testWidgets('every variant renders its child; all blur except headerAction',
+  testWidgets('every variant renders its child; chrome blurs and form sheets stay opaque',
       (tester) async {
     for (final variant in MaliGlassVariant.values) {
       await tester.pumpWidget(
@@ -52,7 +53,7 @@ void main() {
       // flat gradient is invisible, so it deliberately skips the filter.
       expect(
         find.byType(BackdropFilter),
-        variant == MaliGlassVariant.headerAction
+        variant == MaliGlassVariant.headerAction || variant == MaliGlassVariant.sheet
             ? findsNothing
             : findsOneWidget,
       );
@@ -63,8 +64,8 @@ void main() {
       (tester) async {
     const expected = {
       MaliGlassVariant.pill: BorderRadius.all(Radius.circular(999)),
-      // The prototype's `--r-card: 18px`, and `.bnav`'s pill.
-      MaliGlassVariant.card: BorderRadius.all(Radius.circular(18)),
+      // The approved prototype's 20px card radius and native navigation pill.
+      MaliGlassVariant.card: BorderRadius.all(Radius.circular(20)),
       MaliGlassVariant.navigation: BorderRadius.all(Radius.circular(999)),
       MaliGlassVariant.sheet: BorderRadius.vertical(top: Radius.circular(28)),
       MaliGlassVariant.headerAction: BorderRadius.all(Radius.circular(999)),
@@ -199,17 +200,19 @@ void main() {
     ]);
   });
 
-  testWidgets('sheet body keeps a legibility floor (forms never fully clear)',
-      (tester) async {
-    await tester.pumpWidget(
-      harness(const MaliGlass(
-        variant: MaliGlassVariant.sheet,
-        child: Text('x'),
-      )),
-    );
-    final gradient = fillDecoration(tester)!.gradient! as LinearGradient;
-    expect(gradient.colors.last, MaliTokens.light.glassSheetFill);
-    expect(gradient.colors.last.a, greaterThan(0.6));
+  testWidgets('HTML form sheets are neutral and opaque in both themes', (tester) async {
+    for (final theme in [AppTheme.light, AppTheme.dark]) {
+      await tester.pumpWidget(harness(const MaliGlass(
+        variant: MaliGlassVariant.sheet, nativeMaterial: true, child: Text('x'),
+      ), theme: theme));
+      await tester.pumpAndSettle();
+      final colors = tester.widgetList<ColoredBox>(find.descendant(
+        of: find.byType(MaliGlass), matching: find.byType(ColoredBox))).map((w) => w.color);
+      expect(colors, contains(theme.extension<AppColors>()!.surface));
+      expect(find.byType(NativeGlassBackdrop), findsNothing);
+      expect(find.byType(BackdropFilter), findsNothing);
+      expect(find.text('x'), findsOneWidget);
+    }
   });
 
   testWidgets(
@@ -249,7 +252,7 @@ void main() {
     try {
       NativeGlassSupport.debugOverride = true;
       await tester.pumpWidget(harness(const MaliGlass(
-        variant: MaliGlassVariant.sheet,
+        variant: MaliGlassVariant.card,
         nativeMaterial: true,
         child: Text('x'),
       )));
@@ -260,7 +263,7 @@ void main() {
       NativeGlassSupport.debugOverride = false;
       await tester.pumpWidget(harness(const MaliGlass(
         key: ValueKey('unsupported'),
-        variant: MaliGlassVariant.sheet,
+        variant: MaliGlassVariant.card,
         nativeMaterial: true,
         child: Text('x'),
       )));
@@ -325,7 +328,7 @@ void main() {
     addTearDown(() => NativeGlassSupport.debugOverride = null);
     const tint = Color(0x24FF0000);
     await tester.pumpWidget(harness(const MaliGlass(
-      variant: MaliGlassVariant.sheet,
+      variant: MaliGlassVariant.card,
       nativeMaterial: true,
       tint: tint,
       child: Text('x'),

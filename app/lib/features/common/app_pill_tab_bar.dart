@@ -2,14 +2,10 @@ import 'package:flutter/material.dart';
 import '../../core/theme/app_colors.dart';
 import '../../core/theme/app_spacing.dart';
 import '../../core/theme/app_typography.dart';
-import '../../core/theme/widgets/mali_glass.dart';
 
 /// شريط تبويب حبة الدواء — سيطرة قطعية قابلة لإعادة الاستخدام.
 ///
-/// iOS 26 segmented style: one glass track ([MaliGlass] pill) with a sliding
-/// glass lens under the selected tab — no solid ink fill (the owner rejected
-/// the black/white selection as foreign to the blue system). In light the
-/// lens is tinted with the app blue; in dark it is a brighter white glass.
+/// A quiet segmented track with a sliding blue selection.
 /// آمن في وضع RTL، ودعم إمكانية الوصول.
 /// لا يعتمد على [TabController] أو أي شاشة بعينها.
 class AppPillTabBar extends StatelessWidget {
@@ -31,22 +27,20 @@ class AppPillTabBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final c = context.colors;
-    final dark = Theme.of(context).brightness == Brightness.dark;
-    final lensFill = dark
-        ? Colors.white.withValues(alpha: 0.22)
-        : c.ink.withValues(alpha: 0.14);
-    final lensBorder = dark
-        ? Colors.white.withValues(alpha: 0.45)
-        : c.ink.withValues(alpha: 0.35);
-    final selectedFg = dark ? Colors.white : AppBrandBlue.brand;
-    final idleFg = dark ? Colors.white.withValues(alpha: 0.72) : c.textSecondary;
+    final lensFill = c.primary.withValues(alpha: 0.12);
+    final selectedFg = c.primary;
+    final idleFg = c.textSecondary;
     final count = tabs.length;
     final x = count < 2 ? 0.0 : -1 + 2 * selectedIndex / (count - 1);
 
     return SizedBox(
       height: height,
-      child: MaliGlass(
-        variant: MaliGlassVariant.pill,
+      child: Container(
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(AppRadius.pill),
+          border: Border.all(color: c.border),
+        ),
         padding: const EdgeInsets.all(_inset),
         child: Stack(
           children: [
@@ -63,7 +57,6 @@ class AppPillTabBar extends StatelessWidget {
                       decoration: BoxDecoration(
                         color: lensFill,
                         borderRadius: BorderRadius.circular(AppRadius.pill),
-                        border: Border.all(color: lensBorder),
                       ),
                     ),
                   ),

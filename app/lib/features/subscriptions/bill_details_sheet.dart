@@ -16,6 +16,7 @@ import '../../domain/repositories/transaction_repository.dart';
 import '../../domain/errors/repo_exceptions.dart';
 import '../../domain/finance/bill_metrics.dart';
 import '../../domain/finance/money.dart';
+import '../../domain/finance/money_format.dart';
 import '../../domain/finance/money_input.dart';
 import '../../engine/categorization/category.dart';
 import '../cards/brand_mark.dart';
@@ -90,7 +91,6 @@ class BillDetailsSheet extends ConsumerWidget {
               manualPaidMoney: currentBill.safeManualPaidMoney,
             );
             final legacyManualPaid = paidSummary.legacyManual;
-            final totalPaid = paidSummary.total;
             final linkedTxIds = linkedTransactionIds(payments);
             final suggestedTransactions = transactions
                 .where((tx) => !linkedTxIds.contains(tx.id))
@@ -136,14 +136,14 @@ class BillDetailsSheet extends ConsumerWidget {
                         child: _SummaryTile(
                           label: isInstallment ? context.l10n.bdsInstalmentValue : context.l10n.bdgAmount,
                           value:
-                              '${Formatters.amount(currentBill.amount)} $currLabel',
+                              '${formatMoney(currentBill.amountMoney)} $currLabel',
                         ),
                       ),
                       Container(width: 1, height: 38, color: c.border),
                       Expanded(
                         child: _SummaryTile(
                           label: context.l10n.bdsTotalPaid,
-                          value: '${Formatters.amount(totalPaid)} $currLabel',
+                          value: '${formatMoney(paidSummary.totalMoney)} $currLabel',
                         ),
                       ),
                       Container(width: 1, height: 38, color: c.border),
@@ -160,7 +160,7 @@ class BillDetailsSheet extends ConsumerWidget {
                   const SizedBox(height: AppSpacing.s2),
                   Text(
                     context.l10n.bdsIncludesLegacyManual(
-                  Formatters.amount(legacyManualPaid), currLabel),
+                  formatMoney(paidSummary.legacyManualMoney), currLabel),
                     textAlign: TextAlign.center,
                     style: AppTypography.caption(c.textSecondary),
                   ),
@@ -311,15 +311,11 @@ class BillDetailsSheet extends ConsumerWidget {
     final period = _defaultPaymentPeriod(bill);
     final remainingCount = bill.remainingInstallments;
     final remainingAmountMoney = bill.amountMoney * remainingCount;
-    final remainingAmount = remainingAmountMoney.toDouble();
     final canPayFull = isInstallment && remainingCount > 1;
 
     // CANONICAL seed: this text is parsed back into Money when the payment is
     // recorded, so truncating here shifted the recorded payment (KWD 12.345 →
     // 12.350) on every single payment.
-    final amountController =
-        TextEditingController(text: bill.amountMoney.toDecimalString());
-    final noteController = TextEditingController();
     var payFull = false;
     var busy = false;
     String? errorMessage;
@@ -328,7 +324,9 @@ class BillDetailsSheet extends ConsumerWidget {
     final recorded = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => StatefulBuilder(
+      builder: (context) => _BillPaymentControllers(
+        initialAmount: bill.amountMoney.toDecimalString(),
+        builder: (context, amountController, noteController) => StatefulBuilder(
         builder: (context, setDialogState) => PopScope(
           canPop: !busy,
           child: GlassAlertDialog(
@@ -365,7 +363,7 @@ class BillDetailsSheet extends ConsumerWidget {
                     contentPadding: EdgeInsets.zero,
                     value: payFull,
                     title: Text(
-                      context.l10n.bdsPayRemainingInFull(Formatters.amount(remainingAmount),
+                      context.l10n.bdsPayRemainingInFull(formatMoney(remainingAmountMoney),
             Currency.label(context, bill.currency)),
                       style: AppTypography.caption(context.colors.textMain),
                     ),
@@ -419,9 +417,7 @@ class BillDetailsSheet extends ConsumerWidget {
                                   bill.currency,
                                 );
                         } on Exception {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(content: Text(context.l10n.bfInvalidAmount)),
-                          );
+                          AppToast.showError(context, context.l10n.bfInvalidAmount);
                           return;
                         }
                         if (amountMoney == null ||
@@ -496,19 +492,16 @@ class BillDetailsSheet extends ConsumerWidget {
             ],
           ),
         ),
+        ),
       ),
     );
-    amountController.dispose();
-    noteController.dispose();
     if (recorded != true) return;
     ref.invalidate(billPaymentsProvider(bill.id));
     ref.invalidate(savedBillsProvider);
     ref.invalidate(billsViewProvider);
     ref.invalidate(dashboardDataProvider);
     if (!context.mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(context.l10n.bdsPaymentRecorded)),
-    );
+    AppToast.show(context, context.l10n.bdsPaymentRecorded);
   }
 
   Future<void> _confirmDelete(
@@ -525,6 +518,8 @@ class BillDetailsSheet extends ConsumerWidget {
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(backgroundColor: context.colors.danger,
+                foregroundColor: context.colors.onDanger),
             child: Text(context.l10n.setDelete),
           ),
         ],
@@ -539,9 +534,7 @@ class BillDetailsSheet extends ConsumerWidget {
       return;
     } catch (_) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.bdsDeleteBillFailed)),
-      );
+      AppToast.showError(context, context.l10n.bdsDeleteBillFailed);
       return;
     }
     ref.invalidate(savedBillsProvider);
@@ -571,8 +564,6 @@ class _SummaryTile extends StatelessWidget {
         Text(
           value,
           textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
           style: AppTypography.subhead(c.textPrimary),
         ),
       ],
@@ -622,9 +613,7 @@ class _BillPaymentRow extends ConsumerWidget {
       return;
     } catch (_) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(context.l10n.bdsDeletePaymentFailed)),
-      );
+      AppToast.showError(context, context.l10n.bdsDeletePaymentFailed);
       return;
     }
     ref.invalidate(billPaymentsProvider(bill.id));
@@ -688,7 +677,7 @@ class _BillPaymentRow extends ConsumerWidget {
           ),
           const SizedBox(width: AppSpacing.s2),
           Text(
-            '${Formatters.amount(payment.amount)} ${Currency.label(context, payment.currency)}',
+            '${formatMoney(payment.amountMoney)} ${Currency.label(context, payment.currency)}',
             style: AppTypography.caption(c.success).copyWith(
               fontWeight: FontWeight.w700,
             ),
@@ -755,7 +744,7 @@ class _BillTransactionRow extends StatelessWidget {
             ),
             const SizedBox(width: AppSpacing.s2),
             Text(
-              '${Formatters.amount(tx.amount)} ${Currency.label(context, tx.currency)}',
+              '${formatMoney(tx.amountMoney)} ${Currency.label(context, tx.currency)}',
               style: AppTypography.caption(c.textPrimary)
                   .copyWith(fontWeight: FontWeight.w700),
             ),
@@ -897,4 +886,35 @@ String _dueLabel(BuildContext context, DateTime dueDate) {
   if (daysLeft < 0) return context.l10n.txnOverdueDays(daysLeft.abs());
   if (daysLeft == 0) return context.l10n.txnDueToday;
   return context.l10n.txnInDays(daysLeft);
+}
+
+// The dialog remains mounted during its reverse transition after showDialog's
+// result completes. Keep its controllers owned by that subtree until unmount.
+class _BillPaymentControllers extends StatefulWidget {
+  const _BillPaymentControllers({
+    required this.initialAmount,
+    required this.builder,
+  });
+
+  final String initialAmount;
+  final Widget Function(BuildContext, TextEditingController,
+      TextEditingController) builder;
+
+  @override
+  State<_BillPaymentControllers> createState() => _BillPaymentControllersState();
+}
+
+class _BillPaymentControllersState extends State<_BillPaymentControllers> {
+  late final _amount = TextEditingController(text: widget.initialAmount);
+  final _note = TextEditingController();
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    _note.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _amount, _note);
 }

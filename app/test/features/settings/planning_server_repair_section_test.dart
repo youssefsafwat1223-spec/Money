@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:money_companion/core/theme/app_theme.dart';
 import 'package:money_companion/features/planning_sync/services/planning_server_currency_repair.dart';
 import 'package:money_companion/features/settings/planning_server_repair_providers.dart';
 import 'package:money_companion/features/settings/planning_server_repair_section.dart';
@@ -23,11 +24,12 @@ void main() {
               ),
             ]),
       ],
-      child: const MaterialApp(
+      child: MaterialApp(
+          theme: AppTheme.light,
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          locale: Locale('ar'),
-          home: Scaffold(body: PlanningServerRepairSection())),
+          locale: const Locale('ar'),
+          home: const Scaffold(body: PlanningServerRepairSection())),
     ));
     await tester.pumpAndSettle();
 
@@ -44,11 +46,12 @@ void main() {
       overrides: [
         serverUnresolvedPlanningItemsProvider.overrideWith((ref) async => const []),
       ],
-      child: const MaterialApp(
+      child: MaterialApp(
+          theme: AppTheme.light,
           localizationsDelegates: AppL10n.localizationsDelegates,
           supportedLocales: AppL10n.supportedLocales,
-          locale: Locale('ar'),
-          home: Scaffold(body: PlanningServerRepairSection())),
+          locale: const Locale('ar'),
+          home: const Scaffold(body: PlanningServerRepairSection())),
     ));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('server-unresolved-repair')), findsNothing);

@@ -11,8 +11,11 @@ import '../../core/utils/formatters.dart';
 import '../../data/db/planning_currency_repair.dart';
 import '../../domain/finance/currency_scale.dart';
 import 'planning_currency_repair_providers.dart';
+import 'planning_server_repair_providers.dart';
 import 'planning_server_repair_section.dart';
 import '../common/app_header.dart';
+import '../common/app_error_state.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/utils/app_lucide_icons.dart';
 import '../../core/theme/widgets/glass_dropdown_field.dart';
 
@@ -43,19 +46,22 @@ class _PlanningCurrencyRepairScreenState
   Widget build(BuildContext context) {
     final c = context.colors;
     final repair = ref.watch(planningCurrencyRepairProvider);
+    final serverItems = ref.watch(serverUnresolvedPlanningItemsProvider);
+    final serverRepairSettledEmpty = !serverItems.isLoading &&
+        !serverItems.hasError && serverItems.valueOrNull?.isEmpty == true;
     return Directionality(
       textDirection: Directionality.of(context),
       child: Scaffold(
         backgroundColor: c.bg,
         appBar: AppHeader(title: context.l10n.pcrTitle),
-        body: Column(
-          children: [
+        body: NestedScrollView(
+          headerSliverBuilder: (context, innerBoxIsScrolled) => const [
             // Server-originated unresolved-currency rows (from the sync quarantine)
             // surface here regardless of the local-legacy cutover status; renders
             // nothing when there is no server repair work.
-            const PlanningServerRepairSection(),
-            Expanded(
-              child: repair.when(
+            SliverToBoxAdapter(child: PlanningServerRepairSection()),
+          ],
+          body: repair.when(
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (error, stackTrace) => _LoadError(
                   onRetry: () => ref
@@ -66,16 +72,18 @@ class _PlanningCurrencyRepairScreenState
                   _synchronizeDraft(data);
                   return switch (data.status) {
                     PlanningRepairStatus.notRequired =>
-                      const _NothingToRepair(),
-                    PlanningRepairStatus.satisfied => _RepairDone(data: data),
+                      serverRepairSettledEmpty
+                          ? const _NothingToRepair()
+                          : const _ServerWorkExit(),
+                    PlanningRepairStatus.satisfied => serverRepairSettledEmpty
+                        ? _RepairDone(data: data)
+                        : const _ServerWorkExit(),
                     PlanningRepairStatus.needsConfirmation ||
                     PlanningRepairStatus.stale =>
                       _buildConfirmation(context, data),
                   };
                 },
               ),
-            ),
-          ],
         ),
       ),
     );
@@ -546,7 +554,7 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '${isBudget ? 'ميزانية' : 'هدف'} · ${row.title}',
+            '${isBudget ? context.l10n.rprBudget : context.l10n.rprGoal} · ${row.title}',
             style: AppTypography.subhead(c.textPrimary),
           ),
           const SizedBox(height: AppSpacing.s1),
@@ -578,6 +586,21 @@ class _PlanningRowCurrencyCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ServerWorkExit extends StatelessWidget {
+  const _ServerWorkExit();
+
+  @override
+  Widget build(BuildContext context) => Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.gutter),
+          child: OutlinedButton(
+            onPressed: () => Navigator.of(context).maybePop(),
+            child: Text(context.l10n.pcrBackToSettings),
+          ),
+        ),
+      );
 }
 
 class _NothingToRepair extends StatelessWidget {
@@ -630,6 +653,8 @@ class _TerminalState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            const QirshIllustration(name: 'dataTransfer', width: 160, height: 120),
+            const SizedBox(height: AppSpacing.s3),
             Icon(icon, size: 64, color: c.success),
             const SizedBox(height: AppSpacing.s4),
             Text(title, style: AppTypography.title1(c.textPrimary)),
@@ -658,29 +683,11 @@ class _LoadError extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = context.colors;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.gutter),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(AppLucideIcons.alertCircle, color: c.danger, size: 48),
-            const SizedBox(height: AppSpacing.s3),
-            Text(
-              context.l10n.pcrReadFailed,
-              textAlign: TextAlign.center,
-              style: AppTypography.body(c.textSecondary),
-            ),
-            const SizedBox(height: AppSpacing.s3),
-            OutlinedButton.icon(
-              onPressed: onRetry,
-              icon: const Icon(AppLucideIcons.refreshCw),
-              label: Text(context.l10n.annRetry),
-            ),
-          ],
-        ),
-      ),
-    );
+    return SingleChildScrollView(child: AppErrorState(
+      title: context.l10n.pcrReadFailed,
+      description: context.l10n.annTryAgainSoon,
+      retryLabel: context.l10n.annRetry,
+      onRetry: onRetry,
+    ));
   }
 }

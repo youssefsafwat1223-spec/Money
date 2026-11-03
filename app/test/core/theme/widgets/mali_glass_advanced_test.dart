@@ -146,7 +146,7 @@ void main() {
         )),
       );
       expect(find.byKey(_advancedKey), findsNothing);
-      expect(find.byType(BackdropFilter), findsOneWidget);
+      expect(find.byType(BackdropFilter), findsNothing);
     });
   });
 

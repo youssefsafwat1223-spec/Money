@@ -800,9 +800,10 @@ class AddTransactionUseCase {
     }
     final now = DateTime.now().toUtc();
     final receivedAt = (smsReceivedAt ?? now).toUtc();
-    final transactionTimeFromSms =
+    final transactionTimeFromSms = _keepReceivedTimeForBareDate(
         (parsed.occurredAt ?? TransactionTimestampExtractor.extract(rawMessage))
-            ?.toUtc();
+            ?.toUtc(),
+        receivedAt);
     final comparisonTimestamp = transactionTimeFromSms ?? receivedAt;
     final comparisonTimestampSource = transactionTimeFromSms == null
         ? ComparisonTimestampSource.receivedAt
@@ -2005,6 +2006,21 @@ class AddTransactionUseCase {
         lower.contains('transaction of');
     if (!hasDebitCard || !hasGenericTransaction) return false;
     return BankProfiles.isBankMerchant(merchantName);
+  }
+
+  // An SMS date with no clock time parses as local midnight. On the day the
+  // SMS arrived, the received time is closer than 12:00 AM; other days keep
+  // the bare date.
+  static DateTime? _keepReceivedTimeForBareDate(
+      DateTime? fromSms, DateTime receivedAt) {
+    if (fromSms == null) return null;
+    final sms = fromSms.toLocal();
+    final received = receivedAt.toLocal();
+    final bareDate = sms.hour == 0 && sms.minute == 0 && sms.second == 0;
+    final sameDay = sms.year == received.year &&
+        sms.month == received.month &&
+        sms.day == received.day;
+    return bareDate && sameDay ? receivedAt : fromSms;
   }
 
   static TransactionType? _parseTypeFromString(String? raw) {

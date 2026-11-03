@@ -4,7 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../core/di/app_providers.dart';
 import '../../data/db/planning_cutover.dart';
-import '../../core/utils/app_lucide_icons.dart';
+import '../../core/theme/app_colors.dart';
+import '../../core/theme/app_spacing.dart';
+import '../../core/theme/app_typography.dart';
+import '../../core/theme/widgets/qirsh_visuals.dart';
 import '../../core/utils/l10n_ext.dart';
 
 /// MALI-026 (Phase-8 B8-2.10 §3) — the planning navigation repair gate.
@@ -36,45 +39,58 @@ class PlanningRepairRequiredView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final c = context.colors;
     return Directionality(
       textDirection: Directionality.of(context),
       child: Scaffold(
         key: const Key('planning_repair_required_view'),
+        backgroundColor: c.bg,
         body: SafeArea(
-          child: Center(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Icon(AppLucideIcons.lock, size: 48),
-                  const SizedBox(height: 16),
-                  Text(
-                    context.l10n.prgTitle,
-                    style: const TextStyle(
-                        fontSize: 20, fontWeight: FontWeight.w700),
-                    textAlign: TextAlign.center,
+          child: LayoutBuilder(builder: (context, constraints) =>
+            SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.gutter),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 480),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const QirshIllustration(name: 'dataTransfer'),
+                          const SizedBox(height: AppSpacing.s6),
+                          Text(
+                            context.l10n.prgTitle,
+                            style: AppTypography.title1(c.textPrimary),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: AppSpacing.s3),
+                          Text(
+                            context.l10n.prgBody,
+                            style: AppTypography.body(c.textSecondary),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: AppSpacing.s6),
+                          FilledButton(
+                            key: const Key('planning_repair_confirm_cta'),
+                            onPressed: () =>
+                                context.push('/settings/planning-currency-repair'),
+                            child: Text(context.l10n.prgConfirmNow),
+                          ),
+                          const SizedBox(height: AppSpacing.s2),
+                          TextButton(
+                            key: const Key('planning_repair_defer_cta'),
+                            onPressed: () =>
+                                context.canPop() ? context.pop() : context.go('/'),
+                            child: Text(context.l10n.prgNotNow),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                  const SizedBox(height: 12),
-                  Text(
-                    context.l10n.prgBody,
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 24),
-                  FilledButton(
-                    key: const Key('planning_repair_confirm_cta'),
-                    onPressed: () =>
-                        context.push('/settings/planning-currency-repair'),
-                    child: Text(context.l10n.prgConfirmNow),
-                  ),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    key: const Key('planning_repair_defer_cta'),
-                    onPressed: () =>
-                        context.canPop() ? context.pop() : context.go('/'),
-                    child: Text(context.l10n.prgNotNow),
-                  ),
-                ],
+                ),
               ),
             ),
           ),

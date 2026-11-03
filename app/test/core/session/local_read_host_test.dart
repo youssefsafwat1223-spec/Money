@@ -9,8 +9,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
+import 'package:money_companion/core/auth/auth_diagnostics.dart';
+import 'package:money_companion/core/backend/supabase_config.dart';
 import 'package:money_companion/core/session/account_scope.dart';
 import 'package:money_companion/core/session/app_session.dart';
+import 'package:money_companion/core/session/admission_authority.dart';
 import 'package:money_companion/core/session/local_read_authority.dart';
 import 'package:money_companion/core/session/remove_data_flow.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -19,6 +22,8 @@ import 'package:money_companion/data/db/database_access_broker.dart';
 import 'package:money_companion/data/db/replica_store.dart';
 import 'package:path/path.dart' as p;
 import 'package:supabase_flutter/supabase_flutter.dart';
+// ignore: depend_on_referenced_packages
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../harness/egress_test_support.dart';
 import 'f2_fixture.dart';
@@ -170,7 +175,42 @@ void main() {
     return id;
   }
 
+  Future<SupabaseClient> returningLoginSdk({
+    Future<void> Function()? beforeProfile,
+  }) async {
+      SharedPreferences.setMockInitialValues({});
+      final initialized = await Supabase.initialize(
+          url: 'https://example.supabase.co', anonKey: 'synthetic-anon',
+          authOptions: const FlutterAuthClientOptions(
+              autoRefreshToken: false, localStorage: EmptyLocalStorage(),
+              detectSessionInUri: false),
+          httpClient: MockClient((request) async {
+        if (request.url.path.endsWith('/profiles')) {
+          await beforeProfile?.call();
+          return http.Response(
+              jsonEncode([{'onboarding_completed_at': '2026-10-01T00:00:00Z'}]),
+              200, headers: {'content-type': 'application/json'}, request: request);
+        }
+        return http.Response('{}', 200, request: request);
+      }));
+      addTearDown(() => Supabase.instance.dispose());
+      final sdk = initialized.client;
+      await F2Fixture.recoverSession_(sdk, _uid);
+      return sdk;
+  }
+
   // ------------------------------------------------------------ 1. issuance
+
+  test('startup denial diagnostic contains only a constant reason', () async {
+    AuthDiagnostics.debugReset();
+    expect(await f.session.restoreLocalReadAccess(host: f.host), isFalse);
+    expect(AuthDiagnostics.entries.value.last,
+        contains('local_read_restore grant_absent_or_uncommitted'));
+    for (final line in AuthDiagnostics.entries.value) {
+      expect(line, isNot(contains(_uid)));
+      expect(line, isNot(contains('@')));
+    }
+  });
 
   group('grant issuance', () {
     test(
@@ -205,6 +245,109 @@ void main() {
       expect(again.operationId, isNot(first),
           reason: 'a fresh admission is a fresh grant transaction');
     });
+
+    test('explicit returning login gets its grant when remote onboarding completes',
+        () async {
+      final sdk = await returningLoginSdk();
+      await f.session.bindSupabaseAuth(sdk);
+      await f.session.setIdentity(
+          method: 'google', email: '$_uid@example.com', userId: _uid);
+      expect(f.session.hasCompletedOnboarding, isFalse);
+      expect(await record(), isNull);
+
+      expect(await f.session.reconcileAccountOnboarding(sdk), isTrue);
+
+      final grant = await record();
+      expect(grant, isNotNull,
+          reason: 'the actual auth screen skips finishOnboarding for returning users');
+      expect(grant!.state, LocalReadGrantState.committed);
+      expect(grant.uid, _uid);
+      expect(grant.replicaId, await replicaIdOf(f.host.current!.database));
+      final originalOp = grant.operationId;
+      await f.session.reconcileAccountOnboarding(sdk);
+      expect((await record())!.operationId, originalOp,
+          reason: 'ordinary automatic reconciliation never renews the grant');
+
+      await seedRows(f.host.current!.database);
+      final originalReplica = grant.replicaId;
+      await f.restartWithoutLock();
+      f.session.configureAccountScope(f.host);
+      final afterRestart = LocalReadAuthority(store: SecureLocalReadStore());
+      f.session.configureLocalRead(afterRestart);
+      await f.session.debugResetAuthBinding();
+      await f.session.bindSupabaseAuth(await expiredSdk());
+      expect(await f.session.restoreLocalReadAccess(host: f.host), isTrue);
+      expect(f.session.asrLocalReadOwner, _uid);
+      expect(f.host.current!.isLocalRead, isTrue);
+      expect(await replicaIdOf(f.host.current!.database), originalReplica);
+      expect(await txCount(f.host.current!.database), 1);
+    }, skip: !SupabaseConfig.isConfigured
+        ? 'Run with synthetic SUPABASE_URL and SUPABASE_ANON_KEY to exercise remote completion.'
+        : false);
+
+    for (final loss in ['expiry', 'signout']) {
+      test('returning reconciliation issues no grant after $loss', () async {
+        final arrived = Completer<void>();
+        final release = Completer<void>();
+        final sdk = await returningLoginSdk(beforeProfile: () async {
+          if (!arrived.isCompleted) arrived.complete();
+          await release.future;
+        });
+        await f.session.bindSupabaseAuth(sdk);
+        await f.session.setIdentity(
+            method: 'google', email: '$_uid@example.com', userId: _uid);
+        final reconciliation = f.session.reconcileAccountOnboarding(sdk)
+            .then<void>((_) {}, onError: (Object error) {
+          expect(error, isA<StaleAdmissionException>());
+        });
+        await arrived.future;
+        if (loss == 'expiry') {
+          sdk.auth.currentSession!.expiresAt = 1;
+        } else {
+          await f.session.signOut();
+        }
+        release.complete();
+        await reconciliation;
+        expect((await record())?.state,
+            isNot(LocalReadGrantState.committed));
+      }, skip: !SupabaseConfig.isConfigured ? 'Requires synthetic config.' : false);
+    }
+
+    test('stale reconciliation leaves its successor explicit proof untouched',
+        () async {
+      final arrived = Completer<void>();
+      final release = Completer<void>();
+      var profiles = 0;
+      final sdk = await returningLoginSdk(beforeProfile: () async {
+        if (++profiles == 1) {
+          arrived.complete();
+          await release.future;
+        }
+      });
+      await f.session.bindSupabaseAuth(sdk);
+      await f.session.setIdentity(
+          method: 'google', email: '$_uid@example.com', userId: _uid);
+      final old = f.session.reconcileAccountOnboarding(sdk)
+          .then<void>((_) {}, onError: (Object error) {
+        expect(error, isA<StaleAdmissionException>());
+      });
+      await arrived.future;
+      // A new explicit admission of the same user supersedes the old proof.
+      await f.session.setIdentity(
+          method: 'google', email: '$_uid@example.com', userId: _uid);
+      // An ordinary event learns completion while the old lookup is pending.
+      // It must not itself issue an offline grant.
+      await f.session.revalidateSupabaseSessionOnResume(sdk);
+      expect(f.session.hasCompletedOnboarding, isTrue);
+      expect(await record(), isNull);
+      release.complete();
+      await old;
+      expect(await record(), isNull,
+          reason: 'the old callback cannot consume the successor proof');
+      await f.session.reconcileAccountOnboarding(sdk);
+      expect((await record())!.state, LocalReadGrantState.committed,
+          reason: 'the successor still owns its own explicit proof');
+    }, skip: !SupabaseConfig.isConfigured ? 'Requires synthetic config.' : false);
 
     test('automatic reconcile of a saved identity never mints a receipt',
         () async {
