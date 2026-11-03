@@ -1999,6 +1999,19 @@ enum SharedCaptureStore {
         }) {
           throw QueueError.egressDenied
         }
+        // A reinstall can leave one readable OFF in Keychain and no file
+        // entry. Filling that absent copy must keep the SAME restrictive
+        // lifetime, otherwise the next explicit preflight sees two lifetimes
+        // and can never finish. Existing entries and retirement evidence are
+        // never rebound; ON/DISABLING and disagreeing lifetimes are excluded.
+        let ownerCopies = view.maps.compactMap { $0.owners[hash] }
+        let offSource = ownerCopies.first.flatMap { first in
+          state == "OFF" && ownerCopies.allSatisfy {
+            $0.state == "OFF" && $0.retirement == nil
+              && $0.lifetimeOwnerGeneration == first.lifetimeOwnerGeneration
+              && $0.lifetimeOwnerEpoch == first.lifetimeOwnerEpoch
+          } ? first : nil
+        }
         for layer in StateLayer.allCases {
           let read = egressLayerRead(layer)
           guard !read.isUnreadable else { throw QueueError.egressDenied }
@@ -2011,8 +2024,10 @@ enum SharedCaptureStore {
           }
           map.owners[hash] = CloudEgressRecord(state: state,
             transitionGeneration: transitionGeneration, reservedVersion: version,
-            lifetimeOwnerGeneration: old?.lifetimeOwnerGeneration,
-            lifetimeOwnerEpoch: old?.lifetimeOwnerEpoch, retirement: old?.retirement)
+            lifetimeOwnerGeneration: old?.lifetimeOwnerGeneration
+              ?? (old == nil ? offSource?.lifetimeOwnerGeneration : nil),
+            lifetimeOwnerEpoch: old?.lifetimeOwnerEpoch
+              ?? (old == nil ? offSource?.lifetimeOwnerEpoch : nil), retirement: old?.retirement)
           guard let data = try? JSONEncoder().encode(map), writeStateLayer(.egress, layer, data),
                 case let .value(back) = egressLayerRead(layer), back == map else {
             throw QueueError.storageWriteFailed

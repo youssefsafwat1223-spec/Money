@@ -729,6 +729,58 @@ void main() {
       expect(sim.of('beginCloudEgressEnable'), isEmpty);
     });
 
+    for (final missing in ['file', 'keychain', 'older_file']) {
+      test('explicit enable repairs readable OFF copies: $missing', () async {
+        final capability = await returning();
+        nativeOffAt20Rv2();
+        sim
+          ..egressOwnerGeneration = sim.ownerGeneration
+          ..egressOwnerEpoch = sim.ownerEpoch;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          final result = await sim.handle(call);
+          if (call.method != 'getCloudEgressPending' ||
+              sim.of('setCloudEgressState').isNotEmpty) {
+            return result;
+          }
+          final reply = Map<String, Object?>.from(result as Map);
+          final layers = (reply['egress'] as List)
+              .map((r) => Map<String, Object?>.from(r as Map)).toList();
+          if (missing == 'older_file') {
+            layers.first['transitionGeneration'] = 19;
+            layers.first['reservedVersion'] = 9;
+          } else {
+            final index = missing == 'file' ? 0 : 1;
+            layers[index] = {'layer': missing, 'outcome': 'absent'};
+          }
+          reply['egress'] = layers;
+          return reply;
+        });
+        final gate = CloudEgressGate(
+          store: CloudEgressStore(
+            secure: rig.secure, file: rig.file,
+            pendingSecure: rig.pendingSecure, pendingFile: rig.pendingFile,
+            native: NativeEgressSlot.platformDefault(),
+          ),
+          activeOwner: () async => kRigOwner,
+          resolved: true,
+          nativeInflight: (_) async => (count: 0, latestDeadline: null),
+        );
+        CloudEgressGate.instance = gate;
+        final settings = await freshSettings();
+        final svc = service(settings, gate: gate);
+        productionHook(svc);
+        expect(await enable(svc, capability), isNull);
+        final repair = sim.of('setCloudEgressState').first.arguments as Map;
+        expect(repair['state'], 'OFF');
+        expect(repair['transitionGeneration'] as int, greaterThan(20));
+        expect((await settings.getSettings()).consentVersion,
+            greaterThan(missing == 'older_file' ? 9 : 2));
+        expect(sim.egressState, 'ON');
+        expect(sim.methods.indexOf('setCloudEgressState'),
+            lessThan(sim.methods.indexOf('publishRestrictiveCaptureOwner')));
+      });
+    }
+
     test('verified absence works for a brand-new owner', () async {
       final capability = await returning();
       sim.hashKeyExists = false;
@@ -811,7 +863,7 @@ void main() {
       rig.file.value = bytes;
       final err = await enable(service(settings), capability);
       expect(
-          (err as CloudEnableIncompleteException).reason, 'preflight_conflict');
+          (err as CloudEnableIncompleteException).reason, 'preflight_conflict/pending_frontier');
       expect(rig.file.value, bytes);
       expect(sim.of('beginCloudEgressEnable'), isEmpty);
       expect(sim.of('writeCloudEgressEnableOn'), isEmpty);
@@ -2006,7 +2058,7 @@ void main() {
       final error = await enable(service(await freshSettings()));
       expect(error, isA<CloudEnableIncompleteException>());
       expect((error as CloudEnableIncompleteException).reason,
-          'preflight_conflict');
+          'preflight_conflict/pending_frontier');
       expect(rig.file.value, bytes);
       expect((await rig.gate.readPending()).agreed(kRigOwner), pending);
       expect(sim.of('beginCloudEgressEnable').length, begins);

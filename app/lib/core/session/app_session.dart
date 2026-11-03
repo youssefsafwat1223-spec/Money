@@ -829,6 +829,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     _localReadProof = null;
     _localReadHandoffProof = null;
     _localReadEgressHold = false;
+    _localReadTransition = null;
     _pendingFirstGrant = null;
     _localReadTail = Future<void>.value();
   }
@@ -2185,7 +2186,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// record changes nothing about this.
   bool get localReadPresentationRestricted {
     final host = _accountScope;
-    return _localReadEgressHold ||
+    return localReadTransitionPending ||
+        _localReadEgressHold ||
         (_localReadHandoffProof != null &&
             _localReadHandoffProof!.scope.database.lifecycleState !=
                 DatabaseLifecycleState.closed) ||
@@ -2196,6 +2198,12 @@ class AppSession extends ValueNotifier<SessionStatus> {
   bool get localReadEgressDenied =>
       localReadPresentationRestricted || localReadActive;
   bool _localReadEgressHold = false;
+
+  // Presentation only: no replica, session or egress authority is issued by
+  // this ticket. Keep the router on the branded recovery shell BEFORE the
+  // synchronous expiry notification, until the existing grant is verified.
+  Object? _localReadTransition;
+  bool get localReadTransitionPending => _localReadTransition != null;
 
   /// Test-only: detaches the auth-stream subscription and the issuer client, so
   /// the next [bindSupabaseAuth] listens to ITS client (the singleton otherwise
@@ -2484,9 +2492,27 @@ class AppSession extends ValueNotifier<SessionStatus> {
   /// Fires the in-process writable-to-local-read transition for an expired or
   /// absent SDK. Only when a committed grant of the current uid exists.
   void _scheduleLocalReadTransition() {
-    if (_localRead == null || _localReadLocked) return;
-    unawaited(_localReadSerial(() => _restoreLocalReadAccess(null))
-        .then<void>((_) {}, onError: (Object _) {}));
+    if (_localRead == null || _localReadLocked || localReadActive ||
+        localReadTransitionPending) {
+      return;
+    }
+    final ticket = Object();
+    final epoch = _admissionEpoch;
+    final authority = _localRead;
+    _localReadTransition = ticket;
+    unawaited(_localReadSerial(() async {
+      try {
+        if (_admissionEpoch == epoch && identical(_localRead, authority)) {
+          await _restoreLocalReadAccess(null);
+        }
+      } finally {
+        if (identical(_localReadTransition, ticket)) {
+          _localReadTransition = null;
+          notifyListeners();
+        }
+      }
+    }).then<void>((_) {}, onError: (Object _) {}));
+    notifyListeners();
   }
 
   /// Test-only: models a queued failure recovery that starts LATE (the serial
@@ -4508,8 +4534,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
               _authLossSeq++;
               _revokeDatabasePublication();
               _revokeConsentProof();
-              if (_onboardingDone) markSessionInvalid();
               _scheduleLocalReadTransition();
+              if (_onboardingDone) markSessionInvalid();
               return;
             }
         }
@@ -4578,10 +4604,10 @@ class AppSession extends ValueNotifier<SessionStatus> {
       _revokeDatabasePublication();
       // A plain expiry (§7.2): native keeps its expiry evidence.
       _revokeConsentProof(expiry: true); // an expired SDK session proves nothing
+      _scheduleLocalReadTransition();
       if (_onboardingDone) {
         markSessionInvalid(cause: SessionLossCause.sessionExpiry);
       }
-      _scheduleLocalReadTransition();
       return;
     }
     if (session == null) {
@@ -4595,6 +4621,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       // onboarding/account metadata is NOT sufficient by itself to grant
       // access — downgrade to sessionExpired so the router sends the user
       // back to sign-in, without erasing onboarding completion.
+      _scheduleLocalReadTransition();
       // ASR §6.8/§9.9: a loaded `requiresAdoption` record serves nothing; that
       // null is ASR's wait, not a loss.
       if (_onboardingDone) {
@@ -4604,7 +4631,6 @@ class AppSession extends ValueNotifier<SessionStatus> {
                 ? SessionLossCause.awaitingAdoption
                 : SessionLossCause.other);
       }
-      _scheduleLocalReadTransition();
       return;
     }
     // ASR §4.7: every automatic admission route also requires the committed
@@ -4638,6 +4664,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
     if (denial != null) {
       _revokeDatabasePublication();
       _revokeConsentProof();
+      _scheduleLocalReadTransition();
       // Only `requiresAdoption` is ASR's wait (§4.7); every other denial is a
       // loss.
       if (_onboardingDone) {
@@ -4646,7 +4673,6 @@ class AppSession extends ValueNotifier<SessionStatus> {
                 ? SessionLossCause.awaitingAdoption
                 : SessionLossCause.other);
       }
-      _scheduleLocalReadTransition();
       return;
     }
     // Owner gate (MALI-002): never admit a UID while the local DB still holds

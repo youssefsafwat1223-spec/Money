@@ -2180,6 +2180,39 @@ class RunnerTests: XCTestCase {
         && $0.transitionGeneration == 20 }, "the transition generation is kept")
   }
 
+  func testRestrictiveOffRepairRestoresMissingCopyWithSameLifetime() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    let first = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 2, expectedEpoch: epoch)
+    let generation = try XCTUnwrap(first.owner?.generation)
+    // Both orientations: loss of the App Group file during reinstall, and a
+    // missing Keychain copy. The surviving OFF is verified before repairing.
+    for missingFile in [true, false] {
+      if missingFile {
+        try FileManager.default.removeItem(at: egressFileURL)
+      } else {
+        XCTAssertEqual(SnapshotTestKeychain.remove(forKey: egressKC), errSecSuccess)
+      }
+      try SharedCaptureStore.setCloudEgressState(
+        state: "OFF", ownerUid: ownerA, transitionGeneration: 21, reservedVersion: 2)
+      let file = try XCTUnwrap(egressRecord(file: ownerA))
+      let keychain = try XCTUnwrap(egressRecord(keychain: ownerA))
+      XCTAssertEqual(file, keychain)
+      XCTAssertEqual(file.state, "OFF")
+      XCTAssertEqual(file.lifetimeOwnerGeneration, generation)
+      XCTAssertEqual(file.lifetimeOwnerEpoch, epoch)
+      XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+    }
+    let recovered = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 3, expectedEpoch: epoch,
+      recover: (21, 2, generation, epoch))
+    XCTAssertEqual(recovered.status, .done)
+    XCTAssertTrue(recovered.egress.allSatisfy { $0.state == "OFF" })
+  }
+
   func testRecoveryPublicationRefusesLayersNamingDifferentLifetimes() throws {
     resetCapSeams()
     defer { resetCapSeams() }

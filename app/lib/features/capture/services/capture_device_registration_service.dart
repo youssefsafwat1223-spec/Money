@@ -1895,7 +1895,7 @@ class CaptureDeviceRegistrationService {
     final pending =
         pendingReadout.agreed(owner) ?? pendingReadout.partial(owner);
     if (pending == null && pendingReadout.blocks(owner)) {
-      throw const CloudEnableIncompleteException('preflight_conflict');
+      throw const CloudEnableIncompleteException('preflight_conflict/dart_pending');
     }
     final CloudEgressEnableResult inspected;
     final ({List<CloudEgressRecord> records, bool uncertain}) dart;
@@ -1991,20 +1991,31 @@ class CaptureDeviceRegistrationService {
         inspected.status == CloudEgressTransitionStatus.noBarrier &&
             inspected.barrier
                 .every((r) => r.outcome == CloudEgressLayerOutcome.absent);
+    // Reinstalling can remove the App Group file while Keychain retains OFF.
+    // Divergent generation/version copies with the SAME lifetime are likewise
+    // restrictive, readable evidence. Normalize them to a verified newer OFF
+    // before reserving anything; different lifetimes remain a conflict.
+    final repairOffCopies = held.isNotEmpty &&
+        held.every((r) => r.state == 'OFF' &&
+            r.ownerGeneration == held.first.ownerGeneration &&
+            r.ownerEpoch == held.first.ownerEpoch) &&
+        (held.length != 2 || held.any((r) =>
+            r.transitionGeneration != held.first.transitionGeneration ||
+            r.reservedVersion != held.first.reservedVersion));
     final recoverUnboundFreeze = ConsentAuthority.egressFrozen &&
         ConsentAuthority.egressFreezeTag ==
             'reconcile_uncertain:native:lifetime_fields_unbound';
     final freezeGeneration = ConsentAuthority.freezeGeneration;
-    if ((dartAhead.isNotEmpty || nativeAhead.isNotEmpty || recoverUnboundFreeze) &&
+    if ((dartAhead.isNotEmpty || nativeAhead.isNotEmpty ||
+            recoverUnboundFreeze || repairOffCopies) &&
         !repaired &&
         pending == null &&
         cleanupPending == null &&
         noBarrier &&
         await _storedCloudOff(current)) {
-      // A previous session of this owner left ON/DISABLING residue behind the
-      // OFF it was later restricted to (sign-out retires native to OFF but not
-      // the Dart layers), so every new enable would be refused forever. Cloud
-      // is stored OFF and no operation is pending: drive every layer to a
+      // A previous session left ON/DISABLING residue, or reinstall left only
+      // one native OFF copy. Cloud is stored OFF and no operation is pending:
+      // drive every layer to a
       // verified OFF (never adopt the old ON), then rerun this preflight once
       // from fresh evidence.
       await _repairStaleEgressOff(owner, frontier, current);
@@ -2026,11 +2037,11 @@ class CaptureDeviceRegistrationService {
       );
     }
     if (!noBarrier && !exactBarrier) {
-      throw const CloudEnableIncompleteException('preflight_conflict');
+      throw const CloudEnableIncompleteException('preflight_conflict/native_barrier');
     }
     if (cleanupPending != null) {
       if (pending != cleanupPending || pending?.binding != null || !noBarrier) {
-        throw const CloudEnableIncompleteException('preflight_conflict');
+        throw const CloudEnableIncompleteException('preflight_conflict/cleanup_pending');
       }
       final liveOwner = await _readCaptureOwner();
       final liveEpoch = await _readOwnerEpoch();
@@ -2038,7 +2049,7 @@ class CaptureDeviceRegistrationService {
       if (liveOwner == null || liveOwner.uid != owner || held.any((r) =>
           r.ownerGeneration != null &&
           (r.ownerGeneration != liveOwner.generation || r.ownerEpoch != liveEpoch))) {
-        throw const CloudEnableIncompleteException('preflight_conflict');
+        throw const CloudEnableIncompleteException('preflight_conflict/cleanup_lifetime');
       }
     }
     int? expectGeneration;
@@ -2066,7 +2077,7 @@ class CaptureDeviceRegistrationService {
                   r.ownerGeneration != null &&
                   (r.ownerGeneration != nativeBinding.ownerGeneration ||
                       r.ownerEpoch != nativeBinding.ownerEpoch)))) {
-        throw const CloudEnableIncompleteException('preflight_conflict');
+        throw const CloudEnableIncompleteException('preflight_conflict/pending_frontier');
       }
       return null; // Phase 1 reconciles pending before lifetime acquisition.
     }
@@ -2078,7 +2089,7 @@ class CaptureDeviceRegistrationService {
               r.reservedVersion != first.reservedVersion ||
               r.ownerGeneration != first.ownerGeneration ||
               r.ownerEpoch != first.ownerEpoch)) {
-        throw const CloudEnableIncompleteException('preflight_conflict');
+        throw const CloudEnableIncompleteException('preflight_conflict/native_copies');
       }
       expectGeneration = first.transitionGeneration;
       expectVersion = first.reservedVersion;

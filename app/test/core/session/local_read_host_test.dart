@@ -441,6 +441,29 @@ void main() {
           reason: 'an expired token is never promoted to authenticated');
     });
 
+    test('warm expiry never exposes sign-in while local read is restoring',
+        () async {
+      await signedInWithRow();
+      final signInPresentations = <SessionStatus>[];
+      void observePresentation() {
+        if (f.session.status == SessionStatus.sessionExpired &&
+            !f.session.localReadPresentationRestricted) {
+          signInPresentations.add(f.session.status);
+        }
+      }
+      f.session.addListener(observePresentation);
+      try {
+        await f.session.bindSupabaseAuth(await expiredSdk());
+        await f.session.debugLocalReadIdle;
+        expect(f.session.localReadActive, isTrue);
+        expect(signInPresentations, isEmpty,
+            reason: 'the router must stay on the recovery shell throughout '
+                'the writable-to-read-only handoff');
+      } finally {
+        f.session.removeListener(observePresentation);
+      }
+    });
+
     test('absent SDK session swaps to the read-only scope too', () async {
       await signedInWithRow();
       await f.session.bindSupabaseAuth(absentSdk());

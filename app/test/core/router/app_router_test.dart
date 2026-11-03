@@ -50,6 +50,13 @@ void main() {
       expect(localReadRedirect('/onboarding/auth'), isNull);
     });
 
+    test('automatic handoff keeps sign-in on the recovery shell', () {
+      expect(localReadRedirect('/onboarding/auth', reconnectAllowed: false), '/');
+      expect(localReadRedirect('/', reconnectAllowed: false), isNull);
+      // Once verification settles, the user can still choose Reconnect.
+      expect(localReadRedirect('/onboarding/auth'), isNull);
+    });
+
     test('every other route is redirected to the shell', () {
       const denied = [
         '/transaction/tx-1',

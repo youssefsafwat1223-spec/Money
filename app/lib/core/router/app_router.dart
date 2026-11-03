@@ -11,6 +11,7 @@ import '../../features/achievements/achievements_screen.dart';
 import '../../features/announcements/announcements_screen.dart';
 import '../../features/app/app_shell.dart';
 import '../../features/app/local_read_shell.dart';
+import '../../features/app/app_boot_loader.dart';
 import '../../features/onboarding/auth_screen.dart';
 import '../../features/onboarding/brand_screen.dart';
 import '../../features/onboarding/restore_prompt_screen.dart';
@@ -43,9 +44,9 @@ import '../../features/transactions/transaction_details_screen.dart';
 
 /// Offline local read: the only locations reachable while a verified local-read
 /// scope is published. Null = allowed; otherwise the location to redirect to.
-String? localReadRedirect(String location) {
+String? localReadRedirect(String location, {bool reconnectAllowed = true}) {
   final path = Uri.tryParse(location)?.path;
-  if (path == '/' || path == '/onboarding/auth') return null;
+  if (path == '/' || (reconnectAllowed && path == '/onboarding/auth')) return null;
   return '/';
 }
 
@@ -67,7 +68,8 @@ final appRouter = GoRouter(
     // A retained read-only scope stays restrictive during authority handoff.
     // The home builder exposes its data only after selected-authority proof.
     if (session.localReadPresentationRestricted) {
-      return localReadRedirect(state.uri.toString());
+      return localReadRedirect(state.uri.toString(),
+          reconnectAllowed: !session.localReadTransitionPending);
     }
     final status = session.status;
     final inWelcome = state.matchedLocation == '/welcome';
@@ -117,7 +119,7 @@ final appRouter = GoRouter(
       builder: (context, state) => AppSession.instance.localReadActive
           ? const LocalReadShell()
           : AppSession.instance.localReadPresentationRestricted
-              ? const SizedBox.shrink()
+              ? const AppBootLoader()
               : const AppShell(),
     ),
     GoRoute(
