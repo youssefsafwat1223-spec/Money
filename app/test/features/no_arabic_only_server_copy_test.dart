@@ -122,7 +122,7 @@ void main() {
         final count = RegExp(RegExp.escape(compact(statement)))
             .allMatches(normalized)
             .length;
-        approvedUses[file.path + ':' + statement] = count;
+        approvedUses['${file.path}:$statement'] = count;
         approvedCount += count;
       }
       final total = RegExp(r'(?<!pw\.)TextAlign\.(right|left)\b')
