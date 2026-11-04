@@ -2243,6 +2243,72 @@ class RunnerTests: XCTestCase {
     XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, kcBefore)
   }
 
+  func testExplicitOffCopiesReconcileDifferentLifetimesUnderLock() throws {
+    resetCapSeams()
+    defer { resetCapSeams() }
+    _ = try stampedAllowedItem()
+    let epoch = try SharedCaptureStore.ownerEpoch()
+    let first = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 2, expectedEpoch: epoch)
+    let generation = try XCTUnwrap(first.owner?.generation)
+    let hash = try SharedCaptureStore.debugOwnerHash(ownerA)
+    var map = try JSONDecoder().decode(SharedCaptureStore.CloudEgressMap.self,
+      from: try Data(contentsOf: egressFileURL))
+    map.owners[hash] = SharedCaptureStore.CloudEgressRecord(
+      state: "OFF", transitionGeneration: 20, reservedVersion: 9,
+      lifetimeOwnerGeneration: generation + 7, lifetimeOwnerEpoch: epoch)
+    try JSONEncoder().encode(map).write(to: egressFileURL)
+    let expected = try SharedCaptureStore.cloudEgressPending(forUid: ownerA).egress
+    let repaired = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 10, expectedEpoch: epoch, expectedOffCopies: expected)
+    XCTAssertEqual(repaired.status, .done)
+    XCTAssertGreaterThan(try XCTUnwrap(repaired.owner?.generation), generation + 7)
+    XCTAssertTrue(repaired.egress.allSatisfy {
+      $0.outcome == .verified && $0.state == "OFF" &&
+        $0.transitionGeneration == 20 && $0.reservedVersion == 10 &&
+        $0.ownerGeneration == repaired.owner?.generation && $0.ownerEpoch == epoch
+    })
+    XCTAssertFalse(SharedCaptureStore.egressAdmitsHostRequest())
+    // A delayed publication that inspected the old copies cannot touch the new lifetime.
+    let before = try Data(contentsOf: egressFileURL)
+    let keychain = SnapshotTestKeychain.read(forKey: egressKC).data
+    XCTAssertEqual(try SharedCaptureStore.publishRestrictiveCaptureOwner(
+      uid: ownerA, version: 11, expectedEpoch: epoch, expectedOffCopies: expected).status,
+      .conflict)
+    XCTAssertEqual(try Data(contentsOf: egressFileURL), before)
+    XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, keychain)
+  }
+
+  func testExplicitOffCopiesRefuseOnPendingRetirementAndUnreadable() throws {
+    for hazard in ["ON", "pending", "retirement", "unreadable"] {
+      resetCapSeams()
+      _ = try stampedAllowedItem()
+      let epoch = try SharedCaptureStore.ownerEpoch()
+      _ = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+        uid: ownerA, version: 2, expectedEpoch: epoch)
+      let op = try begin(ownerA, 3, 4)
+      if hazard == "ON" || hazard == "retirement" {
+        XCTAssertEqual(try writeOn(ownerA, op).status, .done)
+        XCTAssertEqual(try finish(ownerA, op).status, .done)
+        if hazard == "retirement" {
+          XCTAssertEqual(try revokeLifetime(ownerA, op).status, .done)
+        }
+      } else if hazard == "unreadable" {
+        try Data([0xff]).write(to: egressFileURL)
+      }
+      let expected = try SharedCaptureStore.cloudEgressPending(forUid: ownerA).egress
+      let before = try Data(contentsOf: egressFileURL)
+      let keychain = SnapshotTestKeychain.read(forKey: egressKC).data
+      let refused = try SharedCaptureStore.publishRestrictiveCaptureOwner(
+        uid: ownerA, version: 10, expectedEpoch: epoch, expectedOffCopies: expected)
+      XCTAssertNotEqual(refused.status, .done, hazard)
+      XCTAssertNil(refused.owner, hazard)
+      XCTAssertEqual(try Data(contentsOf: egressFileURL), before, hazard)
+      XCTAssertEqual(SnapshotTestKeychain.read(forKey: egressKC).data, keychain, hazard)
+      resetCapSeams()
+    }
+  }
+
   func testRecoveryPublicationRefusesAPendingOperation() throws {
     resetCapSeams()
     defer { resetCapSeams() }

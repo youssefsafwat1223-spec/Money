@@ -573,9 +573,33 @@ enum ApnsEnvironment {
              let counter = args["successorExpectedCounter"] as? Int {
             successorOf = (id, counter)
           }
+          var expectedOffCopies: [SharedCaptureStore.LayerReport]? = nil
+          if let raw = args["expectedOffCopies"] {
+            guard let copies = raw as? [[String: Any]], copies.count == 2 else {
+              throw SharedCaptureStore.QueueError.encodingFailed
+            }
+            expectedOffCopies = try copies.map { copy in
+              guard let layer = copy["layer"] as? String,
+                    let generation = copy["transitionGeneration"] as? Int, generation >= 0,
+                    let reserved = copy["reservedVersion"] as? Int, reserved >= 0,
+                    (copy["ownerGeneration"] == nil) == (copy["ownerEpoch"] == nil),
+                    copy.keys.allSatisfy({
+                      ["layer", "transitionGeneration", "reservedVersion",
+                       "ownerGeneration", "ownerEpoch"].contains($0)
+                    }),
+                    copy["ownerGeneration"] == nil ||
+                      (copy["ownerGeneration"] is Int && copy["ownerEpoch"] is Int) else {
+                throw SharedCaptureStore.QueueError.encodingFailed
+              }
+              return SharedCaptureStore.LayerReport(layer: layer, outcome: .verified,
+                state: "OFF", transitionGeneration: generation, reservedVersion: reserved,
+                operationId: nil, ownerGeneration: copy["ownerGeneration"] as? Int,
+                ownerEpoch: copy["ownerEpoch"] as? Int)
+            }
+          }
           let receipt = try SharedCaptureStore.publishRestrictiveCaptureOwner(
             uid: uid, version: version, expectedEpoch: expectedEpoch, recover: recover,
-            successorOf: successorOf)
+            successorOf: successorOf, expectedOffCopies: expectedOffCopies)
           var reply = SharedCaptureStore.EnableTransitionResult(
             operation: "publishRestrictive", status: receipt.status, operationId: nil,
             transitionGeneration: nil, reservedVersion: nil,

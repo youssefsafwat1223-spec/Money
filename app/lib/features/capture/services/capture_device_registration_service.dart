@@ -1994,7 +1994,8 @@ class CaptureDeviceRegistrationService {
     // Reinstalling can remove the App Group file while Keychain retains OFF.
     // Divergent generation/version copies with the SAME lifetime are likewise
     // restrictive, readable evidence. Normalize them to a verified newer OFF
-    // before reserving anything; different lifetimes remain a conflict.
+    // before reserving anything. Different lifetimes use the conditional
+    // restrictive publication below.
     final repairOffCopies = held.isNotEmpty &&
         held.every((r) => r.state == 'OFF' &&
             r.ownerGeneration == held.first.ownerGeneration &&
@@ -2015,8 +2016,7 @@ class CaptureDeviceRegistrationService {
         await _storedCloudOff(current)) {
       // A previous session left ON/DISABLING residue, or reinstall left only
       // one native OFF copy. Cloud is stored OFF and no operation is pending:
-      // drive every layer to a
-      // verified OFF (never adopt the old ON), then rerun this preflight once
+      // drive every layer to a verified OFF, then rerun this preflight once
       // from fresh evidence.
       await _repairStaleEgressOff(owner, frontier, current);
       if (!current()) throw const StaleAdmissionException();
@@ -2081,6 +2081,7 @@ class CaptureDeviceRegistrationService {
       }
       return null; // Phase 1 reconciles pending before lifetime acquisition.
     }
+    List<CloudEgressLayerReport>? expectedOffCopies;
     if (held.isNotEmpty) {
       final first = held.first;
       if (held.length != 2 ||
@@ -2089,12 +2090,24 @@ class CaptureDeviceRegistrationService {
               r.reservedVersion != first.reservedVersion ||
               r.ownerGeneration != first.ownerGeneration ||
               r.ownerEpoch != first.ownerEpoch)) {
-        throw const CloudEnableIncompleteException('preflight_conflict/native_copies');
+        if (noBarrier && held.length == 2 &&
+            held.every((r) => r.state == 'OFF') &&
+            await _storedCloudOff(current)) {
+          // A partial earlier publication can leave OFF copies naming
+          // different lifetimes. The explicit consent reserves above their
+          // frontier, then native compares BOTH snapshots under the write lock
+          // and publishes a fresh restrictive lifetime before enable begins.
+          expectedOffCopies = List.unmodifiable(reports);
+        } else {
+          throw const CloudEnableIncompleteException(
+              'preflight_conflict/native_copies');
+        }
+      } else {
+        expectGeneration = first.transitionGeneration;
+        expectVersion = first.reservedVersion;
+        expectLifetimeGeneration = first.ownerGeneration;
+        expectLifetimeEpoch = first.ownerEpoch;
       }
-      expectGeneration = first.transitionGeneration;
-      expectVersion = first.reservedVersion;
-      expectLifetimeGeneration = first.ownerGeneration;
-      expectLifetimeEpoch = first.ownerEpoch;
     }
     final int version;
     try {
@@ -2110,7 +2123,8 @@ class CaptureDeviceRegistrationService {
         expectedTransitionGeneration: expectGeneration,
         expectedReservedVersion: expectVersion,
         expectedLifetimeOwnerGeneration: expectLifetimeGeneration,
-        expectedLifetimeOwnerEpoch: expectLifetimeEpoch);
+        expectedLifetimeOwnerEpoch: expectLifetimeEpoch,
+        expectedOffCopies: expectedOffCopies);
   }
 
   /// True only when the stored Cloud choice is not accepted (unset or
@@ -3455,6 +3469,7 @@ extension RestrictiveOwnerPublication on CaptureDeviceRegistrationService {
       expectedReservedVersion: plan?.expectedReservedVersion,
       expectedLifetimeOwnerGeneration: plan?.expectedLifetimeOwnerGeneration,
       expectedLifetimeOwnerEpoch: plan?.expectedLifetimeOwnerEpoch,
+      expectedOffCopies: plan?.expectedOffCopies,
       // ASR §7.5 SE1 (never together with an explicit plan).
       successorOf: plan == null ? successorOf : null,
       causeAuthority: plan == null ? successorCauseAuthority : null,

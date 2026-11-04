@@ -124,12 +124,17 @@ class RestrictivePublishPlan {
       {this.expectedTransitionGeneration,
       this.expectedReservedVersion,
       this.expectedLifetimeOwnerGeneration,
-      this.expectedLifetimeOwnerEpoch});
+      this.expectedLifetimeOwnerEpoch,
+      this.expectedOffCopies});
   final int version;
   final int? expectedTransitionGeneration;
   final int? expectedReservedVersion;
   final int? expectedLifetimeOwnerGeneration;
   final int? expectedLifetimeOwnerEpoch;
+
+  /// Explicit reconciliation of independently readable OFF copies. Native
+  /// compares each physical copy again under its write lock before publishing.
+  final List<CloudEgressLayerReport>? expectedOffCopies;
 }
 
 /// Why a restrictive owner publication produced no receipt. An allowlisted
@@ -1657,6 +1662,7 @@ class NativeCaptureBridge {
     int? expectedReservedVersion,
     int? expectedLifetimeOwnerGeneration,
     int? expectedLifetimeOwnerEpoch,
+    List<CloudEgressLayerReport>? expectedOffCopies,
     ({String evidenceId, int expectedCounter})? successorOf,
     Object? causeAuthority,
   }) async {
@@ -1664,6 +1670,16 @@ class NativeCaptureBridge {
     return RestrictiveCaptureOwnerReceipt.tryParse(
         await _queueCall<Object?>('publishRestrictiveCaptureOwner', {
       'uid': uid, 'version': version, 'expectedEpoch': expectedEpoch,
+      if (expectedOffCopies != null)
+        'expectedOffCopies': [
+          for (final r in expectedOffCopies) {
+            'layer': r.layer,
+            'transitionGeneration': r.transitionGeneration,
+            'reservedVersion': r.reservedVersion,
+            if (r.ownerGeneration != null) 'ownerGeneration': r.ownerGeneration,
+            if (r.ownerEpoch != null) 'ownerEpoch': r.ownerEpoch,
+          },
+        ],
       // ASR §7.5 SE1: a successor of exactly this expiry evidence.
       if (successorOf != null) ...{
         'successorEvidenceId': successorOf.evidenceId,

@@ -966,7 +966,7 @@ class AppSession extends ValueNotifier<SessionStatus> {
       }
     }
     final held = _nativeLifetime;
-    final heldUsable = held != null &&
+    final heldUsable = plan?.expectedOffCopies == null && held != null &&
         !held.lost &&
         held.uid == capability.uid &&
         held.epoch == capability.epoch &&
@@ -1144,7 +1144,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
       return Future<NativeLifecycleOutcome>.value(NativeLifecycleOutcome.unknown);
     }
     final held = _nativeLifetime;
-    if (held != null &&
+    if (explicitPublishPlanFor(authority)?.expectedOffCopies == null &&
+        held != null &&
         held.uid == adm.uid &&
         held.epoch == authority.epoch &&
         identical(held.database, scope.database) &&

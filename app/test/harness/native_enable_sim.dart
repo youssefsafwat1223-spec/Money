@@ -230,6 +230,20 @@ class NativeEnableSim {
                 requested <= egressVersion)) {
           return _reply('publishRestrictive', 'conflict');
         }
+        final offCopies = a['expectedOffCopies'] as List?;
+        if (offCopies != null) {
+          if (offCopies.length != 2 || egressState != 'OFF' || pending != null ||
+              offCopies.any((r) => requested <= ((r as Map)['reservedVersion'] as int))) {
+            return _reply('publishRestrictive', 'conflict');
+          }
+          for (final r in offCopies) {
+            final generation = (r as Map)['ownerGeneration'] as int?;
+            if (generation != null && generation > ownerGeneration) {
+              ownerGeneration = generation;
+            }
+          }
+          ownerGeneration++;
+        }
         publishedVersion = requested;
         ownerAlive = true; // a restrictive publication creates the owner
         // A successful receipt reports the physical OFF records it persisted.

@@ -781,6 +781,51 @@ void main() {
       });
     }
 
+    for (final mismatch in ['unbound_file', 'different_lifetime', 'live_receipt']) {
+      test('explicit consent reconciles OFF copies with $mismatch', () async {
+        final ConsentCapability capability;
+        if (mismatch == 'live_receipt') {
+          f.session.configureCaptureOwnerPublish(publish);
+          await signIn('uid-x');
+          capability = f.session.captureConsentCapability()!;
+          sim.calls.clear();
+        } else {
+          capability = await returning();
+        }
+        nativeOffAt20Rv2();
+        sim
+          ..egressOwnerGeneration = sim.ownerGeneration
+          ..egressOwnerEpoch = sim.ownerEpoch;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          final result = await sim.handle(call);
+          if (call.method != 'getCloudEgressPending' ||
+              sim.of('publishRestrictiveCaptureOwner').isNotEmpty) {
+            return result;
+          }
+          final reply = Map<String, Object?>.from(result as Map);
+          final layers = (reply['egress'] as List)
+              .map((r) => Map<String, Object?>.from(r as Map)).toList();
+          if (mismatch == 'unbound_file') {
+            layers.first.remove('ownerGeneration');
+            layers.first.remove('ownerEpoch');
+          } else {
+            layers.first['ownerGeneration'] = sim.ownerGeneration + 7;
+          }
+          reply['egress'] = layers;
+          return reply;
+        });
+        final svc = service(await freshSettings());
+        productionHook(svc);
+        expect(await enable(svc, capability), isNull);
+        final publication =
+            sim.of('publishRestrictiveCaptureOwner').single.arguments as Map;
+        final expected = publication['expectedOffCopies'] as List;
+        expect(expected, hasLength(2));
+        expect(publication.containsKey('expectedTransitionGeneration'), isFalse);
+        expect(sim.egressState, 'ON');
+      });
+    }
+
     test('verified absence works for a brand-new owner', () async {
       final capability = await returning();
       sim.hashKeyExists = false;

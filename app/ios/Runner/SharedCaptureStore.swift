@@ -2885,6 +2885,10 @@ enum SharedCaptureStore {
   /// changed frontier) is refused with nothing written. It never lowers a version
   /// or a transition generation.
   ///
+  /// `expectedOffCopies` (explicit consent only): independently read OFF
+  /// snapshots must still match both physical layers exactly under this lock.
+  /// A fresh generation above every stored lifetime is published restrictive.
+  ///
   /// ASR §7.5 SE1 `successorOf`: only when the counter is unchanged since the
   /// caller's evidence read, the same uid is the active owner, and both layers
   /// hold exactly that expiry evidence bound to the active owner generation and
@@ -2893,11 +2897,13 @@ enum SharedCaptureStore {
     uid: String, version: Int, expectedEpoch: Int,
     recover: (transitionGeneration: Int, reservedVersion: Int,
               lifetimeOwnerGeneration: Int?, lifetimeOwnerEpoch: Int?)? = nil,
-    successorOf: (evidenceId: String, expectedCounter: Int)? = nil
+    successorOf: (evidenceId: String, expectedCounter: Int)? = nil,
+    expectedOffCopies: [LayerReport]? = nil
   ) throws -> RestrictiveOwnerPublication {
     let owner = normalizedUID(uid)
     guard !owner.isEmpty, version >= 0, expectedEpoch >= 0,
           recover == nil || successorOf == nil,
+          expectedOffCopies == nil || (recover == nil && successorOf == nil),
           successorOf.map({ validOperationId($0.evidenceId) }) ?? true else {
       throw QueueError.encodingFailed
     }
@@ -2928,6 +2934,22 @@ enum SharedCaptureStore {
       if entries.contains(where: { ($0?.reservedVersion ?? 0) > version }) {
         return RestrictiveOwnerPublication(status: .stale, owner: nil,
           ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
+      }
+      if let expectedOffCopies {
+        // Explicit consent only. Compare both physical snapshots again while
+        // holding the write lock. No retirement, pending operation, unreadable
+        // copy or intervening state change is normalized by this repair.
+        guard expectedOffCopies.count == 2,
+              expectedOffCopies.map({ $0.layer }) == ["file", "keychain"],
+              inspectEgress(hash) == expectedOffCopies,
+              entries.contains(where: { $0 != nil }),
+              entries.allSatisfy({
+                $0 == nil || ($0!.state == "OFF" && $0!.retirement == nil
+                  && $0!.reservedVersion < version)
+              }) else {
+          return RestrictiveOwnerPublication(status: .conflict, owner: nil,
+            ownerEpoch: expectedEpoch, egress: inspectEgress(hash))
+        }
       }
       if let successorOf {
         guard prior == successorOf.expectedCounter, let active, active.uid == owner,
@@ -2962,7 +2984,7 @@ enum SharedCaptureStore {
       // A genuinely NEW lifetime is allocated strictly above every generation the
       // counter, the active owner and the durable lifetime/retirement evidence
       // know (a reset counter must not hand out a retired generation again).
-      let generation = (active != nil && !retired && unfinishedGeneration <= active!.generation)
+      let generation = (expectedOffCopies == nil && active != nil && !retired && unfinishedGeneration <= active!.generation)
         ? active!.generation
         : max(lastGeneration, active?.generation ?? 0, unfinishedGeneration) + 1
       let transitionGeneration = entries.compactMap { $0?.transitionGeneration }.max() ?? 0
