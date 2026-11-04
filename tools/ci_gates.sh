@@ -184,7 +184,8 @@ if command -v node >/dev/null 2>&1; then
   ( cd "$ROOT" && node --test --test-reporter=spec --test-reporter-destination=stdout \
       --test-reporter=tap --test-reporter-destination="$NODE_TAP" supabase/tests/*.mjs )
   node_status=$?
-  node_skips="$(grep -c '# SKIP' "$NODE_TAP" 2>/dev/null || echo 0)"
+  node_skips="$(grep -c '# SKIP' "$NODE_TAP" 2>/dev/null || true)"
+  node_skips="${node_skips:-0}"
   if [ "$node_status" -eq 0 ]; then ok "node contract"; else bad "node contract"; fi
 else
   unavail "node"
@@ -200,7 +201,8 @@ if command -v node >/dev/null 2>&1; then
   else
     bad "skip/ignore manifest"; manifest_state="VIOLATED"
   fi
-  deno_ignored="$(grep -c '\.\.\. .*ignored' "$DENO_OUT" 2>/dev/null || echo 0)"
+  deno_ignored="$(grep -c '\.\.\. .*ignored' "$DENO_OUT" 2>/dev/null || true)"
+  deno_ignored="${deno_ignored:-0}"
 else
   unavail "skip manifest (needs node)"
 fi

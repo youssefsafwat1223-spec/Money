@@ -103,3 +103,13 @@ for (const { tag, variable, label, otherTag } of [
     assert.ok(sh.includes(`caller_skipped "flutter test ${label}`));
   });
 }
+
+test("the failing CDN tslib import uses an exact integrity-locked npm archive", () => {
+  const config = JSON.parse(readFileSync(`${root}/supabase/functions/deno.json`, "utf8"));
+  const lock = JSON.parse(readFileSync(`${root}/supabase/functions/deno.lock`, "utf8"));
+  const override = config.imports["https://esm.sh/tslib@2.8.1/denonext/tslib.mjs"];
+  const version = /^npm:tslib@(\d+\.\d+\.\d+)$/.exec(override)?.[1];
+  assert.ok(version, "the replacement archive version must be exact");
+  assert.equal(lock.specifiers[override], version);
+  assert.match(lock.npm[`tslib@${version}`].integrity, /^sha512-[A-Za-z0-9+/]+={0,2}$/);
+});
