@@ -12,11 +12,16 @@
 # The canonical gate therefore runs these tests SERIALIZED, in a dedicated stage:
 #     flutter test --tags crypto-prod --concurrency=1
 # and EXCLUDES them from the parallel bulk stage:
-#     flutter test --exclude-tags crypto-prod
-# Both stages are mandatory (see tools/ci_gates.sh). Do NOT mask contention by
+#     flutter test --exclude-tags 'crypto-prod || deletion-replica-io'
+# The deletion replica I/O group also runs separately. All stages are mandatory
+# (see tools/ci_gates.sh). Do NOT mask contention by
 # bumping timeouts — serialize the derivation instead.
 tags:
   crypto-prod:
+  # These two deletion suites repeatedly open/close real per-owner replicas.
+  # Run them in the dedicated serialized CI stage to avoid admission/cleanup
+  # deadline failures while the parallel bulk stage saturates the build host.
+  deletion-replica-io:
 
 # A-P: end-to-end sync proof against a developer's isolated LOCAL Supabase.
 # Opt-in: the suite is skipped unless LOCAL_SUPABASE_URL is set (see

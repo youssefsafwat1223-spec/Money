@@ -1,3 +1,6 @@
+@Tags(['deletion-replica-io'])
+library;
+
 import 'dart:async';
 import 'dart:convert';
 

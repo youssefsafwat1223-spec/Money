@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
 
 // Phase-7 Batch-1 — the canonical gate (tools/ci_gates.sh) must be truthful: a failed
@@ -67,4 +67,28 @@ test("the gate cannot print an all-passed banner while a mandatory suite failed"
   // own counters, never pass_count.
   assert.match(sh, /ok\(\)\s*\{[^}]*pass_count=/);
   assert.match(sh, /unavail\(\)\s*\{[^}]*unavail_count=/);
+});
+
+test("all real-replica deletion tests run in one mandatory serialized stage", () => {
+  const sh = readFileSync(`${root}/tools/ci_gates.sh`, "utf8");
+  const selectedBlock = sh.match(/deletion_replica_tests=\(([\s\S]*?)\)/)?.[1];
+  assert.ok(selectedBlock, "the serialized stage must declare its inputs");
+  const selected = selectedBlock.match(/test\/[^\s]+_test\.dart/g).sort();
+  const tagged = readdirSync(`${root}/app/test`, { recursive: true })
+    .filter((path) => path.endsWith("_test.dart"))
+    .filter((path) => {
+      const source = readFileSync(`${root}/app/test/${path}`, "utf8");
+      const included = /@Tags\(\[[^\]]*['"]deletion-replica-io['"]/.test(source);
+      if (included) assert.doesNotMatch(source, /crypto-prod/, "serialized groups are disjoint");
+      return included;
+    })
+    .map((path) => `test/${path}`)
+    .sort();
+  assert.ok(tagged.length > 0, "coverage assertion must not be vacuous");
+  assert.deepEqual(selected, tagged, "no tagged suite may be excluded without running");
+  assert.match(sh, /--exclude-tags 'crypto-prod \|\| deletion-replica-io'/);
+  assert.match(sh, /flutter test "\$\{deletion_replica_tests\[@\]\}" --tags deletion-replica-io --concurrency=1/);
+  assert.match(sh, /ok "flutter test \(deletion replica I\/O serialized\)"/);
+  assert.match(sh, /bad "flutter test \(deletion replica I\/O serialized\)"/);
+  assert.match(sh, /caller_skipped "flutter test deletion replica I\/O/);
 });

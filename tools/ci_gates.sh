@@ -8,16 +8,20 @@
 #      + catalog parser asset drift (canonical source vs bundled asset)
 #   2. Deno edge-function tests (ALL functions, not just _shared/) + Deno lint (_shared)
 #   3. flutter analyze
-#   4a. flutter test — BULK parallel; production-cost Argon2 crypto EXCLUDED
-#       (--exclude-tags crypto-prod). SKIP_FLUTTER_TEST=1 for fast local iteration.
+#   4a. flutter test — BULK parallel; crypto-prod and deletion-replica-io
+#       EXCLUDED. Both run in mandatory serialized stages below.
+#       SKIP_FLUTTER_TEST=1 for fast local iteration.
 #   4b. flutter test — SERIALIZED production-cost crypto (--tags crypto-prod
 #       --concurrency=1). Split is a DETERMINISM fix, not a convenience: the v3
 #       Argon2id KDF derives each segment in a worker isolate guarded by a hardcoded
 #       10s per-segment timeout (cryptography 2.9.0) that no @Timeout can raise; under
 #       the parallel bulk run's CPU saturation a starved segment trips it
 #       nondeterministically ("Segment processing timeout"). Serializing gives the
-#       derivation an uncontended core. BOTH stages are mandatory; no test is dropped
-#       (bulk + crypto = the whole suite). See dart_test.yaml + PHASE_7_TEST_AND_CI_CONTRACT.md.
+#       derivation an uncontended core. All three Flutter stages are mandatory;
+#       their union is the whole suite. See dart_test.yaml + PHASE_7_TEST_AND_CI_CONTRACT.md.
+#   4c. flutter test — SERIALIZED real-replica deletion suites. Their admission
+#       and cleanup bounds stay unchanged. This isolates real SQLite/file I/O
+#       from bulk CPU/memory contention; every tagged suite still runs.
 #   5. Node contract tests (supabase/tests/*.mjs; live cases self-skip)
 #   6. skip/ignore manifest enforcement (tools/test_skip_manifest.json)
 #   7. admin authorization tests
@@ -133,12 +137,11 @@ fi
 step "flutter analyze"
 if ( cd "$ROOT/app" && flutter analyze ); then ok "analyze"; else bad "analyze"; fi
 
-# flutter test is split into two MANDATORY stages for Argon2 determinism (see header):
-#   4a bulk parallel with production-cost crypto EXCLUDED, 4b that crypto SERIALIZED.
-# Union of the two tag sets = the whole suite, so no test is dropped or double-counted.
-step "flutter test (bulk — parallel; production-cost crypto excluded)"
+# Three mandatory, disjoint stages. The union is the whole Flutter suite:
+# parallel bulk, production-cost crypto, and real-replica deletion I/O.
+step "flutter test (bulk — parallel; crypto and deletion replica I/O excluded)"
 if [ "${SKIP_FLUTTER_TEST:-0}" != "1" ]; then
-  if ( cd "$ROOT/app" && flutter test --exclude-tags crypto-prod ); then ok "flutter test (bulk)"; else bad "flutter test (bulk)"; fi
+  if ( cd "$ROOT/app" && flutter test --exclude-tags 'crypto-prod || deletion-replica-io' ); then ok "flutter test (bulk)"; else bad "flutter test (bulk)"; fi
 else
   caller_skipped "flutter test bulk (SKIP_FLUTTER_TEST=1)"
 fi
@@ -148,6 +151,24 @@ if [ "${SKIP_FLUTTER_TEST:-0}" != "1" ]; then
   if ( cd "$ROOT/app" && flutter test --tags crypto-prod --concurrency=1 ); then ok "flutter test (crypto serialized)"; else bad "flutter test (crypto serialized)"; fi
 else
   caller_skipped "flutter test crypto (SKIP_FLUTTER_TEST=1)"
+fi
+
+# Keep the explicit inputs synchronized with all deletion-replica-io tags.
+# ci_gates_contract_node_test.mjs verifies complete coverage. Explicit paths
+# avoid recompiling thousands of unrelated suites for this short I/O stage.
+deletion_replica_tests=(
+  test/core/auth/immediate_deletion_flow_test.dart
+  test/core/auth/prepared_immediate_deletion_gateway_test.dart
+)
+step "flutter test (deletion replica I/O — serialized, --concurrency=1)"
+if [ "${SKIP_FLUTTER_TEST:-0}" != "1" ]; then
+  if ( cd "$ROOT/app" && flutter test "${deletion_replica_tests[@]}" --tags deletion-replica-io --concurrency=1 ); then
+    ok "flutter test (deletion replica I/O serialized)"
+  else
+    bad "flutter test (deletion replica I/O serialized)"
+  fi
+else
+  caller_skipped "flutter test deletion replica I/O (SKIP_FLUTTER_TEST=1)"
 fi
 
 step "node contract tests"
