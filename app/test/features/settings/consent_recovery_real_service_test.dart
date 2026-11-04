@@ -167,11 +167,17 @@ void main() {
   /// Like [settle], but stops as soon as [finder] matches (a toast only lives
   /// three seconds of frame time).
   Future<void> settleUntil(WidgetTester tester, Finder finder) async {
-    for (var i = 0; i < 25 && finder.evaluate().isEmpty; i++) {
+    final elapsed = Stopwatch()..start();
+    while (finder.evaluate().isEmpty &&
+        elapsed.elapsed < const Duration(seconds: 10)) {
       await tester.runAsync(
           () => Future<void>.delayed(const Duration(milliseconds: 30)));
-      await tester.pump(const Duration(milliseconds: 100));
+      // Keep frame time close to real I/O time. Advancing seconds of fake
+      // time while SQLite is still running can fire lifecycle timeouts early.
+      await tester.pump(const Duration(milliseconds: 30));
     }
+    expect(finder, findsWidgets,
+        reason: 'the expected UI state must finish within 10s of real I/O');
   }
 
   Future<void> pumpScreen(WidgetTester tester) async {
@@ -441,9 +447,20 @@ void main() {
       await tester.ensureVisible(turnOn());
       await tester.tap(turnOn());
       await settle(tester);
+      // Exercise real native completion later than the old 750ms I/O window.
+      // The screen must wait for the verified receipt before reporting On.
+      final nativeFinish = sim.hold('finishCloudEgressEnable');
+      await tester.runAsync(() async {
+        Timer(const Duration(seconds: 2), () {
+          if (!nativeFinish.isCompleted) nativeFinish.complete();
+        });
+      });
       await tester.tap(find.byKey(const Key('initialConsentAccept')));
-      await settle(tester);
+      await settleUntil(tester, status(_en.consentStatusActive));
       expect(status(_en.consentStatusActive), findsOneWidget);
+      expect(nativeFinish.isCompleted, isTrue);
+      expect(sim.pending, isNull);
+      expect(await io(tester, () => gate.permits(owner: kRigOwner)), isTrue);
       expect(net.calls, 0);
     });
 
