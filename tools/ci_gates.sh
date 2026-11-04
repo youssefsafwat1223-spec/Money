@@ -146,9 +146,17 @@ else
   caller_skipped "flutter test bulk (SKIP_FLUTTER_TEST=1)"
 fi
 
+# ci_gates_contract_node_test.mjs checks that these inputs cover every
+# crypto-prod-tagged suite. Avoid discovering and compiling unrelated files
+# a second time in the serialized stage.
+crypto_tests=(
+  test/core/backup/backup_envelope_v3_test.dart
+  test/core/backup/backup_payload_limit_test.dart
+  test/core/backup/production_kdf_contract_test.dart
+)
 step "flutter test (crypto — serialized production-cost Argon2, --concurrency=1)"
 if [ "${SKIP_FLUTTER_TEST:-0}" != "1" ]; then
-  if ( cd "$ROOT/app" && flutter test --tags crypto-prod --concurrency=1 ); then ok "flutter test (crypto serialized)"; else bad "flutter test (crypto serialized)"; fi
+  if ( cd "$ROOT/app" && flutter test "${crypto_tests[@]}" --tags crypto-prod --concurrency=1 ); then ok "flutter test (crypto serialized)"; else bad "flutter test (crypto serialized)"; fi
 else
   caller_skipped "flutter test crypto (SKIP_FLUTTER_TEST=1)"
 fi

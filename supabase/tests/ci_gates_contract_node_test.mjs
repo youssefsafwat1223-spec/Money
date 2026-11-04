@@ -69,26 +69,37 @@ test("the gate cannot print an all-passed banner while a mandatory suite failed"
   assert.match(sh, /unavail\(\)\s*\{[^}]*unavail_count=/);
 });
 
-test("all real-replica deletion tests run in one mandatory serialized stage", () => {
-  const sh = readFileSync(`${root}/tools/ci_gates.sh`, "utf8");
-  const selectedBlock = sh.match(/deletion_replica_tests=\(([\s\S]*?)\)/)?.[1];
-  assert.ok(selectedBlock, "the serialized stage must declare its inputs");
-  const selected = selectedBlock.match(/test\/[^\s]+_test\.dart/g).sort();
-  const tagged = readdirSync(`${root}/app/test`, { recursive: true })
-    .filter((path) => path.endsWith("_test.dart"))
-    .filter((path) => {
-      const source = readFileSync(`${root}/app/test/${path}`, "utf8");
-      const included = /@Tags\(\[[^\]]*['"]deletion-replica-io['"]/.test(source);
-      if (included) assert.doesNotMatch(source, /crypto-prod/, "serialized groups are disjoint");
-      return included;
-    })
-    .map((path) => `test/${path}`)
-    .sort();
-  assert.ok(tagged.length > 0, "coverage assertion must not be vacuous");
-  assert.deepEqual(selected, tagged, "no tagged suite may be excluded without running");
-  assert.match(sh, /--exclude-tags 'crypto-prod \|\| deletion-replica-io'/);
-  assert.match(sh, /flutter test "\$\{deletion_replica_tests\[@\]\}" --tags deletion-replica-io --concurrency=1/);
-  assert.match(sh, /ok "flutter test \(deletion replica I\/O serialized\)"/);
-  assert.match(sh, /bad "flutter test \(deletion replica I\/O serialized\)"/);
-  assert.match(sh, /caller_skipped "flutter test deletion replica I\/O/);
-});
+for (const { tag, variable, label, otherTag } of [
+  { tag: "crypto-prod", variable: "crypto_tests", label: "crypto", otherTag: "deletion-replica-io" },
+  { tag: "deletion-replica-io", variable: "deletion_replica_tests", label: "deletion replica I/O", otherTag: "crypto-prod" },
+]) {
+  test(`all ${tag} tests run in one mandatory serialized stage`, () => {
+    const sh = readFileSync(`${root}/tools/ci_gates.sh`, "utf8");
+    const selectedBlock = sh.match(new RegExp(`${variable}=\\(([\\s\\S]*?)\\)`))?.[1];
+    assert.ok(selectedBlock, "the serialized stage must declare its inputs");
+    const selected = selectedBlock.match(/test\/[^\s]+_test\.dart/g).sort();
+    const tagged = readdirSync(`${root}/app/test`, { recursive: true })
+      .filter((path) => path.endsWith("_test.dart"))
+      .filter((path) => {
+        const source = readFileSync(`${root}/app/test/${path}`, "utf8");
+        const included = new RegExp(`^\\s*@Tags\\(\\[[^\\]]*['"]${tag}['"]`, "m").test(source);
+        if (included) {
+          assert.doesNotMatch(source,
+            new RegExp(`^\\s*@Tags\\(\\[[^\\]]*['"]${otherTag}['"]`, "m"),
+            "serialized groups are disjoint");
+        }
+        return included;
+      })
+      .map((path) => `test/${path}`)
+      .sort();
+    assert.ok(tagged.length > 0, "coverage assertion must not be vacuous");
+    assert.deepEqual(selected, tagged, "no tagged suite may be excluded without running");
+    assert.match(sh, /--exclude-tags 'crypto-prod \|\| deletion-replica-io'/);
+    assert.ok(sh.includes(
+      'flutter test "${' + variable + '[@]}" --tags ' + tag + ' --concurrency=1',
+    ));
+    assert.ok(sh.includes(`ok "flutter test (${label} serialized)"`));
+    assert.ok(sh.includes(`bad "flutter test (${label} serialized)"`));
+    assert.ok(sh.includes(`caller_skipped "flutter test ${label}`));
+  });
+}

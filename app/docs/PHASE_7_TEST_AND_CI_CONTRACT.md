@@ -16,8 +16,8 @@ no CI-only extra step). Gates, in order:
 | 2 | Deno `_shared` unit tests | `cd supabase/functions && deno test --allow-all _shared/` | yes (if deno) |
 | 2 | Deno lint `_shared` | `cd supabase/functions && deno lint _shared/` | yes (if deno) |
 | 3 | flutter analyze | `cd app && flutter analyze` | yes |
-| 4a | flutter test — bulk parallel (crypto and deletion replica I/O excluded) | `cd app && flutter test --exclude-tags 'crypto-prod || deletion-replica-io'` | yes (`SKIP_FLUTTER_TEST=1` local only) |
-| 4b | flutter test — serialized production-cost crypto | `cd app && flutter test --tags crypto-prod --concurrency=1` | yes (`SKIP_FLUTTER_TEST=1` local only) |
+| 4a | flutter test — bulk parallel (crypto and deletion replica I/O excluded) | `cd app && flutter test --exclude-tags 'crypto-prod \|\| deletion-replica-io'` | yes (`SKIP_FLUTTER_TEST=1` local only) |
+| 4b | flutter test — serialized production-cost crypto | `cd app && flutter test test/core/backup/{backup_envelope_v3,backup_payload_limit,production_kdf_contract}_test.dart --tags crypto-prod --concurrency=1` | yes (`SKIP_FLUTTER_TEST=1` local only) |
 | 4c | flutter test — serialized real-replica deletion I/O | `cd app && flutter test test/core/auth/immediate_deletion_flow_test.dart test/core/auth/prepared_immediate_deletion_gateway_test.dart --tags deletion-replica-io --concurrency=1` | yes (`SKIP_FLUTTER_TEST=1` local only) |
 | 5 | Node contract tests | `node --test supabase/tests/*.mjs` | yes (if node) |
 | 6 | skip/ignore manifest enforcement | `node tools/check_test_skips.mjs --node <tap> --deno <out>` | yes (if node) |
@@ -29,7 +29,8 @@ replicas and await bounded admission and cleanup. On the CI host, parallel bulk
 contention exceeded those bounds, then unfinished fixture cleanup affected the
 following tests. Stage 4c runs all their cases sequentially with the existing
 timeouts. The Node gate contract checks that every tagged file is selected and
-that the serialized groups do not overlap.
+that the serialized groups do not overlap. The crypto stage also selects all
+tagged files explicitly, so it avoids compiling unrelated suites a second time.
 
 **Truthfulness contract (enforced + self-tested):**
 - an unexpected failure returns a non-zero exit; a failed subcommand is never hidden by a
