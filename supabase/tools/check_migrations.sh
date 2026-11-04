@@ -103,8 +103,10 @@ trigger_bound=$(grep -rhoiE "execute (function|procedure) +([a-z0-9_]+\.)?[a-z0-
   | sed -E 's/^public\.//' | sort -u || true)
 
 for fn in $sd_funcs; do
-  if printf '%s\n' "$revoked" | grep -qx "$fn"; then continue; fi
-  if printf '%s\n' "$trigger_bound" | grep -qx "$fn"; then continue; fi
+  # grep -q exits as soon as it matches. With pipefail, a producer receiving
+  # SIGPIPE can turn that match into a false refusal. Supply the input directly.
+  if grep -Fqx -- "$fn" <<< "$revoked"; then continue; fi
+  if grep -Fqx -- "$fn" <<< "$trigger_bound"; then continue; fi
   note "SECURITY DEFINER function '$fn' is neither revoked from " \
 "public/anon/authenticated nor trigger-bound — a client could invoke it " \
 "directly (MALI-004 class). Add: revoke all on function $fn(...) from public, anon, authenticated;"

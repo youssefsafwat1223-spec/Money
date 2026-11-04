@@ -68,4 +68,14 @@ create function s.t() returns trigger language plpgsql security definer as $$ be
 create trigger x before insert on y for each row execute function s.t();
 SQL
 
+# A large revocation list must not turn grep's successful early match into a
+# pipeline failure (SIGPIPE under pipefail).
+{
+  echo 'create function early() returns void language sql security definer as $$ select 1 $$;'
+  echo 'revoke all on function early() from public;'
+  for ((i = 0; i < 5000; i++)); do
+    echo "revoke all on function z_padding_${i}() from public;"
+  done
+} | FAILS="" PASSES="early" run_case large_revocation_list
+
 [ $bad = 0 ] && echo "ALL PASS" || { echo "SOME FAILED"; exit 1; }
