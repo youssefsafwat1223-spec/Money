@@ -242,6 +242,18 @@ class AutomaticSessionRecovery {
   /// without Supabase).
   static AutomaticSessionRecovery? active;
 
+  /// Presentation only. Holds one branded loader across local-read withdrawal,
+  /// writable-scope publication and final recovery settlement. It grants no
+  /// session, database or Cloud authority.
+  static final ValueNotifier<bool> restoringSession = ValueNotifier<bool>(false);
+  static AutomaticSessionRecovery? _presenting;
+
+  void _finishPresentation() {
+    if (!identical(_presenting, this)) return;
+    _presenting = null;
+    restoringSession.value = false;
+  }
+
   Future<AsrOutcome>? _running;
   AsrAuthority? _authority;
 
@@ -258,7 +270,11 @@ class AutomaticSessionRecovery {
   bool get running => _running != null;
 
   /// §11.3: an explicit attempt clears continuation; cleanup ownership stays.
-  void yieldToExplicitAttempt() => _authority?.mayContinue = false;
+  void yieldToExplicitAttempt() {
+    _retry?.cancel();
+    _retry = null;
+    _authority?.mayContinue = false;
+  }
 
   /// Completes once no ASR run is in flight (§11.3 `asr.quiesced()`).
   Future<void> quiesced() async {
@@ -269,8 +285,19 @@ class AutomaticSessionRecovery {
   /// Single-flight entry for every trigger (§8).
   Future<AsrOutcome> run() {
     if (_running != null) return Future.value(AsrOutcome.skipped);
-    final run = _run().whenComplete(() => _running = null);
+    // Ordinary resume checks without a local-read owner must not move the
+    // current page or show a loader. Once started, retain the loader through
+    // adoption even after the local-read scope has been withdrawn.
+    final present = host.localReadOwner != null;
+    final run = _run().whenComplete(() {
+      _running = null;
+      _finishPresentation();
+    });
     _running = run;
+    if (present) {
+      _presenting = this;
+      restoringSession.value = true;
+    }
     return run;
   }
 
@@ -850,6 +877,7 @@ class AutomaticSessionRecovery {
   void dispose() {
     _retry?.cancel();
     _retry = null;
+    _finishPresentation();
   }
 }
 

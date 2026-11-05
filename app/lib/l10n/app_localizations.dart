@@ -10489,6 +10489,24 @@ abstract class AppL10n {
   /// **'حاول مرة أخرى'**
   String get startupCoordinatorRetry;
 
+  /// No description provided for @sessionRecoveryTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'تعذّر إكمال فتح قرش'**
+  String get sessionRecoveryTitle;
+
+  /// No description provided for @sessionRecoveryBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'تأكد من اتصالك وأعد المحاولة، أو سجّل الدخول من جديد للمتابعة. بياناتك المحفوظة باقية على هذا الجهاز.'**
+  String get sessionRecoveryBody;
+
+  /// No description provided for @sessionRecoverySignIn.
+  ///
+  /// In ar, this message translates to:
+  /// **'تسجيل الدخول من جديد'**
+  String get sessionRecoverySignIn;
+
   /// No description provided for @localReadBannerTitle.
   ///
   /// In ar, this message translates to:

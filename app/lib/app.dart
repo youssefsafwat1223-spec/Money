@@ -6,6 +6,7 @@ import 'package:money_companion/l10n/app_localizations.dart';
 
 import 'core/router/app_router.dart';
 import 'core/session/app_session.dart';
+import 'core/startup/automatic_session_recovery.dart';
 import 'core/security/app_lock_gate.dart';
 import 'features/app/app_boot_loader.dart';
 import 'features/app/local_read_cleanup_notice.dart';
@@ -75,9 +76,13 @@ class MoneyApp extends ConsumerWidget {
                   AppLockGate(child: child!),
                   const RemovalNoticeHost(),
                   const DenyIncompleteNoticeHost(),
-                  ValueListenableBuilder<bool>(
-                    valueListenable: appDataRestoring,
-                    builder: (context, restoring, _) => restoring
+                  ListenableBuilder(
+                    listenable: Listenable.merge([
+                      appDataRestoring,
+                      AutomaticSessionRecovery.restoringSession,
+                    ]),
+                    builder: (context, _) => appDataRestoring.value ||
+                            AutomaticSessionRecovery.restoringSession.value
                         ? const Positioned.fill(child: AppBootLoader())
                         : const SizedBox.shrink(),
                   ),

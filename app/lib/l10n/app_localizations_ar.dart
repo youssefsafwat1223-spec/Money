@@ -6243,6 +6243,16 @@ class AppL10nAr extends AppL10n {
   String get startupCoordinatorRetry => 'حاول مرة أخرى';
 
   @override
+  String get sessionRecoveryTitle => 'تعذّر إكمال فتح قرش';
+
+  @override
+  String get sessionRecoveryBody =>
+      'تأكد من اتصالك وأعد المحاولة، أو سجّل الدخول من جديد للمتابعة. بياناتك المحفوظة باقية على هذا الجهاز.';
+
+  @override
+  String get sessionRecoverySignIn => 'تسجيل الدخول من جديد';
+
+  @override
   String get localReadBannerTitle => 'بدون اتصال — للعرض فقط';
 
   @override

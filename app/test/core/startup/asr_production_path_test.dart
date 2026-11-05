@@ -8,6 +8,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications_platform_interface/flutter_local_notifications_platform_interface.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
+import 'package:money_companion/core/router/app_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/core/auth/auth_coordinator.dart';
@@ -52,6 +54,8 @@ const _channel = MethodChannel('money_companion/native_capture');
 int _now() => DateTime.now().millisecondsSinceEpoch ~/ 1000;
 
 class _LoopbackHttpOverrides extends HttpOverrides {}
+
+class _RedirectContext extends Fake implements BuildContext {}
 
 class _SpyNotifications extends FlutterLocalNotificationsPlatform {
   @override
@@ -655,6 +659,58 @@ void main() {
   }
 
   // Owner decision (2026-10-29): session-only recovery while Cloud is OFF.
+  for (final cloudOn in [false, true]) {
+    test('recovery presentation: Cloud ON=$cloudOn never routes through Auth '
+        'before successful session publication', () async {
+      if (cloudOn) {
+        await accountWithCloudOnThenKill();
+      } else {
+        await accountWithCloudOffThenKill(neverEnabled: true);
+      }
+      await commitExpiredRecord();
+      final runner = await bootProcess();
+      await session.markWelcomeManifestoSeen();
+      final reply = Completer<void>();
+      script.hold = reply;
+      // Hold the real identity write after writable scope publication. This
+      // was the window where the router selected Auth despite recovery still
+      // running and ultimately succeeding without a new provider sign-in.
+      final identity = storage.holdOnce((op, key) =>
+          op == 'write' && key == 'onboarding_current_account_v1');
+      final state = GoRouterState(appRouter.configuration,
+          uri: Uri(path: '/'), matchedLocation: '/', fullPath: '/',
+          pathParameters: const {}, pageKey: const ValueKey('/'));
+      try {
+        final attempt = resume();
+        await until(() => script.sends == 1, what: 'refresh request');
+        reply.complete();
+        await identity.reached.future.timeout(const Duration(seconds: 10));
+        expect(AutomaticSessionRecovery.active!.running, isTrue);
+        expect(AutomaticSessionRecovery.restoringSession.value, isTrue);
+        expect(runner.accountScope.current!.isLocalRead, isFalse);
+        expect(session.status, SessionStatus.sessionExpired);
+        expect(await appRouter.configuration.topRedirect(_RedirectContext(), state),
+            isNull, reason: 'stay on the recovery loader until adoption finishes');
+        identity.release.complete();
+        await attempt;
+        expect(AutomaticSessionRecovery.active!.lastStop, 'recovered', reason: diag());
+        expect(AutomaticSessionRecovery.restoringSession.value, isFalse);
+        expect(session.status, SessionStatus.authenticated);
+        expect(await appRouter.configuration.topRedirect(_RedirectContext(), state), isNull);
+        expect(signIns, isEmpty, reason: 'no explicit sign-in was needed');
+        if (cloudOn) {
+          expect(sim.egress?.state, 'ON');
+        } else {
+          await expectCloudStillOff(runner, 0, dartAbsent: true);
+        }
+      } finally {
+        if (!reply.isCompleted) reply.complete();
+        if (!identity.release.isCompleted) identity.release.complete();
+        await AutomaticSessionRecovery.active?.quiesced();
+      }
+    });
+  }
+
   test(
       'Cloud OFF cold start: expired session → local read → the session '
       'alone recovers; Cloud stays OFF, owner, replica and rows unchanged',

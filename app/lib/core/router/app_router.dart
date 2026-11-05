@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../session/app_session.dart';
+import '../startup/automatic_session_recovery.dart';
 import 'modal_route_observer.dart';
 import '../theme/widgets/navy_sheet_theme.dart';
 import '../../features/accounts/account_detail_screen.dart';
@@ -59,12 +60,20 @@ String onboardingEntryPathForSession(AppSession session) {
 /// موجّه التطبيق (go_router).
 final appRouter = GoRouter(
   initialLocation: '/',
-  refreshListenable: AppSession.instance,
+  refreshListenable: Listenable.merge([
+    AppSession.instance,
+    AutomaticSessionRecovery.restoringSession,
+  ]),
   // Hides the native glass tab bar while a bottom sheet/dialog is open (it is
   // a platform view that Flutter modals can't cover). See ModalRouteObserver.
   observers: [modalRouteObserver],
   redirect: (context, state) {
     final session = AppSession.instance;
+    // A writable scope can be published before the recovered identity/status.
+    // Keep Auth and the financial shell out of that intermediate frame.
+    if (AutomaticSessionRecovery.restoringSession.value) {
+      return state.uri.path == '/' ? null : '/';
+    }
     // A retained read-only scope stays restrictive during authority handoff.
     // The home builder exposes its data only after selected-authority proof.
     if (session.localReadPresentationRestricted) {
@@ -116,11 +125,13 @@ final appRouter = GoRouter(
     GoRoute(
       path: '/',
       name: 'home',
-      builder: (context, state) => AppSession.instance.localReadActive
-          ? const LocalReadShell()
-          : AppSession.instance.localReadPresentationRestricted
-              ? const AppBootLoader()
-              : const AppShell(),
+      builder: (context, state) => AutomaticSessionRecovery.restoringSession.value
+          ? const AppBootLoader()
+          : AppSession.instance.localReadActive
+              ? const LocalReadShell()
+              : AppSession.instance.localReadPresentationRestricted
+                  ? const AppBootLoader()
+                  : const AppShell(),
     ),
     GoRoute(
       path: '/onboarding/brand',

@@ -142,7 +142,8 @@ void main() {
           expect(data.accounts.single.balance, '12.345');
           expect(data.transactions.single.title, 'QA raw SELECT merchant');
           expect(data.transactions.single.amount, '1.250');
-          expect(find.text('QA raw SELECT merchant'), findsOneWidget);
+          expect(find.text('QA raw SELECT merchant'), findsNothing,
+              reason: 'recovery no longer displays the financial snapshot');
           final l10n = AppL10n.of(shellContext);
           await tester.tap(find.byKey(const Key('local_read_logout')));
           await tester.pumpAndSettle();

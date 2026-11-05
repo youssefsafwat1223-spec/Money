@@ -6230,6 +6230,16 @@ class AppL10nEn extends AppL10n {
   String get startupCoordinatorRetry => 'Try again';
 
   @override
+  String get sessionRecoveryTitle => 'Couldn\'t finish opening Qirsh';
+
+  @override
+  String get sessionRecoveryBody =>
+      'Check your connection and try again, or sign in again to continue. Your saved data stays on this device.';
+
+  @override
+  String get sessionRecoverySignIn => 'Sign in again';
+
+  @override
   String get localReadBannerTitle => 'Offline — read only';
 
   @override

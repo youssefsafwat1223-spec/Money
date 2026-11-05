@@ -175,19 +175,20 @@ void main() {
       });
     }
     for (final key in ['localReadLoading', 'localReadError']) {
-      testWidgets('$key preserves offline controls without invented balances in $language', (tester) async {
+      testWidgets('$key shows recovery actions without reading or inventing balances in $language', (tester) async {
         await open(tester, key, language);
         final context = tester.element(find.byType(LocalReadShell));
         final l10n = AppL10n.of(context);
-        expect(find.byKey(const Key('local_read_banner')), findsOneWidget);
+        expect(find.byKey(const Key('local_read_banner')), findsNothing);
+        expect(find.text(l10n.sessionRecoveryTitle), findsOneWidget);
+        expect(find.text(l10n.localReadReconnect), findsNothing);
         expect(find.byKey(const Key('local_read_reconnect')), findsOneWidget);
         expect(find.byKey(const Key('local_read_logout')), findsOneWidget);
         expect(find.text('Synthetic savings'), findsNothing);
         expect(find.text('Carrefour'), findsNothing);
         expect(find.text(l10n.localReadNoAccounts), findsNothing);
         expect(find.text(l10n.localReadNoTransactions), findsNothing);
-        expect(find.text(l10n.localReadLoadError),
-            key == 'localReadError' ? findsOneWidget : findsNothing);
+        expect(find.text(l10n.localReadLoadError), findsNothing);
         expect(tester.takeException(), isNull);
       });
     }
@@ -205,7 +206,7 @@ void main() {
       expect(events['localReadLogoutPresentationCallback'],
           before['localReadLogoutPresentationCallback']);
       expect(find.byType(LocalReadShell), findsOneWidget);
-      expect(find.text('Synthetic savings'), findsOneWidget);
+      expect(find.text('Synthetic savings'), findsNothing);
       expect(find.text(l10n.localReadLogoutFailed), findsOneWidget);
       expect(find.byIcon(AppLucideIcons.alertCircle), findsOneWidget);
       expect(find.byType(SnackBar), findsNothing);
@@ -218,8 +219,8 @@ void main() {
       final before = visualParityLocalReadEvents();
       await open(tester, 'localReadPresentation', language);
       expect(find.byType(LocalReadShell), findsOneWidget);
-      expect(find.text('Synthetic savings'), findsOneWidget);
-      expect(find.text('Carrefour'), findsOneWidget);
+      expect(find.text('Synthetic savings'), findsNothing);
+      expect(find.text('Carrefour'), findsNothing);
       await tester.tap(find.byKey(const Key('local_read_reconnect')));
       await tester.pumpAndSettle();
       expect(visualParityLocalReadEvents()['localReadReconnectPresentationCallback'],

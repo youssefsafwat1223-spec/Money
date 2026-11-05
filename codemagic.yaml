@@ -719,7 +719,7 @@ workflows:
       xcode: latest
       cocoapods: default
       vars:
-        IOS_BUILD_NUMBER_FLOOR: "99"
+        IOS_BUILD_NUMBER_FLOOR: "100"
         IOS_RELEASE_IPA: "app/build/ios/ipa/money_companion-signed.ipa"
     scripts:
       - name: Verify approved immutable CI revision

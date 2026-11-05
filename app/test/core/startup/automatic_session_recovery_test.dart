@@ -594,6 +594,36 @@ void main() {
     });
   });
 
+  test('choosing explicit sign-in cancels a scheduled automatic retry', () async {
+    await seed();
+    script.openError = const SocketException('synthetic offline');
+    asr.trigger();
+    await asr.quiesced();
+    await pumpEventQueue();
+    expect(script.opens, 1);
+    expect(asr.lastStop, 'refresh:connect');
+    asr.yieldToExplicitAttempt();
+    await Future<void>.delayed(const Duration(milliseconds: 2200));
+    expect(script.opens, 1,
+        reason: 'the backoff must not take the user away from explicit sign-in');
+    expect(AutomaticSessionRecovery.restoringSession.value, isFalse);
+    expectReleased();
+  });
+
+  test('ordinary resume without local read does not cover the current page', () async {
+    await seed();
+    host.owner = null;
+    final changes = <bool>[];
+    void observe() => changes.add(AutomaticSessionRecovery.restoringSession.value);
+    AutomaticSessionRecovery.restoringSession.addListener(observe);
+    try {
+      expect(await asr.run(), AsrOutcome.skipped);
+      expect(changes, isEmpty);
+    } finally {
+      AutomaticSessionRecovery.restoringSession.removeListener(observe);
+    }
+  });
+
   group('cancellation before acceptance (decision a, §11.3)', () {
     test('an explicit attempt during the request discards the response',
         () async {

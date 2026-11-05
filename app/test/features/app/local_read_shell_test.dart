@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications_platform_interface/flutter_local_notifications_platform_interface.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:intl/intl.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:money_companion/data/db/database_access_broker.dart';
@@ -357,42 +356,41 @@ void main() {
     await _until(tester, () => find.byType(LocalReadShell).evaluate().isNotEmpty);
     final container = ProviderScope.containerOf(
         tester.element(find.byType(LocalReadShell)), listen: false);
+    // The recovery UI intentionally mounts no financial snapshot now. Keep a
+    // test-owned subscription to verify the retained read-only data/authority.
+    final snapshotSubscription = container.listen(localReadSnapshotProvider, (_, __) {});
+    addTearDown(snapshotSubscription.close);
     await _until(tester,
         () => container.read(localReadSnapshotProvider).hasValue);
-    await tester.scrollUntilVisible(find.text('Coffee Corner'), 200,
-        scrollable: find.byType(Scrollable).first);
     // The language is read from the database a moment after the first frame.
     await _until(
         tester,
         () => find
-            .text(AppL10nEn().localReadBannerTitle)
+            .text(AppL10nEn().sessionRecoveryTitle)
             .evaluate()
             .isNotEmpty);
   }
 
   caseWidgets(
-      'expired SDK: the banner, the existing data, Reconnect and Logout, with '
+      'expired SDK: recovery prompt preserves existing data and offers sign-in/logout, with '
       'no restore spinner and none of the ordinary shell', (tester) async {
     final (support, storage, client) = await world(tester);
     final from = storage.attempts.length;
     await pumpShell(tester, client);
     final l10n = AppL10nEn();
 
-    expect(find.text(l10n.localReadBannerTitle), findsOneWidget);
-    expect(find.text(l10n.localReadReconnect), findsOneWidget);
+    expect(find.text(l10n.sessionRecoveryTitle), findsOneWidget);
+    expect(find.text(l10n.sessionRecoverySignIn), findsOneWidget);
     expect(find.text(l10n.localReadLogout), findsOneWidget);
-    expect(find.text('Coffee Corner'), findsOneWidget);
-    expect(find.text('Main Wallet'), findsOneWidget);
-    expect(find.textContaining('125'), findsWidgets);
-    expect(find.textContaining('500'), findsWidgets);
-    // Dates are the device-local time in a readable form, never the stored
-    // UTC ISO string ("2026-10-28T01:47:17.889Z").
-    expect(find.textContaining(RegExp(r'\d{4}-\d{2}-\d{2}T')), findsNothing);
-    final local = DateTime.now();
-    expect(
-        find.textContaining(
-            '${DateFormat('MMMM', 'en').format(local)} ${local.day}, ${local.year}'),
-        findsWidgets);
+    expect(find.text('Coffee Corner'), findsNothing);
+    expect(find.text('Main Wallet'), findsNothing);
+    expect(find.text(l10n.localReadBannerTitle), findsNothing);
+    expect(find.text(l10n.localReadReconnect), findsNothing);
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(LocalReadShell)), listen: false);
+    final snapshot = container.read(localReadSnapshotProvider).requireValue;
+    expect(snapshot.accounts.single.name, 'Main Wallet');
+    expect(snapshot.transactions.single.title, 'Coffee Corner');
 
     expect(find.byType(CircularProgressIndicator), findsNothing,
         reason: 'no ordinary restore spinner');
@@ -419,19 +417,21 @@ void main() {
     await _until(tester, () => find.byType(LocalReadShell).evaluate().isNotEmpty);
     final l10n = AppL10nAr();
     await _until(tester,
-        () => find.text(l10n.localReadBannerTitle).evaluate().isNotEmpty);
-    expect(find.text(l10n.localReadReconnect), findsOneWidget);
+        () => find.text(l10n.sessionRecoveryTitle).evaluate().isNotEmpty);
+    expect(find.text(l10n.sessionRecoverySignIn), findsOneWidget);
     expect(find.text(l10n.localReadLogout), findsOneWidget);
     final container = ProviderScope.containerOf(
         tester.element(find.byType(LocalReadShell)), listen: false);
+    // The recovery UI intentionally mounts no financial snapshot now. Keep a
+    // test-owned subscription to verify the retained read-only data/authority.
+    final snapshotSubscription = container.listen(localReadSnapshotProvider, (_, __) {});
+    addTearDown(snapshotSubscription.close);
     await _until(tester,
         () => container.read(localReadSnapshotProvider).hasValue);
-    // Transaction rows are lazy; reveal the real row before checking its date.
-    await tester.scrollUntilVisible(find.text('Coffee Corner'), 200,
-        scrollable: find.byType(Scrollable).first);
-    expect(find.textContaining(RegExp(r'\d{4}-\d{2}-\d{2}T')), findsNothing);
-    expect(find.textContaining('${DateTime.now().year}، '), findsWidgets,
-        reason: 'Arabic date, Arabic separator, then the time');
+    expect(find.text(l10n.localReadBannerTitle), findsNothing);
+    expect(find.text(l10n.localReadReconnect), findsNothing);
+    expect(container.read(localReadSnapshotProvider).requireValue.transactions,
+        isNotEmpty, reason: 'read-only data remains intact behind the prompt');
   });
 
   caseWidgets('deep links to action and editing routes are denied',
@@ -455,11 +455,11 @@ void main() {
     }
   });
 
-  caseWidgets('Reconnect opens sign-in; the shell stays until it succeeds',
+  caseWidgets('explicit Sign in again opens auth while data stays read-only',
       (tester) async {
     final (support, _, client) = await world(tester);
     await pumpShell(tester, client);
-    await tester.tap(find.text(AppL10nEn().localReadReconnect));
+    await tester.tap(find.text(AppL10nEn().sessionRecoverySignIn));
     await tester.pump(const Duration(milliseconds: 100));
     await tester.pump(const Duration(milliseconds: 100));
     expect(appRouter.routeInformationProvider.value.uri.path,
@@ -564,10 +564,12 @@ void main() {
     await _until(tester, () => find.byType(LocalReadShell).evaluate().isNotEmpty);
     final container = ProviderScope.containerOf(
         tester.element(find.byType(LocalReadShell)), listen: false);
+    // The recovery UI intentionally mounts no financial snapshot now. Keep a
+    // test-owned subscription to verify the retained read-only data/authority.
+    final snapshotSubscription = container.listen(localReadSnapshotProvider, (_, __) {});
+    addTearDown(snapshotSubscription.close);
     await _until(tester,
         () => container.read(localReadSnapshotProvider).hasValue);
-    await tester.scrollUntilVisible(find.text('Coffee Corner'), 200,
-        scrollable: find.byType(Scrollable).first);
 
     // Resume listeners (app lock, SDK, shell): background then foreground.
     for (final state in [
