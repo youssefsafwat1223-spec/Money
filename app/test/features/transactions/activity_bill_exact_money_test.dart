@@ -143,7 +143,19 @@ void main() {
               _expectCompleteAmount(tester, value);
             } else {
               final installmentsTab = find.text(l10n.txnBillsInstalments);
-              await tester.ensureVisible(installmentsTab);
+              // The pinned Activity selector can cover a tab that ensureVisible
+              // aligns at the top. Reveal the actual control before tapping.
+              for (var attempt = 0; attempt < 12; attempt++) {
+                final bounds = tester.getRect(installmentsTab);
+                if (bounds.top >= 80 && bounds.bottom <= 790 &&
+                    installmentsTab.hitTestable().evaluate().isNotEmpty) {
+                  break;
+                }
+                await tester.drag(find.byType(Scrollable).last,
+                    Offset(0, bounds.top < 80 ? 150 : -150));
+                await tester.pumpAndSettle();
+              }
+              expect(installmentsTab.hitTestable(), findsOneWidget);
               await tester.tap(installmentsTab);
               await _settle(tester);
               await _reveal(tester, find.text('QA activity installment'));

@@ -11568,6 +11568,18 @@ abstract class AppL10n {
   /// In ar, this message translates to:
   /// **'الفترة السابقة'**
   String get rptPreviousPeriod;
+
+  /// No description provided for @cloudResumeTitle.
+  ///
+  /// In ar, this message translates to:
+  /// **'شغّل الخدمات السحابية من جديد'**
+  String get cloudResumeTitle;
+
+  /// No description provided for @cloudResumeBody.
+  ///
+  /// In ar, this message translates to:
+  /// **'المزامنة والتحليل الذكي متوقفان بعد تسجيل الخروج. فعّلهما من جديد لاستئناف الخدمة.'**
+  String get cloudResumeBody;
 }
 
 class _AppL10nDelegate extends LocalizationsDelegate<AppL10n> {

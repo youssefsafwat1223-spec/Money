@@ -302,7 +302,7 @@ void main() {
   /// Process 1 for a Cloud OFF user: the same explicit sign-in and row, and
   /// Cloud durably OFF at consent version 1 in settings, both Dart layers and
   /// native (the user turned Cloud OFF); then the process dies.
-  Future<void> accountWithCloudOffThenKill() async {
+  Future<void> accountWithCloudOffThenKill({bool neverEnabled = false}) async {
     final first =
         BootstrapRunner(debugAuthClient: await F2Fixture.liveClient(_uid))
           ..captureQueue = AsrSimQueue(sim);
@@ -340,9 +340,16 @@ void main() {
             .toJson()
       }
     });
-    storage.data[CloudEgressStore.kSecureKey] = off;
-    File(p.join(support.path, CloudEgressStore.kFileName))
-        .writeAsStringSync(off);
+    if (neverEnabled) {
+      // Declining Cloud on first use never starts an egress transition.
+      expect(storage.data[CloudEgressStore.kSecureKey], isNull);
+      expect(File(p.join(support.path, CloudEgressStore.kFileName)).existsSync(),
+          isFalse);
+    } else {
+      storage.data[CloudEgressStore.kSecureKey] = off;
+      File(p.join(support.path, CloudEgressStore.kFileName))
+          .writeAsStringSync(off);
+    }
     // The earlier admission's restrictive publication (and the ON→OFF
     // transition) left a live native owner with an agreed OFF record
     // (`SharedCaptureStore.publishRestrictiveCaptureOwner`).
@@ -602,16 +609,23 @@ void main() {
   /// A session-only recovery left Cloud exactly OFF: no Cloud transition in
   /// Dart or native, no ordinary request, and the gate still denies ordinary
   /// egress while it allows the session refresh.
-  Future<void> expectCloudStillOff(BootstrapRunner r, int nativeFrom) async {
+  Future<void> expectCloudStillOff(BootstrapRunner r, int nativeFrom,
+      {bool dartAbsent = false}) async {
     final scope = r.accountScope.current!;
     final settings =
         await DriftUserSettingsRepository(scope.database).getSettings();
     expect(settings.cloudProcessingEnabled, isFalse);
     final layers =
         await CloudEgressGate.instance.store.readDartOwnerLayers(_uid);
-    expect(
-        layers.records.map((x) => x.state), [EgressState.off, EgressState.off]);
-    expect(layers.records.map((x) => x.transitionGeneration), [2, 2]);
+    if (dartAbsent) {
+      expect(layers.uncertain, isFalse);
+      expect(layers.records, isEmpty,
+          reason: 'session recovery must not invent a Cloud choice');
+    } else {
+      expect(
+          layers.records.map((x) => x.state), [EgressState.off, EgressState.off]);
+      expect(layers.records.map((x) => x.transitionGeneration), [2, 2]);
+    }
     final methods = sim.calls.skip(nativeFrom).map((c) => c.method).toSet();
     for (final m in [
       'mintExpiryEvidenceForLiveOn',
@@ -670,6 +684,39 @@ void main() {
     expect(await replicaId(r), replica);
     expect(await rows(r), 1);
     await expectCloudStillOff(r, nativeFrom);
+  });
+
+  test('Cloud never enabled: expired session recovers without Cloud consent '
+      'or egress records, preserving the replica', () async {
+    await accountWithCloudOffThenKill(neverEnabled: true);
+    await commitExpiredRecord();
+    final r = await bootProcess();
+    final replica = await replicaId(r);
+    expect(session.asrLocalReadOwner, _uid, reason: diag());
+    final nativeFrom = sim.calls.length;
+    await resume();
+    expect(AutomaticSessionRecovery.active!.lastStop, 'recovered', reason: diag());
+    expect(script.sends, 1);
+    expect(session.status, SessionStatus.authenticated);
+    expect(session.asrLocalReadOwner, isNull);
+    expect(r.accountScope.current!.isLocalRead, isFalse);
+    expect(await replicaId(r), replica);
+    expect(await rows(r), 1);
+    await expectCloudStillOff(r, nativeFrom, dartAbsent: true);
+  });
+
+  test('Cloud never enabled: absent Dart records do not authorize recovery '
+      'over native ON', () async {
+    await accountWithCloudOffThenKill(neverEnabled: true);
+    sim.seedLiveOn(transitionGeneration: 1, reservedVersion: 1);
+    await commitExpiredRecord();
+    await bootProcess();
+    await resume();
+    expect(AutomaticSessionRecovery.active!.lastStop, 'native_evidence',
+        reason: diag());
+    expect(script.sends, 0);
+    expect(session.asrLocalReadOwner, _uid);
+    expect(requests, isEmpty);
   });
 
   test('Cloud OFF cold start recovers through the real gzip HTTPS transport',

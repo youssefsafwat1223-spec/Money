@@ -36,7 +36,6 @@ import '../common/transaction_direction.dart';
 import '../common/app_pill_tab_bar.dart';
 import '../common/app_empty_state.dart';
 import '../common/app_transaction_row.dart';
-import '../common/app_button.dart';
 import '../common/app_sheet_scaffold.dart';
 import '../common/category_catalog.dart';
 import '../subscriptions/bill_details_sheet.dart';
@@ -74,12 +73,6 @@ class TransactionsScreen extends ConsumerWidget {
     final privacyMode =
         ref.watch(userSettingsProvider).valueOrNull?.privacyModeEnabled ??
             false;
-    final txHeaderCurrencyLabel = Currency.label(
-        context,
-        (periodTotal?.currency ??
-                ref.watch(baseCurrencyProvider).valueOrNull ??
-                'SAR')
-            .toUpperCase());
     final logos = ref.watch(merchantLogosProvider).valueOrNull ??
         const <String, String>{};
 
@@ -125,17 +118,6 @@ class TransactionsScreen extends ConsumerWidget {
             );
           }
 
-          final bills = billsAsync.valueOrNull?.bills ?? [];
-          final subs =
-              bills.where((b) => b.type == BillType.subscription).toList();
-          final insts =
-              bills.where((b) => b.type == BillType.installment).toList();
-          // Active-subscription monthly obligation, summed EXACTLY as Money in
-          // the base display currency (currency-isolated), kept exact through
-          // the monthly and annual display leaves.
-          final baseCur = ref.watch(baseCurrencyProvider).valueOrNull ?? 'SAR';
-          final monthlyTotal = subscriptionMonthlyTotalMoney(subs, baseCur);
-
           return QirshSectionBackdrop(
               child: SafeArea(
                   // Keep the pinned tabs below the status bar.
@@ -154,12 +136,6 @@ class TransactionsScreen extends ConsumerWidget {
                                 hasMoreTransactions: view.hasMore,
                                 transactionsCount: view.transactions.length,
                                 pendingCount: view.pendingCount,
-                                subsCount: subs.length,
-                                instsCount: insts.length,
-                                monthlyTotal: monthlyTotal,
-                                currencyLabel: tab == 0
-                                    ? txHeaderCurrencyLabel
-                                    : currencyLabel,
                                 onAdd: () {
                                   if (tab == 0) {
                                     showCaptureEntrySheet(context);
@@ -206,8 +182,10 @@ class TransactionsScreen extends ConsumerWidget {
                                       else
                                         const _ActiveAccountPicker(),
                                       const SizedBox(height: AppSpacing.s3),
-                                      const _SuspectedDuplicatesBanner(),
-                                      const _SmartInboxBanner(),
+                                      if (tab == 0) ...[
+                                        const _SuspectedDuplicatesBanner(),
+                                        const _SmartInboxBanner(),
+                                      ],
                                       if (tab == 0) ...[
                                         if (pendingOnly) ...[
                                           Row(
@@ -1198,7 +1176,14 @@ class _BillsTabState extends State<_BillsTab> {
   Widget build(BuildContext context) {
     final bills = widget.view.bills
         .where((bill) => bill.type == _type)
-        .toList(growable: false);
+        .toList(growable: false)
+      ..sort((a, b) {
+        final active = (a.status == BillStatus.active ? 0 : 1)
+            .compareTo(b.status == BillStatus.active ? 0 : 1);
+        if (active != 0) return active;
+        final due = a.nextDueDate.compareTo(b.nextDueDate);
+        return due != 0 ? due : a.id.compareTo(b.id);
+      });
     final activeCount = bills.where((bill) => bill.isConfirmed).length;
     // F-027 — this used `monthlyEquivalentsTotalMoney`, which applies NO status
     // filter, so a paused subscription was still billed into the total here
@@ -1232,18 +1217,6 @@ class _BillsTabState extends State<_BillsTab> {
           }),
         ),
         const SizedBox(height: AppSpacing.s3),
-        AppButton(
-          onPressed: () => BillFormSheet.show(
-            context,
-            initialType: _type,
-          ),
-          icon: AppLucideIcons.plus,
-          label: _type == BillType.subscription
-              ? context.l10n.txnAddSub
-              : context.l10n.txnAddInstalment,
-          isPrimary: true,
-        ),
-        const SizedBox(height: AppSpacing.s4),
         _BillsHero(
           type: _type,
           monthlyTotal: monthlyTotal,
@@ -1252,12 +1225,6 @@ class _BillsTabState extends State<_BillsTab> {
           currencyLabel: widget.currencyLabel,
         ),
         const SizedBox(height: AppSpacing.s4),
-        TextButton.icon(
-          onPressed: () => _showBillsHelp(context, _type),
-          icon: const Icon(AppLucideIcons.helpCircle, size: 18),
-          label: Text(context.l10n.txnLearnBills),
-        ),
-        const SizedBox(height: AppSpacing.s3),
         if (bills.isEmpty)
           AppEmptyState(
             illustration:
@@ -1284,6 +1251,12 @@ class _BillsTabState extends State<_BillsTab> {
             _BillCard(bill: bill),
             const SizedBox(height: AppSpacing.s3),
           ],
+        TextButton.icon(
+          onPressed: () => _showBillsHelp(context, _type),
+          icon: const Icon(AppLucideIcons.helpCircle, size: 18),
+          label: Text(context.l10n.txnLearnBills),
+        ),
+        const SizedBox(height: AppSpacing.s3),
         if (_type == BillType.subscription &&
             widget.view.suggestions.isNotEmpty) ...[
           const SizedBox(height: AppSpacing.s4),
@@ -2083,10 +2056,6 @@ class _TransactionsHeader extends StatelessWidget {
     required this.hasMoreTransactions,
     required this.transactionsCount,
     required this.pendingCount,
-    required this.subsCount,
-    required this.instsCount,
-    required this.monthlyTotal,
-    required this.currencyLabel,
     required this.onAdd,
   });
 
@@ -2095,10 +2064,6 @@ class _TransactionsHeader extends StatelessWidget {
   final bool hasMoreTransactions;
   final int transactionsCount;
   final int pendingCount;
-  final int subsCount;
-  final int instsCount;
-  final Money monthlyTotal;
-  final String currencyLabel;
   final VoidCallback onAdd;
 
   @override
@@ -2117,22 +2082,12 @@ class _TransactionsHeader extends StatelessWidget {
           : context.l10n.txnBillsAndSubs,
       subtitle: tab == 0
           ? '$rangeLabel ${context.l10n.txnCountSuffix(transactionsCount.toString())}${hasMoreTransactions ? "+" : ""} · ${context.l10n.txnPendingReview} $pendingCount'
-          : context.l10n.txnActiveMonthlySpend,
+          : null,
       leading: Navigator.of(context).canPop() ? const BackButton() : null,
       trailing: _AddButton(onTap: onAdd),
-      amount: tab == 0 ? null : formatMoney(monthlyTotal),
-      currency: currencyLabel,
-      metrics: tab == 0
-          ? null
-          : [
-              CalmMetric(label: context.l10n.txnActiveSub, value: '$subsCount'),
-              CalmMetric(
-                  label: context.l10n.txnRunningInst, value: '$instsCount'),
-              CalmMetric(
-                label: context.l10n.txnYearlyTotal,
-                value: '${formatMoney(monthlyTotal * 12)} $currencyLabel',
-              ),
-            ],
+      // Bills already have one exact summary directly above their list.
+      // Keep the photo compact so the first bill is visible on arrival.
+      sectionHeight: tab == 0 ? 220 : 120,
     );
   }
 }

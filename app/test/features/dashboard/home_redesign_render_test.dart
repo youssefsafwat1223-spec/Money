@@ -1,3 +1,5 @@
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -180,7 +182,8 @@ Future<void> _pump(WidgetTester tester,
     Size size = const Size(390, 844),
     double textScale = 1,
     bool realFonts = false,
-    GoRouter? router}) async {
+    GoRouter? router,
+    GlobalKey? repaintKey}) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1.0;
   addTearDown(tester.view.reset);
@@ -258,7 +261,7 @@ Future<void> _pump(WidgetTester tester,
               GlobalCupertinoLocalizations.delegate,
             ],
             theme: theme,
-            home: const DashboardScreen(),
+            home: RepaintBoundary(key: repaintKey, child: const DashboardScreen()),
           ),
   ));
   for (var i = 0; i < 12; i++) {
@@ -275,6 +278,38 @@ Future<void> _scrollThrough(WidgetTester tester) async {
 }
 
 void main() {
+  testWidgets('Home blue fade reveals the grain canvas without a dark seam',
+      (tester) async {
+    final boundary = GlobalKey();
+    await _pump(tester, withData: true, theme: AppTheme.dark,
+        size: const Size(390, 1400), repaintKey: boundary);
+    await tester.runAsync(() => precacheImage(
+        const AssetImage('assets/textures/grain.png'), boundary.currentContext!));
+    await tester.pumpAndSettle();
+    final fade = tester.getRect(find.byKey(const ValueKey('home-blue-backdrop')));
+    final origin = tester.getTopLeft(find.byKey(boundary));
+    final lastRow = (fade.bottom - origin.dy).floor() - 1;
+    final bytes = await tester.runAsync(() async {
+      final image = await (boundary.currentContext!.findRenderObject()
+          as RenderRepaintBoundary).toImage(pixelRatio: 1);
+      try {
+        final data = (await image.toByteData(format: ui.ImageByteFormat.rawRgba))!;
+        // Grain repeats every 128 pixels. At the fading edge, the canvas must
+        // match the same texture phase below it, outside the inset cards.
+        expect(lastRow + 128, lessThan(image.height));
+        return [for (var x = 4; x < 16; x++)
+          for (var c = 0; c < 3; c++)
+            (data.getUint8((lastRow * image.width + x) * 4 + c) -
+             data.getUint8(((lastRow + 128) * image.width + x) * 4 + c)).abs()];
+      } finally {
+        image.dispose();
+      }
+    });
+    expect(bytes, everyElement(lessThanOrEqualTo(2)),
+        reason: 'an opaque fade hides grain until its edge and creates a seam');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('category insight uses matched history and opens Reports',
       (tester) async {
     await _pump(tester, withData: true, theme: AppTheme.light);

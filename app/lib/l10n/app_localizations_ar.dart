@@ -6907,4 +6907,11 @@ class AppL10nAr extends AppL10n {
 
   @override
   String get rptPreviousPeriod => 'الفترة السابقة';
+
+  @override
+  String get cloudResumeTitle => 'شغّل الخدمات السحابية من جديد';
+
+  @override
+  String get cloudResumeBody =>
+      'المزامنة والتحليل الذكي متوقفان بعد تسجيل الخروج. فعّلهما من جديد لاستئناف الخدمة.';
 }

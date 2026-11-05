@@ -3555,5 +3555,7 @@
   "@setCategoryIconName": {"description": "Accessible name for the category picker choice. Stored icon and colour identifiers do not change.", "placeholders": {"icon": {"type": "String"}}},
   "setCategoryColourName": "{colour, select, grey{Grey} coral{Coral} green{Green} blue{Blue} purple{Purple} brightGreen{Bright green} teal{Teal} pink{Pink} blueGrey{Blue grey} orange{Orange} other{Custom colour}}",
   "@setCategoryColourName": {"description": "Accessible name for the category picker choice. Stored icon and colour identifiers do not change.", "placeholders": {"colour": {"type": "String"}}},
-  "rptPreviousPeriod": "Previous period"
+  "rptPreviousPeriod": "Previous period",
+  "cloudResumeTitle": "Resume Cloud Sync",
+  "cloudResumeBody": "Cloud Sync and Smart Analysis are paused after sign-out. Turn them on again to resume."
 }

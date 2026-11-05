@@ -89,6 +89,7 @@ class PrivacyScreen extends ConsumerWidget {
                     style: AppTypography.subhead(c.textMain)),
                 const SizedBox(height: AppSpacing.s2),
                 ref.watch(userSettingsProvider).maybeWhen(
+                      skipLoadingOnReload: true,
                       data: (settings) => Column(
                         children: [
                           // Cloud sync and Smart Analysis are one disclosed

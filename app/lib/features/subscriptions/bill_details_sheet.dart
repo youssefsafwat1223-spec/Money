@@ -33,7 +33,7 @@ import '../../core/utils/app_lucide_icons.dart';
 import '../common/repo_error_messages.dart';
 import '../../core/theme/widgets/glass_dialog.dart';
 
-class BillDetailsSheet extends ConsumerWidget {
+class BillDetailsSheet extends ConsumerStatefulWidget {
   const BillDetailsSheet({super.key, required this.bill});
 
   final BillEntity bill;
@@ -49,7 +49,16 @@ class BillDetailsSheet extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<BillDetailsSheet> createState() => _BillDetailsSheetState();
+}
+
+class _BillDetailsSheetState extends ConsumerState<BillDetailsSheet> {
+  BillEntity get bill => widget.bill;
+  Object? _transactionQueryKey;
+  Future<List<TransactionEntity>>? _transactions;
+
+  @override
+  Widget build(BuildContext context) {
     final c = context.colors;
     final currentBill = ref.watch(savedBillsProvider).dataOrWhen(
           data: (bills) {
@@ -60,6 +69,15 @@ class BillDetailsSheet extends ConsumerWidget {
           },
           orElse: () => bill,
         );
+    final transactionRevision =
+        ref.watch(scopedRevisionProvider('transactions')).valueOrNull ?? 0;
+    final queryKey = (currentBill.id, currentBill.accountId, currentBill.currency,
+        currentBill.name, currentBill.lenderName, currentBill.merchantId,
+        transactionRevision, ref.watch(transactionRepositoryProvider));
+    if (_transactionQueryKey != queryKey) {
+      _transactionQueryKey = queryKey;
+      _transactions = _loadBillTransactions(ref, currentBill);
+    }
     final paymentsAsync = ref.watch(billPaymentsProvider(currentBill.id));
     final isInstallment = currentBill.type == BillType.installment;
     final currLabel = Currency.label(context, currentBill.currency);
@@ -78,7 +96,8 @@ class BillDetailsSheet extends ConsumerWidget {
       body: Padding(
         padding: const EdgeInsets.symmetric(horizontal: AppSpacing.gutter),
         child: FutureBuilder<List<TransactionEntity>>(
-          future: _loadBillTransactions(ref, currentBill),
+          key: ValueKey((currentBill.id, currentBill.accountId, currentBill.currency)),
+          future: _transactions,
           builder: (context, snapshot) {
             final transactions = snapshot.data ?? const <TransactionEntity>[];
             final payments =
@@ -272,7 +291,7 @@ class BillDetailsSheet extends ConsumerWidget {
                   style: AppTypography.caption(c.textSecondary),
                 ),
                 const SizedBox(height: AppSpacing.s2),
-                if (snapshot.connectionState == ConnectionState.waiting)
+                if (snapshot.connectionState == ConnectionState.waiting && !snapshot.hasData)
                   const Padding(
                     padding: EdgeInsets.symmetric(vertical: AppSpacing.s4),
                     child: Center(child: CircularProgressIndicator()),

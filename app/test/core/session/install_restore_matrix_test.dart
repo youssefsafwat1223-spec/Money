@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:money_companion/core/startup/install_presentation_store.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/session/app_session.dart';
@@ -45,6 +47,7 @@ void main() {
   });
 
   tearDown(() async {
+    AppSession.instance.configureInstallPresentation(null);
     AppSession.instance.configureCaptureOwnerClear(null);
     AppSession.instance.configureAccountScope(null);
     await AppSession.instance.wipeAndReset();
@@ -214,6 +217,36 @@ void main() {
       expect(await launchAs('uid-b'), isNull);
       expect(calls, ['activate:uid-b']);
     });
+  });
+
+  test('a reinstall repeats welcome and setup for the returning account, '
+      'then ordinary reopen keeps completion', () async {
+    final session = AppSession.instance;
+    await session.markWelcomeManifestoSeen();
+    await session.completeOnboarding(method: 'google', userId: 'uid-a');
+    expect(session.hasCompletedOnboarding, isTrue);
+    final root = await Directory.systemTemp.createTemp('qirsh-reinstall-route-');
+    addTearDown(() => root.delete(recursive: true));
+    final presentation = InstallPresentationStore(File('${root.path}/install.json'));
+    await presentation.prepare(hasExistingData: () async => false,
+        resetPresentation: session.resetInstallPresentation);
+    session.configureInstallPresentation(presentation);
+    await session.load();
+    expect(session.hasSeenWelcomeManifesto, isFalse);
+    expect(session.hasCompletedOnboarding, isFalse);
+    expect(session.status, SessionStatus.needsOnboarding);
+    expect(await owner(), 'uid-a', reason: 'presentation never removes owner proof');
+    await session.markWelcomeManifestoSeen();
+    await launchAs('uid-a');
+    expect(session.hasCompletedOnboarding, isFalse,
+        reason: 'old account completion cannot bypass the new install setup');
+    await session.finishOnboarding();
+    expect(session.hasCompletedOnboarding, isTrue);
+    expect(presentation.requiresSetup, isFalse);
+    await session.load();
+    expect(session.hasSeenWelcomeManifesto, isTrue);
+    expect(session.hasCompletedOnboarding, isTrue);
+    expect(session.status, SessionStatus.authenticated);
   });
 
   group('convergence is the property, from every starting point', () {

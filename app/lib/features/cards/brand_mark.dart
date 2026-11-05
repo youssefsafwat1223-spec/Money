@@ -17,6 +17,7 @@ import '../settings/settings_providers.dart';
 /// placeholder are always available offline regardless.
 final remoteMerchantLogosAllowedProvider = Provider<bool>((ref) {
   return ref.watch(userSettingsProvider).maybeWhen(
+        skipLoadingOnReload: true,
         data: (settings) => settings.cloudProcessingEnabled,
         orElse: () => false,
       );

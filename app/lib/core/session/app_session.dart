@@ -1,3 +1,4 @@
+import '../startup/install_presentation_store.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:math';
@@ -495,6 +496,20 @@ class AppSession extends ValueNotifier<SessionStatus> {
   String? authMethod;
   String? email;
   bool _onboardingDone = false;
+  InstallPresentationStore? _installPresentation;
+  void configureInstallPresentation(InstallPresentationStore? store) {
+    _installPresentation = store;
+  }
+
+  /// Called only before bootstrap on a positively identified new installation.
+  /// These are onboarding UI flags, never auth, owner, consent or key material.
+  Future<void> resetInstallPresentation() async {
+    for (final key in [_kDone, _kWelcomeManifestoSeen, _kCoachMarksSeen,
+      _kCurrentAccount, _kCompletedAccounts, 'app_theme_mode']) {
+      await _storage.delete(key: key);
+    }
+  }
+
   bool _welcomeManifestoSeen = false;
   Set<String> _coachMarksSeen = <String>{};
   String? _currentAccountKey;
@@ -2821,7 +2836,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
     }
 
     try {
-      final legacyOnboardingDone = await read(_kDone) == '1';
+      final legacyOnboardingDone = await read(_kDone) == '1' &&
+          !(_installPresentation?.requiresSetup ?? false);
       final welcomeSeen = await read(_kWelcomeManifestoSeen);
       final coachMarks = await read(_kCoachMarksSeen);
       final method = await read(_kMethod);
@@ -2887,7 +2903,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
       email = storedEmail;
       _completedAccountKeys..clear()..addAll(completed);
       _currentAccountKey = accountKey;
-      _onboardingDone = accountKey != null && completed.contains(accountKey);
+      _onboardingDone = !(_installPresentation?.requiresSetup ?? false) &&
+          accountKey != null && completed.contains(accountKey);
       value = fenceAllows && _onboardingDone && method != null
           ? SessionStatus.authenticated : SessionStatus.needsOnboarding;
     } on StaleAdmissionException {
@@ -3208,8 +3225,9 @@ class AppSession extends ValueNotifier<SessionStatus> {
       userId: userId,
     );
     final fallbackKey = _identityKey(method, email);
-    final completed = _completedAccountKeys.contains(accountKey) ||
-        (fallbackKey != null && _completedAccountKeys.contains(fallbackKey));
+    final completed = !(_installPresentation?.requiresSetup ?? false) &&
+        (_completedAccountKeys.contains(accountKey) ||
+        (fallbackKey != null && _completedAccountKeys.contains(fallbackKey)));
     await _storage.write(key: _kCurrentAccount, value: accountKey);
     check();
     if (completed && !_completedAccountKeys.contains(accountKey)) {
@@ -3304,6 +3322,8 @@ class AppSession extends ValueNotifier<SessionStatus> {
       if (!live()) return false;
       // The onboarding consent steps just asked on this device.
       await _markConsentPromptSeen(epoch, uid);
+      if (!live()) return false;
+      await _installPresentation?.completeSetup();
       if (!live()) return false;
       _onboardingDone = true;
       value = authMethod == null
@@ -4747,11 +4767,13 @@ class AppSession extends ValueNotifier<SessionStatus> {
     final sameIdentity = remoteEmail != null &&
         previousEmail != null &&
         remoteEmail.trim().toLowerCase() == previousEmail.trim().toLowerCase();
-    var completed = _completedAccountKeys.contains(accountKey) ||
+    final localSetupRequired = _installPresentation?.requiresSetup ?? false;
+    var completed = !localSetupRequired &&
+        (_completedAccountKeys.contains(accountKey) ||
         (sameIdentity &&
             fallbackKey != null &&
-            _completedAccountKeys.contains(fallbackKey));
-    if (!completed && asr == null) {
+            _completedAccountKeys.contains(fallbackKey)));
+    if (!completed && !localSetupRequired && asr == null) {
       // Network: read BEFORE the admission operation below, which a Remove data
       // drains and which must never wait on the network.
       completed = await _readRemoteOnboardingCompletion(

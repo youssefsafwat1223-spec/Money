@@ -6903,4 +6903,11 @@ class AppL10nEn extends AppL10n {
 
   @override
   String get rptPreviousPeriod => 'Previous period';
+
+  @override
+  String get cloudResumeTitle => 'Resume Cloud Sync';
+
+  @override
+  String get cloudResumeBody =>
+      'Cloud Sync and Smart Analysis are paused after sign-out. Turn them on again to resume.';
 }

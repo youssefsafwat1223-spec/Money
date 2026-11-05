@@ -1127,9 +1127,30 @@ class PlanningOutboxQueue {
     if (entityType == settingsEntityType) {
       if (!settingsPullCompleted) return false;
       final row = await _db.customSelect("SELECT * FROM user_settings WHERE id = ${sqlString(entityId)} "
-          "AND server_id IS NULL AND COALESCE(sync_status, '') != 'pending' AND NOT EXISTS "
-          "(SELECT 1 FROM planning_sync_outbox WHERE entity_type = 'settings') LIMIT 1;").getSingleOrNull();
+          "AND server_id IS NULL AND COALESCE(sync_status, '') != 'pending' LIMIT 1;").getSingleOrNull();
       if (row == null) return false;
+      final held = await _db.customSelect(
+          "SELECT entity_id, owner_uid, operation, status, failure_class, "
+          "in_flight_seq, payload_json FROM planning_sync_outbox "
+          "WHERE entity_type = 'settings';").get();
+      // A pre-bind automatic edit waits for this very registration. Once the
+      // pull positively confirms absence, promote that unsent, same-owner edit
+      // to CREATE through the normal coalescer. Rebuild from the current row;
+      // never release consent-only, in-flight, ambiguous or other-owner work.
+      if (held.isNotEmpty) {
+        if (held.length != 1) return false;
+        final edit = held.single;
+        if (edit.read<String>('entity_id') != entityId ||
+            edit.readNullable<String>('owner_uid') != authority.ownerUid(handle) ||
+            edit.read<String>('operation') != 'update' ||
+            edit.read<String>('status') != 'parked' ||
+            edit.readNullable<String>('failure_class') != kParkDependencyWait ||
+            edit.readNullable<int>('in_flight_seq') != null) {
+          return false;
+        }
+        final payload = jsonDecode(edit.read<String>('payload_json')) as Map;
+        if (payload['consent_only'] == true) return false;
+      }
       return _enqueueFixedIntent(authority.ownerUid(handle), entityType: settingsEntityType,
           entityId: entityId, op: PlanningSyncOperation.create, table: 'user_settings',
           payload: _buildSettingsPayload(userSettingsFromRow(row)), notify: false);

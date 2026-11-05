@@ -7,6 +7,7 @@ import 'report_surface.dart';
 //
 // Floating pill (bottom-left): language AR/EN and data state.
 // Switch the Simulator's appearance for dark mode.
+import 'package:money_companion/features/consent/cloud_resume_banner.dart';
 import 'package:money_companion/features/onboarding/story_screen.dart';
 import 'extra_surfaces.dart';
 import 'extended_surfaces.dart';
@@ -326,6 +327,7 @@ Future<void> _seed(ProviderContainer c, AppDatabase db) async {
 }
 
 final _previewTheme = StateProvider<ThemeMode>((ref) => ThemeMode.light);
+final _previewCloudResume = StateProvider<bool>((ref) => false);
 // Opt-in QA only: public sheets may be inspected without the debug UIKit tab overlay.
 final _previewHideNativeFooter = StateProvider<bool>((ref) => false);
 WidgetRef? _bridgeRef;
@@ -392,6 +394,9 @@ Future<void> _loadFixture(String mode, {String? outcomeTarget}) async {
         mode: outcomeTarget == null ? mode : 'data'),
     ...readStateOverrides,
     appDatabaseProvider.overrideWithValue(_database),
+    // Presentation-only state of this disposable fixture, never the phone app.
+    cloudResumeReminderProvider.overrideWith((ref) async =>
+        ref.watch(_previewCloudResume) ? 'synthetic-cloud-resume' : null),
     localeProvider.overrideWith((ref) => ref.watch(_previewLocale)),
     for (final p in AdPlacement.values)
       bannerEligibilityProvider(p).overrideWith((ref) async => false),
@@ -602,6 +607,9 @@ Future<void> _servePreview() async {
               outcomeTarget: body['outcomeTarget'] as String?);
         }
         if (body['clearErrors'] == true) _errors.clear();
+        if (body['cloudResumeBanner'] case final bool visible) {
+          _container.read(_previewCloudResume.notifier).state = visible;
+        }
         if (body['hideNativeFooter'] case final bool hidden) {
           _container.read(_previewHideNativeFooter.notifier).state = hidden;
         }

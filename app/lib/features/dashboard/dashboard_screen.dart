@@ -37,6 +37,7 @@ import '../ads/ad_placement.dart';
 import '../ads/qirsh_ad_banner.dart';
 import '../app/app_shell.dart';
 import '../cards/brand_mark.dart';
+import '../consent/cloud_resume_banner.dart';
 import '../coupons/coupon_widgets.dart';
 import '../coupons/coupons_providers.dart';
 import '../goals/goals_providers.dart';
@@ -296,6 +297,7 @@ class _HomeBody extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              const CloudResumeBanner(),
               if (firstRun) ...[
                 _WelcomeBody(data: data),
                 // Anything the user created before their first transaction
@@ -656,7 +658,6 @@ class _BlueZone extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final topPad = MediaQuery.paddingOf(context).top;
-    final meltBg = _sheetBg(context);
     // Light status-bar icons only while the blue sits under the status bar;
     // once it scrolls away the region no longer covers it and the theme's
     // default comes back.
@@ -688,39 +689,40 @@ class _BlueZone extends ConsumerWidget {
                   ? 0.6
                   : ((box.maxHeight - _heroMeltOverflow) / box.maxHeight)
                       .clamp(0.4, 0.9);
-              return Container(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topRight,
-                    end: Alignment.bottomLeft,
-                    stops: const [0.0, 0.55, 1.0],
-                    colors: AppBrandBlue.headerStops(isDark),
-                  ),
-                ),
-                foregroundDecoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    stops: [0.0, heroShare, 1.0],
-                    colors: [
-                      meltBg.withValues(alpha: 0),
-                      meltBg.withValues(alpha: 0),
-                      meltBg,
-                    ],
-                  ),
-                ),
-                child: DecoratedBox(
+              // Fade the whole backdrop to transparency so the page's grain
+              // shows through gradually. An opaque canvas-colour overlay hid
+              // that texture until this box ended, leaving a horizontal seam.
+              return ShaderMask(
+                blendMode: BlendMode.dstIn,
+                shaderCallback: (bounds) => LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  stops: [0.0, heroShare, 1.0],
+                  colors: const [Colors.white, Colors.white, Colors.transparent],
+                ).createShader(bounds),
+                child: Container(
+                  key: const ValueKey('home-blue-backdrop'),
                   decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      center: const Alignment(0.95, -1.1),
-                      radius: 1.35,
-                      colors: [
-                        Colors.white.withValues(alpha: isDark ? 0.09 : 0.16),
-                        Colors.white.withValues(alpha: 0),
-                        const Color(0xFF06122E)
-                            .withValues(alpha: isDark ? 0.30 : 0.12),
-                      ],
+                    gradient: LinearGradient(
+                      begin: Alignment.topRight,
+                      end: Alignment.bottomLeft,
                       stops: const [0.0, 0.55, 1.0],
+                      colors: AppBrandBlue.headerStops(isDark),
+                    ),
+                  ),
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: RadialGradient(
+                        center: const Alignment(0.95, -1.1),
+                        radius: 1.35,
+                        colors: [
+                          Colors.white.withValues(alpha: isDark ? 0.09 : 0.16),
+                          Colors.white.withValues(alpha: 0),
+                          const Color(0xFF06122E)
+                              .withValues(alpha: isDark ? 0.30 : 0.12),
+                        ],
+                        stops: const [0.0, 0.55, 1.0],
+                      ),
                     ),
                   ),
                 ),
@@ -1376,17 +1378,10 @@ class _PeriodSegments extends StatelessWidget {
   }
 }
 
-/// خلفية المحتوى تحت الهيرو — نفس القيمة اللي الهيرو بيدوب فيها، عشان
-/// الميلت يبقى بلا أي لحام. (داكن = كانفاس التطبيق الأسود الحقيقي.)
 /// كام بكسل الأزرق يكمّل تحت نهاية محتوى الهيرو — نفس منطق
 /// `CalmPageHeader._meltOverflow`: اللون يوصل تحت أول الكروت والذوبان يحصل
 /// خلفها مش في فراغ.
 const double _heroMeltOverflow = 220;
-
-Color _sheetBg(BuildContext context) =>
-    Theme.of(context).brightness == Brightness.dark
-        ? context.colors.bg
-        : const Color(0xFFF5F7FB);
 
 class _Sheet extends StatelessWidget {
   const _Sheet({required this.child});

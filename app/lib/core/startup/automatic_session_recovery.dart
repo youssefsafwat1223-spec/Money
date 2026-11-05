@@ -125,9 +125,10 @@ abstract class AsrCapturePort {
   /// E2 Dart: both Dart layers present, agreeing, ON for [owner].
   Future<bool> dartEgressOn(String owner);
 
-  /// Session-only E2 Dart: both Dart layers hold the same OFF record for
-  /// [owner], the secure one read status-preserving (absence, ON, DISABLING,
-  /// disagreement or anything unreadable denies).
+  /// Session-only E2 Dart: both layers agree on OFF or both confirm absence
+  /// for an owner who never enabled Cloud. The secure read preserves status;
+  /// partial absence, ON, DISABLING, disagreement and unreadability deny.
+  /// Native must independently verify OFF before any token exchange.
   Future<bool> dartEgressOff(String owner);
 
   /// E4: saved consent accepted (local-read scope database, SELECT).
@@ -918,7 +919,7 @@ class RegistrationAsrCapture implements AsrCapturePort {
 
   @override
   Future<bool> dartEgressOff(String owner) =>
-      gate.dartLayersVerifiedOff(owner, allowAbsent: false);
+      gate.dartLayersVerifiedOff(owner, allowAbsent: true);
 
   @override
   Future<bool> consentAccepted(String owner) async {

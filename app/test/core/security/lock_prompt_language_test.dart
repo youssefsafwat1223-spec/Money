@@ -38,12 +38,15 @@ void main() {
     // The mirror is only as good as its coverage. A new writer that forgets it
     // leaves the unlock prompt one launch — or permanently — behind the app.
     //
-    // The three below each mirror in the same await chain as their write, so
+    // Database writers mirror in the same await chain as their write, so
     // the mirror is already correct when the write returns. That is the
     // property the previous, provider-driven cache did not have: it passed once
     // and failed the next run, because "when a provider runs" is not orderable
     // against the process ending.
     const writers = <String, String>{
+      'lib/main.dart':
+          'a confirmed fresh installation resets the surviving Keychain mirror '
+              'before bootstrap seeds the new settings. Updates skip the reset.',
       'lib/domain/usecases/user_settings_usecases.dart':
           'SaveLanguageUseCase — Settings → Language, the only path a user can '
               'take',

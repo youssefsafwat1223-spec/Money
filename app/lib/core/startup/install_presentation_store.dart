@@ -1,0 +1,58 @@
+import 'dart:convert';
+import 'dart:io';
+
+/// Presentation state belongs to the app container, which iOS removes on
+/// uninstall. Keychain credentials, privacy barriers and database keys keep
+/// their independent security lifetimes.
+class InstallPresentationStore {
+  InstallPresentationStore(this.file);
+  final File file;
+  bool requiresSetup = false;
+
+  Future<void> prepare({
+    required Future<bool?> Function() hasExistingData,
+    required Future<void> Function() resetPresentation,
+  }) async {
+    var resetPending = false;
+    if (await file.exists()) {
+      final state = jsonDecode(await file.readAsString());
+      if (state is! Map || state['version'] != 1 ||
+          state['requiresSetup'] is! bool || state['resetPending'] is! bool) {
+        throw StateError('install_presentation_unreadable');
+      }
+      requiresSetup = state['requiresSetup'] as bool;
+      resetPending = state['resetPending'] as bool;
+    } else {
+      final existing = await hasExistingData();
+      if (existing == null) throw StateError('install_presentation_unknown');
+      requiresSetup = !existing;
+      resetPending = !existing;
+      await _write(resetPending: resetPending);
+    }
+    if (resetPending) {
+      // A crash/locked Keychain here retries only this presentation reset.
+      await resetPresentation();
+      await _write(resetPending: false);
+    }
+  }
+
+  Future<void> completeSetup() async {
+    await _write(resetPending: false, setupRequired: false);
+    requiresSetup = false;
+  }
+
+  Future<void> _write({required bool resetPending, bool? setupRequired}) async {
+    await file.parent.create(recursive: true);
+    final contents = jsonEncode({
+      'version': 1,
+      'requiresSetup': setupRequired ?? requiresSetup,
+      'resetPending': resetPending,
+    });
+    final pending = File('${file.path}.tmp');
+    await pending.writeAsString(contents, flush: true);
+    await pending.rename(file.path);
+    if (await file.readAsString() != contents) {
+      throw StateError('install_presentation_not_persisted');
+    }
+  }
+}

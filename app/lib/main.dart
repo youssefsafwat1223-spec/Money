@@ -1,3 +1,7 @@
+import 'dart:io' show File;
+import 'package:path_provider/path_provider.dart';
+import 'core/startup/install_presentation_store.dart';
+import 'core/security/lock_prompt_language.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -10,6 +14,7 @@ import 'core/di/local_read_providers.dart';
 import 'core/observability/diagnostics.dart';
 import 'core/observability/sentry_lifecycle.dart';
 import 'core/session/account_scope.dart';
+import 'core/session/app_session.dart';
 import 'core/startup/bootstrap_runner.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/font_licenses.dart';
@@ -78,6 +83,7 @@ class _StartupAppState extends State<StartupApp> {
   AccountScopeHost? _accountScope;
   Object? _error;
   bool _bootstrapping = false;
+  InstallPresentationStore? _installPresentation;
 
   /// ASR §6.7: while auth is deferred (protected data locked) the loading
   /// screen stays up and bootstrap re-runs when protected data becomes
@@ -145,6 +151,20 @@ class _StartupAppState extends State<StartupApp> {
   Future<void> _runBootstrap() async {
     _bootstrapping = true;
     try {
+      if (widget.runner == null && _installPresentation == null) {
+        final support = await getApplicationSupportDirectory();
+        final presentation = InstallPresentationStore(
+            File('${support.path}/qirsh_install_presentation_v1.json'));
+        await presentation.prepare(
+          hasExistingData: () => BootstrapRunner.localInstallDataPresent(support.path),
+          resetPresentation: () async {
+            await AppSession.instance.resetInstallPresentation();
+            await LockPromptLanguage.set('en');
+          },
+        );
+        AppSession.instance.configureInstallPresentation(presentation);
+        _installPresentation = presentation;
+      }
       await _runner.run();
       if (!mounted) return;
       final host = _runner.accountScope;

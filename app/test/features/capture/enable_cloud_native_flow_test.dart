@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/services.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:money_companion/core/privacy/cloud_resume_reminder.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/privacy/cloud_egress_gate.dart';
 import 'package:money_companion/core/privacy/consent_authority.dart';
@@ -151,6 +153,7 @@ void main() {
           .records;
 
   setUp(() async {
+    SharedPreferences.setMockInitialValues({});
     previousGate = CloudEgressGate.instance;
     rig = EgressRig();
     CloudEgressGate.instance = rig.gate;
@@ -183,6 +186,80 @@ void main() {
     messenger.setMockMethodCallHandler(channel, null);
     ConsentAuthority.egressFrozen = false;
     CloudEgressGate.instance = previousGate;
+  });
+
+  group('same-owner return after a native lifetime ends', () {
+    for (final readmission in [false, true]) {
+      for (final pendingBarrier in [false, true]) {
+        test('${readmission ? "readmission" : "startup"}: old ON lifetime with accepted settings '
+            '${pendingBarrier ? "and a pending operation stays denied" : "settles to OFF without inheriting ON"}', () async {
+          final settings = await freshSettings();
+          await settings.saveSettings((await settings.getSettings()).copyWith(
+            cloudConsentState: ConsentState.accepted,
+            aiConsentState: ConsentState.accepted,
+          ));
+          rig.secure.value = rigEnvelope(rigRecord(EgressState.on, 20, 3));
+          rig.file.value = rigEnvelope(rigRecord(EgressState.on, 20, 3));
+          sim.egressState = 'ON';
+          sim.egressGeneration = 20;
+          sim.egressVersion = 3;
+          sim.egressOwnerGeneration = sim.ownerGeneration;
+          sim.egressOwnerEpoch = sim.ownerEpoch;
+          sim.ownerEpoch++; // sign-out clears the native owner lifetime
+          messenger.setMockMethodCallHandler(channel, (call) async {
+            if (call.method == 'getCloudEgressState' && sim.egressState == 'ON') {
+              return {'status': 'uncertain', 'reason': 'lifetime_fields_unbound'};
+            }
+            final response = await sim.handle(call);
+            if (pendingBarrier && call.method == 'getCloudEgressPending') {
+              return {
+                ...(response as Map), 'status': 'uncertain',
+                'barrier': [for (final layer in ['file', 'keychain'])
+                  {'layer': layer, 'outcome': 'unreadable'}],
+              };
+            }
+            return response;
+          });
+          final gate = CloudEgressGate(
+            store: CloudEgressStore(secure: rig.secure, file: rig.file,
+              native: NativeEgressSlot.platformDefault(),
+              pendingSecure: rig.pendingSecure, pendingFile: rig.pendingFile),
+            activeOwner: () async => kRigOwner, resolved: true,
+            nativeInflight: (_) async => (count: 0, latestDeadline: null),
+          );
+          final svc = service(settings, gate: gate);
+          addTearDown(svc.dispose);
+          ConsentAuthority.freeze('reconcile_uncertain:native:lifetime_fields_unbound');
+          if (readmission) {
+            await svc.reconcileAfterAdmission(
+              authority: f.session.captureLocalWorkAuthority()!,
+              isCurrentScope: () => true,
+            );
+          } else {
+            await svc.resolvePendingDisable();
+          }
+          expect(await gate.permits(owner: kRigOwner), isFalse);
+          expect(net.calls, 0);
+          if (pendingBarrier) {
+            expect(sim.egressState, 'ON');
+            expect((await settings.getSettings()).cloudProcessingEnabled, isTrue);
+            expect(ConsentAuthority.egressFrozen, isTrue);
+          } else {
+            expect(sim.egressState, 'OFF');
+            expect((await settings.getSettings()).cloudProcessingEnabled, isFalse);
+            expect((await settings.getSettings()).aiConsentGranted, isFalse);
+            expect(await CloudResumeReminder().shouldShow(
+                kRigOwner, await settings.getSettings()), isTrue);
+            expect(await CloudResumeReminder().shouldShow(
+                'another-user', await settings.getSettings()), isFalse);
+            expect(ConsentAuthority.egressFrozen, isFalse);
+            final layers = await gate.store.readOwnerLayers(kRigOwner);
+            expect(layers.uncertain, isFalse);
+            expect(layers.records.every((r) => r.state == EgressState.off), isTrue);
+          }
+        });
+      }
+    }
   });
 
   group('successful enable', () {

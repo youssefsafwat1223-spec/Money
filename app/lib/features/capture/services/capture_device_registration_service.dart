@@ -9,6 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/backend/supabase_config.dart';
 import '../../../core/privacy/cloud_egress_gate.dart';
+import '../../../core/privacy/cloud_resume_reminder.dart';
 import '../../../core/privacy/consent_authority.dart';
 import '../../../core/session/admission_authority.dart';
 import '../../../core/session/app_session.dart';
@@ -3038,13 +3039,13 @@ class CaptureDeviceRegistrationService {
         owner.isNotEmpty &&
         _readSession()?.uid == owner) {
       // The same UID can return under a new native lifetime after sign-out.
-      // Only recover to OFF, with no active enable barrier and a local OFF
-      // choice. Never transfer an old lifetime's ON to the new one.
+      // Only recover to OFF with no active enable barrier. Sign-out keeps the
+      // same owner's replica, including its old accepted choice; that choice
+      // cannot authorize the new native lifetime. Restrict it before repairing
+      // the stores, never transfer the retired lifetime's ON to the new one.
       bool ownsRecovery() => current!() && _readSession()?.uid == owner;
       try {
-        if (await _storedCloudOff(ownsRecovery) &&
-            !await _gate.pendingBlocks(owner: owner) &&
-            ownsRecovery()) {
+        if (!await _gate.pendingBlocks(owner: owner) && ownsRecovery()) {
           final inspected =
               await NativeCaptureBridge.getCloudEgressPending(ownerUid: owner);
           if (ownsRecovery() &&
@@ -3053,6 +3054,18 @@ class CaptureDeviceRegistrationService {
               inspected!.barrier.length == 2 &&
               inspected.barrier.every(
                   (layer) => layer.outcome == CloudEgressLayerOutcome.absent)) {
+            final settings = await _settingsRepository.getSettings();
+            if (!ownsRecovery()) return _Gate.blocked;
+            if (settings.cloudProcessingEnabled || settings.aiConsentGranted) {
+              final saved = await _settingsRepository.saveSettings(settings.copyWith(
+                cloudConsentState: ConsentState.declined,
+                aiConsentState: ConsentState.declined,
+              ));
+              if (!ownsRecovery()) return _Gate.blocked;
+              if (settings.cloudProcessingEnabled) {
+                await _rememberCloudResume(owner, saved, ownsRecovery);
+              }
+            }
             await _repairStaleEgressOff(owner, 0, ownsRecovery);
             if (ownsRecovery()) view = await _gate.view(owner: owner);
           }
@@ -3091,11 +3104,12 @@ class CaptureDeviceRegistrationService {
         // has no record sees Cloud as OFF until they re-enable it: the persisted
         // value is aligned DOWN (never up), exactly like the OFF-record case.
         if (on) {
-          await _settingsRepository.saveSettings(settings.copyWith(
+          final saved = await _settingsRepository.saveSettings(settings.copyWith(
             cloudConsentState: ConsentState.declined,
             aiConsentState:
                 _isAndroid() ? ConsentState.declined : settings.aiConsentState,
           ));
+          await _rememberCloudResume(owner, saved, current);
         }
         return _Gate.off;
       }
@@ -3117,11 +3131,12 @@ class CaptureDeviceRegistrationService {
       if (rec.state == EgressState.off && on) {
         // The persistent OFF gate wins over a settings value that widened
         // without an explicit enable.
-        await _settingsRepository.saveSettings(settings.copyWith(
+        final saved = await _settingsRepository.saveSettings(settings.copyWith(
           cloudConsentState: ConsentState.declined,
           aiConsentState:
               _isAndroid() ? ConsentState.declined : settings.aiConsentState,
         ));
+        await _rememberCloudResume(owner, saved, current);
       }
     } catch (e) {
       if (!current()) return _Gate.blocked;
@@ -3130,6 +3145,16 @@ class CaptureDeviceRegistrationService {
     }
     if (!current()) return _Gate.blocked;
     return rec.state == EgressState.off ? _Gate.off : _Gate.open;
+  }
+
+  Future<void> _rememberCloudResume(String owner, UserSettingsEntity saved,
+      bool Function() current) async {
+    if (!current() || owner.isEmpty || _readSession()?.uid != owner) return;
+    try {
+      await CloudResumeReminder().rememberPaused(owner, saved);
+    } catch (_) {
+      // Presentation failure must never change or block privacy reconciliation.
+    }
   }
 
   /// Completes a DISABLING record a dead process left behind. This IS a path

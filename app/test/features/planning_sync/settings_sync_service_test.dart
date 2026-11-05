@@ -826,6 +826,121 @@ void main() {
   });
 
   test(
+      'a pre-bind settings edit cannot block registration after remote absence '
+      'is confirmed', () async {
+    final before = await settings.getSettings();
+    await settings.saveSettings(before.copyWith(
+      language: 'ar', currency: 'EGP', country: 'EG', displayName: 'New User',
+    ));
+    final held = await db.customSelect(
+      "SELECT id, status, failure_class FROM planning_sync_outbox "
+      "WHERE entity_type = 'settings';",
+    ).getSingle();
+    expect(held.read<String>('status'), 'parked');
+    expect(held.read<String>('failure_class'), 'dependency_wait');
+
+    await engineTail(remote);
+
+    final serverRow = remote.rows['user_settings']?['user_settings'];
+    expect(serverRow, isNotNull,
+        reason: 'the held edit must become the initial CREATE once the pull '
+            'confirms there is no remote settings row');
+    expect(serverRow!['language'], 'ar');
+    expect(serverRow['currency'], 'EGP');
+    expect(serverRow['display_name'], 'New User');
+    expect(await _col(db, 'server_id'), 'server-user_settings');
+    final remaining = await db.customSelect(
+      "SELECT COUNT(*) AS n FROM planning_sync_outbox "
+      "WHERE entity_type = 'settings';",
+    ).getSingle();
+    expect(remaining.read<int>('n'), 0);
+  });
+
+  for (final blocker in [
+    'other owner', 'missing owner', 'in flight', 'consent only', 'different hold',
+    'ambiguous rows',
+  ]) {
+    test('registration cannot promote a settings edit with $blocker', () async {
+      final before = await settings.getSettings();
+      await settings.saveSettings(before.copyWith(currency: 'EGP'));
+      switch (blocker) {
+        case 'other owner':
+          await db.customStatement(
+              "UPDATE planning_sync_outbox SET owner_uid = 'other-user';");
+        case 'missing owner':
+          await db.customStatement(
+              'UPDATE planning_sync_outbox SET owner_uid = NULL;');
+        case 'in flight':
+          await db.customStatement(
+              'UPDATE planning_sync_outbox SET in_flight_seq = op_seq;');
+        case 'consent only':
+          final held = await db.customSelect(
+              'SELECT payload_json FROM planning_sync_outbox;').getSingle();
+          final payload = jsonDecode(held.read<String>('payload_json')) as Map;
+          payload['consent_only'] = true;
+          await db.customStatement(
+              'UPDATE planning_sync_outbox SET payload_json = ?;',
+              [jsonEncode(payload)]);
+        case 'different hold':
+          await db.customStatement(
+              "UPDATE planning_sync_outbox SET failure_class = 'auth_required';");
+        case 'ambiguous rows':
+          final held = await db.customSelect(
+              'SELECT * FROM planning_sync_outbox;').getSingle();
+          await db.customStatement(
+              'INSERT INTO planning_sync_outbox(id, entity_type, entity_id, '
+              'operation, payload_json, attempt_count, status, failure_class, '
+              'created_at, updated_at, op_seq, owner_uid, operation_id) '
+              "VALUES ('second-held', 'settings', ?, 'update', ?, 0, 'parked', "
+              "'dependency_wait', ?, ?, 1, 'user-1', ?);", [
+                held.read<String>('entity_id'), held.read<String>('payload_json'),
+                held.read<String>('created_at'), held.read<String>('updated_at'),
+                '00000000-0000-4000-8000-000000000001',
+              ]);
+      }
+      final beforeRows = (await db.customSelect(
+          'SELECT * FROM planning_sync_outbox ORDER BY id;').get())
+          .map((r) => r.data).toList();
+      await PlanningStartupRegistrationService(
+        db: db, queue: queue, isEnabled: (_) => true,
+      ).registerMissingRows(settingsPullCompleted: true);
+      final afterRows = (await db.customSelect(
+          'SELECT * FROM planning_sync_outbox ORDER BY id;').get())
+          .map((r) => r.data).toList();
+      expect(afterRows, beforeRows,
+          reason: 'registration cannot release or rewrite unrelated work');
+      expect(await _col(db, 'server_id'), isNull);
+    });
+  }
+
+  test(
+      'a pre-bind settings edit stays held when the settings pull fails and '
+      'restores the existing remote preferences on retry', () async {
+    remote.rows['user_settings'] = {
+      'user_settings': _remoteSettingsRow(theme: 'remote-light'),
+    };
+    remote.failFetchTable = 'user_settings';
+    final before = await settings.getSettings();
+    await settings.saveSettings(before.copyWith(currency: 'EGP', country: 'EG'));
+
+    await engineTail(remote);
+
+    expect(await _col(db, 'server_id'), isNull);
+    expect(remote.rows['user_settings']!['user_settings']!['currency'], 'USD');
+    final held = await db.customSelect(
+      "SELECT status FROM planning_sync_outbox WHERE entity_type = 'settings';",
+    ).getSingle();
+    expect(held.read<String>('status'), 'parked');
+
+    remote.failFetchTable = null;
+    await engineTail(remote);
+
+    expect(await _col(db, 'server_id'), 'server-user_settings');
+    expect(await _col(db, 'currency'), 'USD');
+    expect(remote.rows['user_settings']!['user_settings']!['currency'], 'USD');
+  });
+
+  test(
       'NEW-H-4: an explicit consent OFF still propagates narrowly while the '
       'settings pull keeps failing', () async {
     remote.rows['user_settings'] = {

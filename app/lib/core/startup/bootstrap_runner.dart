@@ -1666,7 +1666,6 @@ class BootstrapRunner {
 
   /// §6.5: whether this install already holds local app data (a replica or
   /// the pre-WP-3a database). Null when it cannot be told (→ deferred).
-  @visibleForTesting
   static Future<bool?> localInstallDataPresent(String support) async {
     try {
       if (await File(p.join(support, ReplicaLocation.legacyDbFileName))

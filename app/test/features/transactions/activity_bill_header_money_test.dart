@@ -6,7 +6,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:money_companion/core/di/app_providers.dart';
 import 'package:money_companion/core/theme/app_theme.dart';
-import 'package:money_companion/core/theme/widgets/calm_page_header.dart';
 import 'package:money_companion/core/theme/widgets/mali_card.dart';
 import 'package:money_companion/core/utils/currency.dart';
 import 'package:money_companion/data/db/app_database.dart';
@@ -123,12 +122,8 @@ void main() {
           final view = container.read(billsViewProvider).requireValue;
           expect(view.bills.map((bill) => bill.id), isNot(contains('qa-header-foreign')));
           expect(subscriptionMonthlyTotalMoney(view.bills, 'KWD'), Money(minor, 'KWD'));
-          final header = find.byType(CalmPageHeader);
-          _fullNumber(tester, find.descendant(of: header,
-              matching: find.text(formatMoney(Money(minor, 'KWD')))), formatMoney(Money(minor, 'KWD')));
-          final annual = formatMoney(Money(minor, 'KWD') * 12);
-          _fullNumber(tester, find.descendant(of: header,
-              matching: find.text('$annual $currency')), annual);
+          expect(find.text(l10n.txnActiveMonthlySpend), findsNothing,
+              reason: 'the duplicate aggregate no longer delays the bills list');
           for (final installment in [false, true]) {
             if (installment) {
               final tab = find.text(l10n.txnBillsInstalments);

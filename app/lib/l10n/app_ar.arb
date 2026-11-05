@@ -3769,5 +3769,7 @@
   "couponsAvailableLabel": "العروض المتاحة",
   "setCategoryIconName": "{icon, select, restaurants{مطاعم} groceries{بقالة} shopping{تسوق} transport{مواصلات} bills{فواتير} cards{بطاقات} cash{نقود} cafes{مقاهٍ} gifts{هدايا} home{منزل} travel{سفر} health{صحة} education{تعليم} transfers{تحويلات} other{أيقونة أخرى}}",
   "setCategoryColourName": "{colour, select, grey{رمادي} coral{مرجاني} green{أخضر} blue{أزرق} purple{بنفسجي} brightGreen{أخضر زاهٍ} teal{أخضر مزرق} pink{وردي} blueGrey{رمادي مزرق} orange{برتقالي} other{لون مخصص}}",
-  "rptPreviousPeriod": "الفترة السابقة"
+  "rptPreviousPeriod": "الفترة السابقة",
+  "cloudResumeTitle": "شغّل الخدمات السحابية من جديد",
+  "cloudResumeBody": "المزامنة والتحليل الذكي متوقفان بعد تسجيل الخروج. فعّلهما من جديد لاستئناف الخدمة."
 }

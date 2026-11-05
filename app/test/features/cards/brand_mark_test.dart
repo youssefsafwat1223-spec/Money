@@ -1,3 +1,6 @@
+import 'dart:async';
+import 'package:money_companion/domain/entities/supporting_entities.dart';
+import 'package:money_companion/features/settings/settings_providers.dart';
 // MALI-071n — merchant-logo consent boundary.
 //
 // Behavioral: pump BrandMark with cloud-processing consent overridden on/off
@@ -30,6 +33,34 @@ Future<void> pumpMark(
 }
 
 void main() {
+  test('logo permission stays stable during a settings dependency reload and '
+      'still observes a completed revocation', () async {
+    final tick = StateProvider<int>((ref) => 0);
+    const accepted = UserSettingsEntity(id: 's', country: 'EG', currency: 'EGP',
+      language: 'en', theme: 'system', inputMethod: 'manual', notificationsJson: '{}',
+      privacyModeEnabled: false, cloudConsentState: ConsentState.accepted);
+    final pending = Completer<UserSettingsEntity>();
+    final container = ProviderContainer(overrides: [
+      userSettingsProvider.overrideWith((ref) {
+        return ref.watch(tick) == 0 ? Future.value(accepted) : pending.future;
+      }),
+    ]);
+    addTearDown(container.dispose);
+    final subscription = container.listen(remoteMerchantLogosAllowedProvider,
+        (_, __) {}, fireImmediately: true);
+    addTearDown(subscription.close);
+    await container.read(userSettingsProvider.future);
+    expect(container.read(remoteMerchantLogosAllowedProvider), isTrue);
+    container.read(tick.notifier).state++;
+    await Future<void>.delayed(Duration.zero);
+    expect(container.read(userSettingsProvider).isReloading, isTrue);
+    expect(container.read(remoteMerchantLogosAllowedProvider), isTrue,
+        reason: 'routine reload must not replace the displayed logo');
+    pending.complete(accepted.copyWith(cloudConsentState: ConsentState.declined));
+    await container.read(userSettingsProvider.future);
+    expect(container.read(remoteMerchantLogosAllowedProvider), isFalse);
+  });
+
   testWidgets('consent OFF makes ZERO network requests, even with a logoUrl',
       (tester) async {
     // TALABAT has a logo.dev domain AND we pass a catalog logoUrl — both remote.
