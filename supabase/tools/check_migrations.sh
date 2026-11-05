@@ -19,19 +19,28 @@ note() { echo "FAIL: $*" >&2; fail=1; }
 [ -d "$MIG_DIR" ] || { echo "migrations dir not found: $MIG_DIR" >&2; exit 2; }
 echo "Linting migrations in $MIG_DIR"
 
-# 1) Sequential numbering.
+# 1) Legacy sequential numbers, followed by standard Supabase UTC timestamps.
+# Remote apply_migration records its generated timestamp; keep that exact version
+# in source so future pushes never try to replay an already-applied migration.
 nums=$(for f in "$MIG_DIR"/*.sql; do
   basename "$f" | sed -E 's/^0*([0-9]+)_.*/\1/'
 done | sort -n)
 prev=0
+legacy_end=0
+timestamp_count=0
 for n in $nums; do
   if [ "$n" = "$prev" ]; then note "duplicate migration number: $n"; fi
-  if [ "$prev" -ne 0 ] && [ "$n" -ne "$((prev + 1))" ]; then
-    note "gap in migration numbers: $prev -> $n"
+  if [[ "$n" =~ ^20[0-9]{12}$ ]]; then
+    timestamp_count=$((timestamp_count + 1))
+  else
+    if [ "$prev" -ne 0 ] && [ "$n" -ne "$((prev + 1))" ]; then
+      note "gap in migration numbers: $prev -> $n"
+    fi
+    legacy_end=$n
   fi
   prev=$n
 done
-echo "  numbering: 0001..$(printf '%04d' "$prev") ($(echo "$nums" | wc -w | xargs) files)"
+echo "  numbering: 0001..$(printf '%04d' "$legacy_end"), $timestamp_count timestamped ($(echo "$nums" | wc -w | xargs) files)"
 
 # 2) SECURITY DEFINER lockdown.
 sd_funcs=$(for f in "$MIG_DIR"/*.sql; do

@@ -64,7 +64,7 @@ test('migration numbers are unique and strictly increasing', () => {
   // or duplicated number silently changes apply order between environments.
   const numbers = readdirSync(migrationsDir)
     .filter((file) => file.endsWith('.sql'))
-    .map((file) => Number(file.slice(0, 4)))
+    .map((file) => Number(file.split('_', 1)[0]))
     .sort((a, b) => a - b);
 
   assert.equal(

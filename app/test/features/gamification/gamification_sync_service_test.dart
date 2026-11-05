@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:money_companion/data/db/app_database.dart';
 import 'package:money_companion/data/db/database_key_store.dart';
 import 'package:money_companion/data/repositories/drift_gamification_repository.dart';
+import 'package:money_companion/features/app/app_boot_loader.dart';
 import 'package:money_companion/features/gamification/services/gamification_sync_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -100,6 +101,75 @@ void main() {
             .getSingle());
     expect(xp.read<int>('total_xp'), 20);
     expect(xp.read<int>('level'), 2);
+  });
+
+  test('restored server badges unlock locally once and keep the canonical XP',
+      () async {
+    final db = await AppDatabase.open(
+      executor: NativeDatabase.memory(),
+      keyStore: _MemoryKeyStore(),
+    );
+    addTearDown(db.close);
+    final wasRestoring = appDataRestoring.value;
+    appDataRestoring.value = true;
+    addTearDown(() => appDataRestoring.value = wasRestoring);
+    final earned = <String, DateTime>{
+      'first_transaction': DateTime.utc(2026, 1, 1),
+      'tenth_transaction': DateTime.utc(2026, 1, 10),
+    };
+    final requests = <http.Request>[];
+    final client = SupabaseClient(
+      'https://example.supabase.co',
+      'public-anon-key',
+      accessToken: () async => 'qa-access-token',
+      httpClient: MockClient((request) async {
+        requests.add(request);
+        switch (request.url.pathSegments.last) {
+          case 'user_achievements':
+            return _json([
+              for (final entry in earned.entries)
+                {
+                  'user_id': 'qa-user',
+                  'achievement_key': entry.key,
+                  'unlocked_at': entry.value.toIso8601String(),
+                  'deleted_at': null,
+                }
+            ], request);
+          case 'user_xp_levels':
+            return _json([
+              {'user_id': 'qa-user', 'xp': 160, 'level': 2}
+            ], request);
+          case 'user_streaks':
+            return _json(<Object>[], request);
+          default:
+            fail('Unexpected request: ${request.method} ${request.url}');
+        }
+      }),
+    );
+    final repo = DriftGamificationRepository(db);
+    final service = GamificationSyncService(
+      db: db,
+      supabase: client,
+      gamificationRepo: repo,
+      getAuthUserId: () async => 'qa-user',
+      mayEgress: () async => true,
+    );
+    for (var sync = 0; sync < 2; sync++) {
+      await service.performSync();
+      final badges = (await repo.getAchievements())
+          .where((badge) => badge.unlockedAt != null)
+          .toList();
+      expect(badges.map((badge) => badge.key).toSet(), earned.keys.toSet());
+      for (final badge in badges) {
+        expect(badge.progress, 1);
+        expect(badge.unlockedAt!.isAtSameMomentAs(earned[badge.key]!), isTrue);
+      }
+      final xp = await repo.getXpLevel();
+      expect(xp.totalXp, 160);
+      expect(xp.level, 2);
+    }
+    expect(requests.every((request) => request.method == 'GET'), isTrue,
+        reason: 'restoring earned badges must never re-award XP on the server');
   });
 
   test('cloud consent OFF: the server aggregate is never fetched', () async {
