@@ -28,6 +28,31 @@ const tsFiles = walk(join(ROOT, "supabase/functions"), ".ts").filter(
   (f) => !/_test\.ts$|\.test\.ts$/.test(f),
 );
 
+// These getter names are also used by SharedPreferences. Exclude only a
+// directly-created, final local preferences receiver in the same block; unknown
+// receivers and real flag calls still participate in the registry checks.
+function appGetterReads(src, file) {
+  src = stripLineComments(src);
+  const keys = new Set();
+  const dynamicArgs = new Set();
+  for (const m of src.matchAll(/\.\s*(getBool|getInt|getString|getJson)\(\s*([^)]*?)\s*\)/g)) {
+    const before = src.slice(0, m.index);
+    const receiverMatch = /\b([A-Za-z_]\w*)\s*$/.exec(before);
+    const receiver = receiverMatch && !before.slice(0, receiverMatch.index).trimEnd().endsWith(".")
+      ? receiverMatch[1] : null;
+    const block = before.slice(before.lastIndexOf("{") + 1);
+    const localPreferences = receiver && m[1] !== "getJson" && new RegExp(
+      `(?:^|[;\\n])\\s*final\\s+${receiver}\\s*=\\s*await\\s+SharedPreferences\\.getInstance\\(\\s*\\)\\s*;`,
+    ).test(block);
+    if (localPreferences) continue;
+    const arg = m[2];
+    const lit = /^'([a-z0-9_]+)'$/.exec(arg);
+    if (lit) keys.add(lit[1]);
+    else if (arg) dynamicArgs.add(`${file.replace(ROOT, "")}:${arg}`);
+  }
+  return { keys, dynamicArgs };
+}
+
 function deriveAppReads() {
   const keys = new Set();
   const dynamicArgs = new Set();
@@ -45,12 +70,9 @@ function deriveAppReads() {
         keys.add(literal[1]);
       }
     }
-    for (const m of src.matchAll(/\.\s*(getBool|getInt|getString|getJson)\(\s*([^)]*?)\s*\)/g)) {
-      const arg = m[2];
-      const lit = /^'([a-z0-9_]+)'$/.exec(arg);
-      if (lit) keys.add(lit[1]);
-      else if (arg) dynamicArgs.add(`${file.replace(ROOT, "")}:${arg}`);
-    }
+    const reads = appGetterReads(src, file);
+    for (const key of reads.keys) keys.add(key);
+    for (const arg of reads.dynamicArgs) dynamicArgs.add(arg);
   }
   // The only dynamic read is AdPlacement.flagKey => 'enable_banner_<placement key>'.
   const placement = readFileSync(join(ROOT, "app/lib/features/ads/ad_placement.dart"), "utf8");
@@ -75,6 +97,74 @@ function deriveServerReads() {
 
 const appReads = deriveAppReads();
 const serverReads = deriveServerReads();
+
+test("local SharedPreferences reads are not remote feature-flag reads", () => {
+  const reads = appGetterReads(`
+    Future<void> load() async {
+      final prefs = await SharedPreferences.getInstance();
+      final reminder = prefs.getString(_key(uid));
+      final enabled = prefs.getBool('local_reminder_enabled');
+      final count = prefs.getInt('local_reminder_count');
+      return featureFlags.getBool('enable_coupons');
+    }
+  `, "fixture.dart");
+  assert.deepEqual([...reads.keys], ["enable_coupons"]);
+  assert.deepEqual([...reads.dynamicArgs], []);
+});
+
+test("unknown and feature-flag receivers still expose dynamic keys for every getter", () => {
+  for (const method of ["getBool", "getInt", "getString", "getJson"]) {
+    for (const receiver of ["featureFlags", "prefs", "unknownClient"]) {
+      const reads = appGetterReads(`
+        void read() {
+          final ${receiver} = ref.read(featureFlagServiceProvider);
+          return ${receiver}.${method}(dynamicKey);
+        }
+      `, "fixture.dart");
+      assert.deepEqual([...reads.dynamicArgs], ["fixture.dart:dynamicKey"]);
+    }
+  }
+});
+
+test("a preferences binding in another block cannot hide a dynamic flag read", () => {
+  const reads = appGetterReads(`
+    Future<void> local() async {
+      final prefs = await SharedPreferences.getInstance();
+      prefs.getString(_key(uid));
+    }
+    void remote() {
+      final prefs = ref.read(featureFlagServiceProvider);
+      prefs.getString(dynamicKey);
+    }
+  `, "fixture.dart");
+  assert.deepEqual([...reads.dynamicArgs], ["fixture.dart:dynamicKey"]);
+});
+
+test("a same-named object member is not the local preferences receiver", () => {
+  for (const receiver of ["other.prefs", "other. prefs", "this.prefs"]) {
+    const reads = appGetterReads(`
+      Future<void> read() async {
+        final prefs = await SharedPreferences.getInstance();
+        ${receiver}.getString(dynamicKey);
+      }
+    `, "fixture.dart");
+    assert.deepEqual([...reads.dynamicArgs], ["fixture.dart:dynamicKey"]);
+  }
+});
+
+test("preferences exclusion does not cover unsupported methods or commented bindings", () => {
+  const reads = appGetterReads(`
+    Future<void> read() async {
+      final prefs = await SharedPreferences.getInstance();
+      prefs.getJson(dynamicKey);
+    }
+    void remote() {
+      // final flags = await SharedPreferences.getInstance();
+      flags.getBool(otherKey);
+    }
+  `, "fixture.dart");
+  assert.deepEqual([...reads.dynamicArgs], ["fixture.dart:dynamicKey", "fixture.dart:otherKey"]);
+});
 
 test("derivation sanity: the scan finds the known readers", () => {
   for (const k of ["enable_coupons", "enable_proof_autocommit", "proof_parser_confidence_min", "enable_banner_dashboard"]) {
